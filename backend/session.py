@@ -27,18 +27,30 @@ SESSION_COOKIE_NAME = "session"
 # Cookie lifetime per issuance. auth_middleware re-issues the SAME cookie
 # value with a fresh expiry on every authenticated non-guest request, so an
 # active session's cookie never lapses; only an idle one hits this limit,
-# 400 days after its last request. Guest cookies are excluded — they are
-# signed with a process-local secret and cannot be honoured after a restart
-# anyway. Sessions themselves do not expire on a clock — they end when
-# revoked via the `web_sessions` row (see sessions_repo).
+# 400 days after its last request. Guest cookies are excluded — unless
+# GUEST_SESSION_SECRET is set they are signed with a process-local secret
+# and cannot be honoured after a restart anyway. Sessions themselves do
+# not expire on a clock — they end when revoked via the `web_sessions` row
+# (see sessions_repo).
 SESSION_COOKIE_MAX_AGE = 400 * 24 * 3600
 WEB_SESSION_SECRET_KEY = "web_session_secret"
 
 # Sentinel user_id reserved for unauthenticated guest sessions.
-# Tokens with this user_id are signed with a process-local secret
-# regenerated at startup, so guest cookies invalidate on restart.
+# Tokens with this user_id are signed with the GUEST_SESSION_SECRET env
+# value, or with a process-local secret regenerated at startup when it is
+# unset (in which case guest cookies invalidate on restart).
 GUEST_USER_ID = 0
-_GUEST_SECRET = secrets.token_urlsafe(32)
+_GUEST_SECRET_FALLBACK = secrets.token_urlsafe(32)
+
+
+def _guest_secret() -> str:
+    """Guest-token signing secret.
+
+    Set GUEST_SESSION_SECRET to keep guest sessions alive across restarts.
+    Without it a per-process fallback is used and every restart signs out
+    every guest, which is the pre-Phase-1 behaviour.
+    """
+    return os.environ.get("GUEST_SESSION_SECRET", "").strip() or _GUEST_SECRET_FALLBACK
 
 
 def parse_session_token(token: str):
@@ -125,7 +137,7 @@ def write_user_config(user_id: int, config: dict) -> None:
 
 
 def make_guest_session_token() -> str:
-    return make_session_token(GUEST_USER_ID, _GUEST_SECRET)
+    return make_session_token(GUEST_USER_ID, _guest_secret())
 
 
 def resolve_session_user_id(token: str) -> int | None:
@@ -134,7 +146,7 @@ def resolve_session_user_id(token: str) -> int | None:
         return None
     user_id = parsed[0]
     if user_id == GUEST_USER_ID:
-        return verify_session_token(token, _GUEST_SECRET)
+        return verify_session_token(token, _guest_secret())
     # Config and nonce state resolve on ONE shared auth-DB connection —
     # the auth pool is max_size=4, and per-request checkouts must not
     # grow beyond the pre-plan single load_user_config acquisition plus
@@ -252,8 +264,9 @@ async def auth_middleware(request: Request, call_next):
     cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
     # Slide only on the session-validated path: user_id is set exclusively
     # by _session_denied, so /admin/* (token-authed, is_guest never set)
-    # never matches — and neither do guests, whose cookie is signed with a
-    # process-local secret the server cannot honour after a restart.
+    # never matches — and neither do guests, whose cookie (unless
+    # GUEST_SESSION_SECRET is set) is signed with a process-local secret
+    # the server cannot honour after a restart.
     if (
         cookie
         and getattr(request.state, "user_id", None) is not None

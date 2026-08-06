@@ -175,11 +175,13 @@ only when its `web_sessions` row in the auth DB is revoked server-side
 fresh 400-day expiry on every authenticated non-guest request, so an
 active session's cookie never lapses; only an idle one expires, 400 days
 after its last request. Guest cookies are not refreshed — they are
-signed with a per-process secret and invalidate on restart.
+signed with the `GUEST_SESSION_SECRET` env value when it is set
+(surviving restarts), or with a per-process secret when it is not
+(invalidating on restart).
 A **Continue as guest**
 button mints a read-only guest session (no project filter, no
-per-session transcript access; cookie invalidates on every server
-restart).
+per-session transcript access; cookie survives restarts only when
+`GUEST_SESSION_SECRET` is configured).
 
 ## Layout
 

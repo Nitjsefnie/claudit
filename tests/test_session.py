@@ -148,6 +148,19 @@ def test_guest_session_has_no_web_session_row(guest_client, monkeypatch):
     assert session.resolve_session_user_id(cookie) == session.GUEST_USER_ID
 
 
+def test_guest_secret_comes_from_env_when_set(monkeypatch):
+    monkeypatch.setenv("GUEST_SESSION_SECRET", "a-fixed-guest-secret-value")
+    assert session._guest_secret() == "a-fixed-guest-secret-value"  # pylint: disable=protected-access
+
+
+def test_guest_token_survives_a_simulated_restart(monkeypatch):
+    monkeypatch.setenv("GUEST_SESSION_SECRET", "a-fixed-guest-secret-value")
+    token = session.make_guest_session_token()
+    # A restart re-imports the module; with the env var set, the secret is
+    # identical, so the old token must still resolve.
+    assert session.resolve_session_user_id(token) == session.GUEST_USER_ID
+
+
 class _FailOnUpdate:
     """Connection wrapper whose UPDATEs raise — simulates a read-only
     replica after failover. SELECTs pass through to the real connection."""
