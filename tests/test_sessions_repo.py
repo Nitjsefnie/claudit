@@ -130,12 +130,44 @@ class _FakeScheduler:
         pass
 
 
-def test_schema_check_runs_on_app_startup(auth_db, monkeypatch):
-    """The boot guard is dead code unless startup calls it — pin the wiring
-    by driving the real app lifespan with a spy in place of schema_check."""
-    calls = []
-    monkeypatch.setattr(db, "schema_check", lambda: calls.append(1))
+def test_app_refuses_to_start_without_web_sessions(auth_db, monkeypatch):
+    """Without web_sessions the app must fail AT STARTUP, not later.
+
+    A spy on schema_check only proves the call happens somewhere in the
+    lifespan — a guard moved to shutdown would still pass. Entering the
+    TestClient body proves startup completed, so the guard must raise
+    before `entered` flips True."""
+    monkeypatch.setattr(db, "viz_conn", _viz_conn_stub)
     monkeypatch.setattr(app_mod, "BackgroundScheduler", _FakeScheduler)
-    with TestClient(app_mod.app):
-        pass
-    assert calls == [1]
+    # The lifespan writes TestClient's event loop into the module-global
+    # events._main_loop; TestClient closes that loop on exit and nothing
+    # resets the global, so every later run_ingest() dies with
+    # "RuntimeError: Event loop is closed". monkeypatch restores the
+    # pre-test value at teardown, so the closed loop never escapes.
+    monkeypatch.setattr(app_mod.events, "_main_loop", None)
+    monkeypatch.setattr(app_mod.events, "_shutdown_event", None)
+    entered = False
+    try:
+        with db.auth_conn() as c:
+            c.execute(
+                "ALTER TABLE web_sessions RENAME TO web_sessions_hidden"
+            )
+        with pytest.raises(RuntimeError, match="web_sessions"):
+            with TestClient(app_mod.app):
+                entered = True
+        assert entered is False, (
+            "startup completed; the guard did not abort boot"
+        )
+    finally:
+        with db.auth_conn() as c:
+            c.execute(
+                "ALTER TABLE IF EXISTS web_sessions_hidden "
+                "RENAME TO web_sessions"
+            )
+    # A restore that silently failed would corrupt every later test in the
+    # module and look like an unrelated failure — assert the table is back.
+    with db.auth_conn() as c:
+        row = c.execute(
+            "SELECT to_regclass('public.web_sessions')"
+        ).fetchone()
+    assert row is not None and row[0] is not None
