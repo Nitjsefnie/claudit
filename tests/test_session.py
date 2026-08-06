@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import hmac
+import logging
 import time
 from unittest.mock import patch
 
@@ -7,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from backend import db
 from backend import session
 from backend import sessions_repo
 
@@ -120,7 +123,7 @@ def test_signature_valid_but_unrecorded_nonce_is_rejected(auth_db, seeded_user):
     assert session.resolve_session_user_id(token) is None
 
 
-def test_guest_session_has_no_web_session_row(guest_client):
+def test_guest_session_has_no_web_session_row(guest_client, monkeypatch):
     cookie = guest_client.cookies.get(session.SESSION_COOKIE_NAME)
     parsed = session.parse_session_token(cookie)
     assert parsed is not None
@@ -129,3 +132,71 @@ def test_guest_session_has_no_web_session_row(guest_client):
     # the nonce lookup for them, or every guest would be logged out.
     assert sessions_repo.is_session_active(parsed[2]) is False
     assert session.resolve_session_user_id(cookie) == session.GUEST_USER_ID
+    # The guest branch returns before ANY auth-DB access, so guests must
+    # survive a total auth-DB outage.
+    def _down():
+        raise RuntimeError("auth DB down")
+
+    monkeypatch.setattr(db, "auth_conn", _down)
+    assert session.resolve_session_user_id(cookie) == session.GUEST_USER_ID
+
+
+class _FailOnUpdate:
+    """Connection wrapper whose UPDATEs raise — simulates a read-only
+    replica after failover. SELECTs pass through to the real connection."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        if str(sql).lstrip().upper().startswith("UPDATE"):
+            raise RuntimeError("simulated read-only replica")
+        return self._conn.execute(sql, params)
+
+
+def test_touch_failure_still_resolves(auth_db, seeded_user, monkeypatch, caplog):
+    """A failing touch_session (write-side bookkeeping) must never deny a
+    request whose session was already proven valid — warn and resolve."""
+    uid, secret = seeded_user
+    token = session.make_session_token(uid, secret)
+    nonce = session.parse_session_token(token)[2]
+    sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
+
+    real_auth_conn = db.auth_conn
+
+    @contextlib.contextmanager
+    def flaky_auth_conn():
+        with real_auth_conn() as conn:
+            yield _FailOnUpdate(conn)
+
+    monkeypatch.setattr(db, "auth_conn", flaky_auth_conn)
+    with caplog.at_level(logging.WARNING, logger="backend.sessions_repo"):
+        assert session.resolve_session_user_id(token) == uid
+    # Swallowed, but not silently.
+    assert "touch_session" in caplog.text
+
+
+def test_resolve_uses_at_most_two_auth_connections(
+    auth_db, seeded_user, monkeypatch
+):
+    """Config + nonce state resolve on ONE shared auth-DB connection; the
+    throttled touch takes one more. The plan allows at most one acquisition
+    beyond the pre-plan single load_user_config checkout."""
+    uid, secret = seeded_user
+    token = session.make_session_token(uid, secret)
+    nonce = session.parse_session_token(token)[2]
+    sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
+
+    real_auth_conn = db.auth_conn
+    acquisitions = 0
+
+    @contextlib.contextmanager
+    def counting_auth_conn():
+        nonlocal acquisitions
+        acquisitions += 1
+        with real_auth_conn() as conn:
+            yield conn
+
+    monkeypatch.setattr(db, "auth_conn", counting_auth_conn)
+    assert session.resolve_session_user_id(token) == uid
+    assert acquisitions <= 2
