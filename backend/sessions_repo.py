@@ -61,8 +61,11 @@ def touch_session(nonce: str, min_interval_s: int = 300) -> None:
                 (nonce, min_interval_s),
             )
     except Exception:
+        # A full nonce is a live session identifier — credential-adjacent —
+        # so log only a clearly-marked prefix, enough to correlate.
         logger.warning(
-            "touch_session failed for nonce %s", nonce, exc_info=True
+            "touch_session failed for nonce prefix %s...", nonce[:8],
+            exc_info=True,
         )
 
 

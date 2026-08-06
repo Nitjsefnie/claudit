@@ -12,6 +12,7 @@ across an await.
 from __future__ import annotations
 
 from fastapi import APIRouter
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -73,4 +74,10 @@ async def revoke_account_session(request: Request):
         return JSONResponse(
             {"ok": False, "error": "nonce required"}, status_code=400
         )
-    return {"ok": True, "revoked": sessions_repo.revoke_session(user_id, nonce)}
+    # revoke_session is blocking psycopg; run it off the event loop. The
+    # auth-DB connection is acquired and released inside the threadpool
+    # call, so none is ever held across an await (plan Amendment 2).
+    revoked = await run_in_threadpool(
+        sessions_repo.revoke_session, user_id, nonce
+    )
+    return {"ok": True, "revoked": revoked}

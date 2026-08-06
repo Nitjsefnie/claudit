@@ -116,7 +116,9 @@ async def login_post(
     user_id: str = Form(""),
     password: str = Form(""),
 ) -> Response:
-    ip = request.client.host if request.client else "unknown"
+    # "" is the single "missing" sentinel — it matches the web_sessions.ip
+    # column default and the value record_session stores below.
+    ip = request.client.host if request.client else ""
     if _check_login_rate_limit(ip):
         return Response(
             "Too many login attempts. Try again later.",
@@ -154,7 +156,7 @@ async def login_post(
             uid,
             parsed[2],
             request.headers.get("user-agent", ""),
-            request.client.host if request.client else "",
+            ip,
         )
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(

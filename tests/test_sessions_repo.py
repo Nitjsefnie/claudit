@@ -139,11 +139,15 @@ def test_app_refuses_to_start_without_web_sessions(auth_db, monkeypatch):
     before `entered` flips True."""
     monkeypatch.setattr(db, "viz_conn", _viz_conn_stub)
     monkeypatch.setattr(app_mod, "BackgroundScheduler", _FakeScheduler)
-    # The lifespan writes TestClient's event loop into the module-global
-    # events._main_loop; TestClient closes that loop on exit and nothing
-    # resets the global, so every later run_ingest() dies with
-    # "RuntimeError: Event loop is closed". monkeypatch restores the
-    # pre-test value at teardown, so the closed loop never escapes.
+    # Defence-in-depth, not a fix for current behaviour: db.schema_check()
+    # (backend/app.py:31) raises BEFORE events.set_loop(...) (app.py:32), so
+    # in this test as it stands the lifespan never writes TestClient's event
+    # loop into the module-global events._main_loop. The monkeypatch reset
+    # is what saves the suite under a mutant that moves the guard below
+    # set_loop: then the closed loop WOULD escape into events._main_loop and
+    # every later run_ingest() would die with "RuntimeError: Event loop is
+    # closed". monkeypatch restores the pre-test value at teardown either
+    # way, so the closed loop can never leak into later tests.
     monkeypatch.setattr(app_mod.events, "_main_loop", None)
     monkeypatch.setattr(app_mod.events, "_shutdown_event", None)
     entered = False

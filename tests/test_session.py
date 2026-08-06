@@ -155,15 +155,13 @@ def test_guest_secret_comes_from_env_when_set(monkeypatch):
 
 
 def test_guest_secret_falls_back_to_process_local_when_unset(monkeypatch):
-    # pylint: disable=protected-access
     monkeypatch.delenv("GUEST_SESSION_SECRET", raising=False)
-    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK
+    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK  # pylint: disable=protected-access
 
 
 def test_guest_secret_falls_back_on_whitespace_only_env(monkeypatch):
-    # pylint: disable=protected-access
     monkeypatch.setenv("GUEST_SESSION_SECRET", "   ")
-    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK
+    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK  # pylint: disable=protected-access
 
 
 def test_guest_token_is_signed_with_the_env_secret(monkeypatch):
@@ -175,6 +173,17 @@ def test_guest_token_is_signed_with_the_env_secret(monkeypatch):
     # Simulate the restart: a new process draws a new fallback.
     monkeypatch.setattr(session, "_GUEST_SECRET_FALLBACK", secrets.token_urlsafe(32))
     assert session.resolve_session_user_id(token) == session.GUEST_USER_ID
+
+
+def test_guest_token_does_not_survive_a_restart_without_env_secret(monkeypatch):
+    # The negative half of the test above: with GUEST_SESSION_SECRET unset
+    # the signing key is the process-local fallback, so a restart — a new
+    # fallback draw — must invalidate every outstanding guest token.
+    monkeypatch.delenv("GUEST_SESSION_SECRET", raising=False)
+    token = session.make_guest_session_token()
+    assert session.resolve_session_user_id(token) == session.GUEST_USER_ID
+    monkeypatch.setattr(session, "_GUEST_SECRET_FALLBACK", secrets.token_urlsafe(32))
+    assert session.resolve_session_user_id(token) is None
 
 
 class _FailOnUpdate:
@@ -214,12 +223,13 @@ def test_touch_failure_still_resolves(auth_db, seeded_user, monkeypatch, caplog)
     assert "touch_session" in caplog.text
 
 
-def test_resolve_uses_at_most_two_auth_connections(
+def test_resolve_uses_exactly_two_auth_connections(
     auth_db, seeded_user, monkeypatch
 ):
     """Config + nonce state resolve on ONE shared auth-DB connection; the
-    throttled touch takes one more. The plan allows at most one acquisition
-    beyond the pre-plan single load_user_config checkout."""
+    throttled touch takes one more. Exactly two checkouts: the plan allows
+    at most one acquisition beyond the pre-plan single load_user_config
+    checkout, and anything fewer means a lookup silently stopped running."""
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
     parsed = session.parse_session_token(token)
@@ -239,7 +249,7 @@ def test_resolve_uses_at_most_two_auth_connections(
 
     monkeypatch.setattr(db, "auth_conn", counting_auth_conn)
     assert session.resolve_session_user_id(token) == uid
-    assert acquisitions <= 2
+    assert acquisitions == 2
 
 
 def test_token_older_than_cookie_lifetime_still_verifies(monkeypatch):

@@ -127,10 +127,14 @@ def schema_check() -> None:
             raise RuntimeError(
                 f"auth DB users.config must be JSONB, got {row[0]!r}"
             )
+        # to_regclass would also accept a view or sequence named
+        # web_sessions; the guard must require an actual table.
         row = c.execute(
-            "SELECT to_regclass('public.web_sessions')"
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='web_sessions' "
+            "AND table_type='BASE TABLE'"
         ).fetchone()
-        if row is None or row[0] is None:
+        if row is None:
             raise RuntimeError(
                 "auth DB missing web_sessions — apply backend/schema_auth.sql"
             )

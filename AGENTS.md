@@ -185,7 +185,10 @@ psql claudit -f backend/schema.sql
 Applying the auth-side schema (once per environment):
 
 ```bash
-psql "$DATABASE_URL_AUTH" -f backend/schema_auth.sql
+# DATABASE_URL_AUTH lives in .env and is NOT exported to your shell —
+# a bare `psql "$DATABASE_URL_AUTH" ...` silently connects with all
+# defaults instead of erroring. Read the value out of .env first.
+psql "$(grep '^DATABASE_URL_AUTH=' .env | cut -d= -f2-)" -f backend/schema_auth.sql
 ```
 
 Required before claudit will start — schema_check() refuses to boot without
