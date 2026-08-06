@@ -8,7 +8,6 @@ test module in this directory, so a deferred-import guard is not needed
 here.
 """
 import json
-import os
 from http.cookies import Morsel, SimpleCookie
 
 from fastapi import FastAPI
@@ -91,11 +90,20 @@ def test_authenticated_request_refreshes_the_cookie(logged_in_client, auth_db):
     assert morsel["path"] == "/"
     # Never a Domain attribute — the cookie must stay host-only.
     assert morsel["domain"] == ""
-    # Secure tracks COOKIE_SECURE, which conftest forces to 0 so TestClient
-    # (plain HTTP) sends the cookie back at all.
-    assert bool(morsel["secure"]) == (
-        os.environ.get("COOKIE_SECURE", "1") == "1"
-    )
+    # conftest forces COOKIE_SECURE=0 so TestClient (plain HTTP) returns the
+    # cookie at all; test_cookie_secure_tracks_the_env pins both directions.
+    assert bool(morsel["secure"]) is False
+
+
+def test_cookie_secure_tracks_the_env(logged_in_client, auth_db, monkeypatch):
+    # secure=False leg first: once the jar holds a Secure cookie, httpx
+    # refuses to send it over TestClient's plain HTTP (401, no slide).
+    monkeypatch.setenv("COOKIE_SECURE", "0")
+    morsel = _session_cookie_morsel(logged_in_client.get("/api/me"))
+    assert bool(morsel["secure"]) is False
+    monkeypatch.setenv("COOKIE_SECURE", "1")
+    morsel = _session_cookie_morsel(logged_in_client.get("/api/me"))
+    assert bool(morsel["secure"]) is True
 
 
 def test_guest_request_does_not_refresh_the_cookie(guest_client, auth_db):
