@@ -187,8 +187,18 @@ Applying the auth-side schema (once per environment):
 ```bash
 # DATABASE_URL_AUTH lives in .env and is NOT exported to your shell —
 # a bare `psql "$DATABASE_URL_AUTH" ...` silently connects with all
-# defaults instead of erroring. Read the value out of .env first.
-psql "$(grep '^DATABASE_URL_AUTH=' .env | cut -d= -f2-)" -f backend/schema_auth.sql
+# defaults instead of erroring. Read the value out of .env first,
+# tolerating leading whitespace and whitespace around the '=' exactly
+# the way db.load_dotenv does, and REFUSE to run psql when it comes
+# out empty: an empty conninfo falls through to libpq defaults and
+# silently targets the wrong database.
+AUTH_DSN="$(grep -E '^[[:space:]]*DATABASE_URL_AUTH[[:space:]]*=' .env \
+  | head -n1 | cut -d= -f2- | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+if [ -z "$AUTH_DSN" ]; then
+  echo "DATABASE_URL_AUTH missing or empty in .env; not running psql" >&2
+  exit 1
+fi
+psql "$AUTH_DSN" -f backend/schema_auth.sql
 ```
 
 Required before claudit will start — schema_check() refuses to boot without

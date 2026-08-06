@@ -7,6 +7,8 @@ import secrets
 import time
 from unittest.mock import patch
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -131,25 +133,35 @@ def test_signature_valid_but_unrecorded_nonce_is_rejected(auth_db, seeded_user):
     assert session.resolve_session_user_id(token) is None
 
 
-def test_null_session_secret_is_treated_as_absent(auth_db):
-    """A stored JSON null secret is ABSENT, not the string "None".
+@pytest.mark.parametrize(
+    "stored",
+    [None, 0, False, [], {}],
+    ids=["null", "zero", "false", "empty-list", "empty-dict"],
+)
+def test_non_string_session_secret_is_treated_as_absent(auth_db, stored):
+    """A stored non-string secret is ABSENT, never coerced with str().
 
-    The account must fail closed: a token signed with the literal string
-    "None" — what str(None) coercion would silently adopt as the shared
-    secret for every such account — must not resolve. The forged nonce is
-    recorded so the web_sessions check cannot mask the coercion: only the
-    secret handling keeps this token out."""
+    The account must fail closed: a token signed with str(stored).strip()
+    — the "None" / "0" / "False" / "[]" / "{}" a str() coercion would
+    silently adopt as the shared secret for every such account — must
+    not resolve. The forged nonce is recorded AND asserted active, so
+    the web_sessions check cannot mask the coercion: only the secret
+    handling keeps this token out. Nonces are disjoint across cases by
+    construction (make_session_token draws a fresh random nonce)."""
     uid = 4321
     with db.auth_conn() as c:
         c.execute(
             "INSERT INTO users (user_id, config) VALUES (%s, %s::jsonb) "
             "ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config",
-            (uid, json.dumps({session.WEB_SESSION_SECRET_KEY: None})),
+            (uid, json.dumps({session.WEB_SESSION_SECRET_KEY: stored})),
         )
-    forged = session.make_session_token(uid, "None")
+    forged = session.make_session_token(uid, str(stored).strip())
     parsed = session.parse_session_token(forged)
     assert parsed is not None
     sessions_repo.record_session(uid, parsed[2], "curl", "127.0.0.1")
+    # Precondition: the nonce really is active, so resolve can only fail
+    # on the secret handling — the test cannot pass for the wrong reason.
+    assert sessions_repo.is_session_active(parsed[2]) is True
     assert session.resolve_session_user_id(forged) is None
 
 
@@ -250,9 +262,12 @@ def test_resolve_uses_exactly_two_auth_connections(
     auth_db, seeded_user, monkeypatch
 ):
     """Config + nonce state resolve on ONE shared auth-DB connection; the
-    throttled touch takes one more. Exactly two checkouts: the plan allows
-    at most one acquisition beyond the pre-plan single load_user_config
-    checkout, and anything fewer means a lookup silently stopped running."""
+    throttled touch takes one more, sequentially. Exactly two lifetime
+    checkouts: plan Amendment 2 binds concurrent depth (never more than
+    one auth-DB connection held at a time, never across an await) and
+    treats the lifetime count as a cost concern, not a correctness one —
+    the exact count here pins the shared-checkout design, since anything
+    fewer means a lookup silently stopped running."""
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
     parsed = session.parse_session_token(token)

@@ -67,9 +67,12 @@ async def revoke_account_session(request: Request):
         body = await request.json()
     except ValueError:
         body = None
-    nonce = (
-        str(body.get("nonce", "")).strip() if isinstance(body, dict) else ""
-    )
+    raw_nonce = body.get("nonce") if isinstance(body, dict) else None
+    # A non-string nonce (e.g. JSON null) is ABSENT, not a value: str()
+    # coercion would turn null into the literal string "None", which
+    # would then be looked up as if it were a real nonce. Treat it as
+    # missing and fall through to the 400 below.
+    nonce = raw_nonce.strip() if isinstance(raw_nonce, str) else ""
     if not nonce:
         return JSONResponse(
             {"ok": False, "error": "nonce required"}, status_code=400
