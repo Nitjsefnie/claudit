@@ -24,10 +24,10 @@ from backend import sessions_repo
 
 
 SESSION_COOKIE_NAME = "session"
-# Cookie lifetime only. Sessions themselves do not expire — they end when
-# revoked (see sessions_repo). Browsers cap cookie lifetime near 400 days,
-# and the cookie is re-issued on activity, so this ceiling is never reached
-# by an active session.
+# Cookie lifetime only. Sessions themselves do not expire on a clock —
+# they end when revoked via the `web_sessions` row (see sessions_repo).
+# Browsers cap cookie lifetime near 400 days; the cookie expires this long
+# after sign-in, at which point the user simply logs in again.
 SESSION_COOKIE_MAX_AGE = 400 * 24 * 3600
 WEB_SESSION_SECRET_KEY = "web_session_secret"
 

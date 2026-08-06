@@ -27,10 +27,12 @@ def test_verify_rejects_wrong_secret():
 
 def test_verify_accepts_old_token():
     # Sessions no longer expire on a clock — only revocation ends them.
-    # A token minted long in the past must still verify.
+    # A token minted long in the past must still verify. The offset is
+    # constant-relative so this fails loudly if any age bound is re-imposed,
+    # whatever SESSION_COOKIE_MAX_AGE becomes.
     secret = "k" * 32
     tok = session.make_session_token(7, secret)
-    far_future = int(time.time()) + 365 * 24 * 3600
+    far_future = int(time.time()) + session.SESSION_COOKIE_MAX_AGE + 60
     with patch.object(session.time, "time", return_value=far_future):
         assert session.verify_session_token(tok, secret) == 7
 
@@ -211,21 +213,24 @@ def test_resolve_uses_at_most_two_auth_connections(
     assert acquisitions <= 2
 
 
-def test_token_from_a_year_ago_still_verifies(monkeypatch):
+def test_token_older_than_cookie_lifetime_still_verifies(monkeypatch):
+    # Minted further in the past than SESSION_COOKIE_MAX_AGE, so any
+    # re-imposed age bound fails this test whatever the constant becomes.
     secret = "super-secret-32-bytes" * 2
     real_time = session.time.time
-    monkeypatch.setattr(session.time, "time", lambda: real_time() - 365 * 24 * 3600)
+    monkeypatch.setattr(
+        session.time, "time",
+        lambda: real_time() - session.SESSION_COOKIE_MAX_AGE - 60,
+    )
     old_token = session.make_session_token(42, secret)
     monkeypatch.setattr(session.time, "time", real_time)
     assert session.verify_session_token(old_token, secret) == 42
 
 
-def test_future_dated_token_is_still_rejected():
+def test_future_dated_token_is_still_rejected(monkeypatch):
     secret = "super-secret-32-bytes" * 2
     real_time = session.time.time
-    session.time.time = lambda: real_time() + 3600
-    try:
-        tok = session.make_session_token(42, secret)
-    finally:
-        session.time.time = real_time
+    monkeypatch.setattr(session.time, "time", lambda: real_time() + 3600)
+    tok = session.make_session_token(42, secret)
+    monkeypatch.setattr(session.time, "time", real_time)
     assert session.verify_session_token(tok, secret) is None

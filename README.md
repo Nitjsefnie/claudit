@@ -169,9 +169,11 @@ table has a PBKDF2 web-password hash stored under
 hash format mirrors the constants in `backend/auth.py`
 (SHA-256, 200,000 iterations, hex salt) so any external user-management
 process that writes the same shape can issue credentials. Sessions
-are HMAC-signed cookies that do not expire on a clock — they end when
-revoked server-side (the cookie itself carries a 400-day browser
-lifetime and is re-issued on activity). A **Continue as guest**
+are HMAC-signed cookies that do not expire on a clock — a session ends
+only when its `web_sessions` row in the auth DB is revoked server-side
+(see `backend/sessions_repo.py`). The browser cookie itself expires
+400 days after sign-in, at which point the user simply logs in again.
+A **Continue as guest**
 button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
 restart).
