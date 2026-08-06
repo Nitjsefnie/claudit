@@ -110,7 +110,9 @@ def test_guest_blocked_from_export():
 def test_revoked_session_stops_resolving(auth_db, seeded_user):
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
-    nonce = session.parse_session_token(token)[2]
+    parsed = session.parse_session_token(token)
+    assert parsed is not None
+    nonce = parsed[2]
     sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
     assert session.resolve_session_user_id(token) == uid
     sessions_repo.revoke_session(uid, nonce)
@@ -132,6 +134,7 @@ def test_guest_session_has_no_web_session_row(guest_client, monkeypatch):
     # the nonce lookup for them, or every guest would be logged out.
     assert sessions_repo.is_session_active(parsed[2]) is False
     assert session.resolve_session_user_id(cookie) == session.GUEST_USER_ID
+
     # The guest branch returns before ANY auth-DB access, so guests must
     # survive a total auth-DB outage.
     def _down():
@@ -159,7 +162,9 @@ def test_touch_failure_still_resolves(auth_db, seeded_user, monkeypatch, caplog)
     request whose session was already proven valid — warn and resolve."""
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
-    nonce = session.parse_session_token(token)[2]
+    parsed = session.parse_session_token(token)
+    assert parsed is not None
+    nonce = parsed[2]
     sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
 
     real_auth_conn = db.auth_conn
@@ -184,7 +189,9 @@ def test_resolve_uses_at_most_two_auth_connections(
     beyond the pre-plan single load_user_config checkout."""
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
-    nonce = session.parse_session_token(token)[2]
+    parsed = session.parse_session_token(token)
+    assert parsed is not None
+    nonce = parsed[2]
     sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
 
     real_auth_conn = db.auth_conn

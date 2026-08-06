@@ -73,6 +73,7 @@ def _fake_user_fixture(monkeypatch):
     # resolve_session_user_id opens one shared auth_conn() around the
     # (stubbed) config/nonce lookups; yield a dummy since there is no
     # real auth DB here at all.
+
     @contextlib.contextmanager
     def _no_auth_conn():
         yield None
