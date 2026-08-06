@@ -6,6 +6,7 @@ from starlette.requests import Request
 from backend import login as login_mod
 from backend import session as session_mod
 from backend import auth
+from backend import sessions_repo
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +53,11 @@ def _fake_user_fixture(monkeypatch):
     monkeypatch.setattr(session_mod, "load_user_config", _load)
     monkeypatch.setattr(session_mod, "write_user_config", _write)
     monkeypatch.setattr(login_mod, "user_exists", _exists)
+    # Session rows go to the real auth DB, which these tests don't have;
+    # row recording is covered end-to-end in test_api_account.py.
+    monkeypatch.setattr(
+        sessions_repo, "record_session", lambda *args, **kwargs: None
+    )
     return store
 
 

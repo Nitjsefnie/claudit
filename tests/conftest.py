@@ -73,10 +73,10 @@ def auth_db():
     """A scratch auth DB with web_sessions and one seeded user row.
 
     Module-scoped: rows written by one test persist for the rest of the
-    module. Every test consuming this fixture MUST use user_id / nonce
-    values disjoint from every other test in the module (and from
-    _TEST_UID), or assertions over row sets and revocation will see each
-    other's state."""
+    module. Two rules keep tests from seeing each other's state: nonces
+    must be disjoint per test, always; and any test that asserts over
+    list_sessions must use a private user_id (not _TEST_UID), since that
+    query is keyed by user alone."""
     os.system(f"dropdb --if-exists {_TEST_AUTH_DB} 2>/dev/null")
     os.system(f"createdb {_TEST_AUTH_DB} 2>/dev/null")
     subprocess.run(

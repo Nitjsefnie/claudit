@@ -15,6 +15,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 from backend import auth
 from backend import session as session_mod
 from backend import db
+from backend import sessions_repo
 
 
 router = APIRouter()
@@ -147,6 +148,14 @@ async def login_post(
     secret = session_mod.get_or_create_session_secret(config)
     session_mod.write_user_config(uid, config)
     token = session_mod.make_session_token(uid, secret)
+    parsed = session_mod.parse_session_token(token)
+    if parsed is not None:
+        sessions_repo.record_session(
+            uid,
+            parsed[2],
+            request.headers.get("user-agent", ""),
+            request.client.host if request.client else "",
+        )
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         session_mod.SESSION_COOKIE_NAME, token,
