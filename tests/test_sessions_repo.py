@@ -4,6 +4,12 @@ Uses the shared `auth_db` fixture from tests/conftest.py. The imports are
 top-level (like tests/test_session.py): pytest loads conftest.py — and
 therefore the test DSN setdefaults — before this module body runs.
 """
+import contextlib
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend import app as app_mod
 from backend import db, sessions_repo
 
 
@@ -54,3 +60,82 @@ def test_list_newest_first(auth_db):
         )
     rows = sessions_repo.list_sessions(11)
     assert [r["nonce"] for r in rows] == ["nonce-new", "nonce-old"]
+
+
+class _VizConnStub:
+    """Satisfies schema_check's claudit.files probe without a viz DB.
+
+    DATABASE_URL_VIZ defaults to 'claudit_test', which does not exist when
+    this module runs standalone, and schema_check() checks the viz side
+    first — without this stub the web_sessions assertion is never reached.
+    The stub lets only the auth side of schema_check run for real."""
+
+    def execute(self, _query):
+        return self
+
+    def fetchone(self):
+        return ("files",)
+
+
+@contextlib.contextmanager
+def _viz_conn_stub():
+    yield _VizConnStub()
+
+
+def test_schema_check_requires_web_sessions(auth_db, monkeypatch):
+    monkeypatch.setattr(db, "viz_conn", _viz_conn_stub)
+    # Rename rather than DROP: atomic, no shell-out, and restores nothing
+    # but the one table. Every mutating step sits inside the try so the
+    # finally always restores.
+    try:
+        with db.auth_conn() as c:
+            c.execute(
+                "ALTER TABLE web_sessions RENAME TO web_sessions_hidden"
+            )
+        with pytest.raises(RuntimeError, match="web_sessions"):
+            db.schema_check()
+    finally:
+        with db.auth_conn() as c:
+            c.execute(
+                "ALTER TABLE IF EXISTS web_sessions_hidden "
+                "RENAME TO web_sessions"
+            )
+    # A restore that silently failed would corrupt every later test in the
+    # module and look like an unrelated failure — assert the table is back.
+    with db.auth_conn() as c:
+        row = c.execute(
+            "SELECT to_regclass('public.web_sessions')"
+        ).fetchone()
+    assert row is not None and row[0] is not None
+
+
+class _FakeScheduler:
+    """Stand-in for the lifespan's BackgroundScheduler.
+
+    The real scheduler's thread races its own shutdown under TestClient
+    (intermittent JobLookupError warnings), and its startup-ingest job hits
+    the nonexistent 'claudit_test' viz DB — both incidental to what the
+    startup-wiring test pins."""
+
+    def __init__(self, **_kwargs):
+        pass
+
+    def add_job(self, *_args, **_kwargs):
+        pass
+
+    def start(self):
+        pass
+
+    def shutdown(self, **_kwargs):
+        pass
+
+
+def test_schema_check_runs_on_app_startup(auth_db, monkeypatch):
+    """The boot guard is dead code unless startup calls it — pin the wiring
+    by driving the real app lifespan with a spy in place of schema_check."""
+    calls = []
+    monkeypatch.setattr(db, "schema_check", lambda: calls.append(1))
+    monkeypatch.setattr(app_mod, "BackgroundScheduler", _FakeScheduler)
+    with TestClient(app_mod.app):
+        pass
+    assert calls == [1]

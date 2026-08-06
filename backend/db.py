@@ -101,7 +101,8 @@ def schema_check() -> None:
     """Fail fast at startup if either DB's required shape is missing.
 
     For claudit: 'files' table exists.
-    For the auth DB: 'users' table has a JSONB 'config' column.
+    For the auth DB: 'users' table has a JSONB 'config' column and the
+    'web_sessions' table exists.
     Raises RuntimeError on any mismatch.
     """
     with viz_conn() as c:
@@ -125,6 +126,13 @@ def schema_check() -> None:
         if row[0] != "jsonb":
             raise RuntimeError(
                 f"auth DB users.config must be JSONB, got {row[0]!r}"
+            )
+        row = c.execute(
+            "SELECT to_regclass('public.web_sessions')"
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise RuntimeError(
+                "auth DB missing web_sessions — apply backend/schema_auth.sql"
             )
 
 

@@ -182,6 +182,15 @@ systemctl restart claudit
 psql claudit -f backend/schema.sql
 ```
 
+Applying the auth-side schema (once per environment):
+
+```bash
+psql "$DATABASE_URL_AUTH" -f backend/schema_auth.sql
+```
+
+Required before claudit will start — schema_check() refuses to boot without
+the web_sessions table.
+
 ## Code style guidelines
 
 - **Python**: `from __future__ import annotations` at the top of every `.py` file; type hints used throughout; no ORM — raw SQL via psycopg3.
