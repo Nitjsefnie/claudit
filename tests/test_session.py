@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import hmac
 import logging
+import secrets
 import time
 from unittest.mock import patch
 
@@ -153,11 +154,26 @@ def test_guest_secret_comes_from_env_when_set(monkeypatch):
     assert session._guest_secret() == "a-fixed-guest-secret-value"  # pylint: disable=protected-access
 
 
-def test_guest_token_survives_a_simulated_restart(monkeypatch):
+def test_guest_secret_falls_back_to_process_local_when_unset(monkeypatch):
+    # pylint: disable=protected-access
+    monkeypatch.delenv("GUEST_SESSION_SECRET", raising=False)
+    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK
+
+
+def test_guest_secret_falls_back_on_whitespace_only_env(monkeypatch):
+    # pylint: disable=protected-access
+    monkeypatch.setenv("GUEST_SESSION_SECRET", "   ")
+    assert session._guest_secret() == session._GUEST_SECRET_FALLBACK
+
+
+def test_guest_token_is_signed_with_the_env_secret(monkeypatch):
     monkeypatch.setenv("GUEST_SESSION_SECRET", "a-fixed-guest-secret-value")
     token = session.make_guest_session_token()
-    # A restart re-imports the module; with the env var set, the secret is
-    # identical, so the old token must still resolve.
+    # Public surface: the token verifies under the configured secret, so the
+    # env value — not the process-local fallback — is the signing key.
+    assert session.verify_session_token(token, "a-fixed-guest-secret-value") == session.GUEST_USER_ID
+    # Simulate the restart: a new process draws a new fallback.
+    monkeypatch.setattr(session, "_GUEST_SECRET_FALLBACK", secrets.token_urlsafe(32))
     assert session.resolve_session_user_id(token) == session.GUEST_USER_ID
 
 

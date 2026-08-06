@@ -49,6 +49,10 @@ def _guest_secret() -> str:
     Set GUEST_SESSION_SECRET to keep guest sessions alive across restarts.
     Without it a per-process fallback is used and every restart signs out
     every guest, which is the pre-Phase-1 behaviour.
+
+    The os.environ read is deliberately per-call, not hoisted into a
+    module constant: caching it at import time would re-couple signing to
+    process start (and break tests that set the variable after import).
     """
     return os.environ.get("GUEST_SESSION_SECRET", "").strip() or _GUEST_SECRET_FALLBACK
 
