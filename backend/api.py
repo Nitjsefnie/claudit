@@ -31,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
 from backend import db, events
+from backend.api_account import router as account_router
 from backend.api_cache import router as cache_router
 from backend.api_common import (
     HEATMAP_TZ, _bucket_seconds, _iso, _parse_range,
@@ -42,6 +43,7 @@ from backend.cache import cache_response
 from backend.constants import LATENCY_BUCKETS
 
 router = APIRouter(prefix="/api")
+router.include_router(account_router)
 router.include_router(export_router)
 router.include_router(dashboard_router)
 router.include_router(sessions_router)
