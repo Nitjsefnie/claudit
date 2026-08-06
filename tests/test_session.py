@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import time
@@ -128,6 +129,28 @@ def test_signature_valid_but_unrecorded_nonce_is_rejected(auth_db, seeded_user):
     uid, secret = seeded_user
     token = session.make_session_token(uid, secret)
     assert session.resolve_session_user_id(token) is None
+
+
+def test_null_session_secret_is_treated_as_absent(auth_db):
+    """A stored JSON null secret is ABSENT, not the string "None".
+
+    The account must fail closed: a token signed with the literal string
+    "None" — what str(None) coercion would silently adopt as the shared
+    secret for every such account — must not resolve. The forged nonce is
+    recorded so the web_sessions check cannot mask the coercion: only the
+    secret handling keeps this token out."""
+    uid = 4321
+    with db.auth_conn() as c:
+        c.execute(
+            "INSERT INTO users (user_id, config) VALUES (%s, %s::jsonb) "
+            "ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config",
+            (uid, json.dumps({session.WEB_SESSION_SECRET_KEY: None})),
+        )
+    forged = session.make_session_token(uid, "None")
+    parsed = session.parse_session_token(forged)
+    assert parsed is not None
+    sessions_repo.record_session(uid, parsed[2], "curl", "127.0.0.1")
+    assert session.resolve_session_user_id(forged) is None
 
 
 def test_guest_session_has_no_web_session_row(guest_client, monkeypatch):

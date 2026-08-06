@@ -99,8 +99,19 @@ def verify_session_token(token: str, secret: str):
     return user_id
 
 
+def _stored_session_secret(config: dict) -> str:
+    """The configured web-session secret, or "" when absent.
+
+    A stored JSON null (or any non-string) is ABSENT, not a value: coercing
+    it with str() would turn null into the literal string "None", which
+    would then work as a signing secret. Fail closed instead.
+    """
+    value = config.get(WEB_SESSION_SECRET_KEY)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def get_or_create_session_secret(config: dict) -> str:
-    secret = str(config.get(WEB_SESSION_SECRET_KEY, "")).strip()
+    secret = _stored_session_secret(config)
     if secret:
         return secret
     secret = secrets.token_urlsafe(32)
@@ -157,10 +168,7 @@ def resolve_session_user_id(token: str) -> int | None:
     # one (the touch below takes that one).
     with db.auth_conn() as conn:
         config = load_user_config(user_id, conn=conn)
-        secret = (
-            str(config.get(WEB_SESSION_SECRET_KEY, "")).strip()
-            if config else ""
-        )
+        secret = _stored_session_secret(config) if config else ""
         if not secret:
             return None
         verified = verify_session_token(token, secret)
