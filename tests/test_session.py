@@ -25,12 +25,14 @@ def test_verify_rejects_wrong_secret():
     assert session.verify_session_token(tok, "secret-b" * 4) is None
 
 
-def test_verify_rejects_expired_token():
+def test_verify_accepts_old_token():
+    # Sessions no longer expire on a clock — only revocation ends them.
+    # A token minted long in the past must still verify.
     secret = "k" * 32
     tok = session.make_session_token(7, secret)
-    far_future = int(time.time()) + session.SESSION_COOKIE_MAX_AGE + 60
+    far_future = int(time.time()) + 365 * 24 * 3600
     with patch.object(session.time, "time", return_value=far_future):
-        assert session.verify_session_token(tok, secret) is None
+        assert session.verify_session_token(tok, secret) == 7
 
 
 def test_verify_rejects_future_token():
@@ -207,3 +209,23 @@ def test_resolve_uses_at_most_two_auth_connections(
     monkeypatch.setattr(db, "auth_conn", counting_auth_conn)
     assert session.resolve_session_user_id(token) == uid
     assert acquisitions <= 2
+
+
+def test_token_from_a_year_ago_still_verifies(monkeypatch):
+    secret = "super-secret-32-bytes" * 2
+    real_time = session.time.time
+    monkeypatch.setattr(session.time, "time", lambda: real_time() - 365 * 24 * 3600)
+    old_token = session.make_session_token(42, secret)
+    monkeypatch.setattr(session.time, "time", real_time)
+    assert session.verify_session_token(old_token, secret) == 42
+
+
+def test_future_dated_token_is_still_rejected():
+    secret = "super-secret-32-bytes" * 2
+    real_time = session.time.time
+    session.time.time = lambda: real_time() + 3600
+    try:
+        tok = session.make_session_token(42, secret)
+    finally:
+        session.time.time = real_time
+    assert session.verify_session_token(tok, secret) is None

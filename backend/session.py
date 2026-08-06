@@ -24,7 +24,11 @@ from backend import sessions_repo
 
 
 SESSION_COOKIE_NAME = "session"
-SESSION_COOKIE_MAX_AGE = 7 * 24 * 3600
+# Cookie lifetime only. Sessions themselves do not expire — they end when
+# revoked (see sessions_repo). Browsers cap cookie lifetime near 400 days,
+# and the cookie is re-issued on activity, so this ceiling is never reached
+# by an active session.
+SESSION_COOKIE_MAX_AGE = 400 * 24 * 3600
 WEB_SESSION_SECRET_KEY = "web_session_secret"
 
 # Sentinel user_id reserved for unauthenticated guest sessions.
@@ -66,8 +70,6 @@ def verify_session_token(token: str, secret: str):
     user_id, issued_at, _nonce, sig = parsed
     now = int(time.time())
     if issued_at > now + 60:
-        return None
-    if now - issued_at > SESSION_COOKIE_MAX_AGE:
         return None
     payload = f"{user_id}.{issued_at}.{parsed[2]}"
     expected = hmac.new(
