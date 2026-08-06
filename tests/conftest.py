@@ -6,6 +6,10 @@
 # os.environ.setdefault()s (never overwrites), the first setdefault to run
 # for this key wins the race for the whole test process. backend.cache is
 # safe to import above it: it is stdlib-only and never touches the env.
+# DATABASE_URL_AUTH gets the same guard: .env pins it at the live auth
+# database, and without this setdefault any test that touches auth outside
+# the auth_db fixture (e.g. a `pytest -k` partial run) would read from — and
+# once login records sessions, WRITE to — the production database.
 import os
 import subprocess
 import sys
@@ -15,7 +19,10 @@ import pytest
 
 from backend import cache
 
+_TEST_AUTH_DB = "claudit_test_auth"
+
 os.environ.setdefault("DATABASE_URL_VIZ", "postgresql:///claudit_test")
+os.environ.setdefault("DATABASE_URL_AUTH", f"postgresql:///{_TEST_AUTH_DB}")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # ...and this directory, so one test module can import another's fixture
@@ -49,14 +56,19 @@ def _reset_response_cache():
     cache.response_cache.clear()
 
 
-_TEST_AUTH_DB = "claudit_test_auth"
 _TEST_SECRET = "fixture-session-secret-0123456789"
 _TEST_UID = 4242
 
 
 @pytest.fixture(scope="module")
 def auth_db():
-    """A scratch auth DB with web_sessions and one seeded user row."""
+    """A scratch auth DB with web_sessions and one seeded user row.
+
+    Module-scoped: rows written by one test persist for the rest of the
+    module. Every test consuming this fixture MUST use user_id / nonce
+    values disjoint from every other test in the module (and from
+    _TEST_UID), or assertions over row sets and revocation will see each
+    other's state."""
     os.system(f"dropdb --if-exists {_TEST_AUTH_DB} 2>/dev/null")
     os.system(f"createdb {_TEST_AUTH_DB} 2>/dev/null")
     subprocess.run(

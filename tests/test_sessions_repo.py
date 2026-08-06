@@ -38,3 +38,22 @@ def test_list_excludes_revoked(auth_db):
     nonces = {r["nonce"] for r in rows}
     assert nonces == {"nonce-d"}
     assert rows[0]["user_agent"] == "firefox"
+
+
+def test_list_newest_first(auth_db):
+    # Two live rows: pins ORDER BY created_at DESC, which the revoked-row
+    # test above cannot (it only ever sees one row). The older row is
+    # back-dated explicitly so a same-transaction timestamp tie can't
+    # make the order ambiguous.
+    from backend import db, sessions_repo
+    sessions_repo.record_session(11, "nonce-old", "old-ua", "10.0.0.4")
+    sessions_repo.record_session(11, "nonce-new", "new-ua", "10.0.0.5")
+    with db.auth_conn() as c:
+        c.execute(
+            "UPDATE web_sessions "
+            "SET created_at = created_at - interval '1 hour' "
+            "WHERE nonce = %s",
+            ("nonce-old",),
+        )
+    rows = sessions_repo.list_sessions(11)
+    assert [r["nonce"] for r in rows] == ["nonce-new", "nonce-old"]
