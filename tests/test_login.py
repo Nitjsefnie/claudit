@@ -58,6 +58,15 @@ def _fake_user_fixture(monkeypatch):
     monkeypatch.setattr(
         sessions_repo, "record_session", lambda *args, **kwargs: None
     )
+    # resolve_session_user_id now checks the nonce against web_sessions;
+    # with no real auth DB here, treat every nonce as active. The reject
+    # path is covered against a real DB in test_session.py.
+    monkeypatch.setattr(
+        sessions_repo, "is_session_active", lambda nonce: True
+    )
+    monkeypatch.setattr(
+        sessions_repo, "touch_session", lambda *args, **kwargs: None
+    )
     return store
 
 

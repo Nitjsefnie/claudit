@@ -18,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from backend import db
+from backend import sessions_repo
 
 
 SESSION_COOKIE_NAME = "session"
@@ -118,12 +119,19 @@ def resolve_session_user_id(token: str) -> int | None:
     if user_id == GUEST_USER_ID:
         return verify_session_token(token, _GUEST_SECRET)
     config = load_user_config(user_id)
-    if config is None:
-        return None
-    secret = str(config.get(WEB_SESSION_SECRET_KEY, "")).strip()
+    secret = (
+        str(config.get(WEB_SESSION_SECRET_KEY, "")).strip() if config else ""
+    )
     if not secret:
         return None
-    return verify_session_token(token, secret)
+    verified = verify_session_token(token, secret)
+    if verified is None:
+        return None
+    nonce = parsed[2]
+    if not sessions_repo.is_session_active(nonce):
+        return None
+    sessions_repo.touch_session(nonce)
+    return verified
 
 
 def check_origin(request: Request) -> bool:

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from backend import session
+from backend import sessions_repo
 
 
 def test_token_roundtrip():
@@ -101,3 +102,30 @@ def test_guest_blocked_from_export():
     client.cookies.set(session.SESSION_COOKIE_NAME, guest_cookie)
     resp = client.get("/api/export?range=7d")
     assert resp.status_code == 403
+
+
+def test_revoked_session_stops_resolving(auth_db, seeded_user):
+    uid, secret = seeded_user
+    token = session.make_session_token(uid, secret)
+    nonce = session.parse_session_token(token)[2]
+    sessions_repo.record_session(uid, nonce, "curl", "127.0.0.1")
+    assert session.resolve_session_user_id(token) == uid
+    sessions_repo.revoke_session(uid, nonce)
+    assert session.resolve_session_user_id(token) is None
+
+
+def test_signature_valid_but_unrecorded_nonce_is_rejected(auth_db, seeded_user):
+    uid, secret = seeded_user
+    token = session.make_session_token(uid, secret)
+    assert session.resolve_session_user_id(token) is None
+
+
+def test_guest_session_has_no_web_session_row(guest_client):
+    cookie = guest_client.cookies.get(session.SESSION_COOKIE_NAME)
+    parsed = session.parse_session_token(cookie)
+    assert parsed is not None
+    assert parsed[0] == session.GUEST_USER_ID
+    # Guests are unrecorded BY DESIGN — resolve_session_user_id must bypass
+    # the nonce lookup for them, or every guest would be logged out.
+    assert sessions_repo.is_session_active(parsed[2]) is False
+    assert session.resolve_session_user_id(cookie) == session.GUEST_USER_ID
