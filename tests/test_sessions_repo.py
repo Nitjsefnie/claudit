@@ -1,36 +1,34 @@
 """web_sessions repository — record, lookup, revoke.
 
-Uses the shared `auth_db` fixture from tests/conftest.py.
+Uses the shared `auth_db` fixture from tests/conftest.py. The imports are
+top-level (like tests/test_session.py): pytest loads conftest.py — and
+therefore the test DSN setdefaults — before this module body runs.
 """
+from backend import db, sessions_repo
 
 
 def test_record_then_active(auth_db):
-    from backend import sessions_repo
     sessions_repo.record_session(7, "nonce-a", "curl/8", "10.0.0.1")
     assert sessions_repo.is_session_active("nonce-a") is True
 
 
 def test_unknown_nonce_is_not_active(auth_db):
-    from backend import sessions_repo
     assert sessions_repo.is_session_active("never-issued") is False
 
 
 def test_revoked_nonce_is_not_active(auth_db):
-    from backend import sessions_repo
     sessions_repo.record_session(7, "nonce-b", "curl/8", "10.0.0.1")
     assert sessions_repo.revoke_session(7, "nonce-b") is True
     assert sessions_repo.is_session_active("nonce-b") is False
 
 
 def test_revoke_only_affects_own_user(auth_db):
-    from backend import sessions_repo
     sessions_repo.record_session(7, "nonce-c", "curl/8", "10.0.0.1")
     assert sessions_repo.revoke_session(8, "nonce-c") is False
     assert sessions_repo.is_session_active("nonce-c") is True
 
 
 def test_list_excludes_revoked(auth_db):
-    from backend import sessions_repo
     sessions_repo.record_session(9, "nonce-d", "firefox", "10.0.0.2")
     sessions_repo.record_session(9, "nonce-e", "chrome", "10.0.0.3")
     sessions_repo.revoke_session(9, "nonce-e")
@@ -45,7 +43,6 @@ def test_list_newest_first(auth_db):
     # test above cannot (it only ever sees one row). The older row is
     # back-dated explicitly so a same-transaction timestamp tie can't
     # make the order ambiguous.
-    from backend import db, sessions_repo
     sessions_repo.record_session(11, "nonce-old", "old-ua", "10.0.0.4")
     sessions_repo.record_session(11, "nonce-new", "new-ua", "10.0.0.5")
     with db.auth_conn() as c:

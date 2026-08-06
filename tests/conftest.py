@@ -10,6 +10,14 @@
 # database, and without this setdefault any test that touches auth outside
 # the auth_db fixture (e.g. a `pytest -k` partial run) would read from — and
 # once login records sessions, WRITE to — the production database.
+#
+# pylint: disable=import-outside-toplevel,redefined-outer-name
+# import-outside-toplevel: the backend.* imports inside the fixtures below
+# are deferred ON PURPOSE — the setdefaults above must land in os.environ
+# before any backend module is imported, or the guard is void. Do not hoist
+# them. redefined-outer-name: the fixture-argument pattern (a fixture taking
+# another fixture by name) is standard pytest; the fixture names are part of
+# the shared contract consumed by other test modules and must not change.
 import os
 import subprocess
 import sys
