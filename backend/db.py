@@ -72,6 +72,19 @@ def auth_pool() -> ConnectionPool:
     return _AUTH
 
 
+def reset_auth_pool() -> None:
+    """Close and drop the cached auth pool so the next auth_pool() call
+    re-reads DATABASE_URL_AUTH. Test suites need this between scratch-DB
+    configurations; production code never calls it."""
+    global _AUTH
+    if _AUTH is not None:
+        try:
+            _AUTH.close()
+        except Exception:
+            pass
+    _AUTH = None
+
+
 @contextmanager
 def viz_conn():
     with viz_pool().connection() as conn:

@@ -7,6 +7,7 @@
 # for this key wins the race for the whole test process. backend.cache is
 # safe to import above it: it is stdlib-only and never touches the env.
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,6 +37,8 @@ os.environ.setdefault("COOKIE_SECURE", "0")
 # teardown that drops it — producing failures in unrelated tests.
 os.environ["CLAUDIT_WARM_CACHE"] = "0"
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.fixture(autouse=True)
 def _reset_response_cache():
@@ -44,3 +47,73 @@ def _reset_response_cache():
     cache.response_cache.clear()
     yield
     cache.response_cache.clear()
+
+
+_TEST_AUTH_DB = "claudit_test_auth"
+_TEST_SECRET = "fixture-session-secret-0123456789"
+_TEST_UID = 4242
+
+
+@pytest.fixture(scope="module")
+def auth_db():
+    """A scratch auth DB with web_sessions and one seeded user row."""
+    os.system(f"dropdb --if-exists {_TEST_AUTH_DB} 2>/dev/null")
+    os.system(f"createdb {_TEST_AUTH_DB} 2>/dev/null")
+    subprocess.run(
+        ["psql", _TEST_AUTH_DB, "-c",
+         "CREATE TABLE users (user_id BIGINT PRIMARY KEY, config JSONB NOT NULL)"],
+        check=True, stdout=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        ["psql", _TEST_AUTH_DB, "-f", str(_REPO_ROOT / "backend/schema_auth.sql")],
+        check=True, stdout=subprocess.DEVNULL,
+    )
+    os.environ["DATABASE_URL_AUTH"] = f"postgresql:///{_TEST_AUTH_DB}"
+    from backend import db
+    db.reset_auth_pool()
+    yield
+    db.reset_auth_pool()
+    os.system(f"dropdb --if-exists {_TEST_AUTH_DB} 2>/dev/null")
+
+
+@pytest.fixture
+def seeded_user(auth_db):
+    """(user_id, session_secret) for a user row that exists in the auth DB."""
+    import json
+    from backend import auth, db, session as session_mod
+    config = {session_mod.WEB_SESSION_SECRET_KEY: _TEST_SECRET}
+    auth.set_web_password(config, "fixture-password")
+    with db.auth_conn() as c:
+        c.execute(
+            "INSERT INTO users (user_id, config) VALUES (%s, %s::jsonb) "
+            "ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config",
+            (_TEST_UID, json.dumps(config)),
+        )
+    return _TEST_UID, _TEST_SECRET
+
+
+@pytest.fixture
+def logged_in_client(seeded_user):
+    """TestClient that has completed a real POST /login."""
+    from fastapi.testclient import TestClient
+    from backend.app import app
+    uid, _ = seeded_user
+    client = TestClient(app)
+    resp = client.post(
+        "/login",
+        data={"user_id": str(uid), "password": "fixture-password"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303, resp.text
+    return client
+
+
+@pytest.fixture
+def guest_client(auth_db):
+    """TestClient holding a guest session cookie."""
+    from fastapi.testclient import TestClient
+    from backend.app import app
+    client = TestClient(app)
+    resp = client.post("/login/guest", follow_redirects=False)
+    assert resp.status_code == 303, resp.text
+    return client
