@@ -199,7 +199,7 @@ psql claudit -f backend/schema.sql
 
 ## Security considerations
 
-- **Auth**: PBKDF2-SHA256 with 200,000 iterations and per-user hex salts. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`. Sessions do not expire on a clock — a session ends only when its `web_sessions` row in the shared auth DB is revoked server-side (see `backend/sessions_repo.py`). The browser cookie itself expires 400 days after sign-in, at which point the user simply logs in again.
+- **Auth**: PBKDF2-SHA256 with 200,000 iterations and per-user hex salts. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`. Sessions do not expire on a clock — a session ends only when its `web_sessions` row in the shared auth DB is revoked server-side (see `backend/sessions_repo.py`). The browser cookie is re-issued with a fresh 400-day expiry on every authenticated non-guest request, so an active session's cookie never lapses; only an idle one expires, 400 days after its last request. Guest cookies are not refreshed — they are signed with a per-process secret and invalidate on restart.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process secret regenerated at startup; cookies invalidate on restart. Guests are blocked from `/api/projects`, `/api/sessions*`, and `?project=` filter params.
 - **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`. Admin paths also enforce origin/referer checks.
 - **R2 file-mode path traversal**: `_safe_join` in `backend/r2.py` uses `os.path.realpath` to refuse keys that escape the bucket root (defence for sidecar `?path=../../../etc/passwd` attacks).

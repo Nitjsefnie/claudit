@@ -24,10 +24,13 @@ from backend import sessions_repo
 
 
 SESSION_COOKIE_NAME = "session"
-# Cookie lifetime only. Sessions themselves do not expire on a clock —
-# they end when revoked via the `web_sessions` row (see sessions_repo).
-# Browsers cap cookie lifetime near 400 days; the cookie expires this long
-# after sign-in, at which point the user simply logs in again.
+# Cookie lifetime per issuance. auth_middleware re-issues the SAME cookie
+# value with a fresh expiry on every authenticated non-guest request, so an
+# active session's cookie never lapses; only an idle one hits this limit,
+# 400 days after its last request. Guest cookies are excluded — they are
+# signed with a process-local secret and cannot be honoured after a restart
+# anyway. Sessions themselves do not expire on a clock — they end when
+# revoked via the `web_sessions` row (see sessions_repo).
 SESSION_COOKIE_MAX_AGE = 400 * 24 * 3600
 WEB_SESSION_SECRET_KEY = "web_session_secret"
 
@@ -245,4 +248,15 @@ async def auth_middleware(request: Request, call_next):
         denied = _session_denied(request)
     if denied is not None:
         return denied
-    return await call_next(request)
+    response = await call_next(request)
+    cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if cookie and not getattr(request.state, "is_guest", False):
+        response.set_cookie(
+            SESSION_COOKIE_NAME, cookie,
+            httponly=True,
+            secure=os.environ.get("COOKIE_SECURE", "1") == "1",
+            samesite="strict",
+            max_age=SESSION_COOKIE_MAX_AGE,
+            path="/",
+        )
+    return response
