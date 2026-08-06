@@ -250,7 +250,15 @@ async def auth_middleware(request: Request, call_next):
         return denied
     response = await call_next(request)
     cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if cookie and not getattr(request.state, "is_guest", False):
+    # Slide only on the session-validated path: user_id is set exclusively
+    # by _session_denied, so /admin/* (token-authed, is_guest never set)
+    # never matches — and neither do guests, whose cookie is signed with a
+    # process-local secret the server cannot honour after a restart.
+    if (
+        cookie
+        and getattr(request.state, "user_id", None) is not None
+        and not getattr(request.state, "is_guest", False)
+    ):
         response.set_cookie(
             SESSION_COOKIE_NAME, cookie,
             httponly=True,
