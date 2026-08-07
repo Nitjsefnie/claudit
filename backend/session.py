@@ -264,11 +264,28 @@ def _session_denied(request: Request) -> Response | None:
     return None
 
 
-def set_session_cookie(response, token: str) -> None:
+def _session_cookie_domain() -> str | None:
+    """The registrable domain the session cookie is shared across, or None.
+
+    Single source for both cookie helpers — a browser keys a cookie on
+    (name, domain, path), so setter and clearer must agree on the domain
+    by construction, not by two copies of the same lookup. Read per call
+    (like _guest_secret) so tests can set the variable after import.
+    Unset → host-only cookie, the pre-sharing behaviour: a developer
+    checkout is not served from the shared domain and must not try to
+    set a cookie for it.
+    """
+    return os.environ.get("SESSION_COOKIE_DOMAIN") or None
+
+
+def set_session_cookie(response, token: str, *, guest: bool = False) -> None:
     """The one place a session cookie is issued.
 
-    Phase 2 adds a domain here; every issuing path must go through this so a
-    new attribute cannot reach some responses and not others.
+    Every issuing path must go through this so a new attribute cannot
+    reach some responses and not others. Guest cookies are excluded from
+    sharing (guest=True): guest secrets are per-service, so a shared
+    guest cookie would be rejected by every service except the one that
+    issued it and would shadow the host-only one.
     """
     response.set_cookie(
         SESSION_COOKIE_NAME,
@@ -278,6 +295,7 @@ def set_session_cookie(response, token: str) -> None:
         samesite="strict",
         max_age=SESSION_COOKIE_MAX_AGE,
         path="/",
+        domain=None if guest else _session_cookie_domain(),
     )
 
 
@@ -287,11 +305,13 @@ def clear_session_cookie(response) -> None:
     A browser keys a cookie on (name, domain, path), so the deletion must
     agree with set_session_cookie on all three or it writes an expired
     cookie that does not match the live one and logout silently stops
-    working. Phase 2 adds the domain to both helpers together.
+    working. The domain comes from the same _session_cookie_domain()
+    source as the setter.
     """
     response.delete_cookie(
         SESSION_COOKIE_NAME,
         path="/",
+        domain=_session_cookie_domain(),
     )
 
 

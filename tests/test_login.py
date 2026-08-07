@@ -1,4 +1,5 @@
 import contextlib
+from http.cookies import SimpleCookie
 
 import pytest
 from fastapi import FastAPI
@@ -165,6 +166,25 @@ def test_logout_rejects_the_next_request(app, fake_user):
     # Unauthenticated /api/* gets a JSON 401 (see _unauthenticated).
     r = client.get("/api/me")
     assert r.status_code == 401
+
+
+def test_guest_cookie_gets_no_domain(app, monkeypatch):
+    """A guest cookie must stay host-only even when the domain is set.
+
+    Guest secrets are per-service: a guest cookie issued with the shared
+    domain would be rejected by every service except the one that minted
+    it, and would shadow the host-only guest cookie there.
+    """
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
+    client = TestClient(app)
+    r = client.post("/login/guest", follow_redirects=False)
+    assert r.status_code in (302, 303)
+    jar = SimpleCookie()
+    for header in r.headers.get_list("set-cookie"):
+        jar.load(header)
+    morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
+    assert morsel is not None
+    assert morsel["domain"] == ""
 
 
 def test_session_cookie_round_trip(app, fake_user):

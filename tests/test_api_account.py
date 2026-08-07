@@ -106,9 +106,9 @@ def test_all_cookie_sites_use_the_helper():
     inside the ast-computed body span of set_session_cookie /
     clear_session_cookie (the two legitimate sites). A span that reaches
     the last line of the file is a bug, not an exemption — the guard
-    fails loudly rather than silently exempting the tail. A sixth
-    attribute (domain) is added in Phase 2; divergent copies are how one
-    site silently misses it.
+    fails loudly rather than silently exempting the tail. The domain
+    attribute is set inside both helpers from one shared source; divergent
+    copies are how one site silently misses it.
 
     Known holes, accepted for now:
     - The file list is hardcoded: backend/api_account.py is not scanned.
@@ -139,12 +139,12 @@ def test_all_cookie_sites_use_the_helper():
     )
 
 
-def test_clear_cookie_path_matches_the_setter():
-    """Setter and clearer must agree on path, or logout silently breaks.
+def test_clear_cookie_path_matches_the_setter(monkeypatch):
+    """Setter and clearer must agree on path AND domain, or logout breaks.
 
     A browser keys a cookie on (name, domain, path): a deletion whose path
-    differs from the setter's writes an expired cookie that does not match
-    the live one, and the real cookie survives the logout.
+    or domain differs from the setter's writes an expired cookie that does
+    not match the live one, and the real cookie survives the logout.
     """
     setter = Response()
     session_mod.set_session_cookie(setter, "token")
@@ -153,12 +153,28 @@ def test_clear_cookie_path_matches_the_setter():
     set_morsel = _session_cookie_morsel(setter)
     clear_morsel = _session_cookie_morsel(clearer)
     assert clear_morsel["path"] == set_morsel["path"]
+    assert clear_morsel["domain"] == set_morsel["domain"]
     # The deletion must actually expire the cookie, not re-issue it.
     assert clear_morsel["max-age"] == "0"
     assert clear_morsel.value == ""
+    # With the shared domain configured, BOTH helpers must carry it —
+    # symmetry on the host-only leg alone would not catch a one-sided
+    # domain (the exact production break: logout silently stops working).
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
+    setter = Response()
+    session_mod.set_session_cookie(setter, "token")
+    clearer = Response()
+    session_mod.clear_session_cookie(clearer)
+    assert _session_cookie_morsel(setter)["domain"] == "example.test"
+    assert _session_cookie_morsel(clearer)["domain"] == "example.test"
 
 
-def test_authenticated_request_refreshes_the_cookie(logged_in_client, auth_db):
+def test_authenticated_request_refreshes_the_cookie(
+    logged_in_client, auth_db, monkeypatch
+):
+    # Pin the shared-domain env var in both directions so an ambient
+    # SESSION_COOKIE_DOMAIN cannot swing this test either way.
+    monkeypatch.delenv("SESSION_COOKIE_DOMAIN", raising=False)
     before = logged_in_client.cookies.get(session_mod.SESSION_COOKIE_NAME)
     resp = logged_in_client.get("/api/me")
     assert resp.status_code == 200
@@ -174,11 +190,17 @@ def test_authenticated_request_refreshes_the_cookie(logged_in_client, auth_db):
     assert morsel["httponly"] is True
     assert morsel["samesite"] == "strict"
     assert morsel["path"] == "/"
-    # Never a Domain attribute — the cookie must stay host-only.
+    # SESSION_COOKIE_DOMAIN unset → no Domain attribute: the cookie stays
+    # host-only, so a dev checkout never sets a cookie for a domain it is
+    # not served from.
     assert morsel["domain"] == ""
     # conftest forces COOKIE_SECURE=0 so TestClient (plain HTTP) returns the
     # cookie at all; test_cookie_secure_tracks_the_env pins both directions.
     assert bool(morsel["secure"]) is False
+    # Set → the cookie carries the shared registrable domain.
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
+    morsel = _session_cookie_morsel(logged_in_client.get("/api/me"))
+    assert morsel["domain"] == "example.test"
 
 
 def test_cookie_secure_tracks_the_env(logged_in_client, auth_db, monkeypatch):
