@@ -58,9 +58,9 @@ backend/          — FastAPI application
                     GUEST_SESSION_SECRET, else per-process).
   events.py       — Thread-safe SSE broadcaster (asyncio.Queue per client).
   db.py           — Two psycopg pools: viz_pool (claudit) and auth_pool
-                    (the auth DB: reads users.config for auth, reads and
-                    writes web_sessions for session tracking). Pools
-                    never join across DBs.
+                    (the auth DB: reads users.config for auth and updates it
+                    on every successful login; reads and writes web_sessions
+                    for session tracking). Pools never join across DBs.
   cache.py        — In-process LRU with idle-time eviction for raw transcript
                     bytes (256 MB, 20-min idle).
   schema.sql      — Idempotent CREATE TABLE IF NOT EXISTS + safe

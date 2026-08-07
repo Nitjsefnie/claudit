@@ -2,9 +2,11 @@
 
 Two pools:
 - viz_pool   → claudit (this app's tables)
-- auth_pool  → the auth DB: reads users.config for auth, and reads and
-               writes web_sessions for session tracking (login INSERT,
-               throttled last_seen UPDATE, revoke UPDATE)
+- auth_pool  → the auth DB: reads users.config for auth and UPDATEs it on
+               every successful login (write_user_config stores the
+               web_session_secret), and reads and writes web_sessions for
+               session tracking (login INSERT, throttled last_seen UPDATE,
+               revoke UPDATE)
 
 The pools never join across DBs.
 """
