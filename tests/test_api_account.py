@@ -7,6 +7,7 @@ conftest.py — and therefore lands the test DSN setdefaults — before any
 test module in this directory, so a deferred-import guard is not needed
 here.
 """
+import ast
 import json
 import re
 from http.cookies import Morsel, SimpleCookie
@@ -79,19 +80,20 @@ def test_login_records_a_session_row(logged_in_client, auth_db):
 
 
 def _helper_body_spans(src: str) -> list[tuple[int, int]]:
-    """Character spans of the two cookie helpers, for the guard's exemption.
+    """1-based line spans of the two cookie helpers, for the guard's exemption.
 
-    Each span runs from the helper's `def` line to the next top-level
-    `def`, so the exemption stays correct no matter how long either
-    helper grows (Amendment 3 of the Phase 2 plan).
+    Spans come from `ast` — lineno..end_lineno of the top-level def — not
+    text scanning: a search for the next "def " cannot see `async def`,
+    so the last plain-def helper's span ran to end of file and silently
+    exempted the tail of session.py (Amendment 4 of the Phase 2 plan).
     """
     spans = []
-    for name in ("set_session_cookie", "clear_session_cookie"):
-        start = src.find(f"def {name}")
-        if start < 0:
-            continue
-        nxt = src.find("\ndef ", start)
-        spans.append((start, len(src) if nxt < 0 else nxt))
+    for node in ast.parse(src).body:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in ("set_session_cookie", "clear_session_cookie")
+        ):
+            spans.append((node.lineno, node.end_lineno))
     return spans
 
 
@@ -100,10 +102,13 @@ def test_all_cookie_sites_use_the_helper():
 
     What it actually checks: `.set_cookie(` and `.delete_cookie(` matches
     in backend/login.py and backend/session.py whose following 400
-    characters mention SESSION_COOKIE_NAME, exempting matches inside the
-    body span of set_session_cookie / clear_session_cookie (the two
-    legitimate sites). A sixth attribute (domain) is added in Phase 2;
-    divergent copies are how one site silently misses it.
+    characters mention SESSION_COOKIE_NAME, exempting matches on a line
+    inside the ast-computed body span of set_session_cookie /
+    clear_session_cookie (the two legitimate sites). A span that reaches
+    the last line of the file is a bug, not an exemption — the guard
+    fails loudly rather than silently exempting the tail. A sixth
+    attribute (domain) is added in Phase 2; divergent copies are how one
+    site silently misses it.
 
     Known holes, accepted for now:
     - The file list is hardcoded: backend/api_account.py is not scanned.
@@ -114,11 +119,18 @@ def test_all_cookie_sites_use_the_helper():
     offenders = []
     for path in (root / "backend" / "login.py", root / "backend" / "session.py"):
         src = path.read_text(encoding="utf-8")
+        total_lines = len(src.splitlines())
         exempt = _helper_body_spans(src)
+        for start, end in exempt:
+            assert end < total_lines, (
+                f"{path.name}: helper span {start}-{end} reaches the last "
+                "line of the file; the span computation is suspect, so "
+                "refusing to exempt the tail"
+            )
         for m in re.finditer(r"\.(?:set_cookie|delete_cookie)\(", src):
             line = src[: m.start()].count("\n") + 1
             window = src[m.start(): m.start() + 400]
-            inside_helper = any(s <= m.start() < e for s, e in exempt)
+            inside_helper = any(s <= line <= e for s, e in exempt)
             if "SESSION_COOKIE_NAME" in window and not inside_helper:
                 offenders.append(f"{path.name}:{line}")
     assert not offenders, (

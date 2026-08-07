@@ -141,6 +141,32 @@ def test_logout_clears_cookie(app, fake_user):
     )
 
 
+def test_logout_rejects_the_next_request(app, fake_user):
+    """End to end: after logout the session must stop authenticating.
+
+    Helper symmetry (test_clear_cookie_path_matches_the_setter) does not
+    pin this: a clear_session_cookie that re-issues a LIVE cookie leaves
+    that test green while logout silently stops working (Amendment 5 of
+    the Phase 2 plan). The jar assertion is what catches that mutant —
+    it stores the live cookie as the non-empty value '""', so the
+    server-side 401 alone cannot tell it apart from a real deletion.
+    """
+    client = TestClient(app)
+    client.post(
+        "/login",
+        data={"user_id": "12345", "password": "hunter2"},
+        follow_redirects=False,
+    )
+    r = client.get("/api/me")
+    assert r.status_code == 200
+    client.get("/logout", follow_redirects=False)
+    # The jar must not hold a usable session cookie after logout.
+    assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    # Unauthenticated /api/* gets a JSON 401 (see _unauthenticated).
+    r = client.get("/api/me")
+    assert r.status_code == 401
+
+
 def test_session_cookie_round_trip(app, fake_user):
     client = TestClient(app)
     client.post(
