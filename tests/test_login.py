@@ -168,6 +168,38 @@ def test_logout_rejects_the_next_request(app, fake_user):
     assert r.status_code == 401
 
 
+def test_logout_clears_a_pre_rollout_host_only_cookie(app, fake_user, monkeypatch):
+    """The rollout boundary, not the steady state.
+
+    A user logged in BEFORE SESSION_COOKIE_DOMAIN was turned on holds a
+    host-only session cookie. After the rollout the server issues and
+    deletes domain-keyed cookies — a different (name, domain, path) key —
+    so a logout that clears only the domain keying leaves the host-only
+    cookie alive and still authenticating. The post-logout request is the
+    assertion that matters: header inspection alone cannot see a surviving
+    cookie that still resolves.
+    """
+    # Pre-rollout: no domain configured, login issues a host-only cookie.
+    monkeypatch.delenv("SESSION_COOKIE_DOMAIN", raising=False)
+    client = TestClient(app)
+    client.post(
+        "/login",
+        data={"user_id": "12345", "password": "hunter2"},
+        follow_redirects=False,
+    )
+    assert client.get("/api/me").status_code == 200
+    # The rollout happens between login and logout. The domain needs an
+    # embedded dot: http.cookiejar refuses to return a dotless
+    # Domain=testserver cookie to host testserver.
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
+    client.get("/logout", follow_redirects=False)
+    # The surviving host-only cookie must NOT authenticate — this is the
+    # assertion that fails when the host-only deletion is dropped.
+    r = client.get("/api/me")
+    assert r.status_code == 401
+    assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+
+
 def test_guest_cookie_gets_no_domain(app, monkeypatch):
     """A guest cookie must stay host-only even when the domain is set.
 

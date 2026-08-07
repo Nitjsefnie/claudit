@@ -307,11 +307,24 @@ def clear_session_cookie(response) -> None:
     cookie that does not match the live one and logout silently stops
     working. The domain comes from the same _session_cookie_domain()
     source as the setter.
+
+    Both keyings are cleared. The host-only deletion is UNCONDITIONAL:
+    with the variable unset it is the only deletion, and with it set it
+    is the one that reaches a cookie issued BEFORE the rollout — that
+    cookie is keyed (name, host-only, path), so a browser holding it
+    keeps authenticating after a logout that deletes only the
+    domain-keyed one.
     """
+    domain = _session_cookie_domain()
+    if domain is not None:
+        response.delete_cookie(
+            SESSION_COOKIE_NAME,
+            path="/",
+            domain=domain,
+        )
     response.delete_cookie(
         SESSION_COOKIE_NAME,
         path="/",
-        domain=_session_cookie_domain(),
     )
 
 

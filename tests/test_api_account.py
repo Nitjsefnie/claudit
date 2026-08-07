@@ -146,6 +146,10 @@ def test_clear_cookie_path_matches_the_setter(monkeypatch):
     or domain differs from the setter's writes an expired cookie that does
     not match the live one, and the real cookie survives the logout.
     """
+    # Genuinely unset, not "unset unless the ambient environment sets it":
+    # an exported SESSION_COOKIE_DOMAIN would silently turn the host-only
+    # leg into a second domain leg.
+    monkeypatch.delenv("SESSION_COOKIE_DOMAIN", raising=False)
     setter = Response()
     session_mod.set_session_cookie(setter, "token")
     clearer = Response()
