@@ -8,7 +8,9 @@ test module in this directory, so a deferred-import guard is not needed
 here.
 """
 import json
+import re
 from http.cookies import Morsel, SimpleCookie
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -70,6 +72,28 @@ def test_login_records_a_session_row(logged_in_client, auth_db):
     assert parsed is not None
     nonce = parsed[2]
     assert sessions_repo.is_session_active(nonce) is True
+
+
+def test_all_cookie_sites_use_the_helper():
+    """Every set_cookie for the session name must go through one helper.
+
+    A sixth attribute (domain) is added in Phase 2; three divergent copies
+    is how one of them silently misses it.
+    """
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in (root / "backend" / "login.py", root / "backend" / "session.py"):
+        src = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"\.set_cookie\(", src):
+            line = src[: m.start()].count("\n") + 1
+            window = src[m.start(): m.start() + 400]
+            prefix = src[max(0, m.start() - 400): m.start()]
+            # The helper's own set_cookie is the one legitimate site.
+            if "SESSION_COOKIE_NAME" in window and "def set_session_cookie" not in prefix:
+                offenders.append(f"{path.name}:{line}")
+    assert not offenders, (
+        "session cookies set outside set_session_cookie(): " + ", ".join(offenders)
+    )
 
 
 def test_authenticated_request_refreshes_the_cookie(logged_in_client, auth_db):

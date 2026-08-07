@@ -264,6 +264,23 @@ def _session_denied(request: Request) -> Response | None:
     return None
 
 
+def set_session_cookie(response, token: str) -> None:
+    """The one place a session cookie is issued.
+
+    Phase 2 adds a domain here; every issuing path must go through this so a
+    new attribute cannot reach some responses and not others.
+    """
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=os.environ.get("COOKIE_SECURE", "1") == "1",
+        samesite="strict",
+        max_age=SESSION_COOKIE_MAX_AGE,
+        path="/",
+    )
+
+
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if path in _AUTH_PUBLIC_PATHS:
@@ -286,12 +303,5 @@ async def auth_middleware(request: Request, call_next):
         and getattr(request.state, "user_id", None) is not None
         and not getattr(request.state, "is_guest", False)
     ):
-        response.set_cookie(
-            SESSION_COOKIE_NAME, cookie,
-            httponly=True,
-            secure=os.environ.get("COOKIE_SECURE", "1") == "1",
-            samesite="strict",
-            max_age=SESSION_COOKIE_MAX_AGE,
-            path="/",
-        )
+        set_session_cookie(response, cookie)
     return response
