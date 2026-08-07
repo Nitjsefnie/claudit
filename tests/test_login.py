@@ -200,6 +200,30 @@ def test_logout_clears_a_pre_rollout_host_only_cookie(app, fake_user, monkeypatc
     assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
 
 
+def test_guest_logout_with_domain_set_rejects_the_next_request(app, monkeypatch):
+    """Guest logout must work when SESSION_COOKIE_DOMAIN is set.
+
+    Guest cookies are host-only BY DESIGN (guest secrets are per-service —
+    see set_session_cookie), so when the variable is set the domain-keyed
+    deletion can never match a guest cookie: a clearer that deletes only
+    the domain keying leaves the guest cookie alive and still
+    authenticating. The post-logout request is the assertion that matters —
+    header inspection cannot see a surviving cookie that still resolves.
+    """
+    # Same dotted-domain rule as the pre-rollout test above: http.cookiejar
+    # refuses a dotless Domain=testserver cookie for host testserver.
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
+    client = TestClient(app)
+    client.post("/login/guest", follow_redirects=False)
+    assert client.get("/api/me").status_code == 200
+    client.get("/logout", follow_redirects=False)
+    # The surviving host-only guest cookie must NOT authenticate — this is
+    # the assertion that fails when the host-only deletion is dropped.
+    r = client.get("/api/me")
+    assert r.status_code == 401
+    assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+
+
 def test_guest_cookie_gets_no_domain(app, monkeypatch):
     """A guest cookie must stay host-only even when the domain is set.
 

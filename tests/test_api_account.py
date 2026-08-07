@@ -57,18 +57,26 @@ def _nonce_of(client: TestClient) -> str:
     return parsed[2]
 
 
-def _session_cookie_morsel(resp) -> Morsel:
-    """The session-cookie Morsel from a response's Set-Cookie headers."""
+def _session_cookie_morsels(resp) -> list[Morsel]:
+    """Every session-cookie Morsel from a response's Set-Cookie headers."""
     headers = resp.headers
     # httpx Headers spell it get_list; starlette's spell it getlist.
     get_list = getattr(headers, "get_list", None) or headers.getlist
+    morsels = []
     for header in get_list("set-cookie"):
         jar = SimpleCookie()
         jar.load(header)
         morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
         if morsel is not None:
-            return morsel
-    raise AssertionError("no session cookie in Set-Cookie headers")
+            morsels.append(morsel)
+    if not morsels:
+        raise AssertionError("no session cookie in Set-Cookie headers")
+    return morsels
+
+
+def _session_cookie_morsel(resp) -> Morsel:
+    """The session-cookie Morsel from a response's Set-Cookie headers."""
+    return _session_cookie_morsels(resp)[0]
 
 
 def test_login_records_a_session_row(logged_in_client, auth_db):
@@ -170,7 +178,16 @@ def test_clear_cookie_path_matches_the_setter(monkeypatch):
     clearer = Response()
     session_mod.clear_session_cookie(clearer)
     assert _session_cookie_morsel(setter)["domain"] == "example.test"
-    assert _session_cookie_morsel(clearer)["domain"] == "example.test"
+    # The clearer emits BOTH deletions — domain-keyed and host-only — and
+    # their header order is an implementation detail: assert the multiset
+    # of domains, not the first header. A first-header check fails on a
+    # behaviourally inert swap of the two delete_cookie calls, with a
+    # message pointing at a domain defect that does not exist.
+    domains = sorted(m["domain"] for m in _session_cookie_morsels(clearer))
+    assert domains == ["", "example.test"], (
+        "clear_session_cookie must emit both deletions — host-only and "
+        f"domain-keyed — in any order; got domains {domains}"
+    )
 
 
 def test_authenticated_request_refreshes_the_cookie(
