@@ -215,8 +215,12 @@ def test_account_sessions_cannot_revoke_another_users(auth_db):
 def test_account_sessions_revoke_requires_nonce(auth_db):
     _seed_user(987005)
     client = _login_as(987005)
-    resp = client.post(
-        "/api/account/sessions/revoke", json={}, headers=_ORIGIN
-    )
-    assert resp.status_code == 400
-    assert resp.json()["ok"] is False
+    # {} is plain missing; {"nonce": None} and {"nonce": 123} pin the
+    # isinstance(raw_nonce, str) guard — a str() coercion would turn the
+    # null into the literal string "None" and look it up as a real nonce.
+    for body in ({}, {"nonce": None}, {"nonce": 123}):
+        resp = client.post(
+            "/api/account/sessions/revoke", json=body, headers=_ORIGIN
+        )
+        assert resp.status_code == 400
+        assert resp.json()["ok"] is False

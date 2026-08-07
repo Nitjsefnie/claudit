@@ -165,6 +165,35 @@ def test_non_string_session_secret_is_treated_as_absent(auth_db, stored):
     assert session.resolve_session_user_id(forged) is None
 
 
+def test_whitespace_only_session_secret_is_treated_as_absent(auth_db):
+    # signed with the RAW stored value, which .strip() must reduce to absent
+    #
+    # The parametrized non-string test above cannot cover this shape: its
+    # body signs with str(stored).strip(), which for a whitespace-only
+    # string would sign with "" instead of the stored bytes. Dropping
+    # .strip() from _stored_session_secret would adopt " \t\n " as the
+    # signing secret and GRANT the forged token — same failure class as
+    # the str(None) coercion. (The guest side's whitespace test is
+    # test_guest_secret_falls_back_on_whitespace_only_env; this closes
+    # the asymmetry on the user side.)
+    uid = 4322
+    stored = " \t\n "
+    with db.auth_conn() as c:
+        c.execute(
+            "INSERT INTO users (user_id, config) VALUES (%s, %s::jsonb) "
+            "ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config",
+            (uid, json.dumps({session.WEB_SESSION_SECRET_KEY: stored})),
+        )
+    forged = session.make_session_token(uid, stored)
+    parsed = session.parse_session_token(forged)
+    assert parsed is not None
+    sessions_repo.record_session(uid, parsed[2], "curl", "127.0.0.1")
+    # Precondition: the nonce really is active, so resolve can only fail
+    # on the secret handling — the test cannot pass for the wrong reason.
+    assert sessions_repo.is_session_active(parsed[2]) is True
+    assert session.resolve_session_user_id(forged) is None
+
+
 def test_guest_session_has_no_web_session_row(guest_client, monkeypatch):
     cookie = guest_client.cookies.get(session.SESSION_COOKIE_NAME)
     parsed = session.parse_session_token(cookie)
@@ -277,17 +306,29 @@ def test_resolve_uses_exactly_two_auth_connections(
 
     real_auth_conn = db.auth_conn
     acquisitions = 0
+    depth = 0
+    peak = 0
 
     @contextlib.contextmanager
     def counting_auth_conn():
-        nonlocal acquisitions
+        nonlocal acquisitions, depth, peak
         acquisitions += 1
-        with real_auth_conn() as conn:
-            yield conn
+        depth += 1
+        peak = max(peak, depth)
+        try:
+            with real_auth_conn() as conn:
+                yield conn
+        finally:
+            depth -= 1
 
     monkeypatch.setattr(db, "auth_conn", counting_auth_conn)
     assert session.resolve_session_user_id(token) == uid
     assert acquisitions == 2
+    # Amendment 2's actual constraint: never more than one auth-DB
+    # connection held at a time. The lifetime count above cannot see a
+    # violation — two sequential checkouts and two overlapping ones both
+    # total 2 — so the peak is asserted separately.
+    assert peak == 1
 
 
 def test_token_older_than_cookie_lifetime_still_verifies(monkeypatch):

@@ -109,6 +109,58 @@ def test_schema_check_requires_web_sessions(auth_db, monkeypatch):
     assert row is not None and row[0] is not None
 
 
+def test_schema_check_rejects_a_view_named_web_sessions(auth_db, monkeypatch):
+    """A VIEW named web_sessions must NOT satisfy the boot guard.
+
+    to_regclass would accept a view (or sequence); the guard deliberately
+    requires table_type='BASE TABLE', because a view cannot take the
+    web_sessions writes (record/touch/revoke). Same rename/restore
+    pattern as the missing-table test above."""
+    monkeypatch.setattr(db, "viz_conn", _viz_conn_stub)
+    try:
+        with db.auth_conn() as c:
+            c.execute(
+                "ALTER TABLE web_sessions RENAME TO web_sessions_hidden"
+            )
+            c.execute(
+                "CREATE VIEW web_sessions AS "
+                "SELECT * FROM web_sessions_hidden"
+            )
+        with pytest.raises(RuntimeError, match="web_sessions"):
+            db.schema_check()
+    finally:
+        with db.auth_conn() as c:
+            c.execute("DROP VIEW IF EXISTS web_sessions")
+            c.execute(
+                "ALTER TABLE IF EXISTS web_sessions_hidden "
+                "RENAME TO web_sessions"
+            )
+    # A restore that silently failed would corrupt every later test in the
+    # module and look like an unrelated failure — assert the table is back.
+    with db.auth_conn() as c:
+        row = c.execute(
+            "SELECT to_regclass('public.web_sessions')"
+        ).fetchone()
+    assert row is not None and row[0] is not None
+
+
+def test_record_truncates_user_agent_and_ip(auth_db):
+    # Both columns are unbounded TEXT; without truncation a hostile
+    # User-Agent header writes an arbitrarily large row on every
+    # successful login.
+    sessions_repo.record_session(
+        13, "nonce-trunc", "u" * 1000, "1" * 200
+    )
+    with db.auth_conn() as c:
+        row = c.execute(
+            "SELECT user_agent, ip FROM web_sessions WHERE nonce = %s",
+            ("nonce-trunc",),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "u" * 400
+    assert row[1] == "1" * 100
+
+
 class _FakeScheduler:
     """Stand-in for the lifespan's BackgroundScheduler.
 

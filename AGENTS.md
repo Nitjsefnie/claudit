@@ -58,7 +58,9 @@ backend/          — FastAPI application
                     GUEST_SESSION_SECRET, else per-process).
   events.py       — Thread-safe SSE broadcaster (asyncio.Queue per client).
   db.py           — Two psycopg pools: viz_pool (claudit) and auth_pool
-                    (read-only auth DB). Pools never join across DBs.
+                    (the auth DB: reads users.config for auth, reads and
+                    writes web_sessions for session tracking). Pools
+                    never join across DBs.
   cache.py        — In-process LRU with idle-time eviction for raw transcript
                     bytes (256 MB, 20-min idle).
   schema.sql      — Idempotent CREATE TABLE IF NOT EXISTS + safe
@@ -246,6 +248,8 @@ journalctl -u claudit -f
 ```
 
 Schema migrations are idempotent — re-apply `backend/schema.sql` after any schema change. Bump `PARSER_VERSION` in `.env` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest.
+
+**Reverse-proxy prerequisite — real client IPs.** Before deploying, the nginx vhost must be configured with Cloudflare's ranges via `set_real_ip_from` plus `real_ip_header CF-Connecting-IP` (the `real_ip` module). Without it, uvicorn's reverse walk stops at the Cloudflare edge address, so `web_sessions.ip` records the edge PoP rather than the visitor — defeating the stolen-cookie visibility the column exists for, and permanently poisoning every row written before the fix. The same value buckets the login rate limiter, so until it is fixed every visitor behind one Cloudflare PoP shares a bucket.
 
 ## CI — batch your pushes
 
