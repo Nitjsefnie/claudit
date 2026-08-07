@@ -281,6 +281,20 @@ def set_session_cookie(response, token: str) -> None:
     )
 
 
+def clear_session_cookie(response) -> None:
+    """The one place the session cookie is cleared.
+
+    A browser keys a cookie on (name, domain, path), so the deletion must
+    agree with set_session_cookie on all three or it writes an expired
+    cookie that does not match the live one and logout silently stops
+    working. Phase 2 adds the domain to both helpers together.
+    """
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        path="/",
+    )
+
+
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if path in _AUTH_PUBLIC_PATHS:

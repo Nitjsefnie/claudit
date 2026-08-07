@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 
 from backend import auth, db
 from backend import session as session_mod
@@ -57,7 +58,10 @@ def _nonce_of(client: TestClient) -> str:
 
 def _session_cookie_morsel(resp) -> Morsel:
     """The session-cookie Morsel from a response's Set-Cookie headers."""
-    for header in resp.headers.get_list("set-cookie"):
+    headers = resp.headers
+    # httpx Headers spell it get_list; starlette's spell it getlist.
+    get_list = getattr(headers, "get_list", None) or headers.getlist
+    for header in get_list("set-cookie"):
         jar = SimpleCookie()
         jar.load(header)
         morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
@@ -74,26 +78,72 @@ def test_login_records_a_session_row(logged_in_client, auth_db):
     assert sessions_repo.is_session_active(nonce) is True
 
 
-def test_all_cookie_sites_use_the_helper():
-    """Every set_cookie for the session name must go through one helper.
+def _helper_body_spans(src: str) -> list[tuple[int, int]]:
+    """Character spans of the two cookie helpers, for the guard's exemption.
 
-    A sixth attribute (domain) is added in Phase 2; three divergent copies
-    is how one of them silently misses it.
+    Each span runs from the helper's `def` line to the next top-level
+    `def`, so the exemption stays correct no matter how long either
+    helper grows (Amendment 3 of the Phase 2 plan).
+    """
+    spans = []
+    for name in ("set_session_cookie", "clear_session_cookie"):
+        start = src.find(f"def {name}")
+        if start < 0:
+            continue
+        nxt = src.find("\ndef ", start)
+        spans.append((start, len(src) if nxt < 0 else nxt))
+    return spans
+
+
+def test_all_cookie_sites_use_the_helper():
+    """Flags session-cookie set/delete calls outside the two helpers.
+
+    What it actually checks: `.set_cookie(` and `.delete_cookie(` matches
+    in backend/login.py and backend/session.py whose following 400
+    characters mention SESSION_COOKIE_NAME, exempting matches inside the
+    body span of set_session_cookie / clear_session_cookie (the two
+    legitimate sites). A sixth attribute (domain) is added in Phase 2;
+    divergent copies are how one site silently misses it.
+
+    Known holes, accepted for now:
+    - The file list is hardcoded: backend/api_account.py is not scanned.
+    - A call written with a literal cookie-name string instead of
+      SESSION_COOKIE_NAME is not matched.
     """
     root = Path(__file__).resolve().parents[1]
     offenders = []
     for path in (root / "backend" / "login.py", root / "backend" / "session.py"):
         src = path.read_text(encoding="utf-8")
-        for m in re.finditer(r"\.set_cookie\(", src):
+        exempt = _helper_body_spans(src)
+        for m in re.finditer(r"\.(?:set_cookie|delete_cookie)\(", src):
             line = src[: m.start()].count("\n") + 1
             window = src[m.start(): m.start() + 400]
-            prefix = src[max(0, m.start() - 400): m.start()]
-            # The helper's own set_cookie is the one legitimate site.
-            if "SESSION_COOKIE_NAME" in window and "def set_session_cookie" not in prefix:
+            inside_helper = any(s <= m.start() < e for s, e in exempt)
+            if "SESSION_COOKIE_NAME" in window and not inside_helper:
                 offenders.append(f"{path.name}:{line}")
     assert not offenders, (
-        "session cookies set outside set_session_cookie(): " + ", ".join(offenders)
+        "session cookie set/cleared outside the session.py helpers: "
+        + ", ".join(offenders)
     )
+
+
+def test_clear_cookie_path_matches_the_setter():
+    """Setter and clearer must agree on path, or logout silently breaks.
+
+    A browser keys a cookie on (name, domain, path): a deletion whose path
+    differs from the setter's writes an expired cookie that does not match
+    the live one, and the real cookie survives the logout.
+    """
+    setter = Response()
+    session_mod.set_session_cookie(setter, "token")
+    clearer = Response()
+    session_mod.clear_session_cookie(clearer)
+    set_morsel = _session_cookie_morsel(setter)
+    clear_morsel = _session_cookie_morsel(clearer)
+    assert clear_morsel["path"] == set_morsel["path"]
+    # The deletion must actually expire the cookie, not re-issue it.
+    assert clear_morsel["max-age"] == "0"
+    assert clear_morsel.value == ""
 
 
 def test_authenticated_request_refreshes_the_cookie(logged_in_client, auth_db):

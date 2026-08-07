@@ -165,7 +165,7 @@ async def login_post(
 @router.get("/logout")
 async def logout(request: Request) -> Response:
     response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie(session_mod.SESSION_COOKIE_NAME, path="/")
+    session_mod.clear_session_cookie(response)
     return response
 
 
