@@ -142,7 +142,9 @@ def load_user_config(user_id: int, conn: Connection | None = None) -> dict | Non
 def write_user_config(user_id: int, config: dict) -> None:
     """Persist a modified config back to the auth DB's users table.
 
-    Used to store the freshly-minted web_session_secret on first login.
+    Called unconditionally on every successful login (see login.py). The
+    web_session_secret itself is minted only on first login; the config
+    write happens every time.
     """
     with db.auth_conn() as c:
         c.execute(
