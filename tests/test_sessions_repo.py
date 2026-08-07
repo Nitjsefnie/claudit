@@ -137,11 +137,16 @@ def test_schema_check_rejects_a_view_named_web_sessions(auth_db, monkeypatch):
             )
     # A restore that silently failed would corrupt every later test in the
     # module and look like an unrelated failure — assert the table is back.
+    # Must require BASE TABLE, mirroring the production guard: to_regclass
+    # would also accept a leftover VIEW, which is the exact corruption this
+    # test creates.
     with db.auth_conn() as c:
         row = c.execute(
-            "SELECT to_regclass('public.web_sessions')"
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='web_sessions' "
+            "AND table_type='BASE TABLE'"
         ).fetchone()
-    assert row is not None and row[0] is not None
+    assert row is not None
 
 
 def test_record_truncates_user_agent_and_ip(auth_db):
