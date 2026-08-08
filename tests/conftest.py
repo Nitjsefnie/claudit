@@ -50,7 +50,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-admin")
 # COOKIE_SECURE=1 must not be able to break the suite.
 os.environ["COOKIE_SECURE"] = "0"
 # SESSION_COOKIE_DOMAIN from .env (or the ambient environment) would make
-# the app issue domain-scoped cookies the test client's jar never returns
+# the app issue domain-keyed cookies the test client's jar never returns
 # for the `testserver` host, failing auth tests for reasons unrelated to
 # any defect. Force it empty: backend/session.py maps "" to None, so
 # cookies stay host-only. A forced assignment, NOT a setdefault, and it

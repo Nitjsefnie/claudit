@@ -278,14 +278,14 @@ def _session_cookie_domain() -> str | None:
     return os.environ.get("SESSION_COOKIE_DOMAIN") or None
 
 
-def set_session_cookie(response, token: str, *, guest: bool = False) -> None:
+def set_session_cookie(response, token: str) -> None:
     """The one place a session cookie is issued.
 
     Every issuing path must go through this so a new attribute cannot
-    reach some responses and not others. Guest cookies are excluded from
-    sharing (guest=True): guest secrets are per-service, so a shared
-    guest cookie would be rejected by every service except the one that
-    issued it and would shadow the host-only one.
+    reach some responses and not others. Guest cookies use the shared
+    domain because recipient services share GUEST_SESSION_SECRET; keep
+    those deployment settings aligned so each recipient can verify the
+    token.
     """
     response.set_cookie(
         SESSION_COOKIE_NAME,
@@ -295,7 +295,7 @@ def set_session_cookie(response, token: str, *, guest: bool = False) -> None:
         samesite="strict",
         max_age=SESSION_COOKIE_MAX_AGE,
         path="/",
-        domain=None if guest else _session_cookie_domain(),
+        domain=_session_cookie_domain(),
     )
 
 
@@ -308,25 +308,16 @@ def clear_session_cookie(response) -> None:
     working. The domain comes from the same _session_cookie_domain()
     source as the setter.
 
-    Both keyings are cleared. The host-only deletion is UNCONDITIONAL:
-    with the variable unset it is the one deletion issued, and with it
-    set it is the leg that reaches a cookie issued BEFORE the rollout —
-    that cookie is keyed (name, host-only, path), so a logout whose
-    deletion covers the domain keying alone leaves it in the browser.
-    And a surviving pre-rollout host-only cookie CAN still authenticate.
-    Two witnesses, each pinned by a test: a guest cookie — its
-    resolution consults no web_sessions row at all (guests have none),
-    so there is nothing a logout could revoke
-    (tests/test_login.py::test_guest_cookie_surviving_a_boundary_logout_still_authenticates)
-    — and an authenticated cookie naming a session this logout did not
-    revoke, as at the two-nonce rollout boundary, where logout revokes
-    the presented session and leaves the other live one in place
-    (tests/test_login.py::test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live).
-    The host-only deletion therefore cannot be made conditional on
-    anything the logout handler can observe. This rationale is
-    deliberately a sufficiency claim with witnesses; it does not
-    attempt a characterisation of the cases where a surviving cookie
-    stops authenticating.
+    When SESSION_COOKIE_DOMAIN is set, the response carries a domain-keyed
+    deletion and an unconditional host-only deletion. When it is unset,
+    the host-only deletion is emitted.
+    A cookie issued before SESSION_COOKIE_DOMAIN was enabled keeps the
+    host-only (name, domain, path) keying after the setting changes. The
+    rollout witness
+    (tests/test_login.py::test_logout_clears_a_pre_rollout_host_only_cookie)
+    authenticates that cookie at the boundary and then checks logout.
+    That measured boundary is sufficient reason to retain the host-only
+    deletion beside the domain-keyed deletion.
     """
     domain = _session_cookie_domain()
     if domain is not None:

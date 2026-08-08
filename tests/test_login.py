@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from starlette.responses import Response
 
 from backend import db
 from backend import login as login_mod
@@ -95,6 +96,26 @@ def _fake_user_fixture(monkeypatch):
 
     monkeypatch.setattr(db, "auth_conn", _no_auth_conn)
     return store
+
+
+def _session_cookie_morsel(response):
+    """Return the final session-cookie Morsel from a response."""
+    return _session_cookie_morsels(response)[-1]
+
+
+def _session_cookie_morsels(response):
+    """Return session-cookie Morsels in response-header order."""
+    morsels = []
+    get_list = getattr(response.headers, "get_list", None) or response.headers.getlist
+    for header in get_list("set-cookie"):
+        jar = SimpleCookie()
+        jar.load(header)
+        morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
+        if morsel is not None:
+            morsels.append(morsel)
+    if not morsels:
+        raise AssertionError("no session cookie in Set-Cookie headers")
+    return morsels
 
 
 def test_login_page_is_html(app):
@@ -202,9 +223,9 @@ def test_logout_clears_a_pre_rollout_host_only_cookie(app, fake_user, monkeypatc
         follow_redirects=False,
     )
     assert client.get("/api/me").status_code == 200
-    # The rollout happens between login and logout. The domain needs an
-    # embedded dot: http.cookiejar refuses to return a dotless
-    # Domain=testserver cookie to host testserver.
+    # The dotted configured domain is needed for http.cookiejar's host
+    # matching: testserver.local is accepted, while a dotless
+    # Domain=testserver cookie is not returned to host testserver.
     monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
     client.get("/logout", follow_redirects=False)
     # The surviving host-only cookie must NOT authenticate — this is the
@@ -214,47 +235,63 @@ def test_logout_clears_a_pre_rollout_host_only_cookie(app, fake_user, monkeypatc
     assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
 
 
-def test_guest_logout_with_domain_set_rejects_the_next_request(app, monkeypatch):
-    """Guest logout must work when SESSION_COOKIE_DOMAIN is set.
+def test_guest_logout_with_shared_domain_rejects_the_next_request(app, monkeypatch):
+    """Guest logout must clear a domain-keyed guest cookie.
 
-    Guest cookies are host-only BY DESIGN (guest secrets are per-service —
-    see set_session_cookie), so when the variable is set the domain-keyed
-    deletion can never match a guest cookie: a clearer that deletes only
-    the domain keying leaves the guest cookie alive and still
-    authenticating. The post-logout request is the assertion that matters —
-    header inspection cannot see a surviving cookie that still resolves.
+    A matching GUEST_SESSION_SECRET lets a recipient service verify a guest
+    token issued with the configured shared domain, so logout must clear
+    that domain-keyed cookie. The post-logout request is the assertion that
+    matters — header inspection cannot see a surviving cookie that still
+    resolves.
     """
-    # Same dotted-domain rule as the pre-rollout test above: http.cookiejar
-    # refuses a dotless Domain=testserver cookie for host testserver.
+    # The dotted configured domain matches this explicit client URL; a
+    # dotless Domain=testserver cookie is not returned by http.cookiejar.
     monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
-    client = TestClient(app)
-    client.post("/login/guest", follow_redirects=False)
+    client = TestClient(app, base_url="http://testserver.local")
+    response = client.post("/login/guest", follow_redirects=False)
+    assert _session_cookie_morsel(response)["domain"] == "testserver.local"
     assert client.get("/api/me").status_code == 200
     client.get("/logout", follow_redirects=False)
-    # The surviving host-only guest cookie must NOT authenticate — this is
+    # The surviving domain-keyed guest cookie must NOT authenticate — this is
     # the assertion that fails when the host-only deletion is dropped.
     r = client.get("/api/me")
     assert r.status_code == 401
     assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
 
 
-def test_guest_cookie_gets_no_domain(app, monkeypatch):
-    """A guest cookie must stay host-only even when the domain is set.
+def test_guest_cookie_gets_shared_domain(app, monkeypatch):
+    """A guest cookie uses the configured shared domain.
 
-    Guest secrets are per-service: a guest cookie issued with the shared
-    domain would be rejected by every service except the one that minted
-    it, and would shadow the host-only guest cookie there.
+    A shared GUEST_SESSION_SECRET lets a receiving service verify the
+    domain-keyed guest cookie when its cookie-domain setting matches.
     """
     monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://example.test")
     r = client.post("/login/guest", follow_redirects=False)
     assert r.status_code in (302, 303)
-    jar = SimpleCookie()
-    for header in r.headers.get_list("set-cookie"):
-        jar.load(header)
-    morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
-    assert morsel is not None
-    assert morsel["domain"] == ""
+    morsels = _session_cookie_morsels(r)
+    assert len(morsels) == 3
+    assert sorted(m["domain"] for m in morsels[:2]) == ["", "example.test"]
+    assert all(m["max-age"] == "0" for m in morsels[:2])
+    assert morsels[-1]["domain"] == "example.test"
+    assert morsels[-1]["max-age"] == str(session_mod.SESSION_COOKIE_MAX_AGE)
+    # The jar check records the live value retained from this response; it
+    # does not measure browser ordering for duplicate cookie names.
+    assert client.cookies.get(session_mod.SESSION_COOKIE_NAME) == morsels[-1].value
+
+
+def test_guest_and_user_cookies_use_the_same_domain_accessor(monkeypatch):
+    """Guest and authenticated cookies read one domain configuration."""
+    expected = "from-accessor.example"
+    monkeypatch.setattr(session_mod, "_session_cookie_domain", lambda: expected)
+
+    guest = Response()
+    session_mod.set_session_cookie(guest, "guest-token")
+    user = Response()
+    session_mod.set_session_cookie(user, "user-token")
+
+    assert _session_cookie_morsel(guest)["domain"] == expected
+    assert _session_cookie_morsel(user)["domain"] == expected
 
 
 def test_session_cookie_round_trip(app, fake_user):
@@ -442,7 +479,7 @@ def test_guest_logout_never_touches_the_auth_db(app, monkeypatch):
     cookie and the next request keeps authenticating.
 
     Deliberate overlap: the domain-set half of this test re-covers
-    test_guest_logout_with_domain_set_rejects_the_next_request. Both are
+    test_guest_logout_with_shared_domain_rejects_the_next_request. Both are
     kept — this one pins zero auth-DB access BY ASSERTION (the other
     would catch a removed guest exclusion only via an incidental
     PoolTimeout crash, dependent on test ordering), while that one runs
@@ -455,7 +492,7 @@ def test_guest_logout_never_touches_the_auth_db(app, monkeypatch):
 
     monkeypatch.setattr(db, "auth_conn", _down)
     # Domain set: also pins that guest logout clears BOTH keyings while
-    # the guest cookie itself is host-only by design.
+    # the guest cookie uses the configured domain.
     monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
     client = TestClient(app, raise_server_exceptions=False)
     client.post("/login/guest", follow_redirects=False)
@@ -573,7 +610,9 @@ def test_logout_revokes_only_the_presented_session(auth_db):
     assert r.status_code == 303
 
     assert sessions_repo.is_session_active(parsed1[2]) is False
-    # The assertions the blanket UPDATE ... WHERE user_id mutant fails.
+    # `client2.get("/api/me").status_code == 200` fails a blanket
+    # UPDATE ... WHERE user_id mutant: both tokens use user_id 987012,
+    # so revoking client1's nonce also invalidates client2's cookie.
     assert sessions_repo.is_session_active(parsed2[2]) is True
     assert client2.get("/api/me").status_code == 200
 
@@ -581,33 +620,23 @@ def test_logout_revokes_only_the_presented_session(auth_db):
 def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
     auth_db,
 ):
-    """The authenticated witness for the surviving-cookie rationale.
+    """The rollout-boundary test uses two live session nonces.
 
-    The rollout boundary can leave a browser holding two same-named
-    cookies under two keyings (host-only from before SESSION_COOKIE_DOMAIN
-    was turned on, domain-keyed after) that name TWO DIFFERENT live
-    sessions. Logout revokes the presented session and leaves the other
-    live one in place (pinned by
-    test_logout_revokes_only_the_presented_session), so the other nonce
-    survives and its cookie keeps authenticating — one of the two
-    witnesses clear_session_cookie's docstring names for its claim that
-    a surviving host-only cookie CAN still authenticate, and the
-    disproof of the earlier "holds only for guest sessions" qualifier.
+    It sends one explicit Cookie header with token1 followed by token2.
+    Starlette's cookie_parser in starlette/requests.py stores the final
+    value for a duplicate name, so the handler resolves and revokes
+    token2. The test then checks that token1 remains active and still
+    authenticates from a separate client.
 
-    Which nonce is presented is deterministic here: Starlette parses the
-    Cookie header with its own cookie_parser (starlette/requests.py —
-    explicitly NOT SimpleCookie, per the comment in its source), which
-    assigns each ;-separated pair into a dict, so a duplicated name
-    resolves to its LAST occurrence. token2 (the post-rollout login) is
-    therefore what the handler resolves and revokes. token1 plays the
-    surviving pre-rollout cookie; a client that never saw the deletion
-    response stands in for the browser still holding it.
+    This explicit-header setup measures request parsing and server-side
+    revocation. The test client does not expose browser-side last-wins
+    ordering for cookies received through Set-Cookie headers.
     """
     # Private user_id: 987001-987005, 987010, 987011 and 987012 are taken.
     uid = 987013
     _seed_auth_user(uid, "task7a-rollout-secret", "task7a-rollout-pw")
 
-    # Two real logins — the pre-rollout and post-rollout sign-ins.
+    # Two real logins provide the distinct nonces used in the explicit header.
     def _login() -> str:
         client = TestClient(real_app)
         r = client.post(
@@ -632,8 +661,9 @@ def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
     assert sessions_repo.is_session_active(parsed1[2]) is True
     assert sessions_repo.is_session_active(parsed2[2]) is True
 
-    # ONE logout carrying BOTH cookies, as the rollout boundary produces.
-    # Fresh client: empty jar, so the explicit header is the only Cookie.
+    # One logout receives an explicit duplicate-name Cookie header. The
+    # client has an empty jar, so the request uses that header without jar
+    # cookies.
     boundary = TestClient(real_app)
     r = boundary.get(
         "/logout",
@@ -647,8 +677,7 @@ def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
     )
     assert r.status_code == 303
 
-    # The presented nonce is revoked; the other survives and still
-    # authenticates — the property the docstring may claim.
+    # The parser-selected nonce is revoked; the other remains usable.
     assert sessions_repo.is_session_active(parsed2[2]) is False
     assert sessions_repo.is_session_active(parsed1[2]) is True
     holder = TestClient(real_app)
@@ -659,34 +688,27 @@ def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
 def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
     auth_db, monkeypatch
 ):
-    """The guest witness for the surviving-cookie rationale — and the
-    regression guard for the wording itself.
+    """Guest-token resolution is independent of authenticated revocation.
 
-    clear_session_cookie's docstring claims a surviving host-only
-    cookie CAN still authenticate and names two witnesses; this is the
-    guest one. A guest token's resolution consults no web_sessions row
-    (nothing ever records one for a guest), so a boundary logout that
-    revokes the presented authenticated session has nothing it could
-    revoke for the guest, and the surviving guest cookie keeps
-    authenticating. The pair this test asserts — is_session_active
-    False AND /api/me 200 — is the measured counterexample that broke
-    the earlier "liveness" wording: by the row predicate this cookie is
-    not live, yet it authenticates.
+    The guest token has no web_sessions row, so revoking the presented
+    authenticated nonce does not revoke that guest token. The assertions
+    `is_session_active(parsed_guest[2]) is False` and `/api/me == 200`
+    measure that distinction before and after the boundary logout.
 
-    The deletion-header assertions are the conditional-deletion
-    mutant's kill: with the domain set, a host-only deletion made
-    conditional on the domain being unset would never reach this
-    cookie's keying.
+    The response-header assertions record a domain-keyed deletion and the
+    unconditional host-only deletion. The test client cannot establish
+    browser-side last-wins ordering; the explicit Cookie header exercises
+    the server's duplicate-name parsing.
     """
-    # Domain set, so the host-only deletion leg is the one that can
-    # reach the guest cookie (guest cookies are host-only by design).
     monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
     # Private user_id: 987001-987005 and 987010-987015 are taken.
     uid = 987016
     _seed_auth_user(uid, "task7a-guestwit-secret", "task7a-guestwit-pw")
 
-    # The guest cookie: a real guest login. It stays host-only even
-    # with the domain set, so the TestClient jar holds it.
+    # The guest cookie is issued with the configured domain. http.cookiejar
+    # accepts it for the default testserver client via
+    # http.cookiejar.eff_request_host, which maps the bare host to
+    # testserver.local.
     guest = TestClient(real_app)
     r = guest.post("/login/guest", follow_redirects=False)
     assert r.status_code == 303, r.text
@@ -695,14 +717,17 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
     parsed_guest = session_mod.parse_session_token(guest_token)
     assert parsed_guest is not None
     assert parsed_guest[0] == session_mod.GUEST_USER_ID
-    # The witness pair, before the logout: NO row (nothing a logout
-    # could revoke) — and the cookie authenticates.
+    # `sessions_repo.is_session_active(parsed_guest[2]) is False` records
+    # that this nonce is not active; tests/test_session.py::test_guest_session_has_no_web_session_row
+    # pins the separate no-row fact. `guest.get("/api/me").status_code == 200`
+    # records that the cookie authenticates.
     assert sessions_repo.is_session_active(parsed_guest[2]) is False
     assert guest.get("/api/me").status_code == 200
 
-    # The presented session: a real authenticated login. With the
-    # domain set the jar refuses the Domain=testserver.local cookie for
-    # host testserver, so the token comes from the response header.
+    # The presented session is a real authenticated login. The default
+    # testserver host is matched to testserver.local by
+    # http.cookiejar.eff_request_host; read the token from the response
+    # header for the explicit combined Cookie header.
     client = TestClient(real_app)
     r = client.post(
         "/login",
@@ -720,11 +745,10 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
     assert parsed_presented is not None
     assert sessions_repo.is_session_active(parsed_presented[2]) is True
 
-    # ONE boundary logout carrying BOTH cookies; Starlette's
-    # cookie_parser resolves a duplicated name to its LAST occurrence,
-    # so `presented` is what the handler resolves and revokes and the
-    # guest token plays the surviving pre-rollout cookie. A fresh
-    # client keeps the explicit header as the one Cookie.
+    # One boundary logout receives an explicit duplicate-name Cookie header.
+    # Starlette's cookie_parser resolves the final occurrence, so `presented`
+    # is what the handler resolves and revokes while `guest_token` is the
+    # other value. A fresh client sends this explicit header as its Cookie.
     boundary = TestClient(real_app)
     r = boundary.get(
         "/logout",
@@ -739,9 +763,8 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
     assert r.status_code == 303
     assert sessions_repo.is_session_active(parsed_presented[2]) is False
 
-    # The logout clears BOTH keyings: the domain-keyed one and,
-    # unconditionally, the host-only one — the leg a conditional
-    # deletion drops, abandoning the guest cookie at logout.
+    # The logout response includes a domain-keyed deletion and an
+    # unconditional host-only deletion.
     deletions = [
         h
         for h in r.headers.get_list("set-cookie")
@@ -750,8 +773,10 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
     assert any("domain=testserver.local" in h.lower() for h in deletions)
     assert any("domain=" not in h.lower() for h in deletions)
 
-    # The witness pair, after the logout: still no row — and the
-    # surviving guest cookie STILL authenticates.
+    # After logout, `sessions_repo.is_session_active(parsed_guest[2]) is False`
+    # still records that the nonce is not active, while
+    # `guest.get("/api/me").status_code == 200` records that the cookie
+    # authenticates.
     assert sessions_repo.is_session_active(parsed_guest[2]) is False
     assert guest.get("/api/me").status_code == 200
 
@@ -759,18 +784,18 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
 def test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate(
     auth_db,
 ):
-    """A surviving cookie whose nonce was never recorded: this test's
-    own case, measured end to end.
+    """A surviving cookie whose nonce was never recorded, measured end to end.
 
     The surviving cookie is validly signed (same user, same secret as
     the presented session) but its nonce has no web_sessions row and
     never did; is_session_active on it is False before the logout. The
     boundary logout revokes the OTHER (presented) session, and
-    afterwards /api/me carrying this cookie returns 401. One of the
-    two measured counterexamples to the earlier "ceases to hold only
-    when the surviving cookie carries the same nonce" wording: the
-    orphan nonce is a DIFFERENT nonce from the one the logout just
-    revoked, and it still fails.
+    afterwards /api/me carrying this cookie returns 401. The expressions
+    `sessions_repo.is_session_active(parsed_orphan[2]) is False` and
+    `holder.get("/api/me").status_code == 401` measure the unrecorded-nonce
+    path against the earlier "ceases to hold only when the surviving cookie
+    carries the same nonce" wording: the orphan nonce is a DIFFERENT nonce
+    from the one the logout just revoked, and it still fails.
     """
     # Private user_id: 987001-987005 and 987010-987013 are taken.
     uid = 987014
@@ -833,10 +858,10 @@ def test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate(
 
 
 def test_surviving_cookie_revoked_earlier_does_not_authenticate(auth_db):
-    """A surviving cookie revoked EARLIER by another path, not this
-    logout: this test's own case.
+    """A surviving cookie revoked EARLIER by another path, not this logout.
 
-    The second measured counterexample to the "same nonce" wording. Two
+    `tests/test_login.py::test_surviving_cookie_revoked_earlier_does_not_authenticate`
+    measures the earlier-revoked path for the "same nonce" wording. Two
     real logins, two live sessions; the first is revoked through the
     account self-service path BEFORE the boundary logout — via
     sessions_repo.revoke_session, the function the
@@ -897,6 +922,7 @@ def test_surviving_cookie_revoked_earlier_does_not_authenticate(auth_db):
     assert r.status_code == 303
     assert sessions_repo.is_session_active(parsed_presented[2]) is False
 
-    # The surviving cookie names a different, EARLIER-REVOKED session —
-    # not live, so the consequence does not hold.
+    # `holder.get("/api/me").status_code == 401` records that the surviving
+    # cookie names a different, EARLIER-REVOKED session and does not
+    # authenticate.
     assert holder.get("/api/me").status_code == 401

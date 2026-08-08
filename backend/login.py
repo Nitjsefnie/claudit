@@ -205,7 +205,8 @@ async def login_guest(request: Request) -> Response:
     restarts."""
     token = session_mod.make_guest_session_token()
     response = RedirectResponse("/", status_code=303)
-    # guest=True: the guest secret is per-service, so the cookie must
-    # stay host-only (domain=None) even when SESSION_COOKIE_DOMAIN is set.
-    session_mod.set_session_cookie(response, token, guest=True)
+    # Expire stale host-only and domain keyings before issuing the fresh
+    # shared-domain cookie.
+    session_mod.clear_session_cookie(response)
+    session_mod.set_session_cookie(response, token)
     return response
