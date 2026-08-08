@@ -313,11 +313,15 @@ def clear_session_cookie(response) -> None:
     is the one that reaches a cookie issued BEFORE the rollout — that
     cookie is keyed (name, host-only, path), so a browser holding it
     keeps authenticating after a logout that deletes only the
-    domain-keyed one. That last consequence now holds only for GUEST
-    sessions, whose rows are never revoked, so the deletion legs remain
-    the only thing that ends them: for an authenticated session the
-    logout revokes the row, and a surviving host-only cookie no longer
-    resolves.
+    domain-keyed one, whenever the surviving cookie names a DIFFERENT,
+    still-live session. That is a property, not a guest category: it
+    covers guests (whose rows are never revoked) and the authenticated
+    two-nonce rollout boundary alike — a user who logged in before AND
+    after the domain was turned on holds two cookies naming two live
+    sessions, and logout revokes only the presented one. It ceases to
+    hold only when the surviving cookie carries the SAME nonce the
+    logout just revoked. Pinned by
+    tests/test_login.py::test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live.
     """
     domain = _session_cookie_domain()
     if domain is not None:

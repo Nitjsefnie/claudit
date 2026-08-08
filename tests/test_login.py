@@ -435,25 +435,56 @@ def test_guest_logout_never_touches_the_auth_db(app, monkeypatch):
     logout 500s — until now that mutant was caught only by an incidental
     PoolTimeout from a scratch auth DB that happened not to exist, which
     is a crash, and one that depends on test ordering.
+
+    Status alone cannot pin the guest path: a no-op handler that skips
+    clear_session_cookie ALSO returns 303. The clearing assertions are
+    what fail there — under a no-op the jar still holds the live guest
+    cookie and the next request keeps authenticating.
     """
     def _down():
         raise RuntimeError("auth DB down")
 
     monkeypatch.setattr(db, "auth_conn", _down)
+    # Domain set: also pins that guest logout clears BOTH keyings while
+    # the guest cookie itself is host-only by design.
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "testserver.local")
     client = TestClient(app, raise_server_exceptions=False)
     client.post("/login/guest", follow_redirects=False)
+    # Precondition: the guest cookie really authenticates, or a later
+    # 401 proves nothing.
+    assert client.get("/api/me").status_code == 200
     r = client.get("/logout", follow_redirects=False)
     assert r.status_code == 303
+    # The guest path must still CLEAR the cookie — the assertions a bare
+    # 303-redirect handler fails.
+    _assert_both_deletion_legs(r)
+    assert not client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert client.get("/api/me").status_code == 401
 
 
 def _assert_both_deletion_legs(response):
-    """Both (name, domain, path) keyings must get a deletion header."""
-    deletions = [
-        v for v in response.headers.get_list("set-cookie")
-        if session_mod.SESSION_COOKIE_NAME in v
-    ]
-    assert any("Domain=" in v for v in deletions)
-    assert any("Domain=" not in v for v in deletions)
+    """Both (name, domain, path) keyings must get a real DELETION header.
+
+    The full key is asserted, not just the domain half: the two legs must
+    differ on Domain= (one keyed to the shared domain, one host-only),
+    both must carry the same Path=/ the setter uses — a deletion keyed
+    (name, domain, /other-path) matches nothing the browser holds — and
+    both must actually DELETE (empty value, expiry in the past), not
+    re-issue a live cookie.
+    """
+    morsels = []
+    for header in response.headers.get_list("set-cookie"):
+        jar = SimpleCookie()
+        jar.load(header)
+        morsel = jar.get(session_mod.SESSION_COOKIE_NAME)
+        if morsel is not None:
+            morsels.append(morsel)
+    assert any(m["domain"] for m in morsels)
+    assert any(not m["domain"] for m in morsels)
+    for m in morsels:
+        assert m["path"] == "/"
+        assert m.value.strip('"') == ""
+        assert "1970" in m["expires"] or m["max-age"] == "0"
 
 
 def test_logout_without_a_cookie_still_clears_both_keyings(app, monkeypatch):
@@ -536,3 +567,79 @@ def test_logout_revokes_only_the_presented_session(auth_db):
     # The assertions the blanket UPDATE ... WHERE user_id mutant fails.
     assert sessions_repo.is_session_active(parsed2[2]) is True
     assert client2.get("/api/me").status_code == 200
+
+
+def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
+    auth_db,
+):
+    """The surviving-cookie consequence is a PROPERTY, not a guest category.
+
+    The rollout boundary can leave a browser holding two same-named
+    cookies under two keyings (host-only from before SESSION_COOKIE_DOMAIN
+    was turned on, domain-keyed after) that name TWO DIFFERENT live
+    sessions. Logout revokes only the presented session (pinned by
+    test_logout_revokes_only_the_presented_session), so the other nonce
+    survives and its cookie keeps authenticating — the exact consequence
+    clear_session_cookie's docstring describes for a surviving host-only
+    cookie, and the disproof of the earlier "holds only for guest
+    sessions" qualifier. It ceases to hold only when the surviving cookie
+    carries the SAME nonce the logout just revoked.
+
+    Which nonce is presented is deterministic here: a Cookie header
+    carrying the same name twice is collapsed by SimpleCookie with the
+    LAST occurrence winning, so token2 (the post-rollout login) is what
+    the handler resolves and revokes. token1 plays the surviving
+    pre-rollout cookie; a client that never saw the deletion response
+    stands in for the browser still holding it.
+    """
+    # Private user_id: 987001-987005, 987010, 987011 and 987012 are taken.
+    uid = 987013
+    _seed_auth_user(uid, "task7a-rollout-secret", "task7a-rollout-pw")
+
+    # Two real logins — the pre-rollout and post-rollout sign-ins.
+    def _login() -> str:
+        client = TestClient(real_app)
+        r = client.post(
+            "/login",
+            data={"user_id": str(uid), "password": "task7a-rollout-pw"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 303, r.text
+        token = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+        assert token
+        return token
+
+    token1 = _login()
+    token2 = _login()
+
+    parsed1 = session_mod.parse_session_token(token1)
+    parsed2 = session_mod.parse_session_token(token2)
+    assert parsed1 is not None and parsed2 is not None
+    # Two distinct live sessions — without this the test could pass
+    # because one session was never valid.
+    assert parsed1[2] != parsed2[2]
+    assert sessions_repo.is_session_active(parsed1[2]) is True
+    assert sessions_repo.is_session_active(parsed2[2]) is True
+
+    # ONE logout carrying BOTH cookies, as the rollout boundary produces.
+    # Fresh client: empty jar, so the explicit header is the only Cookie.
+    boundary = TestClient(real_app)
+    r = boundary.get(
+        "/logout",
+        headers={
+            "Cookie": (
+                f"{session_mod.SESSION_COOKIE_NAME}={token1}; "
+                f"{session_mod.SESSION_COOKIE_NAME}={token2}"
+            )
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    # The presented nonce is revoked; the other survives and still
+    # authenticates — the property the docstring may claim.
+    assert sessions_repo.is_session_active(parsed2[2]) is False
+    assert sessions_repo.is_session_active(parsed1[2]) is True
+    holder = TestClient(real_app)
+    holder.cookies.set(session_mod.SESSION_COOKIE_NAME, token1)
+    assert holder.get("/api/me").status_code == 200
