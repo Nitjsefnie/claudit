@@ -49,6 +49,15 @@ os.environ.setdefault("ADMIN_TOKEN", "test-admin")
 # back. A forced assignment, NOT a setdefault: an ambient exported
 # COOKIE_SECURE=1 must not be able to break the suite.
 os.environ["COOKIE_SECURE"] = "0"
+# SESSION_COOKIE_DOMAIN from .env (or the ambient environment) would make
+# the app issue domain-scoped cookies the test client's jar never returns
+# for the `testserver` host, failing auth tests for reasons unrelated to
+# any defect. Force it empty: backend/session.py maps "" to None, so
+# cookies stay host-only. A forced assignment, NOT a setdefault, and it
+# must run before any backend import so load_dotenv's setdefault in
+# backend/app.py cannot win the race. Tests that exercise the rollout
+# boundary monkeypatch the variable themselves and are unaffected.
+os.environ["SESSION_COOKIE_DOMAIN"] = ""
 # No background cache warming under test: a warm queued by run_ingest
 # outlives the fixture that created its DB, and its queries then race the
 # teardown that drops it — producing failures in unrelated tests.
