@@ -313,7 +313,11 @@ def clear_session_cookie(response) -> None:
     is the one that reaches a cookie issued BEFORE the rollout — that
     cookie is keyed (name, host-only, path), so a browser holding it
     keeps authenticating after a logout that deletes only the
-    domain-keyed one.
+    domain-keyed one. That last consequence now holds only for GUEST
+    sessions, whose rows are never revoked, so the deletion legs remain
+    the only thing that ends them: for an authenticated session the
+    logout revokes the row, and a surviving host-only cookie no longer
+    resolves.
     """
     domain = _session_cookie_domain()
     if domain is not None:

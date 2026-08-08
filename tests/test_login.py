@@ -385,3 +385,154 @@ def test_logout_with_forged_cookie_cannot_revoke_a_victims_session(auth_db):
     # ...but it must not have revoked the victim's row.
     assert sessions_repo.is_session_active(nonce) is True
     assert session_mod.resolve_session_user_id(victim_token) == victim_uid
+
+
+def test_logout_fails_loudly_when_the_revocation_raises(
+    app, fake_user, monkeypatch
+):
+    """A logout that cannot revoke must not report success.
+
+    Clearing the cookie while the row survives is the exact defect the
+    revocation exists to remove: the user is told they signed out, the
+    local cookie is gone, and the token stays valid for every sibling
+    service with no cookie left to retry the revocation with. So the
+    revocation runs BEFORE the response is built, and its failure
+    propagates. Both assertions are load-bearing: the 500 kills the
+    swallow (a swallowed revocation returns the normal 303), and the
+    absent Set-Cookie pins that no cookie deletion is handed out
+    alongside the failure.
+    """
+    client = TestClient(app)
+    client.post(
+        "/login",
+        data={"user_id": "12345", "password": "hunter2"},
+        follow_redirects=False,
+    )
+    token = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert token
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("auth DB unreachable")
+
+    monkeypatch.setattr(sessions_repo, "revoke_session", _boom)
+
+    # raise_server_exceptions=False so the server error surfaces as a
+    # response to assert on instead of propagating into the test.
+    quiet = TestClient(app, raise_server_exceptions=False)
+    quiet.cookies.set(session_mod.SESSION_COOKIE_NAME, token)
+    r = quiet.get("/logout", follow_redirects=False)
+    assert r.status_code == 500
+    assert "set-cookie" not in {k.lower() for k in r.headers}
+
+
+def test_guest_logout_never_touches_the_auth_db(app, monkeypatch):
+    """The guest exclusion must hold with the auth DB down — by assertion.
+
+    Guests have no web_sessions rows by design, so logout returns before
+    ANY auth-DB access for them, and a total auth-DB outage must not
+    break guest logout. Removing the exclusion makes the handler call
+    revoke_session, which reaches for the (here: raising) pool and the
+    logout 500s — until now that mutant was caught only by an incidental
+    PoolTimeout from a scratch auth DB that happened not to exist, which
+    is a crash, and one that depends on test ordering.
+    """
+    def _down():
+        raise RuntimeError("auth DB down")
+
+    monkeypatch.setattr(db, "auth_conn", _down)
+    client = TestClient(app, raise_server_exceptions=False)
+    client.post("/login/guest", follow_redirects=False)
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+
+
+def _assert_both_deletion_legs(response):
+    """Both (name, domain, path) keyings must get a deletion header."""
+    deletions = [
+        v for v in response.headers.get_list("set-cookie")
+        if session_mod.SESSION_COOKIE_NAME in v
+    ]
+    assert any("Domain=" in v for v in deletions)
+    assert any("Domain=" not in v for v in deletions)
+
+
+def test_logout_without_a_cookie_still_clears_both_keyings(app, monkeypatch):
+    """No cookie at all: the same 303 with both deletion legs, never a 500.
+
+    Nothing exercised this leg — an unguarded index into a None parse
+    result would 500 here while every existing logout test stayed green.
+    """
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
+    client = TestClient(app)
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+    _assert_both_deletion_legs(r)
+
+
+def test_logout_with_a_malformed_cookie_still_clears_both_keyings(
+    app, monkeypatch
+):
+    """A cookie that does not parse: the same 303 with both deletion legs.
+
+    parse_session_token returns None for garbage; the handler must skip
+    the revocation quietly and still clear, or a corrupted cookie would
+    make logout 500 — and nothing checked that.
+    """
+    monkeypatch.setenv("SESSION_COOKIE_DOMAIN", "example.test")
+    client = TestClient(app)
+    client.cookies.set(session_mod.SESSION_COOKIE_NAME, "not.a.real.token")
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+    _assert_both_deletion_legs(r)
+
+
+def test_logout_revokes_only_the_presented_session(auth_db):
+    """Logging out revokes THIS session, never the user's other sessions.
+
+    A blanket revoke keyed on user_id alone signs the user out on every
+    other device — and was measured to leave the whole suite green on
+    the sibling service this shape is the template for. Two logins, two
+    nonces: logging out of the first must revoke exactly it, and the
+    second must stay active and keep authenticating.
+    """
+    # Private user_id: 987001-987005, 987010 and 987011 are taken.
+    uid = 987012
+    _seed_auth_user(uid, "task7a-second-device-secret", "task7a-devices-pw")
+
+    client1 = TestClient(real_app)
+    r1 = client1.post(
+        "/login",
+        data={"user_id": str(uid), "password": "task7a-devices-pw"},
+        follow_redirects=False,
+    )
+    assert r1.status_code == 303, r1.text
+    token1 = client1.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert token1
+
+    # A second device: its own login, its own nonce.
+    client2 = TestClient(real_app)
+    r2 = client2.post(
+        "/login",
+        data={"user_id": str(uid), "password": "task7a-devices-pw"},
+        follow_redirects=False,
+    )
+    assert r2.status_code == 303, r2.text
+    token2 = client2.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert token2
+
+    parsed1 = session_mod.parse_session_token(token1)
+    parsed2 = session_mod.parse_session_token(token2)
+    assert parsed1 is not None and parsed2 is not None
+    assert parsed1[2] != parsed2[2]
+    # Precondition: both sessions are live, so the second's survival
+    # means the revoke was scoped — not that there was nothing to kill.
+    assert sessions_repo.is_session_active(parsed1[2]) is True
+    assert sessions_repo.is_session_active(parsed2[2]) is True
+
+    r = client1.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+
+    assert sessions_repo.is_session_active(parsed1[2]) is False
+    # The assertions the blanket UPDATE ... WHERE user_id mutant fails.
+    assert sessions_repo.is_session_active(parsed2[2]) is True
+    assert client2.get("/api/me").status_code == 200
