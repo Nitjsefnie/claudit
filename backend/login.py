@@ -199,8 +199,10 @@ def logout(request: Request) -> Response:
 async def login_guest(request: Request) -> Response:
     """Mint an unauthenticated 'guest' session — read-only, gated to
     aggregate-only views (no per-project filter, no per-session detail).
-    Cookie invalidates on every server restart since the guest secret
-    is regenerated."""
+    When GUEST_SESSION_SECRET is unset the cookie is signed with a
+    per-process random fallback secret, so a restart invalidates it;
+    with the variable set to a stable value the cookie survives
+    restarts."""
     token = session_mod.make_guest_session_token()
     response = RedirectResponse("/", status_code=303)
     # guest=True: the guest secret is per-service, so the cookie must
