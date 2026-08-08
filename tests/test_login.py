@@ -1,4 +1,5 @@
 import contextlib
+import json
 from http.cookies import SimpleCookie
 
 import pytest
@@ -11,6 +12,7 @@ from backend import login as login_mod
 from backend import session as session_mod
 from backend import auth
 from backend import sessions_repo
+from backend.app import app as real_app
 
 
 @pytest.fixture(autouse=True)
@@ -65,11 +67,23 @@ def _fake_user_fixture(monkeypatch):
     # resolve_session_user_id now checks the nonce against web_sessions;
     # with no real auth DB here, treat every nonce as active. The reject
     # path is covered against a real DB in test_session.py.
+    #
+    # is_session_active must stay pinned at True even though /logout now
+    # revokes server-side: the logout tests below assert a post-logout 401
+    # specifically to prove a cookie-DELETION leg fired (header inspection
+    # cannot see a surviving cookie that still resolves). If revocation
+    # could also produce that 401, those tests would pass with a deletion
+    # leg removed and the dual-keying clearing would be untested. So
+    # revocation is stubbed to a no-op instead — the real revocation path
+    # is pinned against a real auth DB further down this file.
     monkeypatch.setattr(
         sessions_repo, "is_session_active", lambda *args, **kwargs: True
     )
     monkeypatch.setattr(
         sessions_repo, "touch_session", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        sessions_repo, "revoke_session", lambda *args, **kwargs: True
     )
 
     # resolve_session_user_id opens one shared auth_conn() around the
@@ -253,3 +267,121 @@ def test_session_cookie_round_trip(app, fake_user):
     r = client.get("/api/me")
     assert r.status_code == 200
     assert r.json() == {"user_id": 12345}
+
+
+def _seed_auth_user(user_id: int, secret: str, password: str) -> None:
+    """Insert a private user row into the scratch auth DB (auth_db
+    fixture), with a web password and a session secret, so a real login
+    and real token minting work against it."""
+    config = {session_mod.WEB_SESSION_SECRET_KEY: secret}
+    auth.set_web_password(config, password)
+    with db.auth_conn() as c:
+        c.execute(
+            "INSERT INTO users (user_id, config) VALUES (%s, %s::jsonb) "
+            "ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config",
+            (user_id, json.dumps(config)),
+        )
+
+
+def test_logout_revokes_the_session_row(auth_db):
+    """The acceptance pin: after logout, the same token presented by a
+    client that never saw the deletion response must be rejected.
+
+    Asserting the logout response's status, redirect, or Set-Cookie
+    headers passes in full while the session stays alive server-side —
+    cookie clearing is invisible to a second client holding the same
+    token, which stands in for a different service in the fleet. Only a
+    server-side revocation of the token's own nonce can make its /api/me
+    fail.
+
+    This test lives in THIS file because the no-op-revocation mutants
+    (the handler's revoke_session call removed, or revoke_session itself
+    returning without writing) must kill it by assertion while every
+    other test in the file stays green. The files that exercise
+    revoke_session directly (test_sessions_repo.py, test_session.py,
+    test_api_account.py) go red under the second mutant for their own
+    reasons; here, every other test either runs on the fake_user fixture
+    — which monkeypatches revoke_session over the mutant — or never
+    touches revocation.
+    """
+    # Private user_id: 987001-987005 are taken elsewhere and the shared
+    # fixture user 4242 is used across this module-scoped database.
+    uid = 987010
+    _seed_auth_user(uid, "task7a-acceptance-session-secret", "task7a-pw")
+
+    client = TestClient(real_app)
+    resp = client.post(
+        "/login",
+        data={"user_id": str(uid), "password": "task7a-pw"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303, resp.text
+    # Capture BEFORE the logout — the logout empties this client's jar.
+    token = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert token
+    parsed = session_mod.parse_session_token(token)
+    assert parsed is not None
+
+    # A second client holding the same token, which the logout's deletion
+    # response can never reach — a sibling service in the fleet.
+    other = TestClient(real_app)
+    other.cookies.set(session_mod.SESSION_COOKIE_NAME, token)
+    # Precondition: the token really authenticates, or a later 401 proves
+    # nothing — the token could never have worked at all.
+    assert other.get("/api/me").status_code == 200
+
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+
+    # The second client's jar still holds the identical token — the 401
+    # below cannot be a deletion that somehow propagated, only the
+    # server-side revocation. (Iterate rather than .get(): the sliding
+    # re-issue on the /api/me above leaves the jar holding the same value
+    # under two keyings, which .get() reports as a CookieConflict.)
+    jar_values = [
+        c.value
+        for c in other.cookies.jar
+        if c.name == session_mod.SESSION_COOKIE_NAME
+    ]
+    assert jar_values and all(v == token for v in jar_values)
+    assert other.get("/api/me").status_code == 401
+    # Unit-level pin, localising a failure to "the row was not revoked"
+    # versus "the middleware did not reject".
+    assert sessions_repo.is_session_active(parsed[2]) is False
+
+
+def test_logout_with_forged_cookie_cannot_revoke_a_victims_session(auth_db):
+    """The revoked user_id must come from the VERIFIED resolution, never
+    from parse_session_token.
+
+    parse_session_token performs no signature check — every field it
+    returns is attacker-controlled. /logout is on the public-path
+    allowlist, so an attacker who learns a victim's nonce can forge
+    <victim_uid>.<any_ts>.<victim_nonce>.garbage and hit /logout. A
+    handler that revokes with the parsed (unverified) user_id kills the
+    victim's live session across the whole fleet — revoke_session's
+    AND user_id = %s filter cannot stop it, because the attacker supplied
+    the matching user_id. The victim's session must survive.
+    """
+    victim_uid = 987011
+    victim_secret = "task7a-victim-session-secret"
+    _seed_auth_user(victim_uid, victim_secret, "task7a-victim-pw")
+
+    victim_token = session_mod.make_session_token(victim_uid, victim_secret)
+    parsed = session_mod.parse_session_token(victim_token)
+    assert parsed is not None
+    nonce = parsed[2]
+    sessions_repo.record_session(victim_uid, nonce, "curl", "127.0.0.1")
+    # Precondition: the victim's session is live, so its survival means
+    # the forged logout was refused — not that there was nothing to kill.
+    assert session_mod.resolve_session_user_id(victim_token) == victim_uid
+
+    forged = f"{victim_uid}.{parsed[1]}.{nonce}.{'0' * 64}"
+    attacker = TestClient(real_app)
+    attacker.cookies.set(session_mod.SESSION_COOKIE_NAME, forged)
+    r = attacker.get("/logout", follow_redirects=False)
+    # A forged cookie is not an error: logout still succeeds locally.
+    assert r.status_code == 303
+    # ...but it must not have revoked the victim's row.
+    assert sessions_repo.is_session_active(nonce) is True
+    assert session_mod.resolve_session_user_id(victim_token) == victim_uid

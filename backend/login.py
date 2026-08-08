@@ -163,7 +163,33 @@ async def login_post(
 
 
 @router.get("/logout")
-async def logout(request: Request) -> Response:
+def logout(request: Request) -> Response:
+    """Revoke the session row, then clear the cookie (both keyings).
+
+    Revocation is what ends the session: a cookie-clear alone leaves the
+    token valid for every other service in the fleet that receives it.
+    The revoked nonce is the one in THIS token, and the user_id comes from
+    resolve_session_user_id (signature-verifying) — never from the raw
+    parse, whose fields are attacker-controlled and would let a forged
+    cookie revoke a victim's session. Guests are excluded before any DB
+    access: they have no web_sessions rows by design, and the guest path
+    must survive a total auth-DB outage. revoke_session returning False
+    (no row, not this user's, already revoked) is a normal outcome, not a
+    failure.
+
+    Revoke BEFORE building the response, and let an exception propagate:
+    a logout that clears the cookie while the row survives tells the user
+    they signed out while the session stays live everywhere — a 500 that
+    leaves the cookie in place is honest and can be retried (same ordering
+    as login_post's record-before-cookie). Plain def: every call is
+    blocking psycopg, so Starlette runs this in the threadpool.
+    """
+    cookie = request.cookies.get(session_mod.SESSION_COOKIE_NAME, "")
+    parsed = session_mod.parse_session_token(cookie)
+    if parsed is not None and parsed[0] != session_mod.GUEST_USER_ID:
+        user_id = session_mod.resolve_session_user_id(cookie)
+        if user_id is not None:
+            sessions_repo.revoke_session(user_id, parsed[2])
     response = RedirectResponse("/login", status_code=303)
     session_mod.clear_session_cookie(response)
     return response
