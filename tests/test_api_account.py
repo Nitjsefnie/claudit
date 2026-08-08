@@ -109,23 +109,31 @@ def test_all_cookie_sites_use_the_helper():
     """Flags session-cookie set/delete calls outside the two helpers.
 
     What it actually checks: `.set_cookie(` and `.delete_cookie(` matches
-    in backend/login.py and backend/session.py whose following 400
-    characters mention SESSION_COOKIE_NAME, exempting matches on a line
-    inside the ast-computed body span of set_session_cookie /
-    clear_session_cookie (the two legitimate sites). A span that reaches
-    the last line of the file is a bug, not an exemption — the guard
-    fails loudly rather than silently exempting the tail. The domain
-    attribute is set inside both helpers from one shared source; divergent
-    copies are how one site silently misses it.
+    in backend/*.py whose following 400 characters mention
+    SESSION_COOKIE_NAME, exempting matches on a line inside the
+    ast-computed body span of set_session_cookie / clear_session_cookie
+    (the two legitimate sites). A span that reaches the last line of the
+    file is a bug, not an exemption — the guard fails loudly rather than
+    silently exempting the tail. The file list is NOT hardcoded: every
+    backend module is scanned, so a new module with a stray cookie call
+    cannot slip past a stale list; the scan-count assertion keeps the
+    glob itself honest — a guard that passes because it inspects no
+    files is worse than no guard. The domain attribute is set inside
+    both helpers from one shared source; divergent copies are how one
+    site silently misses it.
 
     Known holes, accepted for now:
-    - The file list is hardcoded: backend/api_account.py is not scanned.
     - A call written with a literal cookie-name string instead of
       SESSION_COOKIE_NAME is not matched.
+    - An aliased name (`from backend.session import SESSION_COOKIE_NAME
+      as C`) is not matched either — the window looks for the literal
+      text SESSION_COOKIE_NAME.
     """
     root = Path(__file__).resolve().parents[1]
     offenders = []
-    for path in (root / "backend" / "login.py", root / "backend" / "session.py"):
+    scanned = 0
+    for path in sorted((root / "backend").glob("*.py")):
+        scanned += 1
         src = path.read_text(encoding="utf-8")
         total_lines = len(src.splitlines())
         exempt = _helper_body_spans(src)
@@ -141,6 +149,7 @@ def test_all_cookie_sites_use_the_helper():
             inside_helper = any(s <= line <= e for s, e in exempt)
             if "SESSION_COOKIE_NAME" in window and not inside_helper:
                 offenders.append(f"{path.name}:{line}")
+    assert scanned > 2, "the backend glob matched too few files to be a guard"
     assert not offenders, (
         "session cookie set/cleared outside the session.py helpers: "
         + ", ".join(offenders)
