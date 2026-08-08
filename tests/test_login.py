@@ -440,6 +440,15 @@ def test_guest_logout_never_touches_the_auth_db(app, monkeypatch):
     clear_session_cookie ALSO returns 303. The clearing assertions are
     what fail there — under a no-op the jar still holds the live guest
     cookie and the next request keeps authenticating.
+
+    Deliberate overlap: the domain-set half of this test re-covers
+    test_guest_logout_with_domain_set_rejects_the_next_request. Both are
+    kept — this one pins zero auth-DB access BY ASSERTION (the other
+    would catch a removed guest exclusion only via an incidental
+    PoolTimeout crash, dependent on test ordering), while that one runs
+    with no db.auth_conn monkeypatch at all, so it alone sees a
+    regression in the interplay between the guest path and the real
+    pool.
     """
     def _down():
         raise RuntimeError("auth DB down")
@@ -585,10 +594,12 @@ def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
     sessions" qualifier. It ceases to hold only when the surviving cookie
     carries the SAME nonce the logout just revoked.
 
-    Which nonce is presented is deterministic here: a Cookie header
-    carrying the same name twice is collapsed by SimpleCookie with the
-    LAST occurrence winning, so token2 (the post-rollout login) is what
-    the handler resolves and revokes. token1 plays the surviving
+    Which nonce is presented is deterministic here: Starlette parses the
+    Cookie header with its own cookie_parser (starlette/requests.py —
+    explicitly NOT SimpleCookie, per the comment in its source), which
+    assigns each ;-separated pair into a dict, so a duplicated name
+    resolves to its LAST occurrence. token2 (the post-rollout login) is
+    therefore what the handler resolves and revokes. token1 plays the surviving
     pre-rollout cookie; a client that never saw the deletion response
     stands in for the browser still holding it.
     """
@@ -643,3 +654,144 @@ def test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live(
     holder = TestClient(real_app)
     holder.cookies.set(session_mod.SESSION_COOKIE_NAME, token1)
     assert holder.get("/api/me").status_code == 200
+
+
+def test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate(
+    auth_db,
+):
+    """The not-live end of the surviving-cookie property: never recorded.
+
+    The consequence clear_session_cookie's docstring describes — a
+    surviving host-only cookie keeps authenticating after a logout that
+    deletes only the domain-keyed one — holds only when the surviving
+    cookie names a STILL-LIVE session. A validly signed token whose
+    nonce has no web_sessions row is not live, so after the boundary
+    logout revokes the OTHER (presented) session, this surviving cookie
+    must NOT authenticate. One of the two measured counterexamples to
+    the earlier "ceases to hold only when the surviving cookie carries
+    the same nonce" wording: the orphan nonce is a DIFFERENT nonce from
+    the one the logout just revoked, and it still fails.
+    """
+    # Private user_id: 987001-987005 and 987010-987013 are taken.
+    uid = 987014
+    secret = "task7a-unrecorded-secret"
+    _seed_auth_user(uid, secret, "task7a-unrecorded-pw")
+
+    # The presented session: a real login, so a real web_sessions row.
+    client = TestClient(real_app)
+    r = client.post(
+        "/login",
+        data={"user_id": str(uid), "password": "task7a-unrecorded-pw"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    presented = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert presented
+    parsed_presented = session_mod.parse_session_token(presented)
+    assert parsed_presented is not None
+    assert sessions_repo.is_session_active(parsed_presented[2]) is True
+
+    # The surviving cookie: VALIDLY SIGNED (same user, same secret) but
+    # its nonce has no web_sessions row and never did.
+    orphan = session_mod.make_session_token(uid, secret)
+    parsed_orphan = session_mod.parse_session_token(orphan)
+    assert parsed_orphan is not None
+    assert parsed_orphan[2] != parsed_presented[2]
+    # Preconditions: signature-valid but NOT live — it must not
+    # authenticate even before the logout, or the post-logout 401 could
+    # be attributed to the logout rather than to the missing row.
+    assert sessions_repo.is_session_active(parsed_orphan[2]) is False
+    holder = TestClient(real_app)
+    holder.cookies.set(session_mod.SESSION_COOKIE_NAME, orphan)
+    assert holder.get("/api/me").status_code == 401
+
+    # ONE logout carrying BOTH cookies, as the rollout boundary produces.
+    # Starlette's cookie_parser resolves a duplicated name to its LAST
+    # occurrence, so `presented` is what the handler resolves and revokes.
+    boundary = TestClient(real_app)
+    r = boundary.get(
+        "/logout",
+        headers={
+            "Cookie": (
+                f"{session_mod.SESSION_COOKIE_NAME}={orphan}; "
+                f"{session_mod.SESSION_COOKIE_NAME}={presented}"
+            )
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert sessions_repo.is_session_active(parsed_presented[2]) is False
+
+    # The surviving cookie names a DIFFERENT nonce than the one just
+    # revoked — and still does not authenticate, because liveness, not
+    # nonce-matching, is the property.
+    assert holder.get("/api/me").status_code == 401
+
+
+def test_surviving_cookie_revoked_earlier_does_not_authenticate(auth_db):
+    """The not-live end: revoked EARLIER by another path, not this logout.
+
+    The second measured counterexample to the "same nonce" wording. Two
+    real logins, two live sessions; the first is revoked through the
+    account self-service path BEFORE the boundary logout — via
+    sessions_repo.revoke_session, the function the
+    /account/sessions/revoke endpoint calls (going through the HTTP
+    endpoint would add only cookie plumbing). The surviving cookie then
+    names a session that is not live, so it must NOT authenticate after
+    the logout — even though its nonce is DIFFERENT from the one this
+    logout revoked.
+    """
+    # Private user_id: 987001-987005 and 987010-987014 are taken.
+    uid = 987015
+    _seed_auth_user(uid, "task7a-earlier-secret", "task7a-earlier-pw")
+
+    def _login() -> str:
+        client = TestClient(real_app)
+        r = client.post(
+            "/login",
+            data={"user_id": str(uid), "password": "task7a-earlier-pw"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 303, r.text
+        token = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+        assert token
+        return token
+
+    earlier = _login()
+    presented = _login()
+    parsed_earlier = session_mod.parse_session_token(earlier)
+    parsed_presented = session_mod.parse_session_token(presented)
+    assert parsed_earlier is not None and parsed_presented is not None
+    assert parsed_earlier[2] != parsed_presented[2]
+    assert sessions_repo.is_session_active(parsed_earlier[2]) is True
+    assert sessions_repo.is_session_active(parsed_presented[2]) is True
+
+    holder = TestClient(real_app)
+    holder.cookies.set(session_mod.SESSION_COOKIE_NAME, earlier)
+    # Precondition: the surviving cookie really authenticates before the
+    # earlier revocation, or the final 401 proves nothing.
+    assert holder.get("/api/me").status_code == 200
+
+    # The EARLIER revocation, by another path than the logout below.
+    assert sessions_repo.revoke_session(uid, parsed_earlier[2]) is True
+    assert sessions_repo.is_session_active(parsed_earlier[2]) is False
+    assert sessions_repo.is_session_active(parsed_presented[2]) is True
+
+    # The boundary logout revokes the OTHER (presented) session.
+    boundary = TestClient(real_app)
+    r = boundary.get(
+        "/logout",
+        headers={
+            "Cookie": (
+                f"{session_mod.SESSION_COOKIE_NAME}={earlier}; "
+                f"{session_mod.SESSION_COOKIE_NAME}={presented}"
+            )
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert sessions_repo.is_session_active(parsed_presented[2]) is False
+
+    # The surviving cookie names a different, EARLIER-REVOKED session —
+    # not live, so the consequence does not hold.
+    assert holder.get("/api/me").status_code == 401

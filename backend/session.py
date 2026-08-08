@@ -313,15 +313,20 @@ def clear_session_cookie(response) -> None:
     is the one that reaches a cookie issued BEFORE the rollout — that
     cookie is keyed (name, host-only, path), so a browser holding it
     keeps authenticating after a logout that deletes only the
-    domain-keyed one, whenever the surviving cookie names a DIFFERENT,
-    still-live session. That is a property, not a guest category: it
-    covers guests (whose rows are never revoked) and the authenticated
-    two-nonce rollout boundary alike — a user who logged in before AND
-    after the domain was turned on holds two cookies naming two live
-    sessions, and logout revokes only the presented one. It ceases to
-    hold only when the surviving cookie carries the SAME nonce the
-    logout just revoked. Pinned by
-    tests/test_login.py::test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live.
+    domain-keyed one whenever the surviving cookie names a session that
+    is STILL LIVE. Liveness, not nonce-matching, is the property: a
+    guest cookie qualifies because guests have no web_sessions row to
+    revoke, and the authenticated two-nonce rollout boundary qualifies
+    because the surviving session was not the one presented (logout
+    revokes only the presented session). It does NOT hold when the
+    surviving cookie's session is not live — whether this logout
+    revoked it, an earlier revocation did, or the nonce never had a row
+    at all. Pinned at the live end by
+    tests/test_login.py::test_two_nonce_rollout_boundary_logout_leaves_the_other_session_live
+    and at the not-live end by
+    tests/test_login.py::test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate
+    and
+    tests/test_login.py::test_surviving_cookie_revoked_earlier_does_not_authenticate.
     """
     domain = _session_cookie_domain()
     if domain is not None:
