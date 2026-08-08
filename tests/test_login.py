@@ -759,18 +759,18 @@ def test_guest_cookie_surviving_a_boundary_logout_still_authenticates(
 def test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate(
     auth_db,
 ):
-    """The not-live end of the surviving-cookie property: never recorded.
+    """A surviving cookie whose nonce was never recorded: this test's
+    own case, measured end to end.
 
-    The consequence clear_session_cookie's docstring describes — a
-    surviving host-only cookie keeps authenticating after a logout that
-    deletes only the domain-keyed one — holds only when the surviving
-    cookie names a STILL-LIVE session. A validly signed token whose
-    nonce has no web_sessions row is not live, so after the boundary
-    logout revokes the OTHER (presented) session, this surviving cookie
-    must NOT authenticate. One of the two measured counterexamples to
-    the earlier "ceases to hold only when the surviving cookie carries
-    the same nonce" wording: the orphan nonce is a DIFFERENT nonce from
-    the one the logout just revoked, and it still fails.
+    The surviving cookie is validly signed (same user, same secret as
+    the presented session) but its nonce has no web_sessions row and
+    never did; is_session_active on it is False before the logout. The
+    boundary logout revokes the OTHER (presented) session, and
+    afterwards /api/me carrying this cookie returns 401. One of the
+    two measured counterexamples to the earlier "ceases to hold only
+    when the surviving cookie carries the same nonce" wording: the
+    orphan nonce is a DIFFERENT nonce from the one the logout just
+    revoked, and it still fails.
     """
     # Private user_id: 987001-987005 and 987010-987013 are taken.
     uid = 987014
@@ -833,7 +833,8 @@ def test_surviving_cookie_with_an_unrecorded_nonce_does_not_authenticate(
 
 
 def test_surviving_cookie_revoked_earlier_does_not_authenticate(auth_db):
-    """The not-live end: revoked EARLIER by another path, not this logout.
+    """A surviving cookie revoked EARLIER by another path, not this
+    logout: this test's own case.
 
     The second measured counterexample to the "same nonce" wording. Two
     real logins, two live sessions; the first is revoked through the
