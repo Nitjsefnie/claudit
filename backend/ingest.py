@@ -35,8 +35,9 @@ from backend.api_dashboard import dashboard
 # resolving after the split; _rebuild_derived_state below is their
 # only in-module caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
-    purge_suppressed, rebuild_ctx_cost_rollup, rebuild_latency_rollup,
-    rebuild_rollup, rebuild_tool_rollup, recompute_canonical,
+    purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
+    rebuild_latency_rollup, rebuild_rollup, rebuild_tool_rollup,
+    recompute_canonical,
 )
 
 log = logging.getLogger("claudit.ingest")
@@ -314,6 +315,8 @@ def _rebuild_derived_state() -> None:
     rebuild_latency_rollup()
     _set_progress(phase="ctx_cost_rollup")
     rebuild_ctx_cost_rollup()
+    _set_progress(phase="agent_rollup")
+    rebuild_agent_rollup()
 
 
 def _walk_and_persist(parser_version: str,
@@ -610,12 +613,13 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             INSERT INTO files (file_key, project_id, session_id,
               is_main, r2_etag, r2_size_bytes, r2_last_modified,
               parsed_at, parser_version, ctx_turns, turn_count,
-              prompt_count, rate_limit_hits)
+              prompt_count, rate_limit_hits, agent_type)
             VALUES (%(file_key)s, %(project_id)s, %(session_id)s,
               %(is_main)s, %(r2_etag)s, %(r2_size_bytes)s,
               %(r2_last_modified)s, %(parsed_at)s, %(parser_version)s,
               %(ctx_turns)s::jsonb, %(turn_count)s,
-              %(prompt_count)s, %(rate_limit_hits)s::jsonb)
+              %(prompt_count)s, %(rate_limit_hits)s::jsonb,
+              %(agent_type)s)
             ON CONFLICT (file_key) DO UPDATE SET
               project_id = EXCLUDED.project_id,
               session_id = EXCLUDED.session_id,
@@ -628,7 +632,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               ctx_turns = EXCLUDED.ctx_turns,
               turn_count = EXCLUDED.turn_count,
               prompt_count = EXCLUDED.prompt_count,
-              rate_limit_hits = EXCLUDED.rate_limit_hits
+              rate_limit_hits = EXCLUDED.rate_limit_hits,
+              agent_type = EXCLUDED.agent_type
             """,
             {
                 "file_key": obj.key,
@@ -645,6 +650,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 "prompt_count": parsed["prompt_count"],
                 "rate_limit_hits": json.dumps(
                     parsed.get("rate_limit_hits", []), default=str
+                ),
+                "agent_type": parsed.get(
+                    "agent_type", parse.DEFAULT_AGENT_TYPE
                 ),
             },
         )

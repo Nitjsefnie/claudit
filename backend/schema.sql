@@ -27,6 +27,14 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
   rate_limit_hits JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
   prompt_count INT NOT NULL DEFAULT 0;
+-- Which agent role this transcript ran as -- parse.resolve_agent_type.
+-- Per-file, not per-record: a transcript is homogeneous (a file carrying
+-- isSidechain records carries nothing else). The DEFAULT matches
+-- parse.DEFAULT_AGENT_TYPE so a migrated-but-not-yet-reparsed DB reads
+-- as one honest "unattributed" bar rather than a NULL every consumer
+-- has to special-case.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS
+  agent_type TEXT NOT NULL DEFAULT 'general-purpose';
 
 CREATE INDEX IF NOT EXISTS files_project_idx ON files (project_id);
 CREATE INDEX IF NOT EXISTS files_session_idx ON files (session_id);
@@ -167,6 +175,33 @@ CREATE INDEX IF NOT EXISTS ctx_cost_rollup_hour_idx
   ON ctx_cost_rollup (hour);
 CREATE INDEX IF NOT EXISTS ctx_cost_rollup_project_idx
   ON ctx_cost_rollup (project_id, hour);
+
+-- Pre-aggregated cost-by-agent-type for /api/cost-by-agent.
+--
+-- `usage_rollup` cannot serve this one either: agent_type lives on
+-- `files` and that grain has already summed across every file in a
+-- (session, hour, model). A session's main transcript and its subagent
+-- sidecars share a session_id, so folding them together is exactly the
+-- distinction this panel exists to draw.
+--
+-- Stored columns are pure sums, so they compose across hours, projects
+-- and models like the other two composable rollups. Derived from
+-- `files.agent_type`, so re-attributing a file needs a reparse (bump
+-- PARSER_VERSION) but re-aggregating does not.
+CREATE TABLE IF NOT EXISTS agent_rollup (
+  hour        TIMESTAMPTZ NOT NULL,
+  project_id  TEXT        NOT NULL,
+  model       TEXT        NOT NULL,
+  agent_type  TEXT        NOT NULL,
+  requests    BIGINT      NOT NULL DEFAULT 0,
+  output_tokens BIGINT    NOT NULL DEFAULT 0,
+  cost_usd    NUMERIC(18,8) NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour, project_id, model, agent_type)
+);
+CREATE INDEX IF NOT EXISTS agent_rollup_hour_idx
+  ON agent_rollup (hour);
+CREATE INDEX IF NOT EXISTS agent_rollup_project_idx
+  ON agent_rollup (project_id, hour);
 
 -- Pre-aggregated reply-latency bands + outlier dots for /api/reply-latency.
 --

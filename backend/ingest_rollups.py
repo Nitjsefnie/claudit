@@ -355,3 +355,48 @@ def rebuild_ctx_cost_rollup() -> int:
         c.commit()
     log.info("rebuild_ctx_cost_rollup: %d rows", written)
     return written
+
+
+def rebuild_agent_rollup() -> int:
+    """Rebuild `agent_rollup` from records + files.
+
+    Grain is (hour, project, model, agent_type). `agent_type` lives on
+    `files`, so this is a plain join -- no bucketing decision is baked in
+    the way ctx_cost_rollup's edges are, and the stored columns are pure
+    sums that compose across every dimension.
+
+    The join is what `usage_rollup` cannot substitute for: its grain has
+    already summed across every file in a (session, hour, model), and a
+    session's main transcript shares its session_id with the subagent
+    sidecars dispatched from it. Those are exactly the rows this panel
+    needs kept apart.
+    """
+    with db.viz_conn() as c:
+        c.execute("SET LOCAL work_mem = '64MB'")
+        # DELETE, not TRUNCATE -- same reasoning as rebuild_tool_rollup:
+        # TRUNCATE's ACCESS EXCLUSIVE lock stalls every concurrent reader
+        # for the whole rebuild transaction.
+        c.execute("DELETE FROM agent_rollup")
+        cur = c.execute(
+            """
+            INSERT INTO agent_rollup (
+              hour, project_id, model, agent_type,
+              requests, output_tokens, cost_usd
+            )
+            SELECT date_trunc('hour', r.ts) AS hour,
+                   f.project_id,
+                   r.model,
+                   f.agent_type,
+                   COUNT(*)                 AS requests,
+                   SUM(r.output_tokens)     AS output_tokens,
+                   SUM(r.cost_usd)          AS cost_usd
+              FROM records r
+              JOIN files f ON f.file_key = r.file_key
+             WHERE r.is_canonical AND r.ts IS NOT NULL
+             GROUP BY 1, 2, 3, 4
+            """
+        )
+        written = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        c.commit()
+    log.info("rebuild_agent_rollup: %d rows", written)
+    return written
