@@ -325,6 +325,7 @@ def _pg_text(s: str) -> str:
     """
     return s.replace("\x00", "") if "\x00" in s else s
 
+
 # Coarse, HARNESS-GENERIC failure classes. Deliberately not a taxonomy of
 # any one operator's hooks: a PreToolUse denial carries that hook's own
 # wording, which differs per deploy, so it lands in "failed" and is
