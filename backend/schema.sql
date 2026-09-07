@@ -283,6 +283,41 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
   lines_deleted BIGINT NOT NULL DEFAULT 0;
 
+-- 2026-09-07: why a settled tool call failed.
+--
+-- `is_error` says THAT a call failed and nothing about why, so every
+-- question about failure causes meant leaving the DB for the raw
+-- transcripts. Two columns, both NULL unless is_error is true:
+--
+--   error_kind  coarse and HARNESS-GENERIC -- 'rejected' (user or
+--               permission denial), 'tool_error' (a <tool_use_error>
+--               wrapper from the harness), 'failed' (everything else).
+--               Bounded cardinality, so it can carry a rollup grain.
+--   error_text  the leading parse.ERROR_TEXT_MAX characters of the
+--               failed result, for GROUP BY drill-down.
+--
+-- A PreToolUse hook denial lands in 'failed' on purpose: its wording is
+-- the deploy's, not Claude Code's, so classifying it in the parser would
+-- bake one operator's hook set into a general tool. Grouping on
+-- error_text separates those without that coupling.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS error_kind TEXT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS error_text TEXT;
+
+-- 2026-09-07: what a subagent dispatch ASKED for, read off the Agent/Task
+-- call arguments. `files.agent_type` records what actually ran and so
+-- exists only when the subagent wrote a JSONL; these two exist for every
+-- dispatch, including ones that never produced a file. NULL on every
+-- non-dispatch tool, and on a dispatch that named neither field.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_type TEXT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_model TEXT;
+
+-- Errored rows are a small minority, so a partial index keeps the
+-- drill-down cheap without carrying the whole table.
+CREATE INDEX IF NOT EXISTS tool_uses_error_kind_idx
+  ON tool_uses (error_kind, ts) WHERE error_kind IS NOT NULL;
+CREATE INDEX IF NOT EXISTS tool_uses_agent_type_idx
+  ON tool_uses (agent_type, ts) WHERE agent_type IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS ingest_runs (
   id              BIGSERIAL PRIMARY KEY,
   started_at      TIMESTAMPTZ NOT NULL,

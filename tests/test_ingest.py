@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 from backend import api, cache, constants, db, ingest
+
+_FIX_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 from backend.api_dashboard import dashboard
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -849,3 +851,44 @@ def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
         stored = {r[0] for r in c.execute(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
     assert stored == {constants.PARSER_VERSION}
+
+
+def _plant(mirror, project, session, fixture):
+    """Copy a parser fixture into the mini mirror as its own session."""
+    dest = mirror / project / session
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / f"{session}.jsonl"
+    target.write_bytes(
+        (_FIX_ROOT / "parser" / fixture).read_bytes()
+    )
+    return target
+
+
+def test_tool_failure_columns_persist(fresh_db, mini_r2_env):
+    """error_kind/error_text survive the ingest INSERT, and only
+    errored rows carry them."""
+    _plant(mini_r2_env, "projK", "sess-K", "error_kinds.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT idx, is_error, error_kind, error_text FROM tool_uses "
+            "WHERE file_key LIKE '%sess-K.jsonl' ORDER BY idx"
+        ).fetchall()
+    assert [r[2] for r in rows] == ["failed", "rejected", "tool_error", None]
+    assert "PreToolUse hook" in rows[0][3]
+    assert rows[3][1] is False and rows[3][3] is None
+
+
+def test_agent_dispatch_columns_persist(fresh_db, mini_r2_env):
+    """agent_type/agent_model survive the ingest INSERT and stay NULL
+    for tools that dispatch nothing."""
+    _plant(mini_r2_env, "projD", "sess-D", "agent_dispatch.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT idx, tool_name, agent_type, agent_model FROM tool_uses "
+            "WHERE file_key LIKE '%sess-D.jsonl' ORDER BY idx"
+        ).fetchall()
+    assert rows[0][1:] == ("Agent", "Explore", "haiku")
+    assert rows[1][2] is None and rows[1][3] is None
+    assert rows[2][1] == "Bash" and rows[2][2] is None

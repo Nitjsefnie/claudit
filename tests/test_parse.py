@@ -480,3 +480,43 @@ def test_a_full_million_token_window_is_still_a_turn():
     """The bound must not clip a legitimate [1m] request. Guards against
     setting it at or below the real 1M window."""
     assert constants.MAX_PLAUSIBLE_CTX > 1_000_000
+
+
+def test_error_kind_classifies_settled_failures():
+    """is_error rows carry a coarse, harness-generic error_kind and the
+    leading text of the result; successful rows carry neither."""
+    out = parse.parse_file(
+        "k/sess-kind/sess-kind.jsonl", _read("error_kinds.jsonl")
+    )
+    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
+    assert by_idx[0]["error_kind"] == "failed"
+    assert "PreToolUse hook" in by_idx[0]["error_text"]
+    assert by_idx[1]["error_kind"] == "rejected"
+    assert by_idx[2]["error_kind"] == "tool_error"
+    assert by_idx[3]["error_kind"] is None
+    assert by_idx[3]["error_text"] is None
+
+
+def test_error_text_is_truncated():
+    """error_text never exceeds ERROR_TEXT_MAX characters."""
+    for tu in parse.parse_file(
+        "k/sess-kind/sess-kind.jsonl", _read("error_kinds.jsonl")
+    )["tool_uses"]:
+        if tu["error_text"] is not None:
+            assert len(tu["error_text"]) <= parse.ERROR_TEXT_MAX
+
+
+def test_agent_dispatch_args_captured():
+    """An Agent call records subagent_type/model from its arguments;
+    a dispatch that names neither records NULLs, and a non-Agent tool
+    never carries them."""
+    out = parse.parse_file(
+        "k/sess-d/sess-d.jsonl", _read("agent_dispatch.jsonl")
+    )
+    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
+    assert by_idx[0]["agent_type"] == "Explore"
+    assert by_idx[0]["agent_model"] == "haiku"
+    assert by_idx[1]["agent_type"] is None
+    assert by_idx[1]["agent_model"] is None
+    assert by_idx[2]["tool_name"] == "Bash"
+    assert by_idx[2]["agent_type"] is None

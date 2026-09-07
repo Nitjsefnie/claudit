@@ -217,19 +217,95 @@ def _content_metrics(msg: dict) -> tuple[int, list]:
                 # both as tool calls in the panel.
                 name = str(blk.get("name", "") or "")
                 if name:
-                    added, deleted = _tool_churn(
-                        name, blk.get("input") or {}
-                    )
+                    args = blk.get("input") or {}
+                    added, deleted = _tool_churn(name, args)
+                    a_type, a_model = _dispatch_args(name, args)
                     msg_tool_uses.append({
                         "idx": idx,
                         "tool_name": name,
                         "tool_use_id": str(blk.get("id", "") or ""),
                         "lines_added": added,
                         "lines_deleted": deleted,
+                        "agent_type": a_type,
+                        "agent_model": a_model,
                     })
     elif isinstance(msg_content, str):
         text_chars = len(msg_content)
     return text_chars, msg_tool_uses
+
+
+# Tool names that dispatch a subagent. Both spellings have shipped.
+DISPATCH_TOOLS = ("Agent", "Task")
+
+
+def _dispatch_args(name: str, args: dict) -> tuple:
+    """(agent_type, agent_model) for a subagent-dispatching CALL.
+
+    Read off the call arguments, so a dispatch is attributable even
+    when the subagent writes no JSONL of its own. `files.agent_type`
+    answers "what ran"; this answers "what was ASKED for, on which
+    model" -- the two differ exactly when a dispatch fails or the
+    request omits the field. Non-dispatch tools get (None, None).
+    """
+    if name not in DISPATCH_TOOLS or not isinstance(args, dict):
+        return None, None
+    a_type = args.get("subagent_type")
+    a_model = args.get("model")
+    return (
+        str(a_type) if isinstance(a_type, str) and a_type else None,
+        str(a_model) if isinstance(a_model, str) and a_model else None,
+    )
+
+
+# Maximum characters of a failed tool_result kept in tool_uses.error_text.
+# Enough to identify the failure by GROUP BY; short enough that the column
+# stays small on the ~5% of rows that carry it.
+ERROR_TEXT_MAX = 200
+
+# Coarse, HARNESS-GENERIC failure classes. Deliberately not a taxonomy of
+# any one operator's hooks: a PreToolUse denial carries that hook's own
+# wording, which differs per deploy, so it lands in "failed" and is
+# separated by grouping on error_text instead. Only markers Claude Code
+# itself emits are classified.
+ERROR_KIND_REJECTED = "rejected"
+ERROR_KIND_TOOL_ERROR = "tool_error"
+ERROR_KIND_FAILED = "failed"
+
+
+def _flatten_result_text(content) -> str:
+    """Flatten a tool_result content field to plain text.
+
+    The field is either a string or a list of blocks; only the text
+    blocks carry a message worth keeping.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                parts.append(str(blk.get("text", "") or ""))
+            elif isinstance(blk, str):
+                parts.append(blk)
+        return " ".join(parts)
+    return ""
+
+
+def _classify_error(text: str) -> str:
+    """Classify a failed tool_result by markers the HARNESS emits.
+
+    Anything that is neither a user/permission rejection nor a
+    harness-wrapped tool error is "failed" -- including hook denials,
+    whose wording belongs to the deploy, not to Claude Code.
+    """
+    if "<tool_use_error>" in text:
+        return ERROR_KIND_TOOL_ERROR
+    low = text.lower()
+    if ("tool use was rejected" in low
+            or "doesn't want to proceed" in low
+            or "does not want to proceed" in low):
+        return ERROR_KIND_REJECTED
+    return ERROR_KIND_FAILED
 
 
 class _LineWalk:
@@ -247,6 +323,9 @@ class _LineWalk:
         # Populated from later user tool_result blocks; consumed after
         # the line walk to fill tool_uses[*]["is_error"].
         self.tool_result_is_error: dict[str, bool] = {}
+        # Same key -> leading text of a FAILED result, for error_kind
+        # classification and the error_text drill-down column.
+        self.tool_result_text: dict[str, str] = {}
         # Reply-latency anchor: last NON-instrumentation, NON-interrupt user
         # message timestamp. Cleared when consumed by an assistant message,
         # an interrupt marker, or superseded by a fresher user message.
@@ -357,9 +436,12 @@ class _LineWalk:
             tu_id = blk.get("tool_use_id")
             if not tu_id:
                 return
-            self.tool_result_is_error[str(tu_id)] = bool(
-                blk.get("is_error", False)
-            )
+            is_err = bool(blk.get("is_error", False))
+            self.tool_result_is_error[str(tu_id)] = is_err
+            if is_err:
+                self.tool_result_text[str(tu_id)] = _flatten_result_text(
+                    blk.get("content")
+                ).strip()[:ERROR_TEXT_MAX]
         elif btype == "text":
             text = blk.get("text", "") or ""
             if isinstance(text, str) and text.strip():
@@ -476,12 +558,17 @@ class _LineWalk:
                 "tool_name": tu["tool_name"],
                 "tool_use_id": tu["tool_use_id"],
                 "is_error": None,  # filled after the line walk
+                "error_kind": None,  # filled after the line walk
+                "error_text": None,  # filled after the line walk
                 "lines_added": tu["lines_added"],
                 "lines_deleted": tu["lines_deleted"],
+                "agent_type": tu["agent_type"],
+                "agent_model": tu["agent_model"],
             })
 
 
-def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict) -> None:
+def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
+                         tool_result_text: dict | None = None) -> None:
     """Resolve tool_result.is_error onto each tool_uses entry by
     tool_use_id. Unmatched entries keep is_error=None and are
     excluded from rate denominators at query time. An errored call
@@ -495,6 +582,9 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict) -> None:
             if tu["is_error"]:
                 tu["lines_added"] = 0
                 tu["lines_deleted"] = 0
+                text = (tool_result_text or {}).get(tu_id, "")
+                tu["error_kind"] = _classify_error(text)
+                tu["error_text"] = text or None
 
 
 def _project_record(file_key: str, ev: dict) -> dict:
@@ -677,7 +767,8 @@ def parse_file(file_key: str, blob: bytes) -> dict:
         elif role == "assistant":
             walk.handle_assistant_line(obj, msg, line_num)
 
-    _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error)
+    _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
+                         walk.tool_result_text)
     records = [
         _project_record(file_key, ev) for ev in walk.records_in_order
     ]
