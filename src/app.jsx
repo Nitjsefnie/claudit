@@ -864,9 +864,11 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
+      {panels.cacheCreate && (
       <div className="dash-ttl">
         <window.CacheTTLPanel events={events} range={range} binMs={binMs} />
       </div>
+      )}
 
       {responseSizes && responseSizes.length > 0 && (
         <div className="dash-resp">

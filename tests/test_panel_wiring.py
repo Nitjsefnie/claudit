@@ -179,6 +179,15 @@ _GATED_PANELS = {
     "Lines Deleted": "hasSeries(events, 'lines_deleted')",
 }
 
+# Panels outside the dash-grid that plot the SAME cache-create tokens, so
+# they go dark for exactly the datasets the grid's Cache Create panel does.
+# CacheTTLPanel splits cache_create into its 5m/1h tiers: with no cache
+# creation at all it draws two empty series and a 5m-share strip over
+# nothing, which is what glmmeter renders today.
+_GATED_ELEMENTS = {
+    "window.CacheTTLPanel": "panels.cacheCreate",
+}
+
 
 def test_every_dash_grid_panel_is_gated_on_having_data():
     src = _strip_line_comments(APP.read_text(encoding="utf-8"))
@@ -200,3 +209,14 @@ def test_backend_token_key_sums_are_absent_safe():
     src = _strip_line_comments(APP.read_text(encoding="utf-8"))
     assert "(h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0)" in src
     assert "cache_create: h.cache_5m_tokens + h.cache_1h_tokens" not in src
+
+
+def test_cache_ttl_panel_is_gated_on_cache_create_data():
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    for element, guard in _GATED_ELEMENTS.items():
+        idx = src.index(element)
+        window = src[max(0, idx - 220):idx]
+        assert guard in window, (
+            f"{element} is not gated on {guard!r} -- it plots cache-create "
+            f"tiers and renders empty when there is no cache creation"
+        )
