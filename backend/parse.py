@@ -15,6 +15,7 @@ helpers then project the walked events into records and ctx_turns.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 
 from orjson import JSONDecodeError, loads
@@ -256,6 +257,11 @@ class _LineWalk:
         # whose uuid already appeared on an EARLIER, DIFFERENT line is a
         # replay and is invisible to reply-latency anchoring/superseding.
         self.seen_user_uuids: dict[str, int] = {}
+        # Agent-type attribution, per FILE. See resolve_agent_type for the
+        # precedence and for why the answer is per-file rather than
+        # per-record.
+        self.attribution_agents: Counter[str] = Counter()
+        self.agent_setting: str | None = None
 
     def handle_user_text(
         self, text: str, line_num: int, ts_str: str, mutate_anchor: bool = True
@@ -577,8 +583,44 @@ def _build_ctx_turns(records: list, user_text_lines: list) -> list:
     return ctx_turns
 
 
+#: What a file is attributed to when the transcript records no role at
+#: all. It is the roster's own fallback dispatch type, and it is also
+#: where every unattributable file lands — see resolve_agent_type.
+DEFAULT_AGENT_TYPE = "general-purpose"
+
+
+def resolve_agent_type(walk: _LineWalk) -> str:
+    """The agent type one transcript ran as. Never None.
+
+    Two disjoint signals carry it, in precedence order:
+
+    1. ``attributionAgent`` on assistant records — a dispatched agent.
+       Present from Claude Code 2.1.126 onward. The mode is taken rather
+       than the first value purely as a guard; no sampled file carried
+       more than one distinct value.
+    2. ``{"type": "agent-setting", "agentSetting": ...}`` — a session
+       started with the CLI's ``--agent`` flag. Disjoint from (1) in
+       every file sampled: a transcript carries one or the other.
+
+    A file matching neither is attributed to DEFAULT_AGENT_TYPE. That
+    bucket is genuinely mixed and cannot be split: the transcript records
+    which role profile was selected, never who selected it, so a plain
+    lead, a lead started with an explicit ``--agent`` flag, and a
+    pre-2.1.126 subagent are indistinguishable here.
+
+    The answer is per-FILE because a transcript is homogeneous: files
+    carrying ``isSidechain`` records carry nothing else (verified across
+    88 such files — zero non-sidechain assistant records among them), so
+    a top-level agent session and a lead never share one file.
+    """
+    if walk.attribution_agents:
+        return walk.attribution_agents.most_common(1)[0][0]
+    return walk.agent_setting or DEFAULT_AGENT_TYPE
+
+
 def parse_file(file_key: str, blob: bytes) -> dict:
-    """Parse one jsonl. Returns {records, ctx_turns, turn_count, rate_limit_hits}.
+    """Parse one jsonl. Returns {records, ctx_turns, turn_count,
+    rate_limit_hits, agent_type}.
 
     records: list of dicts with keys
       file_key, line_num, uuid, request_id, ts (datetime|None), model,
@@ -608,7 +650,16 @@ def parse_file(file_key: str, blob: bytes) -> dict:
         except JSONDecodeError:
             continue
 
-        if obj.get("type", "") not in ("user", "assistant"):
+        kind = obj.get("type", "")
+        if kind == "agent-setting":
+            name = obj.get("agentSetting")
+            if isinstance(name, str) and name:
+                walk.agent_setting = name
+            continue
+        attribution = obj.get("attributionAgent")
+        if isinstance(attribution, str) and attribution:
+            walk.attribution_agents[attribution] += 1
+        if kind not in ("user", "assistant"):
             continue
         if walk.handle_rate_limit(obj, line_num):
             continue
@@ -638,4 +689,5 @@ def parse_file(file_key: str, blob: bytes) -> dict:
         "prompt_count": len(walk.user_text_lines),
         "rate_limit_hits": walk.rate_limit_hits,
         "tool_uses": walk.tool_uses,
+        "agent_type": resolve_agent_type(walk),
     }

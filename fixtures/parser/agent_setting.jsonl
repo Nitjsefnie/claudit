@@ -1,0 +1,3 @@
+{"type":"agent-setting","agentSetting":"code-reviewer","sessionId":"sess-1"}
+{"type":"user","timestamp":"2026-05-07T10:00:00Z","uuid":"u1","message":{"role":"user","content":"review it"}}
+{"type":"assistant","timestamp":"2026-05-07T10:00:01Z","uuid":"a1","requestId":"req-1","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}

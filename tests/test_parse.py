@@ -411,3 +411,46 @@ def test_bash_heredoc_call_yields_added_counts():
     assert tu["is_error"] is False
     assert tu["lines_added"] == 3
     assert tu["lines_deleted"] == 0
+
+
+def test_agent_type_from_attribution_agent():
+    """A dispatched agent's transcript carries attributionAgent."""
+    out = parse.parse_file(
+        "k/sess-1/subagents/agent-a1.jsonl", _read("agent_attribution.jsonl"))
+    assert out["agent_type"] == "implementer"
+
+
+def test_agent_type_from_cli_agent_setting():
+    """A `claude --agent X` session records a type:"agent-setting" line
+    instead — a separate signal, not attributionAgent."""
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("agent_setting.jsonl"))
+    assert out["agent_type"] == "code-reviewer"
+
+
+def test_agent_type_prefers_attribution_over_agent_setting():
+    """Precedence, in the (unobserved) case both are present: the
+    dispatch attribution beats the session's startup flag."""
+    out = parse.parse_file(
+        "k/sess-1/sess-1.jsonl", _read("agent_attribution_wins.jsonl"))
+    assert out["agent_type"] == "adversary"
+
+
+def test_agent_type_defaults_when_transcript_records_no_role():
+    """A transcript carrying neither signal is unattributable. It could
+    be a plain lead, a lead started with an explicit --agent flag, or a
+    subagent predating Claude Code 2.1.126 — the file cannot tell them
+    apart, so all three land in the one honest bucket."""
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("single_turn.jsonl"))
+    assert out["agent_type"] == parse.DEFAULT_AGENT_TYPE == "general-purpose"
+
+
+def test_non_string_agent_setting_falls_back_to_the_default():
+    """agentSetting is transcript data, so its type is not guaranteed.
+    Dropping the isinstance guard resolves this file to the int 42 —
+    a bar labelled 42, and a non-TEXT value handed to the files insert.
+    (An EMPTY name is deliberately not the case tested here: the `or`
+    in resolve_agent_type covers that independently, so no single
+    defect makes such a test fail.)"""
+    out = parse.parse_file(
+        "k/sess-1/sess-1.jsonl", _read("agent_setting_nonstring.jsonl"))
+    assert out["agent_type"] == "general-purpose"
