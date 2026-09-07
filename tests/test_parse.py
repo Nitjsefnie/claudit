@@ -506,6 +506,22 @@ def test_error_text_is_truncated():
             assert len(tu["error_text"]) <= parse.ERROR_TEXT_MAX
 
 
+def test_error_text_carries_no_nul_byte():
+    """A failed tool_result that read binary content puts a NUL in the
+    result text. PostgreSQL text columns cannot hold one, so a NUL that
+    survives parsing aborts the whole ingest transaction and leaves every
+    derived rollup unbuilt (issue #41). The classification and the
+    readable part of the message must survive the stripping.
+    """
+    out = parse.parse_file(
+        "k/sess-nul/sess-nul.jsonl", _read("nul_in_error_text.jsonl")
+    )
+    tu = out["tool_uses"][0]
+    assert tu["error_kind"] is not None
+    assert "\x00" not in tu["error_text"]
+    assert "binary junk" in tu["error_text"]
+
+
 def test_agent_dispatch_args_captured():
     """An Agent call records subagent_type/model from its arguments;
     a dispatch that names neither records NULLs, and a non-Agent tool

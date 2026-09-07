@@ -262,6 +262,21 @@ def _dispatch_args(name: str, args: dict) -> tuple:
 # stays small on the ~5% of rows that carry it.
 ERROR_TEXT_MAX = 200
 
+
+def _pg_text(s: str) -> str:
+    """Strip NUL bytes from text bound for a PostgreSQL text column.
+
+    Postgres text cannot hold 0x00, and psycopg raises DataError on the
+    whole executemany rather than the one row -- so a single failed tool
+    call that read binary content aborts the entire ingest transaction
+    and leaves every rollup unbuilt. Transcripts carry it as the JSON
+    escape \\u0000, which json.loads decodes to a real NUL.
+
+    Stripping rather than rejecting: the readable part of the message is
+    what error_kind grouping is drilled down by, and it survives intact.
+    """
+    return s.replace("\x00", "") if "\x00" in s else s
+
 # Coarse, HARNESS-GENERIC failure classes. Deliberately not a taxonomy of
 # any one operator's hooks: a PreToolUse denial carries that hook's own
 # wording, which differs per deploy, so it lands in "failed" and is
@@ -439,9 +454,9 @@ class _LineWalk:
             is_err = bool(blk.get("is_error", False))
             self.tool_result_is_error[str(tu_id)] = is_err
             if is_err:
-                self.tool_result_text[str(tu_id)] = _flatten_result_text(
-                    blk.get("content")
-                ).strip()[:ERROR_TEXT_MAX]
+                self.tool_result_text[str(tu_id)] = _pg_text(
+                    _flatten_result_text(blk.get("content")).strip()
+                )[:ERROR_TEXT_MAX]
         elif btype == "text":
             text = blk.get("text", "") or ""
             if isinstance(text, str) and text.strip():
