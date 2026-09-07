@@ -217,6 +217,36 @@ context size is derived from stored `records` columns
 Reparse is idempotent: deleting a file's `records` rows and
 re-inserting on the next ingest leaves the table byte-identical.
 
+## Failure causes and dispatches are stored, not re-derived (SV-WHY-COLUMNS)
+
+`tool_uses.is_error` says THAT a call failed. Four columns say why, and
+what a dispatch asked for:
+
+- `error_kind` — `rejected` | `tool_error` | `failed`, NULL unless the
+  call errored. HARNESS-GENERIC by rule: a PreToolUse hook denial carries
+  the DEPLOY's wording, so it lands in `failed`. Do NOT add a kind for a
+  particular operator's hooks — that couples a general tool to one setup.
+- `error_text` — leading `parse.ERROR_TEXT_MAX` chars of the failed
+  result. Grouping on it is how hook denials get separated from real
+  failures, which is why the parser needs no hook vocabulary.
+- `agent_type` / `agent_model` — read off an `Agent`/`Task` call's
+  arguments. `files.agent_type` records what RAN and exists only when the
+  subagent wrote a JSONL; these record what was ASKED for, so a dispatch
+  that produced no file is still attributable.
+
+`tool_error_rollup` and `dispatch_rollup` carry the composable halves
+(pure counts). `error_text` is deliberately NOT in either grain —
+unbounded cardinality does not belong in a rollup.
+
+## The parser version is code, never the environment (SV-PARSER-VERSION)
+
+`constants.PARSER_VERSION` is the ONLY switch that forces a reparse, and
+it lives in code so the bump travels in the same commit as the change
+that needs it. It used to be `os.environ.get("PARSER_VERSION", "1")`,
+which let a parser change ship while every stored row stayed on the old
+semantics with nothing to detect the drift. Do not reintroduce an env
+override.
+
 ## Rates are a function of (model, timestamp) (SV-DATED-RATES)
 
 `pricing.rate_for(model, ts)` — a model may carry dated overrides in
