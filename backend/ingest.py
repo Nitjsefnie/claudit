@@ -36,7 +36,8 @@ from backend.api_dashboard import dashboard
 # only in-module caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
-    rebuild_latency_rollup, rebuild_rollup, rebuild_tool_rollup,
+    rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
+    rebuild_tool_error_rollup, rebuild_tool_rollup,
     recompute_canonical,
 )
 
@@ -311,6 +312,10 @@ def _rebuild_derived_state() -> None:
     rebuild_rollup()
     _set_progress(phase="tool_rollup")
     rebuild_tool_rollup()
+    _set_progress(phase="tool_error_rollup")
+    rebuild_tool_error_rollup()
+    _set_progress(phase="dispatch_rollup")
+    rebuild_dispatch_rollup()
     _set_progress(phase="latency_rollup")
     rebuild_latency_rollup()
     _set_progress(phase="ctx_cost_rollup")

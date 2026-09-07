@@ -146,6 +146,54 @@ ALTER TABLE tool_rollup ADD COLUMN IF NOT EXISTS
 CREATE INDEX IF NOT EXISTS tool_rollup_hour_idx ON tool_rollup (hour);
 CREATE INDEX IF NOT EXISTS tool_rollup_project_idx ON tool_rollup (project_id, hour);
 
+-- Pre-aggregated failure causes, grain
+-- (hour, project_id, model, tool_name, error_kind).
+--
+-- tool_rollup already carries n_error, which answers "how many failed"
+-- but not "why". This carries the split. Only errored calls produce a
+-- row, and error_kind has three values, so it stays a small fraction of
+-- tool_rollup's size.
+--
+-- `n` is a pure count, so it composes: summing it across hours,
+-- projects, models or tools is valid exactly as tool_rollup's counters
+-- are. error_kind is IN the grain rather than a set of columns so a new
+-- kind does not need a migration.
+--
+-- The free-text drill-down (tool_uses.error_text) deliberately does NOT
+-- appear here: unbounded cardinality has no place in a rollup grain, and
+-- errored rows are few enough to query raw behind the partial index.
+CREATE TABLE IF NOT EXISTS tool_error_rollup (
+  hour        TIMESTAMPTZ NOT NULL,
+  project_id  TEXT        NOT NULL,
+  model       TEXT        NOT NULL,
+  tool_name   TEXT        NOT NULL,
+  error_kind  TEXT        NOT NULL,
+  n           BIGINT      NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour, project_id, model, tool_name, error_kind)
+);
+CREATE INDEX IF NOT EXISTS tool_error_rollup_hour_idx
+  ON tool_error_rollup (hour);
+
+-- Pre-aggregated subagent dispatches, grain
+-- (hour, project_id, agent_type, agent_model).
+--
+-- Counted from the CALL, so a dispatch appears here whether or not the
+-- subagent ever wrote a JSONL. `n` is a pure count and composes.
+--
+-- An absence is the signal this table exists to make cheap: an agent
+-- type that stops being dispatched leaves rows that simply stop, which
+-- a window-over-window comparison of totals will not show.
+CREATE TABLE IF NOT EXISTS dispatch_rollup (
+  hour        TIMESTAMPTZ NOT NULL,
+  project_id  TEXT        NOT NULL,
+  agent_type  TEXT        NOT NULL,
+  agent_model TEXT        NOT NULL,
+  n           BIGINT      NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour, project_id, agent_type, agent_model)
+);
+CREATE INDEX IF NOT EXISTS dispatch_rollup_hour_idx
+  ON dispatch_rollup (hour);
+
 -- Pre-aggregated cost-by-context-size for /api/cost-by-context.
 --
 -- `usage_rollup` cannot serve this panel: its grain sums fresh/create/

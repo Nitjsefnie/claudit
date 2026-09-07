@@ -11,11 +11,10 @@ from pathlib import Path
 import pytest
 
 from backend import api, cache, constants, db, ingest
-
-_FIX_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 from backend.api_dashboard import dashboard
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_FIX_ROOT = _REPO_ROOT / "fixtures"
 
 # One of the five jsonl keys in fixtures/r2_mini, used as the object whose
 # fetch is made to fail.
@@ -892,3 +891,49 @@ def test_agent_dispatch_columns_persist(fresh_db, mini_r2_env):
     assert rows[0][1:] == ("Agent", "Explore", "haiku")
     assert rows[1][2] is None and rows[1][3] is None
     assert rows[2][1] == "Bash" and rows[2][2] is None
+
+
+def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
+    """SV-ROLLUP: the pre-aggregate must equal the raw aggregate it
+    stands in for, per kind."""
+    _plant(mini_r2_env, "projK", "sess-K", "error_kinds.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rolled = dict(c.execute(
+            "SELECT error_kind, SUM(n) FROM tool_error_rollup GROUP BY 1"
+        ).fetchall())
+        raw = dict(c.execute(
+            "SELECT error_kind, COUNT(*) FROM tool_uses "
+            "WHERE error_kind IS NOT NULL AND ts IS NOT NULL GROUP BY 1"
+        ).fetchall())
+    assert rolled == raw
+    assert raw == {"failed": 1, "rejected": 1, "tool_error": 1}
+
+
+def test_dispatch_rollup_totals_match_raw(fresh_db, mini_r2_env):
+    """Every dispatch is counted, including one that named no model."""
+    _plant(mini_r2_env, "projD", "sess-D", "agent_dispatch.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rolled = c.execute(
+            "SELECT agent_type, agent_model, SUM(n) FROM dispatch_rollup "
+            "GROUP BY 1, 2 ORDER BY 1"
+        ).fetchall()
+        raw_total = _scalar(c, "SELECT COUNT(*) FROM tool_uses "
+                               "WHERE agent_type IS NOT NULL")
+    assert rolled == [("Explore", "haiku", 1)]
+    assert sum(r[2] for r in rolled) == raw_total
+
+
+def test_rollups_rebuilt_when_nothing_changed(fresh_db, mini_r2_env):
+    """Derived state is rebuilt on every successful ingest, not only
+    when files changed — same contract as recompute_canonical()."""
+    _plant(mini_r2_env, "projK", "sess-K", "error_kinds.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM tool_error_rollup")
+        c.commit()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["reparsed"] == 0
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0

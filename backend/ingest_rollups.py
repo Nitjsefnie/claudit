@@ -224,6 +224,75 @@ def rebuild_tool_rollup() -> int:
     return written
 
 
+def rebuild_tool_error_rollup() -> int:
+    """Rebuild `tool_error_rollup` from tool_uses + records + files.
+
+    Mirrors rebuild_tool_rollup's joins so the two agree: same LEFT JOIN
+    to records (model '' when a call has no usage record), same hour
+    truncation. Only settled failures contribute.
+    """
+    with db.viz_conn() as c:
+        c.execute("SET LOCAL work_mem = '64MB'")
+        # DELETE not TRUNCATE, for the reason rebuild_tool_rollup gives.
+        c.execute("DELETE FROM tool_error_rollup")
+        cur = c.execute(
+            """
+            INSERT INTO tool_error_rollup (
+              hour, project_id, model, tool_name, error_kind, n
+            )
+            SELECT date_trunc('hour', tu.ts)   AS hour,
+                   f.project_id,
+                   COALESCE(r.model, '')       AS model,
+                   tu.tool_name,
+                   tu.error_kind,
+                   COUNT(*)                    AS n
+              FROM tool_uses tu
+              JOIN files f    ON f.file_key = tu.file_key
+              LEFT JOIN records r ON r.file_key = tu.file_key
+                                 AND r.line_num = tu.line_num
+             WHERE tu.ts IS NOT NULL AND tu.error_kind IS NOT NULL
+             GROUP BY 1, 2, 3, 4, 5
+            """
+        )
+        written = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        c.commit()
+    log.info("rebuild_tool_error_rollup: %d rows", written)
+    return written
+
+
+def rebuild_dispatch_rollup() -> int:
+    """Rebuild `dispatch_rollup` from tool_uses + files.
+
+    No join to records: a dispatch is counted from the CALL, and the
+    dispatching assistant line's model is not what the subagent ran on.
+    A dispatch that named no model stores '' rather than being dropped,
+    so the row count still matches the number of dispatches.
+    """
+    with db.viz_conn() as c:
+        c.execute("SET LOCAL work_mem = '64MB'")
+        c.execute("DELETE FROM dispatch_rollup")
+        cur = c.execute(
+            """
+            INSERT INTO dispatch_rollup (
+              hour, project_id, agent_type, agent_model, n
+            )
+            SELECT date_trunc('hour', tu.ts)      AS hour,
+                   f.project_id,
+                   tu.agent_type,
+                   COALESCE(tu.agent_model, '')   AS agent_model,
+                   COUNT(*)                       AS n
+              FROM tool_uses tu
+              JOIN files f ON f.file_key = tu.file_key
+             WHERE tu.ts IS NOT NULL AND tu.agent_type IS NOT NULL
+             GROUP BY 1, 2, 3, 4
+            """
+        )
+        written = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        c.commit()
+    log.info("rebuild_dispatch_rollup: %d rows", written)
+    return written
+
+
 def rebuild_latency_rollup() -> int:
     """Rebuild `latency_rollup` for each display bucket width.
 
