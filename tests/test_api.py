@@ -13,7 +13,8 @@ import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
-from backend import api, api_export, cache, db, ingest, pricing
+from backend import (api, api_dashboard, api_export, cache, db, ingest,
+                     pricing)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -909,3 +910,18 @@ def test_cost_by_agent_live_path_agrees_with_rollup(app_with_data):
     for a in live["agents"]:
         assert set(a) == {
             "agent_type", "requests", "output_tokens", "cost_usd", "share"}
+
+
+def test_dashboard_payload_declares_its_token_types(app_with_data):
+    """Endpoint contract for zero-suppression: whatever survives is
+    declared in `token_types`, and the hourly entries carry exactly the
+    declared fields — never a declared field that is missing, never a
+    surviving field that went undeclared."""
+    body = app_with_data.get("/api/dashboard?range=all").json()
+    declared = body["token_types"]
+    assert declared, "fixture produced no token types"
+    assert declared == [f for f in api_dashboard.TOKEN_TYPE_FIELDS if f in declared], \
+        "token_types must keep TOKEN_TYPES render order"
+    for entry in body["hourly"]:
+        present = {f for f in api_dashboard.TOKEN_TYPE_FIELDS if f in entry}
+        assert present == set(declared)

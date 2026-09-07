@@ -439,6 +439,64 @@ def _hourly_entry(row, seen_hours: set) -> tuple[dict, str, float]:
     }, model_name, float(cost or 0)
 
 
+# Token-type fields the hourly panel can carry, in render order.
+TOKEN_TYPE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_5m_tokens",
+    "cache_1h_tokens",
+    "cache_read_tokens",
+)
+
+
+def drop_zero_token_types(entries: list[dict]) -> list[dict]:
+    """Hide token types whose total is zero across the data in view.
+
+    ZERO-SUPPRESSION AT THE PRESENTATION LAYER, NOT OMISSION AT THE DATA
+    LAYER. The column exists, the value is stored, the rate is wired.
+    What this spares a viewer is a panel that reads zero in every bucket
+    on screen.
+
+    Not hypothetical: this same codebase is deployed as glmmeter over the
+    `zai` bucket, where cache_creation, eph5 and eph1h are 0 across all
+    90,316 canonical records, so Cache Create and the whole Prompt-Cache
+    TTL Split render permanently flat there.
+
+    The decision is per RESPONSE, over the summed totals, not per entry:
+    suppressing per entry would make a series flicker in and out between
+    buckets. The day a request lands with a real value for one of these
+    it reappears on its own -- no migration, no backfill, no change here.
+
+    FRONTEND MIRROR: src/app.jsx must treat every TOKEN_TYPE_FIELDS key
+    as optional and render whichever arrive, rather than naming them one
+    by one. A consumer that adds two suppressed keys together gets NaN,
+    not 0.
+    """
+    totals = {
+        f: sum(int(e.get(f) or 0) for e in entries)
+        for f in TOKEN_TYPE_FIELDS
+    }
+    empty = [f for f, total in totals.items() if total == 0]
+    if not empty:
+        return entries
+    for entry in entries:
+        for field in empty:
+            entry.pop(field, None)
+    return entries
+
+
+def surviving_token_types(entries: list[dict]) -> list[str]:
+    """The token fields still present after suppression, in render order.
+
+    Field NAMES only, deliberately: claudit's panel set is fixed and one
+    of its panels (Cache Create) plots two of these summed, so a label or
+    an is-additive flag would be sent and never read. The frontend needs
+    exactly one thing from this -- which panels to draw.
+    """
+    present = {k for entry in entries for k in entry}
+    return [f for f in TOKEN_TYPE_FIELDS if f in present]
+
+
 def _fold_hourly(hourly_rows) -> tuple[list, list]:
     """The hourly panel plus cost_by_model, folded from the same rows
     rather than costing its own full pass over the records."""
@@ -570,6 +628,7 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
     """Fold the raw panel rows into the response payload."""
     hourly, cost_by_model = _fold_hourly(rows["hourly"])
     _attach_churn(hourly, rows["churn"])
+    drop_zero_token_types(hourly)
     file_counts_row = rows["file_counts_row"] or (0, 0, 0, 0, 0, 0)
     total_sessions_row = rows["total_sessions_row"]
     return {
@@ -577,6 +636,7 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "project": project,
         "bucket_s": bucket_s,
         "hourly": hourly,
+        "token_types": surviving_token_types(hourly),
         "cost_by_model": cost_by_model,
         "cost_by_project": _fold_cost_by_project(rows["cost_by_project"]),
         "rate_limit_hits": _fold_rate_limits(rows["rate_limits"]),
