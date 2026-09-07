@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import api, cache, db, events, parse, r2
+from backend import api, cache, constants, db, events, parse, r2
 from backend.api_dashboard import dashboard
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state below is their
@@ -334,7 +334,7 @@ def _walk_and_persist(parser_version: str,
 
 def run_ingest_locked(trigger: str) -> dict:
     started = datetime.now(timezone.utc)
-    parser_version = os.environ.get("PARSER_VERSION", "1")
+    parser_version = constants.PARSER_VERSION
     run_id = _open_run(started, trigger)
 
     _set_progress(phase="listing", done=0, total=0,

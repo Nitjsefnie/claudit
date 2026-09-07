@@ -136,7 +136,7 @@ Phase 1 within-file `requestId` max-merge; cross-file uuid dedup
 (Phase 2) is performed at query time via `DISTINCT ON (uuid)` in the
 read endpoints. Costs are pre-computed at ingest using
 `backend/pricing.py` (single source of truth — bump `PARSER_VERSION`
-in `.env` when rates change to force a full reparse).
+in `backend/constants.py` when rates change to force a full reparse).
 
 ## Quick start
 

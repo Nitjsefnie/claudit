@@ -99,7 +99,7 @@ app.include_router(api.router)
 
 @app.get("/health")
 def health() -> dict:
-    parser_version = os.environ.get("PARSER_VERSION", "?")
+    parser_version = constants.PARSER_VERSION
     last_ingest = None
     try:
         with db.viz_conn() as c:

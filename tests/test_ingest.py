@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import api, cache, db, ingest
+from backend import api, cache, constants, db, ingest
 from backend.api_dashboard import dashboard
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -111,7 +111,7 @@ def test_etag_change_triggers_per_file_reparse(fresh_db, mini_r2_env):
 
 def test_parser_version_bump_reparses_all(fresh_db, mini_r2_env, monkeypatch):
     ingest.run_ingest(trigger="manual")
-    monkeypatch.setenv("PARSER_VERSION", "2")
+    monkeypatch.setattr(constants, "PARSER_VERSION", "2")
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 5  # all 5 files
 
@@ -465,7 +465,7 @@ def test_per_object_failure_still_rebuilds_derived_state(
         c.execute("UPDATE records SET is_canonical = TRUE")
         c.commit()
 
-    monkeypatch.setenv("PARSER_VERSION", "2")
+    monkeypatch.setattr(constants, "PARSER_VERSION", "2")
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1
@@ -829,3 +829,23 @@ def test_purge_suppressed_is_idempotent(fresh_db, mini_r2_env):
     _suppress("claude-opus-%")
     assert ingest.purge_suppressed() > 0
     assert ingest.purge_suppressed() == 0
+
+
+def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
+                                                monkeypatch):
+    """PARSER_VERSION is code-owned: setting the old env var must NOT
+    trigger a reparse.
+
+    It used to be read from .env, so a parser change shipped without an
+    operator editing that file left every stored row on the previous
+    semantics with nothing to detect the drift.
+    """
+    ingest.run_ingest(trigger="manual")
+    monkeypatch.setenv("PARSER_VERSION", "999")
+    result = ingest.run_ingest(trigger="manual")
+    assert result["reparsed"] == 0
+
+    with db.viz_conn() as c:
+        stored = {r[0] for r in c.execute(
+            "SELECT DISTINCT parser_version FROM files").fetchall()}
+    assert stored == {constants.PARSER_VERSION}

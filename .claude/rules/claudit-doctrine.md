@@ -36,7 +36,7 @@ correct multiplier:
   5m rate (conservative undercount, not overcount).
 
 Single-rate `cache_create` cost is BANNED. If you bump `MODEL_RATES`,
-also bump `PARSER_VERSION` in `.env` so the next ingest reparses every
+also bump `PARSER_VERSION` in `backend/constants.py` so the next ingest reparses every
 session.
 
 ## Backend is the ONLY load path (SV-NO-LOCAL-UPLOAD)

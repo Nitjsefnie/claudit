@@ -53,7 +53,7 @@ backend/          — FastAPI application
                     replacement strings are literals. Anything needing
                     the command to RUN counts 0, never an estimate.
   pricing.py      — Single source of truth for per-model token rates (USD/M).
-                    Bump PARSER_VERSION in .env whenever this changes.
+                    Bump constants.PARSER_VERSION whenever this changes.
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
                     in two-phase transactions, broadcasts ingest_done SSE.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
@@ -228,7 +228,7 @@ systemctl status claudit
 journalctl -u claudit -f
 ```
 
-Schema migrations are idempotent — re-apply `backend/schema.sql` after any schema change. Bump `PARSER_VERSION` in `.env` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest.
+Schema migrations are idempotent — re-apply `backend/schema.sql` after any schema change. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest. It is a code constant so the bump travels in the same commit as the change that needs it.
 
 ## CI — batch your pushes
 
@@ -363,5 +363,5 @@ block. Never "fix" it by loosening the leading `*`.
 - **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
 - **Don't invoke `~/.claude/scripts/parse_session.py`** at runtime, and don't edit it from this repo. If the canonical Python and our port drift, fix it here, not there.
 - **Tests use fixtures, not real R2.** The R2 client supports `R2_ENDPOINT=file:///path/to/mirror/` for offline dev.
-- **Parser version invalidation:** Bump `PARSER_VERSION` in `.env` whenever parser semantics or `pricing.py` rates change — every file reparses on next ingest.
+- **Parser version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change — every file reparses on next ingest. Never an env var: a parser change and its reparse must ship together.
 - **Backend is the only load path:** the drag-drop fallback was removed (SV-NO-LOCAL-UPLOAD). `src/parser.js` stays — it parses backend-fetched transcripts and owns the shared rate table.

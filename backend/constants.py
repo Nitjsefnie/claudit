@@ -78,3 +78,21 @@ def _read_version() -> str:
 
 
 VERSION = _read_version()
+
+
+# Parse-output schema/semantics version. Ingest reparses every file whose
+# stored `parser_version` differs from this, so it is the ONLY switch that
+# forces a full reparse.
+#
+# It lives HERE, in code, and not in the environment: a parser change and the
+# reparse it requires must travel in the same commit. When this was read from
+# .env, shipping a parser change without an operator also editing that file
+# left every stored row at the old semantics with nothing to detect it, and a
+# deploy that never set the variable at all sat forever on the "1" default.
+#
+# BUMP THIS in the same commit as any change to parse.py semantics, to
+# pricing.py rates, or to the set of columns parse_file() emits.
+# Sequence continues the values previously carried in .env (last: 26);
+# 27 is the first code-owned value and forces the reparse that fills the
+# tool_uses failure/dispatch columns added alongside it.
+PARSER_VERSION = "27"
