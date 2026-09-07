@@ -27,6 +27,7 @@ _SRC = _REPO_ROOT / "src"
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
+    db.apply_schema()
     db.schema_check()
     events.set_loop(asyncio.get_running_loop())
 

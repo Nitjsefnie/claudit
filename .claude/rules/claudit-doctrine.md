@@ -78,6 +78,25 @@ claudit NEVER edits `~/.claude/scripts/parse_session.py` or
 global doctrine they are NOT copied, symlinked, or hardlinked into this
 repo — invoke them by absolute path under `~/.claude/scripts/`.
 
+## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
+
+`db.apply_schema()` runs `backend/schema.sql` on every boot, before
+`schema_check()`, under a Postgres advisory lock so concurrent boots do
+not race the same DDL. The file is idempotent by construction, which is
+what makes this safe to repeat.
+
+The manual `psql ... -f backend/schema.sql` step is no longer load-bearing:
+a deploy that pulls code writing a new column converges the database
+instead of aborting every ingest with `UndefinedColumn` while the
+dashboard serves stale aggregates (issue #43, hit twice in one day across
+the claudit and glmmeter deploys).
+
+The cost is that ROLLBACK IS ONE-DIRECTIONAL — restarting an older binary
+leaves it against a newer schema. That is acceptable ONLY while every
+migration is additive and nullable, so an older binary ignores what it
+does not know. A migration that DROPS or retypes a column breaks this
+property and needs a different mechanism, not a quiet exception.
+
 ## Schema fail-fast (SV-SCHEMA-FAIL-FAST)
 
 `backend/db.schema_check()` runs at every server startup. It verifies

@@ -174,8 +174,9 @@ systemctl status claudit
 journalctl -u claudit -f
 ```
 
-Schema migrations are idempotent — re-apply after editing
-`backend/schema.sql`:
+Schema migrations are applied automatically at every startup, so a
+restart is enough after editing `backend/schema.sql`. Applying it by
+hand is still safe, and is how you create a fresh database:
 
 ```bash
 psql claudit -f backend/schema.sql

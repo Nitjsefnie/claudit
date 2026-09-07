@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import LiteralString, cast
 
 from psycopg_pool import ConnectionPool
@@ -91,6 +92,54 @@ def viz_conn():
 def auth_conn():
     with auth_pool().connection() as conn:
         yield conn
+
+
+# backend/schema.sql, resolved next to this module so the working
+# directory the service was started from does not matter.
+SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+
+# Arbitrary but fixed key for the advisory lock the migration holds.
+# Two processes starting at once would otherwise run the same DDL
+# concurrently: IF NOT EXISTS makes each statement individually safe, but
+# two backends creating the same index still deadlock against each other.
+_SCHEMA_LOCK_KEY = 0x5356_4D49
+
+
+def apply_schema() -> None:
+    """Apply backend/schema.sql to the app DB at startup.
+
+    schema.sql is idempotent by construction -- every statement is
+    CREATE ... IF NOT EXISTS or ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+    -- so running it on every boot converges the database onto the shape
+    the running code expects instead of trusting that a human ran psql
+    after deploying (issue #43). Two deploys failed that way in one day:
+    a checkout pulled code writing a new column, the migration step was
+    missed, and every ingest then aborted with UndefinedColumn while the
+    dashboard kept serving stale aggregates.
+
+    Executed through psycopg rather than shelling out to psql: the
+    service already holds a connection with the right credentials, and a
+    psql subprocess would add a PATH dependency the container need not
+    satisfy.
+
+    ROLLBACK IS ONE-DIRECTIONAL, and that is the accepted cost. Deploying
+    forward then restarting an older binary leaves it running against a
+    schema from the future. Every migration here is additive and
+    nullable, so an older binary ignores what it does not know about;
+    that property is what makes auto-apply safe, and a migration that
+    drops or retypes a column would break it.
+    """
+    ddl = SCHEMA_PATH.read_text(encoding="utf-8")
+    with viz_conn() as c:
+        # Serialize concurrent boots. Session-scoped, released on the
+        # connection returning to the pool at the end of this block.
+        c.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK_KEY,))
+        try:
+            c.execute(sql_text(ddl))
+            c.commit()
+        finally:
+            c.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))
+            c.commit()
 
 
 def schema_check() -> None:

@@ -38,6 +38,7 @@ async def test_lifespan_signals_before_clearing_loop(monkeypatch):
         def shutdown(self, *, wait):
             calls.append(("scheduler", wait))
 
+    monkeypatch.setattr(app_mod.db, "apply_schema", lambda: None)
     monkeypatch.setattr(app_mod.db, "schema_check", lambda: None)
     monkeypatch.setattr(app_mod, "BackgroundScheduler", Scheduler)
     monkeypatch.setattr(

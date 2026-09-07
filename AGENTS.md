@@ -66,7 +66,8 @@ backend/          — FastAPI application
                     (read-only auth DB). Pools never join across DBs.
   cache.py        — In-process LRU with idle-time eviction for raw transcript
                     bytes (256 MB, 20-min idle).
-  schema.sql      — Idempotent CREATE TABLE IF NOT EXISTS + safe
+  schema.sql      — Applied at every startup by db.apply_schema().
+                    Idempotent CREATE TABLE IF NOT EXISTS + safe
                     ALTER TABLE ... ADD COLUMN IF NOT EXISTS migrations.
 
 public/           — Static assets served at /
@@ -228,7 +229,7 @@ systemctl status claudit
 journalctl -u claudit -f
 ```
 
-Schema migrations are idempotent — re-apply `backend/schema.sql` after any schema change. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest. It is a code constant so the bump travels in the same commit as the change that needs it.
+Schema migrations are **applied automatically at startup**: `db.apply_schema()` runs `backend/schema.sql` before `schema_check()` on every boot, so a deploy cannot outrun its database (issue #43). Re-applying by hand stays harmless and is still how you create a fresh DB. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest. It is a code constant so the bump travels in the same commit as the change that needs it.
 
 ## CI — batch your pushes
 
