@@ -3276,6 +3276,98 @@ function CostByContextPanel({ models, project, range, nonce }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Cost by Agent Type — one bar per agent role, biggest first.
+//
+// Categorical labels with one value each, which is exactly what the
+// sibling "Cost by Model" card already is, so this reuses window.HBar
+// rather than growing another bespoke SVG. Colours come from the same
+// hash-to-hue picker the Tool Usage bands use: the roster grows as
+// ~/.claude/agents/ does, and a curated palette would go stale.
+//
+// The `general-purpose` bar is NOT a claim that those sessions were
+// dispatched as general-purpose agents. It is where every transcript
+// with no role recorded lands (see parse.resolve_agent_type) — a plain
+// lead, a session started with an explicit --agent flag, and any
+// subagent transcript predating Claude Code 2.1.126 all read the same
+// in the file. The subtitle says so, because a bar this large silently
+// meaning "unattributed" would be read as a measurement.
+// ──────────────────────────────────────────────────────────────────────
+function CostByAgentPanel({ models, project, range, nonce }) {
+  const [rows, setRows] = React.useState([]);
+  const [total, setTotal] = React.useState(0);
+  // Per-panel model filter, same convention as ToolUsagePanel and
+  // CostByContextPanel: drill into one model without disturbing the
+  // other panels.
+  const [activeModel, setActiveModel] = React.useState('');
+
+  React.useEffect(() => {
+    const q = (project ? `&project=${encodeURIComponent(project)}` : '')
+            + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
+    fetch(`/api/cost-by-agent?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(b => {
+        setRows(b.agents || []);
+        setTotal(b.total_cost_usd || 0);
+      })
+      .catch(err => console.error('cost-by-agent fetch failed', err));
+  }, [project, range, activeModel, nonce]);
+
+  const modelOpts = React.useMemo(() => {
+    const grouped = {};
+    for (const m of models || []) {
+      const key = window.shortModelName ? window.shortModelName(m.model) : m.model;
+      if (key === '<synthetic>' || key === 'synthetic') continue;
+      grouped[key] = (grouped[key] || 0) + (m.n || 0);
+    }
+    return Object.entries(grouped)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => ({ key: k, n }));
+  }, [models]);
+
+  const bars = React.useMemo(() => rows.map(a => ({
+    label: a.agent_type,
+    value: a.cost_usd,
+    color: _toolColor(a.agent_type),
+    requests: a.requests,
+  })), [rows]);
+
+  return (
+    <div style={{
+      background: 'var(--bg-card)', border: '1px solid var(--border)',
+      borderRadius: 4, display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 8, padding: '8px 14px 0',
+        fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
+      }}>
+        <span>general-purpose = no role recorded in the transcript</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>model:</span>
+          <select
+            value={activeModel}
+            onChange={e => setActiveModel(e.target.value)}
+            style={{
+              background: 'var(--panel-2)', color: 'var(--fg)',
+              border: '1px solid var(--border)', borderRadius: 4,
+              padding: '3px 6px', fontFamily: 'var(--mono)', fontSize: 11,
+              cursor: 'pointer',
+            }}>
+            <option value="">All</option>
+            {modelOpts.map(m => <option key={m.key} value={m.key}>{m.key}</option>)}
+          </select>
+        </span>
+      </div>
+      <window.HBar
+        embedded
+        title="Cost by Agent Type"
+        rows={bars}
+        fmt={r => `${window.humanCurrency(r.value)} (${total > 0 ? (r.value / total * 100).toFixed(1) : '0.0'}%)`} />
+    </div>
+  );
+}
+
 
 window.CacheTTLPanel = CacheTTLPanel;
 window.ContextGrowthPanel = ContextGrowthPanel;
@@ -3288,3 +3380,4 @@ window.ActivityHeatmapPanel = ActivityHeatmapPanel;
 window.ToolErrorRatePanel = ToolErrorRatePanel;
 window.ReplyLatencyPanel = ReplyLatencyPanel;
 window.CostByContextPanel = CostByContextPanel;
+window.CostByAgentPanel = CostByAgentPanel;
