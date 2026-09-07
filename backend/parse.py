@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from orjson import JSONDecodeError, loads
 
 from backend import pricing
+from backend.constants import MAX_PLAUSIBLE_CTX
 from backend.bash_churn import bash_churn
 
 
@@ -564,8 +565,13 @@ def _build_ctx_turns(records: list, user_text_lines: list) -> list:
     if last_usage is not None:
         turn_records.append(last_usage)
 
-    # Drop turns with 0 input (refusals/interrupts; they corrupt deltas).
-    turn_records = [t for t in turn_records if t["ctx_input"] > 0]
+    # Drop turns with 0 input (refusals/interrupts; they corrupt deltas)
+    # and turns above any real context window (cumulative counters
+    # written by other harnesses; they destroy the trace's y-axis).
+    turn_records = [
+        t for t in turn_records
+        if 0 < t["ctx_input"] <= MAX_PLAUSIBLE_CTX
+    ]
 
     ctx_turns: list[dict] = []
     prev_input = 0

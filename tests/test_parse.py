@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import parse
+from backend import constants, parse
 
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -454,3 +454,29 @@ def test_non_string_agent_setting_falls_back_to_the_default():
     out = parse.parse_file(
         "k/sess-1/sess-1.jsonl", _read("agent_setting_nonstring.jsonl"))
     assert out["agent_type"] == "general-purpose"
+
+
+def test_context_beyond_any_window_is_not_a_turn():
+    """A record whose context exceeds MAX_PLAUSIBLE_CTX is a cumulative
+    counter, not a request, and must not enter the ctx_turns trace.
+
+    Found live: a one-line file in the `zai` bucket, written by another
+    harness under the all-zeros sentinel session id, reported 115.8M
+    cache-read tokens in a single record. No request reads that — the
+    largest published window is 1M — but the Context Growth y-axis is
+    scaled off the maximum, so that one row flattened every real trace on
+    glmmeter to a hairline.
+
+    The RECORD is still parsed and still priced. Only the ctx trace,
+    whose axis the value destroys, rejects it.
+    """
+    out = parse.parse_file(
+        "k/sess-1/sess-1.jsonl", _read("ctx_cumulative_counter.jsonl"))
+    assert not out["ctx_turns"]
+    assert len(out["records"]) == 1, "the record itself is still kept"
+
+
+def test_a_full_million_token_window_is_still_a_turn():
+    """The bound must not clip a legitimate [1m] request. Guards against
+    setting it at or below the real 1M window."""
+    assert constants.MAX_PLAUSIBLE_CTX > 1_000_000
