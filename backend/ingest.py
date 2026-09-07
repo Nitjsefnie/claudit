@@ -675,12 +675,16 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name,
                   is_error, error_kind, error_text,
                   lines_added, lines_deleted, agent_type, agent_model,
-                  dispatch_prompt_chars, dispatch_brief_ref)
+                  dispatch_prompt_chars, dispatch_brief_ref,
+                  result_chars, read_kind, read_targets, write_targets,
+                  is_reread)
                 VALUES (%(file_key)s, %(line_num)s, %(idx)s, %(ts)s, %(tool_name)s,
                   %(is_error)s, %(error_kind)s, %(error_text)s,
                   %(lines_added)s, %(lines_deleted)s,
                   %(agent_type)s, %(agent_model)s,
-                  %(dispatch_prompt_chars)s, %(dispatch_brief_ref)s)
+                  %(dispatch_prompt_chars)s, %(dispatch_brief_ref)s,
+                  %(result_chars)s, %(read_kind)s, %(read_targets)s,
+                  %(write_targets)s, %(is_reread)s)
                 """,
                 parsed["tool_uses"],
             )

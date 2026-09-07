@@ -95,5 +95,8 @@ VERSION = _read_version()
 # Sequence continues the values previously carried in .env (last: 26);
 # 27 is the first code-owned value and forces the reparse that fills the
 # tool_uses failure/dispatch columns added alongside it. 28 adds the two
-# dispatch briefing-shape columns to the set parse_file() emits.
-PARSER_VERSION = "28"
+# dispatch briefing-shape columns to the set parse_file() emits. 29 adds
+# result_chars, read_kind, read_targets, write_targets and is_reread --
+# what each call put into the context window and whether it had already
+# been put there.
+PARSER_VERSION = "29"

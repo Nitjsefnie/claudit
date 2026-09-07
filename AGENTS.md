@@ -46,6 +46,11 @@ backend/          — FastAPI application
                     arguments; errored calls are zeroed).
                     Mirrors canonical ~/.claude/scripts/parse_session.py
                     for Phase 1 within-file requestId max-merge.
+  bash_reads.py   — read/write TARGETS recovered from Bash command
+                    TEXT, plus whether the command emitted the file
+                    whole or a slice. Bash is ~79% of the read surface
+                    under bypass permissions, so `Read` arguments alone
+                    see almost none of the intake.
   bash_churn.py   — lines_added/lines_deleted recovered from Bash
                     command TEXT: heredoc bodies redirected into a file,
                     inline git-apply/patch hunks, and python
@@ -357,6 +362,16 @@ block. Never "fix" it by loosening the leading `*`.
   guards are source-level on purpose: node cannot parse JSX and nothing
   here renders React, so a panel can pass the whole suite and still draw
   a black rectangle — which is exactly what shipped.
+- **Context intake is stored per call, and stays psql-only.**
+  `tool_uses` carries `result_chars` (result size, images included),
+  `read_targets` / `write_targets` (TEXT[]), `read_kind`
+  (`whole`/`slice`) and `is_reread`. Bash targets are recovered from
+  command TEXT (`backend/bash_reads.py`) because Bash is ~79% of the
+  read surface. No endpoint, no panel, no rollup — SV-CONTEXT-INTAKE.
+  Measured corpus-wide, duplicate non-image whole reads are 0.47% of
+  all result bytes, which is why a panel would chart an outlier rather
+  than a habit. Query it: `SELECT sum(result_chars) FROM tool_uses
+  WHERE is_reread;`
 - **Cost is always TTL-split**. `cache_creation` decomposes into `ephemeral_5m` (× 1.25 base) + `ephemeral_1h` (× 2 base). Tokens with no `ephemeral_*` split (legacy SDK) are charged at the 5m rate. Single-rate `cache_create` cost is banned.
 - **Cross-file uuid dedup is resolved at INGEST** into `records.is_canonical` (SV-CANONICAL-FLAG); read paths filter that boolean and must not reintroduce `DISTINCT ON (uuid)`. Per-file `requestId` max-merge also happens at ingest.
 - **Foreign-model records are purged at ingest**, not filtered at read time — `suppressed_models` holds `ILIKE` patterns and `ingest.purge_suppressed()` deletes matching `records` and their `tool_uses` before the canonical pass (SV-SUPPRESSED-MODELS). The table ships empty; populate it per deploy.

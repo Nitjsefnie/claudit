@@ -281,6 +281,51 @@ what a dispatch asked for:
 (pure counts). `error_text` is deliberately NOT in either grain —
 unbounded cardinality does not belong in a rollup.
 
+## Context intake is stored per call (SV-CONTEXT-INTAKE)
+
+Five columns on `tool_uses` record what a call put INTO the context
+window and whether it had already been put there:
+
+- `result_chars` — size of the tool_result, IMAGES INCLUDED. An image
+  block's base64 payload is the largest thing a result can carry and is
+  92% of all duplicated read bytes over the live corpus, so a text-only
+  measure reports the cheapest half and calls it a total. Recorded for
+  errored calls too: a failure occupies the window like a success does.
+- `read_targets` / `write_targets` — TEXT[] because one call can name
+  several files (`cat a b`, `diff a b`).
+- `read_kind` — `whole` | `slice`. LOAD-BEARING, not decorative:
+  `grep -n x big.py` and `cat big.py` both name one file and only the
+  second put it in context. Score them alike and grep-then-narrow ranks
+  as MORE wasteful than one indiscriminate `cat`, which is backwards.
+- `is_reread` — resolved at parse time by `parse._resolve_rereads`,
+  NULL for anything that is not a settled whole-file read.
+
+Targets come from tool arguments for `Read`/`Edit`/`Write` and from
+COMMAND TEXT for `Bash` (`backend/bash_reads.py`). The Bash half is not
+an extra: measured over the corpus, Bash is ~79% of the read surface
+under bypass permissions, so an argument-only reader sees almost none
+of the intake.
+
+`is_reread` is deliberately CONSERVATIVE — a floor, not an estimate. It
+excludes slices (different halves of a file are not redundant), reads
+after a write to the same path (the bytes changed), errored reads (they
+returned a failure, not the file, so they neither waste nor count as
+having seen it), and partial overlap (`cat a b` after only `a` still
+brought `b` in). Easier to argue up from a floor than to defend a
+number that counted useful reads.
+
+Scope is ONE jsonl, because that is where a session's context restarts.
+
+These are psql-only, exactly like `error_text`: no endpoint, no panel,
+no rollup. `read_targets` is unbounded cardinality, the same reason
+`error_text` stays out of `tool_error_rollup`. **Do not add a panel for
+this** — measured over 11,205 objects, duplicate NON-IMAGE whole reads
+are 0.47% of all result bytes and 90% of the raw total sits in a
+handful of image-heavy sessions, so a chart would swing with the range
+picker and show an outlier as a trend. The data is for querying:
+
+    SELECT sum(result_chars) FROM tool_uses WHERE is_reread;
+
 ## The parser version is code, never the environment (SV-PARSER-VERSION)
 
 `constants.PARSER_VERSION` is the ONLY switch that forces a reparse, and

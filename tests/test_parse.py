@@ -570,3 +570,71 @@ def test_agent_dispatch_args_captured():
     assert by_idx[1]["agent_model"] is None
     assert by_idx[2]["tool_name"] == "Bash"
     assert by_idx[2]["agent_type"] is None
+
+
+def test_reread_flag_marks_only_the_redundant_whole_read():
+    """cat, cat again, grep, edit, cat: only the second call added
+    nothing new to the context."""
+    out = parse.parse_file(
+        "k/sess-reread/sess-reread.jsonl", _read("reread.jsonl")
+    )
+    tus = out["tool_uses"]
+    assert [tu["is_reread"] for tu in tus] == [False, True, None, None, False]
+
+
+def test_reread_records_read_kind_and_targets():
+    out = parse.parse_file(
+        "k/sess-reread/sess-reread.jsonl", _read("reread.jsonl")
+    )
+    tus = out["tool_uses"]
+    first, sliced, edited = tus[0], tus[2], tus[3]
+    assert first["read_kind"] == "whole"
+    assert first["read_targets"] == ["/repo/n.md"]
+    assert sliced["read_kind"] == "slice"
+    assert sliced["read_targets"] == ["/repo/n.md"]
+    # The Edit names what it CHANGED, which is what invalidates the
+    # pending re-read; it reads nothing.
+    assert edited["read_targets"] == []
+    assert edited["write_targets"] == ["/repo/n.md"]
+
+
+def test_result_chars_counts_every_settled_call():
+    out = parse.parse_file(
+        "k/sess-reread/sess-reread.jsonl", _read("reread.jsonl")
+    )
+    assert [tu["result_chars"] for tu in out["tool_uses"]] == [
+        len("alpha"), len("alpha"), len("1:alpha"), len("ok"), len("delta"),
+    ]
+
+
+def test_result_chars_counts_an_image_payload():
+    """Image results are 92% of duplicated read bytes over the live
+    corpus; a text-only measure would report the cheapest half."""
+    assert parse._result_size(  # pylint: disable=protected-access
+        [{"type": "image", "source": {"data": "Q" * 40}}]
+    ) == 40
+
+
+def test_errored_read_neither_flags_nor_marks_seen():
+    """A failed read returned an error, not the file — so it wasted
+    nothing AND leaves the next read of that file un-flagged."""
+    rows = [
+        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
+         "is_error": True, "is_reread": None},
+        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
+         "is_error": False, "is_reread": None},
+    ]
+    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    assert [r["is_reread"] for r in rows] == [None, False]
+
+
+def test_partial_overlap_is_not_a_reread():
+    """`cat a b` after reading only `a` still brought `b` in."""
+    rows = [
+        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
+         "is_error": False, "is_reread": None},
+        {"read_kind": "whole", "read_targets": ["/a", "/b"],
+         "write_targets": [], "is_error": False, "is_reread": None},
+    ]
+    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    assert [r["is_reread"] for r in rows] == [False, False]

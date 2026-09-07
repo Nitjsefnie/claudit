@@ -359,6 +359,48 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
   lines_deleted BIGINT NOT NULL DEFAULT 0;
 
+-- 2026-09-07: what each call put INTO the context, and whether it had
+-- already been put there.
+--
+-- `result_chars` is the size of the tool_result, images included: an
+-- image block's base64 payload is the largest thing a result can carry
+-- and is 92% of all duplicated read bytes over the live corpus, so a
+-- text-only measure would report the cheapest half and call it a total.
+-- Recorded for errored calls too — a failure occupies the window
+-- exactly as a success does.
+--
+-- `read_targets` / `write_targets` are ARRAYS because one call can name
+-- several files (`cat a b`, `diff a b`), and `read_kind` is 'whole' or
+-- 'slice'. That split is load-bearing, not decorative: `grep -n x big.py`
+-- and `cat big.py` both name one file and only the second put it in
+-- context, so scoring them alike ranks grep-then-narrow as more wasteful
+-- than one indiscriminate cat.
+--
+-- `is_reread` is resolved at PARSE time (parse._resolve_rereads), not
+-- derivable at read time without an ordered self-join per file, and NULL
+-- for anything that is not a settled whole-file read. Targets come from
+-- tool arguments for Read/Edit/Write and from COMMAND TEXT for Bash
+-- (backend/bash_reads.py) — under bypass permissions Bash is ~79% of the
+-- read surface, so an argument-only reader would see almost none of it.
+--
+-- Deliberately NOT rolled up: read_targets is unbounded cardinality,
+-- the same reason error_text stays out of tool_error_rollup. These are
+-- for querying raw.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS result_chars BIGINT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS read_kind TEXT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS read_targets TEXT[];
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS write_targets TEXT[];
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS is_reread BOOLEAN;
+
+-- Partial: only settled whole-file reads carry the flag, so the index
+-- stays a small fraction of the table.
+CREATE INDEX IF NOT EXISTS tool_uses_reread_idx
+  ON tool_uses (ts) WHERE is_reread;
+-- GIN over the target arrays so `WHERE '<path>' = ANY(read_targets)`
+-- and the containment operators do not sequential-scan 473k rows.
+CREATE INDEX IF NOT EXISTS tool_uses_read_targets_idx
+  ON tool_uses USING GIN (read_targets);
+
 -- 2026-09-07: why a settled tool call failed.
 --
 -- `is_error` says THAT a call failed and nothing about why, so every

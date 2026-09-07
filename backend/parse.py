@@ -19,11 +19,12 @@ import re
 from collections import Counter
 from datetime import datetime, timezone
 
-from orjson import JSONDecodeError, loads
+from orjson import JSONDecodeError, dumps, loads
 
 from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
 from backend.bash_churn import bash_churn
+from backend import bash_reads
 
 
 _INSTRUMENTATION_USER_PREFIXES = (
@@ -188,7 +189,45 @@ def _to_dt(s: str | None):
         return None
 
 
-def _content_metrics(msg: dict) -> tuple[int, list]:
+# Tools whose arguments name a file they WRITE. Their targets invalidate
+# a pending re-read: reading a file again after changing it is not a
+# duplicate read, it is the only way to see the new bytes.
+WRITE_TOOLS = ("Edit", "Write", "NotebookEdit")
+
+# Tools that put a whole named file into the transcript by tool argument
+# rather than by command text.
+READ_TOOLS = ("Read",)
+
+
+def _tool_access(name: str, tool_input: dict,
+                 cwd: str) -> tuple[str | None, list[str], list[str]]:
+    """(read_kind, read targets, write targets) for one tool CALL.
+
+    Three shapes reach this. `Read` names its file outright. `Edit`,
+    `Write` and `NotebookEdit` name a file they change. Everything else
+    that reads goes through Bash, where the target has to be recovered
+    from the command TEXT — which is most of the intake in practice:
+    under bypass permissions the harness prefers shell commands, so
+    `Read` sees a small minority of the files actually opened.
+
+    A `Read` with an offset or limit is a SLICE, exactly as `sed -n`
+    is: it put part of the file in context, not the file.
+    """
+    if name in WRITE_TOOLS:
+        path = str(tool_input.get("file_path", "") or "")
+        return None, [], [path] if path else []
+    if name in READ_TOOLS:
+        path = str(tool_input.get("file_path", "") or "")
+        if not path:
+            return None, [], []
+        sliced = bool(tool_input.get("offset") or tool_input.get("limit"))
+        return ("slice" if sliced else "whole"), [path], []
+    if name == "Bash":
+        return bash_reads.scan(str(tool_input.get("command", "") or ""), cwd)
+    return None, [], []
+
+
+def _content_metrics(msg: dict, cwd: str = "") -> tuple[int, list]:
     """(text_chars, tool_use blocks) for one assistant message.
 
     Visible-response size: sum character lengths of `text` blocks
@@ -216,27 +255,42 @@ def _content_metrics(msg: dict) -> tuple[int, list]:
                 # server_tool_use = model invoked an Anthropic-hosted
                 # tool (e.g. WebSearch). Same shape as tool_use; treat
                 # both as tool calls in the panel.
-                name = str(blk.get("name", "") or "")
-                if name:
-                    args = blk.get("input") or {}
-                    added, deleted = _tool_churn(name, args)
-                    a_type, a_model, p_chars, brief = _dispatch_args(
-                        name, args
-                    )
-                    msg_tool_uses.append({
-                        "idx": idx,
-                        "tool_name": name,
-                        "tool_use_id": str(blk.get("id", "") or ""),
-                        "lines_added": added,
-                        "lines_deleted": deleted,
-                        "agent_type": a_type,
-                        "agent_model": a_model,
-                        "dispatch_prompt_chars": p_chars,
-                        "dispatch_brief_ref": brief,
-                    })
+                row = _tool_use_row(idx, blk, cwd)
+                if row is not None:
+                    msg_tool_uses.append(row)
     elif isinstance(msg_content, str):
         text_chars = len(msg_content)
     return text_chars, msg_tool_uses
+
+
+def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
+    """One tool_use content block -> its pending tool_uses row.
+
+    None for a nameless block. Split out of _content_metrics because
+    every per-call column derived here is another local in a function
+    whose job is only to walk the content list.
+    """
+    name = str(blk.get("name", "") or "")
+    if not name:
+        return None
+    args = blk.get("input") or {}
+    added, deleted = _tool_churn(name, args)
+    a_type, a_model, p_chars, brief = _dispatch_args(name, args)
+    r_kind, r_targets, w_targets = _tool_access(name, args, cwd)
+    return {
+        "idx": idx,
+        "tool_name": name,
+        "tool_use_id": str(blk.get("id", "") or ""),
+        "lines_added": added,
+        "lines_deleted": deleted,
+        "agent_type": a_type,
+        "agent_model": a_model,
+        "dispatch_prompt_chars": p_chars,
+        "dispatch_brief_ref": brief,
+        "read_kind": r_kind,
+        "read_targets": r_targets,
+        "write_targets": w_targets,
+    }
 
 
 # Tool names that dispatch a subagent. Both spellings have shipped.
@@ -355,6 +409,35 @@ def _flatten_result_text(content) -> str:
     return ""
 
 
+def _result_size(content) -> int:
+    """Characters one tool_result put into the transcript.
+
+    Deliberately NOT `len(_flatten_result_text(...))`: that keeps text
+    blocks only, and an image block's base64 payload is the single
+    largest thing a tool result can carry. Over the live corpus, image
+    results are 92% of all duplicated read bytes — measuring only text
+    would report the cheapest half of the intake and call it the total.
+    """
+    if isinstance(content, str):
+        return len(content)
+    if not isinstance(content, list):
+        return 0
+    total = 0
+    for blk in content:
+        if isinstance(blk, str):
+            total += len(blk)
+        elif isinstance(blk, dict):
+            if blk.get("type") == "text":
+                total += len(str(blk.get("text", "") or ""))
+            else:
+                source = blk.get("source")
+                data = (source or {}).get("data") if isinstance(
+                    source, dict) else None
+                total += (len(str(data)) if data is not None
+                          else len(dumps(blk)))
+    return total
+
+
 def _classify_error(text: str) -> str:
     """Classify a failed tool_result by markers the HARNESS emits.
 
@@ -390,6 +473,11 @@ class _LineWalk:
         # Same key -> leading text of a FAILED result, for error_kind
         # classification and the error_text drill-down column.
         self.tool_result_text: dict[str, str] = {}
+        # Same key -> characters the result put into the transcript.
+        # Recorded for every settled call, errored or not: the question
+        # this answers is what filled the context window, and a failed
+        # call's error text occupies it exactly like a success does.
+        self.tool_result_chars: dict[str, int] = {}
         # Reply-latency anchor: last NON-instrumentation, NON-interrupt user
         # message timestamp. Cleared when consumed by an assistant message,
         # an interrupt marker, or superseded by a fresher user message.
@@ -502,6 +590,9 @@ class _LineWalk:
                 return
             is_err = bool(blk.get("is_error", False))
             self.tool_result_is_error[str(tu_id)] = is_err
+            self.tool_result_chars[str(tu_id)] = _result_size(
+                blk.get("content")
+            )
             if is_err:
                 self.tool_result_text[str(tu_id)] = _pg_text(
                     _flatten_result_text(blk.get("content")).strip()
@@ -538,7 +629,9 @@ class _LineWalk:
         if (msg.get("model") or "") == "<synthetic>":
             return
 
-        text_chars, msg_tool_uses = _content_metrics(msg)
+        text_chars, msg_tool_uses = _content_metrics(
+            msg, str(obj.get("cwd", "") or "")
+        )
         req_id = obj.get("requestId", "") or ""
         ev = {
             "line_num": line_num,
@@ -630,11 +723,17 @@ class _LineWalk:
                 "agent_model": tu["agent_model"],
                 "dispatch_prompt_chars": tu["dispatch_prompt_chars"],
                 "dispatch_brief_ref": tu["dispatch_brief_ref"],
+                "read_kind": tu["read_kind"],
+                "read_targets": tu["read_targets"],
+                "write_targets": tu["write_targets"],
+                "result_chars": None,  # filled after the line walk
+                "is_reread": None,     # filled after the line walk
             })
 
 
 def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
-                         tool_result_text: dict | None = None) -> None:
+                         tool_result_text: dict | None = None,
+                         tool_result_chars: dict | None = None) -> None:
     """Resolve tool_result.is_error onto each tool_uses entry by
     tool_use_id. Unmatched entries keep is_error=None and are
     excluded from rate denominators at query time. An errored call
@@ -643,6 +742,8 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
     result record)."""
     for tu in tool_uses:
         tu_id = tu.pop("tool_use_id", "")
+        if tu_id:
+            tu["result_chars"] = (tool_result_chars or {}).get(tu_id)
         if tu_id and tu_id in tool_result_is_error:
             tu["is_error"] = tool_result_is_error[tu_id]
             if tu["is_error"]:
@@ -651,6 +752,40 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
                 text = (tool_result_text or {}).get(tu_id, "")
                 tu["error_kind"] = _classify_error(text)
                 tu["error_text"] = text or None
+
+
+def _resolve_rereads(tool_uses: list) -> None:
+    """Flag each whole-file read that added nothing new to the context.
+
+    Walked in line order over ONE jsonl, which is the right scope: the
+    context this measures is a session's, and a file boundary is where
+    that context restarts.
+
+    A read is a re-read when EVERY file it names was already read whole
+    in this file and none of them has been written since. Three things
+    that look like waste and are not, all excluded here:
+
+    - a SLICE. `sed -n '1,200p' f` then `sed -n '200,400p' f` read
+      different halves; only a whole read can be wholly redundant.
+    - a read after a WRITE. The bytes changed, so re-reading them is
+      the only way to see the new ones.
+    - an ERRORED read. It returned a failure, not the file, so it
+      neither wasted context nor counts as having seen the file —
+      which is why it does not mark its targets either.
+
+    Partial overlap (`cat a b` where only `a` was read before) is NOT
+    flagged: something new arrived, so the call was not wasted. The
+    flag stays deliberately conservative — it is easier to argue up
+    from a floor than to defend a number that counted useful reads.
+    """
+    seen_whole: set[str] = set()
+    for tu in tool_uses:
+        targets = tu.get("read_targets") or []
+        if tu.get("read_kind") == "whole" and targets and not tu["is_error"]:
+            tu["is_reread"] = all(path in seen_whole for path in targets)
+            seen_whole.update(targets)
+        for path in tu.get("write_targets") or []:
+            seen_whole.discard(path)
 
 
 def _project_record(file_key: str, ev: dict) -> dict:
@@ -834,7 +969,8 @@ def parse_file(file_key: str, blob: bytes) -> dict:
             walk.handle_assistant_line(obj, msg, line_num)
 
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
-                         walk.tool_result_text)
+                         walk.tool_result_text, walk.tool_result_chars)
+    _resolve_rereads(walk.tool_uses)
     records = [
         _project_record(file_key, ev) for ev in walk.records_in_order
     ]
