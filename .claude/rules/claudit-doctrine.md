@@ -71,6 +71,30 @@ each under 1 KB. `fixtures/r2_mini/` is the end-to-end mini mirror
 Don't grow either by accident — larger samples go under
 `/tmp/analyst.BCYKic3p/r2/` (the local R2 mirror, not committed).
 
+## Develop against the full corpus, never the local tree (SV-FULL-CORPUS)
+
+Any measurement, probe, or panel prototype reads the R2 corpus (or a
+full local mirror of it), NOT `~/.claude/projects/`. The live session
+tree is pruned by Claude Code, so it is a small and BIASED sample:
+recent sessions survive, long-finished ones are gone, and whichever
+projects were touched lately are over-represented.
+
+Measured 2026-09-07: 475 local jsonls against 11,204 objects in the
+bucket — 4%. A behavioural rate derived from the local tree is a rate
+over that 4%, and nothing in the number says so.
+
+This is the same fact the README gives as the reason ingest goes
+through object storage at all, applied one step earlier: it governs the
+throwaway script you write to decide whether a panel is worth building,
+not just the shipped ingest path. A prototype that samples the local
+tree can report a clean zero for behaviour that is abundant in the
+corpus, which reads as "no signal here" and kills the panel.
+
+Use `backend/r2.py` (`list_keys` / `get_stream`) so a probe honours
+`R2_ENDPOINT` and works against either the bucket or a `file://`
+mirror. Stratify and say the sample size in the output; never present
+a corpus-wide claim from an unstated subset.
+
 ## Read-only on canonical paths (SV-READ-ONLY-CANONICAL)
 
 claudit NEVER edits `~/.claude/scripts/parse_session.py` or
