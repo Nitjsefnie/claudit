@@ -429,12 +429,16 @@ function backendDashToShape(b) {
     session_id: 'backend-h' + i,
     turn_index: 0,
     model: short(h.model),
-    input_tokens: h.input_tokens,
-    output_tokens: h.output_tokens,
-    cache_create: h.cache_5m_tokens + h.cache_1h_tokens,
-    cache_read: h.cache_read_tokens,
-    ephemeral_5m: h.cache_5m_tokens,
-    ephemeral_1h: h.cache_1h_tokens,
+    // Every token field is OPTIONAL: the backend drops any type whose
+    // total is zero across the range (api_dashboard.drop_zero_token_types),
+    // so these keys can be absent and `a + b` on two absent ones is NaN,
+    // not 0 — which is what silently poisons a whole panel.
+    input_tokens: h.input_tokens || 0,
+    output_tokens: h.output_tokens || 0,
+    cache_create: (h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0),
+    cache_read: h.cache_read_tokens || 0,
+    ephemeral_5m: h.cache_5m_tokens || 0,
+    ephemeral_1h: h.cache_1h_tokens || 0,
     cost_usd: h.cost_usd,
     lines_added: h.lines_added || 0,
     lines_deleted: h.lines_deleted || 0,
@@ -496,7 +500,48 @@ function backendDashToShape(b) {
     responseSizes: b.response_sizes || [],
     ctxTraces: b.ctx_traces || [],
     bucketS: b.bucket_s || 86400,
+    // Which token types survived the backend's zero-suppression
+    // (api_dashboard.drop_zero_token_types). Absent on the synthetic
+    // preview path, where tokenPanels() falls back to summing.
+    tokenTypes: b.token_types || null,
   };
+}
+
+// Which of the four token panels to draw.
+//
+// A panel whose series is zero in every bucket is noise: it occupies a
+// grid cell to say nothing. The backend already decided this and sent
+// `token_types`, so mirror that when it is present rather than
+// second-guessing it; the synthetic preview has no such list, so fall
+// back to summing the events.
+//
+// Cache Create is the one panel that is not 1:1 with a wire field — it
+// plots cache_5m + cache_1h — so it survives if EITHER half did.
+function tokenPanels(events, tokenTypes) {
+  const live = tokenTypes
+    ? new Set(tokenTypes)
+    : new Set(['input_tokens', 'output_tokens', 'cache_5m_tokens',
+               'cache_1h_tokens', 'cache_read_tokens']
+      .filter(f => {
+        const key = { input_tokens: 'input_tokens', output_tokens: 'output_tokens',
+                      cache_5m_tokens: 'ephemeral_5m', cache_1h_tokens: 'ephemeral_1h',
+                      cache_read_tokens: 'cache_read' }[f];
+        return events.some(e => (e[key] || 0) !== 0);
+      }));
+  return {
+    input: live.has('input_tokens'),
+    output: live.has('output_tokens'),
+    cacheCreate: live.has('cache_5m_tokens') || live.has('cache_1h_tokens'),
+    cacheRead: live.has('cache_read_tokens'),
+    any: live.size > 0,
+  };
+}
+
+// Non-token series (churn, cost) carry no backend declaration, so the
+// same "all zero across the range" rule is applied here. A project that
+// never edits a file otherwise gets two permanently flat churn panels.
+function hasSeries(events, key) {
+  return events.some(e => (e[key] || 0) !== 0);
 }
 
 function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
@@ -680,7 +725,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     costByProject: backendByProject = [],
     sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
     subagentOnlySessions, totalPrompts, totalTurns, responseSizes,
-    ctxTraces, bucketS,
+    ctxTraces, bucketS, tokenTypes,
   } = synth || {};
   // Placeholder window so the bin-size maths below stays finite pre-data.
   const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
@@ -690,6 +735,11 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     ? sessionsOverride
     : computed.sessions;
   const windowBoundaries = computed.windowBoundaries;
+  // Empty-plot suppression: a series that is zero in every bucket gets
+  // no grid cell. Backend-declared for token types, summed here for the
+  // derived and churn series.
+  const panels = useMemo(
+    () => tokenPanels(events, tokenTypes), [events, tokenTypes]);
 
   const totals = useMemo(() => {
     const t = { input: 0, output: 0, cc: 0, cr: 0, cost: 0, eph5: 0, eph1h: 0,
@@ -768,22 +818,30 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
 
       {hasData && (<>
       <div className="dash-grid">
+        {panels.input && (
         <window.TimeSeriesPanel title="Input Tokens"  events={events} valueKey="input_tokens"
-          color={window.dashboardCol.inputTokens} range={range} binMs={binMs} />
+          color={window.dashboardCol.inputTokens} range={range} binMs={binMs} />)}
+        {panels.output && (
         <window.TimeSeriesPanel title="Output Tokens" events={events} valueKey="output_tokens"
-          color={window.dashboardCol.outputTokens} range={range} binMs={binMs} />
+          color={window.dashboardCol.outputTokens} range={range} binMs={binMs} />)}
+        {panels.cacheCreate && (
         <window.TimeSeriesPanel title="Cache Create"  events={events} valueKey="cache_create"
-          color={window.dashboardCol.cacheCreateTokens} range={range} binMs={binMs} />
+          color={window.dashboardCol.cacheCreateTokens} range={range} binMs={binMs} />)}
+        {panels.cacheRead && (
         <window.TimeSeriesPanel title="Cache Read"    events={events} valueKey="cache_read"
-          color={window.dashboardCol.cacheReadTokens} range={range} binMs={binMs} />
+          color={window.dashboardCol.cacheReadTokens} range={range} binMs={binMs} />)}
+        {panels.any && (
         <window.TimeSeriesPanel title="Total Tokens"  events={events.map(e => ({...e, _t: e.input_tokens+e.output_tokens+e.cache_create+e.cache_read}))}
-          valueKey="_t" color={window.dashboardCol.totalTokens} range={range} binMs={binMs} />
+          valueKey="_t" color={window.dashboardCol.totalTokens} range={range} binMs={binMs} />)}
+        {hasSeries(events, 'cost_usd') && (
         <window.TimeSeriesPanel title="Cost (USD)"    events={events} valueKey="cost_usd"
-          color={window.dashboardCol.costUSD} range={range} binMs={binMs} isCurrency />
+          color={window.dashboardCol.costUSD} range={range} binMs={binMs} isCurrency />)}
+        {hasSeries(events, 'lines_added') && (
         <window.TimeSeriesPanel title="Lines Added"   events={events} valueKey="lines_added"
-          color={window.dashboardCol.linesAdded} range={range} binMs={binMs} />
+          color={window.dashboardCol.linesAdded} range={range} binMs={binMs} />)}
+        {hasSeries(events, 'lines_deleted') && (
         <window.TimeSeriesPanel title="Lines Deleted" events={events} valueKey="lines_deleted"
-          color={window.dashboardCol.linesDeleted} range={range} binMs={binMs} />
+          color={window.dashboardCol.linesDeleted} range={range} binMs={binMs} />)}
       </div>
 
       <div className="dash-grid-2">

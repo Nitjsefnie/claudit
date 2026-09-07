@@ -159,3 +159,44 @@ def test_cost_by_context_hover_matches_the_reference():
     assert "my < padT || my > padT + plotH" in body, (
         "hover must be guarded to the plot area")
     assert "onMouseMove={onMove}" in src and "onMouseLeave" in src
+
+
+APP = ROOT / "src" / "app.jsx"
+
+# Every token/churn panel in the main dash-grid, and the guard that must
+# gate it. An UNGATED panel draws a flat empty plot for any dataset whose
+# series is zero throughout -- which is not hypothetical: this codebase is
+# also deployed as glmmeter over the `zai` bucket, where cache_creation,
+# eph5 and eph1h are 0 across every canonical record.
+_GATED_PANELS = {
+    "Input Tokens": "panels.input",
+    "Output Tokens": "panels.output",
+    "Cache Create": "panels.cacheCreate",
+    "Cache Read": "panels.cacheRead",
+    "Total Tokens": "panels.any",
+    "Cost (USD)": "hasSeries(events, 'cost_usd')",
+    "Lines Added": "hasSeries(events, 'lines_added')",
+    "Lines Deleted": "hasSeries(events, 'lines_deleted')",
+}
+
+
+def test_every_dash_grid_panel_is_gated_on_having_data():
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    for title, guard in _GATED_PANELS.items():
+        idx = src.index(f'title="{title}"')
+        # The guard sits immediately before the element that carries the
+        # title, so look back a short window rather than the whole file.
+        window = src[max(0, idx - 220):idx]
+        assert guard in window, (
+            f"{title!r} panel is not gated on {guard!r} -- it will render "
+            f"an empty plot when its series is zero throughout"
+        )
+
+
+def test_backend_token_key_sums_are_absent_safe():
+    """cache_create is derived by ADDING two optional wire fields. Once
+    the backend suppresses them, `undefined + undefined` is NaN, which
+    poisons the panel rather than zeroing it."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    assert "(h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0)" in src
+    assert "cache_create: h.cache_5m_tokens + h.cache_1h_tokens" not in src
