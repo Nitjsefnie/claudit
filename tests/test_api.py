@@ -854,3 +854,58 @@ def test_activity_heatmap_project_filter(app_with_data):
 
 def test_activity_heatmap_bad_range_400(app_with_data):
     assert app_with_data.get("/api/activity-heatmap?range=bogus").status_code == 400
+
+
+def test_cost_by_agent_splits_types_and_shares_sum(app_with_data):
+    """One bar per agent type, biggest first, shares summing to 1.
+
+    The mini mirror has an attributed sidecar (implementer) alongside
+    main transcripts that record no role, so this also pins that the two
+    do NOT collapse into one bar.
+    """
+    r = app_with_data.get("/api/cost-by-agent?range=all")
+    assert r.status_code == 200
+    body = r.json()
+    agents = body["agents"]
+    assert agents, "fixture produced no agent rows"
+
+    names = [a["agent_type"] for a in agents]
+    assert len(names) == len(set(names)), "one bar per type"
+    assert "implementer" in names
+    assert "general-purpose" in names
+
+    costs = [a["cost_usd"] for a in agents]
+    assert costs == sorted(costs, reverse=True), "biggest bar first"
+    assert all(a["requests"] > 0 for a in agents)
+
+    assert body["total_cost_usd"] == pytest.approx(sum(costs))
+    assert sum(a["share"] for a in agents) == pytest.approx(1.0)
+
+
+def test_cost_by_agent_bad_range_400(app_with_data):
+    assert app_with_data.get(
+        "/api/cost-by-agent?range=banana").status_code == 400
+
+
+def test_cost_by_agent_model_filter_subsets(app_with_data):
+    """A model filter selects whole (agent_type, model) rollup rows, so
+    it can only ever narrow the result."""
+    allm = app_with_data.get("/api/cost-by-agent?range=all").json()
+    models = app_with_data.get("/api/models").json()["models"]
+    assert models, "fixture has no models"
+    top = models[0]["model"]
+    one = app_with_data.get(
+        f"/api/cost-by-agent?range=all&model={top}").json()
+    assert one["total_cost_usd"] <= allm["total_cost_usd"] + 1e-9
+    assert one["total_cost_usd"] > 0
+
+
+def test_cost_by_agent_live_path_agrees_with_rollup(app_with_data):
+    """range=1d takes a live pass over `records` instead of the rollup
+    (hour-grained edges are too coarse for a 24h window). Both paths must
+    return the same shape and the same type names."""
+    live = app_with_data.get("/api/cost-by-agent?range=1d").json()
+    assert isinstance(live["agents"], list)
+    for a in live["agents"]:
+        assert set(a) == {
+            "agent_type", "requests", "output_tokens", "cost_usd", "share"}

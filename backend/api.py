@@ -665,6 +665,102 @@ def cost_by_context(
     }
 
 
+def _cost_by_agent_sql(rng: str, project: str | None,
+                       model: str | None) -> tuple[str, list]:
+    """(sql, args) for the cost-by-agent-type query.
+
+    Reads `agent_rollup` (hour x project x model x agent_type), whose
+    stored columns are pure sums and so compose across all four
+    dimensions -- a project or model filter selects whole rows and the
+    rest simply sum.
+
+    The 24h view takes a live pass over `records` for the same reason
+    /api/cost-by-context does: this panel's x-axis is not time, so an
+    hour-grained rollup is never too COARSE, but time still enters as the
+    range EDGE, and at hour resolution that edge can include or drop up
+    to an hour of records -- invisible over 30d, plainly wrong over 24h.
+    """
+    args: list[Any] = []
+    since = datetime.now(timezone.utc) - _parse_range(rng)
+    args.append(since)
+    if rng == "1d":
+        tail = ""
+        if project:
+            tail += " AND f.project_id = %s"
+            args.append(project)
+        if model:
+            tail += " AND r.model LIKE %s"
+            args.append(f"%{model}%")
+        return (f"""
+            SELECT f.agent_type,
+                   COUNT(*)               AS requests,
+                   SUM(r.output_tokens)   AS output_tokens,
+                   SUM(r.cost_usd)        AS cost_usd
+              FROM records r
+              JOIN files f ON f.file_key = r.file_key
+             WHERE r.is_canonical AND r.ts IS NOT NULL
+               AND r.ts >= %s {tail}
+             GROUP BY 1 ORDER BY 4 DESC
+            """, args)
+
+    tail = ""
+    if project:
+        tail += " AND project_id = %s"
+        args.append(project)
+    if model:
+        tail += " AND model LIKE %s"
+        args.append(f"%{model}%")
+    return (f"""
+        SELECT agent_type,
+               SUM(requests)      AS requests,
+               SUM(output_tokens) AS output_tokens,
+               SUM(cost_usd)      AS cost_usd
+          FROM agent_rollup
+         WHERE hour >= date_trunc('hour', %s::timestamptz) {tail}
+         GROUP BY 1 ORDER BY 4 DESC
+        """, args)
+
+
+@router.get("/cost-by-agent")
+@cache_response
+def cost_by_agent(
+    rng: str = Query("30d", alias="range"),
+    project: str | None = Query(None),
+    model: str | None = Query(None),
+) -> dict:
+    """Cost split by the agent role each transcript ran as.
+
+    One bar per type, biggest first. `agent_type` comes from
+    parse.resolve_agent_type, which reads the role off the transcript
+    itself; everything it cannot attribute lands in `general-purpose`.
+    That bucket is genuinely mixed -- a plain lead session, a session
+    started with an explicit --agent flag, and a subagent transcript
+    predating Claude Code 2.1.126 are indistinguishable in the file --
+    so it reads as "no role recorded", not as a claim about dispatch.
+    """
+    sql, args = _cost_by_agent_sql(rng, project, model)
+    with db.viz_conn() as c:
+        rows = c.execute(db.sql_text(sql), args).fetchall()
+
+    total = sum(float(cost or 0) for (_, _, _, cost) in rows)
+    agents = [{
+        "agent_type": name,
+        "requests": int(n or 0),
+        "output_tokens": int(out or 0),
+        "cost_usd": float(cost or 0),
+        # Guard the empty range: no rows means no division, but a range
+        # whose rows all cost 0 would divide by zero here.
+        "share": (float(cost or 0) / total) if total else 0.0,
+    } for (name, n, out, cost) in rows]
+    return {
+        "range": rng,
+        "project": project,
+        "model": model,
+        "total_cost_usd": total,
+        "agents": agents,
+    }
+
+
 @router.get("/models")
 def list_models() -> dict:
     """All distinct (real, non-synthetic) model strings ever recorded,
