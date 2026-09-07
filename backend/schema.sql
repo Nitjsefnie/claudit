@@ -194,6 +194,34 @@ CREATE TABLE IF NOT EXISTS dispatch_rollup (
 CREATE INDEX IF NOT EXISTS dispatch_rollup_hour_idx
   ON dispatch_rollup (hour);
 
+-- Pre-aggregated dispatch BRIEFING SHAPE, grain
+-- (hour, project_id, agent_type, brief_ref).
+--
+-- dispatch_rollup answers what was dispatched. This answers how it was
+-- briefed: `brief_ref` is true when the call's opening directive points
+-- at a written brief file, false when the call carries its instructions
+-- inline. The distinction is whether the brief outlives the dispatch --
+-- an inline brief is re-authored per call and cannot be reused, and the
+-- scratch-directory paths the referenced ones point at mostly no longer
+-- exist either.
+--
+-- `n` is a pure count and composes. `prompt_chars` is a SUM, so it
+-- composes the same way; divide by `n` for a mean at any bucket width.
+-- Neither the prompt text nor a fingerprint of it is stored: unbounded
+-- cardinality has no place in a rollup grain, and the text is the most
+-- sensitive thing a transcript holds.
+CREATE TABLE IF NOT EXISTS dispatch_brief_rollup (
+  hour         TIMESTAMPTZ NOT NULL,
+  project_id   TEXT        NOT NULL,
+  agent_type   TEXT        NOT NULL,
+  brief_ref    BOOLEAN     NOT NULL,
+  n            BIGINT      NOT NULL DEFAULT 0,
+  prompt_chars BIGINT      NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour, project_id, agent_type, brief_ref)
+);
+CREATE INDEX IF NOT EXISTS dispatch_brief_rollup_hour_idx
+  ON dispatch_brief_rollup (hour);
+
 -- Pre-aggregated cost-by-context-size for /api/cost-by-context.
 --
 -- `usage_rollup` cannot serve this panel: its grain sums fresh/create/
@@ -358,6 +386,16 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS error_text TEXT;
 -- non-dispatch tool, and on a dispatch that named neither field.
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_type TEXT;
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_model TEXT;
+
+-- 2026-09-07: how a dispatch was BRIEFED, from the same call arguments.
+-- dispatch_prompt_chars is the prompt's length; dispatch_brief_ref is
+-- true when its opening directive points at a written brief file rather
+-- than carrying the instructions inline. The prompt text itself is not
+-- stored -- it is unbounded and it is the most sensitive thing in a
+-- transcript, and neither question needs it. NULL on every non-dispatch
+-- tool and on a dispatch carrying no prompt argument.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_prompt_chars INT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
 
 -- Errored rows are a small minority, so a partial index keeps the
 -- drill-down cheap without carrying the whole table.

@@ -925,6 +925,45 @@ def test_dispatch_rollup_totals_match_raw(fresh_db, mini_r2_env):
     assert sum(r[2] for r in rolled) == raw_total
 
 
+def test_dispatch_brief_columns_persist(fresh_db, mini_r2_env):
+    """The briefing-shape columns survive the ingest INSERT, and stay
+    NULL for a dispatch with no prompt and for non-dispatch tools."""
+    _plant(mini_r2_env, "projB", "sess-B", "dispatch_brief_shape.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT idx, tool_name, dispatch_brief_ref, "
+            "dispatch_prompt_chars FROM tool_uses "
+            "WHERE file_key LIKE '%sess-B.jsonl' ORDER BY idx"
+        ).fetchall()
+    assert rows[0][2] is True
+    assert rows[1][2] is False and rows[1][3] == 188
+    assert rows[2][2] is False, "a path past the scan window is not a ref"
+    assert rows[3][2] is None and rows[3][3] is None
+    assert rows[4][1] == "Bash" and rows[4][2] is None
+
+
+def test_dispatch_brief_rollup_totals_match_raw(fresh_db, mini_r2_env):
+    """SV-ROLLUP: the pre-aggregate equals the raw aggregate it stands
+    in for, on both the count and the summed prompt length."""
+    _plant(mini_r2_env, "projB", "sess-B", "dispatch_brief_shape.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rolled = c.execute(
+            "SELECT brief_ref, SUM(n), SUM(prompt_chars) "
+            "FROM dispatch_brief_rollup GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+        raw = c.execute(
+            "SELECT dispatch_brief_ref, COUNT(*), "
+            "COALESCE(SUM(dispatch_prompt_chars), 0) FROM tool_uses "
+            "WHERE dispatch_brief_ref IS NOT NULL AND ts IS NOT NULL "
+            "GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+    assert rolled == raw
+    # Two inline dispatches, one that delegates to a written brief.
+    assert dict((r[0], r[1]) for r in rolled) == {False: 2, True: 1}
+
+
 def test_rollups_rebuilt_when_nothing_changed(fresh_db, mini_r2_env):
     """Derived state is rebuilt on every successful ingest, not only
     when files changed — same contract as recompute_canonical()."""

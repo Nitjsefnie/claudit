@@ -522,6 +522,40 @@ def test_error_text_carries_no_nul_byte():
     assert "binary junk" in tu["error_text"]
 
 
+def test_dispatch_briefing_shape_captured():
+    """A dispatch records how it was briefed: prompt length, and whether
+    the opening directive points at a written brief file instead of
+    carrying the instructions inline.
+
+    The late-path case is the one that matters -- a prompt mentioning a
+    .md path only after BRIEF_REF_SCAN carries its brief inline and
+    happens to cite a file, which is not the same thing as delegating
+    to one.
+    """
+    out = parse.parse_file(
+        "k/sess-b/sess-b.jsonl", _read("dispatch_brief_shape.jsonl")
+    )
+    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
+
+    assert by_idx[0]["dispatch_brief_ref"] is True
+    assert by_idx[0]["dispatch_prompt_chars"] > 0
+
+    assert by_idx[1]["dispatch_brief_ref"] is False
+    assert by_idx[1]["dispatch_prompt_chars"] == 188
+
+    assert by_idx[2]["dispatch_brief_ref"] is False, \
+        "a path beyond the scan window is not a brief reference"
+
+    # A dispatch with no prompt argument has no briefing shape at all,
+    # which is distinct from having one that is inline.
+    assert by_idx[3]["dispatch_brief_ref"] is None
+    assert by_idx[3]["dispatch_prompt_chars"] is None
+
+    # A non-dispatch tool never carries them, even naming a .md path.
+    assert by_idx[4]["tool_name"] == "Bash"
+    assert by_idx[4]["dispatch_brief_ref"] is None
+
+
 def test_agent_dispatch_args_captured():
     """An Agent call records subagent_type/model from its arguments;
     a dispatch that names neither records NULLs, and a non-Agent tool

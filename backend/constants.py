@@ -94,5 +94,6 @@ VERSION = _read_version()
 # pricing.py rates, or to the set of columns parse_file() emits.
 # Sequence continues the values previously carried in .env (last: 26);
 # 27 is the first code-owned value and forces the reparse that fills the
-# tool_uses failure/dispatch columns added alongside it.
-PARSER_VERSION = "27"
+# tool_uses failure/dispatch columns added alongside it. 28 adds the two
+# dispatch briefing-shape columns to the set parse_file() emits.
+PARSER_VERSION = "28"

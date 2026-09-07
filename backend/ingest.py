@@ -36,6 +36,7 @@ from backend.api_dashboard import dashboard
 # only in-module caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
+    rebuild_dispatch_brief_rollup,
     rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
     rebuild_tool_error_rollup, rebuild_tool_rollup,
     recompute_canonical,
@@ -316,6 +317,8 @@ def _rebuild_derived_state() -> None:
     rebuild_tool_error_rollup()
     _set_progress(phase="dispatch_rollup")
     rebuild_dispatch_rollup()
+    _set_progress(phase="dispatch_brief_rollup")
+    rebuild_dispatch_brief_rollup()
     _set_progress(phase="latency_rollup")
     rebuild_latency_rollup()
     _set_progress(phase="ctx_cost_rollup")
@@ -671,11 +674,13 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 """
                 INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name,
                   is_error, error_kind, error_text,
-                  lines_added, lines_deleted, agent_type, agent_model)
+                  lines_added, lines_deleted, agent_type, agent_model,
+                  dispatch_prompt_chars, dispatch_brief_ref)
                 VALUES (%(file_key)s, %(line_num)s, %(idx)s, %(ts)s, %(tool_name)s,
                   %(is_error)s, %(error_kind)s, %(error_text)s,
                   %(lines_added)s, %(lines_deleted)s,
-                  %(agent_type)s, %(agent_model)s)
+                  %(agent_type)s, %(agent_model)s,
+                  %(dispatch_prompt_chars)s, %(dispatch_brief_ref)s)
                 """,
                 parsed["tool_uses"],
             )

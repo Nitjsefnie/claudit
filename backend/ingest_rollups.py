@@ -293,6 +293,43 @@ def rebuild_dispatch_rollup() -> int:
     return written
 
 
+def rebuild_dispatch_brief_rollup() -> int:
+    """Rebuild `dispatch_brief_rollup` from tool_uses + files.
+
+    Same source as dispatch_rollup, different question: not what was
+    dispatched but whether the call pointed at a written brief or
+    carried its instructions inline. Only dispatches that actually
+    carried a prompt have a shape to record, so the filter is on
+    dispatch_brief_ref rather than agent_type -- a dispatch with a
+    prompt but no subagent_type still has a briefing shape.
+    """
+    with db.viz_conn() as c:
+        c.execute("SET LOCAL work_mem = '64MB'")
+        c.execute("DELETE FROM dispatch_brief_rollup")
+        cur = c.execute(
+            """
+            INSERT INTO dispatch_brief_rollup (
+              hour, project_id, agent_type, brief_ref, n, prompt_chars
+            )
+            SELECT date_trunc('hour', tu.ts)               AS hour,
+                   f.project_id,
+                   COALESCE(tu.agent_type, '')             AS agent_type,
+                   tu.dispatch_brief_ref                   AS brief_ref,
+                   COUNT(*)                                AS n,
+                   COALESCE(SUM(tu.dispatch_prompt_chars), 0)
+                                                           AS prompt_chars
+              FROM tool_uses tu
+              JOIN files f ON f.file_key = tu.file_key
+             WHERE tu.ts IS NOT NULL AND tu.dispatch_brief_ref IS NOT NULL
+             GROUP BY 1, 2, 3, 4
+            """
+        )
+        written = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        c.commit()
+    log.info("rebuild_dispatch_brief_rollup: %d rows", written)
+    return written
+
+
 def rebuild_latency_rollup() -> int:
     """Rebuild `latency_rollup` for each display bucket width.
 

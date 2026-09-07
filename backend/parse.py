@@ -15,6 +15,7 @@ helpers then project the walked events into records and ctx_turns.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -219,7 +220,9 @@ def _content_metrics(msg: dict) -> tuple[int, list]:
                 if name:
                     args = blk.get("input") or {}
                     added, deleted = _tool_churn(name, args)
-                    a_type, a_model = _dispatch_args(name, args)
+                    a_type, a_model, p_chars, brief = _dispatch_args(
+                        name, args
+                    )
                     msg_tool_uses.append({
                         "idx": idx,
                         "tool_name": name,
@@ -228,6 +231,8 @@ def _content_metrics(msg: dict) -> tuple[int, list]:
                         "lines_deleted": deleted,
                         "agent_type": a_type,
                         "agent_model": a_model,
+                        "dispatch_prompt_chars": p_chars,
+                        "dispatch_brief_ref": brief,
                     })
     elif isinstance(msg_content, str):
         text_chars = len(msg_content)
@@ -238,22 +243,65 @@ def _content_metrics(msg: dict) -> tuple[int, list]:
 DISPATCH_TOOLS = ("Agent", "Task")
 
 
+# How far into a dispatch prompt to look for a brief reference. A prompt
+# that delegates to a written brief says so in its opening directive
+# ("Read <path> IN FULL and execute it exactly"); one that mentions a
+# path incidentally does so further down, after the instructions it
+# actually carries.
+BRIEF_REF_SCAN = 400
+
+# An absolute POSIX or Windows path to a Markdown file. Markdown because
+# that is what a brief is written as; a path to a source file being
+# edited is not a brief and must not count as one.
+BRIEF_REF_RE = re.compile(r"(?:/|[A-Za-z]:\\)[^\s`'\"]+\.md\b")
+
+
+def _dispatch_prompt_shape(args: dict) -> tuple:
+    """(prompt_chars, brief_ref) for a dispatching call's prompt.
+
+    Two questions about HOW a dispatch was briefed, neither of which
+    needs the prompt text itself kept:
+
+    `prompt_chars` -- how much brief was written into this call.
+    `brief_ref`    -- whether the opening directive points at a written
+                      brief file instead of carrying the brief inline.
+
+    Together they separate a dispatch that reuses a brief someone
+    committed from one that re-authors the same instructions from
+    scratch, which is the difference between a brief that survives the
+    session and one that dies with its scratch directory.
+
+    The prompt text is deliberately NOT stored: it is unbounded, it is
+    the most sensitive thing in a transcript, and neither question
+    needs it.
+    """
+    prompt = args.get("prompt")
+    if not isinstance(prompt, str) or not prompt:
+        return None, None
+    head = prompt[:BRIEF_REF_SCAN]
+    return len(prompt), BRIEF_REF_RE.search(head) is not None
+
+
 def _dispatch_args(name: str, args: dict) -> tuple:
-    """(agent_type, agent_model) for a subagent-dispatching CALL.
+    """(agent_type, agent_model, prompt_chars, brief_ref) for a
+    subagent-dispatching CALL.
 
     Read off the call arguments, so a dispatch is attributable even
     when the subagent writes no JSONL of its own. `files.agent_type`
     answers "what ran"; this answers "what was ASKED for, on which
     model" -- the two differ exactly when a dispatch fails or the
-    request omits the field. Non-dispatch tools get (None, None).
+    request omits the field. Non-dispatch tools get all-None.
     """
     if name not in DISPATCH_TOOLS or not isinstance(args, dict):
-        return None, None
+        return None, None, None, None
     a_type = args.get("subagent_type")
     a_model = args.get("model")
+    chars, brief_ref = _dispatch_prompt_shape(args)
     return (
         str(a_type) if isinstance(a_type, str) and a_type else None,
         str(a_model) if isinstance(a_model, str) and a_model else None,
+        chars,
+        brief_ref,
     )
 
 
@@ -579,6 +627,8 @@ class _LineWalk:
                 "lines_deleted": tu["lines_deleted"],
                 "agent_type": tu["agent_type"],
                 "agent_model": tu["agent_model"],
+                "dispatch_prompt_chars": tu["dispatch_prompt_chars"],
+                "dispatch_brief_ref": tu["dispatch_brief_ref"],
             })
 
 
