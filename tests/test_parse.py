@@ -832,3 +832,32 @@ def test_verbatim_copy_target_invalidates_raw_read(namespace):
     assert [row["is_reread"] for row in tools] == [False, None, False]
     assert tools[0]["read_targets"] == tools[1]["write_targets"] == tools[2]["read_targets"]
     assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == (1, 0)
+
+
+def test_stop_reason_effort_thinking_merge_per_request():
+    """The closing line of a streamed reply carries stop_reason; the
+    opening line carries effort and a placeholder output count. One
+    record per requestId keeps the closing stop_reason, the first
+    effort, and the max thinking_tokens. A request that never closes
+    keeps stop_reason NULL, which is how the output undercount is found."""
+    out = parse.parse_file(
+        "k/sess-sr/sess-sr.jsonl", _read("stop_reason_merge.jsonl")
+    )
+    assert len(out["records"]) == 2
+    closed, unclosed = out["records"]
+    assert closed["stop_reason"] == "end_turn"
+    assert closed["effort"] == "high"
+    assert closed["thinking_tokens"] == 120
+    assert closed["output_tokens"] == 300
+    assert unclosed["stop_reason"] is None
+    assert unclosed["effort"] is None
+    assert unclosed["thinking_tokens"] == 0
+
+
+def test_tool_use_id_kept_on_tool_uses():
+    """tool_use_id survives error resolution: ingest dedups sidecar
+    replays on it (tool_uses.is_canonical)."""
+    out = parse.parse_file(
+        "k/sess-err/sess-err.jsonl", _read("tool_error.jsonl")
+    )
+    assert out["tool_uses"][0]["tool_use_id"] == "toolu_01"

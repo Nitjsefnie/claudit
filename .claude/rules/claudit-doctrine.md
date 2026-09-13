@@ -139,7 +139,8 @@ output (see `backend/schema.sql`):
   the context-growth trace inlined as `ctx_turns`.
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
-  output_tokens, eph5_tokens, eph1h_tokens, cost_usd)`
+  output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
+  reply_latency_s, stop_reason, effort, thinking_tokens)`
   PK `(file_key, line_num)` — one row per usage-bearing line AFTER
   per-file Phase 1 max-merge for matching `request_id`.
 
@@ -177,6 +178,14 @@ no dedup) rather than silently dropping rows.
 Changing the winner rule means changing BOTH `recompute_canonical()`
 and `src/parser.js`/`parse_session.py` semantics in lockstep
 (SV-PARSER-SPEC).
+
+`tool_uses.is_canonical` is the same rule keyed on `tool_use_id` (the
+block's globally unique id), set in the same pass. It exists because a
+compaction sidecar (`agent-acompact-*`) replays the main file's
+assistant lines, tool_use blocks included: records were deduped by uuid
+while the 6k replayed calls were counted twice in every tool rollup.
+Rows with a NULL `tool_use_id` are always canonical. Every rollup and
+live read over `tool_uses` MUST filter `tu.is_canonical`.
 
 ## Foreign models are purged, not filtered (SV-SUPPRESSED-MODELS)
 

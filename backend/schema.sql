@@ -79,6 +79,26 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   is_canonical BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- 2026-09-14: three fields the API puts on the wire that the corpus
+-- analysis needed and the row did not carry.
+--
+--   stop_reason      from the CLOSING line of a streamed reply
+--                    ('end_turn', 'tool_use', 'stop_sequence',
+--                    'refusal'); earlier lines carry null. NULL on a
+--                    stored row therefore means the closing usage never
+--                    arrived, which is exactly the row whose
+--                    output_tokens is the 1-3 opening placeholder —
+--                    8k such rows hide ~2.2M output tokens.
+--   effort           the harness's per-request effort setting
+--                    ('high', 'max', ...), NULL when absent.
+--   thinking_tokens  usage.output_tokens_details.thinking_tokens,
+--                    the hidden part of output_tokens; 0 when the API
+--                    did not report it.
+ALTER TABLE records ADD COLUMN IF NOT EXISTS stop_reason TEXT;
+ALTER TABLE records ADD COLUMN IF NOT EXISTS effort TEXT;
+ALTER TABLE records ADD COLUMN IF NOT EXISTS
+  thinking_tokens BIGINT NOT NULL DEFAULT 0;
+
 -- Pre-aggregated usage, rebuilt at ingest (ingest.rebuild_rollup).
 --
 -- `records` only changes when an ingest runs, but every dashboard request
@@ -443,6 +463,19 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
 
 -- Errored rows are a small minority, so a partial index keeps the
 -- drill-down cheap without carrying the whole table.
+-- 2026-09-14: cross-file dedup for tool calls, the tool_uses half of
+-- SV-CANONICAL-FLAG. `tool_use_id` is the block's globally unique id; a
+-- compaction sidecar (agent-acompact-*) replays the main file's lines
+-- and repeats it, and before this flag every rollup over tool_uses
+-- counted those 6k calls twice. recompute_canonical() keeps the row in
+-- the lowest (file_key, line_num, idx) per id, mirroring records.
+-- Defaults TRUE so a migrated DB behaves as before until the first pass.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS tool_use_id TEXT;
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
+  is_canonical BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS tool_uses_tool_use_id_idx
+  ON tool_uses (tool_use_id) WHERE tool_use_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS tool_uses_error_kind_idx
   ON tool_uses (error_kind, ts) WHERE error_kind IS NOT NULL;
 CREATE INDEX IF NOT EXISTS tool_uses_agent_type_idx

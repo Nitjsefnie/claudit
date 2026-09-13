@@ -673,12 +673,13 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             cur.executemany(
                 """
                 INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name,
-                  is_error, error_kind, error_text,
+                  tool_use_id, is_error, error_kind, error_text,
                   lines_added, lines_deleted, agent_type, agent_model,
                   dispatch_prompt_chars, dispatch_brief_ref,
                   result_chars, read_kind, read_targets, write_targets,
                   is_reread)
                 VALUES (%(file_key)s, %(line_num)s, %(idx)s, %(ts)s, %(tool_name)s,
+                  %(tool_use_id)s,
                   %(is_error)s, %(error_kind)s, %(error_text)s,
                   %(lines_added)s, %(lines_deleted)s,
                   %(agent_type)s, %(agent_model)s,
@@ -695,13 +696,15 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   request_id, ts, model, fresh_tokens,
                   cache_creation_tokens, cache_read_tokens,
                   output_tokens, eph5_tokens, eph1h_tokens, cost_usd,
-                  text_chars, reply_latency_s)
+                  text_chars, reply_latency_s, stop_reason, effort,
+                  thinking_tokens)
                 VALUES (%(file_key)s, %(line_num)s, %(uuid)s,
                   %(request_id)s, %(ts)s, %(model)s,
                   %(fresh_tokens)s, %(cache_creation_tokens)s,
                   %(cache_read_tokens)s, %(output_tokens)s,
                   %(eph5_tokens)s, %(eph1h_tokens)s, %(cost_usd)s,
-                  %(text_chars)s, %(reply_latency_s)s)
+                  %(text_chars)s, %(reply_latency_s)s, %(stop_reason)s,
+                  %(effort)s, %(thinking_tokens)s)
                 """,
                 parsed["records"],
             )

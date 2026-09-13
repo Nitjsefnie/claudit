@@ -121,10 +121,11 @@ Postgres `claudit`
   • files        (file_key PK, ctx_turns JSONB, rate_limit_hits JSONB)
   • records      (file_key, line_num PK, per-request tokens + cost
                   + text_chars for visible-response size
-                  + reply_latency_s for the user→assistant gap)
+                  + reply_latency_s for the user→assistant gap
+                  + stop_reason / effort / thinking_tokens)
   • tool_uses    (file_key, line_num, idx PK, ts, tool_name,
-                  is_error, result_chars, read_targets,
-                  read_kind, is_reread)
+                  tool_use_id, is_canonical, is_error, result_chars,
+                  read_targets, read_kind, is_reread)
   • ingest_runs  (audit log)
   ↓  on-demand
 FastAPI  →  /api/dashboard, /api/cache, /api/context-growth/*,

@@ -1,0 +1,44 @@
+"""tool_uses.is_canonical (SV-CANONICAL-FLAG, tool half) and the
+latency rollup's canonical filter. Split out of test_ingest.py, which is
+at pylint's module-length limit."""
+from backend import constants, db, ingest
+# Importing the fixture functions registers them here under their
+# @pytest.fixture(name=...) names.
+from tests.test_ingest import (  # noqa: F401  # pylint: disable=unused-import
+    _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
+)
+
+
+def test_tool_uses_canonical_dedups_shared_tool_use_id(fresh_db, mini_r2_env):
+    """A compaction sidecar replays the main file's tool_use blocks with
+    the same ids. The mini mirror's shared-uuid line carries one such
+    block in both sess-C.jsonl and agent-aaaa.jsonl; exactly one of the
+    two rows is canonical, chosen by the same (file_key, line_num) order
+    records use, and the rollups count it once."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT file_key, is_canonical FROM tool_uses "
+            "WHERE tool_use_id = 'toolu_shared' ORDER BY file_key"
+        ).fetchall()
+        rolled = _scalar(c, "SELECT COALESCE(SUM(n_total), 0) FROM tool_rollup "
+                            "WHERE tool_name = 'Bash'")
+    assert [r[1] for r in rows] == [True, False], rows
+    assert rows[0][0].endswith("agent-aaaa.jsonl")
+    assert rolled == 1
+    assert ingest.recompute_canonical() == 0
+
+
+def test_latency_rollup_counts_canonical_records_only(fresh_db, mini_r2_env):
+    """The shared-uuid duplicate must not enter the latency percentiles."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute("UPDATE records SET reply_latency_s = 1.5")
+        c.commit()
+    ingest.rebuild_latency_rollup()
+    with db.viz_conn() as c:
+        canon = _scalar(c, "SELECT COUNT(*) FROM records WHERE is_canonical")
+        rolled = _scalar(c, "SELECT SUM(n) FROM latency_rollup "
+                            "WHERE project_id = '' AND bucket_s = %s",
+                         (max(constants.LATENCY_BUCKETS),))
+    assert rolled == canon

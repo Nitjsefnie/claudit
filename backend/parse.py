@@ -646,10 +646,15 @@ class _LineWalk:
             "usage": dict(usage),
             "text_chars": text_chars,
             "reply_latency_s": reply_latency_s,
+            # Only a reply's CLOSING line carries stop_reason; NULL = never closed.
+            "stop_reason": msg.get("stop_reason") or None,
+            "effort": obj.get("effort") or None,
         }
         if req_id and req_id in self.seen_request:
             existing = self.seen_request[req_id]
             existing["usage"] = _merge_usage_max(existing["usage"], usage)
+            if ev["stop_reason"] is not None:
+                existing["stop_reason"] = ev["stop_reason"]
             # Same Phase 1 max-merge for text_chars: streaming responses
             # log incrementally; the largest sample is the final size.
             if text_chars > existing.get("text_chars", 0):
@@ -746,7 +751,8 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
     call keeps its churn: the file may simply end before the result
     record) — unless `bash_churn.churn_survives_error` says otherwise."""
     for tu in tool_uses:
-        tu_id = tu.pop("tool_use_id", "")
+        # Kept on the row: ingest dedups compaction-sidecar replays on it.
+        tu["tool_use_id"] = tu_id = tu.get("tool_use_id") or None
         command = tu.pop("command", "")
         if tu_id:
             tu["result_chars"] = (tool_result_chars or {}).get(tu_id)
@@ -808,6 +814,8 @@ def _project_record(file_key: str, ev: dict) -> dict:
     eph5 = int(eph.get("ephemeral_5m_input_tokens", 0) or 0)
     eph1h = int(eph.get("ephemeral_1h_input_tokens", 0) or 0)
     unsplit = max(0, create - eph5 - eph1h)
+    details = u.get("output_tokens_details") or {}
+    thinking = int(details.get("thinking_tokens", 0) or 0) if isinstance(details, dict) else 0
     ts = _to_dt(ev["ts"])
     cost = pricing.compute_cost(
         ev["model"],
@@ -831,6 +839,9 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "output_tokens": output,
         "text_chars": int(ev.get("text_chars", 0)),
         "reply_latency_s": ev.get("reply_latency_s"),
+        "stop_reason": ev.get("stop_reason"),
+        "effort": ev.get("effort"),
+        "thinking_tokens": thinking,
         "eph5_tokens": eph5,
         "eph1h_tokens": eph1h,
         "cost_usd": round(cost, 6),

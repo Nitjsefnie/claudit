@@ -208,7 +208,7 @@ def _tool_error_rate_sql(bucket_s: int, project: str | None,
             FROM tool_uses tu
             JOIN records r ON r.file_key = tu.file_key AND r.line_num = tu.line_num
             JOIN files   f ON f.file_key = tu.file_key
-            WHERE tu.is_error IS NOT NULL
+            WHERE tu.is_error IS NOT NULL AND tu.is_canonical
               AND tu.ts >= %s
               {proj_filter}
               {model_filter}

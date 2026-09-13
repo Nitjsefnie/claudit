@@ -111,6 +111,29 @@ def recompute_canonical() -> int:
             """
         )
         changed = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        # Same rule for tool calls, keyed on the globally unique
+        # tool_use.id. A compaction sidecar (agent-acompact-*) replays the
+        # main file's assistant lines, tool_use blocks included; without
+        # this every rollup over tool_uses counted those calls twice.
+        cur = c.execute(
+            """
+            UPDATE tool_uses t
+               SET is_canonical = w.canon
+              FROM (
+                    SELECT file_key, line_num, idx,
+                           (tool_use_id IS NULL OR ROW_NUMBER() OVER (
+                              PARTITION BY tool_use_id
+                              ORDER BY file_key, line_num, idx
+                            ) = 1) AS canon
+                      FROM tool_uses
+                   ) w
+             WHERE t.file_key = w.file_key
+               AND t.line_num = w.line_num
+               AND t.idx = w.idx
+               AND t.is_canonical IS DISTINCT FROM w.canon
+            """
+        )
+        changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         c.commit()
     if changed:
         log.info("recompute_canonical: %d rows reflagged", changed)
@@ -214,7 +237,7 @@ def rebuild_tool_rollup() -> int:
               JOIN files f    ON f.file_key = tu.file_key
               LEFT JOIN records r ON r.file_key = tu.file_key
                                  AND r.line_num = tu.line_num
-             WHERE tu.ts IS NOT NULL
+             WHERE tu.ts IS NOT NULL AND tu.is_canonical
              GROUP BY 1, 2, 3, 4
             """
         )
@@ -251,6 +274,7 @@ def rebuild_tool_error_rollup() -> int:
               LEFT JOIN records r ON r.file_key = tu.file_key
                                  AND r.line_num = tu.line_num
              WHERE tu.ts IS NOT NULL AND tu.error_kind IS NOT NULL
+               AND tu.is_canonical
              GROUP BY 1, 2, 3, 4, 5
             """
         )
@@ -284,6 +308,7 @@ def rebuild_dispatch_rollup() -> int:
               FROM tool_uses tu
               JOIN files f ON f.file_key = tu.file_key
              WHERE tu.ts IS NOT NULL AND tu.agent_type IS NOT NULL
+               AND tu.is_canonical
              GROUP BY 1, 2, 3, 4
             """
         )
@@ -321,6 +346,7 @@ def rebuild_dispatch_brief_rollup() -> int:
               FROM tool_uses tu
               JOIN files f ON f.file_key = tu.file_key
              WHERE tu.ts IS NOT NULL AND tu.dispatch_brief_ref IS NOT NULL
+               AND tu.is_canonical
              GROUP BY 1, 2, 3, 4
             """
         )
@@ -366,7 +392,7 @@ def rebuild_latency_rollup() -> int:
                              r.reply_latency_s AS latency_s
                         FROM records r
                         {scope_join}
-                       WHERE r.reply_latency_s IS NOT NULL
+                       WHERE r.reply_latency_s IS NOT NULL AND r.is_canonical
                     ),
                     bands AS (
                       SELECT bucket, project_id, model, COUNT(*) AS n,

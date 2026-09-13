@@ -102,7 +102,7 @@ def _churn_source(project: str | None, model: str | None,
             FROM tool_uses tu
             JOIN files f ON f.file_key = tu.file_key
             {model_join}
-            WHERE tu.ts >= %s {proj_filter} {model_filter}
+            WHERE tu.ts >= %s {proj_filter} {model_filter} AND tu.is_canonical
               AND (tu.lines_added > 0 OR tu.lines_deleted > 0)
         """,
         "args": args,
