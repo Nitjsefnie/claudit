@@ -1,0 +1,2 @@
+{"type":"assistant","timestamp":"2026-05-07T10:00:01Z","uuid":"a1","cwd":"/work","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python3 - <<'PY'\ndef emit(path):\n    ignored = 'old'.replace('old', 'new\\nline')\n    open(path, 'w').write('')\nemit('out.txt')\nPY"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","timestamp":"2026-05-07T10:00:02Z","uuid":"u1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}

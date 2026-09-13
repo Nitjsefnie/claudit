@@ -650,3 +650,30 @@ def test_review_write_estimate_neighbors(command, expected):
 def test_helper_payload_binding_order(body, argument, expected):
     command = "python3 - <<'PY'\ndef emit(path, text):\n    " + body + "\nemit('out.txt', " + argument + ")\nPY"
     assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("ignored = 'old'.replace('old', 'new\\nline')\n    open(path, 'w').write('')", (0, 0)),
+    ("text = 'old'.replace('old', 'new\\nline')\n    text = ''\n    open(path, 'w').write(text)", (0, 0)),
+    ("text = 'old'.replace('old', 'new\\nline')\n    open(path, 'w').write(text)", (2, 1)),
+    ("text = 'old'.replace('old', 'new\\nline')\n    alias = text\n    text = ''\n    open(path, 'w').write(alias)", (2, 1)),
+    ("text = 'old'.replace('old', 'new\\nline')\n    alias = text\n    alias = ''\n    open(path, 'w').write(alias)", (0, 0)),
+    ("open(path, 'w').write('')\n    ignored = 'old'.replace('old', 'new\\nline')", (0, 0)),
+    ("text = 'old'.replace('old', 'new\\nline')\n    open(path, 'w').write(text)\n    text = ''", (2, 1)),
+    ("text = content.replace('old', 'new\\nline')\n    text = text.replace('line', 'last')\n    open(path, 'w').write(text)", (3, 2)),
+    ("text = content.replace('old', 'new\\nline')\n    text = re.sub('line', 'last', text)\n    open(path, 'w').write(text)", (3, 2)),
+    ("text = content.replace('old', 'new\\nline')\n    with open(path, 'w') as handle:\n        handle.write(text)", (2, 1)),
+    ("text = content.replace('old', 'new\\nline')\n    client.write(text)\n    open(path, 'w').write('')", (0, 0)),
+    ("text = content.replace('old', 'new\\nline')\n    sys.stdout.write(text)\n    open(path, 'w').write('')", (0, 0)),
+    ("text = content.replace('old', 'new\\nline')\n    open(path, 'w').write(text)\n    open(path, 'a').write(text)", (2, 1)),
+])
+def test_helper_edits_only_count_when_written(body, expected):
+    command = "python3 - <<'PY'\ndef emit(path):\n    " + body + "\nemit('out.txt')\nPY"
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("writer", ["open(computed_path, 'w').write(text)", "p = Path(computed_path)\n    p.write_text(text)"])
+def test_written_helper_edit_does_not_require_a_parameter_path(writer):
+    command = "python3 - <<'PY'\ndef emit():\n    text = 'old'.replace('old', 'new\\nline')\n    " + writer + "\nemit()\nPY"
+    assert bash_churn(command) == (2, 1)
+    assert not python_write_paths(command)
