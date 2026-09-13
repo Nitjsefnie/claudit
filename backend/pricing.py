@@ -79,9 +79,10 @@ DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]
 #
 # GLM-5.3-Flash launch promotion: 50% off list through 2026-09-09 24:00
 # UTC+8 (= 16:00 UTC). List price applies from the cutover on with no code
-# change; once the end has passed the window is dead weight and the
-# staleness test in test_pricing.py prompts dropping it — stored costs are
-# already final, so removing an expired window is safe.
+# change. The window stays after it expires: every PARSER_VERSION bump
+# reparses the whole bucket, and a record from inside the window must
+# come out at the price in force then — drop it and the next reparse
+# silently reprices that history at list.
 _GLM_FLASH_PROMO = {"fresh": 0.075, "create_5m": 0.00, "create_1h": 0.00, "read": 0.015, "output": 0.25}
 DATED_RATES: dict[str, list[tuple[datetime, dict]]] = {
     "glm-5-3-flash": [

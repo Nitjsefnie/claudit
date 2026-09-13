@@ -139,18 +139,25 @@ def test_compute_cost_for_sonnet_5_is_timestamp_independent():
     assert _sonnet_5_cost_per_mtok_input(datetime(2026, 9, 1, tzinfo=UTC)) == 2.00
 
 
-def test_dated_windows_have_not_expired():
-    # A window whose end has passed changes no price any more — it is dead
-    # weight and prompts this failure so it gets dropped. Removing an
-    # expired window is safe: stored costs are already final.
-    now = datetime.now(tz=UTC)
-    stale = [
-        (key, end)
-        for key, windows in pricing.DATED_RATES.items()
-        for end, _ in windows
-        if end <= now
-    ]
-    assert not stale, f"expired promotion window(s) — drop them: {stale}"
+def test_expired_windows_keep_pricing_their_own_period():
+    """An expired window is NOT dead weight. Every PARSER_VERSION bump
+    reparses the whole bucket, and a record from inside the window must
+    come out at the price that was in force then — dropping the window
+    would silently reprice history at list on the next reparse."""
+    cutover = datetime(2026, 9, 9, 16, 0, tzinfo=UTC)
+    assert cutover < datetime.now(tz=UTC)  # the window has expired
+    before = pricing.compute_cost(
+        "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
+    )
+    after = pricing.compute_cost(
+        "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=cutover,
+    )
+    assert (before, after) == (0.075, 0.15)
+
+
+def test_rate_epochs_match_the_dated_windows():
     assert pricing.RATE_EPOCHS == sorted(
         {end for w in pricing.DATED_RATES.values() for end, _ in w}
     )
