@@ -36,6 +36,7 @@ import re
 
 from backend.bash_churn import _NULL_SINKS, BashCommand
 from backend.bash_literals import ShellWord, destination_paths, literal_path, perl_paths, sed_parts
+from backend.target_paths import resolve_target as _resolve, windows_absolute
 
 # Commands that put file CONTENT into the transcript, split by whether
 # they emit the file entire.
@@ -109,18 +110,20 @@ def _segments(tokens: list[ShellWord]) -> list[list[str]]:
     return segments
 
 
-def _looks_like_path(token: str) -> bool:
+def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool = True) -> bool:
     """True when a bare operand is plausibly a filename."""
     if not token or token.startswith("-"):
         return False
     if token in (".", "..", "*"):
         return False
+    if windows_roots and windows_absolute(token):
+        return True
     # An unexpanded glob names no single file; refusing it here is the
     # same rule as bash_churn's — the shell would have to run for this
     # to become a path.
     if any(ch in token for ch in "*?["):
         return False
-    return bool("/" in token or _PATH_RE.search(token))
+    return bool("/" in token or (windows and "\\" in token) or _PATH_RE.search(token))
 
 
 def _strip_env_prefix(segment: list[str],
@@ -196,7 +199,7 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
     return operands, writes, inputs
 
 
-def _operand_paths(name: str, args: list[str]) -> list[str]:
+def _operand_paths(name: str, args: list[str], windows: bool = False) -> list[str]:
     """File operands of one command, minus flags and pattern operands."""
     if name == "sed":
         return [p for p in sed_parts(args)[1] if literal_path(p)]
@@ -211,7 +214,7 @@ def _operand_paths(name: str, args: list[str]) -> list[str]:
         if tok.startswith("-"):
             idx += 1
             continue
-        if pending_pattern and not _looks_like_path(tok):
+        if pending_pattern and not _looks_like_path(tok, windows_roots=False):
             # The pattern operand. A pattern that DOES look like a path
             # (`grep config.py *.log`) is ambiguous; treating it as the
             # pattern would lose a real file more often than it invents
@@ -220,7 +223,7 @@ def _operand_paths(name: str, args: list[str]) -> list[str]:
             idx += 1
             continue
         pending_pattern = 0
-        if _looks_like_path(tok):
+        if _looks_like_path(tok, windows):
             paths.append(tok)
         idx += 1
     return paths
@@ -230,21 +233,12 @@ def _sed_in_place(args: list[str]) -> bool:
     return sed_parts(args)[2]
 
 
-def _resolve(path: str, base: str) -> str:
-    """Absolute form of `path` under `base`, or `path` when there is no
-    usable base. A consistent key is worth more than a fabricated
-    prefix, so an unresolvable relative path is kept verbatim."""
-    if path.startswith("/") or not base:
-        return path
-    return posixpath.normpath(posixpath.join(base, path))
-
-
 class _Scan:
     """One command's running state: the cwd as `cd` moves it, the
     variables the command itself assigned, and the three answers."""
 
     def __init__(self, cwd: str) -> None:
-        self.base = cwd or ""
+        self.base: str | None = cwd or ""
         self.env: dict[str, str | None] = {}
         self.kind: str | None = None
         self.reads: list[str] = []
@@ -255,7 +249,7 @@ class _Scan:
         if not expanded or expanded in _NULL_SINKS:
             return
         resolved = _resolve(expanded, self.base)
-        if resolved not in bucket:
+        if resolved is not None and resolved not in bucket:
             bucket.append(resolved)
 
     def segment(self, raw_segment: list[str]) -> None:
@@ -286,16 +280,16 @@ class _Scan:
             # One unresolved/splittable operand can shift every option position.
             return
         if name == "cd" and operands:
-            target = _expand(operands[0], self.env) or operands[0]
-            self.base = _resolve(target, self.base)
+            target = _expand(operands[0], self.env)
+            self.base = _resolve(target, self.base) if target is not None else None
             return
         if name in ("cp", "install", "mv", "perl"):
-            paths = perl_paths(operands) if name == "perl" else destination_paths(name, operands)
+            paths = perl_paths(operands) if name == "perl" else destination_paths(name, operands, base=self.base)
             for path in paths:
                 self.add(self.writes, path)
             return
         if name in _WRITE_CMDS or (name == "sed" and _sed_in_place(operands)):
-            for path in _operand_paths(name, operands):
+            for path in _operand_paths(name, operands, windows_absolute(self.base)):
                 self.add(self.writes, path)
             return
         if name not in READ_CMDS:
@@ -307,8 +301,9 @@ class _Scan:
         stage = "whole" if name in WHOLE_CMDS else "slice"
         narrowed = self.kind == "slice" or stage == "slice"
         self.kind = "slice" if narrowed else "whole"
-        paths = _operand_paths(name, operands)
-        paths.extend(path for path in inputs if _looks_like_path(path))
+        windows = windows_absolute(self.base)
+        paths = _operand_paths(name, operands, windows)
+        paths.extend(path for path in inputs if _looks_like_path(path, windows))
         for path in paths:
             self.add(self.reads, path)
 

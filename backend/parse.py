@@ -20,6 +20,7 @@ from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error
 from backend import bash_reads
+from backend.target_paths import target_key
 
 
 _INSTRUMENTATION_USER_PREFIXES = (
@@ -788,12 +789,12 @@ def _resolve_rereads(tool_uses: list) -> None:
     """
     seen_whole: set[str] = set()
     for tu in tool_uses:
-        targets = tu.get("read_targets") or []
+        targets = [target_key(path) for path in tu.get("read_targets") or []]
         if tu.get("read_kind") == "whole" and targets and not tu["is_error"]:
             tu["is_reread"] = all(path in seen_whole for path in targets)
             seen_whole.update(targets)
         for path in tu.get("write_targets") or []:
-            seen_whole.discard(path)
+            seen_whole.discard(target_key(path))
 
 
 def _project_record(file_key: str, ev: dict) -> dict:

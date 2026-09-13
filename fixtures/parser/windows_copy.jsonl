@@ -1,0 +1,2 @@
+{"type":"assistant","cwd":"C:\\w","message":{"usage":{"input_tokens":1},"content":[{"type":"tool_use","id":"w","name":"Bash","input":{"command":"cp 'D:\\src\\f.py' 'out\\\\'"}}],"role":"assistant"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"w","content":"ok"}],"role":"user"}}

@@ -775,3 +775,49 @@ def test_bash_review_write_estimate_fields(family, expected, paths):
     tool = parse.parse_file("k/s/s.jsonl", _read("bash_review_" + family + ".jsonl"))["tool_uses"][0]
     assert (tool["lines_added"], tool["lines_deleted"]) == expected
     assert tool["write_targets"] == paths
+
+
+def test_windows_bash_write_invalidates_raw_read_without_rewriting_paths():
+    tools = parse.parse_file("k/s/s.jsonl", _read("windows_reread.jsonl"))["tool_uses"]
+    assert [row["is_reread"] for row in tools] == [False, None, False]
+    assert tools[0]["read_targets"] == ["C:/w/f.py"]
+    assert tools[1]["write_targets"] == [r"C:\w\f.py"]
+    assert tools[2]["read_targets"] == ["C:/w/f.py"]
+    assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == (1, 1)
+
+
+def test_windows_copy_preserves_write_estimate():
+    tool = parse.parse_file("k/s/s.jsonl", _read("windows_copy.jsonl"))["tool_uses"][0]
+    assert tool["write_targets"] == [r"C:\w\out\f.py"]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
+
+
+@pytest.mark.parametrize("first,second,expected", [
+    (r"C:\Work\f.py", "c:/Work/f.py", True),
+    ("C:/Work/./f.py", r"C:\Work\f.py", True),
+    (r"C:\Work\f.py", r"C:\Work\F.py", False),
+    (r"C:\Work\f.py", "/c/Work/f.py", False),
+    ("/work/f.py", "/work/F.py", False),
+    ("/work/./f.py", "/work/f.py", False),
+    (r"\\server\share\x\..\f.py", r"\\server\share\f.py", True),
+    ("//server/share/f.py", r"\\server\share\f.py", False),
+    (r"\\?\C:\Work\.\f.py", r"\\?\C:\Work\f.py", False),
+])
+def test_rereads_compare_supported_windows_spellings_only(first, second, expected):
+    rows = [{"read_kind": "whole", "read_targets": [path], "write_targets": [], "is_error": False, "is_reread": None}
+            for path in (first, second)]
+    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    assert rows[1]["is_reread"] is expected
+    assert [row["read_targets"] for row in rows] == [[first], [second]]
+
+
+@pytest.mark.parametrize("name", ["Write", "Edit", "NotebookEdit"])
+def test_raw_windows_write_invalidates_equivalent_read_without_rewriting(name):
+    first, written = "C:/Work/f.py", r"c:\Work\f.py"
+    kind, reads, writes = parse._tool_access(name, {"file_path": written}, r"C:\Work")  # pylint: disable=protected-access
+    rows = [{"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None},
+            {"read_kind": kind, "read_targets": reads, "write_targets": writes, "is_error": False, "is_reread": None},
+            {"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None}]
+    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    assert [row["is_reread"] for row in rows] == [False, None, False]
+    assert rows[1]["write_targets"] == [written]

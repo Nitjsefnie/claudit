@@ -111,4 +111,5 @@ VERSION = _read_version()
 # retaining those corrections, invalidating files already parsed at 34.
 # 36 counts explicit quoted exit-status echo markers reaching a file.
 # 37 estimates unknown Bash writes and recovers literal echo/sed substitutions.
-PARSER_VERSION = "37"
+# 38 resolves Windows targets lexically and matches equivalent reread keys.
+PARSER_VERSION = "38"

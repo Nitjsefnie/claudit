@@ -462,3 +462,77 @@ def test_ambiguous_unquoted_operand_expansion_is_refused(command, expected):
 ])
 def test_loop_exits_do_not_carry_unreachable_assignments(body, expected):
     assert scan("python3 - <<'PY'\n" + body + "\nPY", "/work")[2] == expected
+
+
+@pytest.mark.parametrize("command,cwd,expected", [
+    ("cat 'C:/Users/Sample/f.py'", r"D:\other", r"C:\Users\Sample\f.py"),
+    (r"cat 'C:\Users\Sample\f.py'", r"D:\other", r"C:\Users\Sample\f.py"),
+    ("cat 'C:/Users/Sample/f.py'", "/work", r"C:\Users\Sample\f.py"),
+    ("cat 'C:/Users/Sample/./pkg/../f.py'", "", r"C:\Users\Sample\f.py"),
+    ("cat 'src/f.py'", r"C:/Users\Sample/work", r"C:\Users\Sample\work\src\f.py"),
+    (r"cat 'src\f.py'", r"C:\work", r"C:\work\src\f.py"),
+    (r"cat '..\f.py'", r"C:\work\pkg", r"C:\work\f.py"),
+    (r"cat 'C:\work\README'", r"D:\other", r"C:\work\README"),
+    (r"cat 'src\README'", r"C:\work", r"C:\work\src\README"),
+    (r"cat 'C:f.py'", r"C:\work", r"C:\work\f.py"),
+    (r"cat 'D:f.py'", r"C:\work", "D:f.py"),
+    ("cat /etc/hosts", r"C:\work", "/etc/hosts"),
+    ("cat /c/Users/Sample/f.py", r"C:\work", "/c/Users/Sample/f.py"),
+    ("cat //server/share/f.py", "/work", "//server/share/f.py"),
+    ("cat pkg/../f.py", "/work", "/work/f.py"),
+    (r"cat 'pkg\f.py'", "/work", r"/work/pkg\f.py"),
+    (r"cat '\\server\share\pkg\..\f.py'", r"C:\work", r"\\server\share\f.py"),
+    ("cat f.py", r"\\server\share\work", r"\\server\share\work\f.py"),
+    (r"cat '\\?\C:\work\.\f.py'", r"D:\work", r"\\?\C:\work\.\f.py"),
+])
+def test_target_resolution_uses_recorded_path_flavor(command, cwd, expected):
+    assert scan(command, cwd) == ("whole", [expected], [])
+
+
+@pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
+@pytest.mark.parametrize("operands,cwd,expected", [
+    (r"'D:\src\f.py' out/", r"C:\work", r"C:\work\out\f.py"),
+    (r"'src\f.py' 'out\'", r"C:\work", r"C:\work\out\f.py"),
+    (r"'D:\src\f.py' 'C:\out\'", r"C:\work", r"C:\out\f.py"),
+    (r"'src\f.py' out/", "/work", r"/work/out/src\f.py"),
+    (r"f.py '\\server\share'", r"C:\work", r"\\server\share\f.py"),
+])
+def test_copy_destinations_use_path_flavor(program, operands, cwd, expected):
+    assert scan(program + " " + operands, cwd)[2] == [expected]
+
+
+@pytest.mark.parametrize("command", [
+    r"cat C:/work/*.py",
+    r'cat "C:/work/$MISSING/f.py"',
+    r'sed -i "s/a/b/" "$MISSING/f.py"',
+    r'cp f.py "$MISSING/out.py"',
+])
+def test_windows_targets_do_not_resolve_expansions_or_globs(command):
+    assert scan(command, r"C:\work") == (None, [], [])
+
+
+def test_windows_cd_does_not_duplicate_the_recorded_cwd():
+    command = 'cd "C:/Users/Sample/project" && sed -i "s/a/b/" pkg/f.py'
+    assert scan(command, r"C:\Users\Sample\project")[2] == [r"C:\Users\Sample\project\pkg\f.py"]
+
+
+def test_windows_read_pattern_backslash_is_not_a_target():
+    assert scan(r"grep 'word\b' 'src\f.py'", r"C:\work") == ("slice", [r"C:\work\src\f.py"], [])
+
+
+@pytest.mark.parametrize("command", [
+    'cd "$MISSING" && cat f.py',
+    'cd "C:/work/$MISSING" && cat f.py',
+    'cd "$MISSING" && cp f.py out/',
+])
+def test_unknown_cd_does_not_invent_a_resolved_target(command):
+    assert scan(command, "C:/work") == (None, [], [])
+
+
+def test_explicit_absolute_target_is_known_after_unknown_cd():
+    assert scan('cd "$MISSING" && cat "C:/known/f.py"', "D:/work") == ("whole", ["C:\\known\\f.py"], [])
+
+
+@pytest.mark.parametrize("cwd,expected", [("/work", "/work/docs.txt"), ("C:/work", "C:\\work\\docs.txt")])
+def test_windows_spelling_in_grep_pattern_is_not_a_read_target(cwd, expected):
+    assert scan(r"grep 'C:\Users\Sample' docs.txt", cwd) == ("slice", [expected], [])

@@ -8,6 +8,8 @@ from __future__ import annotations
 import posixpath
 import re
 
+from backend.target_paths import copy_source_name, directory_spelling
+
 MAX_LITERAL_CHARS = 100_000
 NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 _WORD = re.compile(r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\{[^}]*\}|\\[\s\S]|[^\s'"\\|;&<>()])+''')
@@ -248,19 +250,24 @@ def _copy_parts(name: str, args: list[str]) -> tuple[dict[str, str | None], list
     return flags, sources, target
 
 
-def destination_paths(name: str, args: list[str], *, literal_only: bool = True) -> list[str]:
+def destination_paths(name: str, args: list[str], *, literal_only: bool = True,
+                      base: str | None = "") -> list[str]:
     """cp/install/mv destinations; directory facts must be in the text."""
     flags, sources, target = _copy_parts(name, args)
     if target is None or not (literal_path(target) if literal_only else _file_sink(target)) or not sources:
         return []
     no_directory = any(f in flags for f in ("-T", "--no-target-directory"))
     directory = any(f in flags for f in ("-t", "--target-directory"))
-    directory |= target.endswith("/") or posixpath.basename(target) in (".", "..") or len(sources) > 1
+    directory |= directory_spelling(target, base) or len(sources) > 1
     if not literal_only:
         paths: list[str] = [target]
     elif directory and not no_directory:
-        paths = [ShellWord(posixpath.join(target, posixpath.basename(s.rstrip("/"))))
-                 for s in sources if literal_path(s) and s.rstrip("/") not in (".", "..")]
+        paths = []
+        for source in sources:
+            if literal_path(source):
+                child = copy_source_name(source, base)
+                if child is not None:
+                    paths.append(ShellWord(posixpath.join(target, child)))
     else:
         paths = [target] if len(sources) == 1 and not directory else []
     return paths

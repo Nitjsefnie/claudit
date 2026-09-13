@@ -1,0 +1,6 @@
+{"type":"assistant","cwd":"C:\\w","message":{"usage":{"input_tokens":1},"content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"C:/w/f.py"}}],"role":"assistant"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r1","content":"ok"}],"role":"user"}}
+{"type":"assistant","cwd":"C:\\w","message":{"usage":{"input_tokens":1},"content":[{"type":"tool_use","id":"w","name":"Bash","input":{"command":"cd \"C:/w\" && sed -i 's/a/b/' f.py"}}],"role":"assistant"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"w","content":"ok"}],"role":"user"}}
+{"type":"assistant","cwd":"C:\\w","message":{"usage":{"input_tokens":1},"content":[{"type":"tool_use","id":"r2","name":"Read","input":{"file_path":"C:/w/f.py"}}],"role":"assistant"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r2","content":"ok"}],"role":"user"}}
