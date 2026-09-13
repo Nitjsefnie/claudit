@@ -13,6 +13,28 @@ import pytest
 from backend.bash_churn import bash_churn, churn_survives_error
 
 
+@pytest.mark.parametrize("redirect", ["< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt"])
+def test_receiving_stdin_redirect_severs_printf_payload(redirect):
+    assert bash_churn(r"printf 'a\nb\n' | tee out.txt " + redirect) == (0, 0)
+
+
+@pytest.mark.parametrize("command", [
+    r"printf 'a\nb\n' < input.txt | tee out.txt",
+    r"printf 'a\nb\n' | tee out.txt 3< input.txt",
+    r"printf 'a\nb\n' | tee first.txt | tee second.txt < input.txt",
+])
+def test_stdin_redirect_does_not_erase_independent_file_payload(command):
+    assert bash_churn(command) == (2, 0)
+
+
+def test_loop_carried_path_bindings_do_not_multiply_churn():
+    command = ("python3 - <<'PY'\np='old.md'\n"
+               "for item in ['a.md','b.md']:\n"
+               "    open(p,'w').write('literal\\npayload')\n"
+               "    p=item\nPY")
+    assert bash_churn(command) == (0, 0)
+
+
 @pytest.mark.parametrize("command,expected", [
     (r"printf 'a\nb\nc\n' > probe.txt", (3, 0)),
     (r"printf '%s\n' 'a' 'b' > probe.txt", (2, 0)),

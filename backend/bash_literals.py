@@ -240,25 +240,28 @@ def _sed_append(args: list[str]) -> tuple[str | None, bool]:
     return body + "\n", in_place and any(literal_path(f) for f in files)
 
 
-def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None]:
-    """Remove redirections, retaining whether stdout has a real file sink."""
+def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bool]:
+    """Remove redirects, retaining stdout's sink and whether stdin is replaced."""
     args: list[ShellWord] = []
     sink = None
+    stdin_replaced = False
     idx = 0
     while idx < len(words):
         word = words[idx]
         match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", word) if word.operator else None
         if match:
             if idx + 1 == len(words):
-                return [], False
+                return [], False, True
             fd, redirect = match.groups()
             if fd in ("", "1") and redirect in (">", ">>", ">&"):
                 sink = redirect != ">&" and literal_path(words[idx + 1])
+            if fd in ("", "0") and redirect in ("<", "<&"):
+                stdin_replaced = True
             idx += 2
         else:
             args.append(word)
             idx += 1
-    return args, sink
+    return args, sink, stdin_replaced
 
 
 def _stage_payload(args: list[ShellWord], pending: str | None) -> tuple[str | None, bool]:
@@ -298,7 +301,7 @@ def shell_payloads(command: str) -> list[str]:
         return []
     boundary = next((i for i in range(end + 1, len(tokens))
                      if tokens[i].operator and tokens[i] in (";", "&&", "||", "|")), len(tokens))
-    suffix, inherited = _redirects(tokens[end + 1:boundary])
+    suffix, inherited, _ = _redirects(tokens[end + 1:boundary])
     if suffix or (boundary < len(tokens) and tokens[boundary] == "|"):
         return []
     return (_pipeline_payloads(tokens[:start], None)
@@ -315,12 +318,12 @@ def _pipeline_payloads(tokens: list[ShellWord], inherited: bool | None) -> list[
         if not token.operator or token not in (";", "&&", "||", "|"):
             stage.append(token)
             continue
-        args, sink = _redirects(stage)
+        args, sink, stdin_replaced = _redirects(stage)
         stage = []
         if not args:
             pending = None
             continue
-        pending, own_sink = _stage_payload(args, pending)
+        pending, own_sink = _stage_payload(args, None if stdin_replaced else pending)
         reaches_file = own_sink or sink or (sink is None and token != "|" and inherited)
         if pending is not None and reaches_file:
             payloads.append(pending)

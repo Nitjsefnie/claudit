@@ -261,14 +261,21 @@ def _loop_paths(loop: ast.For, consts: dict[str, str],
                 if isinstance(stmt.target, ast.Name) and isinstance(stmt.iter, (ast.List, ast.Tuple)) and len(stmt.iter.elts) <= 64:
                     values = [_resolve_str(e, bindings) for e in stmt.iter.elts]
                     if all(v is not None for v in values):
+                        iteration_bindings = bindings.copy()
                         for value in values:
                             assert value is not None
-                            visit(stmt.body, {**bindings, stmt.target.id: value}, depth + 1)
+                            iteration_bindings[stmt.target.id] = value
+                            visit(stmt.body, iteration_bindings, depth + 1)
                 for name in _stored_names(stmt):
                     bindings.pop(name, None)
             elif isinstance(stmt, ast.If):
-                visit(stmt.body, bindings.copy(), depth + 1)
-                visit(stmt.orelse, bindings.copy(), depth + 1)
+                # A condition's assignment expressions run before either
+                # branch; short-circuit evaluation prevents assuming values.
+                condition_stores = _stored_names(stmt.test)
+                condition_bindings = {k: v for k, v in bindings.items()
+                                      if k not in condition_stores}
+                visit(stmt.body, condition_bindings.copy(), depth + 1)
+                visit(stmt.orelse, condition_bindings.copy(), depth + 1)
                 for name in _stored_names(stmt):
                     bindings.pop(name, None)
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):

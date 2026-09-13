@@ -137,7 +137,11 @@ def _strip_env_prefix(segment: list[str],
         if m:
             value = ShellWord(m.group(2), getattr(tok, "literal", True))
             value.expansion = getattr(tok, "expansion", tok)[m.start(2):]
-            env[m.group(1)] = _expand(value, env) or ""
+            expanded = _expand(value, env)
+            if expanded is None:
+                env.pop(m.group(1), None)
+            else:
+                env[m.group(1)] = expanded
         idx += 1
     return segment[idx:]
 
@@ -150,7 +154,9 @@ def _expand(token: str, env: dict[str, str]) -> str | None:
         return str(token)
 
     def _sub(m: re.Match[str]) -> str:
-        return env.get(m.group(1) or m.group(2) or "", m[0])
+        value = env.get(m.group(1) or m.group(2) or "")
+        # Parameter expansion does not evaluate dollars from the value again.
+        return m[0] if value is None else value.replace("$", "\x00")
     out = _VAR_REF.sub(_sub, getattr(token, "expansion", token))
     return None if any(c in out for c in "$`*?[") else out.replace("\x00", "$")
 
@@ -237,13 +243,13 @@ def _destination_paths(name: str, args: list[str]) -> list[str]:
         *sources, target = operands
     else:
         return []
-    if target is None or not literal_path(target) or not sources or (directory and no_directory):
+    if target is None or not literal_path(target) or not sources:
         return []
-    directory |= not no_directory and (target.endswith("/") or target in (".", "..") or len(sources) > 1)
-    if directory:
+    directory |= target.endswith("/") or posixpath.basename(target) in (".", "..") or len(sources) > 1
+    if directory and not no_directory:
         return [ShellWord(posixpath.join(target, posixpath.basename(s.rstrip("/"))))
                 for s in sources if literal_path(s) and s.rstrip("/") not in (".", "..")]
-    return [target] if len(sources) == 1 else []
+    return [target] if len(sources) == 1 and not directory else []
 
 
 def _perl_paths(args: list[str]) -> list[str]:
@@ -293,6 +299,12 @@ class _Scan:
             return
         name = posixpath.basename(segment[0])
         operands, redirected = _split_redirects(segment[1:])
+        if name in ("sed", "cp", "install", "mv"):
+            # Preserve positions and unknown words; dropping an unresolved
+            # option value would shift the following file into its place.
+            operands = [ShellWord(value, operator=getattr(arg, "operator", False))
+                        if (value := _expand(arg, self.env)) is not None else arg
+                        for arg in operands]
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)

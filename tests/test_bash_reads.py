@@ -7,6 +7,69 @@ from backend.bash_reads import scan
 
 
 @pytest.mark.parametrize("command,expected", [
+    ("DIR=/work; sed -i 's/a/b/' $DIR/file.txt", ["/work/file.txt"]),
+    ('DIR=/work; cp source.txt "$DIR/file.txt"', ["/work/file.txt"]),
+    ("DIR=/work; install -m 644 source.txt $DIR/file.txt", ["/work/file.txt"]),
+    ("DIR=/work; mv source.txt $DIR/file.txt", ["/work/file.txt"]),
+    ('DIR=dest; cp -t "$DIR" source.txt', ["/work/dest/source.txt"]),
+    ('DIR=dest; install --target-directory="$DIR" source.txt', ["/work/dest/source.txt"]),
+    ('DIR=dest; mv -t "$DIR" source.txt', ["/work/dest/source.txt"]),
+    ("SRC=source.txt; cp $SRC dest/", ["/work/dest/source.txt"]),
+    ("DIR=dest; cp source.txt '$DIR/file.txt'", ["/work/$DIR/file.txt"]),
+    ("DIR=dest; sed -i 's/a/b/' '$DIR/file.txt'", ["/work/$DIR/file.txt"]),
+    ("DIR=dest; cp -t '$DIR' source.txt", ["/work/$DIR/source.txt"]),
+    ('cp source.txt "$UNKNOWN/file.txt"', []),
+    ("sed -i 's/a/b/' $UNKNOWN/file.txt", []),
+    ("cp -t $UNKNOWN source.txt", []),
+    ("DIR=$UNKNOWN; cp source.txt $DIR/file.txt", []),
+    ("DIR=/old; DIR=$UNKNOWN; mv source.txt $DIR/file.txt", []),
+    ("DIR='$LITERAL'; cp source.txt \"$DIR/file.txt\"", ["/work/$LITERAL/file.txt"]),
+])
+def test_recorded_variable_operands_resolve_before_literal_gates(command, expected):
+    assert scan(command, "/work")[2] == expected
+
+
+@pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
+@pytest.mark.parametrize("target,expected", [
+    ("dest/.", ["/work/dest/source.txt"]),
+    ("dest/..", ["/work/source.txt"]),
+])
+def test_terminal_dot_component_establishes_destination_directory(program, target, expected):
+    assert scan(f"{program} source.txt {target}", "/work")[2] == expected
+
+
+@pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
+@pytest.mark.parametrize("target", ["dest/.", "dest/..", "dest/", ".", ".."])
+def test_no_target_directory_refuses_explicit_directory_destination(program, target):
+    assert not scan(f"{program} -T source.txt {target}", "/work")[2]
+
+
+@pytest.mark.parametrize("expression", ["'b.md'", "unknown"])
+def test_loop_condition_assignment_never_reuses_prior_path(expression):
+    command = ("python3 - <<'PY'\nfor p in ['a.md']:\n"
+               f"    if (p := {expression}):\n"
+               "        open(p,'w')\n"
+               "    else:\n        open(p,'w')\nPY")
+    # The condition can rebind p before either branch. Refuse to infer a
+    # value from condition evaluation instead of retaining the stale a.md.
+    assert not scan(command, "/work")[2]
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    p=item",
+     ["/work/old.md", "/work/a.md"]),
+    ("p='old.md'\nfor item in ('a.md','b.md'):\n    alias=p\n    open(alias,'w')\n    p=item",
+     ["/work/old.md", "/work/a.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    if unknown:\n        p=item",
+     ["/work/old.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    p=unknown",
+     ["/work/old.md"]),
+])
+def test_literal_iterations_carry_only_established_body_bindings(body, expected):
+    assert scan("python3 - <<'PY'\n" + body + "\nPY", "/work")[2] == expected
+
+
+@pytest.mark.parametrize("command,expected", [
     ("cp src.txt dst.txt", ["/work/dst.txt"]),
     ("cp a.txt b.txt dest/", ["/work/dest/a.txt", "/work/dest/b.txt"]),
     ("cp src.txt dest", ["/work/dest"]),
