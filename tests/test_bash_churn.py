@@ -10,7 +10,7 @@ import warnings
 
 import pytest
 
-from backend.bash_churn import bash_churn, churn_survives_error
+from backend.bash_churn import bash_churn, churn_survives_error, python_write_paths
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -54,6 +54,7 @@ def test_loop_carried_path_bindings_do_not_multiply_churn():
                "for item in ['a.md','b.md']:\n"
                "    open(p,'w').write('literal\\npayload')\n"
                "    p=item\nPY")
+    assert python_write_paths(command) == ["old.md", "a.md"]
     assert bash_churn(command) == (0, 0)
 
 
