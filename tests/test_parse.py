@@ -763,6 +763,7 @@ def test_bash_write_estimates_remain_zero_on_error(family, result):
 
 @pytest.mark.parametrize("family,expected,paths", [
     ("helper_empty", (0, 0), ["/work/out.txt"]),
+    ("helper_rebind", (1, 0), ["/work/out.txt"]),
     ("helper_deferred", (0, 0), []),
     ("copy_empty", (0, 0), ["/work/out.txt"]),
     ("perl_unknown", (1, 0), []),

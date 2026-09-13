@@ -346,15 +346,11 @@ def _no_additions(expr: ast.expr, consts: dict[str, str]) -> bool:
 
 @dataclass(frozen=True)
 class _Helper:
-    """A function defined in the script whose body does the edit on
-    its parameters: which parameter it opens for writing, and which
-    two it hands to `.replace()` / `re.sub()`."""
+    """A helper's payload templates under the bindings at each write/edit."""
     params: tuple[str, ...]
     path: str | None
-    old: str | None
-    new: str | None
-    writes_payload: bool
-    payload_params: tuple[str, ...]
+    payloads: tuple[ast.expr, ...]
+    edits: tuple[tuple[ast.expr, ast.expr], ...]
 
 
 def _param(node: ast.expr, params: tuple[str, ...]) -> str | None:
@@ -366,40 +362,68 @@ def _param(node: ast.expr, params: tuple[str, ...]) -> str | None:
     return None
 
 
-def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
-    """Module-level functions whose body writes a parameter path and/or
-    replaces one parameter with another. `sub(path, old, new)` is the
-    shape every multi-file edit script converges on."""
-    specs: dict[str, _Helper] = {}
-    for fd in tree.body:
-        if not isinstance(fd, ast.FunctionDef):
+def _payload_snapshot(expr: ast.expr, bindings: dict[str, ast.expr], depth: int = 0) -> ast.expr:
+    """Capture bounded literal provenance without mutating the source AST."""
+    if depth > 32:
+        return ast.Constant(None)
+    if isinstance(expr, ast.Name):
+        # Return the previous snapshot as-is: do not reinterpret its symbolic
+        # caller parameter through a later local rebinding of that same name.
+        return bindings.get(expr.id, ast.Constant(None))
+    if isinstance(expr, ast.Constant):
+        return expr
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+        return ast.BinOp(_payload_snapshot(expr.left, bindings, depth + 1), ast.Add(),
+                         _payload_snapshot(expr.right, bindings, depth + 1))
+    if isinstance(expr, ast.Call) and _is_replace(expr.func):
+        return ast.Call(expr.func, [_payload_snapshot(arg, bindings, depth + 1)
+                                    for arg in expr.args], [])
+    return expr if isinstance(expr, (ast.List, ast.Tuple)) and not expr.elts else ast.Constant(None)
+
+
+def _helper_template(fd: ast.FunctionDef) -> _Helper:
+    params = tuple(arg.arg for arg in fd.args.args)
+    bindings: dict[str, ast.expr] = {name: ast.Name(name, ast.Load()) for name in params}
+    payloads: list[ast.expr] = []
+    edits: list[tuple[ast.expr, ast.expr]] = []
+    path = None
+    for stmt in fd.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bindings.pop(stmt.name, None)
             continue
-        params = tuple(a.arg for a in fd.args.args)
-        path = old = new = None
-        writes_payload = False
-        payload_params: list[str] = []
-        for node in (node for stmt in fd.body for node in _statement_nodes(stmt)):
+        target = (stmt.targets[0] if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                  and isinstance(stmt.targets[0], ast.Name) else None)
+        stores = _stored_names(stmt)
+        view = bindings if target else {k: v for k, v in bindings.items() if k not in stores}
+        for node in _statement_nodes(stmt):
             if not isinstance(node, ast.Call):
                 continue
             if _is_file_write_attr(node.func) and node.args:
-                payload_param = _param(node.args[0], params)
-                if payload_param:
-                    payload_params.append(payload_param)
-                writes_payload |= not payload_param and not _no_additions(node.args[0], {})
+                payloads.append(_payload_snapshot(node.args[0], view))
             if _is_replace(node.func) and len(node.args) >= 2:
-                o, n = _param(node.args[0], params), _param(node.args[1], params)
-                if o and n:
-                    old, new = o, n
+                edits.append((_payload_snapshot(node.args[0], view), _payload_snapshot(node.args[1], view)))
             if _opens_for_writing(node) and node.args:
                 path = _param(node.args[0], params) or path
             elif _is_file_write_attr(node.func):
                 value = node.func.value  # type: ignore[attr-defined]
-                # A parameter's arbitrary .write method is not file evidence;
-                # Path(parameter).write_text is explicit, like open(..., 'w').
                 if isinstance(value, ast.Call):
                     path = _param(value, params) or path
-        if path or (old and new):
-            specs[fd.name] = _Helper(params, path, old, new, writes_payload, tuple(payload_params))
+        value = _payload_snapshot(stmt.value, bindings) if isinstance(stmt, ast.Assign) else ast.Constant(None)
+        for name in stores:
+            bindings.pop(name, None)
+        if target is not None:
+            bindings[target.id] = value
+    return _Helper(params, path, tuple(payloads), tuple(edits))
+
+
+def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
+    """Precompute module-level helper templates once per Python source scan."""
+    specs: dict[str, _Helper] = {}
+    for fd in tree.body:
+        if isinstance(fd, ast.FunctionDef):
+            spec = _helper_template(fd)
+            if spec.path or spec.edits:
+                specs[fd.name] = spec
     return specs
 
 
@@ -407,6 +431,36 @@ def _helper_args(node: ast.Call, spec: _Helper) -> dict[str, ast.expr]:
     bound = dict(zip(spec.params, node.args))
     bound.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
     return bound
+
+
+def _helper_churn(spec: _Helper, bound: dict[str, ast.expr], consts: dict[str, str]) -> tuple[int, int, bool]:
+    bindings = {name: bound_value for name, arg in bound.items()
+                if (bound_value := _resolve_binding(arg, consts)) is not None}
+
+    def literal(expr: ast.expr) -> str | None:
+        value = bound.get(expr.id, expr) if isinstance(expr, ast.Name) else expr
+        if isinstance(value, ast.Constant) and isinstance(value.value, bytes):
+            return value.value.decode("latin1")
+        if isinstance(value, (ast.List, ast.Tuple)) and not value.elts:
+            return ""
+        return _resolve_str(expr, bindings)
+
+    added = deleted = 0
+    unknown = False
+    for payload in spec.payloads:
+        if isinstance(payload, ast.Call) and _is_replace(payload.func) and len(payload.args) >= 2:
+            old, new = literal(payload.args[0]), literal(payload.args[1])
+            unknown |= new != "" and (old is None or new is None)
+        else:
+            value = literal(payload)
+            unknown |= value is None
+            added += count_lines(value or "")
+    for old_expr, new_expr in spec.edits:
+        old, new = literal(old_expr), literal(new_expr)
+        if old is not None and new is not None:
+            added += count_lines(new)
+            deleted += count_lines(old)
+    return added, deleted, unknown
 
 
 def _call_effects(node: ast.Call, consts: dict[str, str],
@@ -420,12 +474,7 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
     if isinstance(func, ast.Name) and func.id in helpers:
         spec = helpers[func.id]
         bound = _helper_args(node, spec)
-        added = deleted = 0
-        if spec.old and spec.new:
-            old = _resolve_str(bound.get(spec.old, ast.Constant(None)), consts)
-            new = _resolve_str(bound.get(spec.new, ast.Constant(None)), consts)
-            if old is not None and new is not None:
-                added, deleted = count_lines(new), count_lines(old)
+        added, deleted, _ = _helper_churn(spec, bound, consts)
         path = None
         if spec.path:
             path = _resolve_binding(bound.get(spec.path, ast.Constant(None)), consts)
@@ -502,12 +551,9 @@ class _PythonWrites:
             if spec.path:
                 bound = _helper_args(node, spec)
                 path = _resolve_binding(bound.get(spec.path, ast.Constant(None)), consts)
-                new = bound.get(spec.new or "", ast.Constant(None))
                 if path not in _NULL_SINKS:
                     self.recognized = True
-                    self.unknown |= spec.writes_payload and not self.known(new, consts)
-                    self.unknown |= any(not _no_additions(bound.get(param, ast.Constant(None)), consts)
-                                        for param in spec.payload_params)
+                    self.unknown |= _helper_churn(spec, bound, consts)[2]
         if not isinstance(func, ast.Attribute) or func.attr not in _WRITE_ATTRS or not node.args:
             return False
         receiver = self.target(func.value, consts)

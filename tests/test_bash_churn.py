@@ -632,3 +632,21 @@ def test_review_write_estimate_boundaries(command, expected):
 ])
 def test_review_write_estimate_neighbors(command, expected):
     assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("body,argument,expected", [
+    ("text = computed\n    open(path, 'w').write(text)", "''", (1, 0)),
+    ("text = 'generated\\nsecond'\n    open(path, 'w').write(text)", "''", (2, 0)),
+    ("text = ''\n    open(path, 'w').write(text)", "'incoming'", (0, 0)),
+    ("text = b''\n    open(path, 'wb').write(text)", "b'incoming'", (0, 0)),
+    ("open(path, 'w').write(text)\n    text = computed", "''", (0, 0)),
+    ("local = computed\n    open(path, 'w').write(text)", "''", (0, 0)),
+    ("local = text\n    text = computed\n    open(path, 'w').write(local)", "''", (0, 0)),
+    ("local = 'new\\nlines'\n    text = local\n    open(path, 'w').write(text)", "''", (2, 0)),
+    ("text = 'new'\n    open(path, 'w').write(text)\n    text = ''", "''", (1, 0)),
+    ("text = text + '\\nnew'\n    open(path, 'w').write(text)", "'old'", (2, 0)),
+    ("def inner():\n        text = computed\n    open(path, 'w').write(text)", "''", (0, 0)),
+])
+def test_helper_payload_binding_order(body, argument, expected):
+    command = "python3 - <<'PY'\ndef emit(path, text):\n    " + body + "\nemit('out.txt', " + argument + ")\nPY"
+    assert bash_churn(command) == expected
