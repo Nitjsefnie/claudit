@@ -1,10 +1,9 @@
 """bash_churn.py — line churn recovered from Bash command text.
 
 Most editing in a bypass-permissions session never touches Edit/Write:
-it goes through a heredoc, an inline patch, or a python one-liner. Only
-what is DIRECTLY ENUMERABLE from the command text counts — no execution,
-no guessing. A shape we cannot count exactly contributes 0/0 rather than
-an estimate.
+it goes through a heredoc, an inline patch, or a python one-liner.
+Payloads come from command text without execution. Recognized writes
+with unknown addition sizes receive one estimated added line per call.
 """
 import warnings
 
@@ -26,12 +25,12 @@ from backend.bash_churn import bash_churn, churn_survives_error, python_write_pa
     ('echo "EXIT=$?" | tee /dev/null', (0, 0)),
     ('echo "EXIT=$?" > /dev/null | tee out.txt', (0, 0)),
     ('echo "EXIT=$?" 2> out.txt', (0, 0)),
-    ('echo "EXIT=$?" | sed s/EXIT/exit/ > out.txt', (0, 0)),
+    ('echo "EXIT=$?" | sed s/EXIT/exit/ > out.txt', (1, 0)),
     ("echo 'echo \"EXIT=$?\" > out.txt'", (0, 0)),
-    ('echo "$UNKNOWN" > out.txt', (0, 0)),
-    ('echo "EXIT=$?$UNKNOWN" > out.txt', (0, 0)),
-    ('echo "EXIT=$?" "$UNKNOWN" > out.txt', (0, 0)),
-    ('echo -e "EXIT=$?" > out.txt', (0, 0)),
+    ('echo "$UNKNOWN" > out.txt', (1, 0)),
+    ('echo "EXIT=$?$UNKNOWN" > out.txt', (1, 0)),
+    ('echo "EXIT=$?" "$UNKNOWN" > out.txt', (1, 0)),
+    ('echo -e "EXIT=$?" > out.txt', (1, 0)),
 ])
 def test_exit_marker_payloads(command, expected):
     assert bash_churn(command) == expected
@@ -41,7 +40,7 @@ def test_exit_marker_payloads(command, expected):
     "< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt",
 ])
 def test_receiving_stdin_redirect_severs_exit_marker(redirect):
-    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0, 0)
+    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0 if redirect in ('< /dev/null', '<&-') else 1, 0)
 
 
 def test_receiving_heredoc_replaces_exit_marker():
@@ -73,7 +72,7 @@ def test_heredoc_override_preserves_receiving_stdin_provenance(command, expected
 
 @pytest.mark.parametrize("redirect", ["< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt"])
 def test_receiving_stdin_redirect_severs_printf_payload(redirect):
-    assert bash_churn(r"printf 'a\nb\n' | tee out.txt " + redirect) == (0, 0)
+    assert bash_churn(r"printf 'a\nb\n' | tee out.txt " + redirect) == (0 if redirect in ("< /dev/null", "<&-") else 1, 0)
 
 
 @pytest.mark.parametrize("command", [
@@ -91,7 +90,7 @@ def test_loop_carried_path_bindings_do_not_multiply_churn():
                "    open(p,'w').write('literal\\npayload')\n"
                "    p=item\nPY")
     assert python_write_paths(command) == ["old.md", "a.md"]
-    assert bash_churn(command) == (0, 0)
+    assert bash_churn(command) == (1, 0)
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -111,33 +110,34 @@ def test_loop_carried_path_bindings_do_not_multiply_churn():
     (r"printf 'a\n' | tee /dev/null", (0, 0)),
     (r"printf 'a\n' > /dev/null", (0, 0)),
     (r"printf 'a\n'", (0, 0)),
-    (r'printf "%s\n" "$UNKNOWN" > probe.txt', (0, 0)),
-    ("printf '%s\\n' \"'$UNKNOWN'\" > probe.txt", (0, 0)),
-    ("sed -i '2a text\ns/old/new/' README", (0, 0)),
+    (r'printf "%s\n" "$UNKNOWN" > probe.txt', (1, 0)),
+    ("printf '%s\\n' \"'$UNKNOWN'\" > probe.txt", (1, 0)),
+    ("sed -i '2a text\ns/old/new/' README", (1, 0)),
     (r"sed -i '2a one\\ntwo' README", (1, 0)),
-    (r"printf '%d\n' 42 > probe.txt", (0, 0)),
-    (r"printf 'a\n' | sed s/a/b/ > probe.txt", (0, 0)),
+    (r"printf '%d\n' 42 > probe.txt", (1, 0)),
+    (r"printf 'a\n' | sed s/a/b/ > probe.txt", (1, 0)),
     (r"printf 'a\n' | tee a.txt | sed s/a/b/ > b.txt", (1, 0)),
     (r"{ printf 'a\n'; sed -n '1,2p' old.txt; printf 'b\n'; } > probe.txt", (2, 0)),
     ("{\n printf 'a\\n';\n} > README.new.md\nmv README.new.md README.md\n", (1, 0)),
     (r"cd /work && { printf 'a\n'; sed -n '1,3p' README.md; } > README.new.md && mv README.new.md README.md", (1, 0)),
-    (r"{ printf 'a\n'; } | sed s/a/b/ > probe.txt", (0, 0)),
+    (r"{ printf 'a\n'; } | sed s/a/b/ > probe.txt", (1, 0)),
     (r"{ printf 'a\n' > /dev/null; } > probe.txt", (0, 0)),
-    (r"echo \"printf 'a\\n' > probe.txt\"", (0, 0)),
-    (r"printf 'a\n' > \"$OUT\"", (0, 0)),
+    # Escaped quotes are literal bytes, so this > is real shell syntax.
+    (r"echo \"printf 'a\\n' > probe.txt\"", (1, 0)),
+    (r"printf 'a\n' > \"$OUT\"", (1, 0)),
     ("printf 'unterminated", (0, 0)),
     (r"sed -i '311a !tests/docs/\ntests/docs/*\n!tests/docs/*.ts' .gitignore", (3, 0)),
     (r"sed '2a one\ntwo' README > out.txt", (2, 0)),
-    (r"sed '2a one\ntwo' README | head -1 > out.txt", (0, 0)),
+    (r"sed '2a one\ntwo' README | head -1 > out.txt", (1, 0)),
     (r"sed -i '2a text' README > out.txt", (1, 0)),
     (r"sed '2a one\ntwo' README", (0, 0)),
-    (r"sed -i 's/a/b/' README", (0, 0)),
-    (r"sed -i '/regex/a text' README", (0, 0)),
-    (r"sed -i -f dynamic.sed -e '2a text' README", (0, 0)),
+    (r"sed -i 's/a/b/' README", (1, 1)),
+    (r"sed -i '/regex/a text' README", (1, 0)),
+    (r"sed -i -f dynamic.sed -e '2a text' README", (1, 0)),
     (r"sed -i '2a text'", (0, 0)),
     ("sed -i '2a\\\none\\\ntwo' README", (2, 0)),
-    ("cp src.txt dst.txt; mv dst.txt final.txt", (0, 0)),
-    (r"perl -pi -e 's/(a)/$1$1/g' file.ts", (0, 0)),
+    ("cp src.txt dst.txt; mv dst.txt final.txt", (1, 0)),
+    (r"perl -pi -e 's/(a)/$1$1/g' file.ts", (1, 0)),
 ])
 def test_literal_shell_payloads(command, expected):
     assert bash_churn(command) == expected
@@ -148,12 +148,12 @@ def test_literal_shell_payloads(command, expected):
      "p.write_text(p.read_text().replace(marker, entry + marker))", (2, 1)),
     ("old='a'; new=old + '\\nb'; new=new + '\\nc'\n"
      "open('f','w').write(text.replace(old, new))", (3, 1)),
-    ("new='a'; new=unknown + new\nopen('f','w').write(text.replace('b',new))", (0, 0)),
-    ("new=1 + 'a'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
-    ("new=Path('a') + 'b'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
-    ("p=Path('a'); new=p + 'b'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
+    ("new='a'; new=unknown + new\nopen('f','w').write(text.replace('b',new))", (1, 0)),
+    ("new=1 + 'a'\nopen('f','w').write(text.replace('b',new))", (1, 0)),
+    ("new=Path('a') + 'b'\nopen('f','w').write(text.replace('b',new))", (1, 0)),
+    ("p=Path('a'); new=p + 'b'\nopen('f','w').write(text.replace('b',new))", (1, 0)),
     ("for p in ['a.md', 'b.md']:\n    if Path(p).exists():\n"
-     "        Path(p).write_text(text.replace('old','new\\nnew'))", (0, 0)),
+     "        Path(p).write_text(text.replace('old','new\\nnew'))", (1, 0)),
 ])
 def test_python_bounded_literal_expressions(body, expected):
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
@@ -161,12 +161,12 @@ def test_python_bounded_literal_expressions(body, expected):
 
 def test_python_concatenation_payload_growth_is_bounded():
     body = "x='a'\n" + "x=x+x\n" * 30 + "open('f','w').write(x)"
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (1, 0)
 
 
 def test_python_concatenation_depth_is_bounded():
     body = "new=" + "+".join(["'a'"] * 100) + "\nopen('f','w').write(new)"
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (1, 0)
 
 
 # --- heredoc bodies redirected into a file --------------------------------
@@ -231,10 +231,10 @@ def test_psql_heredoc_is_not_churn():
     assert bash_churn("psql -d db <<'SQL'\nSELECT 1;\nSQL\n") == (0, 0)
 
 
-def test_output_capture_redirect_is_not_churn():
+def test_output_capture_redirect_uses_write_estimate():
     """Redirecting a command's OUTPUT to a file is not enumerable churn:
-    the bytes are produced by running it, not present in the call."""
-    assert bash_churn("python3 -m pytest tests/ -q > /tmp/out.txt") == (0, 0)
+    the fallback estimates one addition without executing it."""
+    assert bash_churn("python3 -m pytest tests/ -q > /tmp/out.txt") == (1, 0)
 
 
 def test_plain_command_yields_zero():
@@ -306,15 +306,15 @@ def test_python_heredoc_that_never_writes_is_not_churn():
     assert bash_churn(cmd) == (0, 0)
 
 
-def test_python_replace_with_non_literal_arguments_is_not_counted():
-    """Variables are only knowable by running the script — 0, not a guess."""
+def test_python_replace_with_non_literal_arguments_uses_write_estimate():
+    """Unknown replacement sizes receive the per-call write estimate."""
     cmd = ("python3 - <<'PY'\n"
            "import pathlib, sys\n"
            "old, new = sys.argv[1], sys.argv[2]\n"
            "p = pathlib.Path('f')\n"
            "p.write_text(p.read_text().replace(old, new))\n"
            "PY\n")
-    assert bash_churn(cmd) == (0, 0)
+    assert bash_churn(cmd) == (1, 0)
 
 
 def test_python_write_text_of_a_string_literal_counts_as_added():
@@ -362,7 +362,7 @@ def test_python_replace_through_single_assignment_literals_is_counted():
     assert bash_churn(cmd) == (1, 2)
 
 
-def test_python_replace_through_a_rebound_name_is_not_counted():
+def test_python_replace_through_a_rebound_name_uses_write_estimate():
     """A name assigned more than once holds whichever value the run
     produced — not enumerable from the text."""
     cmd = ("python3 - <<'PY'\n"
@@ -372,10 +372,10 @@ def test_python_replace_through_a_rebound_name_is_not_counted():
            "new = new + open('other').read()\n"
            "p.write_text(p.read_text().replace('old', new))\n"
            "PY\n")
-    assert bash_churn(cmd) == (0, 0)
+    assert bash_churn(cmd) == (1, 0)
 
 
-def test_python_replace_through_a_loop_variable_is_not_counted():
+def test_python_replace_through_a_loop_variable_uses_write_estimate():
     cmd = ("python3 - <<'PY'\n"
            "import pathlib\n"
            "p = pathlib.Path('f')\n"
@@ -384,7 +384,7 @@ def test_python_replace_through_a_loop_variable_is_not_counted():
            "    s = s.replace('old', new)\n"
            "p.write_text(s)\n"
            "PY\n")
-    assert bash_churn(cmd) == (0, 0)
+    assert bash_churn(cmd) == (1, 0)
 
 
 def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
@@ -434,14 +434,14 @@ def test_python_replace_through_a_local_helper_is_counted():
     assert bash_churn(cmd) == (3, 3)
 
 
-def test_python_helper_called_with_variable_strings_is_not_counted():
+def test_python_helper_called_with_variable_strings_uses_write_estimate():
     cmd = ("python3 - <<'PY'\n"
            "import sys\n"
            "def sub(path, old, new):\n"
            "    open(path, 'w').write(open(path).read().replace(old, new))\n"
            "sub('a.md', sys.argv[1], sys.argv[2])\n"
            "PY\n")
-    assert bash_churn(cmd) == (0, 0)
+    assert bash_churn(cmd) == (1, 0)
 
 
 def test_python_helper_body_is_not_counted_on_its_own():
@@ -510,3 +510,96 @@ def test_interpreter_given_by_path_is_still_python(interp):
 def test_interpreter_given_by_path_dash_c_is_still_python():
     cmd = ".venv/bin/python -c \"open('f','w').write('x\\ny')\""
     assert bash_churn(cmd) == (2, 0)
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("generate > out.txt", (1, 0)),
+    ("generate > out.txt; cp a.txt b.txt; cp c.txt d.txt", (1, 0)),
+    ("cp source.txt dest.txt", (1, 0)),
+    ("cp /dev/null dest.txt", (0, 0)),
+    ("echo marker > out.txt", (1, 0)),
+    ("echo -n '' > out.txt", (0, 0)),
+    ("echo '' > out.txt", (1, 0)),
+    (r"echo -e 'one\ntwo' > out.txt", (2, 0)),
+    (r"echo -e '\cignored' > out.txt", (0, 0)),
+    ('echo "$UNKNOWN" > out.txt', (1, 0)),
+    (r"printf 'one\ntwo\n' > out.txt; generate > other.txt", (2, 0)),
+    ("printf '' > out.txt; generate > other.txt", (1, 0)),
+    ("printf '' > out.txt", (0, 0)),
+    ("cat file.txt", (0, 0)),
+    ("generate > /dev/null", (0, 0)),
+    ("echo 'generate > out.txt'", (0, 0)),
+    ("python3 mysterious.py --output out.txt", (0, 0)),
+    ("sed -i 's/old/new/' out.txt", (1, 1)),
+    ("sed -i 's/old/new/3g' out.txt other.txt", (1, 1)),
+    (r"sed -i 's|old\|text|new\nline|' out.txt", (2, 1)),
+    (r"sed -i 's/old\.text/new\&text/' out.txt", (1, 1)),
+    (r"sed -i 's/old//g' out.txt", (0, 1)),
+    ("sed -i '2d' out.txt", (0, 0)),
+    ("sed -i 's/old//'; generate > out.txt", (1, 0)),
+    (r"sed -i 's/(old)/\1/g' out.txt", (1, 0)),
+    ("sed -i 's/.*old/new/' out.txt", (1, 0)),
+    ("sed -i 's/old/new/' /dev/null", (0, 0)),
+])
+def test_write_estimates_and_declared_payloads(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("open(path, 'w').write(computed)", (1, 0)),
+    ("Path(path).write_text(computed)", (1, 0)),
+    ("p=Path(path); p.write_text(computed)", (1, 0)),
+    ("open(path, 'w').write('')", (0, 0)),
+    ("Path(path).write_text('')", (0, 0)),
+    ("Path(path).write_bytes(b'')", (0, 0)),
+    ("Path('/dev/null').write_text(computed)", (0, 0)),
+    ("open('/dev/null', 'w').write(computed)", (0, 0)),
+    ("obj.write(computed)", (0, 0)),
+    ("obj.write_text(computed)", (0, 0)),
+    ("obj.open(path, 'w')", (0, 0)),
+    ("open(path).read()", (0, 0)),
+    ("open(path, 'w').write(text.replace('old', ''))", (0, 1)),
+    ("open(path, 'w').write(text.replace('old', '')); open(other, 'w').write(computed)", (1, 1)),
+])
+def test_python_write_estimate_boundaries(body, expected):
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
+
+
+@pytest.mark.parametrize("command,expected", [
+    ('cp "$SOURCE" "$DEST"', (1, 0)),
+    ("sed -i 's/.*//' out.txt", (0, 0)),
+    (r"echo -e '\\c' > out.txt", (1, 0)),
+    ("generate 2> out.txt", (1, 0)),
+    ("sed -i 's/old/new/' out.txt; sed -i 's/old/new/' other.txt", (2, 2)),
+    ("python3 -c \"obj.write('one\\ntwo')\"", (0, 0)),
+    ("python3 -c \"Path('/dev/null').write_text('one\\ntwo')\"", (0, 0)),
+    ("python3 -c \"Path(path).write_bytes(b'one\\ntwo')\"", (2, 0)),
+    ("python3 - <<'PY'\nfor p in paths:\n    Path(p).write_text(computed)\nPY", (1, 0)),
+])
+def test_additional_write_boundaries(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("open(path, 'w').write(text.replace(old, 'new'))", (1, 0)),
+    ("open(path, 'w').write(text.replace(old, ''))", (0, 0)),
+    ("with open(path, 'w') as f:\n    f.write(computed)", (1, 0)),
+    ("with open(path, 'w') as f:\n    f.write('')", (0, 0)),
+])
+def test_python_replacement_and_handle_sizes(body, expected):
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
+
+
+def test_python_helper_does_not_infer_file_write_from_arbitrary_method():
+    command = "python3 - <<'PY'\ndef send(obj):\n    obj.write(data)\nsend(client)\nPY"
+    assert bash_churn(command) == (0, 0)
+
+
+@pytest.mark.parametrize("body", [
+    "def truncate(path):\n    open(path, 'w').close()\ntruncate('out.txt')",
+    "def empty(path):\n    open(path, 'w').write('')\nempty('out.txt')",
+    "for p in paths:\n    Path(p).write_bytes(b'')",
+    "for p in paths:\n    Path(p).write_text(text.replace('old', ''))",
+])
+def test_known_no_additions_in_helpers_and_loops(body):
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)

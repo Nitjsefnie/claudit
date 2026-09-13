@@ -286,6 +286,19 @@ what a dispatch asked for:
 (pure counts). `error_text` is deliberately NOT in either grain —
 unbounded cardinality does not belong in a rollup.
 
+## Bash line churn is an estimate from command text (SV-BASH-CHURN)
+
+Keep available payload counts for heredocs, patches, Python edits and literal
+printf/echo/sed output. Python and sed replacements count the declared old/new
+payload once, without match multiplication; a successful exit does not prove
+that a line changed. For a recognized Bash file write with unknown addition
+size, use one added line per CALL only if no additions were already counted.
+Known-empty and deletion-only operations add zero. Do not infer old contents
+for copies/overwrites, invent paths for unresolved targets, execute recorded
+commands or infer writes from opaque script names or arbitrary object methods.
+Read-only calls, null sinks and rejected/unlaunched/failed writes do not gain
+fallback churn. Preserve the existing heredoc-write-before-later-error rule.
+
 ## Context intake is stored per call (SV-CONTEXT-INTAKE)
 
 Five columns on `tool_uses` record what a call put INTO the context

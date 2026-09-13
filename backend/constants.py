@@ -110,4 +110,5 @@ VERSION = _read_version()
 # corrections. 35 adds literal brace words and refuses brace expansion while
 # retaining those corrections, invalidating files already parsed at 34.
 # 36 counts explicit quoted exit-status echo markers reaching a file.
-PARSER_VERSION = "36"
+# 37 estimates unknown Bash writes and recovers literal echo/sed substitutions.
+PARSER_VERSION = "37"

@@ -1,40 +1,17 @@
-"""Line churn recovered from Bash command TEXT.
+"""Estimate Bash line churn from command text without executing commands.
 
-`Edit` and `Write` are not where most editing happens. In a
-bypass-permissions session the model is told to work through the shell,
-so a file gets written by a heredoc, patched by an inline diff, or
-rewritten by a python one-liner — 197k Bash calls against 41k
-Edit+Write in the live corpus. None of that reached the churn panels
-before this module existed.
+Literal heredocs, diffs, Python edits, printf/echo output and supported sed
+payloads contribute their declared line counts. Replacements count each
+old/new payload once, without discovering match counts or asserting that a
+successful command changed the file. Recognized writes with unknown addition
+sizes contribute one added line per Bash call only when no additions were
+already counted. Known empty/no-addition operations remain zero additions;
+overwrite/copy deletions remain unknown and contribute zero.
 
-The rule here is DIRECT ENUMERABILITY: a shape counts only when the
-number of lines is readable off the call arguments themselves, with no
-execution and no inference about the state of the disk. Everything else
-contributes 0/0 — an honest undercount, never an estimate dressed as a
-measurement. Concretely that means:
-
-  counted    heredoc body redirected into a file (`cat > F`, `cat >> F`,
-             `tee F`) — added, 0 deleted, exactly as `Write` is counted;
-             inline `git apply` / `patch` diffs, by their +/- hunk lines;
-             python read/replace/write bodies (heredoc or `-c`), by the
-             string LITERALS passed to `.replace()` / `re.sub()` — given
-             inline, through a name whose binding IN FORCE at that
-             statement is a literal, or through a helper defined in the
-             same script and called with literals; bounded string addition;
-             literal printf output reaching a file unchanged, including tee
-             and flat redirected brace groups; numeric-addressed sed append
-             payloads, counted once without asserting address applicability.
-
-  not        commit messages (`git commit -F -`, `-m "$(cat <<EOF)"`),
-  counted    heredocs feeding psql/jq/node/ssh, output-capture redirects
-             (`cmd > out.txt` — those bytes come from running it),
-             sed substitutions and Perl edits (the matches need the file),
-             and Python replacements whose arguments remain runtime values.
-
-The python scan also recovers the PATHS a body opens for writing
-(`python_write_paths`), the same way `cat > F` names F — and
-`churn_survives_error` answers whether an errored result can be taken
-as proof the counted write never landed.
+Read-only commands, null sinks and opaque script invocations are not file-write
+evidence. Python write intent can be explicit even when the target path is
+unknown; python_write_paths still returns only recoverable paths. Error
+handling retains the existing proven heredoc-write-before-later-error rule.
 """
 from __future__ import annotations
 
@@ -46,7 +23,7 @@ import shlex
 import warnings
 from dataclasses import dataclass
 
-from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, payloads_from_tokens, shell_tokens
+from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, effects_from_tokens, shell_tokens
 
 # Commands longer than this are pathological (a base64 blob, a giant
 # generated fixture); parsing them buys nothing and costs ingest time.
@@ -326,9 +303,7 @@ def _is_std_stream_write(func: ast.Attribute) -> bool:
 def _opens_for_writing(node: ast.Call) -> bool:
     """`open(path, 'w')` / `open(path, mode='a')` with a literal mode."""
     func = node.func
-    name = func.attr if isinstance(func, ast.Attribute) else (
-        func.id if isinstance(func, ast.Name) else "")
-    if name != "open":
+    if not (isinstance(func, ast.Name) and func.id == "open"):
         return False
     modes = [_const_str(a) for a in node.args[1:2]]
     modes += [_const_str(kw.value) for kw in node.keywords
@@ -359,6 +334,16 @@ def _is_replace(func: ast.expr) -> bool:
             and func.value.id == "re")
 
 
+def _no_additions(expr: ast.expr, consts: dict[str, str]) -> bool:
+    if isinstance(expr, ast.Constant) and expr.value == b"":
+        return True
+    if isinstance(expr, (ast.List, ast.Tuple)) and not expr.elts:
+        return True
+    if isinstance(expr, ast.Call) and _is_replace(expr.func) and len(expr.args) >= 2:
+        expr = expr.args[1]
+    return _resolve_str(expr, consts) == ""
+
+
 @dataclass(frozen=True)
 class _Helper:
     """A function defined in the script whose body does the edit on
@@ -368,6 +353,7 @@ class _Helper:
     path: str | None
     old: str | None
     new: str | None
+    writes_payload: bool
 
 
 def _param(node: ast.expr, params: tuple[str, ...]) -> str | None:
@@ -389,9 +375,12 @@ def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
             continue
         params = tuple(a.arg for a in fd.args.args)
         path = old = new = None
+        writes_payload = False
         for node in ast.walk(fd):
             if not isinstance(node, ast.Call):
                 continue
+            if _is_file_write_attr(node.func) and node.args:
+                writes_payload |= not _no_additions(node.args[0], {})
             if _is_replace(node.func) and len(node.args) >= 2:
                 o, n = _param(node.args[0], params), _param(node.args[1], params)
                 if o and n:
@@ -400,9 +389,12 @@ def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
                 path = _param(node.args[0], params) or path
             elif _is_file_write_attr(node.func):
                 value = node.func.value  # type: ignore[attr-defined]
-                path = _param(value, params) or path
+                # A parameter's arbitrary .write method is not file evidence;
+                # Path(parameter).write_text is explicit, like open(..., 'w').
+                if isinstance(value, ast.Call):
+                    path = _param(value, params) or path
         if path or (old and new):
-            specs[fd.name] = _Helper(params, path, old, new)
+            specs[fd.name] = _Helper(params, path, old, new, writes_payload)
     return specs
 
 
@@ -445,14 +437,123 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
         assert isinstance(func, ast.Attribute)
         path = _resolve_binding(func.value, consts)
         literal = _resolve_str(node.args[0], consts) if node.args else None
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, bytes):
+            literal = node.args[0].value.decode("latin1")
         return (count_lines(literal) if literal is not None else 0), 0, path
     return 0, 0, None
 
 
+@dataclass(frozen=True)
+class _WriteTarget:
+    """A syntactic file receiver, with an optional resolved path."""
+    path: str | None
+    is_path: bool
+
+
+class _PythonWrites:
+    """Track explicit file receivers and unknown output without inventing paths."""
+
+    def __init__(self) -> None:
+        self.targets: dict[str, _WriteTarget] = {}
+        self.known_payloads: set[str] = set()
+        self.unknown = False
+        self.recognized = False
+
+    def target(self, expr: ast.expr, consts: dict[str, str]) -> _WriteTarget | None:
+        if isinstance(expr, ast.Name):
+            return self.targets.get(expr.id)
+        if isinstance(expr, ast.Call):
+            if _opens_for_writing(expr) and expr.args:
+                return _WriteTarget(_resolve_binding(expr.args[0], consts), False)
+            func = expr.func
+            is_path = (isinstance(func, ast.Name) and func.id == "Path") or (
+                isinstance(func, ast.Attribute) and func.attr == "Path"
+                and isinstance(func.value, ast.Name) and func.value.id == "pathlib")
+            if is_path and expr.args:
+                return _WriteTarget(_resolve_str(expr.args[0], consts), True)
+        return None
+
+    def known(self, expr: ast.expr, consts: dict[str, str]) -> bool:
+        if _resolve_str(expr, consts) is not None:
+            return True
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, bytes):
+            return True
+        if isinstance(expr, (ast.List, ast.Tuple)) and not expr.elts:
+            return True
+        if isinstance(expr, ast.Name):
+            return expr.id in self.known_payloads
+        if isinstance(expr, ast.Call) and _is_replace(expr.func) and len(expr.args) >= 2:
+            new = _resolve_str(expr.args[1], consts)
+            return new == "" or (new is not None and _resolve_str(expr.args[0], consts) is not None)
+        return False
+
+    def _call(self, node: ast.Call, consts: dict[str, str],
+              helpers: dict[str, _Helper], in_loop: bool) -> bool:
+        func = node.func
+        if _opens_for_writing(node) and node.args:
+            self.recognized |= _resolve_binding(node.args[0], consts) not in _NULL_SINKS
+        if isinstance(func, ast.Name) and func.id in helpers:
+            spec = helpers[func.id]
+            if spec.path:
+                bound = _helper_args(node, spec)
+                path = _resolve_binding(bound.get(spec.path, ast.Constant(None)), consts)
+                new = bound.get(spec.new or "", ast.Constant(None))
+                if path not in _NULL_SINKS:
+                    self.recognized = True
+                    self.unknown |= spec.writes_payload and not self.known(new, consts)
+        if not isinstance(func, ast.Attribute) or func.attr not in _WRITE_ATTRS or not node.args:
+            return False
+        receiver = self.target(func.value, consts)
+        if receiver is None or receiver.path in _NULL_SINKS:
+            return False
+        if receiver.is_path != (func.attr in ("write_text", "write_bytes")):
+            return False
+        self.recognized = True
+        self.unknown |= not self.known(node.args[0], consts)
+        if in_loop and not _no_additions(node.args[0], consts):
+            self.unknown = True
+        return True
+
+    def _bind(self, stmt: ast.stmt, consts: dict[str, str]) -> None:
+        target = self.target(stmt.value, consts) if isinstance(stmt, ast.Assign) else None
+        known = isinstance(stmt, ast.Assign) and self.known(stmt.value, consts)
+        for name in _stored_names(stmt):
+            self.targets.pop(name, None)
+            self.known_payloads.discard(name)
+        if isinstance(stmt, ast.Assign):
+            for name in stmt.targets:
+                if isinstance(name, ast.Name):
+                    if target is not None:
+                        self.targets[name.id] = target
+                    if known:
+                        self.known_payloads.add(name.id)
+
+    def observe(self, stmt: ast.stmt, consts: dict[str, str], helpers: dict[str, _Helper]) -> set[int]:
+        # Compound stores never establish bindings for later statements.
+        saved, saved_payloads = self.targets.copy(), self.known_payloads.copy()
+        allowed: set[int] = set()
+        if isinstance(stmt, (ast.For, ast.If)):
+            for branch in (stmt.body, stmt.orelse):
+                for child in branch:
+                    allowed.update(self.observe(child, consts, helpers))
+                self.targets, self.known_payloads = saved.copy(), saved_payloads.copy()
+        if isinstance(stmt, ast.With):
+            for item in stmt.items:
+                if isinstance(item.optional_vars, ast.Name):
+                    target = self.target(item.context_expr, consts)
+                    if target is not None:
+                        self.targets[item.optional_vars.id] = target
+        for node in _statement_nodes(stmt):
+            if isinstance(node, ast.Call) and self._call(node, consts, helpers, isinstance(stmt, ast.For)):
+                allowed.add(id(node))
+        self.targets, self.known_payloads = saved, saved_payloads
+        self._bind(stmt, consts)
+        return allowed
+
+
 @functools.lru_cache(maxsize=512)
-def _python_scan(src: str) -> tuple[int, int, tuple[str, ...]]:
-    """(added, deleted, written paths) enumerable from a python
-    script's own source.
+def _python_scan(src: str) -> tuple[int, int, tuple[str, ...], bool]:
+    """(added, deleted, written paths, unknown addition size) from Python text.
 
     Module-level statements are walked IN ORDER with the bindings in
     force: `old = ...` above a replace is the literal that replace
@@ -460,7 +561,7 @@ def _python_scan(src: str) -> tuple[int, int, tuple[str, ...]]:
     A name bound to anything but a literal, or bound inside a compound
     statement (a loop target, a `with ... as`), is unknown from there
     on. Literal list/tuple loops enumerate candidate paths under ordered
-    local bindings, but contribute no churn. Function bodies are counted
+    local bindings; unresolved loop sizes use the per-call fallback. Function bodies are counted
     once per CALL through the helper table, never on their own.
     """
     try:
@@ -473,29 +574,31 @@ def _python_scan(src: str) -> tuple[int, int, tuple[str, ...]]:
             warnings.simplefilter("ignore")
             tree = ast.parse(src)
     except (SyntaxError, ValueError, MemoryError, RecursionError):
-        return 0, 0, ()
+        return 0, 0, (), False
 
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
     if not _script_writes_a_file(calls):
-        return 0, 0, ()
+        return 0, 0, (), False
 
     helpers = _helper_specs(tree)
     consts: dict[str, str] = {}
     added = deleted = 0
     paths: list[str] = []
+    writes = _PythonWrites()
     for stmt in tree.body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef,
                              ast.ClassDef)):
             continue
-        a, d, stmt_paths = _statement_effects(stmt, consts, helpers)
+        allowed = writes.observe(stmt, consts, helpers)
+        a, d, stmt_paths = _statement_effects(stmt, consts, helpers, allowed)
         added += a
         deleted += d
         paths.extend(p for p in stmt_paths if p not in paths)
-    return added, deleted, tuple(paths)
+    return (added, deleted, tuple(paths), writes.unknown) if writes.recognized else (0, 0, (), False)
 
 
 def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
-                       helpers: dict[str, _Helper]
+                       helpers: dict[str, _Helper], allowed_writes: set[int] | None = None
                        ) -> tuple[int, int, list[str]]:
     """Effects of one module-level statement under the bindings in
     force, then the statement's own effect on those bindings."""
@@ -513,11 +616,13 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
     paths: list[str] = []
     for node in _statement_nodes(stmt):
         if isinstance(node, ast.Call):
-            a, d, path = _call_effects(node, view, helpers)
-            added += a
-            deleted += d
-            if path and path not in paths:
-                paths.append(path)
+            if allowed_writes is not None and _is_file_write_attr(node.func) and id(node) not in allowed_writes:
+                continue
+            effect = _call_effects(node, view, helpers)
+            added += effect[0]
+            deleted += effect[1]
+            if effect[2] and effect[2] not in paths:
+                paths.append(effect[2])
     if target is not None:
         assert isinstance(stmt, ast.Assign)
         literal = _resolve_binding(stmt.value, consts)
@@ -532,7 +637,7 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
 
 def _python_churn(src: str) -> tuple[int, int]:
     """Churn enumerable from a python script's own source."""
-    added, deleted, _ = _python_scan(src)
+    added, deleted, _, _ = _python_scan(src)
     return added, deleted
 
 
@@ -577,15 +682,17 @@ class BashCommand:
         return _dash_c_sources(self.parts[1])
 
     def churn(self) -> tuple[int, int]:
-        """(lines_added, lines_deleted) enumerable from this command."""
+        """(lines_added, lines_deleted) estimates from this command."""
         if not self.command or len(self.command) > MAX_COMMAND_CHARS:
             return 0, 0
         added = deleted = 0
+        unknown = False
         for context, body in self.parts[0]:
             if _PATCH.search(context):
                 a, d = _diff_churn(body)
             elif _PYTHON_STDIN.search(context):
-                a, d = _python_churn(body)
+                a, d, _, unresolved = _python_scan(body)
+                unknown |= unresolved
             elif _writes_to_a_file(context):
                 a, d = (count_lines(body + "\n") if body else 0), 0
             else:
@@ -593,11 +700,15 @@ class BashCommand:
             added += a
             deleted += d
         for src in self.dash_c_sources:
-            a, d = _python_churn(src)
+            a, d, _, unresolved = _python_scan(src)
+            unknown |= unresolved
             added += a
             deleted += d
-        added += sum(count_lines(payload) for payload in payloads_from_tokens(self.tokens))
-        return added, deleted
+        for payload, removed in effects_from_tokens(self.tokens):
+            unknown |= payload is None
+            added += count_lines(payload or "")
+            deleted += count_lines(removed)
+        return added or int(unknown), deleted
 
     def write_paths(self) -> list[str]:
         """Python write targets, before the caller resolves their cwd."""
@@ -614,7 +725,7 @@ class BashCommand:
 
 
 def bash_churn(command: str) -> tuple[int, int]:
-    """(lines_added, lines_deleted) enumerable from one Bash call."""
+    """(lines_added, lines_deleted) estimates for one Bash call."""
     return BashCommand(command).churn()
 
 

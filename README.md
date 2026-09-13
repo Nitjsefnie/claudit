@@ -93,9 +93,13 @@ and Cost by Context Size — originate here.
   bypass permissions most editing goes through Bash instead, so
   heredoc bodies written to a file, inline `git apply`/`patch`
   hunks, and python read/replace/write one-liners are counted
-  too. Only what the command text enumerates directly counts —
-  a shape that would have to be executed to measure contributes
-  nothing rather than an estimate.
+  too, alongside literal printf/echo output and supported sed edits.
+  These are estimates: replacement payloads count once without looking up
+  match counts, and success does not prove that lines changed. A recognized
+  Bash file write with unknown addition size receives one added line per call
+  when no additions were already counted. Known empty/deletion-only writes,
+  read-only calls and null sinks stay at zero additions; unknown overwrite
+  deletions remain zero. Commands are never executed to obtain counts.
 - **Cross-file uuid dedup** at query time so sub-agent JSONLs roll
   into their parent session without double-counting.
 - **Rate-limit hit** detection (Claude Code's `out of extra usage`

@@ -21,8 +21,8 @@ reads as more wasteful than one indiscriminate `cat`, which is
 backwards. So a `whole` classification survives only when NOTHING in
 the pipeline narrows it: `cat f | grep x` is a slice.
 
-Same refusal to estimate as `bash_churn`: only what the command text
-names outright is returned. A path built at runtime — `glob.glob(...)`,
+Only paths the command text names outright are returned; churn estimates
+do not manufacture target paths. A path built at runtime — `glob.glob(...)`,
 `$1`, an unexpanded `*.py` — yields nothing rather than a guess. A
 variable ASSIGNED in the same command (`S=/tmp/s && cat > $S/f.py`) is
 text, not runtime, and is expanded. Reads performed by an interpreter
@@ -35,7 +35,7 @@ import posixpath
 import re
 
 from backend.bash_churn import _NULL_SINKS, BashCommand
-from backend.bash_literals import ShellWord, command_options, literal_path, sed_parts
+from backend.bash_literals import ShellWord, destination_paths, literal_path, perl_paths, sed_parts
 
 # Commands that put file CONTENT into the transcript, split by whether
 # they emit the file entire.
@@ -230,54 +230,6 @@ def _sed_in_place(args: list[str]) -> bool:
     return sed_parts(args)[2]
 
 
-def _destination_paths(name: str, args: list[str]) -> list[str]:
-    """cp/install/mv destinations; directory facts must be in the text."""
-    modes = {"-" + c: 0 for c in "abcfHilLnprRsTuvDZ"}
-    modes.update(dict.fromkeys(("--no-target-directory", "--force", "--verbose",
-                               "--no-clobber", "--interactive", "--strip", "--compare"), 0))
-    modes.update(dict.fromkeys(("--backup", "--update", "--preserve", "--reflink", "--sparse"), 2))
-    modes.update(dict.fromkeys(("-t", "--target-directory", "-S", "--suffix", "--no-preserve"), 1))
-    if name == "install":
-        modes.update(dict.fromkeys(("-d", "--directory"), 0))
-        modes.update(dict.fromkeys(("-o", "--owner", "-g", "--group", "-m", "--mode", "--strip-program"), 1))
-    try:
-        options, operands = command_options(args, modes)
-    except ValueError:
-        return []
-    flags = dict(options)
-    if name == "install" and any(f in flags for f in ("-d", "--directory")):
-        return []
-    no_directory = any(f in flags for f in ("-T", "--no-target-directory"))
-    directory = any(f in flags for f in ("-t", "--target-directory"))
-    target = flags.get("-t", flags.get("--target-directory"))
-    if directory:
-        sources = operands
-    elif len(operands) >= 2:
-        *sources, target = operands
-    else:
-        return []
-    if target is None or not literal_path(target) or not sources:
-        return []
-    directory |= target.endswith("/") or posixpath.basename(target) in (".", "..") or len(sources) > 1
-    if directory and not no_directory:
-        return [ShellWord(posixpath.join(target, posixpath.basename(s.rstrip("/"))))
-                for s in sources if literal_path(s) and s.rstrip("/") not in (".", "..")]
-    return [target] if len(sources) == 1 and not directory else []
-
-
-def _perl_paths(args: list[str]) -> list[str]:
-    """In-place Perl one-liners; program and option arguments are not files."""
-    modes = {"-" + c: 0 for c in "pnwWl"}
-    modes.update({"-" + c: 1 for c in "eEIMmF"})
-    modes["-i"] = 2
-    try:
-        options, files = command_options(args, modes)
-    except ValueError:
-        return []
-    flags = dict(options)
-    return [p for p in files if literal_path(p)] if "-i" in flags and ("-e" in flags or "-E" in flags) else []
-
-
 def _resolve(path: str, base: str) -> str:
     """Absolute form of `path` under `base`, or `path` when there is no
     usable base. A consistent key is worth more than a fabricated
@@ -338,7 +290,7 @@ class _Scan:
             self.base = _resolve(target, self.base)
             return
         if name in ("cp", "install", "mv", "perl"):
-            paths = _perl_paths(operands) if name == "perl" else _destination_paths(name, operands)
+            paths = perl_paths(operands) if name == "perl" else destination_paths(name, operands)
             for path in paths:
                 self.add(self.writes, path)
             return

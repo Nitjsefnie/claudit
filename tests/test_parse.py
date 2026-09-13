@@ -657,15 +657,15 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
 
 @pytest.mark.parametrize("family,paths,churn", [
     ("printf", ["/work/probe.txt"], (2, 0)),
-    ("copy", ["/work/dst.txt"], (0, 0)),
-    ("brace_words", ["/work/{dest}"], (0, 0)),
-    ("install", ["/work/dst.dump"], (0, 0)),
-    ("move", ["/work/README.md"], (0, 0)),
-    ("fd_redirects", ["/work/README.md"], (0, 0)),
+    ("copy", ["/work/dst.txt"], (1, 0)),
+    ("brace_words", ["/work/{dest}"], (1, 0)),
+    ("install", ["/work/dst.dump"], (1, 0)),
+    ("move", ["/work/README.md"], (1, 0)),
+    ("fd_redirects", ["/work/README.md"], (1, 0)),
     ("heredoc_override", ["/work/out.txt"], (1, 0)),
-    ("perl", ["/work/file.ts"], (0, 0)),
+    ("perl", ["/work/file.ts"], (1, 0)),
     ("sed_append", ["/work/.gitignore"], (3, 0)),
-    ("python_loop", ["/work/a.md", "/work/b.md"], (0, 0)),
+    ("python_loop", ["/work/a.md", "/work/b.md"], (1, 0)),
     ("python_concat", ["/work/README.md"], (2, 1)),
 ])
 def test_bash_recovered_tool_fields(family, paths, churn):
@@ -738,3 +738,24 @@ def test_a_call_that_never_ran_wrote_nothing():
     assert by_idx[1]["write_targets"] == []
     assert by_idx[2]["write_targets"] == []
     assert by_idx[1]["lines_added"] == 0
+
+
+@pytest.mark.parametrize("family,expected,paths", [
+    ("redirect", (1, 0), ["/work/out.txt"]),
+    ("echo", (1, 0), ["/work/out.txt"]),
+    ("python", (1, 0), []),
+    ("sed", (1, 1), ["/work/out.txt"]),
+])
+def test_bash_write_estimate_fixtures(family, expected, paths):
+    tool = parse.parse_file("k/s/s.jsonl", _read("bash_estimate_" + family + ".jsonl"))["tool_uses"][0]
+    assert (tool["lines_added"], tool["lines_deleted"]) == expected
+    assert tool["write_targets"] == paths
+
+
+@pytest.mark.parametrize("result", ["Exit code 1", "PreToolUse hook denied this call", "User rejected tool use"])
+@pytest.mark.parametrize("family", ["redirect", "echo", "python", "sed"])
+def test_bash_write_estimates_remain_zero_on_error(family, result):
+    data = _read("bash_estimate_" + family + ".jsonl").replace(
+        b'"content":"ok"', ('"content":"' + result + '","is_error":true').encode())
+    tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
