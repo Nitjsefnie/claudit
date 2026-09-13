@@ -536,3 +536,16 @@ def test_explicit_absolute_target_is_known_after_unknown_cd():
 @pytest.mark.parametrize("cwd,expected", [("/work", "/work/docs.txt"), ("C:/work", "C:\\work\\docs.txt")])
 def test_windows_spelling_in_grep_pattern_is_not_a_read_target(cwd, expected):
     assert scan(r"grep 'C:\Users\Sample' docs.txt", cwd) == ("slice", [expected], [])
+
+
+@pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
+@pytest.mark.parametrize("directory,expected", [
+    ('\\\\?\\C:\\out\\', '\\\\?\\C:\\out\\file.py'),
+    ('\\\\?\\UNC\\server\\share\\out\\', '\\\\?\\UNC\\server\\share\\out\\file.py'),
+    ('\\\\?\\C:\\out\\.\\', '\\\\?\\C:\\out\\.\\file.py'),
+    ('\\\\server\\share\\out\\', '\\\\server\\share\\out\\file.py'),
+    ('/work/out/', '/work/out/file.py'),
+])
+def test_copy_children_use_destination_flavor_without_changing_verbatim_components(program, directory, expected):
+    command = program + " file.py '" + directory + "'"
+    assert scan(command, r"C:\work")[2] == [expected]

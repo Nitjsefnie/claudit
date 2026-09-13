@@ -8,7 +8,7 @@ from __future__ import annotations
 import posixpath
 import re
 
-from backend.target_paths import copy_source_name, directory_spelling
+from backend.target_paths import copy_source_name, directory_spelling, join_child
 
 MAX_LITERAL_CHARS = 100_000
 NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
@@ -267,7 +267,7 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True,
             if literal_path(source):
                 child = copy_source_name(source, base)
                 if child is not None:
-                    paths.append(ShellWord(posixpath.join(target, child)))
+                    paths.append(ShellWord(join_child(target, child, base)))
     else:
         paths = [target] if len(sources) == 1 and not directory else []
     return paths

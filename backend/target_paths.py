@@ -72,6 +72,13 @@ def directory_spelling(path: str, base: str | None = "") -> bool:
     return path.endswith("/") or posixpath.basename(path) in (".", "..")
 
 
+def join_child(directory: str, child: str, base: str | None = "") -> str:
+    """Append a child in the destination's syntax without normalizing it."""
+    if _windows_flavor(directory, base):
+        return ntpath.join(directory, child)
+    return posixpath.join(directory, child)
+
+
 def copy_source_name(path: str, base: str | None = "") -> str | None:
     """The literal child name for a directory copy, or an unsupported source."""
     windows = _windows_flavor(path, base)

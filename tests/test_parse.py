@@ -793,6 +793,7 @@ def test_windows_copy_preserves_write_estimate():
 
 
 @pytest.mark.parametrize("first,second,expected", [
+    ('C:\\Work\\f.py', '\\\\?\\C:\\Work\\f.py', False),
     (r"C:\Work\f.py", "c:/Work/f.py", True),
     ("C:/Work/./f.py", r"C:\Work\f.py", True),
     (r"C:\Work\f.py", r"C:\Work\F.py", False),
@@ -821,3 +822,11 @@ def test_raw_windows_write_invalidates_equivalent_read_without_rewriting(name):
     parse._resolve_rereads(rows)  # pylint: disable=protected-access
     assert [row["is_reread"] for row in rows] == [False, None, False]
     assert rows[1]["write_targets"] == [written]
+
+
+@pytest.mark.parametrize("namespace", ["drive", "unc"])
+def test_verbatim_copy_target_invalidates_raw_read(namespace):
+    tools = parse.parse_file("k/s/s.jsonl", _read("windows_verbatim_" + namespace + ".jsonl"))["tool_uses"]
+    assert [row["is_reread"] for row in tools] == [False, None, False]
+    assert tools[0]["read_targets"] == tools[1]["write_targets"] == tools[2]["read_targets"]
+    assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == (1, 0)
