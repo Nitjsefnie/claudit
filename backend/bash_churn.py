@@ -238,6 +238,21 @@ def _statement_nodes(stmt: ast.AST) -> list[ast.AST]:
     return nodes
 
 
+def _loop_exit(stmt: ast.stmt) -> str | None:
+    """Direct exits stop traversal; nested exits require refusing state carry."""
+    if isinstance(stmt, ast.Continue):
+        return "continue"
+    if isinstance(stmt, ast.Break):
+        return "break"
+    # Nested for loops handle their own exits. For other compound statements
+    # execution order and finally/exception handling are outside this parser.
+    if not isinstance(stmt, ast.For) and any(
+            isinstance(node, (ast.Continue, ast.Break, ast.Return, ast.Raise))
+            for node in _statement_nodes(stmt)):
+        return "uncertain"
+    return None
+
+
 def _loop_paths(loop: ast.For, consts: dict[str, str],
                 helpers: dict[str, _Helper]) -> list[str]:
     """Candidate writes through bounded literal loops, without churn scaling.
@@ -249,25 +264,32 @@ def _loop_paths(loop: ast.For, consts: dict[str, str],
     paths: list[str] = []
     budget = 512
 
-    def visit(statements: list[ast.stmt], bindings: dict[str, str], depth: int) -> None:
+    def visit_loop(stmt: ast.For, bindings: dict[str, str], depth: int) -> None:
+        if isinstance(stmt.target, ast.Name) and isinstance(stmt.iter, (ast.List, ast.Tuple)) and len(stmt.iter.elts) <= 64:
+            values = [_resolve_str(e, bindings) for e in stmt.iter.elts]
+            if all(v is not None for v in values):
+                iteration_bindings = bindings.copy()
+                for value in values:
+                    assert value is not None
+                    iteration_bindings[stmt.target.id] = value
+                    if visit(stmt.body, iteration_bindings, depth + 1) in ("break", "uncertain"):
+                        break
+        for name in _stored_names(stmt):
+            bindings.pop(name, None)
+
+    def visit(statements: list[ast.stmt], bindings: dict[str, str], depth: int) -> str | None:
         nonlocal budget
         if depth > 8:
-            return
+            return "uncertain"
         for stmt in statements:
             budget -= 1
             if budget < 0:
-                return
+                return "uncertain"
+            control = _loop_exit(stmt)
+            if control:
+                return control
             if isinstance(stmt, ast.For):
-                if isinstance(stmt.target, ast.Name) and isinstance(stmt.iter, (ast.List, ast.Tuple)) and len(stmt.iter.elts) <= 64:
-                    values = [_resolve_str(e, bindings) for e in stmt.iter.elts]
-                    if all(v is not None for v in values):
-                        iteration_bindings = bindings.copy()
-                        for value in values:
-                            assert value is not None
-                            iteration_bindings[stmt.target.id] = value
-                            visit(stmt.body, iteration_bindings, depth + 1)
-                for name in _stored_names(stmt):
-                    bindings.pop(name, None)
+                visit_loop(stmt, bindings, depth)
             elif isinstance(stmt, ast.If):
                 # A condition's assignment expressions run before either
                 # branch; short-circuit evaluation prevents assuming values.
@@ -283,6 +305,7 @@ def _loop_paths(loop: ast.For, consts: dict[str, str],
             else:
                 _, _, found = _statement_effects(stmt, bindings, helpers)
                 paths.extend(p for p in found if p not in paths)
+        return None
 
     visit([loop], consts.copy(), 0)
     return paths if budget >= 0 else []

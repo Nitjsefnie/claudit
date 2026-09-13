@@ -372,3 +372,39 @@ def test_interpreter_given_by_path_yields_write_targets():
            "PY\n")
     _, _, writes = scan(cmd, "/repo")
     assert writes == ["/repo/backend/x.py"]
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("FILES='a.md b.md'; sed -i 's/a/b/' $FILES", []),
+    ('FILES="a.md b.md"; sed -i \'s/a/b/\' "$FILES"', ["/work/a.md b.md"]),
+    ("DEST='a b'; cp source.txt $DEST", []),
+    ('DEST="a b"; cp source.txt "$DEST"', ["/work/a b"]),
+    ("DEST='a b'; install -t $DEST source.txt", []),
+    ('DEST="a b"; install -t "$DEST" source.txt', ["/work/a b/source.txt"]),
+    ("DEST='a b'; mv source.txt prefix${DEST}suffix", []),
+    ('DEST="a b"; mv source.txt prefix"${DEST}"suffix', ["/work/prefixa bsuffix"]),
+    ("FILES='a.md\tb.md'; sed -i 's/a/b/' $FILES", []),
+    ("FILES='a.md\nb.md'; sed -i 's/a/b/' $FILES", []),
+    ("IFS=,; DEST='a,b'; cp source.txt $DEST", []),
+    ("IFS=$UNKNOWN; DEST='a,b'; cp source.txt $DEST", []),
+    ('IFS=,; DEST="a,b"; cp source.txt "$DEST"', ["/work/a,b"]),
+    ("EXTRA='-t elsewhere'; cp source.txt $EXTRA final", []),
+    ("EXTRA=$UNKNOWN; cp source.txt $EXTRA final", []),
+    ("EMPTY=''; cp source.txt $EMPTY final", []),
+    ("cp source.txt 'literal space.txt'", ["/work/literal space.txt"]),
+    ('DEST="a b"; cp source.txt \'$DEST\'', ["/work/$DEST"]),
+])
+def test_ambiguous_unquoted_operand_expansion_is_refused(command, expected):
+    assert scan(command, "/work")[2] == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    continue\n    p='unreachable.md'", ["/work/old.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    p=item\n    continue\n    p='unreachable.md'", ["/work/old.md", "/work/a.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    p=item\n    break\n    p='unreachable.md'", ["/work/old.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    if unknown:\n        continue\n        p='unreachable.md'", ["/work/old.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    with manager():\n        continue\n        p='unreachable.md'", ["/work/old.md"]),
+    ("p='old.md'\nfor item in ['a.md','b.md']:\n    open(p,'w')\n    try:\n        break\n    finally:\n        p='unreachable.md'", ["/work/old.md"]),
+])
+def test_loop_exits_do_not_carry_unreachable_assignments(body, expected):
+    assert scan("python3 - <<'PY'\n" + body + "\nPY", "/work")[2] == expected

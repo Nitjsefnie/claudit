@@ -21,6 +21,7 @@ class ShellWord(str):
     literal: bool
     operator: bool
     expansion: str
+    unquoted_expansion: bool
 
     def __new__(cls, value: str, literal: bool = True,
                 operator: bool = False) -> ShellWord:
@@ -28,6 +29,7 @@ class ShellWord(str):
         word.literal = literal
         word.operator = operator
         word.expansion = value
+        word.unquoted_expansion = False
         return word
 
 
@@ -35,6 +37,7 @@ def _decode_word(raw: str) -> ShellWord:
     """Decode shell quoting without treating single quotes inside double quotes as protection."""
     parts: list[str] = []
     literal = True
+    unquoted_expansion = False
     for match in _PART.finditer(raw):
         part = match.group()
         if part.startswith("'"):
@@ -47,10 +50,12 @@ def _decode_word(raw: str) -> ShellWord:
             parts.append("\x00" if part[1:] == "$" else ("" if part[1:] == "\n" else part[1:]))
         else:
             literal &= not bool(_RUNTIME.search(part))
+            unquoted_expansion |= bool(re.search(r"[$`]", part))
             parts.append(part)
     expansion = "".join(parts)
     word = ShellWord(expansion.replace("\x00", "$"), literal)
     word.expansion = expansion
+    word.unquoted_expansion = unquoted_expansion
     return word
 
 
@@ -96,6 +101,7 @@ def literal_path(word: str) -> bool:
 def _option_value(word: str, offset: int) -> ShellWord:
     value = ShellWord(word[offset:], getattr(word, "literal", True))
     value.expansion = getattr(word, "expansion", word)[offset:]
+    value.unquoted_expansion = getattr(word, "unquoted_expansion", False)
     return value
 
 

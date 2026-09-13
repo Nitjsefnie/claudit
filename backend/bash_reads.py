@@ -125,7 +125,7 @@ def _looks_like_path(token: str) -> bool:
 
 
 def _strip_env_prefix(segment: list[str],
-                      env: dict[str, str]) -> list[str]:
+                      env: dict[str, str | None]) -> list[str]:
     """Drop leading `VAR=value` assignments before the command word,
     recording each so a later `$VAR` in the same command resolves."""
     idx = 0
@@ -137,16 +137,14 @@ def _strip_env_prefix(segment: list[str],
         if m:
             value = ShellWord(m.group(2), getattr(tok, "literal", True))
             value.expansion = getattr(tok, "expansion", tok)[m.start(2):]
-            expanded = _expand(value, env)
-            if expanded is None:
-                env.pop(m.group(1), None)
-            else:
-                env[m.group(1)] = expanded
+            # Assignment values do not undergo field splitting. Retain unknown
+            # bindings explicitly so an unknown IFS still disables inference.
+            env[m.group(1)] = _expand(value, env)
         idx += 1
     return segment[idx:]
 
 
-def _expand(token: str, env: dict[str, str]) -> str | None:
+def _expand(token: str, env: dict[str, str | None]) -> str | None:
     """`token` with every `$VAR` replaced from `env`, or None when any
     `$` survives — `$1`, `$(cmd)`, a variable this command did not
     assign: a path built at runtime."""
@@ -155,6 +153,10 @@ def _expand(token: str, env: dict[str, str]) -> str | None:
 
     def _sub(m: re.Match[str]) -> str:
         value = env.get(m.group(1) or m.group(2) or "")
+        if getattr(token, "unquoted_expansion", False) and (
+                not value or "IFS" in env or any(c.isspace() for c in value)):
+            # Refuse uncertain arity instead of guessing shell field splitting.
+            return m[0]
         # Parameter expansion does not evaluate dollars from the value again.
         return m[0] if value is None else value.replace("$", "\x00")
     out = _VAR_REF.sub(_sub, getattr(token, "expansion", token))
@@ -280,7 +282,7 @@ class _Scan:
 
     def __init__(self, cwd: str) -> None:
         self.base = cwd or ""
-        self.env: dict[str, str] = {}
+        self.env: dict[str, str | None] = {}
         self.kind: str | None = None
         self.reads: list[str] = []
         self.writes: list[str] = []
@@ -308,6 +310,10 @@ class _Scan:
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)
+        if name in ("sed", "cp", "install", "mv") and any(
+                getattr(arg, "unquoted_expansion", False) for arg in operands):
+            # One unresolved/splittable operand can shift every option position.
+            return
         if name == "cd" and operands:
             target = _expand(operands[0], self.env) or operands[0]
             self.base = _resolve(target, self.base)
