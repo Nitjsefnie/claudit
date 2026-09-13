@@ -335,3 +335,22 @@ def test_python_edit_body_does_not_survive_an_error():
            "PY\n"
            "git diff --stat")
     assert churn_survives_error(cmd, "AssertionError") is False
+
+
+@pytest.mark.parametrize("interp", [
+    ".venv/bin/python", "/usr/bin/python3", "./venv/bin/python3.13",
+])
+def test_interpreter_given_by_path_is_still_python(interp):
+    """A venv's python is the common spelling in a repo with one;
+    `.venv/bin/python -` edits exactly like `python3 -` does."""
+    cmd = (f"{interp} - <<'PY'\n"
+           "p = 'f.md'\n"
+           "t = open(p).read()\n"
+           "open(p, 'w').write(t.replace('a\\nb', 'c'))\n"
+           "PY\n")
+    assert bash_churn(cmd) == (1, 2)
+
+
+def test_interpreter_given_by_path_dash_c_is_still_python():
+    cmd = ".venv/bin/python -c \"open('f','w').write('x\\ny')\""
+    assert bash_churn(cmd) == (2, 0)

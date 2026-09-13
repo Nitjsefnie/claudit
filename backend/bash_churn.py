@@ -57,9 +57,12 @@ _REDIRECT = re.compile(r"(?<![0-9<>&])>>?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";&
 _CAT = re.compile(r"(?:^|[|;&(]|\s)cat\b")
 _TEE = re.compile(r"(?:^|[|;&(]|\s)tee\b")
 _PATCH = re.compile(r"(?:^|[|;&(]|\s)(?:git\s+apply|patch)\b")
-# `python3 -` / `python -` / `python3.13 -`: an interpreter reading stdin.
-_PYTHON_STDIN = re.compile(r"(?:^|[|;&(]|\s)python(?:3(?:\.\d+)?)?\s+-(?:\s|$)")
-_PYTHON_DASH_C = re.compile(r"(?:^|[|;&(]|\s)python(?:3(?:\.\d+)?)?\s+-c\s")
+# `python3 -` / `python -` / `python3.13 -`: an interpreter reading
+# stdin — bare, or by path (`.venv/bin/python -`, `/usr/bin/python3 -`),
+# which is how a repo with a venv spells it.
+_PYTHON_WORD = r"(?:^|[|;&(]|\s)(?:\S*/)?python(?:3(?:\.\d+)?)?"
+_PYTHON_STDIN = re.compile(_PYTHON_WORD + r"\s+-(?:\s|$)")
+_PYTHON_DASH_C = re.compile(_PYTHON_WORD + r"\s+-c\s")
 
 _NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 

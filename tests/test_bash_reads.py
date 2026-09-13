@@ -226,3 +226,12 @@ def test_python_dash_c_write_path_is_a_write_target():
     _, _, writes = scan(
         "python3 -c \"open('gen.txt','w').write('x')\"", "/repo")
     assert writes == ["/repo/gen.txt"]
+
+
+def test_interpreter_given_by_path_yields_write_targets():
+    cmd = (".venv/bin/python - <<'PY'\n"
+           "p = 'backend/x.py'; t = open(p).read()\n"
+           "open(p, 'w').write(t)\n"
+           "PY\n")
+    _, _, writes = scan(cmd, "/repo")
+    assert writes == ["/repo/backend/x.py"]
