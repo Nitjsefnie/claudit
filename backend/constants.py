@@ -106,4 +106,6 @@ VERSION = _read_version()
 # interpreter given by path (`.venv/bin/python -`). 32 recovers literal
 # printf/sed append payloads, explicit copy/move/Perl targets, and bounded
 # Python path loops and string concatenation.
-PARSER_VERSION = "32"
+# 34 invalidates deployed results for the stream/operand and binding-provenance
+# corrections; 33 is reserved by the separate brace-word parser change.
+PARSER_VERSION = "34"

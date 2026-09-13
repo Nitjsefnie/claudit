@@ -91,7 +91,11 @@ def _split_heredocs(command: str) -> tuple[list[tuple[str, str]], str]:
 
     `context` is the opener's line minus the `<<TAG` tokens themselves,
     so a redirect written on either side of the opener is visible to the
-    classifier. The leftover text is what the `python -c` scan runs on:
+    classifier. In leftover text, each opener becomes a descriptor-close
+    marker (`<&-`): the body is analyzed separately, but the receiving stage
+    must still be disconnected from upstream pipeline input. These markers
+    are parser metadata, never executed commands. The leftover text is also
+    what the `python -c` scan runs on:
     a `-c` mentioned INSIDE a heredoc body is that body's business, not
     a second script.
     """
@@ -102,7 +106,7 @@ def _split_heredocs(command: str) -> tuple[list[tuple[str, str]], str]:
     while i < len(lines):
         line = lines[i]
         openers = list(_HEREDOC_OPEN.finditer(line))
-        leftover.append(_HEREDOC_OPEN.sub(" ", line))
+        leftover.append(_HEREDOC_OPEN.sub("<&-", line))
         i += 1
         if not openers:
             continue

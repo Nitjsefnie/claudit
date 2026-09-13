@@ -6,6 +6,42 @@ import pytest
 from backend.bash_reads import scan
 
 
+@pytest.mark.parametrize("command,target", [
+    ("cp src.txt dst.txt", "/work/dst.txt"),
+    ("install -m 644 src.txt dst.txt", "/work/dst.txt"),
+    ("mv README.new.md README.md", "/work/README.md"),
+    ("sed -i 's/a/b/' README", "/work/README"),
+    ("perl -pi -e 's/a/b/' README", "/work/README"),
+])
+@pytest.mark.parametrize("redirect", ["2>&1", "< input.txt", "0<&3", "<&-", "3< input.txt", "2>&-"])
+def test_input_and_fd_redirections_are_not_write_operands(command, target, redirect):
+    assert scan(command + " " + redirect, "/work")[2] == [target]
+
+
+@pytest.mark.parametrize("command", [
+    "cp src.txt '2>&1'",
+    "install -m 644 src.txt '2>&1'",
+    "mv src.txt '2>&1'",
+    "sed -i 's/a/b/' '2>&1'",
+    "perl -pi -e 's/a/b/' '2>&1'",
+])
+def test_quoted_fd_spelling_is_a_literal_filename(command):
+    assert scan(command, "/work")[2] == ["/work/2>&1"]
+
+
+@pytest.mark.parametrize("redirect", ["<>", "><", "2>&", "<", ")"])
+def test_unsupported_or_incomplete_redirects_refuse_operand_inference(redirect):
+    assert not scan("cp src.txt dst.txt " + redirect, "/work")[2]
+
+
+def test_file_output_redirect_stays_separate_from_destination():
+    assert scan("cp src.txt dst.txt > log.txt 2>&1 < input.txt", "/work")[2] == ["/work/log.txt", "/work/dst.txt"]
+
+
+def test_stdin_file_remains_a_content_read_for_cat():
+    assert scan("cat < input.txt", "/work") == ("whole", ["/work/input.txt"], [])
+
+
 @pytest.mark.parametrize("command,expected", [
     ("DIR=/work; sed -i 's/a/b/' $DIR/file.txt", ["/work/file.txt"]),
     ('DIR=/work; cp source.txt "$DIR/file.txt"', ["/work/file.txt"]),

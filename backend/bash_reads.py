@@ -163,26 +163,38 @@ def _expand(token: str, env: dict[str, str | None]) -> str | None:
     return None if any(c in out for c in "$`*?[") else out.replace("\x00", "$")
 
 
-def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
-    """(operands, redirect targets) for one segment's argument list.
+def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """(operands, output files, stdin files) for one segment's arguments.
 
     A redirect target is a file the command WRITES, so it must be pulled
     out before operand scanning — otherwise `grep x src.py > out.txt`
-    books out.txt as something that was read.
+    books out.txt as something that was read. Input and fd redirections also
+    consume an argument, but neither is a destination operand. Unknown shell
+    operators raise ValueError rather than entering the filename heuristics.
     """
     operands: list[str] = []
     writes: list[str] = []
+    inputs: list[str] = []
     idx = 0
     while idx < len(args):
         tok = args[idx]
-        if getattr(tok, "operator", True) and re.fullmatch(r"[0-9]*>>?", tok):
-            if idx + 1 < len(args):
-                writes.append(args[idx + 1])
-            idx += 2
+        if not getattr(tok, "operator", False):
+            operands.append(tok)
+            idx += 1
             continue
-        operands.append(tok)
-        idx += 1
-    return operands, writes
+        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", tok)
+        if not match or idx + 1 == len(args) or getattr(args[idx + 1], "operator", False):
+            raise ValueError("unsupported or incomplete shell redirection")
+        fd, operator = match.groups()
+        target = args[idx + 1]
+        if operator in (">", ">>"):
+            writes.append(target)
+        elif operator == "<" and fd in ("", "0"):
+            inputs.append(target)
+        elif operator in (">&", "<&") and not re.fullmatch(r"[0-9]+|-", target):
+            raise ValueError("unsupported descriptor target")
+        idx += 2
+    return operands, writes, inputs
 
 
 def _operand_paths(name: str, args: list[str]) -> list[str]:
@@ -300,7 +312,15 @@ class _Scan:
         if not segment:
             return
         name = posixpath.basename(segment[0])
-        operands, redirected = _split_redirects(segment[1:])
+        try:
+            operands, redirected, inputs = _split_redirects(segment[1:])
+        except ValueError:
+            return
+        self.command_effects(name, operands, redirected, inputs)
+
+    def command_effects(self, name: str, operands: list[str],
+                        redirected: list[str], inputs: list[str]) -> None:
+        """Classify a command after redirection syntax has been separated."""
         if name in ("sed", "cp", "install", "mv"):
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
@@ -336,7 +356,9 @@ class _Scan:
         stage = "whole" if name in WHOLE_CMDS else "slice"
         narrowed = self.kind == "slice" or stage == "slice"
         self.kind = "slice" if narrowed else "whole"
-        for path in _operand_paths(name, operands):
+        paths = _operand_paths(name, operands)
+        paths.extend(path for path in inputs if _looks_like_path(path))
+        for path in paths:
             self.add(self.reads, path)
 
 

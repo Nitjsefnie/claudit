@@ -13,6 +13,18 @@ import pytest
 from backend.bash_churn import bash_churn, churn_survives_error
 
 
+@pytest.mark.parametrize("command,expected", [
+    ("printf 'a\\nb\\n' | tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt 0<<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt <<-'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt", (2, 0)),
+    ("tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee first.txt\ntee out.txt <<'EOF'\nx\nEOF", (3, 0)),
+])
+def test_heredoc_override_preserves_receiving_stdin_provenance(command, expected):
+    assert bash_churn(command) == expected
+
+
 @pytest.mark.parametrize("redirect", ["< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt"])
 def test_receiving_stdin_redirect_severs_printf_payload(redirect):
     assert bash_churn(r"printf 'a\nb\n' | tee out.txt " + redirect) == (0, 0)

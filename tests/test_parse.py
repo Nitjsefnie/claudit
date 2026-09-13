@@ -660,6 +660,8 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     ("copy", ["/work/dst.txt"], (0, 0)),
     ("install", ["/work/dst.dump"], (0, 0)),
     ("move", ["/work/README.md"], (0, 0)),
+    ("fd_redirects", ["/work/README.md"], (0, 0)),
+    ("heredoc_override", ["/work/out.txt"], (1, 0)),
     ("perl", ["/work/file.ts"], (0, 0)),
     ("sed_append", ["/work/.gitignore"], (3, 0)),
     ("python_loop", ["/work/a.md", "/work/b.md"], (0, 0)),
@@ -672,8 +674,9 @@ def test_bash_recovered_tool_fields(family, paths, churn):
     assert (tool["lines_added"], tool["lines_deleted"]) == churn
 
 
-def test_new_bash_write_invalidates_reread():
-    out = parse.parse_file("k/s/s.jsonl", _read("bash_move.jsonl"))
+@pytest.mark.parametrize("family", ["move", "fd_redirects"])
+def test_new_bash_write_invalidates_reread(family):
+    out = parse.parse_file("k/s/s.jsonl", _read(f"bash_{family}.jsonl"))
     read = {"read_kind": "whole", "read_targets": ["/work/README.md"],
             "write_targets": [], "is_error": False, "is_reread": None}
     rows = [read.copy(), out["tool_uses"][0], read.copy()]
