@@ -120,3 +120,109 @@ def test_unparsable_command_yields_nothing():
 def test_duplicate_paths_collapse():
     _, reads, _ = scan("cat a.py a.py", "/repo")
     assert reads == ["/repo/a.py"]
+
+
+# --- what a Bash command WROTE, recovered from its text ---------------
+
+@pytest.mark.parametrize("command", [
+    "sed -i 's/a/b/' foo.py",
+    "sed -i.bak -e 's/a/b/' foo.py",
+    "sed --in-place 's/a/b/' foo.py",
+    "sed -i -n 's/a/b/p' foo.py",
+])
+def test_in_place_sed_is_a_write_not_a_read(command):
+    """`sed -i` changes the file. Booking it as a slice READ inverts
+    both signals: the edit is missed and a phantom read is added."""
+    kind, reads, writes = scan(command, "/repo")
+    assert (kind, reads) == (None, [])
+    assert writes == ["/repo/foo.py"]
+
+
+def test_sed_script_operand_is_never_a_file():
+    """`s/a/b/` is path-shaped (it has slashes) but it is sed's
+    program, always — unlike grep, sed has no ambiguity to resolve."""
+    kind, reads, writes = scan("sed 's/a/b/' foo.py", "/repo")
+    assert (kind, reads, writes) == ("slice", ["/repo/foo.py"], [])
+
+
+def test_sed_n_takes_no_value():
+    kind, reads, _ = scan("sed -n 's/a/b/p' foo.py", "/repo")
+    assert (kind, reads) == ("slice", ["/repo/foo.py"])
+
+
+@pytest.mark.parametrize("command", [
+    "S=/tmp/s && cat > $S/f.py <<'EOF'\nx\nEOF",
+    "S=/tmp/s; cat > ${S}/f.py <<'EOF'\nx\nEOF",
+    "S=/tmp/s cat > $S/f.py <<'EOF'\nx\nEOF",
+])
+def test_variable_assigned_in_the_same_command_is_expanded(command):
+    """`S=/tmp/s && cat > $S/f.py` names the file as surely as the
+    literal does — the value is right there in the text."""
+    _, _, writes = scan(command, "/repo")
+    assert writes == ["/tmp/s/f.py"]
+
+
+def test_variable_assigned_in_the_same_command_resolves_a_read():
+    kind, reads, _ = scan("D=backend; grep -n x $D/parse.py", "/repo")
+    assert (kind, reads) == ("slice", ["/repo/backend/parse.py"])
+
+
+def test_unresolved_variable_names_no_file():
+    """`$1/x.py` is built at runtime; a verbatim `/repo/$1/x.py` is a
+    key nothing else will ever match."""
+    _, reads, writes = scan("cat $1/x.py > $OUT/y.py", "/repo")
+    assert (reads, writes) == ([], [])
+
+
+def test_heredoc_body_is_not_scanned_for_paths():
+    """A docstring inside a heredoc that mentions INDEX.md did not read
+    INDEX.md."""
+    cmd = ("cat > f.py <<'EOF'\n"
+           "\"\"\"Rebuild INDEX.md from a/b.txt. Run os.path.dirname.\"\"\"\n"
+           "EOF\n")
+    kind, reads, writes = scan(cmd, "/repo")
+    assert (kind, reads) == (None, [])
+    assert writes == ["/repo/f.py"]
+
+
+def test_null_sink_redirect_is_not_a_write():
+    _, _, writes = scan("python3 x.py >/dev/null 2>&1", "/repo")
+    assert not writes
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("open('out.md', 'w').write('x')", ["/repo/out.md"]),
+    ("with open('out.md', mode='a') as fh:\n    fh.write('x')",
+     ["/repo/out.md"]),
+    ("import pathlib\npathlib.Path('out.md').write_text('x')",
+     ["/repo/out.md"]),
+    ("from pathlib import Path\np = Path('/abs/out.md')\n"
+     "p.write_text(p.read_text().replace('a', 'b'))", ["/abs/out.md"]),
+    ("p = 'out.md'\nt = open(p).read()\nopen(p, 'w').write(t)",
+     ["/repo/out.md"]),
+    ("print(open('in.md').read())", []),
+])
+def test_python_heredoc_write_paths_are_write_targets(body, expected):
+    """The python body names the file it opens for writing as plainly
+    as `cat > f` does."""
+    cmd = "python3 - <<'PY'\n" + body + "\nPY\n"
+    _, _, writes = scan(cmd, "/repo")
+    assert writes == expected
+
+
+def test_python_helper_called_with_literal_paths_yields_write_targets():
+    cmd = ("python3 - <<'PY'\n"
+           "def sub(path, old, new):\n"
+           "    t = open(path).read(); assert old in t\n"
+           "    open(path, 'w').write(t.replace(old, new))\n"
+           "sub('a/x.md', 'old', 'new')\n"
+           "sub('a/y.md', 'old', 'new')\n"
+           "PY\n")
+    _, _, writes = scan(cmd, "/repo")
+    assert writes == ["/repo/a/x.md", "/repo/a/y.md"]
+
+
+def test_python_dash_c_write_path_is_a_write_target():
+    _, _, writes = scan(
+        "python3 -c \"open('gen.txt','w').write('x')\"", "/repo")
+    assert writes == ["/repo/gen.txt"]

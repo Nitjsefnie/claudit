@@ -409,7 +409,9 @@ CREATE INDEX IF NOT EXISTS tool_uses_read_targets_idx
 --
 --   error_kind  coarse and HARNESS-GENERIC -- 'rejected' (user or
 --               permission denial), 'tool_error' (a <tool_use_error>
---               wrapper from the harness), 'failed' (everything else).
+--               wrapper from the harness, or a Bash `Exit code N` --
+--               the command RAN), 'failed' (everything else: the call
+--               never ran).
 --               Bounded cardinality, so it can carry a rollup grain.
 --   error_text  the leading parse.ERROR_TEXT_MAX characters of the
 --               failed result, for GROUP BY drill-down.

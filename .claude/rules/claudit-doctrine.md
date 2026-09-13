@@ -269,6 +269,11 @@ what a dispatch asked for:
   call errored. HARNESS-GENERIC by rule: a PreToolUse hook denial carries
   the DEPLOY's wording, so it lands in `failed`. Do NOT add a kind for a
   particular operator's hooks — that couples a general tool to one setup.
+  `tool_error` means the call RAN: a `<tool_use_error>` wrapper, or a
+  Bash result opening `Exit code N` (the harness's own wording for a
+  nonzero exit — 58% of all errored results in a recent sample, and in
+  `failed` indistinguishable from a denial). `rejected`/`failed` mean it
+  never ran, so those rows carry no `write_targets` and no churn.
 - `error_text` — leading `parse.ERROR_TEXT_MAX` chars of the failed
   result. Grouping on it is how hook denials get separated from real
   failures, which is why the parser needs no hook vocabulary.
@@ -304,7 +309,13 @@ Targets come from tool arguments for `Read`/`Edit`/`Write` and from
 COMMAND TEXT for `Bash` (`backend/bash_reads.py`). The Bash half is not
 an extra: measured over the corpus, Bash is ~79% of the read surface
 under bypass permissions, so an argument-only reader sees almost none
-of the intake.
+of the intake. Write targets from Bash text cover `>`/`>>`/`tee`,
+`sed -i` (a WRITE, never a slice read — its script operand is never a
+file either), and the paths a `python3 -`/`-c` body opens for writing
+(`bash_churn.python_write_paths`). `$VAR` is expanded only when the same
+command assigns it (`S=/tmp/s && cat > $S/f`); any `$` that survives
+means a runtime path, and the token yields nothing. Heredoc bodies are
+stripped before the scan — a docstring naming `INDEX.md` read nothing.
 
 `is_reread` is deliberately CONSERVATIVE — a floor, not an estimate. It
 excludes slices (different halves of a file are not redundant), reads
@@ -344,12 +355,13 @@ being priced, never the time of rendering. `parse.py` passes each
 record's own `ts`; omitting `ts` yields LIST price (conservative — never
 silently applies a discount).
 
-`DATED_RATES` is currently EMPTY and `RATE_EPOCHS` is `[]` — no live model
-prices differently by date. The machinery stays regardless: the rule is
-about the shape of pricing, not about whether a promotion happens to be
-running. Tests drive it through the `synthetic_dated_rate` fixture in
-`tests/conftest.py` rather than a live entry, so the path cannot rot while
-the table is empty.
+A window is NEVER dropped once it has expired. Every `PARSER_VERSION`
+bump reparses the whole bucket, and a record from inside the window must
+come out at the price in force then; removing the window reprices that
+history at list on the next reparse, silently. The machinery is also
+tested through the `synthetic_dated_rate` fixture in `tests/conftest.py`
+rather than only the live entries, so the path cannot rot whenever the
+table happens to be empty.
 
 Any read path that RE-DERIVES rates from summed tokens must group by
 `pricing.RATE_EPOCHS` (`api.rate_epoch_sql` / `api.fold_per_model`), or

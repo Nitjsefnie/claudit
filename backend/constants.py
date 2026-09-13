@@ -98,5 +98,9 @@ VERSION = _read_version()
 # dispatch briefing-shape columns to the set parse_file() emits. 29 adds
 # result_chars, read_kind, read_targets, write_targets and is_reread --
 # what each call put into the context window and whether it had already
-# been put there.
-PARSER_VERSION = "29"
+# been put there. 30 widens what Bash command text yields: `sed -i` and
+# python bodies as write targets, same-command `$VAR` expansion,
+# sequentially rebound / helper-mediated python literals as churn, a
+# heredoc write surviving a later stage's failure, and `Exit code N`
+# classified as tool_error rather than failed.
+PARSER_VERSION = "30"

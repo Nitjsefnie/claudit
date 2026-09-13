@@ -23,7 +23,7 @@ from orjson import JSONDecodeError, dumps, loads
 
 from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
-from backend.bash_churn import bash_churn
+from backend.bash_churn import bash_churn, churn_survives_error
 from backend import bash_reads
 
 
@@ -281,6 +281,7 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
         "idx": idx,
         "tool_name": name,
         "tool_use_id": str(blk.get("id", "") or ""),
+        "command": str(args.get("command", "") or "") if added else "",
         "lines_added": added,
         "lines_deleted": deleted,
         "agent_type": a_type,
@@ -387,6 +388,7 @@ def _pg_text(s: str) -> str:
 # itself emits are classified.
 ERROR_KIND_REJECTED = "rejected"
 ERROR_KIND_TOOL_ERROR = "tool_error"
+_EXIT_CODE_RE = re.compile(r"\s*Exit code \d+")
 ERROR_KIND_FAILED = "failed"
 
 
@@ -443,9 +445,10 @@ def _classify_error(text: str) -> str:
 
     Anything that is neither a user/permission rejection nor a
     harness-wrapped tool error is "failed" -- including hook denials,
-    whose wording belongs to the deploy, not to Claude Code.
+    whose wording belongs to the deploy, not to Claude Code. A Bash
+    `Exit code N` is harness wording for a call that RAN: a tool error.
     """
-    if "<tool_use_error>" in text:
+    if "<tool_use_error>" in text or _EXIT_CODE_RE.match(text):
         return ERROR_KIND_TOOL_ERROR
     low = text.lower()
     if ("tool use was rejected" in low
@@ -593,10 +596,10 @@ class _LineWalk:
             self.tool_result_chars[str(tu_id)] = _result_size(
                 blk.get("content")
             )
-            if is_err:
+            if is_err:  # whole; _resolve_tool_errors truncates it
                 self.tool_result_text[str(tu_id)] = _pg_text(
                     _flatten_result_text(blk.get("content")).strip()
-                )[:ERROR_TEXT_MAX]
+                )
         elif btype == "text":
             text = blk.get("text", "") or ""
             if isinstance(text, str) and text.strip():
@@ -714,6 +717,7 @@ class _LineWalk:
                 "ts": _to_dt(ts_str),
                 "tool_name": tu["tool_name"],
                 "tool_use_id": tu["tool_use_id"],
+                "command": tu["command"],  # popped after the line walk
                 "is_error": None,  # filled after the line walk
                 "error_kind": None,  # filled after the line walk
                 "error_text": None,  # filled after the line walk
@@ -738,20 +742,24 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
     tool_use_id. Unmatched entries keep is_error=None and are
     excluded from rate denominators at query time. An errored call
     changed nothing on disk, so its churn is zeroed (an unmatched
-    call keeps its churn: the file may simply end before the
-    result record)."""
+    call keeps its churn: the file may simply end before the result
+    record) — unless `bash_churn.churn_survives_error` says otherwise."""
     for tu in tool_uses:
         tu_id = tu.pop("tool_use_id", "")
+        command = tu.pop("command", "")
         if tu_id:
             tu["result_chars"] = (tool_result_chars or {}).get(tu_id)
         if tu_id and tu_id in tool_result_is_error:
             tu["is_error"] = tool_result_is_error[tu_id]
             if tu["is_error"]:
-                tu["lines_added"] = 0
-                tu["lines_deleted"] = 0
                 text = (tool_result_text or {}).get(tu_id, "")
                 tu["error_kind"] = _classify_error(text)
-                tu["error_text"] = text or None
+                tu["error_text"] = text[:ERROR_TEXT_MAX] or None
+                ran = tu["error_kind"] == ERROR_KIND_TOOL_ERROR
+                if not (ran and churn_survives_error(command, text)):
+                    tu["lines_added"], tu["lines_deleted"] = 0, 0
+                if not ran:
+                    tu["write_targets"] = []  # wrote nothing
 
 
 def _resolve_rereads(tool_uses: list) -> None:

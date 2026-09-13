@@ -638,3 +638,45 @@ def test_partial_overlap_is_not_a_reread():
     ]
     parse._resolve_rereads(rows)  # pylint: disable=protected-access
     assert [r["is_reread"] for r in rows] == [False, False]
+
+
+def test_errored_compound_bash_keeps_the_heredoc_write():
+    """`cat > f <<EOF … EOF` followed by `python3 f` that exits 1: the
+    result is an error, but the exit status is the LAST stage's and the
+    heredoc landed on disk before it ran. Zeroing here hides the write
+    that most editing under bypass permissions goes through."""
+    out = parse.parse_file(
+        "k/sess-hd/sess-hd.jsonl", _read("bash_heredoc_error.jsonl")
+    )
+    tu = out["tool_uses"][0]
+    assert tu["is_error"] is True
+    assert tu["lines_added"] == 2
+    assert tu["lines_deleted"] == 0
+    assert tu["write_targets"] == ["/repo/scripts/gen.py"]
+
+
+def test_nonzero_exit_is_a_tool_error_not_a_failed_launch():
+    """`Exit code N` is the harness's wrapper for a Bash command that
+    RAN and failed — 58% of all errored results in a recent sample. In
+    `failed` it is indistinguishable from a hook denial, which is the
+    one distinction error_kind exists to draw."""
+    out = parse.parse_file(
+        "k/sess-exit/sess-exit.jsonl", _read("bash_exit_kinds.jsonl")
+    )
+    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
+    assert by_idx[0]["error_kind"] == "tool_error"
+    assert by_idx[1]["error_kind"] == "failed"
+    assert by_idx[2]["error_kind"] == "rejected"
+
+
+def test_a_call_that_never_ran_wrote_nothing():
+    """A hook denial or a user rejection stops the call before the
+    shell sees it: its write targets must not invalidate a later
+    re-read, because the bytes did not change."""
+    out = parse.parse_file(
+        "k/sess-exit/sess-exit.jsonl", _read("bash_exit_kinds.jsonl")
+    )
+    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
+    assert by_idx[1]["write_targets"] == []
+    assert by_idx[2]["write_targets"] == []
+    assert by_idx[1]["lines_added"] == 0

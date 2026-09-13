@@ -8,7 +8,9 @@ an estimate.
 """
 import warnings
 
-from backend.bash_churn import bash_churn
+import pytest
+
+from backend.bash_churn import bash_churn, churn_survives_error
 
 
 # --- heredoc bodies redirected into a file --------------------------------
@@ -242,3 +244,94 @@ def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
         warnings.simplefilter("always")
         bash_churn(cmd)
     assert [str(w.message) for w in caught] == []
+
+
+def test_python_replace_through_sequentially_rebound_names_is_counted():
+    """Two edits in one script, each rebinding `old`/`new` before its
+    own replace: at every replace the names hold a literal, so both
+    are enumerable — the binding in force is the one just above."""
+    cmd = ("python3 - <<'PY'\n"
+           "p = 'a.md'; t = open(p).read()\n"
+           "old = 'x\\ny'\n"
+           "new = 'z'\n"
+           "open(p, 'w').write(t.replace(old, new))\n"
+           "p = 'b.md'; t = open(p).read()\n"
+           "old = 'q'\n"
+           "new = 'r\\ns\\nt'\n"
+           "open(p, 'w').write(t.replace(old, new))\n"
+           "PY\n")
+    assert bash_churn(cmd) == (4, 3)
+
+
+def test_python_replace_through_a_local_helper_is_counted():
+    """`sub(path, old, new)` defined in the same script and called with
+    literals is the literal replace with one indirection."""
+    cmd = ("python3 - <<'PY'\n"
+           "import re\n"
+           "def sub(path, old, new):\n"
+           "    t = open(path, encoding='utf-8').read()\n"
+           "    assert old in t, (path, old)\n"
+           "    open(path, 'w', encoding='utf-8').write(t.replace(old, new))\n"
+           "sub('a.md', 'one\\ntwo', 'three')\n"
+           "sub('b.md', 'four', 'five\\nsix')\n"
+           "PY\n")
+    assert bash_churn(cmd) == (3, 3)
+
+
+def test_python_helper_called_with_variable_strings_is_not_counted():
+    cmd = ("python3 - <<'PY'\n"
+           "import sys\n"
+           "def sub(path, old, new):\n"
+           "    open(path, 'w').write(open(path).read().replace(old, new))\n"
+           "sub('a.md', sys.argv[1], sys.argv[2])\n"
+           "PY\n")
+    assert bash_churn(cmd) == (0, 0)
+
+
+def test_python_helper_body_is_not_counted_on_its_own():
+    """The replace inside the helper runs once PER CALL; with no call
+    it never runs."""
+    cmd = ("python3 - <<'PY'\n"
+           "def sub(path, old, new):\n"
+           "    open(path, 'w').write(open(path).read().replace(old, new))\n"
+           "PY\n")
+    assert bash_churn(cmd) == (0, 0)
+
+
+# --- does an errored result mean the write did not happen? ------------
+
+def test_heredoc_write_followed_by_other_stages_survives_an_error():
+    """`cat > f <<EOF … EOF && python3 f` failing in python3 wrote f
+    all the same; the exit status belongs to the last stage."""
+    cmd = "cat > f.py <<'EOF'\nraise SystemExit(1)\nEOF\npython3 f.py"
+    assert churn_survives_error(cmd, "Exit code 1") is True
+
+
+def test_lone_heredoc_write_does_not_survive_an_error():
+    cmd = "cat > missing/f.py <<'EOF'\nx\nEOF\n"
+    assert churn_survives_error(cmd, "bash: missing/f.py: No such file or directory") is False
+
+
+def test_heredoc_write_whose_target_failed_does_not_survive():
+    cmd = "mkdir -p d && cat > d/f.py <<'EOF'\nx\nEOF\npython3 d/f.py"
+    text = "bash: d/f.py: Permission denied"
+    assert churn_survives_error(cmd, text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "No space left on device", "Read-only file system",
+])
+def test_disk_failure_never_survives(text):
+    cmd = "cat > f.py <<'EOF'\nx\nEOF\npython3 f.py"
+    assert churn_survives_error(cmd, text) is False
+
+
+def test_python_edit_body_does_not_survive_an_error():
+    """A python body that raised may have raised BEFORE its write —
+    `assert old in t` is put there to do exactly that."""
+    cmd = ("python3 - <<'PY'\n"
+           "t = open('f').read(); assert 'a' in t\n"
+           "open('f', 'w').write(t.replace('a', 'b'))\n"
+           "PY\n"
+           "git diff --stat")
+    assert churn_survives_error(cmd, "AssertionError") is False

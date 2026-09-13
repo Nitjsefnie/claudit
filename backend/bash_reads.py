@@ -23,15 +23,19 @@ the pipeline narrows it: `cat f | grep x` is a slice.
 
 Same refusal to estimate as `bash_churn`: only what the command text
 names outright is returned. A path built at runtime — `glob.glob(...)`,
-`$1`, an unexpanded `*.py` — yields nothing rather than a guess, and a
-command whose reads are performed by an interpreter body is not this
-module's business at all.
+`$1`, an unexpanded `*.py` — yields nothing rather than a guess. A
+variable ASSIGNED in the same command (`S=/tmp/s && cat > $S/f.py`) is
+text, not runtime, and is expanded. Reads performed by an interpreter
+body are not this module's business; the paths a python body opens for
+WRITING are, and come from `bash_churn.python_write_paths`.
 """
 from __future__ import annotations
 
 import posixpath
 import re
 import shlex
+
+from backend.bash_churn import _NULL_SINKS, _split_heredocs, python_write_paths
 
 # Commands that put file CONTENT into the transcript, split by whether
 # they emit the file entire.
@@ -62,6 +66,20 @@ VALUE_FLAGS = frozenset({
     "--before-context", "--context", "--include", "--exclude",
     "--exclude-dir", "-d", "--delimiter", "-t",
 })
+
+# sed's own flag table: `-n` takes no value there, and `-e`/`-f` are
+# the only ways to give the script other than as the first operand.
+SED_VALUE_FLAGS = frozenset({"-e", "-f", "--expression", "--file"})
+SED_SCRIPT_FLAGS = frozenset({"-e", "--expression"})
+
+# `sed -i`, `-i.bak`, `--in-place[=SUFFIX]`: the file operands are
+# rewritten, not read.
+_SED_IN_PLACE = re.compile(r"^(?:-[a-zA-Z]*i|--in-place)")
+
+# `$NAME` / `${NAME}` — expanded when NAME is assigned in the same
+# command text, dropped otherwise.
+_VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 
 # A token is a candidate path when it carries a short extension or a
 # separator. Bare words are rejected: `grep TODO notes.md` must not book
@@ -123,15 +141,30 @@ def _looks_like_path(token: str) -> bool:
     return bool("/" in token or _PATH_RE.search(token))
 
 
-def _strip_env_prefix(segment: list[str]) -> list[str]:
-    """Drop leading `VAR=value` assignments before the command word."""
+def _strip_env_prefix(segment: list[str],
+                      env: dict[str, str]) -> list[str]:
+    """Drop leading `VAR=value` assignments before the command word,
+    recording each so a later `$VAR` in the same command resolves."""
     idx = 0
     while idx < len(segment):
         tok = segment[idx]
         if tok.startswith("-") or "=" not in tok.split("/")[0]:
             break
+        m = _ASSIGN.match(tok)
+        if m:
+            env[m.group(1)] = _expand(m.group(2), env) or ""
         idx += 1
     return segment[idx:]
+
+
+def _expand(token: str, env: dict[str, str]) -> str | None:
+    """`token` with every `$VAR` replaced from `env`, or None when any
+    `$` survives — `$1`, `$(cmd)`, a variable this command did not
+    assign: a path built at runtime."""
+    def _sub(m: re.Match[str]) -> str:
+        return env.get(m.group(1) or m.group(2) or "", m[0])
+    out = _VAR_REF.sub(_sub, token)
+    return None if "$" in out else out
 
 
 def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
@@ -159,17 +192,22 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
 def _operand_paths(name: str, args: list[str]) -> list[str]:
     """File operands of one command, minus flags and pattern operands."""
     pending_pattern = 1 if name in PATTERN_CMDS else 0
+    value_flags = SED_VALUE_FLAGS if name == "sed" else VALUE_FLAGS
+    # sed's first operand is its script unless `-e`/`-f` supplied one —
+    # `s/a/b/` has slashes and would otherwise pass for a path.
+    strict_pattern = name == "sed" and not any(
+        a in value_flags for a in args)
     paths: list[str] = []
     idx = 0
     while idx < len(args):
         tok = args[idx]
-        if tok in VALUE_FLAGS:
+        if tok in value_flags:
             idx += 2
             continue
         if tok.startswith("-"):
             idx += 1
             continue
-        if pending_pattern and not _looks_like_path(tok):
+        if pending_pattern and (strict_pattern or not _looks_like_path(tok)):
             # The pattern operand. A pattern that DOES look like a path
             # (`grep config.py *.log`) is ambiguous; treating it as the
             # pattern would lose a real file more often than it invents
@@ -184,6 +222,10 @@ def _operand_paths(name: str, args: list[str]) -> list[str]:
     return paths
 
 
+def _sed_in_place(args: list[str]) -> bool:
+    return any(_SED_IN_PLACE.match(a) for a in args)
+
+
 def _resolve(path: str, base: str) -> str:
     """Absolute form of `path` under `base`, or `path` when there is no
     usable base. A consistent key is worth more than a fabricated
@@ -191,6 +233,55 @@ def _resolve(path: str, base: str) -> str:
     if path.startswith("/") or not base:
         return path
     return posixpath.normpath(posixpath.join(base, path))
+
+
+class _Scan:
+    """One command's running state: the cwd as `cd` moves it, the
+    variables the command itself assigned, and the three answers."""
+
+    def __init__(self, cwd: str) -> None:
+        self.base = cwd or ""
+        self.env: dict[str, str] = {}
+        self.kind: str | None = None
+        self.reads: list[str] = []
+        self.writes: list[str] = []
+
+    def add(self, bucket: list[str], path: str) -> None:
+        expanded = _expand(path, self.env)
+        if not expanded or expanded in _NULL_SINKS:
+            return
+        resolved = _resolve(expanded, self.base)
+        if resolved not in bucket:
+            bucket.append(resolved)
+
+    def segment(self, raw_segment: list[str]) -> None:
+        segment = _strip_env_prefix(raw_segment, self.env)
+        if not segment:
+            return
+        name = posixpath.basename(segment[0])
+        operands, redirected = _split_redirects(segment[1:])
+        for path in redirected:
+            if _looks_like_path(path):
+                self.add(self.writes, path)
+        if name == "cd" and operands:
+            target = _expand(operands[0], self.env) or operands[0]
+            self.base = _resolve(target, self.base)
+            return
+        if name in _WRITE_CMDS or (name == "sed" and _sed_in_place(operands)):
+            for path in _operand_paths(name, operands):
+                self.add(self.writes, path)
+            return
+        if name not in READ_CMDS:
+            return
+        # Narrowing is a property of the PIPELINE, so it is recorded even
+        # for a stage that names no file of its own — that is exactly the
+        # `cat f | grep x` shape, where the narrowing stage is the one
+        # without the path.
+        stage = "whole" if name in WHOLE_CMDS else "slice"
+        narrowed = self.kind == "slice" or stage == "slice"
+        self.kind = "slice" if narrowed else "whole"
+        for path in _operand_paths(name, operands):
+            self.add(self.reads, path)
 
 
 def scan(command: str, cwd: str = "") -> tuple[str | None, list[str],
@@ -204,42 +295,14 @@ def scan(command: str, cwd: str = "") -> tuple[str | None, list[str],
     from reading the same unchanged bytes twice, and the second is the
     only one that wasted anything.
     """
-    base = cwd or ""
-    kind: str | None = None
-    reads: list[str] = []
-    writes: list[str] = []
-
-    def _add(bucket: list[str], path: str) -> None:
-        resolved = _resolve(path, base)
-        if resolved not in bucket:
-            bucket.append(resolved)
-
-    for raw_segment in _tokenize(command):
-        segment = _strip_env_prefix(raw_segment)
-        if not segment:
-            continue
-        name = posixpath.basename(segment[0])
-        operands, redirected = _split_redirects(segment[1:])
-        for path in redirected:
-            if _looks_like_path(path):
-                _add(writes, path)
-        if name == "cd" and operands:
-            base = _resolve(operands[0], base)
-            continue
-        if name in _WRITE_CMDS:
-            for path in _operand_paths(name, operands):
-                _add(writes, path)
-            continue
-        if name not in READ_CMDS:
-            continue
-        # Narrowing is a property of the PIPELINE, so it is recorded even
-        # for a stage that names no file of its own — that is exactly the
-        # `cat f | grep x` shape, where the narrowing stage is the one
-        # without the path.
-        stage = "whole" if name in WHOLE_CMDS else "slice"
-        kind = "slice" if (kind == "slice" or stage == "slice") else "whole"
-        for path in _operand_paths(name, operands):
-            _add(reads, path)
-    if not reads:
-        return None, [], writes
-    return kind, reads, writes
+    state = _Scan(cwd)
+    # Heredoc bodies are payload, not command line: a docstring that
+    # mentions INDEX.md did not read it.
+    _, outside = _split_heredocs(command)
+    for raw_segment in _tokenize(outside):
+        state.segment(raw_segment)
+    for path in python_write_paths(command):
+        state.add(state.writes, path)
+    if not state.reads:
+        return None, [], state.writes
+    return state.kind, state.reads, state.writes

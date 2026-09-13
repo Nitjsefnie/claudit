@@ -55,8 +55,13 @@ backend/          — FastAPI application
                     command TEXT: heredoc bodies redirected into a file,
                     inline git-apply/patch hunks, and python
                     read/replace/write bodies (heredoc or -c) whose
-                    replacement strings are literals. Anything needing
-                    the command to RUN counts 0, never an estimate.
+                    replacement strings are literals — inline, via a
+                    name bound to a literal at that statement, or via
+                    a same-script helper called with literals. Also
+                    the paths those bodies open for writing, and
+                    whether a heredoc write survives a later stage's
+                    nonzero exit. Anything needing the command to RUN
+                    counts 0, never an estimate.
   pricing.py      — Single source of truth for per-model token rates (USD/M).
                     Bump constants.PARSER_VERSION whenever this changes.
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
