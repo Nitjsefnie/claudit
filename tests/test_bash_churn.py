@@ -13,6 +13,81 @@ import pytest
 from backend.bash_churn import bash_churn, churn_survives_error
 
 
+@pytest.mark.parametrize("command,expected", [
+    (r"printf 'a\nb\nc\n' > probe.txt", (3, 0)),
+    (r"printf '%s\n' 'a' 'b' > probe.txt", (2, 0)),
+    (r"printf '%% %s %s\n' a b c d > probe.txt", (2, 0)),
+    (r"printf '%s' a b > probe.txt", (1, 0)),
+    (r"printf '%s' 2 > probe.txt", (1, 0)),
+    (r"printf 'a\n' 2> probe.txt", (0, 0)),
+    (r"printf 'a\n' >&2", (0, 0)),
+    (r"printf 'a\n' > probe.txt 2>&1", (1, 0)),
+    (r"printf 'a\n' | tee --unknown probe.txt", (0, 0)),
+    (r"printf 'a\n' | tee /dev/null > probe.txt", (1, 0)),
+    (r"printf 'a\n' > /dev/null | tee probe.txt", (0, 0)),
+    (r"printf '%s\n' '$LITERAL' > probe.txt", (1, 0)),
+    (r"printf 'a\n' | tee a.txt b.txt", (1, 0)),
+    (r"printf 'a\n' | tee /dev/null", (0, 0)),
+    (r"printf 'a\n' > /dev/null", (0, 0)),
+    (r"printf 'a\n'", (0, 0)),
+    (r'printf "%s\n" "$UNKNOWN" > probe.txt', (0, 0)),
+    ("printf '%s\\n' \"'$UNKNOWN'\" > probe.txt", (0, 0)),
+    ("sed -i '2a text\ns/old/new/' README", (0, 0)),
+    (r"sed -i '2a one\\ntwo' README", (1, 0)),
+    (r"printf '%d\n' 42 > probe.txt", (0, 0)),
+    (r"printf 'a\n' | sed s/a/b/ > probe.txt", (0, 0)),
+    (r"printf 'a\n' | tee a.txt | sed s/a/b/ > b.txt", (1, 0)),
+    (r"{ printf 'a\n'; sed -n '1,2p' old.txt; printf 'b\n'; } > probe.txt", (2, 0)),
+    ("{\n printf 'a\\n';\n} > README.new.md\nmv README.new.md README.md\n", (1, 0)),
+    (r"cd /work && { printf 'a\n'; sed -n '1,3p' README.md; } > README.new.md && mv README.new.md README.md", (1, 0)),
+    (r"{ printf 'a\n'; } | sed s/a/b/ > probe.txt", (0, 0)),
+    (r"{ printf 'a\n' > /dev/null; } > probe.txt", (0, 0)),
+    (r"echo \"printf 'a\\n' > probe.txt\"", (0, 0)),
+    (r"printf 'a\n' > \"$OUT\"", (0, 0)),
+    ("printf 'unterminated", (0, 0)),
+    (r"sed -i '311a !tests/docs/\ntests/docs/*\n!tests/docs/*.ts' .gitignore", (3, 0)),
+    (r"sed '2a one\ntwo' README > out.txt", (2, 0)),
+    (r"sed '2a one\ntwo' README | head -1 > out.txt", (0, 0)),
+    (r"sed -i '2a text' README > out.txt", (1, 0)),
+    (r"sed '2a one\ntwo' README", (0, 0)),
+    (r"sed -i 's/a/b/' README", (0, 0)),
+    (r"sed -i '/regex/a text' README", (0, 0)),
+    (r"sed -i -f dynamic.sed -e '2a text' README", (0, 0)),
+    (r"sed -i '2a text'", (0, 0)),
+    ("sed -i '2a\\\none\\\ntwo' README", (2, 0)),
+    ("cp src.txt dst.txt; mv dst.txt final.txt", (0, 0)),
+    (r"perl -pi -e 's/(a)/$1$1/g' file.ts", (0, 0)),
+])
+def test_literal_shell_payloads(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("marker='end\\n'; entry='new\\n'; p=Path('README.md')\n"
+     "p.write_text(p.read_text().replace(marker, entry + marker))", (2, 1)),
+    ("old='a'; new=old + '\\nb'; new=new + '\\nc'\n"
+     "open('f','w').write(text.replace(old, new))", (3, 1)),
+    ("new='a'; new=unknown + new\nopen('f','w').write(text.replace('b',new))", (0, 0)),
+    ("new=1 + 'a'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
+    ("new=Path('a') + 'b'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
+    ("p=Path('a'); new=p + 'b'\nopen('f','w').write(text.replace('b',new))", (0, 0)),
+    ("for p in ['a.md', 'b.md']:\n    if Path(p).exists():\n"
+     "        Path(p).write_text(text.replace('old','new\\nnew'))", (0, 0)),
+])
+def test_python_bounded_literal_expressions(body, expected):
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
+
+
+def test_python_concatenation_payload_growth_is_bounded():
+    body = "x='a'\n" + "x=x+x\n" * 30 + "open('f','w').write(x)"
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
+
+
+def test_python_concatenation_depth_is_bounded():
+    body = "new=" + "+".join(["'a'"] * 100) + "\nopen('f','w').write(new)"
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
+
+
 # --- heredoc bodies redirected into a file --------------------------------
 
 def test_cat_heredoc_into_file_counts_body_lines():

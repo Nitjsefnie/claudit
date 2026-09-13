@@ -7,6 +7,80 @@ from backend.bash_reads import scan
 
 
 @pytest.mark.parametrize("command,expected", [
+    ("cp src.txt dst.txt", ["/work/dst.txt"]),
+    ("cp a.txt b.txt dest/", ["/work/dest/a.txt", "/work/dest/b.txt"]),
+    ("cp src.txt dest", ["/work/dest"]),
+    ("cp -t dest src.txt", ["/work/dest/src.txt"]),
+    ("cp --target-directory=dest a.txt", ["/work/dest/a.txt"]),
+    ("cp -T src.txt dst.txt", ["/work/dst.txt"]),
+    ("cp --suffix=.bak src.txt dst.txt", ["/work/dst.txt"]),
+    ("cp --no-preserve mode src.txt dst.txt", ["/work/dst.txt"]),
+    ("cp -vt dest src.txt", ["/work/dest/src.txt"]),
+    ("cp -t '$DIR' src.txt", ["/work/$DIR/src.txt"]),
+    ("cp -t dest", []),
+    ("cp --unknown value src.txt dst.txt", []),
+    ("cp *.txt dest/", []),
+    ('cp src.txt "$OUT"', []),
+    ("cp src.txt '$OUT'", ["/work/$OUT"]),
+    ("install -o postgres -g postgres -m 0400 src.dump dst.dump", ["/work/dst.dump"]),
+    ("install --owner postgres --group=postgres --mode=0400 -t dest src.dump", ["/work/dest/src.dump"]),
+    ("install -d directory", []),
+    ("install --strip-program striptool -m0400 src.txt dst.txt", ["/work/dst.txt"]),
+    ("install --directory dir.txt", []),
+    ("mv README.new.md README.md", ["/work/README.md"]),
+    (r"printf 'a\n' > README.new.md; mv README.new.md README.md", ["/work/README.new.md", "/work/README.md"]),
+    ("mv -t dest src.txt", ["/work/dest/src.txt"]),
+    ("perl -pi -e 's/old/new/g' file.ts", ["/work/file.ts"]),
+    ("perl -i.bak -pe 's/old/new/g' README", ["/work/README"]),
+    ("perl -i -I lib/ -M Foo -e 's/a/b/' VERSION", ["/work/VERSION"]),
+    ("perl -pe 's/old/new/g' file.ts", []),
+    (r"sed -i '311a !tests/docs/\ntests/docs/*\n!tests/docs/*.ts' .gitignore", ["/work/.gitignore"]),
+    ("sed -i -e 's/a/b/' README VERSION", ["/work/README", "/work/VERSION"]),
+    ("sed -i --expression='s/a/b/' README", ["/work/README"]),
+    ("sed -i -f program.sed README", ["/work/README"]),
+    ("sed -i -- 's/a/b/' README", ["/work/README"]),
+    ("printf x > README", ["/work/README"]),
+    (r'printf x > "\$OUT"', ["/work/$OUT"]),
+    ("printf x 2> errors.txt", ["/work/errors.txt"]),
+    ("echo '>' example.txt", []),
+    ("cd /other && mv a.md README.md", ["/other/README.md"]),
+])
+def test_explicit_write_destinations(command, expected):
+    assert scan(command, "/work")[2] == expected
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("for path in ['a.md','b.md']:\n    open(path,'w').write(text)", ["/work/a.md", "/work/b.md"]),
+    ("for path in ('a.md','b.md'):\n    alias=path\n    p=Path(alias)\n    p.write_text(text)", ["/work/a.md", "/work/b.md"]),
+    ("for path in paths:\n    open(path,'w').write(text)", []),
+    ("path='old.md'\nfor path in paths:\n    open(path,'w').write(text)\nopen(path,'w').write(text)", []),
+    ("for path in ['a.md']:\n    path=unknown\n    open(path,'w').write(text)", []),
+    ("for path in ['a.md']:\n    def unused():\n        open(path,'w').write(text)", []),
+    ("for path in ['a.md']:\n    if Path(path).exists():\n        Path(path).write_text(text)", ["/work/a.md"]),
+    ("p='a.md'; alias=p; p=unknown\nopen(alias,'w').write(text)", ["/work/a.md"]),
+    ("p='a.md'\nimport unknown as p\nopen(p,'w').write(text)", []),
+    ("for p in ['a.md']:\n    import unknown as p\n    open(p,'w').write(text)", []),
+    ("for p in ['a.md']:\n    alias=p\n    with open(alias,'w') as handle:\n        handle.write(text)", ["/work/a.md"]),
+])
+def test_python_literal_path_iterations(body, expected):
+    assert scan("python3 - <<'PY'\n" + body + "\nPY", "/work")[2] == expected
+
+
+def test_python_path_iteration_is_bounded():
+    paths = repr([f"{idx}.md" for idx in range(1000)])
+    command = "python3 - <<'PY'\nfor p in " + paths + ":\n    open(p,'w')\nPY"
+    assert not scan(command, "/work")[2]
+
+
+def test_nested_python_path_iteration_is_bounded():
+    body = ""
+    for depth in range(10):
+        body += "    " * depth + "for p in ['a.md','b.md']:\n"
+    body += "    " * 10 + "open(p,'w')"
+    assert not scan("python3 - <<'PY'\n" + body + "\nPY", "/work")[2]
+
+
+@pytest.mark.parametrize("command,expected", [
     ("cat backend/parse.py", ("whole", ["/repo/backend/parse.py"])),
     ("less /etc/hosts", ("whole", ["/etc/hosts"])),
     ("cat a.py b.py", ("whole", ["/repo/a.py", "/repo/b.py"])),

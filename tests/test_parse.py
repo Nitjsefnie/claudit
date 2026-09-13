@@ -655,6 +655,40 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     assert tu["write_targets"] == ["/repo/scripts/gen.py"]
 
 
+@pytest.mark.parametrize("family,paths,churn", [
+    ("printf", ["/work/probe.txt"], (2, 0)),
+    ("copy", ["/work/dst.txt"], (0, 0)),
+    ("install", ["/work/dst.dump"], (0, 0)),
+    ("move", ["/work/README.md"], (0, 0)),
+    ("perl", ["/work/file.ts"], (0, 0)),
+    ("sed_append", ["/work/.gitignore"], (3, 0)),
+    ("python_loop", ["/work/a.md", "/work/b.md"], (0, 0)),
+    ("python_concat", ["/work/README.md"], (2, 1)),
+])
+def test_bash_recovered_tool_fields(family, paths, churn):
+    out = parse.parse_file("k/s/s.jsonl", _read(f"bash_{family}.jsonl"))
+    tool = out["tool_uses"][0]
+    assert tool["write_targets"] == paths
+    assert (tool["lines_added"], tool["lines_deleted"]) == churn
+
+
+def test_new_bash_write_invalidates_reread():
+    out = parse.parse_file("k/s/s.jsonl", _read("bash_move.jsonl"))
+    read = {"read_kind": "whole", "read_targets": ["/work/README.md"],
+            "write_targets": [], "is_error": False, "is_reread": None}
+    rows = [read.copy(), out["tool_uses"][0], read.copy()]
+    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    assert [row["is_reread"] for row in rows] == [False, None, False]
+
+
+def test_new_bash_payload_is_zeroed_on_error():
+    data = _read("bash_printf.jsonl").replace(
+        b'"content":"ok"', b'"content":"Exit code 1","is_error":true')
+    tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
+    assert tool["is_error"] is True
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
 def test_nonzero_exit_is_a_tool_error_not_a_failed_launch():
     """`Exit code N` is the harness's wrapper for a Bash command that
     RAN and failed — 58% of all errored results in a recent sample. In

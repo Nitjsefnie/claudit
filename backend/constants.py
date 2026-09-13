@@ -103,5 +103,7 @@ VERSION = _read_version()
 # sequentially rebound / helper-mediated python literals as churn, a
 # heredoc write surviving a later stage's failure, and `Exit code N`
 # classified as tool_error rather than failed. 31 recognises a python
-# interpreter given by path (`.venv/bin/python -`).
-PARSER_VERSION = "31"
+# interpreter given by path (`.venv/bin/python -`). 32 recovers literal
+# printf/sed append payloads, explicit copy/move/Perl targets, and bounded
+# Python path loops and string concatenation.
+PARSER_VERSION = "32"

@@ -33,9 +33,9 @@ from __future__ import annotations
 
 import posixpath
 import re
-import shlex
 
 from backend.bash_churn import _NULL_SINKS, _split_heredocs, python_write_paths
+from backend.bash_literals import ShellWord, command_options, literal_path, sed_parts, shell_tokens
 
 # Commands that put file CONTENT into the transcript, split by whether
 # they emit the file entire.
@@ -67,15 +67,6 @@ VALUE_FLAGS = frozenset({
     "--exclude-dir", "-d", "--delimiter", "-t",
 })
 
-# sed's own flag table: `-n` takes no value there, and `-e`/`-f` are
-# the only ways to give the script other than as the first operand.
-SED_VALUE_FLAGS = frozenset({"-e", "-f", "--expression", "--file"})
-SED_SCRIPT_FLAGS = frozenset({"-e", "--expression"})
-
-# `sed -i`, `-i.bak`, `--in-place[=SUFFIX]`: the file operands are
-# rewritten, not read.
-_SED_IN_PLACE = re.compile(r"^(?:-[a-zA-Z]*i|--in-place)")
-
 # `$NAME` / `${NAME}` — expanded when NAME is assigned in the same
 # command text, dropped otherwise.
 _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
@@ -86,12 +77,9 @@ _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 # "TODO", and a subcommand like `diff --git` is not a file.
 _PATH_RE = re.compile(r"\.[A-Za-z0-9_]{1,8}$")
 
-# Shell operators shlex hands back as punctuation, each of which ends a
+# Shell operators the tokenizer identifies, each of which ends a
 # command segment.
 _OPERATORS = frozenset({"|", "||", "&&", ";", "&", "|&"})
-
-# Redirections whose following token is a file the command WRITES.
-_WRITE_REDIRECTS = frozenset({">", ">>"})
 
 # Tools whose operands are files they write, not read.
 _WRITE_CMDS = frozenset({"tee"})
@@ -100,23 +88,18 @@ _WRITE_CMDS = frozenset({"tee"})
 def _tokenize(command: str) -> list[list[str]]:
     """Split a command line into segments, honouring quotes.
 
-    `shlex` is used rather than a regex split on `|;&` because those
+    Quote-preserving shell tokens are used instead of splitting on `|;&`: those
     characters appear constantly INSIDE quoted arguments — a
     `grep 'a\\|b' f.py` alternation is one token, not two segments, and
     splitting it textually both loses the file and invents a segment.
-    A command shlex cannot parse (an unbalanced quote, a heredoc body
+    A command the tokenizer cannot parse (an unbalanced quote, a heredoc body
     spliced in) yields no segments rather than a partial misreading.
     """
-    try:
-        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lex.whitespace_split = True
-        tokens = list(lex)
-    except ValueError:
-        return []
+    tokens = shell_tokens(command)
     segments: list[list[str]] = []
     current: list[str] = []
     for tok in tokens:
-        if tok in _OPERATORS:
+        if tok.operator and tok in _OPERATORS:
             if current:
                 segments.append(current)
             current = []
@@ -152,7 +135,9 @@ def _strip_env_prefix(segment: list[str],
             break
         m = _ASSIGN.match(tok)
         if m:
-            env[m.group(1)] = _expand(m.group(2), env) or ""
+            value = ShellWord(m.group(2), getattr(tok, "literal", True))
+            value.expansion = getattr(tok, "expansion", tok)[m.start(2):]
+            env[m.group(1)] = _expand(value, env) or ""
         idx += 1
     return segment[idx:]
 
@@ -161,10 +146,13 @@ def _expand(token: str, env: dict[str, str]) -> str | None:
     """`token` with every `$VAR` replaced from `env`, or None when any
     `$` survives — `$1`, `$(cmd)`, a variable this command did not
     assign: a path built at runtime."""
+    if isinstance(token, ShellWord) and token.literal:
+        return str(token)
+
     def _sub(m: re.Match[str]) -> str:
         return env.get(m.group(1) or m.group(2) or "", m[0])
-    out = _VAR_REF.sub(_sub, token)
-    return None if "$" in out else out
+    out = _VAR_REF.sub(_sub, getattr(token, "expansion", token))
+    return None if any(c in out for c in "$`*?[") else out.replace("\x00", "$")
 
 
 def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
@@ -179,7 +167,7 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
     idx = 0
     while idx < len(args):
         tok = args[idx]
-        if tok in _WRITE_REDIRECTS:
+        if getattr(tok, "operator", True) and re.fullmatch(r"[0-9]*>>?", tok):
             if idx + 1 < len(args):
                 writes.append(args[idx + 1])
             idx += 2
@@ -191,23 +179,20 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str]]:
 
 def _operand_paths(name: str, args: list[str]) -> list[str]:
     """File operands of one command, minus flags and pattern operands."""
+    if name == "sed":
+        return [p for p in sed_parts(args)[1] if literal_path(p)]
     pending_pattern = 1 if name in PATTERN_CMDS else 0
-    value_flags = SED_VALUE_FLAGS if name == "sed" else VALUE_FLAGS
-    # sed's first operand is its script unless `-e`/`-f` supplied one —
-    # `s/a/b/` has slashes and would otherwise pass for a path.
-    strict_pattern = name == "sed" and not any(
-        a in value_flags for a in args)
     paths: list[str] = []
     idx = 0
     while idx < len(args):
         tok = args[idx]
-        if tok in value_flags:
+        if tok in VALUE_FLAGS:
             idx += 2
             continue
         if tok.startswith("-"):
             idx += 1
             continue
-        if pending_pattern and (strict_pattern or not _looks_like_path(tok)):
+        if pending_pattern and not _looks_like_path(tok):
             # The pattern operand. A pattern that DOES look like a path
             # (`grep config.py *.log`) is ambiguous; treating it as the
             # pattern would lose a real file more often than it invents
@@ -223,7 +208,55 @@ def _operand_paths(name: str, args: list[str]) -> list[str]:
 
 
 def _sed_in_place(args: list[str]) -> bool:
-    return any(_SED_IN_PLACE.match(a) for a in args)
+    return sed_parts(args)[2]
+
+
+def _destination_paths(name: str, args: list[str]) -> list[str]:
+    """cp/install/mv destinations; directory facts must be in the text."""
+    modes = {"-" + c: 0 for c in "abcfHilLnprRsTuvDZ"}
+    modes.update(dict.fromkeys(("--no-target-directory", "--force", "--verbose",
+                               "--no-clobber", "--interactive", "--strip", "--compare"), 0))
+    modes.update(dict.fromkeys(("--backup", "--update", "--preserve", "--reflink", "--sparse"), 2))
+    modes.update(dict.fromkeys(("-t", "--target-directory", "-S", "--suffix", "--no-preserve"), 1))
+    if name == "install":
+        modes.update(dict.fromkeys(("-d", "--directory"), 0))
+        modes.update(dict.fromkeys(("-o", "--owner", "-g", "--group", "-m", "--mode", "--strip-program"), 1))
+    try:
+        options, operands = command_options(args, modes)
+    except ValueError:
+        return []
+    flags = dict(options)
+    if name == "install" and any(f in flags for f in ("-d", "--directory")):
+        return []
+    no_directory = any(f in flags for f in ("-T", "--no-target-directory"))
+    directory = any(f in flags for f in ("-t", "--target-directory"))
+    target = flags.get("-t", flags.get("--target-directory"))
+    if directory:
+        sources = operands
+    elif len(operands) >= 2:
+        *sources, target = operands
+    else:
+        return []
+    if target is None or not literal_path(target) or not sources or (directory and no_directory):
+        return []
+    directory |= not no_directory and (target.endswith("/") or target in (".", "..") or len(sources) > 1)
+    if directory:
+        return [ShellWord(posixpath.join(target, posixpath.basename(s.rstrip("/"))))
+                for s in sources if literal_path(s) and s.rstrip("/") not in (".", "..")]
+    return [target] if len(sources) == 1 else []
+
+
+def _perl_paths(args: list[str]) -> list[str]:
+    """In-place Perl one-liners; program and option arguments are not files."""
+    modes = {"-" + c: 0 for c in "pnwWl"}
+    modes.update({"-" + c: 1 for c in "eEIMmF"})
+    modes["-i"] = 2
+    try:
+        options, files = command_options(args, modes)
+    except ValueError:
+        return []
+    flags = dict(options)
+    return [p for p in files if literal_path(p)] if "-i" in flags and ("-e" in flags or "-E" in flags) else []
 
 
 def _resolve(path: str, base: str) -> str:
@@ -261,11 +294,16 @@ class _Scan:
         name = posixpath.basename(segment[0])
         operands, redirected = _split_redirects(segment[1:])
         for path in redirected:
-            if _looks_like_path(path):
+            if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)
         if name == "cd" and operands:
             target = _expand(operands[0], self.env) or operands[0]
             self.base = _resolve(target, self.base)
+            return
+        if name in ("cp", "install", "mv", "perl"):
+            paths = _perl_paths(operands) if name == "perl" else _destination_paths(name, operands)
+            for path in paths:
+                self.add(self.writes, path)
             return
         if name in _WRITE_CMDS or (name == "sed" and _sed_in_place(operands)):
             for path in _operand_paths(name, operands):

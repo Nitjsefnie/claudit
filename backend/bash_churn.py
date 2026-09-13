@@ -20,13 +20,16 @@ measurement. Concretely that means:
              string LITERALS passed to `.replace()` / `re.sub()` — given
              inline, through a name whose binding IN FORCE at that
              statement is a literal, or through a helper defined in the
-             same script and called with literals.
+             same script and called with literals; bounded string addition;
+             literal printf output reaching a file unchanged, including tee
+             and flat redirected brace groups; numeric-addressed sed append
+             payloads, counted once without asserting address applicability.
 
   not        commit messages (`git commit -F -`, `-m "$(cat <<EOF)"`),
   counted    heredocs feeding psql/jq/node/ssh, output-capture redirects
              (`cmd > out.txt` — those bytes come from running it),
-             `sed -i` (the occurrence count needs the file), and any
-             python replacement whose arguments are variables.
+             sed substitutions and Perl edits (the matches need the file),
+             and Python replacements whose arguments remain runtime values.
 
 The python scan also recovers the PATHS a body opens for writing
 (`python_write_paths`), the same way `cat > F` names F — and
@@ -42,6 +45,8 @@ import re
 import shlex
 import warnings
 from dataclasses import dataclass
+
+from backend.bash_literals import MAX_LITERAL_CHARS, shell_payloads
 
 # Commands longer than this are pathological (a base64 blob, a giant
 # generated fixture); parsing them buys nothing and costs ingest time.
@@ -166,19 +171,114 @@ def _path_literal(node: ast.expr) -> str | None:
 
 
 def _resolve_str(node: ast.expr, consts: dict[str, str]) -> str | None:
-    """A string literal, directly or through a name whose binding in
-    force is one."""
-    literal = _path_literal(node)
-    if literal is not None:
-        return literal
+    """Bounded literal strings, string aliases and string addition."""
+    budget = 512
+
+    def resolve(expr: ast.expr, depth: int) -> str | None:
+        nonlocal budget
+        budget -= 1
+        if depth > 32 or budget < 0:
+            return None
+        value = _const_str(expr)
+        if isinstance(expr, ast.Name):
+            value = consts.get(expr.id)
+        elif isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+            left, right = resolve(expr.left, depth + 1), resolve(expr.right, depth + 1)
+            if left is not None and right is not None and len(left) + len(right) <= MAX_LITERAL_CHARS:
+                value = left + right
+        if isinstance(value, _PathValue):
+            return None
+        return value if value is not None and len(value) <= MAX_LITERAL_CHARS else None
+
+    return resolve(node, 0)
+
+
+class _PathValue(str):
+    """A known Path object must not participate in string concatenation."""
+
+
+def _resolve_binding(node: ast.expr, consts: dict[str, str]) -> str | None:
     if isinstance(node, ast.Name):
         return consts.get(node.id)
-    return None
+    if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else ""
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            name = func.value.id + "." + func.attr
+        if name in ("Path", "pathlib.Path"):
+            value = _resolve_str(node.args[0], consts)
+            return _PathValue(value) if value is not None else None
+    return _resolve_str(node, consts)
 
 
 def _stored_names(node: ast.AST) -> set[str]:
-    return {n.id for n in ast.walk(node)
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    names = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
+            names.add(child.id)
+        elif isinstance(child, ast.alias):
+            names.add(child.asname or child.name.split(".")[0])
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(child.name)
+    return names
+
+
+def _statement_nodes(stmt: ast.AST) -> list[ast.AST]:
+    """Walk executed statement syntax without entering deferred scopes."""
+    nodes: list[ast.AST] = []
+    pending = [stmt]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                             ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp,
+                             ast.GeneratorExp)):
+            continue
+        nodes.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return nodes
+
+
+def _loop_paths(loop: ast.For, consts: dict[str, str],
+                helpers: dict[str, _Helper]) -> list[str]:
+    """Candidate writes through bounded literal loops, without churn scaling.
+
+    Iteration and branch execution can depend on file state. Enumerate paths
+    only; carry bindings in order within each candidate, invalidate them after
+    uncertain control flow and stop expansion before combinatorial growth.
+    """
+    paths: list[str] = []
+    budget = 512
+
+    def visit(statements: list[ast.stmt], bindings: dict[str, str], depth: int) -> None:
+        nonlocal budget
+        if depth > 8:
+            return
+        for stmt in statements:
+            budget -= 1
+            if budget < 0:
+                return
+            if isinstance(stmt, ast.For):
+                if isinstance(stmt.target, ast.Name) and isinstance(stmt.iter, (ast.List, ast.Tuple)) and len(stmt.iter.elts) <= 64:
+                    values = [_resolve_str(e, bindings) for e in stmt.iter.elts]
+                    if all(v is not None for v in values):
+                        for value in values:
+                            assert value is not None
+                            visit(stmt.body, {**bindings, stmt.target.id: value}, depth + 1)
+                for name in _stored_names(stmt):
+                    bindings.pop(name, None)
+            elif isinstance(stmt, ast.If):
+                visit(stmt.body, bindings.copy(), depth + 1)
+                visit(stmt.orelse, bindings.copy(), depth + 1)
+                for name in _stored_names(stmt):
+                    bindings.pop(name, None)
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bindings.pop(stmt.name, None)
+            else:
+                _, _, found = _statement_effects(stmt, bindings, helpers)
+                paths.extend(p for p in found if p not in paths)
+
+    visit([loop], consts.copy(), 0)
+    return paths if budget >= 0 else []
 
 
 def _is_std_stream_write(func: ast.Attribute) -> bool:
@@ -297,7 +397,7 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
                 added, deleted = count_lines(new), count_lines(old)
         path = None
         if spec.path:
-            path = _resolve_str(bound.get(spec.path, ast.Constant(None)), consts)
+            path = _resolve_binding(bound.get(spec.path, ast.Constant(None)), consts)
         return added, deleted, path
     if _is_replace(func) and len(node.args) >= 2:
         old = _resolve_str(node.args[0], consts)
@@ -306,10 +406,10 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
             return 0, 0, None
         return count_lines(new), count_lines(old), None
     if _opens_for_writing(node) and node.args:
-        return 0, 0, _resolve_str(node.args[0], consts)
+        return 0, 0, _resolve_binding(node.args[0], consts)
     if _is_file_write_attr(func):
         assert isinstance(func, ast.Attribute)
-        path = _resolve_str(func.value, consts)
+        path = _resolve_binding(func.value, consts)
         literal = _resolve_str(node.args[0], consts) if node.args else None
         return (count_lines(literal) if literal is not None else 0), 0, path
     return 0, 0, None
@@ -325,8 +425,9 @@ def _python_scan(src: str) -> tuple[int, int, tuple[str, ...]]:
     used, and a later `old = ...` rebinds it for the statements below.
     A name bound to anything but a literal, or bound inside a compound
     statement (a loop target, a `with ... as`), is unknown from there
-    on. Function bodies are counted once per CALL through the helper
-    table, never on their own.
+    on. Literal list/tuple loops enumerate candidate paths under ordered
+    local bindings, but contribute no churn. Function bodies are counted
+    once per CALL through the helper table, never on their own.
     """
     try:
         # Transcript scripts are arbitrary third-party text: compiling
@@ -364,6 +465,11 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
                        ) -> tuple[int, int, list[str]]:
     """Effects of one module-level statement under the bindings in
     force, then the statement's own effect on those bindings."""
+    if isinstance(stmt, ast.For):
+        paths = _loop_paths(stmt, consts, helpers)
+        for name in _stored_names(stmt):
+            consts.pop(name, None)
+        return 0, 0, paths
     target = (stmt.targets[0] if isinstance(stmt, ast.Assign)
               and len(stmt.targets) == 1
               and isinstance(stmt.targets[0], ast.Name) else None)
@@ -371,7 +477,7 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
     view = {k: v for k, v in consts.items() if k not in shadow}
     added = deleted = 0
     paths: list[str] = []
-    for node in ast.walk(stmt):
+    for node in _statement_nodes(stmt):
         if isinstance(node, ast.Call):
             a, d, path = _call_effects(node, view, helpers)
             added += a
@@ -380,7 +486,7 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
                 paths.append(path)
     if target is not None:
         assert isinstance(stmt, ast.Assign)
-        literal = _path_literal(stmt.value)
+        literal = _resolve_binding(stmt.value, consts)
         if literal is not None:
             consts[target.id] = literal
         else:
@@ -432,6 +538,7 @@ def bash_churn(command: str) -> tuple[int, int]:
         a, d = _python_churn(src)
         added += a
         deleted += d
+    added += sum(count_lines(payload) for payload in shell_payloads(outside))
     return added, deleted
 
 
