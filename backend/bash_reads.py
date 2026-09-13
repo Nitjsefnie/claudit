@@ -34,8 +34,8 @@ from __future__ import annotations
 import posixpath
 import re
 
-from backend.bash_churn import _NULL_SINKS, _split_heredocs, python_write_paths
-from backend.bash_literals import ShellWord, command_options, literal_path, sed_parts, shell_tokens
+from backend.bash_churn import _NULL_SINKS, BashCommand
+from backend.bash_literals import ShellWord, command_options, literal_path, sed_parts
 
 # Commands that put file CONTENT into the transcript, split by whether
 # they emit the file entire.
@@ -85,8 +85,8 @@ _OPERATORS = frozenset({"|", "||", "&&", ";", "&", "|&"})
 _WRITE_CMDS = frozenset({"tee"})
 
 
-def _tokenize(command: str) -> list[list[str]]:
-    """Split a command line into segments, honouring quotes.
+def _segments(tokens: list[ShellWord]) -> list[list[str]]:
+    """Split decoded shell words into command segments, honouring quotes.
 
     Quote-preserving shell tokens are used instead of splitting on `|;&`: those
     characters appear constantly INSIDE quoted arguments — a
@@ -95,7 +95,6 @@ def _tokenize(command: str) -> list[list[str]]:
     A command the tokenizer cannot parse (an unbalanced quote, a heredoc body
     spliced in) yields no segments rather than a partial misreading.
     """
-    tokens = shell_tokens(command)
     segments: list[list[str]] = []
     current: list[str] = []
     for tok in tokens:
@@ -373,13 +372,17 @@ def scan(command: str, cwd: str = "") -> tuple[str | None, list[str],
     from reading the same unchanged bytes twice, and the second is the
     only one that wasted anything.
     """
+    return scan_command(BashCommand(command), cwd)
+
+
+def scan_command(command: BashCommand, cwd: str = "") -> tuple[str | None, list[str], list[str]]:
+    """Read/write access using the syntax already parsed for this Bash call."""
     state = _Scan(cwd)
     # Heredoc bodies are payload, not command line: a docstring that
     # mentions INDEX.md did not read it.
-    _, outside = _split_heredocs(command)
-    for raw_segment in _tokenize(outside):
+    for raw_segment in _segments(command.tokens):
         state.segment(raw_segment)
-    for path in python_write_paths(command):
+    for path in command.write_paths():
         state.add(state.writes, path)
     if not state.reads:
         return None, [], state.writes

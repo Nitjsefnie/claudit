@@ -1,0 +1,1 @@
+{"type":"assistant","timestamp":"2026-09-01T00:00:00Z","cwd":"/work","requestId":"shared","message":{"role":"assistant","model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":5},"content":[{"type":"tool_use","id":"bash1","name":"Bash","input":{"command":"python3 - <<'PY'\nopen('x.txt','w').write('x\\n')\nPY\nprintf 'y\\n' > y.txt; cat x.txt"}}]}}

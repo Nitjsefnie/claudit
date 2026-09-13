@@ -109,6 +109,7 @@
 !/scripts/
 /scripts/*
 !/scripts/*.sh
+!/scripts/bench_parser.py
 !/scripts/pre-push
 !/scripts/ci/
 /scripts/ci/*

@@ -13,6 +13,7 @@ NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 _WORD = re.compile(r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\{[^}]*\}|\\[\s\S]|[^\s'"\\|;&<>()])+''')
 _RUNTIME = re.compile(r'''\$|`|[*?\[]|^~''')
 _PART = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*"|\\[\s\S]|[^'"\\]+)''')
+_QUOTING = re.compile(r'''['"\\\x00]''')
 _BRACE_RANGE = re.compile(r"(?:-?[0-9]+\.\.-?[0-9]+|[a-zA-Z]\.\.[a-zA-Z])(?:\.\.-?[0-9]+)?")
 
 
@@ -36,6 +37,12 @@ class ShellWord(str):
 
 def _decode_word(raw: str) -> ShellWord:
     """Decode shell quoting without treating single quotes inside double quotes as protection."""
+    # Most words are already decoded. Avoid allocating regex matches and a
+    # parts list for them, but retain the same expansion provenance as below.
+    if not _QUOTING.search(raw):
+        word = ShellWord(raw, not bool(_RUNTIME.search(raw)))
+        word.unquoted_expansion = "$" in raw or "`" in raw
+        return word
     parts: list[str] = []
     literal = True
     unquoted_expansion = False
@@ -62,6 +69,8 @@ def _decode_word(raw: str) -> ShellWord:
 
 def _brace_expands(raw: str) -> bool:
     """Detect unquoted brace lists/ranges without enumerating their results."""
+    if "{" not in raw:
+        return False
     # Quoted/escaped punctuation cannot delimit a brace expansion, even
     # when it is only part of an otherwise unquoted word.
     syntax = _PART.sub(lambda m: "_" if m[0][0] in "'\"\\" else m[0], raw)
@@ -323,7 +332,11 @@ def shell_payloads(command: str) -> list[str]:
     Only one flat brace group is supported. Pipeline transformations end
     provenance; literal portions of a group remain independently enumerable.
     """
-    tokens = shell_tokens(command)
+    return payloads_from_tokens(shell_tokens(command))
+
+
+def payloads_from_tokens(tokens: list[ShellWord]) -> list[str]:
+    """Classify literal output using a command's already decoded shell words."""
     if not tokens or any(t.operator and t in ("(", ")", "<<", "|&", "&") for t in tokens):
         return []
     opens = [i for i, t in enumerate(tokens) if t.operator and t == "{"]

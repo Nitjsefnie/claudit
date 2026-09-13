@@ -46,7 +46,7 @@ import shlex
 import warnings
 from dataclasses import dataclass
 
-from backend.bash_literals import MAX_LITERAL_CHARS, shell_payloads
+from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, payloads_from_tokens, shell_tokens
 
 # Commands longer than this are pathological (a base64 blob, a giant
 # generated fixture); parsing them buys nothing and costs ingest time.
@@ -549,53 +549,80 @@ def _dash_c_sources(text: str) -> list[str]:
     return out
 
 
+class BashCommand:
+    """Lazy syntax shared by churn and access analysis of ONE tool call.
+
+    These consumers used to split heredocs three times and tokenize twice.
+    Keep their common input on the call, rather than a global mutable cache:
+    concurrent file parsers and separate cwd resolutions remain independent.
+    Consumers must treat the cached syntax as read-only.
+    """
+
+    def __init__(self, command: str) -> None:
+        self.command = command
+
+    @functools.cached_property
+    def parts(self) -> tuple[list[tuple[str, str]], str]:
+        """Heredoc contexts/bodies and the remaining shell command."""
+        return _split_heredocs(self.command)
+
+    @functools.cached_property
+    def tokens(self) -> list[ShellWord]:
+        """Shell words with quote/expansion provenance, excluding heredoc bodies."""
+        return shell_tokens(self.parts[1])
+
+    @functools.cached_property
+    def dash_c_sources(self) -> list[str]:
+        """Inline Python bodies, decoded once for both consumers."""
+        return _dash_c_sources(self.parts[1])
+
+    def churn(self) -> tuple[int, int]:
+        """(lines_added, lines_deleted) enumerable from this command."""
+        if not self.command or len(self.command) > MAX_COMMAND_CHARS:
+            return 0, 0
+        added = deleted = 0
+        for context, body in self.parts[0]:
+            if _PATCH.search(context):
+                a, d = _diff_churn(body)
+            elif _PYTHON_STDIN.search(context):
+                a, d = _python_churn(body)
+            elif _writes_to_a_file(context):
+                a, d = (count_lines(body + "\n") if body else 0), 0
+            else:
+                a, d = 0, 0
+            added += a
+            deleted += d
+        for src in self.dash_c_sources:
+            a, d = _python_churn(src)
+            added += a
+            deleted += d
+        added += sum(count_lines(payload) for payload in payloads_from_tokens(self.tokens))
+        return added, deleted
+
+    def write_paths(self) -> list[str]:
+        """Python write targets, before the caller resolves their cwd."""
+        if not self.command or len(self.command) > MAX_COMMAND_CHARS:
+            return []
+        sources = [body for context, body in self.parts[0] if _PYTHON_STDIN.search(context)]
+        sources.extend(self.dash_c_sources)
+        paths: list[str] = []
+        for src in sources:
+            for path in _python_scan(src)[2]:
+                if path not in paths:
+                    paths.append(path)
+        return paths
+
+
 def bash_churn(command: str) -> tuple[int, int]:
     """(lines_added, lines_deleted) enumerable from one Bash call."""
-    if not command or len(command) > MAX_COMMAND_CHARS:
-        return 0, 0
-
-    added = deleted = 0
-    pairs, outside = _split_heredocs(command)
-    for context, body in pairs:
-        if _PATCH.search(context):
-            a, d = _diff_churn(body)
-        elif _PYTHON_STDIN.search(context):
-            a, d = _python_churn(body)
-        elif _writes_to_a_file(context):
-            a, d = (count_lines(body + "\n") if body else 0), 0
-        else:
-            a, d = 0, 0
-        added += a
-        deleted += d
-
-    for src in _dash_c_sources(outside):
-        a, d = _python_churn(src)
-        added += a
-        deleted += d
-    added += sum(count_lines(payload) for payload in shell_payloads(outside))
-    return added, deleted
-
-
-def _python_sources(command: str) -> list[str]:
-    """Every python body in the command: stdin heredocs and `-c` args."""
-    pairs, outside = _split_heredocs(command)
-    out = [body for context, body in pairs if _PYTHON_STDIN.search(context)]
-    out.extend(_dash_c_sources(outside))
-    return out
+    return BashCommand(command).churn()
 
 
 def python_write_paths(command: str) -> list[str]:
     """Paths the command's python bodies open for writing, as written
     in the text — relative ones are the interpreter's cwd's business,
     so the caller resolves them."""
-    if not command or len(command) > MAX_COMMAND_CHARS:
-        return []
-    paths: list[str] = []
-    for src in _python_sources(command):
-        for path in _python_scan(src)[2]:
-            if path not in paths:
-                paths.append(path)
-    return paths
+    return BashCommand(command).write_paths()
 
 
 # Shell-level failures of the write itself. The first two poison every

@@ -163,6 +163,25 @@ client falls back to walking the directory tree.
 
 ## Operations
 
+### Benchmark per-file parsing
+
+`scripts/bench_parser.py` compares `parse_file()` with an unchanged checkout.
+It reads archived JSONLs into memory before timing, clears parser caches for
+each file, and alternates baseline/candidate runs sequentially. Every complete
+output must match before a timing result is accepted; it does not run ingest
+or add parser threads/processes.
+
+```bash
+.venv/bin/python scripts/bench_parser.py --baseline /path/to/baseline-checkout \
+  --repeat 7 --json /tmp/parser-times.json /path/to/archived-session.jsonl
+```
+
+Directories select all descendant JSONLs. Use archived data, identify the
+sample being measured, and keep the host idle or reserve a CPU externally
+when comparing small timing differences. `--timeout` bounds each sequential
+worker (120 seconds by default); imports, file I/O and output hashing are
+outside the parser timer.
+
 The deploy is intended to run under systemd. See
 [`examples/claudit.service`](examples/claudit.service) for a sample
 unit file. Key settings:

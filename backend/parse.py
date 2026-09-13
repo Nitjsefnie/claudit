@@ -1,29 +1,24 @@
 """JSONL → per-file (records list + ctx_turns array).
 
-Each call to parse_file processes ONE jsonl. Within-file Phase 1
-requestId max-merge happens here. Cross-file uuid dedup is a
-query-time concern (DISTINCT ON (uuid) in the read endpoints).
+Each call processes ONE jsonl with within-file requestId max-merge.
+Cross-file uuid dedup is handled separately by ingest. Cost is
+precomputed using pricing.MODEL_RATES; semantic or rate changes
+require a PARSER_VERSION bump to invalidate stored results.
 
-Cost is precomputed per-record using pricing.MODEL_RATES so the
-read path doesn't need to JOIN against rates. Bumps to the rate
-table OR to the parse algorithm both require a PARSER_VERSION
-bump to invalidate every files row.
-
-Structure: _LineWalk carries the mutable per-file state through the
-line-by-line pass (one method per record kind); the module-level
-helpers then project the walked events into records and ctx_turns.
+_LineWalk collects per-file state; helpers project records and ctx_turns.
 """
 from __future__ import annotations
 
 import re
 from collections import Counter
 from datetime import datetime, timezone
+from io import BytesIO
 
 from orjson import JSONDecodeError, dumps, loads
 
 from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
-from backend.bash_churn import bash_churn, churn_survives_error
+from backend.bash_churn import BashCommand, bash_churn, churn_survives_error
 from backend import bash_reads
 
 
@@ -274,9 +269,14 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
     if not name:
         return None
     args = blk.get("input") or {}
-    added, deleted = _tool_churn(name, args)
+    if name == "Bash":
+        command = BashCommand(str(args.get("command", "") or ""))
+        added, deleted = command.churn()
+        r_kind, r_targets, w_targets = bash_reads.scan_command(command, cwd)
+    else:
+        added, deleted = _tool_churn(name, args)
+        r_kind, r_targets, w_targets = _tool_access(name, args, cwd)
     a_type, a_model, p_chars, brief = _dispatch_args(name, args)
-    r_kind, r_targets, w_targets = _tool_access(name, args, cwd)
     return {
         "idx": idx,
         "tool_name": name,
@@ -924,30 +924,17 @@ def resolve_agent_type(walk: _LineWalk) -> str:
 
 
 def parse_file(file_key: str, blob: bytes) -> dict:
-    """Parse one jsonl. Returns {records, ctx_turns, turn_count,
-    rate_limit_hits, agent_type}.
+    """Parse one JSONL, max-merging requestIds and retaining idless records.
 
-    records: list of dicts with keys
-      file_key, line_num, uuid, request_id, ts (datetime|None), model,
-      fresh_tokens, cache_creation_tokens, cache_read_tokens,
-      output_tokens, eph5_tokens, eph1h_tokens, cost_usd
-
-    ctx_turns: list of dicts with keys
-      idx, ts, line, input, output, delta
-
-    rate_limit_hits: list of dicts with keys
-      line, ts (string ISO), content
-    Detected on `type:"assistant"` records carrying
-    isApiErrorMessage=True and error="rate_limit" — see
-    _LineWalk.handle_rate_limit. (src/parser.js keys off a different
-    shape, `type:"system"` lines mentioning a rate limit; the two are
-    independent detectors over the same transcripts.)
-
-    records + ctx_turns are AFTER Phase 1 within-file requestId max-merge.
-    Records WITHOUT a request_id are NOT dedup'd (each kept distinct).
+    Returns records, ctx_turns, turn_count, prompt_count, rate_limit_hits,
+    tool_uses and agent_type. Account-cap detection follows
+    _LineWalk.handle_rate_limit; the browser parser has a separate detector.
     """
     walk = _LineWalk(file_key)
-    for line_num, raw in enumerate(blob.splitlines(), 1):
+    # LF files can stream lines without copying the whole blob into a list.
+    # Preserve splitlines' CR/CRLF semantics for legacy or mixed endings.
+    lines = blob.splitlines() if b"\r" in blob else BytesIO(blob)
+    for line_num, raw in enumerate(lines, 1):
         if not raw:
             continue
         try:
