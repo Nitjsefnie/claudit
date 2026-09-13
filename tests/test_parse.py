@@ -762,6 +762,8 @@ def test_bash_write_estimates_remain_zero_on_error(family, result):
 
 
 @pytest.mark.parametrize("family,expected,paths", [
+    ("destination_null", (0, 0), []),
+    ("cat_empty", (0, 0), ["/work/out.txt"]),
     ("helper_empty", (0, 0), ["/work/out.txt"]),
     ("edit_discarded", (0, 0), ["/work/out.txt"]),
     ("edit_overwritten", (0, 0), ["/work/out.txt"]),

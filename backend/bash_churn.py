@@ -346,19 +346,9 @@ def _no_additions(expr: ast.expr, consts: dict[str, str]) -> bool:
 
 @dataclass(frozen=True)
 class _Helper:
-    """A helper's payload templates under the bindings at each write/edit."""
+    """Destination and payload snapshots paired at each recognized write."""
     params: tuple[str, ...]
-    path: str | None
-    payloads: tuple[ast.expr, ...]
-
-
-def _param(node: ast.expr, params: tuple[str, ...]) -> str | None:
-    if isinstance(node, ast.Name) and node.id in params:
-        return node.id
-    if isinstance(node, ast.Call) and node.args:  # Path(param)
-        return _param(node.args[0], params) if _path_literal(
-            ast.Call(node.func, [ast.Constant("x")], [])) == "x" else None
-    return None
+    writes: tuple[tuple[ast.expr, ast.expr | None], ...]
 
 
 def _payload_snapshot(expr: ast.expr, bindings: dict[str, ast.expr], depth: int = 0) -> ast.expr:
@@ -369,11 +359,12 @@ def _payload_snapshot(expr: ast.expr, bindings: dict[str, ast.expr], depth: int 
         # Return the previous snapshot as-is: do not reinterpret its symbolic
         # caller parameter through a later local rebinding of that same name.
         return bindings.get(expr.id, ast.Constant(None))
-    if isinstance(expr, ast.Constant):
-        return expr
     if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
         return ast.BinOp(_payload_snapshot(expr.left, bindings, depth + 1), ast.Add(),
                          _payload_snapshot(expr.right, bindings, depth + 1))
+    if (isinstance(expr, ast.Call) and len(expr.args) == 1 and not expr.keywords
+            and _path_literal(ast.Call(expr.func, [ast.Constant("x")], [])) == "x"):
+        return ast.Call(expr.func, [_payload_snapshot(expr.args[0], bindings, depth + 1)], [])
     if isinstance(expr, ast.Call) and _is_replace(expr.func):
         func = expr.func
         assert isinstance(func, ast.Attribute)
@@ -381,41 +372,75 @@ def _payload_snapshot(expr: ast.expr, bindings: dict[str, ast.expr], depth: int 
             func = ast.Attribute(_payload_snapshot(func.value, bindings, depth + 1), "replace", ast.Load())
         return ast.Call(func, [_payload_snapshot(arg, bindings, depth + 1)
                                for arg in expr.args], [])
-    return expr if isinstance(expr, (ast.List, ast.Tuple)) and not expr.elts else ast.Constant(None)
+    return expr if (isinstance(expr, ast.Constant) or
+                    isinstance(expr, (ast.List, ast.Tuple)) and not expr.elts) else ast.Constant(None)
+
+
+def _helper_receiver(expr: ast.expr, bindings: dict[str, ast.expr],
+                     receivers: dict[str, ast.expr]) -> ast.expr | None:
+    if isinstance(expr, ast.Name):
+        return receivers.get(expr.id)
+    if isinstance(expr, ast.Call) and expr.args:
+        if _opens_for_writing(expr) or _path_literal(ast.Call(expr.func, [ast.Constant("x")], [])) == "x":
+            return _payload_snapshot(expr.args[0], bindings)
+    return None
+
+
+def _helper_receivers(stmt: ast.stmt, bindings: dict[str, ast.expr],
+                      receivers: dict[str, ast.expr]) -> dict[str, ast.expr]:
+    local = receivers.copy()
+    if isinstance(stmt, ast.With):
+        for item in stmt.items:
+            receiver = _helper_receiver(item.context_expr, bindings, receivers)
+            if isinstance(item.optional_vars, ast.Name) and receiver is not None:
+                local[item.optional_vars.id] = receiver
+    return local
+
+
+def _bind_helper(stmt: ast.stmt, bindings: dict[str, ast.expr], receivers: dict[str, ast.expr]) -> None:
+    value = _payload_snapshot(stmt.value, bindings) if isinstance(stmt, ast.Assign) else ast.Constant(None)
+    receiver = _helper_receiver(stmt.value, bindings, receivers) if isinstance(stmt, ast.Assign) else None
+    for name in _stored_names(stmt):
+        bindings.pop(name, None)
+        receivers.pop(name, None)
+    if isinstance(stmt, ast.Assign):
+        for target in stmt.targets:
+            if isinstance(target, ast.Name):
+                if len(stmt.targets) == 1:
+                    bindings[target.id] = value
+                if receiver is not None:
+                    receivers[target.id] = receiver
 
 
 def _helper_template(fd: ast.FunctionDef) -> _Helper:
     params = tuple(arg.arg for arg in fd.args.args)
     bindings: dict[str, ast.expr] = {name: ast.Name(name, ast.Load()) for name in params}
-    payloads: list[ast.expr] = []
+    receivers: dict[str, ast.expr] = {}
+    effects: list[tuple[ast.expr, ast.expr | None]] = []
     writes = _PythonWrites()
-    path = None
     for stmt in fd.body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             bindings.pop(stmt.name, None)
+            receivers.pop(stmt.name, None)
             continue
         target = (stmt.targets[0] if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
                   and isinstance(stmt.targets[0], ast.Name) else None)
         stores = _stored_names(stmt)
         view = bindings if target else {k: v for k, v in bindings.items() if k not in stores}
+        local_receivers = _helper_receivers(stmt, view, receivers)
         allowed = writes.observe(stmt, {}, {})
         for node in _statement_nodes(stmt):
             if not isinstance(node, ast.Call):
                 continue
             if id(node) in allowed:
-                payloads.append(_payload_snapshot(node.args[0], view))
+                assert isinstance(node.func, ast.Attribute)
+                destination = _helper_receiver(node.func.value, view, local_receivers)
+                if destination is not None:
+                    effects.append((destination, _payload_snapshot(node.args[0], view)))
             if _opens_for_writing(node) and node.args:
-                path = _param(node.args[0], params) or path
-            elif _is_file_write_attr(node.func):
-                value = node.func.value  # type: ignore[attr-defined]
-                if isinstance(value, ast.Call):
-                    path = _param(value, params) or path
-        value = _payload_snapshot(stmt.value, bindings) if isinstance(stmt, ast.Assign) else ast.Constant(None)
-        for name in stores:
-            bindings.pop(name, None)
-        if target is not None:
-            bindings[target.id] = value
-    return _Helper(params, path, tuple(payloads))
+                effects.append((_payload_snapshot(node.args[0], view), None))
+        _bind_helper(stmt, bindings, receivers)
+    return _Helper(params, tuple(effects))
 
 
 def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
@@ -424,7 +449,7 @@ def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
     for fd in tree.body:
         if isinstance(fd, ast.FunctionDef):
             spec = _helper_template(fd)
-            if spec.path or spec.payloads:
+            if spec.writes:
                 specs[fd.name] = spec
     return specs
 
@@ -468,7 +493,16 @@ def _payload_provenance(payload: ast.expr) -> tuple[list[ast.Call], list[ast.exp
     return edits, fragments
 
 
-def _helper_churn(spec: _Helper, bound: dict[str, ast.expr], consts: dict[str, str]) -> tuple[int, int, bool]:
+@dataclass
+class _HelperEffects:
+    added: int
+    deleted: int
+    paths: list[str | None]
+    unknown: bool
+
+
+def _helper_churn(spec: _Helper, bound: dict[str, ast.expr],
+                  consts: dict[str, str]) -> _HelperEffects:
     bindings = {name: bound_value for name, arg in bound.items()
                 if (bound_value := _resolve_binding(arg, consts)) is not None}
 
@@ -480,35 +514,41 @@ def _helper_churn(spec: _Helper, bound: dict[str, ast.expr], consts: dict[str, s
             return ""
         return _resolve_str(expr, bindings)
 
-    added = deleted = 0
-    unknown = False
+    result = _HelperEffects(0, 0, [], False)
     seen_edits: set[int] = set()
-    for payload in spec.payloads:
+    for destination, payload in spec.writes:
+        path = _resolve_binding(destination, bindings)
+        if path in _NULL_SINKS:
+            continue
+        if path not in result.paths:
+            result.paths.append(path)
+        if payload is None:
+            continue
         provenance = _payload_provenance(payload)
         if provenance is None:
-            unknown = True
+            result.unknown = True
         elif not provenance[0]:
             new = literal(payload)
-            unknown |= new is None
-            added += count_lines(new or "")
+            result.unknown |= new is None
+            result.added += count_lines(new or "")
         else:
-            unknown |= any(literal(part) is None for part in provenance[1])
+            result.unknown |= any(literal(part) is None for part in provenance[1])
             for edit in provenance[0]:
                 if id(edit) in seen_edits:
                     continue
                 seen_edits.add(id(edit))
                 old, new = literal(edit.args[0]), literal(edit.args[1])
-                unknown |= new != "" and (old is None or new is None)
+                result.unknown |= new != "" and (old is None or new is None)
                 if old is not None and new is not None:
-                    added += count_lines(new)
-                    deleted += count_lines(old)
-    return added, deleted, unknown
+                    result.added += count_lines(new)
+                    result.deleted += count_lines(old)
+    return result
 
 
 def _call_effects(node: ast.Call, consts: dict[str, str],
                   helpers: dict[str, _Helper]
-                  ) -> tuple[int, int, str | None]:
-    """(added, deleted, written path) from ONE call, counted only when
+                  ) -> tuple[int, int, list[str]]:
+    """(added, deleted, written paths) from ONE call, counted only when
     its strings are known from the text: a literal, a name whose
     binding in force is a literal, or a same-script helper called
     with either."""
@@ -516,27 +556,25 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
     if isinstance(func, ast.Name) and func.id in helpers:
         spec = helpers[func.id]
         bound = _helper_args(node, spec)
-        added, deleted, _ = _helper_churn(spec, bound, consts)
-        path = None
-        if spec.path:
-            path = _resolve_binding(bound.get(spec.path, ast.Constant(None)), consts)
-        return added, deleted, path
+        effect = _helper_churn(spec, bound, consts)
+        return effect.added, effect.deleted, [path for path in effect.paths if path]
     if _is_replace(func) and len(node.args) >= 2:
         old = _resolve_str(node.args[0], consts)
         new = _resolve_str(node.args[1], consts)
         if old is None or new is None:
-            return 0, 0, None
-        return count_lines(new), count_lines(old), None
+            return 0, 0, []
+        return count_lines(new), count_lines(old), []
     if _opens_for_writing(node) and node.args:
-        return 0, 0, _resolve_binding(node.args[0], consts)
+        path = _resolve_binding(node.args[0], consts)
+        return 0, 0, [path] if path else []
     if _is_file_write_attr(func):
         assert isinstance(func, ast.Attribute)
         path = _resolve_binding(func.value, consts)
         literal = _resolve_str(node.args[0], consts) if node.args else None
         if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, bytes):
             literal = node.args[0].value.decode("latin1")
-        return (count_lines(literal) if literal is not None else 0), 0, path
-    return 0, 0, None
+        return (count_lines(literal) if literal is not None else 0), 0, [path] if path else []
+    return 0, 0, []
 
 
 @dataclass(frozen=True)
@@ -590,12 +628,11 @@ class _PythonWrites:
             self.recognized |= _resolve_binding(node.args[0], consts) not in _NULL_SINKS
         if isinstance(func, ast.Name) and func.id in helpers:
             spec = helpers[func.id]
-            if spec.path or spec.payloads:
+            if spec.writes:
                 bound = _helper_args(node, spec)
-                path = _resolve_binding(bound.get(spec.path or "", ast.Constant(None)), consts)
-                if path not in _NULL_SINKS:
-                    self.recognized = True
-                    self.unknown |= _helper_churn(spec, bound, consts)[2]
+                effect = _helper_churn(spec, bound, consts)
+                self.recognized |= bool(effect.paths)
+                self.unknown |= effect.unknown
         if not isinstance(func, ast.Attribute) or func.attr not in _WRITE_ATTRS or not node.args:
             return False
         receiver = self.target(func.value, consts)
@@ -716,8 +753,7 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
             effect = _call_effects(node, view, helpers)
             added += effect[0]
             deleted += effect[1]
-            if effect[2] and effect[2] not in paths:
-                paths.append(effect[2])
+            paths.extend(path for path in effect[2] if path not in paths)
     if target is not None:
         assert isinstance(stmt, ast.Assign)
         literal = _resolve_binding(stmt.value, consts)

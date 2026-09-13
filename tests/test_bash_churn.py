@@ -677,3 +677,44 @@ def test_written_helper_edit_does_not_require_a_parameter_path(writer):
     command = "python3 - <<'PY'\ndef emit():\n    text = 'old'.replace('old', 'new\\nline')\n    " + writer + "\nemit()\nPY"
     assert bash_churn(command) == (2, 1)
     assert not python_write_paths(command)
+
+
+@pytest.mark.parametrize("body,argument,expected,paths", [
+    ("path = Path('/dev/null')\n    open(path, 'w').write(text)", "computed", (0, 0), []),
+    ("path = '/dev/null'\n    open(Path(path), 'w').write(text)", "'one\\ntwo'", (0, 0), []),
+    ("open(Path(path), 'w').write(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("handle = open(path, 'w')\n    alias = handle\n    path = '/dev/null'\n    alias.write(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("first = second = open(path, 'w')\n    path = '/dev/null'\n    second.write(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("open(path, 'w').write('one')\n    path = 'second.txt'\n    open(path, 'w').write('two')", "computed", (2, 0), ['out.txt', 'second.txt']),
+    ("path = '/dev/null'\n    open(path, 'w').write(text)", "'one\\ntwo'", (0, 0), []),
+    ("path = '/dev/null'\n    open(path, 'w').write(text)", 'computed', (0, 0), []),
+    ("path = 'actual.txt'\n    open(path, 'w').write(text)", "'one\\ntwo'", (2, 0), ['actual.txt']),
+    ("path = computed_path\n    open(path, 'w').write(text)", 'computed', (1, 0), []),
+    ("alias = path\n    path = '/dev/null'\n    open(alias, 'w').write(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("alias = path\n    alias = '/dev/null'\n    open(alias, 'w').write(text)", 'computed', (0, 0), []),
+    ("open(path, 'w').write(text)\n    path = '/dev/null'", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("open(path, 'w').write('one')\n    path = '/dev/null'\n    open(path, 'w').write(text)", 'computed', (1, 0), ['out.txt']),
+    ("path = '/dev/null'\n    open(path, 'w').write(text)\n    path = 'actual.txt'\n    open(path, 'w').write('one')", 'computed', (1, 0), ['actual.txt']),
+    ("handle = open(path, 'w')\n    path = '/dev/null'\n    handle.write(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("path = '/dev/null'\n    with open(path, 'w') as handle:\n        handle.write(text)", 'computed', (0, 0), []),
+    ("p = Path(path)\n    path = '/dev/null'\n    p.write_text(text)", "'one\\ntwo'", (2, 0), ['out.txt']),
+    ("path = '/dev/null'\n    p = Path(path)\n    p.write_text(text)", 'computed', (0, 0), []),
+])
+def test_helper_destination_binding_at_each_write(body, argument, expected, paths):
+    command = "python3 - <<'PY'\ndef emit(path, text):\n    " + body + "\nemit('out.txt', " + argument + ")\nPY"
+    assert bash_churn(command) == expected
+    assert python_write_paths(command) == paths
+
+
+@pytest.mark.parametrize("command,expected", [
+    ('cat /dev/null > out.txt', (0, 0)),
+    ('cat /dev/null /dev/null > out.txt', (0, 0)),
+    ('cat < /dev/null > out.txt', (0, 0)),
+    ('cat source.txt > out.txt', (1, 0)),
+    ('cat /dev/null source.txt > out.txt', (1, 0)),
+    ('cat /dev/null - > out.txt', (1, 0)),
+    ('cat < source.txt > out.txt', (1, 0)),
+    ('cat "$SOURCE" > out.txt', (1, 0)),
+])
+def test_cat_empty_source_and_unknown_controls(command, expected):
+    assert bash_churn(command) == expected

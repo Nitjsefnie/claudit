@@ -470,8 +470,9 @@ def _other_stage_payload(args: list[ShellWord], pending: str | None) -> tuple[st
         return None, bool(perl_paths(list(args[1:]), literal_only=False)), ""
     if name in (":", "true", "false"):
         return "", False, ""
-    if name == "cat" and len(args) == 1:
-        return pending, False, ""
+    if name == "cat":
+        payload = pending if len(args) == 1 else ("" if all(arg == "/dev/null" for arg in args[1:]) else None)
+        return payload, False, ""
     if name == "tee":
         try:
             _, files = command_options(list(args[1:]), {
