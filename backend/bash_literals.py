@@ -220,8 +220,8 @@ def sed_parts(args: list[str]) -> tuple[list[str], list[str], bool]:
     return scripts, files, in_place
 
 
-def destination_paths(name: str, args: list[str], *, literal_only: bool = True) -> list[str]:
-    """cp/install/mv destinations; directory facts must be in the text."""
+def _copy_parts(name: str, args: list[str]) -> tuple[dict[str, str | None], list[str], str | None]:
+    """Options, source operands and destination before path resolution."""
     modes = {"-" + c: 0 for c in "abcfHilLnprRsTuvDZ"}
     modes.update(dict.fromkeys(("--no-target-directory", "--force", "--verbose",
                                "--no-clobber", "--interactive", "--strip", "--compare"), 0))
@@ -233,11 +233,10 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True) 
     try:
         options, operands = command_options(args, modes)
     except ValueError:
-        return []
+        return {}, [], None
     flags = dict(options)
     if name == "install" and any(f in flags for f in ("-d", "--directory")):
-        return []
-    no_directory = any(f in flags for f in ("-T", "--no-target-directory"))
+        return flags, [], None
     directory = any(f in flags for f in ("-t", "--target-directory"))
     target = flags.get("-t", flags.get("--target-directory"))
     if directory:
@@ -245,9 +244,17 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True) 
     elif len(operands) >= 2:
         *sources, target = operands
     else:
-        return []
+        return flags, [], None
+    return flags, sources, target
+
+
+def destination_paths(name: str, args: list[str], *, literal_only: bool = True) -> list[str]:
+    """cp/install/mv destinations; directory facts must be in the text."""
+    flags, sources, target = _copy_parts(name, args)
     if target is None or not (literal_path(target) if literal_only else _file_sink(target)) or not sources:
         return []
+    no_directory = any(f in flags for f in ("-T", "--no-target-directory"))
+    directory = any(f in flags for f in ("-t", "--target-directory"))
     directory |= target.endswith("/") or posixpath.basename(target) in (".", "..") or len(sources) > 1
     if not literal_only:
         paths: list[str] = [target]
@@ -259,7 +266,7 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True) 
     return paths
 
 
-def perl_paths(args: list[str]) -> list[str]:
+def perl_paths(args: list[str], *, literal_only: bool = True) -> list[str]:
     """In-place Perl one-liners; program and option arguments are not files."""
     modes = {"-" + c: 0 for c in "pnwWl"}
     modes.update({"-" + c: 1 for c in "eEIMmF"})
@@ -269,7 +276,8 @@ def perl_paths(args: list[str]) -> list[str]:
     except ValueError:
         return []
     flags = dict(options)
-    return [p for p in files if literal_path(p)] if "-i" in flags and ("-e" in flags or "-E" in flags) else []
+    is_file = literal_path if literal_only else _file_sink
+    return [p for p in files if is_file(p)] if "-i" in flags and ("-e" in flags or "-E" in flags) else []
 
 
 def _printf_format(fmt: str) -> list[str | None] | None:
@@ -448,11 +456,11 @@ def _sed_effect(args: list[str]) -> tuple[str | None, bool, str]:
 def _other_stage_payload(args: list[ShellWord], pending: str | None) -> tuple[str | None, bool, str]:
     name = posixpath.basename(args[0])
     if name in ("cp", "install", "mv"):
-        files = destination_paths(name, list(args[1:]), literal_only=False)
-        empty = len(args) == 3 and args[1] == "/dev/null"
-        return "" if empty else None, bool(files), ""
+        _, sources, target = _copy_parts(name, list(args[1:]))
+        empty = bool(sources) and all(source == "/dev/null" for source in sources)
+        return "" if empty else None, bool(sources and target and _file_sink(target)), ""
     if name == "perl":
-        return None, bool(perl_paths(list(args[1:]))), ""
+        return None, bool(perl_paths(list(args[1:]), literal_only=False)), ""
     if name in (":", "true", "false"):
         return "", False, ""
     if name == "cat" and len(args) == 1:

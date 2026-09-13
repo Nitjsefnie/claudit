@@ -354,6 +354,7 @@ class _Helper:
     old: str | None
     new: str | None
     writes_payload: bool
+    payload_params: tuple[str, ...]
 
 
 def _param(node: ast.expr, params: tuple[str, ...]) -> str | None:
@@ -376,11 +377,15 @@ def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
         params = tuple(a.arg for a in fd.args.args)
         path = old = new = None
         writes_payload = False
-        for node in ast.walk(fd):
+        payload_params: list[str] = []
+        for node in (node for stmt in fd.body for node in _statement_nodes(stmt)):
             if not isinstance(node, ast.Call):
                 continue
             if _is_file_write_attr(node.func) and node.args:
-                writes_payload |= not _no_additions(node.args[0], {})
+                payload_param = _param(node.args[0], params)
+                if payload_param:
+                    payload_params.append(payload_param)
+                writes_payload |= not payload_param and not _no_additions(node.args[0], {})
             if _is_replace(node.func) and len(node.args) >= 2:
                 o, n = _param(node.args[0], params), _param(node.args[1], params)
                 if o and n:
@@ -394,7 +399,7 @@ def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
                 if isinstance(value, ast.Call):
                     path = _param(value, params) or path
         if path or (old and new):
-            specs[fd.name] = _Helper(params, path, old, new, writes_payload)
+            specs[fd.name] = _Helper(params, path, old, new, writes_payload, tuple(payload_params))
     return specs
 
 
@@ -501,6 +506,8 @@ class _PythonWrites:
                 if path not in _NULL_SINKS:
                     self.recognized = True
                     self.unknown |= spec.writes_payload and not self.known(new, consts)
+                    self.unknown |= any(not _no_additions(bound.get(param, ast.Constant(None)), consts)
+                                        for param in spec.payload_params)
         if not isinstance(func, ast.Attribute) or func.attr not in _WRITE_ATTRS or not node.args:
             return False
         receiver = self.target(func.value, consts)

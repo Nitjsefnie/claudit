@@ -603,3 +603,32 @@ def test_python_helper_does_not_infer_file_write_from_arbitrary_method():
 ])
 def test_known_no_additions_in_helpers_and_loops(body):
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("python3 - <<'PY'\ndef emit(path, text):\n    open(path, 'w').write(text)\nemit('out.txt', '')\nPY", (0, 0)),
+    ("python3 - <<'PY'\ndef outer(path):\n    def inner():\n        open(path, 'w').write('x')\nouter('out.txt')\nPY", (0, 0)),
+    ("cp -f /dev/null out.txt", (0, 0)),
+    ("perl -pi -e 's/a/b/' \"$OUT\"", (1, 0)),
+])
+def test_review_write_estimate_boundaries(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("python3 - <<'PY'\ndef emit(path, text):\n    open(path, 'wb').write(text)\nemit('out.txt', b'')\nPY", (0, 0)),
+    ("python3 - <<'PY'\ndef emit(path, text):\n    open(path, 'w').write(text)\nempty=''\nemit('out.txt', empty)\nPY", (0, 0)),
+    ("python3 - <<'PY'\ndef emit(path, text):\n    open(path, 'w').write(text)\nemit('out.txt', computed)\nPY", (1, 0)),
+    ("python3 - <<'PY'\ndef outer(path):\n    def inner():\n        open(path, 'w').write(computed)\nouter('out.txt')\nPY", (0, 0)),
+    ("python3 - <<'PY'\ndef direct(path):\n    open(path, 'w').write(computed)\ndirect('out.txt')\nPY", (1, 0)),
+    ("cp -f -t outdir /dev/null", (0, 0)),
+    ("cp --target-directory=outdir /dev/null", (0, 0)),
+    ("cp -- /dev/null out.txt", (0, 0)),
+    ("cp -f /dev/null \"$OUT\"", (0, 0)),
+    ("cp -S /dev/null source.txt out.txt", (1, 0)),
+    ("cp -t outdir /dev/null source.txt", (1, 0)),
+    ("perl -pi -e 's/a/b/' /dev/null", (0, 0)),
+    ("perl -p -e 's/a/b/' \"$OUT\"", (0, 0)),
+])
+def test_review_write_estimate_neighbors(command, expected):
+    assert bash_churn(command) == expected

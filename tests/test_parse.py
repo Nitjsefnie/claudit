@@ -759,3 +759,15 @@ def test_bash_write_estimates_remain_zero_on_error(family, result):
         b'"content":"ok"', ('"content":"' + result + '","is_error":true').encode())
     tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
+@pytest.mark.parametrize("family,expected,paths", [
+    ("helper_empty", (0, 0), ["/work/out.txt"]),
+    ("helper_deferred", (0, 0), []),
+    ("copy_empty", (0, 0), ["/work/out.txt"]),
+    ("perl_unknown", (1, 0), []),
+])
+def test_bash_review_write_estimate_fields(family, expected, paths):
+    tool = parse.parse_file("k/s/s.jsonl", _read("bash_review_" + family + ".jsonl"))["tool_uses"][0]
+    assert (tool["lines_added"], tool["lines_deleted"]) == expected
+    assert tool["write_targets"] == paths
