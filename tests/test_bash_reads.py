@@ -6,6 +6,24 @@ import pytest
 from backend.bash_reads import scan
 
 
+@pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
+@pytest.mark.parametrize("target,expected", [
+    ("a{b,c}", []),
+    ("a{1..3}", []),
+    ("{a..z..2}", []),
+    ("a{b,'c'}", []),
+    ("{dest}", ["/work/{dest}"]),
+    ("a{dest}b", ["/work/a{dest}b"]),
+    ("'{a,b}'", ["/work/{a,b}"]),
+    ('"{1..3}"', ["/work/{1..3}"]),
+    (r"a\{b,c\}", ["/work/a{b,c}"]),
+    (r"{a\,b}", ["/work/{a,b}"]),
+    (")", []),
+])
+def test_brace_words_never_fabricate_copy_destinations(program, target, expected):
+    assert scan(f"{program} src.txt {target}", "/work")[2] == expected
+
+
 @pytest.mark.parametrize("command,target", [
     ("cp src.txt dst.txt", "/work/dst.txt"),
     ("install -m 644 src.txt dst.txt", "/work/dst.txt"),

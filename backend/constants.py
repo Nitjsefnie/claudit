@@ -107,5 +107,6 @@ VERSION = _read_version()
 # printf/sed append payloads, explicit copy/move/Perl targets, and bounded
 # Python path loops and string concatenation.
 # 34 invalidates deployed results for the stream/operand and binding-provenance
-# corrections; 33 is reserved by the separate brace-word parser change.
-PARSER_VERSION = "34"
+# corrections. 35 adds literal brace words and refuses brace expansion while
+# retaining those corrections, invalidating files already parsed at 34.
+PARSER_VERSION = "35"

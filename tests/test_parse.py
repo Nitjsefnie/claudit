@@ -658,6 +658,7 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
 @pytest.mark.parametrize("family,paths,churn", [
     ("printf", ["/work/probe.txt"], (2, 0)),
     ("copy", ["/work/dst.txt"], (0, 0)),
+    ("brace_words", ["/work/{dest}"], (0, 0)),
     ("install", ["/work/dst.dump"], (0, 0)),
     ("move", ["/work/README.md"], (0, 0)),
     ("fd_redirects", ["/work/README.md"], (0, 0)),

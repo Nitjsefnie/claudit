@@ -10,9 +10,10 @@ import re
 
 MAX_LITERAL_CHARS = 100_000
 NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
-_WORD = re.compile(r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\{[^}]*\}|\\[\s\S]|[^\s'"\\|;&<>(){}])+''')
+_WORD = re.compile(r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\{[^}]*\}|\\[\s\S]|[^\s'"\\|;&<>()])+''')
 _RUNTIME = re.compile(r'''\$|`|[*?\[]|^~''')
 _PART = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*"|\\[\s\S]|[^'"\\]+)''')
+_BRACE_RANGE = re.compile(r"(?:-?[0-9]+\.\.-?[0-9]+|[a-zA-Z]\.\.[a-zA-Z])(?:\.\.-?[0-9]+)?")
 
 
 class ShellWord(str):
@@ -59,6 +60,24 @@ def _decode_word(raw: str) -> ShellWord:
     return word
 
 
+def _brace_expands(raw: str) -> bool:
+    """Detect unquoted brace lists/ranges without enumerating their results."""
+    # Quoted/escaped punctuation cannot delimit a brace expansion, even
+    # when it is only part of an otherwise unquoted word.
+    syntax = _PART.sub(lambda m: "_" if m[0][0] in "'\"\\" else m[0], raw)
+    opens: list[tuple[int, bool]] = []
+    for idx, char in enumerate(syntax):
+        if char == "{":
+            opens.append((idx, False))
+        elif char == "," and opens:
+            opens[-1] = (opens[-1][0], True)
+        elif char == "}" and opens:
+            start, comma = opens.pop()
+            if comma or _BRACE_RANGE.fullmatch(syntax, start + 1, idx):
+                return True
+    return False
+
+
 def shell_tokens(command: str) -> list[ShellWord]:
     """Tokenize a small shell grammar; malformed/unsupported syntax is empty."""
     if "\x00" in command:
@@ -74,7 +93,7 @@ def shell_tokens(command: str) -> list[ShellWord]:
             end = command.find("\n", idx)
             idx = len(command) if end < 0 else end
             continue
-        if char in "\n|;&<>(){}":
+        if char in "\n|;&<>()":
             end = idx + 1
             if command[idx:end + 1] in ("&&", "||", ">>", "<<", "|&", ">&", "<&"):
                 end += 1
@@ -87,7 +106,15 @@ def shell_tokens(command: str) -> list[ShellWord]:
         match = _WORD.match(command, idx)
         if not match:
             return []
-        tokens.append(_decode_word(match.group()))
+        raw = match.group()
+        if _brace_expands(raw):
+            # Refuse the unsupported command rather than treating expansion
+            # syntax as literal paths or evaluating shell-produced words.
+            return []
+        if raw in ("{", "}"):
+            tokens.append(ShellWord(raw, operator=True))
+        else:
+            tokens.append(_decode_word(raw))
         idx = match.end()
     return tokens
 
@@ -95,6 +122,7 @@ def shell_tokens(command: str) -> list[ShellWord]:
 def literal_path(word: str) -> bool:
     """An explicit file operand, including extensionless and dot filenames."""
     return bool(word and word != "-" and word not in NULL_SINKS
+                and not getattr(word, "operator", False)
                 and getattr(word, "literal", not bool(_RUNTIME.search(word))))
 
 
@@ -124,6 +152,8 @@ def command_options(args: list[str], modes: dict[str, int]
     Unknown options raise ValueError; callers must refuse to infer operands.
     Values retain quote provenance, including attached --option=value forms.
     """
+    if any(getattr(word, "operator", False) for word in args):
+        raise ValueError("shell operator is not a command operand")
     options: list[tuple[str, str | None]] = []
     operands: list[str] = []
     idx = 0

@@ -14,6 +14,16 @@ from backend.bash_churn import bash_churn, churn_survives_error
 
 
 @pytest.mark.parametrize("command,expected", [
+    ("printf '%s' {text} > out.txt", (1, 0)),
+    ("printf '%s\\n' a{b,c} > out.txt", (0, 0)),
+    ("printf '%s\\n' '{a,b}' > out.txt", (1, 0)),
+    ("{ printf '%s\\n' {text}; } > out.txt", (1, 0)),
+])
+def test_brace_words_preserve_literal_payload_and_group_boundaries(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("command,expected", [
     ("printf 'a\\nb\\n' | tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
     ("printf 'a\\nb\\n' | tee out.txt 0<<'EOF'\nx\nEOF", (1, 0)),
     ("printf 'a\\nb\\n' | tee out.txt <<-'EOF'\nx\nEOF", (1, 0)),
