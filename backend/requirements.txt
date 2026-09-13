@@ -7,7 +7,7 @@
 # 0.141.1 resolves starlette 1.6.0.
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
-psycopg[pool,binary]==3.3.4
+psycopg[pool,binary]==3.3.5
 boto3==1.43.89
 orjson==3.12.0
 apscheduler==3.11.3
