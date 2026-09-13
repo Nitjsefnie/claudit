@@ -14,6 +14,42 @@ from backend.bash_churn import bash_churn, churn_survives_error, python_write_pa
 
 
 @pytest.mark.parametrize("command,expected", [
+    ('echo "EXIT=$?" > out.txt', (1, 0)),
+    ('echo "exit=$?" >> out.txt', (1, 0)),
+    ('timeout 500 python3 -u scripts/run.py > out.txt 2>&1; echo "EXIT=$?" >> out.txt', (1, 0)),
+    ('{ python3 scripts/run.py; echo "EXIT=$?"; } > out.txt', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt copy.txt', (1, 0)),
+    ('echo "EXIT=$?" < input.txt | tee out.txt', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt 3< input.txt', (1, 0)),
+    ('echo "EXIT=$?"', (0, 0)),
+    ('echo "EXIT=$?" > /dev/null', (0, 0)),
+    ('echo "EXIT=$?" | tee /dev/null', (0, 0)),
+    ('echo "EXIT=$?" > /dev/null | tee out.txt', (0, 0)),
+    ('echo "EXIT=$?" 2> out.txt', (0, 0)),
+    ('echo "EXIT=$?" | sed s/EXIT/exit/ > out.txt', (0, 0)),
+    ("echo 'echo \"EXIT=$?\" > out.txt'", (0, 0)),
+    ('echo "$UNKNOWN" > out.txt', (0, 0)),
+    ('echo "EXIT=$?$UNKNOWN" > out.txt', (0, 0)),
+    ('echo "EXIT=$?" "$UNKNOWN" > out.txt', (0, 0)),
+    ('echo -e "EXIT=$?" > out.txt', (0, 0)),
+])
+def test_exit_marker_payloads(command, expected):
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("redirect", [
+    "< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt",
+])
+def test_receiving_stdin_redirect_severs_exit_marker(redirect):
+    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0, 0)
+
+
+def test_receiving_heredoc_replaces_exit_marker():
+    command = 'echo "EXIT=$?" | tee out.txt <<\'EOF\'\na\nb\nEOF'
+    assert bash_churn(command) == (2, 0)
+
+
+@pytest.mark.parametrize("command,expected", [
     ("printf '%s' {text} > out.txt", (1, 0)),
     ("printf '%s\\n' a{b,c} > out.txt", (0, 0)),
     ("printf '%s\\n' '{a,b}' > out.txt", (1, 0)),

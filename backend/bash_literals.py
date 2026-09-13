@@ -1,7 +1,7 @@
 """Bounded shell words and literal output; no expansion or command execution.
 
 Keep quote provenance until consumers have decided whether a word is literal.
-Only printf and numeric-addressed sed append payloads are enumerable here.
+Printf, numeric-addressed sed append and exit-marker echo payloads are enumerable.
 """
 from __future__ import annotations
 
@@ -311,6 +311,11 @@ def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bo
 
 def _stage_payload(args: list[ShellWord], pending: str | None) -> tuple[str | None, bool]:
     name = posixpath.basename(args[0])
+    if (name == "echo" and len(args) == 2
+            and args[1].expansion in ("EXIT=$?", "exit=$?")
+            and not args[1].unquoted_expansion):
+        # The quoted numeric status changes the bytes, never the line count.
+        return args[1] + "\n", False
     if name == "printf":
         return _printf(list(args[1:])), False
     if name == "sed":

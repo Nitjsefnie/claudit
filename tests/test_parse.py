@@ -693,6 +693,26 @@ def test_new_bash_payload_is_zeroed_on_error():
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
 
 
+def test_bash_exit_marker():
+    tool = parse.parse_file(
+        "k/s/s.jsonl", _read("bash_exit_marker.jsonl"))["tool_uses"][0]
+    assert tool["is_error"] is False
+    assert tool["write_targets"] == ["/tmp/v3run.out"]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
+
+
+@pytest.mark.parametrize("result", [
+    "Exit code 1", "PreToolUse hook denied this call",
+])
+def test_bash_exit_marker_is_zeroed_on_error(result):
+    data = _read("bash_exit_marker.jsonl").replace(
+        b'"content":"ok"',
+        f'"content":"{result}","is_error":true'.encode())
+    tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
+    assert tool["is_error"] is True
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
 def test_nonzero_exit_is_a_tool_error_not_a_failed_launch():
     """`Exit code N` is the harness's wrapper for a Bash command that
     RAN and failed — 58% of all errored results in a recent sample. In

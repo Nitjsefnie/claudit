@@ -109,4 +109,5 @@ VERSION = _read_version()
 # 34 invalidates deployed results for the stream/operand and binding-provenance
 # corrections. 35 adds literal brace words and refuses brace expansion while
 # retaining those corrections, invalidating files already parsed at 34.
-PARSER_VERSION = "35"
+# 36 counts explicit quoted exit-status echo markers reaching a file.
+PARSER_VERSION = "36"
