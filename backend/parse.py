@@ -987,12 +987,12 @@ def parse_file(file_key: str, blob: bytes) -> dict:
         "records": records,
         "ctx_turns": ctx_turns,
         "turn_count": len(ctx_turns),
-        # Substantive user text messages — instrumentation
-        # (bash IO, command stubs) and interrupt markers excluded.
-        # `turn_count` only counts prompts that produced a usage-bearing
-        # assistant reply; `prompt_count` is the raw "how many times did
-        # the user actually type something" total. Prompts ≥ Turns.
+        # Substantive user prompts (instrumentation and interrupt markers
+        # excluded), whether or not a usage-bearing reply followed.
         "prompt_count": len(walk.user_text_lines),
+        # Every model that answered in this file, BEFORE ingest purges
+        # suppressed ones: the only trace that a session changed lanes.
+        "models": sorted({r["model"] for r in records}),
         "rate_limit_hits": walk.rate_limit_hits,
         "tool_uses": walk.tool_uses,
         "agent_type": resolve_agent_type(walk),

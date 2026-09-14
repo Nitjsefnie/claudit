@@ -215,6 +215,11 @@ owns — real usage, but not ours, and priced against our table it invents
 a cost. Removing a pattern brings the rows back only on a reparse (bump
 `PARSER_VERSION`).
 
+`files.models` lists every model that answered in the file, recorded at
+parse time and so surviving the purge: it is the only trace that a
+session switched lanes, and an analysis over `records` that must skip
+mixed-lane sessions joins it against `suppressed_models`.
+
 ## Aggregates are precomputed at ingest (SV-ROLLUP)
 
 `usage_rollup` holds pre-summed usage at grain

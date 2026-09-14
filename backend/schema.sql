@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS files (
 
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
   rate_limit_hits JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- 2026-09-14: every model that answered in the file, recorded at parse
+-- time and therefore BEFORE purge_suppressed() deletes the foreign-lane
+-- rows. It is the only trace that a session switched lanes (Claude ->
+-- GLM), which an analysis over `records` must be able to exclude.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS
+  models TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
   prompt_count INT NOT NULL DEFAULT 0;
 -- Which agent role this transcript ran as -- parse.resolve_agent_type.

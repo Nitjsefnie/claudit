@@ -42,3 +42,22 @@ def test_latency_rollup_counts_canonical_records_only(fresh_db, mini_r2_env):
                             "WHERE project_id = '' AND bucket_s = %s",
                          (max(constants.LATENCY_BUCKETS),))
     assert rolled == canon
+
+
+def test_files_models_survive_suppression(fresh_db, mini_r2_env):
+    """A lane switch is only visible through files.models once the
+    foreign rows are purged: the file still names the model whose
+    records are gone."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO suppressed_models (pattern, note) "
+                  "VALUES ('claude-opus-%', 'test')")
+        c.commit()
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        left = _scalar(c, "SELECT COUNT(*) FROM records WHERE model LIKE 'claude-opus-%'")
+        named = _scalar(c, "SELECT COUNT(*) FROM files f WHERE EXISTS ("
+                           "SELECT 1 FROM unnest(f.models) m JOIN suppressed_models s "
+                           "ON m ILIKE s.pattern)")
+    assert left == 0
+    assert named > 0

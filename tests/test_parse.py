@@ -881,3 +881,8 @@ def test_turn_flags_attach_window_events_to_next_request():
     assert second["cli_version"] == "2.1.251"
     assert third["turn_flags"] == []
     assert third["turn_tool_results"] == 0
+
+
+def test_models_lists_every_model_in_the_file():
+    out = parse.parse_file("k/sess-sr/sess-sr.jsonl", _read("stop_reason_merge.jsonl"))
+    assert out["models"] == ["claude-sonnet-4-5"]

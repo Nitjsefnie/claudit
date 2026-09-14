@@ -621,13 +621,13 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             INSERT INTO files (file_key, project_id, session_id,
               is_main, r2_etag, r2_size_bytes, r2_last_modified,
               parsed_at, parser_version, ctx_turns, turn_count,
-              prompt_count, rate_limit_hits, agent_type)
+              prompt_count, rate_limit_hits, agent_type, models)
             VALUES (%(file_key)s, %(project_id)s, %(session_id)s,
               %(is_main)s, %(r2_etag)s, %(r2_size_bytes)s,
               %(r2_last_modified)s, %(parsed_at)s, %(parser_version)s,
               %(ctx_turns)s::jsonb, %(turn_count)s,
               %(prompt_count)s, %(rate_limit_hits)s::jsonb,
-              %(agent_type)s)
+              %(agent_type)s, %(models)s)
             ON CONFLICT (file_key) DO UPDATE SET
               project_id = EXCLUDED.project_id,
               session_id = EXCLUDED.session_id,
@@ -641,7 +641,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               turn_count = EXCLUDED.turn_count,
               prompt_count = EXCLUDED.prompt_count,
               rate_limit_hits = EXCLUDED.rate_limit_hits,
-              agent_type = EXCLUDED.agent_type
+              agent_type = EXCLUDED.agent_type,
+              models = EXCLUDED.models
             """,
             {
                 "file_key": obj.key,
@@ -662,6 +663,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 "agent_type": parsed.get(
                     "agent_type", parse.DEFAULT_AGENT_TYPE
                 ),
+                "models": parsed.get("models", []),
             },
         )
         # tool_uses cascades from files; explicit DELETE so a
