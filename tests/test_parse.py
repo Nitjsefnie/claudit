@@ -865,12 +865,14 @@ def test_tool_use_id_kept_on_tool_uses():
 
 def test_turn_flags_attach_window_events_to_next_request():
     """Events between two requests land on the NEXT request: a blocking
-    Stop hook, tool results (with an image), a /model command, and the
-    version/effort deltas detected against the previous request. A
-    request with an empty window carries nothing."""
+    Stop hook, a date rollover and a typed prompt; then tool results
+    (with an image), a /model command, and the version/effort deltas
+    detected against the previous request. A request with an empty
+    window carries nothing, and a user line of tool results alone is
+    not a prompt."""
     out = parse.parse_file("k/sess-tf/sess-tf.jsonl", _read("turn_flags.jsonl"))
     first, second, third = out["records"]
-    assert first["turn_flags"] == ["stop_hook_block"]
+    assert first["turn_flags"] == ["date_change", "stop_hook_block", "user_prompt"]
     assert first["turn_tool_results"] == 0
     assert first["cli_version"] == "2.1.250"
     assert second["turn_flags"] == [

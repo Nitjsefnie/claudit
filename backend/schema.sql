@@ -109,8 +109,10 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      an API-error retry, a /model or /effort switch,
 --                      an advisor-model change, a CLI version change,
 --                      a deferred-tool-list change, an image result,
---                      any other slash command. Empty when nothing
---                      happened.
+--                      any other slash command, a substantive user
+--                      prompt (a new turn), a date rollover, a
+--                      user-rejected tool call, a cwd change, an away
+--                      summary. Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
 ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;

@@ -27,6 +27,11 @@ FLAG_VERSION_SWITCH = "version_switch"     # the CLI version changed mid-file (r
 FLAG_TOOLS_DELTA = "tools_delta"           # the deferred tool list changed
 FLAG_IMAGE_RESULT = "image_result"         # a tool result carried an image
 FLAG_SLASH_COMMAND = "slash_command"       # any other local slash command
+FLAG_USER_PROMPT = "user_prompt"           # a substantive user message: a new turn began
+FLAG_DATE_CHANGE = "date_change"           # the harness noted a calendar-date rollover
+FLAG_USER_REJECTED = "user_rejected"       # the user declined a tool call
+FLAG_CWD_SWITCH = "cwd_switch"             # the working directory changed
+FLAG_AWAY_SUMMARY = "away_summary"         # a /recap-style away summary was injected
 
 
 class TurnWindow:
@@ -46,8 +51,11 @@ class TurnWindow:
             self._observe_user(obj)
         elif kind == "attachment":
             att = obj.get("attachment")
-            if isinstance(att, dict) and att.get("type") == "deferred_tools_delta":
+            att_type = att.get("type") if isinstance(att, dict) else None
+            if att_type == "deferred_tools_delta":
                 self.flags.add(FLAG_TOOLS_DELTA)
+            elif att_type == "date_change":
+                self.flags.add(FLAG_DATE_CHANGE)
 
     def _observe_system(self, obj: dict) -> None:
         subtype = obj.get("subtype")
@@ -57,6 +65,8 @@ class TurnWindow:
             self.flags.add(FLAG_COMPACT)
         elif subtype == "api_error":
             self.flags.add(FLAG_API_ERROR)
+        elif subtype == "away_summary":
+            self.flags.add(FLAG_AWAY_SUMMARY)
         elif subtype == "local_command":
             content = str(obj.get("content") or "")
             if "<command-name>/model<" in content:
@@ -71,6 +81,8 @@ class TurnWindow:
             self.flags.add(FLAG_COMPACT)
         if obj.get("interruptedMessageId"):
             self.flags.add(FLAG_INTERRUPT)
+        if obj.get("toolDenialKind") == "user-rejected":
+            self.flags.add(FLAG_USER_REJECTED)
         content = (obj.get("message") or {}).get("content")
         if isinstance(content, str):
             self._observe_user_text(obj, content)
@@ -91,10 +103,19 @@ class TurnWindow:
                     self.flags.add(FLAG_IMAGE_RESULT)
 
     def _observe_user_text(self, obj: dict, text: str) -> None:
-        if text.startswith(INTERRUPT_MARKER):
+        stripped = text.strip()
+        if not stripped:
+            return
+        if stripped.startswith(INTERRUPT_MARKER):
             self.flags.add(FLAG_INTERRUPT)
-        elif obj.get("isMeta") and text.startswith("Stop hook feedback"):
+        elif obj.get("isMeta") and stripped.startswith("Stop hook feedback"):
             self.flags.add(FLAG_STOP_HOOK_BLOCK)
+        elif not stripped.startswith("<") and not obj.get("isMeta"):
+            # Typed, queued or task-notification prompts; instrumentation
+            # (<bash-input>, <command-name>, <task-notification>...) is not
+            # a new turn in the user's sense. Same test parse.handle_user_text
+            # applies for prompt_count.
+            self.flags.add(FLAG_USER_PROMPT)
 
     def take(self, obj: dict) -> tuple[list[str], int, str | None]:
         """Flags, tool-result count and CLI version for the request whose
@@ -102,14 +123,12 @@ class TurnWindow:
         request's line, so they need no transcript line of their own."""
         flags = set(self.flags)
         cur = {"version": obj.get("version"), "effort": obj.get("effort"),
-               "advisor": obj.get("advisorModel")}
+               "advisor": obj.get("advisorModel"), "cwd": obj.get("cwd")}
         if self._prev is not None:
-            if cur["version"] != self._prev["version"]:
-                flags.add(FLAG_VERSION_SWITCH)
-            if cur["effort"] != self._prev["effort"]:
-                flags.add(FLAG_EFFORT_SWITCH)
-            if cur["advisor"] != self._prev["advisor"]:
-                flags.add(FLAG_ADVISOR_SWITCH)
+            for key, flag in (("version", FLAG_VERSION_SWITCH), ("effort", FLAG_EFFORT_SWITCH),
+                              ("advisor", FLAG_ADVISOR_SWITCH), ("cwd", FLAG_CWD_SWITCH)):
+                if cur[key] != self._prev[key]:
+                    flags.add(flag)
         self._prev = cur
         n = self.tool_results
         self.flags.clear()
