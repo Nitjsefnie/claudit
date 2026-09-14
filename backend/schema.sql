@@ -99,6 +99,28 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS effort TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   thinking_tokens BIGINT NOT NULL DEFAULT 0;
 
+-- 2026-09-14: what happened between the previous request and this one
+-- (backend/turn_flags.py), so a prompt-cache miss can be attributed by
+-- GROUP BY instead of a re-read of the raw file.
+--
+--   cli_version        the Claude Code build that sent the request.
+--   turn_flags         transcript events in the window before it: a
+--                      blocking Stop hook, an interrupt, a compaction,
+--                      an API-error retry, a /model or /effort switch,
+--                      an advisor-model change, a CLI version change,
+--                      a deferred-tool-list change, an image result,
+--                      any other slash command. Empty when nothing
+--                      happened.
+--   turn_tool_results  tool_result blocks in that window (parallel
+--                      tool batches are one of the miss triggers).
+ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
+ALTER TABLE records ADD COLUMN IF NOT EXISTS
+  turn_flags TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE records ADD COLUMN IF NOT EXISTS
+  turn_tool_results INT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS records_turn_flags_idx
+  ON records USING GIN (turn_flags);
+
 -- Pre-aggregated usage, rebuilt at ingest (ingest.rebuild_rollup).
 --
 -- `records` only changes when an ingest runs, but every dashboard request

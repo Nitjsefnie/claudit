@@ -861,3 +861,21 @@ def test_tool_use_id_kept_on_tool_uses():
         "k/sess-err/sess-err.jsonl", _read("tool_error.jsonl")
     )
     assert out["tool_uses"][0]["tool_use_id"] == "toolu_01"
+
+
+def test_turn_flags_attach_window_events_to_next_request():
+    """Events between two requests land on the NEXT request: a blocking
+    Stop hook, tool results (with an image), a /model command, and the
+    version/effort deltas detected against the previous request. A
+    request with an empty window carries nothing."""
+    out = parse.parse_file("k/sess-tf/sess-tf.jsonl", _read("turn_flags.jsonl"))
+    first, second, third = out["records"]
+    assert first["turn_flags"] == ["stop_hook_block"]
+    assert first["turn_tool_results"] == 0
+    assert first["cli_version"] == "2.1.250"
+    assert second["turn_flags"] == [
+        "effort_switch", "image_result", "model_switch", "version_switch"]
+    assert second["turn_tool_results"] == 2
+    assert second["cli_version"] == "2.1.251"
+    assert third["turn_flags"] == []
+    assert third["turn_tool_results"] == 0

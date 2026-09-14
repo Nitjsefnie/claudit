@@ -1,0 +1,6 @@
+{"type":"system","subtype":"stop_hook_summary","preventedContinuation":true}
+{"type":"assistant","requestId":"r1","version":"2.1.250","effort":"high","message":{"role":"assistant","model":"m","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"a"},{"type":"tool_result","tool_use_id":"t2","content":[{"type":"image","source":{}}]}]}}
+{"type":"system","subtype":"local_command","content":"<command-name>/model</command-name>"}
+{"type":"assistant","requestId":"r2","version":"2.1.251","effort":"max","message":{"role":"assistant","model":"m","content":[{"type":"text","text":"y"}],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"assistant","requestId":"r3","version":"2.1.251","effort":"max","message":{"role":"assistant","model":"m","content":[{"type":"text","text":"z"}],"usage":{"input_tokens":10,"output_tokens":5}}}

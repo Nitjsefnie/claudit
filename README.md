@@ -122,7 +122,8 @@ Postgres `claudit`
   • records      (file_key, line_num PK, per-request tokens + cost
                   + text_chars for visible-response size
                   + reply_latency_s for the user→assistant gap
-                  + stop_reason / effort / thinking_tokens)
+                  + stop_reason / effort / thinking_tokens
+                  + cli_version / turn_flags / turn_tool_results)
   • tool_uses    (file_key, line_num, idx PK, ts, tool_name,
                   tool_use_id, is_canonical, is_error, result_chars,
                   read_targets, read_kind, is_reread)

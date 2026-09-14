@@ -697,14 +697,15 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   cache_creation_tokens, cache_read_tokens,
                   output_tokens, eph5_tokens, eph1h_tokens, cost_usd,
                   text_chars, reply_latency_s, stop_reason, effort,
-                  thinking_tokens)
+                  thinking_tokens, cli_version, turn_flags, turn_tool_results)
                 VALUES (%(file_key)s, %(line_num)s, %(uuid)s,
                   %(request_id)s, %(ts)s, %(model)s,
                   %(fresh_tokens)s, %(cache_creation_tokens)s,
                   %(cache_read_tokens)s, %(output_tokens)s,
                   %(eph5_tokens)s, %(eph1h_tokens)s, %(cost_usd)s,
                   %(text_chars)s, %(reply_latency_s)s, %(stop_reason)s,
-                  %(effort)s, %(thinking_tokens)s)
+                  %(effort)s, %(thinking_tokens)s, %(cli_version)s,
+                  %(turn_flags)s, %(turn_tool_results)s)
                 """,
                 parsed["records"],
             )

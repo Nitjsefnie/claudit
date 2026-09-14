@@ -140,7 +140,8 @@ output (see `backend/schema.sql`):
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
-  reply_latency_s, stop_reason, effort, thinking_tokens)`
+  reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
+  turn_flags, turn_tool_results)`
   PK `(file_key, line_num)` — one row per usage-bearing line AFTER
   per-file Phase 1 max-merge for matching `request_id`.
 

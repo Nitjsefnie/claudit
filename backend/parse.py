@@ -17,7 +17,8 @@ from io import BytesIO
 from orjson import JSONDecodeError, dumps, loads
 
 from backend import pricing
-from backend.constants import MAX_PLAUSIBLE_CTX
+from backend.constants import INTERRUPT_MARKER, MAX_PLAUSIBLE_CTX
+from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error
 from backend import bash_reads
 from backend.target_paths import target_key
@@ -34,7 +35,6 @@ _INSTRUMENTATION_USER_PREFIXES = (
     "<command-message>",
     "<command-args>",
 )
-_INTERRUPT_MARKER = "[Request interrupted by user"
 # A `type:"assistant"` record with isApiErrorMessage=True and
 # error="rate_limit" IS an account-cap hit unless its text matches one
 # of these. Matching the exceptions (a deny-list) rather than the
@@ -463,6 +463,7 @@ class _LineWalk:
     """Mutable per-file state for the line-by-line pass."""
 
     def __init__(self, file_key: str) -> None:
+        self.window = TurnWindow()
         self.file_key = file_key
         self.seen_request: dict[str, dict] = {}
         self.records_in_order: list[dict] = []
@@ -514,7 +515,7 @@ class _LineWalk:
         stripped = text.lstrip()
         if any(stripped.startswith(p) for p in _INSTRUMENTATION_USER_PREFIXES):
             return
-        if stripped.startswith(_INTERRUPT_MARKER):
+        if stripped.startswith(INTERRUPT_MARKER):
             if mutate_anchor:
                 self.last_user_ts = None
             return
@@ -650,6 +651,8 @@ class _LineWalk:
             "stop_reason": msg.get("stop_reason") or None,
             "effort": obj.get("effort") or None,
         }
+        if not (req_id and req_id in self.seen_request):
+            ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)
         if req_id and req_id in self.seen_request:
             existing = self.seen_request[req_id]
             existing["usage"] = _merge_usage_max(existing["usage"], usage)
@@ -700,16 +703,9 @@ class _LineWalk:
 
     def _record_tool_uses(self, msg_tool_uses: list, req_id: str,
                           line_num: int, ts_str: str) -> None:
-        # Tool calls: dedupe on tool_use.id, NOT on first-line-of-request.
-        # Claude Code writes one JSONL line per content block, so a turn's
-        # tool_use blocks land on LATER lines of the same requestId — and
-        # recording them only on the first line dropped every one of those.
-        # Measured on live transcripts: 57-71% of all tool_use blocks sit on
-        # a later line. The premise this replaces ("streaming dupes carry the
-        # same tool_use blocks") does not hold — in those same transcripts
-        # every block id was distinct (520/520, 545/545, 401/401), so there
-        # were no dupes to suppress. The id is globally unique, so keying on
-        # it still kills any genuine repeat while keeping every real call.
+        # Dedupe on tool_use.id (globally unique), never on first line of a
+        # request: Claude Code writes one line per content block, so 57-71%
+        # of tool_use blocks sit on a LATER line of the same requestId.
         # Idless blocks fall back to (req, line, idx).
         for tu in msg_tool_uses:
             tu_key = tu["tool_use_id"] or f"{req_id}:{line_num}:{tu['idx']}"
@@ -842,6 +838,9 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "stop_reason": ev.get("stop_reason"),
         "effort": ev.get("effort"),
         "thinking_tokens": thinking,
+        "cli_version": ev.get("cli_version"),
+        "turn_flags": ev.get("turn_flags") or [],
+        "turn_tool_results": int(ev.get("turn_tool_results") or 0),
         "eph5_tokens": eph5,
         "eph1h_tokens": eph1h,
         "cost_usd": round(cost, 6),
@@ -955,6 +954,7 @@ def parse_file(file_key: str, blob: bytes) -> dict:
             continue
 
         kind = obj.get("type", "")
+        walk.window.observe(obj)
         if kind == "agent-setting":
             name = obj.get("agentSetting")
             if isinstance(name, str) and name:
