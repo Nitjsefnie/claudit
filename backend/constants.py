@@ -112,7 +112,7 @@ VERSION = _read_version()
 # 36 counts explicit quoted exit-status echo markers reaching a file.
 # 37 estimates unknown Bash writes and recovers literal echo/sed substitutions.
 # 38 resolves Windows targets lexically and matches equivalent reread keys.
-PARSER_VERSION = "42"
+PARSER_VERSION = "43"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"

@@ -1,0 +1,10 @@
+{"type":"user","message":{"role":"user","content":"x"}}
+{"type":"assistant","requestId":"r1","cwd":"/a","message":{"role":"assistant","content":[],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"attachment","attachment":{"type":"prompt_snapshot","systemPrompt":["s"],"tools":[{"name":"A"},{"name":"B"}]}}
+{"type":"user","message":{"role":"user","content":"y"}}
+{"type":"assistant","requestId":"r2","cwd":"/b","message":{"role":"assistant","content":[],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"attachment","attachment":{"type":"prompt_snapshot","systemPrompt":["s2"],"tools":[{"name":"A"},{"name":"B"}]}}
+{"type":"attachment","attachment":{"type":"session_context"}}
+{"type":"user","message":{"role":"user","content":"z"}}
+{"type":"assistant","requestId":"r3","cwd":"/b","message":{"role":"assistant","content":[],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"attachment","attachment":{"type":"prompt_snapshot","systemPrompt":["s2"],"tools":[{"name":"A"},{"name":"B"}]}}

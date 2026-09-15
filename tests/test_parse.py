@@ -883,6 +883,49 @@ def test_turn_flags_attach_window_events_to_next_request():
     assert third["turn_tool_results"] == 0
 
 
+def test_prompt_snapshot_flags_land_on_the_request_they_describe():
+    """A prompt_snapshot attachment is written AFTER the response it
+    describes, so its flags are backfilled onto the previous record, not
+    folded forward. The preamble snapshot without a tool list is ignored,
+    and the first snapshot with tools is only the baseline, so r1 carries
+    just the process start (resume) and the typed prompt; r2 gets
+    tools_change from the snapshot that follows it."""
+    out = parse.parse_file("k/sess-ps/sess-ps.jsonl", _read("prompt_snapshot.jsonl"))
+    first, second = out["records"]
+    assert first["turn_flags"] == ["resume", "user_prompt"]
+    assert first["turn_tool_results"] == 0
+    assert first["cli_version"] == "2.1.272"
+    assert second["turn_flags"] == ["tools_change"]
+    assert second["turn_tool_results"] == 1
+
+
+def test_prompt_rerender_and_system_change_backfill_with_resume():
+    """The snapshot after r2 changes only the system prompt (system_change);
+    r2 also opened a turn on a cwd that moved since r1 (cwd_rebuild,
+    alongside the plain cwd_switch). A session_context before r3 marks a
+    resume, and its identical snapshot is a prompt_rerender."""
+    out = parse.parse_file("k/sess-pr/sess-pr.jsonl", _read("prompt_rerender.jsonl"))
+    first, second, third = out["records"]
+    assert first["turn_flags"] == ["user_prompt"]
+    assert second["turn_flags"] == [
+        "cwd_rebuild", "cwd_switch", "system_change", "user_prompt"]
+    assert third["turn_flags"] == ["prompt_rerender", "resume", "user_prompt"]
+
+
+def test_cwd_rebuild_marks_only_the_turn_that_reopens_on_a_new_cwd():
+    """The record cwd follows the shell cwd, but the system prompt only
+    re-resolves at a turn boundary: r2 moved mid-turn (cwd_switch only),
+    and r3 opens a turn on a cwd different from the previous turn start
+    (cwd_rebuild without cwd_switch, since r2 already sat there)."""
+    out = parse.parse_file("k/sess-cr/sess-cr.jsonl", _read("cwd_rebuild.jsonl"))
+    first, second, third = out["records"]
+    assert first["turn_flags"] == ["user_prompt"]
+    assert second["turn_flags"] == ["cwd_switch"]
+    assert second["turn_tool_results"] == 1
+    assert third["turn_flags"] == ["cwd_rebuild", "user_prompt"]
+    assert third["turn_tool_results"] == 0
+
+
 def test_models_lists_every_model_in_the_file():
     out = parse.parse_file("k/sess-sr/sess-sr.jsonl", _read("stop_reason_merge.jsonl"))
     assert out["models"] == ["claude-sonnet-4-5"]

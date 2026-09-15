@@ -8,11 +8,32 @@ those events as lines between two requests. This tracker folds them into a
 small flag set carried on the next request's record (``records.turn_flags``),
 so the cause of a cache miss is a GROUP BY, not a re-read of the raw file.
 
+Three shapes do not fit the fold-forward rule and get their own handling:
+
+- A ``prompt_snapshot`` attachment describes the request BEFORE it: the
+  harness writes it after that response, holding the tool list and system
+  prompt as sent. Its flags (``tools_change``, ``system_change``,
+  ``prompt_rerender``) are therefore BACKFILLED onto the last request's
+  flag list, not folded onto the next one. Only digests of the snapshot
+  are kept — the tool block alone is ~265 KB.
+- A ``session_context`` attachment marks a process start on this file.
+  It lands on the next request like any window event, as ``resume``; on
+  the first request of a file it is simply the launch.
+- The record ``cwd`` follows the shell cwd tool by tool, but the system
+  prompt only re-resolves at a turn boundary. ``cwd_switch`` says the cwd
+  differs from the previous request; ``cwd_rebuild`` says a turn OPENED
+  on a cwd different from the previous turn start, which is the change
+  that re-renders the prefix.
+
 Flags are harness-generic names for transcript shapes, not for a
 particular fix; a check that wants "the bug fixed in 2.1.259" maps a flag
 to a version at read time.
 """
 from __future__ import annotations
+
+import hashlib
+
+from orjson import OPT_SORT_KEYS, dumps
 
 from backend.constants import INTERRUPT_MARKER
 
@@ -32,16 +53,35 @@ FLAG_DATE_CHANGE = "date_change"           # the harness noted a calendar-date r
 FLAG_USER_REJECTED = "user_rejected"       # the user declined a tool call
 FLAG_CWD_SWITCH = "cwd_switch"             # the working directory changed
 FLAG_AWAY_SUMMARY = "away_summary"         # a /recap-style away summary was injected
+FLAG_TOOLS_CHANGE = "tools_change"         # prompt_snapshot: the tool block differs from the previous snapshot
+FLAG_SYSTEM_CHANGE = "system_change"       # prompt_snapshot: the system prompt differs from the previous snapshot
+FLAG_PROMPT_RERENDER = "prompt_rerender"   # prompt_snapshot written, tools and system prompt unchanged
+FLAG_RESUME = "resume"                     # a process started on this file (session_context): a resume unless first request
+FLAG_CWD_REBUILD = "cwd_rebuild"           # turn opened with a cwd different from the previous turn start
+
+
+def _digest(value: object) -> bytes:
+    return hashlib.blake2b(dumps(value, option=OPT_SORT_KEYS), digest_size=16).digest()
 
 
 class TurnWindow:
     """Feed every parsed line to ``observe``; call ``take`` on the first
-    line of each new request to collect the window that preceded it."""
+    line of each new request to collect the window that preceded it.
+
+    ``take`` keeps a reference to the flag list it returned, and a later
+    ``prompt_snapshot`` amends that list IN PLACE. The parser stores the
+    returned list directly in the record, which is what makes the
+    backfill land on the previous request without a parser-side hook.
+    Before any request has been taken, snapshot flags join ``flags`` and
+    reach the first request instead."""
 
     def __init__(self) -> None:
         self.flags: set[str] = set()
         self.tool_results = 0
         self._prev: dict | None = None
+        self._last_flags: list[str] | None = None            # the list take() last returned
+        self._snapshot: tuple[bytes, bytes] | None = None   # (tools, system) digests
+        self._turn_cwd: str | None = None                   # cwd at the last turn-opening request
 
     def observe(self, obj: dict) -> None:
         kind = obj.get("type")
@@ -51,11 +91,43 @@ class TurnWindow:
             self._observe_user(obj)
         elif kind == "attachment":
             att = obj.get("attachment")
-            att_type = att.get("type") if isinstance(att, dict) else None
+            if not isinstance(att, dict):
+                return
+            att_type = att.get("type")
             if att_type == "deferred_tools_delta":
                 self.flags.add(FLAG_TOOLS_DELTA)
             elif att_type == "date_change":
                 self.flags.add(FLAG_DATE_CHANGE)
+            elif att_type == "session_context":
+                self.flags.add(FLAG_RESUME)
+            elif att_type == "prompt_snapshot":
+                self._observe_snapshot(att)
+
+    def _observe_snapshot(self, att: dict) -> None:
+        """Diff the snapshot against the previous one with tools; the
+        preamble snapshot carries no tool list and describes no request."""
+        tools = att.get("tools")
+        if not isinstance(tools, list) or not tools:
+            return
+        digests = (_digest(tools), _digest(att.get("systemPrompt")))
+        prev, self._snapshot = self._snapshot, digests
+        if prev is None:
+            return
+        new_flags = set()
+        if digests[0] != prev[0]:
+            new_flags.add(FLAG_TOOLS_CHANGE)
+        if digests[1] != prev[1]:
+            new_flags.add(FLAG_SYSTEM_CHANGE)
+        if digests == prev:
+            new_flags.add(FLAG_PROMPT_RERENDER)
+        self._backfill(new_flags)
+
+    def _backfill(self, new_flags: set[str]) -> None:
+        """Amend the flags of the request BEFORE the line just observed."""
+        if self._last_flags is None:
+            self.flags |= new_flags
+        else:
+            self._last_flags[:] = sorted(set(self._last_flags) | new_flags)
 
     def _observe_system(self, obj: dict) -> None:
         subtype = obj.get("subtype")
@@ -130,8 +202,13 @@ class TurnWindow:
                 if cur[key] != self._prev[key]:
                     flags.add(flag)
         self._prev = cur
+        if self.tool_results == 0:      # turn-opening: the prefix re-resolves from this cwd
+            if self._turn_cwd is not None and cur["cwd"] != self._turn_cwd:
+                flags.add(FLAG_CWD_REBUILD)
+            self._turn_cwd = cur["cwd"]
         n = self.tool_results
         self.flags.clear()
         self.tool_results = 0
         version = cur["version"]
-        return sorted(flags), n, (str(version) if version else None)
+        self._last_flags = sorted(flags)
+        return self._last_flags, n, (str(version) if version else None)
