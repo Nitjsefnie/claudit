@@ -652,7 +652,7 @@ class _LineWalk:
             "effort": obj.get("effort") or None,
         }
         if not (req_id and req_id in self.seen_request):
-            ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)
+            ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)  # live list: a later prompt_snapshot amends it in place (turn_flags.TurnWindow)
         if req_id and req_id in self.seen_request:
             existing = self.seen_request[req_id]
             existing["usage"] = _merge_usage_max(existing["usage"], usage)

@@ -105,7 +105,12 @@ class TurnWindow:
 
     def _observe_snapshot(self, att: dict) -> None:
         """Diff the snapshot against the previous one with tools; the
-        preamble snapshot carries no tool list and describes no request."""
+        preamble snapshot carries no tool list and describes no request.
+        ``cliPrefix`` is ignored by design: ``version_switch`` already
+        covers the CLI build. Two snapshots between the same pair of
+        requests accumulate onto one record, and a snapshot for a request
+        that produced no usage line lands on the previous successful
+        request — rare shapes, documented rather than coded around."""
         tools = att.get("tools")
         if not isinstance(tools, list) or not tools:
             return
