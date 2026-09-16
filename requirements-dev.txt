@@ -11,4 +11,4 @@ pyright==1.1.411
 # Runtime dep of scripts/plots/*.py, needed in the lint/type environment so
 # pylint/pyright can resolve the imports of checked-in code (same reason the
 # types workflow installs backend/requirements.txt). Not needed by the server.
-matplotlib==3.11.1
+matplotlib==3.11.2
