@@ -53,6 +53,8 @@ MODEL_RATES = {
     "claude-mythos-5-1": {"fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00, "read": 0.25, "output": 50.00},
     "claude-fable-5":    {"fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00, "read": 1.00, "output": 50.00},
     "claude-mythos-5":   {"fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00, "read": 1.00, "output": 50.00},
+    # Opus 5.5 prices cache HITS at 0.05x base input (0.20 on a 4.00 base).
+    "claude-opus-5-5":   {"fresh": 4.00,  "create_5m": 5.00,  "create_1h": 8.00,  "read": 0.20, "output": 20.00},
     "claude-opus-5":     {"fresh": 5.00,  "create_5m": 6.25,  "create_1h": 10.00, "read": 0.50, "output": 25.00},
     "claude-opus-4-8":   {"fresh": 5.00,  "create_5m": 6.25,  "create_1h": 10.00, "read": 0.50, "output": 25.00},
     "claude-opus-4-7":   {"fresh": 5.00,  "create_5m": 6.25,  "create_1h": 10.00, "read": 0.50, "output": 25.00},

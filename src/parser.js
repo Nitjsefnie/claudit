@@ -307,6 +307,8 @@ window.modelRates = {
   'claude-mythos-5-1': { fresh: 10,   c5: 12.5,  c1h: 20,   read: 0.25, out: 50 },
   'claude-fable-5':    { fresh: 10,   c5: 12.5,  c1h: 20,   read: 1,    out: 50 },
   'claude-mythos-5':   { fresh: 10,   c5: 12.5,  c1h: 20,   read: 1,    out: 50 },
+  // Opus 5.5 prices cache HITS at 0.05x base input (0.20 on a 4.00 base).
+  'claude-opus-5-5':   { fresh: 4,    c5: 5,     c1h: 8,    read: 0.2,  out: 20 },
   'claude-opus-5':     { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
   'claude-opus-4-8':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
   'claude-opus-4-7':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },

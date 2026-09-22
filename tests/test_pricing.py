@@ -39,6 +39,21 @@ def test_fable_5_1_cache_reads_are_a_quarter_of_fable_5():
     assert pricing.rate_for("claude-fable-5-1[1m]") == f51
 
 
+def test_opus_5_5_rates_and_cache_reads_at_5_percent():
+    """Opus 5.5 is $4/$20 and prices cache hits at 0.05x base input."""
+    o55 = pricing.rate_for("claude-opus-5-5")
+    assert o55 == {
+        "fresh": 4.00, "create_5m": 5.00, "create_1h": 8.00,
+        "read": 0.20, "output": 20.00,
+    }
+    assert o55["read"] == o55["fresh"] * 0.05
+    assert pricing.resolve("claude-opus-5-5").kind == "exact"
+    assert pricing.rate_for("claude-opus-5-5[1m]") == o55
+    assert pricing.rate_for("anthropic.claude-opus-5-5") == o55
+    # must not fall through to Opus 5's $5/$25
+    assert pricing.rate_for("claude-opus-5")["fresh"] == 5.00
+
+
 def test_fable_5_1_does_not_misroute_to_fable_5():
     """The 0.1x read rate of Fable 5 would be a silent 4x overcount on 5.1."""
     assert pricing.resolve("claude-fable-5-1").kind == "exact"

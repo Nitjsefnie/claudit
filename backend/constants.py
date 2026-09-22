@@ -115,7 +115,8 @@ VERSION = _read_version()
 # 43 reads prompt_snapshot diffs, session_context and the turn-start cwd
 # into turn_flags.
 # 44 prices bonsai-2-27b (local llama.cpp lane) at zero.
-PARSER_VERSION = "44"
+# 45 prices claude-opus-5-5.
+PARSER_VERSION = "45"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
