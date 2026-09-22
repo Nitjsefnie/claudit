@@ -168,7 +168,8 @@ def rebuild_rollup() -> int:
               session_id, project_id, hour, model, is_main,
               first_ts, last_ts, requests,
               fresh_tokens, output_tokens, cache_creation_tokens,
-              cache_read_tokens, eph5_tokens, eph1h_tokens, cost_usd
+              cache_read_tokens, eph5_tokens, eph1h_tokens,
+              thinking_tokens, cost_usd
             )
             SELECT f.session_id,
                    f.project_id,
@@ -182,6 +183,7 @@ def rebuild_rollup() -> int:
                    COALESCE(SUM(r.cache_read_tokens), 0),
                    COALESCE(SUM(r.eph5_tokens), 0),
                    COALESCE(SUM(r.eph1h_tokens), 0),
+                   COALESCE(SUM(r.thinking_tokens), 0),
                    COALESCE(SUM(r.cost_usd), 0)
               FROM records r
               JOIN files f ON f.file_key = r.file_key

@@ -46,7 +46,8 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
                  COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
                  1::bigint AS requests,
                  r.fresh_tokens, r.output_tokens, r.cache_creation_tokens,
-                 r.cache_read_tokens, r.eph5_tokens, r.eph1h_tokens, r.cost_usd
+                 r.cache_read_tokens, r.eph5_tokens, r.eph1h_tokens,
+                 r.thinking_tokens, r.cost_usd
             FROM records r
             JOIN files f ON f.file_key = r.file_key
            WHERE r.is_canonical AND r.ts IS NOT NULL
@@ -179,6 +180,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                SUM(u.eph5_tokens)       AS cache_5m_tokens,
                SUM(u.eph1h_tokens)      AS cache_1h_tokens,
                SUM(u.cache_read_tokens) AS cache_read_tokens,
+               SUM(u.thinking_tokens)   AS thinking_tokens,
                SUM(u.cost_usd)          AS cost_usd,
                SUM(u.requests)          AS requests,
                COUNT(DISTINCT u.session_id) AS session_count
@@ -415,34 +417,51 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
     }
 
 
+# The hourly SELECT's column order, minus `hour` and `model`, which the
+# entry treats specially. Named here so the unpack does not spend one
+# local per column.
+_HOURLY_TOKEN_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_5m_tokens",
+    "cache_1h_tokens",
+    "cache_read_tokens",
+    # A SUBSET of output_tokens (the API reports it under
+    # usage.output_tokens_details), so it is declared as a token type for
+    # its own panel but never summed into a total or priced.
+    "thinking_tokens",
+)
+
+
 def _hourly_entry(row, seen_hours: set) -> tuple[dict, str, float]:
     """One hourly panel entry, plus its (model, cost) for the
     cost_by_model fold. `session_count` is attributed to the first
     model row of each hour only — the rows are per (hour, model), so
     summing the column across models would double-count."""
-    (hour, model, input_t, output_t, c5, c1h, cr, cost, reqs, sc) = row
+    hour, model = row[0], row[1]
+    tokens = row[2:2 + len(_HOURLY_TOKEN_KEYS)]
+    cost, reqs, sc = row[2 + len(_HOURLY_TOKEN_KEYS):]
     hour_iso = _iso(hour)
     is_first_for_hour = hour_iso not in seen_hours
     seen_hours.add(hour_iso)
     model_name = model or "unknown"
-    return {
-        "hour": hour_iso,
-        "model": model_name,
-        "input_tokens": int(input_t or 0),
-        "output_tokens": int(output_t or 0),
-        "cache_5m_tokens": int(c5 or 0),
-        "cache_1h_tokens": int(c1h or 0),
-        "cache_read_tokens": int(cr or 0),
-        "cost_usd": float(cost or 0),
-        "requests": int(reqs or 0),
-        "session_count": int(sc or 0) if is_first_for_hour else 0,
-    }, model_name, float(cost or 0)
+    entry = {"hour": hour_iso, "model": model_name}
+    entry.update(dict(zip(_HOURLY_TOKEN_KEYS, (int(v or 0) for v in tokens))))
+    entry["cost_usd"] = float(cost or 0)
+    entry["requests"] = int(reqs or 0)
+    entry["session_count"] = int(sc or 0) if is_first_for_hour else 0
+    return entry, model_name, float(cost or 0)
 
 
 # Token-type fields the hourly panel can carry, in render order.
+# `thinking_tokens` is the one entry that is NOT part of the billed
+# partition: it is a subset of output_tokens, so it is declared here for
+# zero-suppression and panel order and must never be summed with the
+# rest. It follows output_tokens because it is a breakdown of it.
 TOKEN_TYPE_FIELDS = (
     "input_tokens",
     "output_tokens",
+    "thinking_tokens",
     "cache_5m_tokens",
     "cache_1h_tokens",
     "cache_read_tokens",

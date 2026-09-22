@@ -23,6 +23,10 @@ const TH = {
 const COL = {
   inputTokens:       cssVar('--accent', '#00d4aa'),
   outputTokens:      '#ff9c5a',
+  // Thinking is a subset of output, so it keeps output's hue at lower
+  // chroma rather than claiming a colour of its own — the panels read
+  // as one family, which is what the nesting is.
+  thinkingTokens:    'oklch(0.70 0.09 55)',
   cacheCreateTokens: 'oklch(0.72 0.14 305)',
   cacheReadTokens:   'oklch(0.72 0.14 25)',
   totalTokens:       'oklch(0.78 0.14 245)',

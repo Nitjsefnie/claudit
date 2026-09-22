@@ -220,6 +220,27 @@ parse time and so surviving the purge: it is the only trace that a
 session switched lanes, and an analysis over `records` that must skip
 mixed-lane sessions joins it against `suppressed_models`.
 
+## A token type may be a SUBSET (SV-SUBSET-TOKENS)
+
+`records.thinking_tokens` is part of `output_tokens`, not a sixth slice
+of the billed partition: the API reports it under
+`usage.output_tokens_details`, and `pricing` never sees it — the output
+rate already covers those tokens.
+
+It is declared in `api_dashboard.TOKEN_TYPE_FIELDS` anyway, because that
+tuple drives zero-suppression and panel order, and a subset needs both.
+What it must NEVER do is enter an arithmetic total: not `t.total` in
+`src/app.jsx`, not the Token Breakdown rows (which partition the billed
+tokens and price each one), not a cost computation. `usage_rollup`
+carries the column so the panel reads a pre-aggregate like every other
+series; it is summed, never added to the others.
+
+codexmeter reached the same shape independently for Codex's
+`reasoning_output_tokens` (`backend/parse_common.py`: "a SUBSET of
+`output` … never added to the cost"), which is the same quantity under
+the other provider's name — measured there at 47.7% of all output
+tokens.
+
 ## Aggregates are precomputed at ingest (SV-ROLLUP)
 
 `usage_rollup` holds pre-summed usage at grain

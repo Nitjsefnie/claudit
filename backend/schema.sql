@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS usage_rollup (
   cache_read_tokens   BIGINT      NOT NULL DEFAULT 0,
   eph5_tokens         BIGINT      NOT NULL DEFAULT 0,
   eph1h_tokens        BIGINT      NOT NULL DEFAULT 0,
+  -- A SUBSET of output_tokens, never a sixth slice of the partition.
+  thinking_tokens     BIGINT      NOT NULL DEFAULT 0,
   cost_usd            NUMERIC(18,8) NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id, hour, model, is_main)
 );
@@ -509,6 +511,8 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
 -- Defaults TRUE so a migrated DB behaves as before until the first pass.
 -- Tokens beside the dollars on the two cost panels. Derived from stored
 -- `records` columns, so a rollup rebuild fills them; no reparse needed.
+ALTER TABLE usage_rollup
+  ADD COLUMN IF NOT EXISTS thinking_tokens BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE ctx_cost_rollup
   ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE agent_rollup

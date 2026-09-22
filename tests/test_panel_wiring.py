@@ -329,3 +329,19 @@ def test_a_lone_survivor_in_a_two_column_grid_spans_the_row():
     the row instead."""
     css = (ROOT / "public" / "app.css").read_text(encoding="utf-8")
     assert ".dash-grid-2 > div:only-child { grid-column: 1 / -1; }" in css
+
+
+def test_thinking_panel_is_gated_and_never_enters_a_total():
+    """Thinking Output plots a SUBSET of Output Tokens. It gets the same
+    zero-suppression gate as the other token panels, and it must not be
+    added to `t.total` or to the Token Breakdown rows — both of those
+    partition the billed tokens, and a subset counted there is a double
+    count that inflates every derived figure."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    idx = src.index('title="Thinking Output"')
+    assert "panels.thinking && (" in src[max(0, idx - 220):idx]
+    assert "t.total = t.input + t.output + t.cc + t.cr;" in src
+    assert "t.thinking" not in src.split("t.total =")[1][:200]
+    breakdown = src[src.index("function computeTokenBreakdown"):]
+    breakdown = breakdown[:breakdown.index("\n}")]
+    assert "thinking" not in breakdown

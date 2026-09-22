@@ -435,6 +435,9 @@ function backendDashToShape(b) {
     // not 0 — which is what silently poisons a whole panel.
     input_tokens: h.input_tokens || 0,
     output_tokens: h.output_tokens || 0,
+    // A SUBSET of output_tokens, plotted on its own panel and never
+    // added to a total (see api_dashboard.TOKEN_TYPE_FIELDS).
+    thinking_tokens: h.thinking_tokens || 0,
     cache_create: (h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0),
     cache_read: h.cache_read_tokens || 0,
     ephemeral_5m: h.cache_5m_tokens || 0,
@@ -520,10 +523,11 @@ function backendDashToShape(b) {
 function tokenPanels(events, tokenTypes) {
   const live = tokenTypes
     ? new Set(tokenTypes)
-    : new Set(['input_tokens', 'output_tokens', 'cache_5m_tokens',
-               'cache_1h_tokens', 'cache_read_tokens']
+    : new Set(['input_tokens', 'output_tokens', 'thinking_tokens',
+               'cache_5m_tokens', 'cache_1h_tokens', 'cache_read_tokens']
       .filter(f => {
         const key = { input_tokens: 'input_tokens', output_tokens: 'output_tokens',
+                      thinking_tokens: 'thinking_tokens',
                       cache_5m_tokens: 'ephemeral_5m', cache_1h_tokens: 'ephemeral_1h',
                       cache_read_tokens: 'cache_read' }[f];
         return events.some(e => (e[key] || 0) !== 0);
@@ -531,6 +535,9 @@ function tokenPanels(events, tokenTypes) {
   return {
     input: live.has('input_tokens'),
     output: live.has('output_tokens'),
+    // Subset of output: its own panel, never part of `any` arithmetic
+    // beyond deciding whether to draw it.
+    thinking: live.has('thinking_tokens'),
     cacheCreate: live.has('cache_5m_tokens') || live.has('cache_1h_tokens'),
     cacheRead: live.has('cache_read_tokens'),
     any: live.size > 0,
@@ -846,6 +853,9 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         {panels.output && (
         <window.TimeSeriesPanel title="Output Tokens" events={events} valueKey="output_tokens"
           color={window.dashboardCol.outputTokens} range={range} binMs={binMs} />)}
+        {panels.thinking && (
+        <window.TimeSeriesPanel title="Thinking Output" events={events} valueKey="thinking_tokens"
+          color={window.dashboardCol.thinkingTokens} range={range} binMs={binMs} />)}
         {panels.cacheCreate && (
         <window.TimeSeriesPanel title="Cache Create"  events={events} valueKey="cache_create"
           color={window.dashboardCol.cacheCreateTokens} range={range} binMs={binMs} />)}

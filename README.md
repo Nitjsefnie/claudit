@@ -54,6 +54,11 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   processes tokens.
 - **Token Breakdown** as paired sort-by-tokens / sort-by-cost bars
   over Input, Output, Cache Create (5m / 1h / unsplit), Cache Read.
+- **Thinking Output** — extended-thinking tokens over time, on its own
+  panel and hidden when the range has none. It is a SUBSET of Output
+  Tokens (the API reports it under `usage.output_tokens_details`), so it
+  is plotted but never summed into a total or priced separately — the
+  output rate already covers it.
 - **Prompt-Cache TTL Split** showing adaptively-bucketed `ephemeral_5m`
   vs `ephemeral_1h` cache_create volumes with a 5m-share-% trend strip.
 - **Response Sizes by Model** — adaptively-bucketed median + p90 of
