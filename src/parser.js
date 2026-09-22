@@ -339,12 +339,30 @@ window.datedRates = {
 window.rateEpochs = [Date.UTC(2026, 8, 9, 16, 0, 0)];
 
 // Family fallbacks for unrecognised Claude models — current-generation
-// list rates for the tier, never a dated promotion.
+// list rates for the tier, never a dated promotion. The generation is the
+// highest-versioned key of the family in the table, so a new model row
+// moves its family's fallback with no second edit. Ties keep table order.
+const _VERSIONED_KEY = /^claude-([a-z]+)-(\d+(?:-\d+)*)$/;
+const _latestKey = (families) => {
+  let best = null;
+  let bestVersion = null;
+  for (const key of Object.keys(window.modelRates)) {
+    const m = _VERSIONED_KEY.exec(key);
+    if (!m || !families.includes(m[1])) continue;
+    const version = m[2].split('-').map(Number);
+    let cmp = 0;
+    for (let i = 0; i < Math.max(version.length, bestVersion ? bestVersion.length : 0) && !cmp; i++) {
+      cmp = (version[i] || 0) - ((bestVersion && bestVersion[i]) || 0);
+    }
+    if (best === null || cmp > 0) { best = key; bestVersion = version; }
+  }
+  return best;
+};
 const _TIER_FALLBACKS = [
-  [/fable|mythos/, 'claude-fable-5-1'],
-  [/opus/, 'claude-opus-4-8'],
-  [/sonnet/, 'claude-sonnet-5'],
-  [/haiku/, 'claude-haiku-4-5'],
+  [/fable|mythos/, _latestKey(['fable', 'mythos'])],
+  [/opus/, _latestKey(['opus'])],
+  [/sonnet/, _latestKey(['sonnet'])],
+  [/haiku/, _latestKey(['haiku'])],
 ];
 // A dated snapshot suffix ('-20250514') is the same model; a short version
 // suffix ('-9') or mode suffix ('-fast') is a DIFFERENT model.

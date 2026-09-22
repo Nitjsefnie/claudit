@@ -103,13 +103,31 @@ RATE_EPOCHS: list[datetime] = sorted(
     {end for windows in DATED_RATES.values() for end, _ in windows}
 )
 
+_VERSIONED_KEY = re.compile(r"^claude-([a-z]+)-(\d+(?:-\d+)*)$")
+
+
+def _latest(*families: str) -> dict:
+    """Rates of the highest-versioned table key in `families`.
+
+    ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-`` keys
+    do not match. Ties keep table order (max returns the first).
+    """
+    versions = [
+        (tuple(int(p) for p in m.group(2).split("-")), key)
+        for key in MODEL_RATES
+        if (m := _VERSIONED_KEY.match(key)) and m.group(1) in families
+    ]
+    return MODEL_RATES[max(versions, key=lambda v: v[0])[1]]
+
+
 # Family fallbacks for unrecognised Claude models — current-generation
-# rates for the tier, at LIST price (never a dated promotion).
+# rates for the tier, at LIST price (never a dated promotion). Derived
+# from the table, so adding a newer model moves its family's fallback.
 _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] = (
-    (re.compile(r"fable|mythos"), MODEL_RATES["claude-fable-5-1"]),
-    (re.compile(r"opus"), MODEL_RATES["claude-opus-4-8"]),
-    (re.compile(r"sonnet"), MODEL_RATES["claude-sonnet-5"]),
-    (re.compile(r"haiku"), MODEL_RATES["claude-haiku-4-5"]),
+    (re.compile(r"fable|mythos"), _latest("fable", "mythos")),
+    (re.compile(r"opus"), _latest("opus")),
+    (re.compile(r"sonnet"), _latest("sonnet")),
+    (re.compile(r"haiku"), _latest("haiku")),
 )
 
 # A dated snapshot suffix ("-20250514") is the same model; a short version

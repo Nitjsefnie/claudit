@@ -67,6 +67,22 @@ def test_unknown_fable_falls_back_to_current_generation():
     assert r.rates is pricing.MODEL_RATES["claude-fable-5-1"]
 
 
+def test_unknown_opus_falls_back_to_current_generation():
+    r = pricing.resolve("claude-opus-6")
+    assert r.kind == "tier"
+    assert r.rates is pricing.MODEL_RATES["claude-opus-5-5"]
+
+
+def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
+    """A newer row moves its family's fallback with no second edit;
+    a two-part version outranks its one-part prefix (5-5 > 5)."""
+    newer = dict(pricing.MODEL_RATES["claude-opus-5-5"], fresh=3.00)
+    monkeypatch.setitem(pricing.MODEL_RATES, "claude-opus-10", newer)
+    assert pricing._latest("opus") is newer  # pylint: disable=protected-access
+    monkeypatch.delitem(pricing.MODEL_RATES, "claude-opus-10")
+    assert pricing._latest("opus") is pricing.MODEL_RATES["claude-opus-5-5"]  # pylint: disable=protected-access
+
+
 def test_opus_4_8_does_not_misroute_to_legacy_opus_4():
     r = pricing.rate_for("claude-opus-4-8")
     assert r["fresh"] == 5.00 and r["output"] == 25.00
@@ -232,8 +248,10 @@ def test_rate_epochs_are_exposed_sorted_for_read_time_grouping(synthetic_dated_r
 def test_future_opus_does_not_inherit_legacy_opus_4_pricing():
     # 'claude-opus-4' is a prefix of 'claude-opus-4-9' but a naive substring
     # match would bill a future Opus at retired 15/75 rates.
-    r = pricing.rate_for("claude-opus-4-9")
-    assert r["fresh"] == 5.00 and r["output"] == 25.00
+    r = pricing.resolve("claude-opus-4-9")
+    assert r.kind == "tier"
+    assert r.rates is pricing.MODEL_RATES["claude-opus-5-5"]
+    assert r.rates["fresh"] != 15.00
 
 
 def test_dated_snapshot_still_matches_its_generic_key():
