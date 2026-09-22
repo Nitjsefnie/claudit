@@ -349,6 +349,16 @@ commands or infer writes from opaque script names or arbitrary object methods.
 Read-only calls, null sinks and rejected/unlaunched/failed writes do not gain
 fallback churn. Preserve the existing heredoc-write-before-later-error rule.
 
+A heredoc inside `for x in W1 W2 …; do … done` runs once per iteration, and
+when every word is literal the count is in the text: its churn is multiplied
+by the product of its enclosing literal loops (`bash_loops.heredoc_repeats`).
+An unknowable count — a runtime word (`$x`, `$(…)`, an unquoted glob, `"$@"`),
+a bare `for NAME`, `while`/`until`/`select`, or a command the tokenizer
+rejects — counts ONE iteration, the floor. Only heredoc bodies repeat this
+way; `echo`/`printf` effects and `python -c` inside a loop still count once.
+Write targets are unchanged: a path built from the loop variable is a runtime
+path and still yields nothing.
+
 ## Context intake is stored per call (SV-CONTEXT-INTAKE)
 
 Five columns on `tool_uses` record what a call put INTO the context

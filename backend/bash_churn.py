@@ -25,6 +25,7 @@ import warnings
 from dataclasses import dataclass
 
 from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, effects_from_tokens, shell_tokens
+from backend.bash_loops import heredoc_repeats
 
 # Commands longer than this are pathological (a base64 blob, a giant
 # generated fixture); parsing them buys nothing and costs ingest time.
@@ -838,6 +839,11 @@ class BashCommand:
         return shell_tokens(self.parts[1])
 
     @functools.cached_property
+    def heredoc_repeats(self) -> list[int]:
+        """Times each heredoc body runs: its enclosing literal loops."""
+        return heredoc_repeats(self.tokens, len(self.parts[0]))
+
+    @functools.cached_property
     def dash_c_sources(self) -> list[str]:
         """Inline Python bodies, decoded once for both consumers."""
         return _dash_c_sources(self.parts[1])
@@ -848,7 +854,7 @@ class BashCommand:
             return 0, 0
         added = deleted = 0
         unknown = False
-        for context, body in self.parts[0]:
+        for (context, body), times in zip(self.parts[0], self.heredoc_repeats):
             if _PATCH.search(context):
                 a, d = _diff_churn(body)
             elif _PYTHON_STDIN.search(context):
@@ -858,8 +864,8 @@ class BashCommand:
                 a, d = (count_lines(body + "\n") if body else 0), 0
             else:
                 a, d = 0, 0
-            added += a
-            deleted += d
+            added += a * times
+            deleted += d * times
         for src in self.dash_c_sources:
             a, d, _, unresolved = _python_scan(src)
             unknown |= unresolved

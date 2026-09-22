@@ -117,7 +117,9 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   Bash file write with unknown addition size receives one added line per call
   when no additions were already counted. Known empty writes and whole-line deletions,
   read-only calls and null sinks stay at zero additions; unknown overwrite
-  deletions remain zero. Commands are never executed to obtain counts.
+  deletions remain zero. A heredoc inside a `for` loop over a literal
+  word list counts once per iteration; any loop whose count needs the
+  command to run counts once. Commands are never executed to obtain counts.
 - **Cross-file uuid dedup** at query time so sub-agent JSONLs roll
   into their parent session without double-counting.
 - **Rate-limit hit** detection (Claude Code's `out of extra usage`

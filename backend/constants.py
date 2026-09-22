@@ -117,7 +117,8 @@ VERSION = _read_version()
 # 44 prices bonsai-2-27b (local llama.cpp lane) at zero.
 # 45 prices claude-opus-5-5.
 # 46 diffs Edit and python replace() payloads instead of counting both whole.
-PARSER_VERSION = "46"
+# 47 multiplies a heredoc's churn by its enclosing literal `for` loops.
+PARSER_VERSION = "47"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
