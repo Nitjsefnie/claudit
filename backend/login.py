@@ -6,12 +6,13 @@ its own visualizer dark theme). Rate limiting: 5 failures per IP per
 """
 from __future__ import annotations
 
+import html
 import time
 
 from fastapi import APIRouter, Form, Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from backend import auth
+from backend import auth, branding
 from backend import session as session_mod
 from backend import db
 
@@ -63,7 +64,7 @@ def user_exists(user_id: int) -> bool:
 _LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
-<title>Sign in · CLAUDIT</title>
+<title>Sign in · {app_name}</title>
 <style>
   body {{ background:#0b0d10; color:#dde; font-family: 'Inter',sans-serif;
          display:flex; align-items:center; justify-content:center;
@@ -85,7 +86,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 </style>
 </head><body>
 <form method="post" action="/login">
-  <h1>CLAUDIT · sign in</h1>
+  <h1>{app_name} · sign in</h1>
   <label>Username</label>
   <input name="user_id" required inputmode="numeric" pattern="[0-9]+"
          autocomplete="username">
@@ -105,7 +106,12 @@ _LOGIN_HTML = """<!DOCTYPE html>
 
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
-    return HTMLResponse(_LOGIN_HTML.format(err=""))
+    # The upper-cased APP_NAME is the page's brand word; html-escaped —
+    # both slots are real HTML contexts. Default = today's CLAUDIT.
+    return HTMLResponse(_LOGIN_HTML.format(
+        err="",
+        app_name=html.escape(branding.brand_name().upper(), quote=True),
+    ))
 
 
 @router.post("/login")

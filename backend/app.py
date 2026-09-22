@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, Response
 
 from backend import api, constants, db, events, ingest, login, session
+from backend import branding
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -57,7 +58,7 @@ async def lifespan(fastapi_app: FastAPI):
 
 
 app = FastAPI(
-    title="claudit",
+    title=branding.brand_name(),
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -172,10 +173,18 @@ async def root_index(request: Request) -> Response:
     # guest-restricted UI — prevents the brief flash of Sessions/
     # Inspector tabs before /api/me resolves.
     is_guest = bool(getattr(request.state, "is_guest", False))
+    # Branding rides the same injection: the page's one brand source is
+    # window.BRAND {name, title, description} — from APP_NAME /
+    # APP_TITLE / APP_DESCRIPTION, defaults = today's strings. `</` is
+    # JS-escaped (see branding.script_json); title/meta below are
+    # html-escaped instead, being real HTML contexts.
+    brand_js = f"window.BRAND = {branding.script_json(branding.brand())};"
     html = html.replace(
         "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
-        f"<script>window.BACKEND_URL = '/'; window.IS_GUEST = {str(is_guest).lower()};</script>",
+        f"<script>window.BACKEND_URL = '/'; window.IS_GUEST = "
+        f"{str(is_guest).lower()}; {brand_js}</script>",
     )
+    html = branding.brand_page(html)
     # Bust intermediary caches (Cloudflare, browser) on every static-asset
     # change by appending the file's mtime to its URL. Cache lookup keys
     # by URL, so a different ?v= forces a full fetch.
