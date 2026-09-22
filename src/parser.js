@@ -295,6 +295,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
 // Inspector (computeSessionStats below) and the Token Breakdown panel
 // (app.jsx) read these via window.modelRates / window.rateForModel.
 window.modelRates = {
+  // bonsai-2-27b is served by a local llama.cpp — no price; listed so it
+  // does not fall to the DEFAULT (Opus list) fallback.
+  'bonsai-2-27b':      { fresh: 0,    c5: 0,     c1h: 0,     read: 0,     out: 0 },
   // GLM (Z.ai): cache WRITES are free and reads are 0.2x input, so the
   // Anthropic 1.25x/2x/0.1x relations do not hold; explicit numbers.
   'glm-5-3-flash':     { fresh: 0.15, c5: 0,     c1h: 0,     read: 0.03,  out: 0.5 },

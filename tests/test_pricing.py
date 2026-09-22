@@ -305,3 +305,19 @@ def test_glm_flash_compute_cost_promo_known_vector():
     )
     # 2M input @ 0.075 + 1M output @ 0.25 + 4M cached reads @ 0.015
     assert abs(cost - (2 * 0.075 + 0.25 + 4 * 0.015)) < 1e-9
+
+
+def test_bonsai_local_lane_is_priced_at_zero_and_resolves_exact():
+    """bonsai-2-27b is served by a local llama.cpp, so it has no price.
+
+    Without an entry it would fall to DEFAULT (Opus 4.7 list) and a free
+    lane would invent a four-figure bill; the entry must be EXACT so the
+    API does not flag it as an estimate either.
+    """
+    r = pricing.resolve("bonsai-2-27b")
+    assert (r.kind, r.key) == ("exact", "bonsai-2-27b")
+    assert pricing.compute_cost(
+        "bonsai-2-27b", fresh=1_000_000, output=1_000_000,
+        eph5=1_000_000, eph1h=1_000_000, unsplit_create=1_000_000,
+        read=1_000_000,
+    ) == 0

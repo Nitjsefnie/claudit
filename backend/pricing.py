@@ -40,6 +40,10 @@ UTC = timezone.utc
 
 # List prices. Order: most-specific first.
 MODEL_RATES = {
+    # bonsai-2-27b is served by a local llama.cpp (the operator's own
+    # hardware), so there is no price. Listed rather than left to the
+    # DEFAULT fallback, which would bill a free lane at Opus list.
+    "bonsai-2-27b":      {"fresh": 0.00,  "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.00,  "output": 0.00},
     # GLM (Z.ai): cache WRITES are free and reads are 0.2x input, so the
     # Anthropic 1.25x/2x/0.1x relations do not hold; explicit numbers.
     "glm-5-3-flash":     {"fresh": 0.15, "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.03,  "output": 0.50},
