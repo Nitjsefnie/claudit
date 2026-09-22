@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import api, cache, constants, db, events, parse, r2
+from backend import api, cache, constants, db, events, key_layout, parse, r2
 from backend.api_dashboard import dashboard
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state below is their
@@ -189,27 +189,18 @@ def _existing_files() -> dict:
         }
 
 
-def _jsonl_suffix_len(key: str) -> int:
-    """Length of the object's JSONL suffix, or 0 for non-transcripts.
-
-    Objects may be stored plain or per-object xz-compressed; r2
-    get_object/get_stream inflate `.xz` transparently. Strip the
-    matched suffix so the stem (and thus is_main) is unaffected by
-    compression.
-    """
-    if key.endswith(".jsonl.xz"):
-        return len(".jsonl.xz")
-    if key.endswith(".jsonl"):
-        return len(".jsonl")
-    return 0
-
-
 def _track_project(seen_projects: dict[str, dict], project_id: str,
-                   last_modified) -> None:
-    """Accumulate first/last seen mtimes for one project."""
+                   last_modified, project_paths: dict[str, str]) -> None:
+    """Accumulate first/last seen mtimes for one project.
+
+    display_name comes from the lane bucket's project.json marker where
+    one was fetched; every other project — and a lane project whose
+    marker was missing or malformed — displays its id, exactly as
+    before the marker read was ported.
+    """
     proj = seen_projects.setdefault(project_id, {
         "project_id": project_id,
-        "display_name": project_id,
+        "display_name": project_paths.get(project_id, project_id),
         "first_seen_at": last_modified,
         "last_seen_at": last_modified,
     })
@@ -219,27 +210,99 @@ def _track_project(seen_projects: dict[str, dict], project_id: str,
         proj["last_seen_at"] = last_modified
 
 
-def _collect_todo(existing: dict, parser_version: str) -> tuple:
+def _fetch_marker(project_id: str, key: str) -> tuple[str, str] | None:
+    """Fetch and parse a sessions/<project>/project.json marker.
+
+    Returns (project_id, path) — the path the project's sessions were
+    run from, which becomes the project's display_name. Runs on a pool
+    thread (via _resolve) and touches no DB connection.
+
+    The GET is retried and its failure PROPAGATES, so the caller books
+    it as a per-object failure like any transcript fetch. Only decode
+    and shape problems are swallowed here: a malformed marker means that
+    project shows its id instead of its path, which is a degrade, not a
+    failed fetch, and no retry would change it.
+    """
+    blob = _fetch_with_retry(key)
+    try:
+        data = json.loads(blob.decode("utf-8"))
+        path = data.get("path")
+        if isinstance(path, str) and path:
+            return (project_id, path)
+    except (ValueError, AttributeError):
+        # ValueError covers UnicodeDecodeError and json.JSONDecodeError;
+        # AttributeError covers a marker whose top level is not an object.
+        pass
+    return None
+
+
+def _resolve_project_paths(marker_items: list[tuple[str, str]], workers: int,
+                           failed: list[tuple[str, str]]) -> dict[str, str]:
+    """Fetch marker bodies on the pool; project_paths must be fully
+    populated before the todo loop starts.
+
+    A marker GET is as droppable as a transcript GET, so its failures go
+    through the same collector and land in the same `failed` summary. A
+    marker that vanished between the listing and its fetch is skipped —
+    the project then displays its id, and if the whole subtree went with
+    the marker the transcript walk will not show the project either.
+    """
+    project_paths: dict[str, str] = {}
+    if not marker_items:
+        return project_paths
+    for item, res, exc in _resolve(
+        marker_items, lambda it: _fetch_marker(*it), workers
+    ):
+        if isinstance(exc, VanishedObject):
+            continue
+        if exc is not None:
+            _record_failure(failed, item[1], exc)
+            continue
+        if res is not None:
+            project_paths[res[0]] = res[1]
+    return project_paths
+
+
+def _collect_todo(existing: dict, parser_version: str,
+                  failed: list[tuple[str, str]]) -> tuple:
     """Walk the bucket: count objects, remember live keys, and queue the
     files whose etag/parser_version says they need (re)parsing.
 
     Returns (listed, todo, seen_keys); todo holds (obj, proj, stored) per
-    file needing work, fetched+parsed later on a pool. project_id,
-    session_id and is_main are derived from the key again in _persist.
+    file needing work, fetched+parsed later on a pool. What a key maps
+    to lives in key_layout: the walk keeps only the keys classify()
+    accepts as transcripts, and project/session/is_main come out of the
+    same classify() in _persist.
+
+    Marker bodies are fetched before the todo loop so a lane project's
+    display_name is settled by the time _track_project runs — the same
+    scan → resolve → plan shape codexmeter's ingest uses.
     """
+    wire_objs: list = []
+    marker_items: list[tuple[str, str]] = []
+    for obj in r2.list_keys():
+        marker_project = key_layout.project_marker(obj.key)
+        if marker_project is not None:
+            marker_items.append((marker_project, obj.key))
+            continue
+        if key_layout.classify(obj.key) is None:
+            continue
+        wire_objs.append(obj)
+    project_paths = _resolve_project_paths(
+        marker_items, worker_count(), failed
+    )
     listed = 0
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
-    for obj in r2.list_keys():
-        if not _jsonl_suffix_len(obj.key):
-            continue
-        parts = obj.key.split("/")
-        if len(parts) < 3:
+    for obj in wire_objs:
+        info = key_layout.classify(obj.key)
+        if info is None:  # pragma: no cover - the scan kept only transcripts
             continue
         listed += 1
         seen_keys.add(obj.key)
-        _track_project(seen_projects, parts[0], obj.last_modified)
+        _track_project(seen_projects, info.project_id,
+                       obj.last_modified, project_paths)
 
         stored = existing.get(obj.key)
         need_reparse = (
@@ -248,7 +311,7 @@ def _collect_todo(existing: dict, parser_version: str) -> tuple:
             or stored[1] != parser_version
         )
         if need_reparse:
-            todo.append((obj, seen_projects[parts[0]], stored))
+            todo.append((obj, seen_projects[info.project_id], stored))
     return listed, todo, seen_keys
 
 
@@ -359,7 +422,9 @@ def _walk_and_persist(parser_version: str,
     propagate to run_ingest_locked, which books them as the run-level
     `fatal`.
     """
-    listed, todo, seen_keys = _collect_todo(_existing_files(), parser_version)
+    listed, todo, seen_keys = _collect_todo(
+        _existing_files(), parser_version, failed
+    )
     inserted, reparsed, vanished = _fetch_parse_persist(
         todo, parser_version, failed, seen_keys
     )
@@ -637,11 +702,16 @@ def _fetch_and_parse(key: str) -> dict:
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:
-    """One file, one transaction — identical to the pre-pool behaviour."""
-    parts = obj.key.split("/")
-    project_id, session_id = parts[0], parts[1]
-    stem = parts[-1][:-_jsonl_suffix_len(obj.key)]
-    is_main = stem == session_id
+    """One file, one transaction — identical to the pre-pool behaviour.
+
+    project_id, session_id and is_main come from the same
+    key_layout.classify() the walk used, so a lane wire lands under the
+    project and session its key names and a subagent wire is never main.
+    """
+    info = key_layout.classify(obj.key)
+    if info is None:
+        raise ValueError(f"not a transcript key: {obj.key}")
+    project_id, session_id, is_main = info
     with db.viz_conn() as c, c.cursor() as cur:
         # Project upsert. first_seen_at uses LEAST so a later
         # ingest seeing an older file drags it backward.
