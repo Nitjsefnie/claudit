@@ -745,6 +745,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     const t = { input: 0, output: 0, cc: 0, cr: 0, cost: 0, eph5: 0, eph1h: 0,
                 linesAdded: 0, linesDeleted: 0 };
     const byModel = {};
+    const tokensByModel = {};
     for (const e of events) {
       t.input += e.input_tokens; t.output += e.output_tokens;
       t.cc += e.cache_create; t.cr += e.cache_read;
@@ -755,9 +756,12 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       // is already de-duplicated across models.
       t.linesAdded += e.lines_added || 0; t.linesDeleted += e.lines_deleted || 0;
       byModel[e.model] = (byModel[e.model] || 0) + e.cost_usd;
+      // Every token the model processed, whichever cache tier it came
+      // from: the measure Cost by Model prices, before the rate.
+      tokensByModel[e.model] = (tokensByModel[e.model] || 0) + e.input_tokens + e.output_tokens + e.cache_create + e.cache_read;
     }
     t.total = t.input + t.output + t.cc + t.cr;
-    return { ...t, byModel: hasBackendByModel ? backendByModel : byModel };
+    return { ...t, byModel: hasBackendByModel ? backendByModel : byModel, tokensByModel };
   }, [events, backendByModel, hasBackendByModel]);
 
   // Adaptive to the visible data, but never finer than the aggregation the
@@ -771,6 +775,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // Share of the charted total, not of `totals.cost`: the rows above drop
   // zero-cost models, so summing them is what makes the labels add to 100%.
   const costByModelTotal = costByModel.reduce((a, r) => a + r.value, 0);
+  // Same shape as Cost by Model, measured in tokens: a free lane
+  // (bonsai at $0) is invisible on the cost bar and visible here.
+  const tokensByModel = Object.entries(totals.tokensByModel)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => ({ label, value }));
+  const tokensByModelTotal = tokensByModel.reduce((a, r) => a + r.value, 0);
 
   // One colour for every bar: this is a magnitude comparison, identity is
   // carried by the row label, so NO fixedColors and the same palette
@@ -850,6 +861,14 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
           rows={costByModel}
           fixedColors={window.modelColors}
           fmt={r => `${window.humanCurrency(r.value)} (${costByModelTotal > 0 ? (r.value / costByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
+        <window.HBar
+          title="Tokens by Model"
+          rows={tokensByModel}
+          fixedColors={window.modelColors}
+          fmt={r => `${window.humanFmt(r.value)} (${tokensByModelTotal > 0 ? (r.value / tokensByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
+      </div>
+
+      <div className="dash-grid-2">
         <TokenBreakdownPanel events={events} />
       </div>
 

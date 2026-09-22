@@ -220,3 +220,27 @@ def test_cache_ttl_panel_is_gated_on_cache_create_data():
             f"{element} is not gated on {guard!r} -- it plots cache-create "
             f"tiers and renders empty when there is no cache creation"
         )
+
+
+def test_tokens_by_model_mirrors_cost_by_model():
+    """Tokens by Model is Cost by Model with a different measure: the same
+    HBar, the same per-model identity colours, rows sorted desc with
+    zero rows dropped, and a share label that adds to 100% over the
+    charted rows. Pinned at the source level (nothing here renders
+    React): a copy that dropped fixedColors would lose the model colour
+    the burn-rate dots and Cost by Model already carry."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    cost = src.index('title="Cost by Model"')
+    tokens = src.index('title="Tokens by Model"')
+    for idx in (cost, tokens):
+        window = src[idx:idx + 400]
+        assert "<window.HBar" in src[idx - 40:idx]
+        assert "fixedColors={window.modelColors}" in window
+    tokens_window = src[tokens:tokens + 400]
+    assert "rows={tokensByModel}" in tokens_window
+    assert "window.humanFmt(r.value" in tokens_window
+    assert "tokensByModelTotal" in tokens_window
+    # Folded from the same hourly events as the cost fallback, over every
+    # token the model processed, not a subset of the types.
+    assert ("tokensByModel[e.model] = (tokensByModel[e.model] || 0) + "
+            "e.input_tokens + e.output_tokens + e.cache_create + e.cache_read") in src
