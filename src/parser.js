@@ -2,37 +2,51 @@
 // Mirrors the shapes from parse_session.py: extracts structured events
 // (user/assistant/tool_call/tool_result/thinking/agent_spawn) plus meta
 // events (assistant_usage, system, queue-operation, attachment).
+//
+// Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
+// by src/parser-lanes.js, which emits the same shapes; parseTranscript
+// sniffs the format and delegates. One rate table only — the one below.
+
+// Per-call context-window size. Mirrors backend/parse.py:_usage_ctx_input
+// and canonical parse_session.py 1.20.6. When usage.iterations has >1
+// entries (advisor()/sub-agent fan-out), the top-level fresh+create+read
+// is the BILLING sum across iterations, not the peak single-call window.
+// For context-growth views we want the peak: max-of-iteration-totals.
+// Exposed at top level (not inside parseTranscript) so the lane delegation
+// path, which returns before this body runs, still exposes it.
+function usageCtxInput(u) {
+  if (!u) return 0;
+  const iters = u.iterations;
+  if (Array.isArray(iters) && iters.length > 1) {
+    let peak = 0;
+    for (const it of iters) {
+      const t = (it.input_tokens || 0)
+              + (it.cache_creation_input_tokens || 0)
+              + (it.cache_read_input_tokens || 0);
+      if (t > peak) peak = t;
+    }
+    return peak;
+  }
+  return (u.input_tokens || 0)
+       + (u.cache_creation_input_tokens || 0)
+       + (u.cache_read_input_tokens || 0);
+}
+window.usageCtxInput = usageCtxInput;
 
 window.parseTranscript = function parseTranscript(text, opts) {
+  // A lane format is parsed by parser-lanes.js (loaded before this file).
+  // Without parser-lanes.js — a bare require of parser.js in tests — the
+  // Claude path below is the whole parser, as before.
+  if (window.sniffTranscriptFormat) {
+    const fmt = window.sniffTranscriptFormat(text);
+    if (fmt !== 'claude') return window.parseTranscriptLanes(text, opts);
+  }
+
   const events = [];
   const meta = [];
   const lines = text.split('\n');
   const seenReq = new Map(); // requestId -> usage event (for streaming merge)
   const seenUuids = (opts && opts.seenUuids) || null; // optional cross-file dedup
-
-  // Per-call context-window size. Mirrors backend/parse.py:_usage_ctx_input
-  // and canonical parse_session.py 1.20.6. When usage.iterations has >1
-  // entries (advisor()/sub-agent fan-out), the top-level fresh+create+read
-  // is the BILLING sum across iterations, not the peak single-call window.
-  // For context-growth views we want the peak: max-of-iteration-totals.
-  function usageCtxInput(u) {
-    if (!u) return 0;
-    const iters = u.iterations;
-    if (Array.isArray(iters) && iters.length > 1) {
-      let peak = 0;
-      for (const it of iters) {
-        const t = (it.input_tokens || 0)
-                + (it.cache_creation_input_tokens || 0)
-                + (it.cache_read_input_tokens || 0);
-        if (t > peak) peak = t;
-      }
-      return peak;
-    }
-    return (u.input_tokens || 0)
-         + (u.cache_creation_input_tokens || 0)
-         + (u.cache_read_input_tokens || 0);
-  }
-  window.usageCtxInput = usageCtxInput;
 
   function mergeUsageMax(existing, incoming) {
     // Recursive max merge: numeric fields take max, nested dicts merge
@@ -511,7 +525,23 @@ window.computeSessionStats = function (events, meta) {
 
     const r = rate(m.model || '', m.ts);
     const unsplit = Math.max(0, cc - eph5 - eph1h);
-    stats.cost += (f * r.fresh + (eph5 + unsplit) * r.c5 + eph1h * r.c1h + cr * r.read + o * r.out) / 1_000_000;
+    // Codex long-context meter (mirrors pricing.compute_cost's
+    // long_context rule): a record whose prompt exceeded
+    // window.LONG_CONTEXT_THRESHOLD bills the WHOLE record at 2x input
+    // side and 1.5x output. Lanes set m.long_context at parse time;
+    // Claude records never carry it, so the multipliers stay 1.
+    const lcIn = m.long_context ? 2.0 : 1.0;
+    const lcOut = m.long_context ? 1.5 : 1.0;
+    // Rounded per record, like every stored cost_usd (backend parse.py
+    // rounds the column at parse time) — so this total is the sum of the
+    // stored rows, not a float-drifted lookalike. toFixed reads the
+    // double's exact decimal expansion, which is what Python's
+    // round(x, 6) rounds; a multiply-then-Math.round does not.
+    stats.cost += Number(((f * r.fresh * lcIn
+      + (eph5 + unsplit) * r.c5 * lcIn
+      + eph1h * r.c1h * lcIn
+      + cr * r.read * lcIn
+      + o * r.out * lcOut) / 1_000_000).toFixed(6));
   }
 
   stats.totalInput = stats.fresh + stats.create + stats.read;
