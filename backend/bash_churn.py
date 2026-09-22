@@ -1,9 +1,9 @@
 """Estimate Bash line churn from command text without executing commands.
 
 Literal heredocs, diffs, Python edits, printf/echo output and supported sed
-payloads contribute their declared line counts. Replacements count each
-old/new payload once, without discovering match counts or asserting that a
-successful command changed the file. Recognized writes with unknown addition
+payloads contribute their declared line counts. Python replacements count
+one occurrence, old diffed against new (`replace_churn`), without discovering
+match counts or asserting that a successful command changed the file. Recognized writes with unknown addition
 sizes contribute one added line per Bash call only when no additions were
 already counted. Known empty/no-addition operations remain zero additions;
 overwrite/copy deletions remain unknown and contribute zero.
@@ -16,6 +16,7 @@ handling retains the existing proven heredoc-write-before-later-error rule.
 from __future__ import annotations
 
 import ast
+import difflib
 import functools
 import posixpath
 import re
@@ -60,6 +61,31 @@ def count_lines(s: str) -> int:
     if not s:
         return 0
     return s.count("\n") + (0 if s.endswith("\n") else 1)
+
+
+def replace_churn(old: str, new: str) -> tuple[int, int]:
+    """(added, deleted) for replacing ONE occurrence of `old` with `new`,
+    counted the way git would count the resulting file change.
+
+    Lines repeated on both sides — an anchor re-emitted after an
+    insertion, context kept to make an Edit match unique — are not
+    churn, so the payloads are diffed rather than counted whole. The
+    rest of the match's last line follows both payloads identically;
+    appending the same stand-in to each makes a payload that ends
+    mid-line change that whole line, as it does on disk. The match is
+    assumed to start a line. An empty `old` (an Edit creating a file)
+    is all additions."""
+    if not old:
+        return count_lines(new), 0
+    a = (old + "\0").split("\n")
+    b = (new + "\0").split("\n")
+    added = deleted = 0
+    matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "equal":
+            deleted += i2 - i1
+            added += j2 - j1
+    return added, deleted
 
 
 def _split_heredocs(command: str) -> tuple[list[tuple[str, str]], str]:
@@ -500,6 +526,11 @@ class _HelperEffects:
     paths: list[str | None]
     unknown: bool
 
+    def add(self, churn: tuple[int, int]) -> None:
+        """Accumulate one (added, deleted) pair."""
+        self.added += churn[0]
+        self.deleted += churn[1]
+
 
 def _helper_churn(spec: _Helper, bound: dict[str, ast.expr],
                   consts: dict[str, str]) -> _HelperEffects:
@@ -540,8 +571,7 @@ def _helper_churn(spec: _Helper, bound: dict[str, ast.expr],
                 old, new = literal(edit.args[0]), literal(edit.args[1])
                 result.unknown |= new != "" and (old is None or new is None)
                 if old is not None and new is not None:
-                    result.added += count_lines(new)
-                    result.deleted += count_lines(old)
+                    result.add(replace_churn(old, new))
     return result
 
 
@@ -563,7 +593,7 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
         new = _resolve_str(node.args[1], consts)
         if old is None or new is None:
             return 0, 0, []
-        return count_lines(new), count_lines(old), []
+        return (*replace_churn(old, new), [])
     if _opens_for_writing(node) and node.args:
         path = _resolve_binding(node.args[0], consts)
         return 0, 0, [path] if path else []

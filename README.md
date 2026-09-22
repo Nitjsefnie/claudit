@@ -109,10 +109,13 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   heredoc bodies written to a file, inline `git apply`/`patch`
   hunks, and python read/replace/write one-liners are counted
   too, alongside literal printf/echo output and supported sed edits.
-  These are estimates: replacement payloads count once without looking up
-  match counts, and success does not prove that lines changed. A recognized
+  These are estimates: an Edit or python replacement counts one
+  occurrence, its old and new text diffed line by line the way git
+  would show the change (context repeated on both sides is not churn),
+  without looking up match counts, and success does not prove that
+  lines changed. A recognized
   Bash file write with unknown addition size receives one added line per call
-  when no additions were already counted. Known empty/deletion-only writes,
+  when no additions were already counted. Known empty writes and whole-line deletions,
   read-only calls and null sinks stay at zero additions; unknown overwrite
   deletions remain zero. Commands are never executed to obtain counts.
 - **Cross-file uuid dedup** at query time so sub-agent JSONLs roll

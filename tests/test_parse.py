@@ -330,8 +330,9 @@ def test_rate_limit_detection_is_shape_based_not_wording_based():
 
 def test_edit_call_yields_added_deleted_counts():
     """Edit churn comes from the CALL arguments (old_string/new_string),
-    not the result text: 2-line old → 4-line new is deleted=2, added=4.
-    Two separate positive series (issue #10)."""
+    not the result text, DIFFED so context lines repeated in both
+    payloads are not churn: "a\\nb\\n" → "a\\nb\\nc\\nd\\n" adds 2 and
+    deletes 0. Two separate positive series (issue #10)."""
     out = parse.parse_file(
         "k/sess-edit/sess-edit.jsonl", _read("edit_churn.jsonl")
     )
@@ -339,8 +340,8 @@ def test_edit_call_yields_added_deleted_counts():
     tu = out["tool_uses"][0]
     assert tu["tool_name"] == "Edit"
     assert tu["is_error"] is False
-    assert tu["lines_added"] == 4
-    assert tu["lines_deleted"] == 2
+    assert tu["lines_added"] == 2
+    assert tu["lines_deleted"] == 0
 
 
 def test_write_call_counts_whole_content_as_added():
@@ -666,7 +667,7 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     ("perl", ["/work/file.ts"], (1, 0)),
     ("sed_append", ["/work/.gitignore"], (3, 0)),
     ("python_loop", ["/work/a.md", "/work/b.md"], (1, 0)),
-    ("python_concat", ["/work/README.md"], (2, 1)),
+    ("python_concat", ["/work/README.md"], (1, 0)),
 ])
 def test_bash_recovered_tool_fields(family, paths, churn):
     out = parse.parse_file("k/s/s.jsonl", _read(f"bash_{family}.jsonl"))

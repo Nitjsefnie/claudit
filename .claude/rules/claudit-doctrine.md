@@ -335,11 +335,15 @@ unbounded cardinality does not belong in a rollup.
 ## Bash line churn is an estimate from command text (SV-BASH-CHURN)
 
 Keep available payload counts for heredocs, patches, Python edits and literal
-printf/echo/sed output. Python and sed replacements count the declared old/new
-payload once, without match multiplication; a successful exit does not prove
+printf/echo/sed output. Python replacements and Edit calls count ONE occurrence,
+diffed: `bash_churn.replace_churn` line-diffs old against new so context
+repeated on both sides (an anchor re-emitted after an insertion) is not churn,
+and a payload ending mid-line changes that whole line — git's count for the
+same file change. No match multiplication; a successful exit does not prove
 that a line changed. For a recognized Bash file write with unknown addition
 size, use one added line per CALL only if no additions were already counted.
-Known-empty and deletion-only operations add zero. Do not infer old contents
+Known-empty operations and whole-line deletions add zero; removing text from
+inside a line modifies that line (+1/-1). Do not infer old contents
 for copies/overwrites, invent paths for unresolved targets, execute recorded
 commands or infer writes from opaque script names or arbitrary object methods.
 Read-only calls, null sinks and rejected/unlaunched/failed writes do not gain

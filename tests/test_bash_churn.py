@@ -9,7 +9,7 @@ import warnings
 
 import pytest
 
-from backend.bash_churn import bash_churn, churn_survives_error, python_write_paths
+from backend.bash_churn import bash_churn, churn_survives_error, python_write_paths, replace_churn
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -145,7 +145,7 @@ def test_literal_shell_payloads(command, expected):
 
 @pytest.mark.parametrize("body,expected", [
     ("marker='end\\n'; entry='new\\n'; p=Path('README.md')\n"
-     "p.write_text(p.read_text().replace(marker, entry + marker))", (2, 1)),
+     "p.write_text(p.read_text().replace(marker, entry + marker))", (1, 0)),
     ("old='a'; new=old + '\\nb'; new=new + '\\nc'\n"
      "open('f','w').write(text.replace(old, new))", (3, 1)),
     ("new='a'; new=unknown + new\nopen('f','w').write(text.replace('b',new))", (1, 0)),
@@ -558,7 +558,8 @@ def test_write_estimates_and_declared_payloads(command, expected):
     ("obj.write_text(computed)", (0, 0)),
     ("obj.open(path, 'w')", (0, 0)),
     ("open(path).read()", (0, 0)),
-    ("open(path, 'w').write(text.replace('old', ''))", (0, 1)),
+    # Removing text inside a line modifies that line, as git counts it.
+    ("open(path, 'w').write(text.replace('old', ''))", (1, 1)),
     ("open(path, 'w').write(text.replace('old', '')); open(other, 'w').write(computed)", (1, 1)),
 ])
 def test_python_write_estimate_boundaries(body, expected):
@@ -718,3 +719,30 @@ def test_helper_destination_binding_at_each_write(body, argument, expected, path
 ])
 def test_cat_empty_source_and_unknown_controls(command, expected):
     assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("old,new,expected", [
+    # Anchor re-emitted after an insertion: only the inserted lines count.
+    ("def f():", "x = 1\n\ndef f():", (2, 0)),
+    ("a\n", "a\nb\n", (1, 0)),
+    # Identical payloads changed nothing.
+    ("a\nb\n", "a\nb\n", (0, 0)),
+    # Whole-line deletion.
+    ("a\nb\n", "", (0, 2)),
+    # Mid-line: the text after the match is part of the same line, so
+    # splitting it changes that line even though "foo(" survives.
+    ("foo(", "foo(\n  bar,", (2, 1)),
+    ("(a)", "(b)", (1, 1)),
+    # No old text (Edit creating a file): all of new is added.
+    ("", "x\ny\n", (2, 0)),
+])
+def test_replace_churn_counts_like_git(old, new, expected):
+    """One occurrence of old → new, diffed as the file would show it."""
+    assert replace_churn(old, new) == expected
+
+
+def test_python_replace_anchor_is_not_counted_as_churn():
+    """Inserting before an anchor that is re-emitted is pure addition."""
+    body = ("s = s.replace('def f():', 'x = 1\\n\\ndef f():')\n"
+            "open('f.py', 'w').write(s)")
+    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (2, 0)

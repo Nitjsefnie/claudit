@@ -19,7 +19,7 @@ from orjson import JSONDecodeError, dumps, loads
 from backend import pricing
 from backend.constants import INTERRUPT_MARKER, MAX_PLAUSIBLE_CTX
 from backend.turn_flags import TurnWindow
-from backend.bash_churn import BashCommand, bash_churn, churn_survives_error
+from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
 from backend.target_paths import target_key
 
@@ -156,15 +156,16 @@ def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
     enumerates directly — heredoc bodies written to a file, inline
     patch hunks, literal python replacements — and 0 for everything
     that would need the command to be RUN to know.
+    Edit's old/new are diffed (`replace_churn`): repeated context is not churn.
     Known approximations: an Edit with replace_all=true is counted
     once (the call does not say how many occurrences exist), and a
     Write overwriting an existing file counts its old content as 0
     deletions (the call does not carry it).
     """
     if name == "Edit":
-        return (
-            _line_count(str(tool_input.get("new_string", "") or "")),
-            _line_count(str(tool_input.get("old_string", "") or "")),
+        return replace_churn(
+            str(tool_input.get("old_string", "") or ""),
+            str(tool_input.get("new_string", "") or ""),
         )
     if name == "Write":
         return (
