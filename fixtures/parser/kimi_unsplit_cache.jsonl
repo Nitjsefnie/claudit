@@ -1,0 +1,1 @@
+{"timestamp": "2026-06-14T12:00:00Z", "message": {"type": "StatusUpdate", "payload": {"message_id": "cache-1", "token_usage": {"input_other": 400, "input_cache_creation": 100, "input_cache_read": 200, "output": 50}}}}

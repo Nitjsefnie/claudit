@@ -92,6 +92,12 @@
 !/fixtures/parser/
 /fixtures/parser/*
 !/fixtures/parser/*.jsonl
+# codex/ holds codexmeter's synthetic rollout fixtures: multi-event files
+# whose expected token relationships are documented in its README.md.
+!/fixtures/codex/
+/fixtures/codex/*
+!/fixtures/codex/*.jsonl
+!/fixtures/codex/*.md
 # r2_mini is a MIRROR of an R2 bucket — its shape is
 # claude/<project>/<session>/... and a new fixture session adds directories at
 # arbitrary depth, so descendants are re-opened recursively instead of being
