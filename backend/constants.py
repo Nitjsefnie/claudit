@@ -120,7 +120,15 @@ VERSION = _read_version()
 # 47 multiplies a heredoc's churn by its enclosing literal `for` loops.
 # 48 prices a cache write with no declared TTL at the 1h rate, not 5m.
 # 49 adds the Codex and Kimi rate tables and the long-context meter.
-PARSER_VERSION = "49"
+# 50 routes every transcript through the format dispatcher: Codex and
+# Kimi transcripts parse instead of landing in the claude parser.
+PARSER_VERSION = "50"
+
+#: What a file is attributed to when the transcript records no role at
+#: all. It is the roster's own fallback dispatch type, and it is also
+#: where every unattributable file lands — parse.resolve_agent_type for
+#: Claude transcripts, parse_lanes.to_claudit for lane ones.
+DEFAULT_AGENT_TYPE = "general-purpose"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"

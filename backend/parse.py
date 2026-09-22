@@ -14,13 +14,20 @@ from collections import Counter
 from datetime import datetime, timezone
 from io import BytesIO
 
-from orjson import JSONDecodeError, dumps, loads
+from orjson import JSONDecodeError, loads
 
 from backend import pricing
-from backend.constants import INTERRUPT_MARKER, MAX_PLAUSIBLE_CTX
+from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER,
+                               MAX_PLAUSIBLE_CTX)
+from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
+                                 ERROR_KIND_REJECTED,  # pylint: disable=unused-import
+                                 ERROR_KIND_TOOL_ERROR, ERROR_TEXT_MAX,
+                                 _classify_error, _flatten_result_text,
+                                 _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
+from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
 
@@ -360,104 +367,6 @@ def _dispatch_args(name: str, args: dict) -> tuple:
         chars,
         brief_ref,
     )
-
-
-# Maximum characters of a failed tool_result kept in tool_uses.error_text.
-# Enough to identify the failure by GROUP BY; short enough that the column
-# stays small on the ~5% of rows that carry it.
-ERROR_TEXT_MAX = 200
-
-
-def _pg_text(s: str) -> str:
-    """Strip NUL bytes from text bound for a PostgreSQL text column.
-
-    Postgres text cannot hold 0x00, and psycopg raises DataError on the
-    whole executemany rather than the one row -- so a single failed tool
-    call that read binary content aborts the entire ingest transaction
-    and leaves every rollup unbuilt. Transcripts carry it as the JSON
-    escape \\u0000, which json.loads decodes to a real NUL.
-
-    Stripping rather than rejecting: the readable part of the message is
-    what error_kind grouping is drilled down by, and it survives intact.
-    """
-    return s.replace("\x00", "") if "\x00" in s else s
-
-
-# Coarse, HARNESS-GENERIC failure classes. Deliberately not a taxonomy of
-# any one operator's hooks: a PreToolUse denial carries that hook's own
-# wording, which differs per deploy, so it lands in "failed" and is
-# separated by grouping on error_text instead. Only markers Claude Code
-# itself emits are classified.
-ERROR_KIND_REJECTED = "rejected"
-ERROR_KIND_TOOL_ERROR = "tool_error"
-_EXIT_CODE_RE = re.compile(r"\s*Exit code \d+")
-ERROR_KIND_FAILED = "failed"
-
-
-def _flatten_result_text(content) -> str:
-    """Flatten a tool_result content field to plain text.
-
-    The field is either a string or a list of blocks; only the text
-    blocks carry a message worth keeping.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for blk in content:
-            if isinstance(blk, dict) and blk.get("type") == "text":
-                parts.append(str(blk.get("text", "") or ""))
-            elif isinstance(blk, str):
-                parts.append(blk)
-        return " ".join(parts)
-    return ""
-
-
-def _result_size(content) -> int:
-    """Characters one tool_result put into the transcript.
-
-    Deliberately NOT `len(_flatten_result_text(...))`: that keeps text
-    blocks only, and an image block's base64 payload is the single
-    largest thing a tool result can carry. Over the live corpus, image
-    results are 92% of all duplicated read bytes — measuring only text
-    would report the cheapest half of the intake and call it the total.
-    """
-    if isinstance(content, str):
-        return len(content)
-    if not isinstance(content, list):
-        return 0
-    total = 0
-    for blk in content:
-        if isinstance(blk, str):
-            total += len(blk)
-        elif isinstance(blk, dict):
-            if blk.get("type") == "text":
-                total += len(str(blk.get("text", "") or ""))
-            else:
-                source = blk.get("source")
-                data = (source or {}).get("data") if isinstance(
-                    source, dict) else None
-                total += (len(str(data)) if data is not None
-                          else len(dumps(blk)))
-    return total
-
-
-def _classify_error(text: str) -> str:
-    """Classify a failed tool_result by markers the HARNESS emits.
-
-    Anything that is neither a user/permission rejection nor a
-    harness-wrapped tool error is "failed" -- including hook denials,
-    whose wording belongs to the deploy, not to Claude Code. A Bash
-    `Exit code N` is harness wording for a call that RAN: a tool error.
-    """
-    if "<tool_use_error>" in text or _EXIT_CODE_RE.match(text):
-        return ERROR_KIND_TOOL_ERROR
-    low = text.lower()
-    if ("tool use was rejected" in low
-            or "doesn't want to proceed" in low
-            or "does not want to proceed" in low):
-        return ERROR_KIND_REJECTED
-    return ERROR_KIND_FAILED
 
 
 class _LineWalk:
@@ -900,12 +809,6 @@ def _build_ctx_turns(records: list, user_text_lines: list) -> list:
     return ctx_turns
 
 
-#: What a file is attributed to when the transcript records no role at
-#: all. It is the roster's own fallback dispatch type, and it is also
-#: where every unattributable file lands — see resolve_agent_type.
-DEFAULT_AGENT_TYPE = "general-purpose"
-
-
 def resolve_agent_type(walk: _LineWalk) -> str:
     """The agent type one transcript ran as. Never None.
 
@@ -935,8 +838,8 @@ def resolve_agent_type(walk: _LineWalk) -> str:
     return walk.agent_setting or DEFAULT_AGENT_TYPE
 
 
-def parse_file(file_key: str, blob: bytes) -> dict:
-    """Parse one JSONL, max-merging requestIds and retaining idless records.
+def _parse_claude(file_key: str, blob: bytes) -> dict:
+    """Parse one Claude JSONL, max-merging requestIds and retaining idless records.
 
     Returns records, ctx_turns, turn_count, prompt_count, rate_limit_hits,
     tool_uses and agent_type. Account-cap detection follows
@@ -998,3 +901,19 @@ def parse_file(file_key: str, blob: bytes) -> dict:
         "tool_uses": walk.tool_uses,
         "agent_type": resolve_agent_type(walk),
     }
+
+
+def parse_file(file_key: str, blob: bytes) -> dict:
+    """Parse one JSONL in any supported format, max-merging requestIds.
+
+    sniff_format names the format: a Claude transcript takes this
+    module's own path (_parse_claude); a Codex or Kimi one is parsed by
+    codexmeter's ported parser and projected onto claudit's row shape by
+    parse_lanes.to_claudit. Returns records, ctx_turns, turn_count,
+    prompt_count, models, rate_limit_hits, tool_uses and agent_type
+    either way.
+    """
+    fmt = sniff_format(blob)
+    if fmt == "claude":
+        return _parse_claude(file_key, blob)
+    return to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt)

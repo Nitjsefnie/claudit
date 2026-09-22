@@ -1,0 +1,7 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1783000000000}
+{"type":"turn.prompt","time":1783000001000,"input":[{"type":"text","text":"Hello"}],"origin":{"kind":"user"}}
+{"type":"context.append_loop_event","time":1783000002000,"event":{"type":"step.begin","uuid":"step-1","turnId":"t1","step":1}}
+{"type":"context.append_loop_event","time":1783000003000,"event":{"type":"content.part","uuid":"part-1","turnId":"t1","step":1,"part":{"type":"text","text":"hello back"}}}
+{"type":"usage.record","time":1783000005000,"model":"kimi-k2-7-code","usage":{"inputOther":1000,"output":200,"inputCacheRead":100,"inputCacheCreation":50}}
+{"type":"context.append_loop_event","time":1783000006000,"event":{"type":"tool.call","uuid":"tc-1","turnId":"t1","step":1,"toolCallId":"call-1","name":"Bash","args":{"command":"echo hi"}}}
+{"type":"context.append_loop_event","time":1783000007000,"event":{"type":"tool.result","toolCallId":"call-1","result":{"isError":false,"output":[{"type":"text","text":"hi"}]}}}

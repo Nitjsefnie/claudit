@@ -1,0 +1,2 @@
+{"timestamp": "2026-06-14T12:00:00Z", "message": {"type": "ToolCall", "payload": {"type": "function", "id": "call_ok", "function": {"name": "Read"}}}}
+{"timestamp": "2026-06-14T12:00:01Z", "message": {"type": "ToolResult", "payload": {"tool_call_id": "call_ok", "return_value": {"is_error": false, "output": "ok"}}}}

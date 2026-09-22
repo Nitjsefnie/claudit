@@ -1,0 +1,4 @@
+{"timestamp": "2026-06-14T12:00:00Z", "message": {"type": "TurnBegin", "payload": {"user_input": "hi"}}}
+{"timestamp": "2026-06-14T12:00:01Z", "message": {"type": "ContentPart", "payload": {"type": "text", "text": "hello world"}}}
+{"timestamp": "2026-06-14T12:00:03Z", "message": {"type": "StatusUpdate", "payload": {"message_id": "a1", "token_usage": {"input_other": 100, "input_cache_creation": 0, "input_cache_read": 0, "output": 200}}}}
+{"timestamp": "2026-06-14T12:00:04Z", "message": {"type": "TurnEnd", "payload": {}}}
