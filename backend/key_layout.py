@@ -31,9 +31,9 @@ so always start with `-`. Outside sessions/ the Claude rule accepts any
 .jsonl[.xz] key of three or more segments, codexmeter's depth floor for
 its foreign (Claude-layout) transcripts.
 
-classify() takes an OBJECT key with no bucket segment; a later task
-qualifies stored keys with their bucket and strips it before calling
-this.
+classify() takes an OBJECT key with no bucket segment; stored file keys
+are bucket-qualified (`<bucket>/<object-key>`, several buckets per
+deploy) and r2.split_key() strips the bucket before these rules run.
 """
 from __future__ import annotations
 

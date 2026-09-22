@@ -563,10 +563,10 @@ def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
             "is_error, lines_added, lines_deleted) VALUES "
             # line_num=2 is sess-A's usage-bearing assistant record, so
             # the model filter's records join can find it.
-            "('projA/sess-A/sess-A.jsonl', 2, 0, '2026-05-07T10:00:01Z', "
+            "('claude/projA/sess-A/sess-A.jsonl', 2, 0, '2026-05-07T10:00:01Z', "
             " 'Edit', FALSE, 10, 4), "
             # Errored call: parsed as zero churn, must add nothing.
-            "('projA/sess-A/sess-A.jsonl', 2, 1, '2026-05-07T10:00:02Z', "
+            "('claude/projA/sess-A/sess-A.jsonl', 2, 1, '2026-05-07T10:00:02Z', "
             " 'Edit', TRUE, 0, 0)"
         )
         conn.commit()
@@ -605,7 +605,7 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
 ):
     """Hourly-or-coarser ranges read the ingest snapshot; sub-hour ranges
     retain exact live tool-call values."""
-    file_key = "projA/sess-A/sess-A.jsonl"
+    file_key = "claude/projA/sess-A/sess-A.jsonl"
     now = datetime.now(timezone.utc)
     with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
