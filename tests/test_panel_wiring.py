@@ -319,3 +319,13 @@ def test_context_panel_renders_both_measures_from_one_component():
     assert 'measure="tokens"' in app
     cost_mount = app.index("<window.CostByContextPanel")
     assert "hasCost && (" in app[max(0, cost_mount - 200):cost_mount]
+
+
+def test_a_lone_survivor_in_a_two_column_grid_spans_the_row():
+    """Hiding a cost panel leaves its partner alone in `.dash-grid-2`,
+    which still reserves two columns — so Tokens by Model rendered at
+    half width with an empty half beside it (measured on the live
+    llamameter deploy: 826px inside a 1664px grid). A lone child spans
+    the row instead."""
+    css = (ROOT / "public" / "app.css").read_text(encoding="utf-8")
+    assert ".dash-grid-2 > div:only-child { grid-column: 1 / -1; }" in css

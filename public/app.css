@@ -254,6 +254,10 @@ a.loadbtn { display: inline-block; text-decoration: none; }
    Breakdown didn't autoresize). */
 .dash-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .dash-grid-2 > div { min-width: 0; }
+/* A cost panel hidden on a free range leaves its partner alone in a grid
+   that still reserves two columns — half-width panel, empty half beside
+   it. A lone child takes the row. */
+.dash-grid-2 > div:only-child { grid-column: 1 / -1; }
 
 .dash-ttl     { min-height: 340px; }
 .dash-foot { font-size: 14px; padding: 4px 4px 24px; }
