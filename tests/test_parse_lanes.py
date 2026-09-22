@@ -112,20 +112,24 @@ def _fresh_db_fixture(monkeypatch):
     # Legacy ids are per-session sequences ("tc1" repeats across unrelated
     # sessions in the kimi bucket), so the adapter namespaces them with the
     # file key before ingest groups tool_uses by the id ACROSS files.
-    ("kimi_legacy_min.jsonl", "sessions/p/s/kimi_legacy_min.jsonl:tc1"),
+    ("kimi_legacy_min.jsonl", "sessions/p/s/wire.jsonl:tc1"),
 ])
 def test_a_lane_transcript_persists_through_ingest(fresh_db, name, tool_use_id):
     """Round trip: parse_file -> ingest._persist must land rows in files,
     records and tool_uses. Guards the schema's NOT NULLs -- request_id is
     NOT NULL DEFAULT '' and files.agent_type is NOT NULL -- which None
-    values from the adapter used to violate for every lane format."""
-    key = f"sessions/p/s/{name}"
+    values from the adapter used to violate for every lane format.
+
+    The key is the real lane shape (wire.jsonl under sessions/): since
+    key_layout owns the mapping, a non-wire basename inside sessions/ is
+    no longer a transcript at all."""
+    key = "sessions/p/s/wire.jsonl"
     out = parse.parse_file(key, (FIX / name).read_bytes())
     assert out["records"] and out["tool_uses"]
     when = datetime(2026, 9, 22, tzinfo=timezone.utc)
     ingest._persist(  # pylint: disable=protected-access
         R2Object(key=key, etag="etag", size=1024, last_modified=when),
-        {"project_id": "sessions", "display_name": "sessions",
+        {"project_id": "p", "display_name": "p",
          "first_seen_at": when, "last_seen_at": when},
         out, "50",
     )

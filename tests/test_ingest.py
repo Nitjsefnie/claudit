@@ -1,4 +1,5 @@
 import inspect
+import json
 import lzma
 import os
 import shutil
@@ -665,3 +666,43 @@ def test_rollups_rebuilt_when_nothing_changed(fresh_db, mini_r2_env):
     assert result["reparsed"] == 0
     with db.viz_conn() as c:
         assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0
+
+
+def test_lane_layout_ingests_with_marker_display_name(
+        fresh_db, tmp_path, monkeypatch):
+    """A lane bucket's sessions/ tree: wire.jsonl[.xz] under
+    sessions/<project>/<session>/, a project.json marker carrying the
+    display path, and a subagent wire under subagents/. Main and sidecar
+    land under the SAME (project, session), the marker's path becomes
+    projects.display_name, and is_main splits main from subagent."""
+    proj, sess = "8805b8ac99ad", "01a0-uuid"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / proj / sess
+    (lane / "subagents" / "019f-child").mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    shutil.copy(
+        _FIX_ROOT / "parser" / "kimi_code_min.jsonl",
+        lane / "subagents" / "019f-child" / "wire.jsonl",
+    )
+    (bucket / "sessions" / proj / "project.json").write_text(
+        json.dumps({"path": "/home/me/lanework"}))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["inserted"] == 2
+    assert result["r2_listed"] == 2, "the marker is not a transcript"
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT file_key, session_id, is_main FROM files "
+            "ORDER BY is_main DESC"
+        ).fetchall()
+        display = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (proj,))
+        n_records = _scalar(c, "SELECT COUNT(*) FROM records")
+    assert [(r[1], r[2]) for r in rows] == [(sess, True), (sess, False)]
+    assert all(r[0].startswith(f"sessions/{proj}/{sess}/") for r in rows)
+    assert display == "/home/me/lanework"
+    assert n_records > 0, "both wire files parsed into records"
