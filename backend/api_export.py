@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from starlette.responses import Response
 
+from backend import branding
 from backend.api_common import _parse_range
 
 router = APIRouter()
@@ -43,9 +44,11 @@ def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]
 
 
 def _export_filename(rng: str, project: str | None) -> str:
-    """Safe download filename: claudit_<project-or-all>_<range>.png."""
+    """Safe download filename: <brand>_<project-or-all>_<range>.png —
+    the brand name slugified the same way the project is."""
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", branding.brand_name())
     proj_slug = re.sub(r"[^A-Za-z0-9._-]", "_", project) if project else "all"
-    return f"claudit_{proj_slug}_{rng}.png"
+    return f"{name}_{proj_slug}_{rng}.png"
 
 
 async def _render_export(argv: list[str], out_path: str) -> None:

@@ -4,6 +4,13 @@
 
 const { useState, useEffect, useMemo } = React;
 
+// Branding comes from the backend, which injects window.BRAND
+// {name, title, description} into index.html (from APP_NAME /
+// APP_TITLE / APP_DESCRIPTION). The name renders as the top-bar logo
+// (upper-cased) and prefixes the export-PNG filename. No literal brand
+// string lives in this file.
+const BRAND = window.BRAND || {};
+
 function txToDashData(tx) {
   // Convert a real transcript into dashboard-shaped {events, limitHits, range}.
   // Each event = ONE assistant turn (after applying the parse_session
@@ -316,7 +323,7 @@ function ExportButton({ range, project }) {
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = objUrl;
-      a.download = `claudit_${project || 'all'}_${range}.png`;
+      a.download = `${(BRAND.name || 'export')}_${project || 'all'}_${range}.png`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -557,7 +564,7 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
       <div className="topbar-left">
         <div className="logo">
           <span className="logo-mark">{'>'}</span>
-          <span className="logo-text">CLAUDIT</span>
+          <span className="logo-text">{(BRAND.name || '').toUpperCase()}</span>
           <span className="logo-sub">token usage audit{isGuest ? ' · guest' : ''}</span>
         </div>
       </div>
