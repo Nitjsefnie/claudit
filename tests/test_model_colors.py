@@ -80,7 +80,9 @@ def test_derived_hue_stays_clear_of_the_hardcoded_hues():
     for k, v in out.items():
         if k.startswith("__"):
             continue
-        hue = float(OKLCH.match(v).group(0).split()[-1].rstrip(")"))
+        m = OKLCH.match(v)
+        assert m is not None, (k, v)
+        hue = float(m.group(0).split()[-1].rstrip(")"))
         gap = min(min(abs(hue - f), 360 - abs(hue - f)) for f in fixed)
         assert gap >= 8, (k, v, gap)
 
