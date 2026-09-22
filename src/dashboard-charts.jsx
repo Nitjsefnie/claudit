@@ -31,7 +31,11 @@ const COL = {
   linesDeleted:      'oklch(0.68 0.19 15)',   // red — deletions (positive series)
 };
 
-const MODEL_COLORS = {
+// --- Model colours
+// Hand-picked colours for the models that have one. Anything else — a new
+// lane, a new generation — used to fall to the '#888' every lookup site
+// carries, so two unknown models were the same grey on every panel.
+const MODEL_COLOR_TABLE = {
   'fable-5-1':   'oklch(0.84 0.12 318)',  // light orchid — current top tier
   'fable-5':     'oklch(0.78 0.17 330)',  // magenta
   'opus-5':      'oklch(0.72 0.18 350)',  // deep rose — current Opus
@@ -45,6 +49,57 @@ const MODEL_COLORS = {
   'haiku-4-5':   'oklch(0.78 0.14 175)',  // teal — matches --accent
   '<synthetic>': 'oklch(0.65 0.02 260)',  // neutral
 };
+
+// FNV-1a over the key: cheap, deterministic, and spreads adjacent ids
+// ("opus-4-7" / "opus-4-8") far apart, which a sum of char codes does not.
+function hashModelKey(key) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+// Degrees of hue kept clear on either side of every hand-picked hue, so a
+// generated colour cannot impersonate Opus or Sonnet at a glance.
+const MODEL_HUE_GUARD = 10;
+const MODEL_FIXED_HUES = Object.values(MODEL_COLOR_TABLE)
+  .map(c => parseFloat(c.split(' ')[2]));
+
+function hueDistance(a, b) {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+// A colour derived from the key alone: same key, same colour, on every
+// panel and every reload. The hue starts at the hash and steps by a
+// coprime stride until it is outside every guard band; L and C match the
+// hand-picked entries so the derived swatches sit in the same palette.
+function derivedModelColor(key) {
+  let hue = hashModelKey(key) % 360;
+  for (let i = 0; i < 360; i++) {
+    if (MODEL_FIXED_HUES.every(f => hueDistance(hue, f) >= MODEL_HUE_GUARD)) break;
+    hue = (hue + 37) % 360;
+  }
+  return `oklch(0.76 0.14 ${hue})`;
+}
+
+// The table every panel reads. A listed key returns its hand-picked
+// colour; any other string returns the derived one (memoised, so a model
+// is hashed once per page). Non-string keys (Symbol.iterator, from
+// spreading or JSON) fall through to the plain object so nothing that
+// inspects the table by reflection sees a colour it did not ask for.
+const derivedModelColors = {};
+const MODEL_COLORS = new Proxy(MODEL_COLOR_TABLE, {
+  get(table, key) {
+    if (typeof key !== 'string') return table[key];
+    if (Object.prototype.hasOwnProperty.call(table, key)) return table[key];
+    if (!derivedModelColors[key]) derivedModelColors[key] = derivedModelColor(key);
+    return derivedModelColors[key];
+  },
+});
+// --- End model colours
 
 function humanFmt(v, isCurrency) {
   const prefix = isCurrency ? '$' : '';
