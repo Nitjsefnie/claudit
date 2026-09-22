@@ -119,7 +119,8 @@ VERSION = _read_version()
 # 46 diffs Edit and python replace() payloads instead of counting both whole.
 # 47 multiplies a heredoc's churn by its enclosing literal `for` loops.
 # 48 prices a cache write with no declared TTL at the 1h rate, not 5m.
-PARSER_VERSION = "48"
+# 49 adds the Codex and Kimi rate tables and the long-context meter.
+PARSER_VERSION = "49"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
