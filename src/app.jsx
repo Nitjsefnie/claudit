@@ -85,7 +85,7 @@ function txToDashData(tx) {
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
       const r = rateFor(u.model);
       const unsplit = Math.max(0, cc - eph5 - eph1h);
-      const cost = (inp * r.fresh + out * r.out + (eph5 + unsplit) * r.c5 + eph1h * r.c1h + cr * r.read) / 1_000_000;
+      const cost = (inp * r.fresh + out * r.out + eph5 * r.c5 + (eph1h + unsplit) * r.c1h + cr * r.read) / 1_000_000;
       events.push({
         ts: t,
         session_id: sid,
@@ -613,7 +613,8 @@ function computeSessions(events) {
 // Compute Token Breakdown rows (tokens + TTL-split cost per type) from a
 // set of hourly events. Shared by TokenBreakdownPanel; the per-panel model
 // filter passes a pre-filtered subset of events. Cost is always TTL-split
-// (eph5 × c5, eph1h × c1h, unsplit cache_create charged at the 5m rate).
+// (eph5 × c5, eph1h × c1h, unsplit cache_create charged at the 1h rate —
+// an undeclared TTL is assumed to be the main-session norm, see SV-COST-SPLIT).
 function computeTokenBreakdown(events) {
   const t = { input: 0, output: 0, cc: 0, cr: 0, eph5: 0, eph1h: 0 };
   for (const e of events) {
@@ -633,7 +634,7 @@ function computeTokenBreakdown(events) {
       c.output    += (e.output_tokens  || 0) * r.out;
       c.eph5      += (e.ephemeral_5m   || 0) * r.c5;
       c.eph1h     += (e.ephemeral_1h   || 0) * r.c1h;
-      c.ccUnsplit += unsplit                  * r.c5;  // unsplit at 5m rate
+      c.ccUnsplit += unsplit                  * r.c1h; // unsplit at 1h rate
       c.cr        += (e.cache_read     || 0) * r.read;
     }
     for (const k of Object.keys(c)) c[k] = c[k] / 1_000_000;

@@ -76,3 +76,19 @@ def test_epoch_sql_binds_the_live_glm_promo_boundary():
     expr, params = rate_epoch_sql("ts")
     assert params == [datetime(2026, 9, 9, 16, 0, tzinfo=UTC)]
     assert expr.count("CASE") == 1
+
+
+def test_an_undeclared_ttl_lands_in_the_1h_bucket():
+    """/api/cache decomposes the stored cost into per-component buckets.
+    A write with no declared TTL is stored at the 1h rate (pricing.
+    compute_cost), so the fold must put it in the 1h bucket — in the 5m
+    bucket the parts would no longer sum to the stored total."""
+    stored = pricing.compute_cost(
+        "claude-sonnet-4-5", fresh=0, output=0, eph5=0, eph1h=0,
+        unsplit_create=1_000_000, read=0,
+    )
+    rows = [_row("claude-sonnet-4-5", 0, cc=1_000_000, cost=stored)]
+    m = fold_per_model(rows)[0]
+    assert m["cost_buckets"]["create_1h"] == pytest.approx(6.00)
+    assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
+    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])

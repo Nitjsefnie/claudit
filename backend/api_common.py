@@ -140,8 +140,10 @@ def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
     """Price one row's tokens into the entry's per-epoch cost buckets."""
     b = entry["_buckets"]
     b["fresh"] += fresh * rates["fresh"] / 1_000_000
-    b["create_5m"] += (eph5 + unsplit) * rates["create_5m"] / 1_000_000
-    b["create_1h"] += eph1h * rates["create_1h"] / 1_000_000
+    b["create_5m"] += eph5 * rates["create_5m"] / 1_000_000
+    # An undeclared TTL is priced as 1h, exactly as pricing.compute_cost
+    # stores it, so the buckets keep summing to the stored total.
+    b["create_1h"] += (eph1h + unsplit) * rates["create_1h"] / 1_000_000
     b["read"] += cr * rates["read"] / 1_000_000
     b["output"] += output * rates["output"] / 1_000_000
 

@@ -52,17 +52,17 @@ def test_streaming_within_file_max_merges_per_request_id():
     assert out["records"][0]["fresh_tokens"] == 100
 
 
-def test_unsplit_cache_charged_at_5m_rate():
+def test_unsplit_cache_charged_at_1h_rate():
     out = parse.parse_file(
         "k/sess-5/sess-5.jsonl", _read("unsplit_cache.jsonl")
     )
     r = out["records"][0]
-    # cache_creation_tokens=1M, eph5=0, eph1h=0 → unsplit=1M → cost via 5m rate
-    # Sonnet-4-5 5m rate is $3.75/MTok → expect $3.75
+    # cache_creation_tokens=1M, eph5=0, eph1h=0 → unsplit=1M → cost via 1h rate
+    # Sonnet-4-5 1h rate is $6.00/MTok → expect $6.00
     assert r["cache_creation_tokens"] == 1_000_000
     assert r["eph5_tokens"] == 0
     assert r["eph1h_tokens"] == 0
-    assert r["cost_usd"] == pytest.approx(3.75, rel=1e-9)
+    assert r["cost_usd"] == pytest.approx(6.00, rel=1e-9)
 
 
 def test_ttl_split_charges_each_bucket():

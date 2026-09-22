@@ -345,3 +345,16 @@ def test_thinking_panel_is_gated_and_never_enters_a_total():
     breakdown = src[src.index("function computeTokenBreakdown"):]
     breakdown = breakdown[:breakdown.index("\n}")]
     assert "thinking" not in breakdown
+
+
+def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
+    """The browser re-derives cost in two places (the synthetic preview's
+    per-event cost and Token Breakdown's per-type split). Both must price
+    a cache write with no declared TTL the way backend/pricing does — at
+    the 1h rate — or the breakdown disagrees with the stored total it is
+    meant to decompose (SV-COST-SPLIT)."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    assert "(eph1h + unsplit) * r.c1h" in src
+    assert "c.ccUnsplit += unsplit                  * r.c1h;" in src
+    assert "(eph5 + unsplit) * r.c5" not in src
+    assert "unsplit                  * r.c5" not in src

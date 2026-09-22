@@ -32,8 +32,16 @@ correct multiplier:
 
 - 5m write: 1.25× base input rate
 - 1h write: 2× base input rate
-- Tokens with no `ephemeral_*` split (legacy SDK records) charged at the
-  5m rate (conservative undercount, not overcount).
+- Tokens with no `ephemeral_*` split are charged at the **1h rate**. An
+  undeclared TTL is assumed to be the norm, and the norm is 1h: measured
+  over the corpus, main sessions write 98.7% of their cache at 1h, while
+  subagents write 97.2% at 5m and account for 96% of all 5m writes. So 5m
+  is the subagent exception. A token-plan provider (Kimi, Codex, Z.ai)
+  that reports no TTL has every reason to keep its cache long as well.
+  Every place that prices or decomposes cost follows this one rule —
+  `pricing.compute_cost`, the `/api/cache` bucket fold
+  (`api_common._accumulate_buckets`) and both browser sites in
+  `src/app.jsx` — or a breakdown stops summing to its stored total.
 
 Single-rate `cache_create` cost is BANNED. If you bump `MODEL_RATES`,
 also bump `PARSER_VERSION` in `backend/constants.py` so the next ingest reparses every

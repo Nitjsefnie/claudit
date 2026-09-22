@@ -118,12 +118,19 @@ def test_compute_cost_split_known_vector():
     assert cost == 5.00
 
 
-def test_unsplit_cache_charges_at_5m_rate():
+def test_unsplit_cache_charges_at_1h_rate():
+    """A cache write with no declared TTL is priced as the 1h tier.
+
+    Measured over the corpus: main sessions write 98.7% of their cache at
+    1h, and 96% of all 5m writes come from subagents. 1h is the norm an
+    undeclared write should assume, and a token-plan provider (Kimi,
+    Codex, Z.ai) has every reason to keep its cache long.
+    """
     cost = pricing.compute_cost(
         "claude-sonnet-4-5",
         fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=1_000_000, read=0,
     )
-    assert cost == 3.75   # NOT 6.00 (1h rate)
+    assert cost == 6.00   # NOT 3.75 (5m rate)
 
 
 def test_split_cache_charges_each_bucket_separately():

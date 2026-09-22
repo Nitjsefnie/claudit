@@ -222,12 +222,16 @@ def compute_cost(
     unsplit_create = max(0, cache_creation_input_tokens - eph5 - eph1h);
     must already be computed by the caller. Pass the record's own
     timestamp so dated rates apply to when the tokens were spent.
+
+    A write with no declared TTL is priced as 1h: main sessions write
+    98.7% of their cache at 1h, and 5m is the subagent exception (96% of
+    all 5m writes). See SV-COST-SPLIT.
     """
     r = rate_for(model, ts)
     return (
         fresh * r["fresh"] / 1_000_000
-        + (eph5 + unsplit_create) * r["create_5m"] / 1_000_000
-        + eph1h * r["create_1h"] / 1_000_000
+        + eph5 * r["create_5m"] / 1_000_000
+        + (eph1h + unsplit_create) * r["create_1h"] / 1_000_000
         + read * r["read"] / 1_000_000
         + output * r["output"] / 1_000_000
     )

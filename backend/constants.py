@@ -118,7 +118,8 @@ VERSION = _read_version()
 # 45 prices claude-opus-5-5.
 # 46 diffs Edit and python replace() payloads instead of counting both whole.
 # 47 multiplies a heredoc's churn by its enclosing literal `for` loops.
-PARSER_VERSION = "47"
+# 48 prices a cache write with no declared TTL at the 1h rate, not 5m.
+PARSER_VERSION = "48"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
