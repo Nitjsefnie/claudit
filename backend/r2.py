@@ -122,10 +122,17 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     """File-mode bucket root: `<root>/<bucket>` when it exists, else root.
 
     The fallback to the endpoint root exists for a single-bucket deploy
-    whose mirror predates per-bucket directories. With several buckets
-    configured the fallback is OFF: a shared root cannot tell two
-    buckets' objects apart — each would list (and each read would serve)
-    the same tree. multi just carries `len(buckets()) > 1`.
+    whose mirror predates per-bucket directories: with no <bucket>/
+    directory under the root, EVERY top-level directory there counts as
+    belonging to that one bucket (root holding alpha/ and beta/ with
+    R2_BUCKET=claude stores keys as claude/alpha/... and claude/beta/...).
+    With several buckets configured the fallback is OFF: a shared root
+    cannot tell two buckets' objects apart — each would list (and each
+    read would serve) the same tree. multi carries `len(buckets()) > 1`
+    and is what makes this function return None: a configured bucket with
+    no mirror directory, which the LISTING path must refuse (raise) just
+    as the read path does, because a silently empty bucket would let the
+    orphan sweep delete its whole history.
     """
     candidate = os.path.join(root, bucket)
     if os.path.isdir(candidate):
@@ -137,7 +144,16 @@ def _list_keys_file(root: str, bucket: str, prefix: str,
                     multi: bool) -> Iterator[R2Object]:
     scan_root = _scan_root(root, bucket, multi)
     if scan_root is None:
-        return
+        # Only reachable in multi-bucket mode (single-bucket falls back
+        # to the root above). Raise, never yield-empty: the ingest's
+        # orphan sweep deletes every row for keys the listing did not
+        # show, so a silently missing bucket directory would sweep that
+        # bucket's entire history as "orphans". Same condition, same
+        # spelling as the read path's refusal.
+        raise FileNotFoundError(
+            f"no mirror directory for configured bucket {bucket!r}; "
+            "listing refused rather than report a possibly-partial walk"
+        )
     prefix_path = _safe_join(scan_root, prefix) if prefix else scan_root
     if not os.path.isdir(prefix_path):
         return

@@ -6,6 +6,7 @@ a partial listing must never be allowed to sweep a bucket's history.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -198,6 +199,25 @@ def test_orphan_sweep_is_per_object_never_per_bucket(fresh_db, two_buckets):
     assert keys == [f"beta/{_OBJ_KEY}"]
 
 
+def test_missing_bucket_mirror_directory_aborts_the_run_before_the_sweep(
+        fresh_db, two_buckets):
+    """A configured bucket whose mirror directory is GONE is not an empty
+    bucket: its listing cannot be known complete, so the run must abort
+    with a fatal instead of sweeping the bucket's whole history."""
+    ingest.run_ingest(trigger="manual")
+    shutil.rmtree(two_buckets / "beta")
+
+    result = ingest.run_ingest(trigger="manual")
+
+    assert result["error"] is not None, (
+        "a missing bucket directory must abort the run, not list empty")
+    assert result["deleted"] == 0, "a failed listing must never sweep"
+    with db.viz_conn() as c:
+        keys = [r[0] for r in c.execute(
+            "SELECT file_key FROM files ORDER BY file_key")]
+    assert keys == [f"alpha/{_OBJ_KEY}", f"beta/{_OBJ_KEY}"]
+
+
 def test_listing_failure_aborts_the_run_before_the_orphan_sweep(
         fresh_db, two_buckets, monkeypatch):
     """Bucket beta's listing raises mid-walk: NO row of alpha or beta may
@@ -292,3 +312,20 @@ def test_sidecar_dotdot_path_is_rejected(sidecar_app):
         "?path=../beta/projT/sessT/data/x.txt"
     )
     assert r.status_code == 400
+
+
+def test_sidecar_unconfigured_bucket_surfaces_as_an_error(sidecar_app):
+    """A stored file key naming a bucket that is not configured is a
+    server-side misconfiguration: r2's refusal (ValueError) must
+    propagate out of the sidecar candidate loop, not be swallowed into a
+    404 as if the object were merely missing."""
+    with db.viz_conn() as c, c.cursor() as cur:
+        cur.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES ('ghost/p/ghost-sess/m.jsonl', 'projT', "
+            "'ghost-sess', TRUE, 'e', 1, now(), now(), 'test')")
+        c.commit()
+
+    with pytest.raises(ValueError):
+        sidecar_app.get("/api/sessions/ghost-sess/sidecar?path=data/ok.txt")

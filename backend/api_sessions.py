@@ -4,9 +4,11 @@ Split out of api.py (issue #8 module split).
 """
 from __future__ import annotations
 
+import lzma
 from datetime import datetime
 from typing import Any
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Query
 from starlette.responses import Response
 
@@ -69,7 +71,12 @@ def get_sidecar(
         try:
             body = r2.get_object(candidate)
             break
-        except Exception:
+        except (FileNotFoundError, ClientError, lzma.LZMAError):
+            # A candidate that is simply NOT THERE (file-mode ENOENT, S3
+            # NoSuchKey) or unreadable-as-stored (corrupt .xz) falls
+            # through to the next candidate. Anything else — the
+            # unconfigured-bucket ValueError above all — is a real error
+            # and must surface, not masquerade as a missing sidecar.
             continue
     if body is None:
         raise HTTPException(404, "sidecar not found")
