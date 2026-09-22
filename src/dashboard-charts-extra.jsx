@@ -369,6 +369,11 @@ const MODEL_CAPS = {
 };
 function capForModel(m) {
   const s = String(m).toLowerCase();
+  // The lane models. gpt-* caps at Codex's 272k context window — the same
+  // figure as the long-context billing threshold
+  // (window.LONG_CONTEXT_THRESHOLD); kimi-* at Kimi's 256k.
+  if (s.startsWith('gpt')) return 272_000;
+  if (s.startsWith('kimi')) return 256_000;
   return MODEL_CAPS[m]
     || ((s.includes('opus') || s.includes('fable')) ? 1_000_000 : 200_000);
 }

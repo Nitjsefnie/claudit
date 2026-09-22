@@ -112,3 +112,31 @@ def test_parser_js_exposes_the_same_rate_epochs():
         datetime.fromtimestamp(ms / 1000, tz=UTC) for ms in json.loads(proc.stdout)
     ]
     assert js_epochs == pricing.RATE_EPOCHS
+
+
+def test_parser_js_rate_table_is_the_whole_backend_table_in_order():
+    """Every MODEL_RATES key present in the JS table, in the same order,
+    with equal rows — and no extra JS keys. A future rate edit on one side
+    alone fails this instead of silently mispricing the Inspector."""
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      console.log(JSON.stringify({{
+        keys: Object.keys(window.modelRates),
+        rows: window.modelRates,
+      }}));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        # Return code checked by hand on the next line.
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["keys"] == list(pricing.MODEL_RATES.keys())
+    for key, js_row in got["rows"].items():
+        py_row = pricing.MODEL_RATES[key]
+        for js_field, py_field in _KEYMAP.items():
+            assert js_row[js_field] == pytest.approx(py_row[py_field]), (
+                f"{key}: {py_field}"
+            )
