@@ -70,12 +70,17 @@ def test_epoch_sql_collapses_to_a_constant_when_no_rates_are_dated(monkeypatch):
     assert epoch_ts(0) is None, "no epochs => price at list, not a window"
 
 
-def test_epoch_sql_binds_the_live_glm_promo_boundary():
-    # The one live window: the GLM-5.3-Flash launch promotion cutover is
-    # bound as a parameter, one CASE per boundary.
+def test_epoch_sql_binds_every_live_rate_boundary():
+    # The live windows: the GLM-5.3-Flash promotion cutover plus the two
+    # GPT-5.6 repricings ported from codexmeter. Each boundary is bound as
+    # a parameter, one CASE per boundary.
     expr, params = rate_epoch_sql("ts")
-    assert params == [datetime(2026, 9, 9, 16, 0, tzinfo=UTC)]
-    assert expr.count("CASE") == 1
+    assert params == [
+        datetime(2026, 7, 30, 18, 12, tzinfo=UTC),   # GPT-5.6 JUL30_CUT
+        datetime(2026, 8, 21, 19, 40, tzinfo=UTC),   # GPT-5.6 AUG21_CUT
+        datetime(2026, 9, 9, 16, 0, tzinfo=UTC),     # GLM promo cutover
+    ]
+    assert expr.count("CASE") == 3
 
 
 def test_an_undeclared_ttl_lands_in_the_1h_bucket():

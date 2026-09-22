@@ -301,6 +301,23 @@ window.modelRates = {
   // GLM (Z.ai): cache WRITES are free and reads are 0.2x input, so the
   // Anthropic 1.25x/2x/0.1x relations do not hold; explicit numbers.
   'glm-5-3-flash':     { fresh: 0.15, c5: 0,     c1h: 0,     read: 0.03,  out: 0.5 },
+  // Codex (OpenAI) and Kimi lanes, merged into claudit's one table from
+  // codexmeter's pricing (D4/D6): every rate explicit. A cache write
+  // prices at ONE rate whatever TTL the record declares (or fails to
+  // declare), so c5 and c1h carry the same value. Kimi bills cache_create
+  // at a flat ZERO; Codex cache writes at 1.25x uncached input, reads at
+  // 0.1x. GPT-6 Sol and Luna are not in codexmeter (D6). Keys are in
+  // _normaliseModel form (dots folded to dashes): 'gpt-5.6-sol'
+  // normalises to 'gpt-5-6-sol' before matching.
+  'kimi-k3':           { fresh: 3,    c5: 0,     c1h: 0,     read: 0.3,   out: 15 },
+  'kimi-k2-7-code':    { fresh: 0.95, c5: 0,     c1h: 0,     read: 0.19,  out: 4 },
+  'kimi-k2-6':         { fresh: 0.95, c5: 0,     c1h: 0,     read: 0.16,  out: 4 },
+  'gpt-6-astra':       { fresh: 10,   c5: 12.5,  c1h: 12.5,  read: 1,     out: 50 },
+  'gpt-6-sol':         { fresh: 2,    c5: 2.5,   c1h: 2.5,   read: 0.2,   out: 10 },
+  'gpt-6-luna':        { fresh: 0.1,  c5: 0.125, c1h: 0.125, read: 0.01,  out: 0.5 },
+  'gpt-5-6-sol':       { fresh: 4,    c5: 5,     c1h: 5,     read: 0.4,   out: 20 },
+  'gpt-5-6-terra':     { fresh: 2,    c5: 2.5,   c1h: 2.5,   read: 0.2,   out: 12 },
+  'gpt-5-6-luna':      { fresh: 0.2,  c5: 0.25,  c1h: 0.25,  read: 0.02,  out: 1.2 },
   // Fable 5.1 / Mythos 5.1 price cache HITS at 0.025x base input, not the
   // 0.1x every other model uses — reads are 0.25, a quarter of Fable 5's.
   'claude-fable-5-1':  { fresh: 10,   c5: 12.5,  c1h: 20,   read: 0.25, out: 50 },
@@ -330,13 +347,34 @@ window.modelRates = {
 // Dated overrides, per exact key. Mirrors pricing.DATED_RATES.
 // GLM-5.3-Flash launch promotion: 50% off list through 2026-09-09 24:00
 // UTC+8 (= 16:00 UTC); month is 0-based in Date.UTC.
+//
+// The GPT-5.6 repricings are ported from codexmeter, as frozen UTC
+// instants — NOT live expressions (month is 0-based in Date.UTC):
+//   JUL30_CUT 2026-07-30 18:12 UTC — luna -80%, terra -20%; sol untouched
+//   AUG21_CUT 2026-08-21 19:40 UTC — sol -20% in / -33% out; rest untouched
 window.datedRates = {
   'glm-5-3-flash': [
     { endExclusive: Date.UTC(2026, 8, 9, 16, 0, 0),
       rates: { fresh: 0.075, c5: 0, c1h: 0, read: 0.015, out: 0.25 } },
   ],
+  'gpt-5-6-sol': [
+    { endExclusive: Date.UTC(2026, 7, 21, 19, 40, 0),
+      rates: { fresh: 5, c5: 6.25, c1h: 6.25, read: 0.5, out: 30 } },
+  ],
+  'gpt-5-6-terra': [
+    { endExclusive: Date.UTC(2026, 6, 30, 18, 12, 0),
+      rates: { fresh: 2.5, c5: 3.125, c1h: 3.125, read: 0.25, out: 15 } },
+  ],
+  'gpt-5-6-luna': [
+    { endExclusive: Date.UTC(2026, 6, 30, 18, 12, 0),
+      rates: { fresh: 1, c5: 1.25, c1h: 1.25, read: 0.1, out: 6 } },
+  ],
 };
-window.rateEpochs = [Date.UTC(2026, 8, 9, 16, 0, 0)];
+window.rateEpochs = [
+  Date.UTC(2026, 6, 30, 18, 12, 0),
+  Date.UTC(2026, 7, 21, 19, 40, 0),
+  Date.UTC(2026, 8, 9, 16, 0, 0),
+];
 
 // Family fallbacks for unrecognised Claude models — current-generation
 // list rates for the tier, never a dated promotion. The generation is the

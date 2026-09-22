@@ -9,8 +9,8 @@ Cache writes are split by TTL:
   1h write = 2x base input    (column 'create_1h')
 
 Tokens recorded as cache_creation_input_tokens with NO ephemeral_5m/1h
-split (older SDK versions) are charged at the 5m rate — conservative
-undercount, not overcount. See SV-COST-SPLIT in
+split are charged at the 1h rate: main sessions write 98.7% of their
+cache at 1h and 5m is the subagent exception. See SV-COST-SPLIT in
 .claude/rules/claudit-doctrine.md.
 
 Three resolution behaviours matter, in priority order:
@@ -47,6 +47,26 @@ MODEL_RATES = {
     # GLM (Z.ai): cache WRITES are free and reads are 0.2x input, so the
     # Anthropic 1.25x/2x/0.1x relations do not hold; explicit numbers.
     "glm-5-3-flash":     {"fresh": 0.15, "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.03,  "output": 0.50},
+    # Codex (OpenAI) and Kimi lanes, merged into claudit's one table from
+    # codexmeter's pricing (D4/D6): every rate explicit. D4 prices a cache
+    # write at ONE rate whatever TTL the record declares (or fails to
+    # declare), so create_5m and create_1h carry the same value and an
+    # unsplit write is billed identically. Kimi bills cache_create at a
+    # flat ZERO; Codex cache writes at 1.25x uncached input, reads at 0.1x
+    # -- confirmed against OpenAI's own Sol table (4 / 0.4 / 5 / 20) and
+    # Astra table (10 / 1 / 12.50 / 50). GPT-6 Sol and Luna are not in
+    # codexmeter (D6). Keys are written in _normalise form (dots folded to
+    # dashes): a record's "gpt-5.6-sol" normalises to "gpt-5-6-sol" before
+    # matching.
+    "kimi-k3":           {"fresh": 3.00,  "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.30,  "output": 15.00},
+    "kimi-k2-7-code":    {"fresh": 0.95,  "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.19,  "output": 4.00},
+    "kimi-k2-6":         {"fresh": 0.95,  "create_5m": 0.00,  "create_1h": 0.00,  "read": 0.16,  "output": 4.00},
+    "gpt-6-astra":       {"fresh": 10.00, "create_5m": 12.50, "create_1h": 12.50, "read": 1.00,  "output": 50.00},
+    "gpt-6-sol":         {"fresh": 2.00,  "create_5m": 2.50,  "create_1h": 2.50,  "read": 0.20,  "output": 10.00},
+    "gpt-6-luna":        {"fresh": 0.10,  "create_5m": 0.125, "create_1h": 0.125, "read": 0.01,  "output": 0.50},
+    "gpt-5-6-sol":       {"fresh": 4.00,  "create_5m": 5.00,  "create_1h": 5.00,  "read": 0.40,  "output": 20.00},
+    "gpt-5-6-terra":     {"fresh": 2.00,  "create_5m": 2.50,  "create_1h": 2.50,  "read": 0.20,  "output": 12.00},
+    "gpt-5-6-luna":      {"fresh": 0.20,  "create_5m": 0.25,  "create_1h": 0.25,  "read": 0.02,  "output": 1.20},
     # Fable 5.1 / Mythos 5.1 price cache HITS at 0.025x base input, not the
     # 0.1x every other model uses — reads are 0.25, a quarter of Fable 5's.
     "claude-fable-5-1":  {"fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00, "read": 0.25, "output": 50.00},
@@ -76,6 +96,14 @@ MODEL_RATES = {
 
 DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]
 
+# A Codex request whose prompt exceeds this size bills the WHOLE request at
+# the long-context meter: 2x input, 1.5x output. Ported from codexmeter.
+# Applied per record by the caller, which is the only place that knows the
+# request's prompt size.
+LONG_CONTEXT_THRESHOLD = 272_000
+LONG_CONTEXT_INPUT_MULT = 2.0
+LONG_CONTEXT_OUTPUT_MULT = 1.5
+
 
 # Dated overrides, per exact key: (end_exclusive_utc, rates). Applied only
 # when a timestamp is supplied and only on an EXACT key match — a tier
@@ -90,9 +118,44 @@ DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]
 # come out at the price in force then — drop it and the next reparse
 # silently reprices that history at list.
 _GLM_FLASH_PROMO = {"fresh": 0.075, "create_5m": 0.00, "create_1h": 0.00, "read": 0.015, "output": 0.25}
+
+# The two GPT-5.6 repricings, ported from codexmeter, as frozen UTC
+# instants — NOT live expressions. Each is the moment of OpenAI's own
+# @Product Updates post, the finest resolution available; the posts say
+# "starting today" and carry no separate effective time. The source
+# timestamps were read in Europe/Prague (CEST, UTC+2), so each is the
+# posted wall clock minus two hours. If that reading is wrong the
+# boundary moves by exactly that offset and nothing else about the
+# mechanism changes.
+JUL30_CUT = datetime(2026, 7, 30, 18, 12, tzinfo=UTC)   # 20:12 Europe/Prague
+AUG21_CUT = datetime(2026, 8, 21, 19, 40, tzinfo=UTC)   # 21:40 Europe/Prague
+
+# The GPT-5.6 family repriced twice, and each cut moved a different subset:
+#   2026-07-09  GA                sol 5/30     terra 2.50/15   luna 1/6
+#   2026-07-30  luna -80%, terra -20%          sol untouched
+#   2026-08-21  sol -20% in / -33% out         terra and luna untouched
+# Sol's cut is promotional, announced as running at least through
+# 2026-11-21. Nothing is encoded for that: a reversion that has not happened
+# is not a rate, and guessing one would silently overbill every record after
+# the guessed date. Add a window when it actually moves.
+#
+# Ordered oldest-first, and _dated returns the FIRST window the timestamp
+# falls before, so a key may carry several.
 DATED_RATES: dict[str, list[tuple[datetime, dict]]] = {
     "glm-5-3-flash": [
         (datetime(2026, 9, 9, 16, 0, tzinfo=UTC), _GLM_FLASH_PROMO),
+    ],
+    "gpt-5-6-sol": [
+        (AUG21_CUT, {"fresh": 5.00, "create_5m": 6.25, "create_1h": 6.25,
+                     "read": 0.50, "output": 30.00}),
+    ],
+    "gpt-5-6-terra": [
+        (JUL30_CUT, {"fresh": 2.50, "create_5m": 3.125, "create_1h": 3.125,
+                     "read": 0.25, "output": 15.00}),
+    ],
+    "gpt-5-6-luna": [
+        (JUL30_CUT, {"fresh": 1.00, "create_5m": 1.25, "create_1h": 1.25,
+                     "read": 0.10, "output": 6.00}),
     ],
 }
 
@@ -216,6 +279,7 @@ def compute_cost(
     unsplit_create: int,
     read: int,
     ts: datetime | None = None,
+    long_context: bool = False,
 ) -> float:
     """USD cost for one request's token tally.
 
@@ -226,12 +290,19 @@ def compute_cost(
     A write with no declared TTL is priced as 1h: main sessions write
     98.7% of their cache at 1h, and 5m is the subagent exception (96% of
     all 5m writes). See SV-COST-SPLIT.
+
+    long_context applies the Codex long-context meter (2x input side,
+    1.5x output) to the whole request. It defaults off, so every existing
+    caller is unaffected: no Kimi caller passes it (the wire format has no
+    such tier), and neither does a Codex record on a subscription.
     """
     r = rate_for(model, ts)
+    in_mult = LONG_CONTEXT_INPUT_MULT if long_context else 1.0
+    out_mult = LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0
     return (
-        fresh * r["fresh"] / 1_000_000
-        + eph5 * r["create_5m"] / 1_000_000
-        + (eph1h + unsplit_create) * r["create_1h"] / 1_000_000
-        + read * r["read"] / 1_000_000
-        + output * r["output"] / 1_000_000
+        fresh * r["fresh"] * in_mult / 1_000_000
+        + eph5 * r["create_5m"] * in_mult / 1_000_000
+        + (eph1h + unsplit_create) * r["create_1h"] * in_mult / 1_000_000
+        + read * r["read"] * in_mult / 1_000_000
+        + output * r["output"] * out_mult / 1_000_000
     )
