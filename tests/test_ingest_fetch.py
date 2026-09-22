@@ -218,7 +218,7 @@ def test_fetch_gives_up_after_three_attempts(
     assert _FLAKY_KEY in result["error"]
 
 
-_CORRUPT_XZ_KEY = "projC/sess-E/sess-E.jsonl.xz"
+_CORRUPT_XZ_KEY = "claude/projC/sess-E/sess-E.jsonl.xz"
 
 
 def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(

@@ -1,8 +1,10 @@
 """R2 → Postgres ingest.
 
-Per-file granularity: every *.jsonl under bucket root → one row in `files`
-+ N rows in `records` (per Phase-1-deduped record). Cross-file uuid
-dedup is a query-time concern.
+Per-file granularity: every object key `key_layout.classify()` accepts —
+across EVERY configured bucket (R2_BUCKET names one or more, joined by
+'+') → one row in `files`, keyed by the bucket-qualified
+`<bucket>/<object-key>`, + N rows in `records` (per Phase-1-deduped
+record). Cross-file uuid dedup is a query-time concern.
 
 Reparse trigger per FILE: row missing OR etag changed OR parser_version
 mismatch. Orphan files (R2 key gone) are deleted. CASCADE drops records.
@@ -281,11 +283,12 @@ def _collect_todo(existing: dict, parser_version: str,
     wire_objs: list = []
     marker_items: list[tuple[str, str]] = []
     for obj in r2.list_keys():
-        marker_project = key_layout.project_marker(obj.key)
+        marker_project = key_layout.project_marker(
+            r2.split_key(obj.key)[1])
         if marker_project is not None:
             marker_items.append((marker_project, obj.key))
             continue
-        if key_layout.classify(obj.key) is None:
+        if key_layout.classify(r2.split_key(obj.key)[1]) is None:
             continue
         wire_objs.append(obj)
     project_paths = _resolve_project_paths(
@@ -296,7 +299,7 @@ def _collect_todo(existing: dict, parser_version: str,
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
     for obj in wire_objs:
-        info = key_layout.classify(obj.key)
+        info = key_layout.classify(r2.split_key(obj.key)[1])
         if info is None:  # pragma: no cover - the scan kept only transcripts
             continue
         listed += 1
@@ -705,10 +708,11 @@ def _persist(obj, proj, parsed, parser_version) -> None:
     """One file, one transaction — identical to the pre-pool behaviour.
 
     project_id, session_id and is_main come from the same
-    key_layout.classify() the walk used, so a lane wire lands under the
+    key_layout.classify() the walk used, applied to the object-key part
+    of the bucket-qualified file key, so a lane wire lands under the
     project and session its key names and a subagent wire is never main.
     """
-    info = key_layout.classify(obj.key)
+    info = key_layout.classify(r2.split_key(obj.key)[1])
     if info is None:
         raise ValueError(f"not a transcript key: {obj.key}")
     project_id, session_id, is_main = info

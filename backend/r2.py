@@ -4,8 +4,17 @@ When R2_ENDPOINT starts with 'file://', the client walks the local
 directory tree at the path. Otherwise it uses boto3 against R2's
 S3-compatible endpoint.
 
+Several buckets per deploy: R2_BUCKET may name SEVERAL buckets joined by
+'+' (e.g. 'claude', or 'claude+codex+kimi'); every stored file key is
+qualified with its bucket as `<bucket>/<object-key>`. list_keys() yields
+qualified keys, and get_object()/get_stream() split that first segment
+back off (refusing a bucket not in buckets()); key_layout keeps working
+on the object key without it.
+
 API surface:
-- list_keys(prefix='') -> iterator of R2Object
+- buckets() -> configured bucket names
+- split_key(key) -> (bucket, object-key)
+- list_keys(prefix='') -> iterator of R2Object, `.key` bucket-qualified
 - get_object(key) -> bytes
 - get_stream(key) -> file-like (for line-streaming large transcripts)
 """
@@ -14,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import lzma
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Iterator, NamedTuple
@@ -22,12 +32,68 @@ from urllib.parse import urlparse
 import boto3
 from botocore.config import Config
 
+# S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
+# hyphens, starting and ending letter/digit. R2 follows the same rules.
+_BUCKET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
+_BUCKET_ENV = "R2_BUCKET"
+_BUCKET_SEP = "+"
+_DEFAULT_BUCKET = "claude"
+
 
 class R2Object(NamedTuple):
     key: str
     etag: str
     size: int
     last_modified: datetime
+
+
+def buckets() -> list[str]:
+    """The configured bucket names, in R2_BUCKET order, deduped.
+
+    R2_BUCKET carries one or more bucket names joined by '+' — 'claude',
+    or 'claude+codex+kimi' to serve several buckets from one deploy.
+    Whitespace around a name is stripped, and every name is validated
+    against the S3 bucket-name grammar: an invalid one raises ValueError
+    naming it, on the first call — the startup ingest lists first, so a
+    bad R2_BUCKET aborts startup rather than half-serving.
+    """
+    raw = os.environ.get(_BUCKET_ENV) or _DEFAULT_BUCKET
+    names: list[str] = []
+    for piece in raw.split(_BUCKET_SEP):
+        name = piece.strip()
+        if not _BUCKET_NAME_RE.match(name):
+            raise ValueError(
+                f"R2_BUCKET entry {name!r} is not a valid S3 bucket "
+                + "name (3-63 chars of a-z, 0-9 and '-')"
+            )
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def split_key(key: str) -> tuple[str, str]:
+    """Split a stored file key `<bucket>/<object-key>` into its two parts.
+
+    Stored file identity is bucket-qualified (several buckets per
+    deploy). The bucket is a routing segment this module owns:
+    key_layout.classify() and project_marker() keep taking the OBJECT key
+    and must be handed `split_key(...)[1]`.
+    """
+    bucket, sep, object_key = key.partition("/")
+    if not sep or not object_key:
+        raise ValueError(f"file key has no bucket segment: {key!r}")
+    return bucket, object_key
+
+
+def _configured(key: str) -> tuple[str, str]:
+    """split_key() plus the refusal: a bucket not named in R2_BUCKET is
+    not ours to serve. Every read path goes through here."""
+    bucket, object_key = split_key(key)
+    if bucket not in buckets():
+        raise ValueError(
+            f"bucket {bucket!r} is not configured in R2_BUCKET"
+        )
+    return bucket, object_key
 
 
 def _is_file_mode() -> tuple[bool, str]:
@@ -52,15 +118,26 @@ def _safe_join(root: str, key: str) -> str:
     return full
 
 
-def _scan_root(root: str, bucket: str) -> str:
-    """File-mode bucket root: <root>/<bucket> when it exists, else root."""
-    return os.path.join(root, bucket) if os.path.isdir(
-        os.path.join(root, bucket)
-    ) else root
+def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
+    """File-mode bucket root: `<root>/<bucket>` when it exists, else root.
+
+    The fallback to the endpoint root exists for a single-bucket deploy
+    whose mirror predates per-bucket directories. With several buckets
+    configured the fallback is OFF: a shared root cannot tell two
+    buckets' objects apart — each would list (and each read would serve)
+    the same tree. multi just carries `len(buckets()) > 1`.
+    """
+    candidate = os.path.join(root, bucket)
+    if os.path.isdir(candidate):
+        return candidate
+    return None if multi else root
 
 
-def _list_keys_file(root: str, bucket: str, prefix: str) -> Iterator[R2Object]:
-    scan_root = _scan_root(root, bucket)
+def _list_keys_file(root: str, bucket: str, prefix: str,
+                    multi: bool) -> Iterator[R2Object]:
+    scan_root = _scan_root(root, bucket, multi)
+    if scan_root is None:
+        return
     prefix_path = _safe_join(scan_root, prefix) if prefix else scan_root
     if not os.path.isdir(prefix_path):
         return
@@ -76,7 +153,7 @@ def _list_keys_file(root: str, bucket: str, prefix: str) -> Iterator[R2Object]:
                 f"{int(st.st_mtime_ns)}:{st.st_size}".encode()
             ).hexdigest()
             yield R2Object(
-                key=rel,
+                key=f"{bucket}/{rel}",
                 etag=etag,
                 size=st.st_size,
                 last_modified=datetime.fromtimestamp(
@@ -91,7 +168,7 @@ def _list_keys_s3(bucket: str, prefix: str) -> Iterator[R2Object]:
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for o in page.get("Contents", []):
             yield R2Object(
-                key=o["Key"],
+                key=f"{bucket}/{o['Key']}",
                 etag=str(o["ETag"]).strip('"'),
                 size=int(o["Size"]),
                 last_modified=o["LastModified"],
@@ -99,24 +176,44 @@ def _list_keys_s3(bucket: str, prefix: str) -> Iterator[R2Object]:
 
 
 def list_keys(prefix: str = "") -> Iterator[R2Object]:
+    """List every configured bucket, keys qualified with their bucket.
+
+    `prefix`, when given, applies to the QUALIFIED key and must name the
+    bucket segment (e.g. 'claude/projA/'): a bucket the prefix does not
+    name is not listed at all, so a shared-prefix listing stays exact
+    rather than over-listing that bucket.
+    """
     file_mode, root = _is_file_mode()
-    bucket = os.environ.get("R2_BUCKET", "claude")
-    if file_mode:
-        yield from _list_keys_file(root, bucket, prefix)
-    else:
-        yield from _list_keys_s3(bucket, prefix)
+    names = buckets()
+    multi = len(names) > 1
+    for bucket in names:
+        oprefix = ""
+        if prefix:
+            if not prefix.startswith(bucket + "/"):
+                continue
+            oprefix = prefix[len(bucket) + 1:]
+        if file_mode:
+            yield from _list_keys_file(root, bucket, oprefix, multi)
+        else:
+            yield from _list_keys_s3(bucket, oprefix)
 
 
 def get_object(key: str) -> bytes:
+    """Fetch one object by its stored, bucket-qualified key."""
     file_mode, root = _is_file_mode()
-    bucket = os.environ.get("R2_BUCKET", "claude")
+    bucket, object_key = _configured(key)
     if file_mode:
-        full = _safe_join(_scan_root(root, bucket), key)
+        scan_root = _scan_root(root, bucket, len(buckets()) > 1)
+        if scan_root is None:
+            raise FileNotFoundError(
+                f"no mirror directory for bucket {bucket!r}"
+            )
+        full = _safe_join(scan_root, object_key)
         with open(full, "rb") as f:
             data = f.read()
     else:
         s3 = _boto_client()
-        data = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        data = s3.get_object(Bucket=bucket, Key=object_key)["Body"].read()
     # Bucket objects may be stored per-object xz-compressed (`*.jsonl.xz`).
     # Inflate transparently so callers (ingest, transcript serving) always
     # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
@@ -132,15 +229,20 @@ def get_stream(key: str):
     read (stdlib `lzma`), so callers line-iterate plain JSONL either way.
     """
     file_mode, root = _is_file_mode()
-    bucket = os.environ.get("R2_BUCKET", "claude")
+    bucket, object_key = _configured(key)
     if file_mode:
-        full = _safe_join(_scan_root(root, bucket), key)
+        scan_root = _scan_root(root, bucket, len(buckets()) > 1)
+        if scan_root is None:
+            raise FileNotFoundError(
+                f"no mirror directory for bucket {bucket!r}"
+            )
+        full = _safe_join(scan_root, object_key)
         if key.endswith(".xz"):
             return lzma.LZMAFile(full)
         # Ownership passes to the caller (see docstring).
         return open(full, "rb")
     s3 = _boto_client()
-    raw = s3.get_object(Bucket=bucket, Key=key)["Body"]
+    raw = s3.get_object(Bucket=bucket, Key=object_key)["Body"]
     if key.endswith(".xz"):
         return lzma.LZMAFile(raw)
     return raw

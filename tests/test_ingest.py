@@ -17,8 +17,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
 
 # One of the five jsonl keys in fixtures/r2_mini, used as the object whose
-# fetch is made to fail.
-_FLAKY_KEY = "projA/sess-A/sess-A.jsonl"
+# fetch is made to fail. Stored file keys are bucket-qualified.
+_FLAKY_KEY = "claude/projA/sess-A/sess-A.jsonl"
 
 
 def _scalar(cur, sql: str, params=None):
@@ -703,6 +703,8 @@ def test_lane_layout_ingests_with_marker_display_name(
             (proj,))
         n_records = _scalar(c, "SELECT COUNT(*) FROM records")
     assert [(r[1], r[2]) for r in rows] == [(sess, True), (sess, False)]
-    assert all(r[0].startswith(f"sessions/{proj}/{sess}/") for r in rows)
+    assert all(
+        r[0].startswith(f"claude/sessions/{proj}/{sess}/") for r in rows
+    )
     assert display == "/home/me/lanework"
     assert n_records > 0, "both wire files parsed into records"
