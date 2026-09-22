@@ -97,6 +97,20 @@ TRANSIENT_FETCH_ERRORS = (OSError, BotoCoreError, ClientError)
 CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
 
 
+class VanishedObject(Exception):
+    """A listed object that was gone by the time its GET ran.
+
+    The archiver deletes and moves objects while a run is in flight (a
+    session pruned mid-run, or re-filed into another lane's bucket), so a
+    NoSuchKey after a successful listing is the ordinary shape of "this
+    key is an orphan that appeared early", not a drop and not a failure:
+    retrying cannot bring the bytes back, and the next listing will not
+    show the key at all. Raised on the first attempt, never booked in
+    ingest_runs.error, and the key is handed to the orphan sweep so a row
+    a previous run left for it does not linger as a stale file.
+    """
+
+
 class FatalFetchError(Exception):
     """A non-transient failure of an R2 GET, i.e. a bug rather than a drop.
 
@@ -239,7 +253,8 @@ def _collect_todo(existing: dict, parser_version: str) -> tuple:
 
 
 def _fetch_parse_persist(todo: list[tuple], parser_version: str,
-                         failed: list[tuple[str, str]]) -> tuple[int, int]:
+                         failed: list[tuple[str, str]],
+                         seen_keys: set[str]) -> tuple[int, int, int]:
     """Fetch+parse the queued files on a pool, persist on this thread.
 
     Fetch + parse is ~88% of per-file wall time and is network-bound
@@ -249,18 +264,27 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
     submitted in bounded chunks so an 8k-file reparse does not hold
     every inflated blob in memory at once.
 
-    Returns (inserted, reparsed).
+    A VanishedObject is discarded from `seen_keys` so _delete_orphans
+    treats the key exactly as one the listing never showed.
+
+    Returns (inserted, reparsed, vanished).
     """
     inserted = 0
     reparsed = 0
+    vanished = 0
     _set_progress(phase="parsing", total=len(todo), done=0)
     workers = worker_count()
     chunk = max(1, workers * 4)
     for start in range(0, len(todo), chunk):
-        batch = todo[start:start + chunk]
         for (obj, proj, stored), parsed, exc in _resolve(
-            batch, lambda it: _fetch_and_parse(it[0].key), workers
+            todo[start:start + chunk],
+            lambda it: _fetch_and_parse(it[0].key), workers,
         ):
+            if isinstance(exc, VanishedObject):
+                log.info("ingest: %s vanished between list and fetch", obj.key)
+                seen_keys.discard(obj.key)
+                vanished += 1
+                continue
             if exc is not None:
                 _record_failure(failed, obj.key, exc)
                 continue
@@ -270,7 +294,7 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
             else:
                 reparsed += 1
             _set_progress(done=inserted + reparsed)
-    return inserted, reparsed
+    return inserted, reparsed, vanished
 
 
 def _delete_orphans(seen_keys: set[str]) -> int:
@@ -328,16 +352,19 @@ def _rebuild_derived_state() -> None:
 
 
 def _walk_and_persist(parser_version: str,
-                      failed: list[tuple[str, str]]) -> tuple[int, int, int, int]:
+                      failed: list[tuple[str, str]]) -> tuple[int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
 
-    Returns (listed, inserted, reparsed, deleted). Exceptions propagate to
-    run_ingest_locked, which books them as the run-level `fatal`.
+    Returns (listed, inserted, reparsed, deleted, vanished). Exceptions
+    propagate to run_ingest_locked, which books them as the run-level
+    `fatal`.
     """
     listed, todo, seen_keys = _collect_todo(_existing_files(), parser_version)
-    inserted, reparsed = _fetch_parse_persist(todo, parser_version, failed)
+    inserted, reparsed, vanished = _fetch_parse_persist(
+        todo, parser_version, failed, seen_keys
+    )
     deleted = _delete_orphans(seen_keys)
-    return listed, inserted, reparsed, deleted
+    return listed, inserted, reparsed, deleted, vanished
 
 
 def run_ingest_locked(trigger: str) -> dict:
@@ -347,7 +374,7 @@ def run_ingest_locked(trigger: str) -> dict:
 
     _set_progress(phase="listing", done=0, total=0,
                   run_id=run_id, started_at=started.isoformat())
-    listed = inserted = reparsed = deleted = 0
+    listed = inserted = reparsed = deleted = vanished = 0
     # Per-object failures (key, message). Recorded in the run's `error`, but
     # deliberately NOT used to gate anything: one dropped connection out of
     # 9,213 files is a run with a retry pending, not a failed run.
@@ -356,7 +383,7 @@ def run_ingest_locked(trigger: str) -> dict:
     fatal = None
 
     try:
-        listed, inserted, reparsed, deleted = _walk_and_persist(
+        listed, inserted, reparsed, deleted, vanished = _walk_and_persist(
             parser_version, failed
         )
     except Exception as e:  # noqa: BLE001
@@ -378,6 +405,7 @@ def run_ingest_locked(trigger: str) -> dict:
         "reparsed": reparsed,
         "deleted": deleted,
         "failed": len(failed),
+        "vanished": vanished,
         "error": err,
     }
     # Gated on `fatal`, NOT on `err`: the derived state describes whatever
@@ -554,6 +582,8 @@ def _fetch_with_retry(key: str) -> bytes:
       one per-object failure.
     - CORRUPT_PAYLOAD_ERRORS — propagate on the FIRST attempt. Also one
       per-object failure, but no retry: the bytes will not improve.
+    - a missing object (S3 NoSuchKey, file-mode ENOENT) — VanishedObject
+      on the FIRST attempt: not a failure at all, see the class.
     - anything else — a bug, re-raised as FatalFetchError so the
       per-object collector does not absorb it. A TypeError inside
       get_object would otherwise become a 9,213-object "partial run" that
@@ -565,7 +595,9 @@ def _fetch_with_retry(key: str) -> bytes:
             return r2.get_object(key)
         except CORRUPT_PAYLOAD_ERRORS:
             raise
-        except TRANSIENT_FETCH_ERRORS:
+        except TRANSIENT_FETCH_ERRORS as e:
+            if _is_missing(e):
+                raise VanishedObject(key) from e
             if attempt == FETCH_ATTEMPTS:
                 raise
             log.warning(
@@ -576,6 +608,22 @@ def _fetch_with_retry(key: str) -> bytes:
         except Exception as e:  # noqa: BLE001
             raise FatalFetchError(f"{key}: {type(e).__name__}: {e}") from e
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _is_missing(exc: BaseException) -> bool:
+    """Whether a fetch error says the object does not exist (any more).
+
+    FileNotFoundError is the file:// mirror's spelling; boto3 folds the
+    S3 404 into a ClientError whose code is `NoSuchKey`. Neither is
+    transient, and neither is a bug, which is why they need a name of
+    their own rather than a place in the two tuples above.
+    """
+    if isinstance(exc, FileNotFoundError):
+        return True
+    if isinstance(exc, ClientError):
+        code = exc.response.get("Error", {}).get("Code")
+        return code in ("NoSuchKey", "404")
+    return False
 
 
 def _fetch_and_parse(key: str) -> dict:
