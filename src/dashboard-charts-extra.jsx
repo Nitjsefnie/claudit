@@ -2723,7 +2723,13 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
       .map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
-  const mspec = _HEAT_METRICS.find(m => m.key === metric) || _HEAT_METRICS[0];
+  // A free lane (bonsai-2-27b at $0) paints an empty grid under the
+  // cost metric, so the button is dropped and a selection stuck on it
+  // falls back to the first metric that does have data.
+  const hasCost = cells.some(c => (c.cost_usd || 0) > 0);
+  const metricOpts = _HEAT_METRICS.filter(m => m.key !== 'cost_usd' || hasCost);
+  const activeMetric = (metric === 'cost_usd' && !hasCost) ? metricOpts[0].key : metric;
+  const mspec = _HEAT_METRICS.find(m => m.key === activeMetric) || _HEAT_METRICS[0];
 
   const { byCell, maxVal, rowTotals, colTotals, grand, rowMax, colMax } = React.useMemo(() => {
     const byCell = new Map();               // dow*100+hour -> cell
@@ -2734,7 +2740,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
     const grand = zero();
     for (const c of cells || []) {
       byCell.set(c.dow * 100 + c.hour, c);
-      maxVal = Math.max(maxVal, c[metric] || 0);
+      maxVal = Math.max(maxVal, c[activeMetric] || 0);
       const r = rowTotals[c.dow - 1];
       const col = colTotals[c.hour];
       for (const k of ['requests', 'output_tokens', 'cost_usd']) {
@@ -2742,10 +2748,10 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
         r[k] += v; col[k] += v; grand[k] += v;
       }
     }
-    const rowMax = Math.max(...rowTotals.map(r => r[metric]), 0);
-    const colMax = Math.max(...colTotals.map(c => c[metric]), 0);
+    const rowMax = Math.max(...rowTotals.map(r => r[activeMetric]), 0);
+    const colMax = Math.max(...colTotals.map(c => c[activeMetric]), 0);
     return { byCell, maxVal, rowTotals, colTotals, grand, rowMax, colMax };
-  }, [cells, metric]);
+  }, [cells, activeMetric]);
 
   // Geometry — 25 columns × 8 rows (24 hours + Σ, 7 days + Σ), label gutters left + top.
   const padL = 44, padR = 14, padT = 24, padB = 10, gap = 2;
@@ -2789,8 +2795,8 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   function onSumColEnter(e, dow) {
     const rect = ref.current.getBoundingClientRect();
     const r = rowTotals[dow - 1];
-    const v = r[metric];
-    const pct = grand[metric] > 0 ? (v / grand[metric] * 100).toFixed(1) : '0.0';
+    const v = r[activeMetric];
+    const pct = grand[activeMetric] > 0 ? (v / grand[activeMetric] * 100).toFixed(1) : '0.0';
     setTip({
       x: e.clientX - rect.left, y: e.clientY - rect.top,
       title: `${_HEAT_DOW[dow - 1]} · all hours`,
@@ -2807,8 +2813,8 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   function onSumRowEnter(e, hour) {
     const rect = ref.current.getBoundingClientRect();
     const c = colTotals[hour];
-    const v = c[metric];
-    const pct = grand[metric] > 0 ? (v / grand[metric] * 100).toFixed(1) : '0.0';
+    const v = c[activeMetric];
+    const pct = grand[activeMetric] > 0 ? (v / grand[activeMetric] * 100).toFixed(1) : '0.0';
     setTip({
       x: e.clientX - rect.left, y: e.clientY - rect.top,
       title: `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00 · all days`,
@@ -2854,12 +2860,12 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
           </div>
         </div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
-          {_HEAT_METRICS.map(m => (
+          {metricOpts.map(m => (
             <button key={m.key} type="button" onClick={() => setMetric(m.key)}
               style={{
                 background: 'transparent',
-                color: metric === m.key ? TH_X.text : TH_X.textDim,
-                border: `1px solid ${metric === m.key ? m.color : TH_X.border}`,
+                color: activeMetric === m.key ? TH_X.text : TH_X.textDim,
+                border: `1px solid ${activeMetric === m.key ? m.color : TH_X.border}`,
                 borderRadius: 3, padding: '2px 8px',
                 fontFamily: 'monospace', fontSize: 11, cursor: 'pointer',
               }}
@@ -2924,7 +2930,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
           Array.from({ length: 24 }, (_, hour) => {
             const { x, y } = cellRect(dow, hour);
             const c = byCell.get(dow * 100 + hour);
-            const v = c ? (c[metric] || 0) : 0;
+            const v = c ? (c[activeMetric] || 0) : 0;
             const f = fillFor(v, maxVal);
             return (
               <rect key={`${dow}-${hour}`} x={x} y={y}
@@ -2939,7 +2945,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
 
         {/* Σ column (per-weekday totals) */}
         {Array.from({ length: 7 }, (_, i) => i + 1).map(dow => {
-          const v = rowTotals[dow - 1][metric];
+          const v = rowTotals[dow - 1][activeMetric];
           const f = fillFor(v, rowMax);
           return (
             <rect key={`sumcol-${dow}`} x={sumColX}
@@ -2954,7 +2960,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
 
         {/* Σ row (per-hour totals) */}
         {Array.from({ length: 24 }, (_, hour) => {
-          const v = colTotals[hour][metric];
+          const v = colTotals[hour][activeMetric];
           const f = fillFor(v, colMax);
           return (
             <rect key={`sumrow-${hour}`} x={padL + hour * (cellW + gap)}
@@ -3017,12 +3023,20 @@ const BAR_COLOR = (COL_X && COL_X.costUSD) || 'oklch(0.85 0.14 90)';
 const BAR_OPACITY = 0.3;
 const BAR_OPACITY_HOVER = 0.85;
 
-function CostByContextPanel({ models, project, range, nonce }) {
+// `measure` picks which side of the same endpoint the panel charts:
+// 'cost' (dollars, the original) or 'tokens' (every token the calls in
+// that bucket processed). ONE component rather than a copy — the mark
+// treatment below (dim bars, a same-hue cumulative line under a white
+// halo, container hover, rotated axis captions) is pinned by
+// tests/test_panel_wiring.py against this implementation, and a second
+// copy would drift out from under those guards.
+function CostByContextPanel({ models, project, range, nonce, measure }) {
+  const isTokens = measure === 'tokens';
   const ref = React.useRef(null);
   const [w, setW] = React.useState(1200);
   const [tip, setTip] = React.useState(null);
   const [data, setData] = React.useState([]);
-  const [meta, setMeta] = React.useState({ bucket_width: 50000, bucket_max: 1000000, total_cost_usd: 0 });
+  const [meta, setMeta] = React.useState({ bucket_width: 50000, bucket_max: 1000000, total_cost_usd: 0, total_tokens: 0 });
   // Per-panel model filter, same convention as ToolUsagePanel: drill into
   // one model without disturbing the other panels.
   const [activeModel, setActiveModel] = React.useState('');
@@ -3045,6 +3059,7 @@ function CostByContextPanel({ models, project, range, nonce }) {
           bucket_width: b.bucket_width || 50000,
           bucket_max: b.bucket_max || 1000000,
           total_cost_usd: b.total_cost_usd || 0,
+          total_tokens: b.total_tokens || 0,
         });
       })
       .catch(err => console.error('cost-by-context fetch failed', err));
@@ -3070,19 +3085,21 @@ function CostByContextPanel({ models, project, range, nonce }) {
     for (const b of data) byEdge.set(b.ctx_bucket, b);
     const out = [];
     let running = 0;
+    const grand = isTokens ? meta.total_tokens : meta.total_cost_usd;
     for (let e = 0; e <= meta.bucket_max; e += meta.bucket_width) {
       const hit = byEdge.get(e);
-      running += hit ? hit.cost_usd : 0;
+      const v = hit ? (isTokens ? hit.total_tokens : hit.cost_usd) : 0;
+      running += v;
       out.push({
         edge: e,
-        cost: hit ? hit.cost_usd : 0,
+        cost: v,
         requests: hit ? hit.requests : 0,
-        cum: meta.total_cost_usd ? running / meta.total_cost_usd : 0,
+        cum: grand ? running / grand : 0,
         overflow: e === meta.bucket_max,
       });
     }
     return out;
-  }, [data, meta]);
+  }, [data, meta, isTokens]);
 
   const maxCost = React.useMemo(
     () => Math.max(1e-9, ...bars.map(b => b.cost)), [bars]);
@@ -3118,7 +3135,11 @@ function CostByContextPanel({ models, project, range, nonce }) {
   }, [bars]);
 
   const fmtTok = t => (t >= 1000 ? `${Math.round(t / 1000)}k` : String(t));
-  const fmtUsd = v => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v < 10 ? 2 : 0)}`);
+  // The measure's own formatter, used for the y-axis, the tooltip and
+  // the total badge alike so all three read in the same unit.
+  const fmtUsd = v => (isTokens
+    ? humanFmt_X(v)
+    : (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v < 10 ? 2 : 0)}`));
 
   // On the CONTAINER, not the <svg>: that is the tooltip's offsetParent,
   // so its coordinates need no second frame of reference — and it is
@@ -3139,12 +3160,17 @@ function CostByContextPanel({ models, project, range, nonce }) {
       title: `${lo}–${hi} ctx tokens`,
       accent: BAR_COLOR,
       lines: [
-        ['cost', `$${b.cost.toFixed(2)}`],
-        ['share', meta.total_cost_usd
-          ? `${(b.cost / meta.total_cost_usd * 100).toFixed(1)}%` : '0%'],
-        ['cumulative', `${(b.cum * 100).toFixed(1)}% of spend at or below`],
+        [isTokens ? 'tokens' : 'cost',
+          isTokens ? humanFmt_X(b.cost) : `$${b.cost.toFixed(2)}`],
+        ['share', (isTokens ? meta.total_tokens : meta.total_cost_usd)
+          ? `${(b.cost / (isTokens ? meta.total_tokens : meta.total_cost_usd) * 100).toFixed(1)}%`
+          : '0%'],
+        ['cumulative', `${(b.cum * 100).toFixed(1)}% of ${isTokens ? 'tokens' : 'spend'} at or below`],
         ['requests', b.requests.toLocaleString()],
-        ['$/request', b.requests ? `$${(b.cost / b.requests).toFixed(4)}` : '—'],
+        [isTokens ? 'tokens/request' : '$/request',
+          b.requests
+            ? (isTokens ? humanFmt_X(b.cost / b.requests) : `$${(b.cost / b.requests).toFixed(4)}`)
+            : '—'],
       ],
     });
   }
@@ -3160,12 +3186,12 @@ function CostByContextPanel({ models, project, range, nonce }) {
       <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
-            Cost by Context Size
+            {isTokens ? 'Tokens by Context Size' : 'Cost by Context Size'}
           </div>
           <div style={{ color: TH_X.textDim, fontFamily: 'monospace', fontSize: 10, marginTop: 2 }}>
-            $ per {fmtTok(meta.bucket_width)} context bucket · cumulative share (right axis) · context = fresh + cache-create + cache-read
+            {isTokens ? 'tokens' : '$'} per {fmtTok(meta.bucket_width)} context bucket · cumulative share (right axis) · context = fresh + cache-create + cache-read
             {medianEdge !== null
-              ? ` · half of all spend sits above ${fmtTok(medianEdge)}`
+              ? ` · half of all ${isTokens ? 'tokens sit' : 'spend sits'} above ${fmtTok(medianEdge)}`
               : ''}
           </div>
         </div>
@@ -3249,13 +3275,13 @@ function CostByContextPanel({ models, project, range, nonce }) {
             left and a right axis without spending a legend on it. */}
         <text x={17} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
               textAnchor="middle" fontFamily="monospace"
-              transform={`rotate(-90 17 ${padT + plotH / 2})`}>cost</text>
+              transform={`rotate(-90 17 ${padT + plotH / 2})`}>{isTokens ? 'tokens' : 'cost'}</text>
         <text x={w - 12} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
               textAnchor="middle" fontFamily="monospace"
               transform={`rotate(-90 ${w - 12} ${padT + plotH / 2})`}>cumulative</text>
 
         {(() => {
-          const totalStr = `Total: ${fmtUsd(meta.total_cost_usd)}`;
+          const totalStr = `Total: ${fmtUsd(isTokens ? meta.total_tokens : meta.total_cost_usd)}`;
           const boxW = Math.ceil(totalStr.length * 6.6) + 16;
           const boxX = padL + plotW - boxW - 6;
           return (
@@ -3309,6 +3335,7 @@ function CostByAgentPanel({ models, project, range, nonce }) {
       .then(b => {
         setRows(b.agents || []);
         setTotal(b.total_cost_usd || 0);
+        setTotalTokens(b.total_tokens || 0);
       })
       .catch(err => console.error('cost-by-agent fetch failed', err));
   }, [project, range, activeModel, nonce]);
@@ -3325,12 +3352,23 @@ function CostByAgentPanel({ models, project, range, nonce }) {
       .map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
+  const [totalTokens, setTotalTokens] = React.useState(0);
+
   const bars = React.useMemo(() => rows.map(a => ({
     label: a.agent_type,
     value: a.cost_usd,
     color: _toolColor(a.agent_type),
     requests: a.requests,
   })), [rows]);
+
+  // The same roles measured in tokens, biggest first — the ordering the
+  // endpoint applies is by cost, which a free lane leaves arbitrary.
+  const tokenBars = React.useMemo(() => rows.map(a => ({
+    label: a.agent_type,
+    value: a.total_tokens || 0,
+    color: _toolColor(a.agent_type),
+    requests: a.requests,
+  })).filter(b => b.value > 0).sort((a, b) => b.value - a.value), [rows]);
 
   return (
     <div style={{
@@ -3359,11 +3397,18 @@ function CostByAgentPanel({ models, project, range, nonce }) {
           </select>
         </span>
       </div>
+      {total > 0 && (
       <window.HBar
         embedded
         title="Cost by Agent Type"
         rows={bars}
-        fmt={r => `${window.humanCurrency(r.value)} (${total > 0 ? (r.value / total * 100).toFixed(1) : '0.0'}%)`} />
+        fmt={r => `${window.humanCurrency(r.value)} (${(r.value / total * 100).toFixed(1)}%)`} />
+      )}
+      <window.HBar
+        embedded
+        title="Tokens by Agent Type"
+        rows={tokenBars}
+        fmt={r => `${humanFmt_X(r.value)} (${totalTokens > 0 ? (r.value / totalTokens * 100).toFixed(1) : '0.0'}%)`} />
     </div>
   );
 }

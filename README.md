@@ -38,13 +38,20 @@ Reply Latency, Tool Error Rate — is based on
 ports those matplotlib-only offline visualisations into a hosted SVG/React app
 with multi-user auth, R2 ingest, and live updates.
 
-Panels with no upstream counterpart — Activity Heatmap, Lines Added/Deleted
-and Cost by Context Size — originate here.
+Panels with no upstream counterpart — Activity Heatmap, Lines Added/Deleted,
+Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
 
 ## Features
 
 - **Cost-by-model** breakdown with the canonical 5-minute / 1-hour
-  cache-create TTL split (`ephemeral_5m` × 1.25× base, `ephemeral_1h` × 2× base).
+  cache-create TTL split (`ephemeral_5m` × 1.25× base, `ephemeral_1h` × 2× base),
+  beside a **Tokens by Model** bar measuring the same sessions before
+  the rate. Every cost surface — this one, Cost by Agent Type, Cost by
+  Context Size, the cost half of Token Breakdown, the total-cost card
+  and the heatmap's cost metric — is HIDDEN when nothing in the range
+  cost anything, rather than drawn as a row of zeros. Their tokens
+  counterparts stay: a locally-served lane priced at zero still
+  processes tokens.
 - **Token Breakdown** as paired sort-by-tokens / sort-by-cost bars
   over Input, Output, Cache Create (5m / 1h / unsplit), Cache Read.
 - **Prompt-Cache TTL Split** showing adaptively-bucketed `ephemeral_5m`
@@ -87,7 +94,10 @@ and Cost by Context Size — originate here.
   open-ended so the `[1m]` variants are not dropped. Precomputed at
   ingest into `ctx_cost_rollup`, which `usage_rollup` cannot serve —
   its grain sums tokens across an hour and destroys the per-call
-  window size the x-axis is made of.
+  window size the x-axis is made of. **Tokens by Context Size** is
+  the same panel measured before the rate, and is the one a free
+  lane still has; the cost half is hidden when nothing in the range
+  cost anything.
 - **Lines Added / Deleted** — per-call line churn read off the
   tool arguments. Edit and Write are the obvious sources; under
   bypass permissions most editing goes through Bash instead, so

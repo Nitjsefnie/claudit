@@ -462,7 +462,8 @@ def rebuild_ctx_cost_rollup() -> int:
         cur = c.execute(
             """
             INSERT INTO ctx_cost_rollup (
-              hour, project_id, model, ctx_bucket, requests, cost_usd
+              hour, project_id, model, ctx_bucket, requests,
+              total_tokens, cost_usd
             )
             SELECT date_trunc('hour', r.ts)  AS hour,
                    f.project_id,
@@ -475,6 +476,9 @@ def rebuild_ctx_cost_rollup() -> int:
                                + r.cache_read_tokens) / %(w)s) * %(w)s
                    END                       AS ctx_bucket,
                    COUNT(*)                  AS requests,
+                   SUM(r.fresh_tokens + r.cache_creation_tokens
+                       + r.cache_read_tokens + r.output_tokens)
+                                             AS total_tokens,
                    SUM(r.cost_usd)           AS cost_usd
               FROM records r
               JOIN files f ON f.file_key = r.file_key
@@ -513,7 +517,7 @@ def rebuild_agent_rollup() -> int:
             """
             INSERT INTO agent_rollup (
               hour, project_id, model, agent_type,
-              requests, output_tokens, cost_usd
+              requests, output_tokens, total_tokens, cost_usd
             )
             SELECT date_trunc('hour', r.ts) AS hour,
                    f.project_id,
@@ -521,6 +525,9 @@ def rebuild_agent_rollup() -> int:
                    f.agent_type,
                    COUNT(*)                 AS requests,
                    SUM(r.output_tokens)     AS output_tokens,
+                   SUM(r.fresh_tokens + r.cache_creation_tokens
+                       + r.cache_read_tokens + r.output_tokens)
+                                            AS total_tokens,
                    SUM(r.cost_usd)          AS cost_usd
               FROM records r
               JOIN files f ON f.file_key = r.file_key

@@ -244,3 +244,78 @@ def test_tokens_by_model_mirrors_cost_by_model():
     # token the model processed, not a subset of the types.
     assert ("tokensByModel[e.model] = (tokensByModel[e.model] || 0) + "
             "e.input_tokens + e.output_tokens + e.cache_create + e.cache_read") in src
+
+
+def test_cost_surfaces_are_hidden_when_the_whole_range_is_free():
+    """A free lane (llamameter: bonsai-2-27b at $0) charts nothing but
+    zeros on every cost surface. Cost by Model draws an empty bar list,
+    the cost half of Token Breakdown draws bars whose share is a 0/0
+    NaN%, and the total-cost card reads $0 next to the real token
+    counts. Each is gated on there being cost in view, the way the
+    Cost (USD) time series already is."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    idx = src.index('title="Cost by Model"')
+    assert "costByModelTotal > 0 && (" in src[max(0, idx - 260):idx]
+    # The card sits in the summary row, so the guard is inline on it.
+    assert "{totals.cost > 0 && <Stat label=\"total cost\"" in src
+    # Tokens by Model, which measures tokens, must NOT be gated on cost:
+    # a free lane charts real bars there. The window back to its own
+    # element start must carry no guard (the cost panel's fmt mentions
+    # costByModelTotal, which is why this looks at the guard, not the
+    # identifier).
+    tokens = src.index('title="Tokens by Model"')
+    assert "costByModelTotal > 0 && (" not in src[max(0, tokens - 120):tokens]
+
+
+def test_token_breakdown_drops_its_cost_bar_when_the_range_is_free():
+    """The cost bar is dropped, not blanked: with costTotal 0 every row
+    is 0 and `r.value / costTotal` is NaN, which renders "NaN%" on each
+    label. The token bar stays — tokens are non-zero either way."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    idx = src.index('title="Token Breakdown — by cost"')
+    assert "hasCost && (" in src[max(0, idx - 200):idx]
+    assert "const hasCost = rows.some(r => r.cost > 0);" in src
+    tokens_idx = src.index('title="Token Breakdown — by tokens"')
+    assert "hasCost" not in src[max(0, tokens_idx - 200):tokens_idx]
+
+
+def test_cost_by_agent_is_hidden_when_the_range_is_free():
+    """Same rule as Cost by Model, in the panel that owns its own fetch:
+    with every bar at $0 the card is a list of zeros, so it is dropped —
+    while Tokens by Agent Type, which measures tokens, still renders."""
+    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    idx = src.index('title="Cost by Agent Type"')
+    assert "total > 0 && (" in src[max(0, idx - 200):idx]
+    tokens = src.index('title="Tokens by Agent Type"')
+    assert "rows={tokenBars}" in src[tokens:tokens + 200]
+    assert "total > 0 && (" not in src[max(0, tokens - 120):tokens]
+
+
+def test_activity_heatmap_drops_its_cost_metric_when_the_range_is_free():
+    """The heatmap's metric toggle offers cost; on a free lane every cell
+    is $0, so the button is filtered out and the default metric falls
+    back to one that has data rather than painting an empty grid."""
+    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    assert "const hasCost = cells.some(c => (c.cost_usd || 0) > 0);" in src
+    assert "_HEAT_METRICS.filter(m => m.key !== 'cost_usd' || hasCost)" in src
+    # And the selected metric cannot stay on a filtered-out button.
+    assert "metric === 'cost_usd' && !hasCost" in src
+
+
+def test_context_panel_renders_both_measures_from_one_component():
+    """Tokens by Context Size is the SAME component as Cost by Context
+    Size with measure="tokens" — not a copy. The reference treatment
+    (dim bars + same-hue cumulative line under a white halo, container
+    hover, rotated axis captions) is pinned by the tests above against
+    one implementation, and a second copy would drift out from under
+    them."""
+    extra = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    app = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    assert extra.count("function CostByContextPanel(") == 1
+    assert "measure === 'tokens'" in extra
+    assert 'window.CostByContextPanel' in extra
+    # Both mounts exist, and only the cost one is gated on there being cost.
+    assert app.count("<window.CostByContextPanel") == 2
+    assert 'measure="tokens"' in app
+    cost_mount = app.index("<window.CostByContextPanel")
+    assert "hasCost && (" in app[max(0, cost_mount - 200):cost_mount]

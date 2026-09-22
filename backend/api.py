@@ -594,6 +594,9 @@ def _cost_by_context_sql(rng: str, project: str | None,
         return (f"""
             SELECT {bucket_expr} AS ctx_bucket,
                    COUNT(*)      AS requests,
+                   SUM(r.fresh_tokens + r.cache_creation_tokens
+                       + r.cache_read_tokens + r.output_tokens)
+                                 AS total_tokens,
                    SUM(r.cost_usd) AS cost_usd
               FROM records r
               JOIN files f ON f.file_key = r.file_key
@@ -613,11 +616,37 @@ def _cost_by_context_sql(rng: str, project: str | None,
     return (f"""
         SELECT ctx_bucket,
                SUM(requests) AS requests,
+               SUM(total_tokens) AS total_tokens,
                SUM(cost_usd) AS cost_usd
           FROM ctx_cost_rollup
          WHERE hour >= date_trunc('hour', %s::timestamptz) {tail}
          GROUP BY 1 ORDER BY 1
         """, args)
+
+
+def _ctx_buckets(rows, total: float, total_tokens: int) -> list[dict]:
+    """One payload bucket per row, each carrying the running share of
+    both measures. Guards the empty range: no rows means no division,
+    but a range whose rows all cost 0 would divide by zero — which is
+    exactly what a free lane (bonsai-2-27b at $0) produces, and it still
+    has a tokens curve."""
+    buckets = []
+    running = 0.0
+    running_tokens = 0
+    for (edge, n, tok, cost) in rows:
+        running += float(cost or 0)
+        running_tokens += int(tok or 0)
+        buckets.append({
+            "ctx_bucket": int(edge),
+            "requests": int(n or 0),
+            "total_tokens": int(tok or 0),
+            "cost_usd": float(cost or 0),
+            "cum_share": (running / total) if total else 0.0,
+            "cum_token_share": (
+                (running_tokens / total_tokens) if total_tokens else 0.0
+            ),
+        })
+    return buckets
 
 
 @router.get("/cost-by-context")
@@ -641,19 +670,9 @@ def cost_by_context(
     with db.viz_conn() as c:
         rows = c.execute(db.sql_text(sql), args).fetchall()
 
-    total = sum(float(cost or 0) for (_, _, cost) in rows)
-    buckets = []
-    running = 0.0
-    for (edge, n, cost) in rows:
-        running += float(cost or 0)
-        buckets.append({
-            "ctx_bucket": int(edge),
-            "requests": int(n or 0),
-            "cost_usd": float(cost or 0),
-            # Guard the empty range: no rows means no division, but a
-            # range whose rows all cost 0 would divide by zero here.
-            "cum_share": (running / total) if total else 0.0,
-        })
+    total = sum(float(cost or 0) for (_, _, _, cost) in rows)
+    total_tokens = sum(int(tok or 0) for (_, _, tok, _) in rows)
+    buckets = _ctx_buckets(rows, total, total_tokens)
     return {
         "range": rng,
         "project": project,
@@ -661,6 +680,7 @@ def cost_by_context(
         "bucket_width": CTX_BUCKET_WIDTH,
         "bucket_max": CTX_BUCKET_MAX,
         "total_cost_usd": total,
+        "total_tokens": total_tokens,
         "buckets": buckets,
     }
 
@@ -695,12 +715,15 @@ def _cost_by_agent_sql(rng: str, project: str | None,
             SELECT f.agent_type,
                    COUNT(*)               AS requests,
                    SUM(r.output_tokens)   AS output_tokens,
+                   SUM(r.fresh_tokens + r.cache_creation_tokens
+                       + r.cache_read_tokens + r.output_tokens)
+                                          AS total_tokens,
                    SUM(r.cost_usd)        AS cost_usd
               FROM records r
               JOIN files f ON f.file_key = r.file_key
              WHERE r.is_canonical AND r.ts IS NOT NULL
                AND r.ts >= %s {tail}
-             GROUP BY 1 ORDER BY 4 DESC
+             GROUP BY 1 ORDER BY 5 DESC
             """, args)
 
     tail = ""
@@ -714,10 +737,11 @@ def _cost_by_agent_sql(rng: str, project: str | None,
         SELECT agent_type,
                SUM(requests)      AS requests,
                SUM(output_tokens) AS output_tokens,
+               SUM(total_tokens)  AS total_tokens,
                SUM(cost_usd)      AS cost_usd
           FROM agent_rollup
          WHERE hour >= date_trunc('hour', %s::timestamptz) {tail}
-         GROUP BY 1 ORDER BY 4 DESC
+         GROUP BY 1 ORDER BY 5 DESC
         """, args)
 
 
@@ -742,21 +766,24 @@ def cost_by_agent(
     with db.viz_conn() as c:
         rows = c.execute(db.sql_text(sql), args).fetchall()
 
-    total = sum(float(cost or 0) for (_, _, _, cost) in rows)
+    total = sum(float(cost or 0) for (_, _, _, _, cost) in rows)
+    total_tokens = sum(int(tok or 0) for (_, _, _, tok, _) in rows)
     agents = [{
         "agent_type": name,
         "requests": int(n or 0),
         "output_tokens": int(out or 0),
+        "total_tokens": int(tok or 0),
         "cost_usd": float(cost or 0),
         # Guard the empty range: no rows means no division, but a range
         # whose rows all cost 0 would divide by zero here.
         "share": (float(cost or 0) / total) if total else 0.0,
-    } for (name, n, out, cost) in rows]
+    } for (name, n, out, tok, cost) in rows]
     return {
         "range": rng,
         "project": project,
         "model": model,
         "total_cost_usd": total,
+        "total_tokens": total_tokens,
         "agents": agents,
     }
 

@@ -299,6 +299,7 @@ CREATE TABLE IF NOT EXISTS ctx_cost_rollup (
   model       TEXT        NOT NULL,
   ctx_bucket  BIGINT      NOT NULL,
   requests    BIGINT      NOT NULL DEFAULT 0,
+  total_tokens BIGINT     NOT NULL DEFAULT 0,
   cost_usd    NUMERIC(18,8) NOT NULL DEFAULT 0,
   PRIMARY KEY (hour, project_id, model, ctx_bucket)
 );
@@ -326,6 +327,7 @@ CREATE TABLE IF NOT EXISTS agent_rollup (
   agent_type  TEXT        NOT NULL,
   requests    BIGINT      NOT NULL DEFAULT 0,
   output_tokens BIGINT    NOT NULL DEFAULT 0,
+  total_tokens BIGINT     NOT NULL DEFAULT 0,
   cost_usd    NUMERIC(18,8) NOT NULL DEFAULT 0,
   PRIMARY KEY (hour, project_id, model, agent_type)
 );
@@ -505,6 +507,13 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
 -- counted those 6k calls twice. recompute_canonical() keeps the row in
 -- the lowest (file_key, line_num, idx) per id, mirroring records.
 -- Defaults TRUE so a migrated DB behaves as before until the first pass.
+-- Tokens beside the dollars on the two cost panels. Derived from stored
+-- `records` columns, so a rollup rebuild fills them; no reparse needed.
+ALTER TABLE ctx_cost_rollup
+  ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE agent_rollup
+  ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
+
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS tool_use_id TEXT;
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
   is_canonical BOOLEAN NOT NULL DEFAULT TRUE;

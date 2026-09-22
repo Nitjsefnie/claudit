@@ -669,6 +669,11 @@ function TokenBreakdownPanel({ events }) {
     [events, activeModel]);
   const { rows, tokenTotal, costTotal } = useMemo(
     () => computeTokenBreakdown(filtered), [filtered]);
+  // A free lane (bonsai-2-27b at $0) gives every row cost 0, and
+  // computeTokenBreakdown floors costTotal at 1 to keep the division
+  // finite — so the bars would all read "$0 (0.0%)" rather than say
+  // nothing. Drop the bar instead; the token bar above is unaffected.
+  const hasCost = rows.some(r => r.cost > 0);
 
   // One bordered card (matching the sibling "Cost by Model" card) so the
   // shared model filter visibly belongs to the whole Token Breakdown panel
@@ -703,11 +708,13 @@ function TokenBreakdownPanel({ events }) {
         title="Token Breakdown — by tokens"
         rows={[...rows].sort((a, b) => b.value - a.value)}
         fmt={r => `${window.humanFmt(r.value)} (${(r.value / tokenTotal * 100).toFixed(1)}%)`} />
+      {hasCost && (
       <window.HBar
         embedded
         title="Token Breakdown — by cost"
         rows={[...rows].map(r => ({ ...r, value: r.cost })).sort((a, b) => b.value - a.value)}
         fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costTotal * 100).toFixed(1)}%)`} />
+      )}
     </div>
   );
 }
@@ -793,6 +800,10 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     .map(r => ({ label: r.project, value: r.cost_usd, color: window.dashboardCol.costUSD }));
 
   const totalCostStr = window.humanFmt(totals.cost, true);
+  // Whether anything in the range cost money at all. A free lane
+  // (llamameter: bonsai-2-27b at $0) charts zeros on every cost
+  // surface, so each one is dropped rather than drawn empty.
+  const hasCost = totals.cost > 0;
 
   return (
     <div className="dashboard">
@@ -822,7 +833,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
             <span style={{ color: window.dashboardCol.linesDeleted }}>−{window.humanFmt(totals.linesDeleted)}</span>
           </span>
         } />
-        <Stat label="total cost" value={totalCostStr} highlight />
+        {totals.cost > 0 && <Stat label="total cost" value={totalCostStr} highlight />}
         <Stat label="rate-limit hits" value={String(limitHits.length)} warn={limitHits.length > 0} />
       </div>
       )}
@@ -856,11 +867,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       </div>
 
       <div className="dash-grid-2">
+        {costByModelTotal > 0 && (
         <window.HBar
           title="Cost by Model"
           rows={costByModel}
           fixedColors={window.modelColors}
-          fmt={r => `${window.humanCurrency(r.value)} (${costByModelTotal > 0 ? (r.value / costByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
+          fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costByModelTotal * 100).toFixed(1)}%)`} />
+        )}
         <window.HBar
           title="Tokens by Model"
           rows={tokensByModel}
@@ -928,9 +941,20 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
+      {backendOn && hasCost && (
+        <div className="dash-ctx-cost">
+          <window.CostByContextPanel
+            models={models}
+            project={activeProject}
+            range={activeRange}
+            nonce={dashNonce} />
+        </div>
+      )}
+
       {backendOn && (
         <div className="dash-ctx-cost">
           <window.CostByContextPanel
+            measure="tokens"
             models={models}
             project={activeProject}
             range={activeRange}
