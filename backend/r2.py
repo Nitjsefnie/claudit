@@ -135,11 +135,24 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     as the read path does, because a silently empty bucket would let the
     orphan sweep delete its whole history.
 
-    The join goes through _safe_join (realpath + containment check) like
-    every other key-derived path here: the bucket is validated against
-    buckets() upstream, but that is list membership, not a path check,
-    so the join itself refuses a segment that would escape the root.
+    The bucket segment is resolved against buckets() HERE, not taken from
+    the caller: get_object/get_stream reach this with the first segment
+    of a stored file_key, which a request can name, so the path below is
+    built from the configured list element (an R2_BUCKET value) and a
+    bucket outside the list raises the same ValueError _configured
+    raises. The join still goes through _safe_join (realpath + containment
+    check) like every other key-derived path here: list membership is not
+    a path check, so the join itself refuses a segment that would escape
+    the root.
     """
+    names = buckets()
+    if bucket not in names:
+        raise ValueError(
+            f"bucket {bucket!r} is not configured in R2_BUCKET"
+        )
+    # Rebind to the allow-list element: the path segment below is built
+    # from the configured name, never from the caller-derived string.
+    bucket = names[names.index(bucket)]
     candidate = _safe_join(root, bucket)
     if os.path.isdir(candidate):
         return candidate

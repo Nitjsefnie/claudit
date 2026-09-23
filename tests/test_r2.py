@@ -139,6 +139,34 @@ def test_a_bucket_segment_that_is_not_a_plain_name_cannot_escape(
         list(r2.list_keys())
 
 
+def test_scan_root_refuses_a_bucket_not_in_r2_bucket(monkeypatch, tmp_path):
+    """CodeQL py/path-injection fix: _scan_root resolves its bucket
+    against buckets() and builds the path from the CONFIGURED list
+    element, not from the caller's string (which reaches it as the first
+    segment of a stored file key via get_object/get_stream). A bucket
+    outside R2_BUCKET raises _configured's ValueError before any path is
+    built, and for a configured bucket the returned root is built from
+    the configured name."""
+    monkeypatch.setenv("R2_BUCKET", "claude")
+    # Refusal: not in the list, no path is built at all (multi=True is
+    # the None-returning case, multi=False the root fallback — both must
+    # refuse before either answer is reachable).
+    with pytest.raises(ValueError, match="is not configured in R2_BUCKET"):
+        r2._scan_root(str(tmp_path), "codex", multi=True)  # pylint: disable=protected-access
+    with pytest.raises(ValueError, match="is not configured in R2_BUCKET"):
+        r2._scan_root(str(tmp_path), "codex", multi=False)  # pylint: disable=protected-access
+    # Configured name: `<root>/claude` when the mirror has that
+    # directory, the endpoint root itself (fallback) when it does not.
+    (tmp_path / "claude").mkdir()
+    assert r2._scan_root(str(tmp_path), "claude", multi=False) == (  # pylint: disable=protected-access
+        os.path.realpath(str(tmp_path / "claude"))
+    )
+    shutil.rmtree(tmp_path / "claude")
+    assert r2._scan_root(str(tmp_path), "claude", multi=False) == (  # pylint: disable=protected-access
+        os.path.realpath(str(tmp_path))
+    )
+
+
 # ---------------------------------------------------------------------------
 # M1/M2: a listing the walk cannot prove complete must raise, never be
 # silently partial — the ingest orphan sweep deletes every row for keys
