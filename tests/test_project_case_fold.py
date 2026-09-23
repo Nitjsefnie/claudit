@@ -164,11 +164,13 @@ def test_posix_case_variants_stay_two_projects(fresh_db, tmp_path,
     assert result["error"] is None
     with db.viz_conn() as c:
         projects = c.execute(
-            "SELECT project_id, display_name FROM projects ORDER BY 1 "
-            "DESC").fetchall()
-    assert projects == [
-        ("-root-claudit", "-root-claudit"),
+            "SELECT project_id, display_name FROM projects").fetchall()
+    # Sorted in Python, never ORDER BY: the two rows differ only in
+    # case, and a database collation may rank them either way — the
+    # test is about WHICH rows exist, not their stored order.
+    assert sorted(projects) == [
         ("-root-Claudit", "-root-Claudit"),
+        ("-root-claudit", "-root-claudit"),
     ], "no folding on POSIX slugs"
 
 
