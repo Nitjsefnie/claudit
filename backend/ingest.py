@@ -191,25 +191,74 @@ def _existing_files() -> dict:
         }
 
 
+def _stored_lane_ids() -> dict[str, str]:
+    """Lane hash → the project id its files are currently stored under.
+
+    The mapping this run consults when a project's marker was NOT read
+    (missing, malformed, or its GET failed): the stored mapping keeps
+    the slug a marker run chose, so a transient marker-fetch failure
+    cannot flip a slug-keyed project back to its hash and split one
+    project into two ids until the next successful marker read. Read
+    back from the files rows themselves — a lane file_key's object part
+    is sessions/<hash>/... — so no extra table is needed; a hash with no
+    stored rows (first sight) falls back to the hash."""
+    mapping: dict[str, str] = {}
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT file_key, project_id FROM files "
+            "WHERE file_key LIKE '%/sessions/%'"
+        ).fetchall()
+    for file_key, project_id in rows:
+        parts = r2.split_key(file_key)[1].split("/")
+        if len(parts) >= 2 and parts[0] == key_layout.LANE_ROOT:
+            mapping.setdefault(parts[1], project_id)
+    return mapping
+
+
+def _resolve_lane_project(lane_hash: str, marker_path: str | None,
+                          stored_lane: dict[str, str]) -> str:
+    """The project id a file classified under lane hash `lane_hash`
+    lands under this run.
+
+    A marker path read THIS RUN wins — the project is the path's Claude
+    slug (key_layout.lane_project_id), the same id a Claude-layout
+    bucket derives for that directory, so one directory is ONE project
+    across buckets. Without one — marker absent, malformed, or its GET
+    failed — the stored hash→project_id mapping keeps the slug a
+    previous marker run chose, so a transient marker failure cannot
+    split one project into two ids until the next successful marker
+    read; a hash with no stored rows keeps the hash (legacy Kimi has no
+    marker)."""
+    if marker_path is not None:
+        return key_layout.lane_project_id(lane_hash, marker_path)
+    return stored_lane.get(lane_hash, lane_hash)
+
+
 def _track_project(seen_projects: dict[str, dict], project_id: str,
-                   last_modified, project_paths: dict[str, str]) -> None:
+                   last_modified, project_path: str | None) -> None:
     """Accumulate first/last seen mtimes for one project.
 
-    display_name comes from the lane bucket's project.json marker where
-    one was fetched; every other project — and a lane project whose
-    marker was missing or malformed — displays its id, exactly as
-    before the marker read was ported. `display_name_set` records which
-    case this run is, so _persist's upsert can PRESERVE a stored
-    display_name on a run that read no marker instead of resetting it
-    to the bare id.
+    `project_id` is the id this run resolved for the file — the slug of
+    the project's marker path when the run read one, else the stored or
+    bare-hash id (_resolve_lane_project). display_name comes from that
+    marker path where one was read; every other project — and a lane
+    project whose marker was missing or malformed — displays its id.
+    `display_name_set` records which case this run is, so _persist's
+    upsert can PRESERVE a stored display_name on a run that read no
+    marker instead of resetting it to the bare id. The path is applied
+    even when the entry already exists (a Claude-layout file of the same
+    directory created it first): the merge is what the slug id is for.
     """
     proj = seen_projects.setdefault(project_id, {
         "project_id": project_id,
-        "display_name": project_paths.get(project_id, project_id),
-        "display_name_set": project_id in project_paths,
+        "display_name": project_path or project_id,
+        "display_name_set": bool(project_path),
         "first_seen_at": last_modified,
         "last_seen_at": last_modified,
     })
+    if project_path and not proj["display_name_set"]:
+        proj["display_name"] = project_path
+        proj["display_name_set"] = True
     if last_modified < proj["first_seen_at"]:
         proj["first_seen_at"] = last_modified
     if last_modified > proj["last_seen_at"]:
@@ -269,20 +318,12 @@ def _resolve_project_paths(marker_items: list[tuple[str, str]], workers: int,
     return project_paths
 
 
-def _collect_todo(existing: dict, parser_version: str,
-                  failed: list[tuple[str, str]]) -> tuple:
-    """Walk the bucket: count objects, remember live keys, and queue the
-    files whose etag/parser_version says they need (re)parsing.
+def _scan_objects() -> tuple[list, list[tuple[str, str]]]:
+    """One listing pass: transcript objects and lane marker items.
 
-    Returns (listed, todo, seen_keys); todo holds (obj, proj, stored) per
-    file needing work, fetched+parsed later on a pool. What a key maps
-    to lives in key_layout: the walk keeps only the keys classify()
-    accepts as transcripts, and project/session/is_main come out of the
-    same classify() in _persist.
-
-    Marker bodies are fetched before the todo loop so a lane project's
-    display_name is settled by the time _track_project runs — the same
-    scan → resolve → plan shape codexmeter's ingest uses.
+    Markers are fetched afterwards by _resolve_project_paths; the keys
+    the layout rules skip (markers themselves, non-wire files inside
+    sessions/, non-jsonl keys outside) are dropped here.
     """
     wire_objs: list = []
     marker_items: list[tuple[str, str]] = []
@@ -295,6 +336,44 @@ def _collect_todo(existing: dict, parser_version: str,
         if key_layout.classify(r2.split_key(obj.key)[1]) is None:
             continue
         wire_objs.append(obj)
+    return wire_objs, marker_items
+
+
+def _track_walked_project(seen_projects: dict[str, dict], info, obj,
+                          project_paths: dict[str, str],
+                          stored_lane: dict[str, str]) -> dict:
+    """Resolve one walked file's project id and accumulate its mtimes.
+
+    Returns the seen_projects entry (which _persist keys its project_id
+    off), so the walk and every persist of the run share one identity —
+    marker slug, stored mapping, or bare hash (_resolve_lane_project).
+    """
+    marker_path = project_paths.get(info.project_id)
+    project_id = _resolve_lane_project(
+        info.project_id, marker_path, stored_lane)
+    _track_project(seen_projects, project_id,
+                   obj.last_modified, marker_path)
+    return seen_projects[project_id]
+
+
+def _collect_todo(existing: dict, parser_version: str,
+                  failed: list[tuple[str, str]]) -> tuple:
+    """Walk the bucket: count objects, remember live keys, and queue the
+    files whose etag/parser_version says they need (re)parsing.
+
+    Returns (listed, todo, seen_keys); todo holds (obj, proj, stored) per
+    file needing work, fetched+parsed later on a pool. What a key maps
+    to lives in key_layout: the walk keeps only the keys classify()
+    accepts as transcripts; session/is_main come out of the same
+    classify() in _persist, and the PROJECT id is resolved once, here —
+    marker slug, stored mapping, or bare hash (_resolve_lane_project) —
+    so the walk and every _persist of the run agree on it.
+
+    Marker bodies are fetched before the todo loop so a lane project's
+    display_name is settled by the time _track_project runs — the same
+    scan → resolve → plan shape codexmeter's ingest uses.
+    """
+    wire_objs, marker_items = _scan_objects()
     project_paths = _resolve_project_paths(
         marker_items, worker_count(), failed
     )
@@ -302,23 +381,20 @@ def _collect_todo(existing: dict, parser_version: str,
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
+    stored_lane = _stored_lane_ids()
     for obj in wire_objs:
         info = key_layout.classify(r2.split_key(obj.key)[1])
         if info is None:  # pragma: no cover - the scan kept only transcripts
             continue
         listed += 1
         seen_keys.add(obj.key)
-        _track_project(seen_projects, info.project_id,
-                       obj.last_modified, project_paths)
+        tracked = _track_walked_project(
+            seen_projects, info, obj, project_paths, stored_lane)
 
         stored = existing.get(obj.key)
-        need_reparse = (
-            stored is None
-            or stored[0] != obj.etag
-            or stored[1] != parser_version
-        )
-        if need_reparse:
-            todo.append((obj, seen_projects[info.project_id], stored))
+        if (stored is None or stored[0] != obj.etag
+                or stored[1] != parser_version):
+            todo.append((obj, tracked, stored))
     return listed, todo, seen_keys
 
 
@@ -711,15 +787,20 @@ def _fetch_and_parse(key: str) -> dict:
 def _persist(obj, proj, parsed, parser_version) -> None:
     """One file, one transaction — identical to the pre-pool behaviour.
 
-    project_id, session_id and is_main come from the same
-    key_layout.classify() the walk used, applied to the object-key part
-    of the bucket-qualified file key, so a lane wire lands under the
-    project and session its key names and a subagent wire is never main.
+    session_id and is_main come from the same key_layout.classify() the
+    walk used, applied to the object-key part of the bucket-qualified
+    file key, so a lane wire lands under the session its key names and a
+    subagent wire is never main. project_id comes from the walk's
+    seen_projects entry (`proj`), which resolved the lane-hash→slug
+    identity BEFORE the walk queued this file — re-deriving it here from
+    the key alone would re-split a merged lane project on any run whose
+    marker read failed.
     """
     info = key_layout.classify(r2.split_key(obj.key)[1])
     if info is None:
         raise ValueError(f"not a transcript key: {obj.key}")
-    project_id, session_id, is_main = info
+    session_id, is_main = info.session_id, info.is_main
+    project_id = proj["project_id"]
     with db.viz_conn() as c, c.cursor() as cur:
         # Project upsert. first_seen_at uses LEAST so a later
         # ingest seeing an older file drags it backward. display_name is

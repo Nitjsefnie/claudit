@@ -37,9 +37,10 @@ deploy) and r2.split_key() strips the bucket before these rules run.
 """
 from __future__ import annotations
 
+import re
 from typing import NamedTuple
 
-_LANE_ROOT = "sessions"
+LANE_ROOT = "sessions"
 _LANE_MARKER = "project.json"
 # Basenames a lane transcript may carry; r2 inflates .xz transparently.
 _LANE_WIRE = ("wire.jsonl", "wire.jsonl.xz")
@@ -65,14 +66,40 @@ def project_marker(key: str) -> str | None:
     """The project id when `key` is sessions/<project>/project.json.
 
     The marker carries the path the project's sessions were run from,
-    which ingest uses as the project's display_name. It is not a
+    which ingest uses as the project's display_name and, keyed by its
+    Claude slug, as the project id itself (lane_project_id). It is not a
     transcript: classify() answers None for it.
     """
     parts = key.split("/")
-    if (len(parts) == 3 and parts[0] == _LANE_ROOT
+    if (len(parts) == 3 and parts[0] == LANE_ROOT
             and parts[2] == _LANE_MARKER):
         return parts[1]
     return None
+
+
+def project_slug(path: str) -> str:
+    """The Claude project slug of a directory path: every
+    non-alphanumeric character replaced by '-' — the derivation Claude
+    Code applies to the working directory when it names the project tree
+    under ~/.claude/projects, and therefore the project segment of every
+    Claude-layout object key (/root/claudit -> -root-claudit;
+    /tmp/claude-0/-root-x/scratchpad -> -tmp-claude-0--root-x-scratchpad).
+
+    The lane trees key their projects by a content hash instead; this is
+    the bridge that makes one directory ONE project across buckets
+    (lane_project_id)."""
+    return re.sub(r"[^a-zA-Z0-9]", "-", path)
+
+
+def lane_project_id(project_id: str, marker_path: str | None) -> str:
+    """The id a lane project goes by: the Claude slug of the marker path
+    when the marker was read, so one directory is ONE project across
+    buckets in a multi-bucket deploy. Without a marker path — legacy
+    Kimi has none; a marker missing, malformed, or not read this run —
+    the hash stays the id."""
+    if not marker_path:
+        return project_id
+    return project_slug(marker_path)
 
 
 def classify(key: str) -> KeyInfo | None:
@@ -85,7 +112,7 @@ def classify(key: str) -> KeyInfo | None:
     skipped rather than falling through to the Claude rule.
     """
     parts = key.split("/")
-    if parts[0] == _LANE_ROOT:
+    if parts[0] == LANE_ROOT:
         return _classify_lane(parts)
     return _classify_claude(parts)
 

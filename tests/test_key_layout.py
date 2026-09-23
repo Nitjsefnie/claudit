@@ -13,7 +13,9 @@ claude audit ingests two bucket layouts through one classify():
 Tests use bucket-less keys throughout: a later task qualifies stored
 keys with their bucket and strips it before calling classify().
 """
-from backend.key_layout import KeyInfo, classify, project_marker
+from backend.key_layout import (
+    KeyInfo, classify, lane_project_id, project_marker, project_slug,
+)
 
 
 def test_claude_layout():
@@ -88,3 +90,27 @@ def test_project_marker_is_only_at_lane_depth():
     assert project_marker("other/aa5d/project.json") is None
     assert project_marker("sessions/aa5d/project.json.bak") is None
     assert project_marker("sessions/aa5d/project.json") == "aa5d"
+
+
+def test_project_slug_matches_claudes_derivation():
+    """The two load-bearing examples: one segment per path character
+    run, every non-alphanumeric byte a '-'."""
+    assert project_slug("/root/claudit") == "-root-claudit"
+    assert project_slug(
+        "/tmp/claude-0/-root-x/scratchpad"
+    ) == "-tmp-claude-0--root-x-scratchpad"
+
+
+def test_project_slug_dots_and_trailing_slash():
+    assert project_slug("/home/me/my.repo/") == "-home-me-my-repo-"
+
+
+def test_lane_project_id_is_the_marker_path_slug():
+    assert lane_project_id("8805b8ac99ad", "/x/repo") == "-x-repo"
+
+
+def test_lane_project_id_keeps_the_hash_without_a_marker_path():
+    """No marker (legacy Kimi has none; missing, malformed, or not read
+    this run) — the hash stays the id."""
+    assert lane_project_id("8805b8ac99ad", None) == "8805b8ac99ad"
+    assert lane_project_id("8805b8ac99ad", "") == "8805b8ac99ad"

@@ -672,10 +672,13 @@ def test_lane_layout_ingests_with_marker_display_name(
         fresh_db, tmp_path, monkeypatch):
     """A lane bucket's sessions/ tree: wire.jsonl[.xz] under
     sessions/<project>/<session>/, a project.json marker carrying the
-    display path, and a subagent wire under subagents/. Main and sidecar
-    land under the SAME (project, session), the marker's path becomes
-    projects.display_name, and is_main splits main from subagent."""
+    project's directory, and a subagent wire under subagents/. Main and
+    sidecar land under the SAME project, keyed by the Claude slug of the
+    marker's path — the id a Claude-layout bucket derives for the same
+    directory — the path becomes projects.display_name, and is_main
+    splits main from subagent."""
     proj, sess = "8805b8ac99ad", "01a0-uuid"
+    slug = "-home-me-lanework"
     bucket = tmp_path / "r2" / "claude"
     lane = bucket / "sessions" / proj / sess
     (lane / "subagents" / "019f-child").mkdir(parents=True)
@@ -695,18 +698,23 @@ def test_lane_layout_ingests_with_marker_display_name(
     assert result["r2_listed"] == 2, "the marker is not a transcript"
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT file_key, session_id, is_main FROM files "
+            "SELECT file_key, project_id, session_id, is_main FROM files "
             "ORDER BY is_main DESC"
         ).fetchall()
         display = _scalar(
             c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (slug,))
+        hash_projects = _scalar(
+            c, "SELECT COUNT(*) FROM projects WHERE project_id = %s",
             (proj,))
         n_records = _scalar(c, "SELECT COUNT(*) FROM records")
-    assert [(r[1], r[2]) for r in rows] == [(sess, True), (sess, False)]
-    assert all(
-        r[0].startswith(f"claude/sessions/{proj}/{sess}/") for r in rows
-    )
+    assert [(r[2], r[3]) for r in rows] == [(sess, True), (sess, False)]
+    assert all(r[0].startswith(f"claude/sessions/{proj}/{sess}/") for r in rows)
+    assert all(r[1] == slug for r in rows), (
+        "a marker path read this run keys the project by its slug")
     assert display == "/home/me/lanework"
+    assert hash_projects == 0, (
+        "no project row may be keyed by the bare hash when a marker was read")
     assert n_records > 0, "both wire files parsed into records"
 
 
@@ -740,10 +748,11 @@ def test_transient_marker_failure_keeps_the_stored_display_name(
         fresh_db, tmp_path, monkeypatch):
     """A run that reparses a lane project's files while its project.json
     marker fetch fails (marker gone, GET error) must keep the stored
-    display_name. Resetting a stored display path to the bare project id
-    on one transient miss discards real state that a later run only
-    repairs by re-reading a marker that still exists."""
+    display_name AND the slug-keyed project id. Flipping an existing
+    slug-keyed project back to its hash for that run splits one project
+    into two ids until the next reparse."""
     proj, sess = "8805b8ac99ad", "01a0-uuid"
+    slug = "-home-me-lanework"
     bucket = tmp_path / "r2" / "claude"
     lane = bucket / "sessions" / proj / sess
     lane.mkdir(parents=True)
@@ -766,7 +775,13 @@ def test_transient_marker_failure_keeps_the_stored_display_name(
     with db.viz_conn() as c:
         display = _scalar(
             c, "SELECT display_name FROM projects WHERE project_id = %s",
-            (proj,))
+            (slug,))
+        hash_files = _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = %s", (proj,))
     assert display == "/home/me/lanework", (
         "a run that read no marker must preserve the stored display name"
+    )
+    assert hash_files == 0, (
+        "no file may flip back to the hash id: the stored hash→slug "
+        "mapping keeps one directory ONE project across a marker miss"
     )

@@ -6,6 +6,7 @@ a partial listing must never be allowed to sweep a bucket's history.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import shutil
 from pathlib import Path
@@ -364,3 +365,43 @@ def test_startup_refuses_an_invalid_bucket_name(monkeypatch):
 def test_lifespan_calls_the_bucket_validation():
     src = inspect.getsource(app_mod.lifespan)
     assert "validate_bucket_config()" in src
+
+
+# ---------------------------------------------------------------------------
+# Lane project identity: a marker path keys the project by its Claude
+# slug, so one directory is ONE project across buckets
+# ---------------------------------------------------------------------------
+
+_FIX_ROOT = Path(__file__).resolve().parent.parent / "fixtures"
+
+
+def test_lane_and_claude_projects_of_one_directory_merge_by_slug(
+        fresh_db, tmp_path, monkeypatch):
+    """A Claude-layout session of /x/repo (project dir IS the slug) and
+    a Codex session whose project.json names /x/repo land under ONE
+    project_id '-x-repo', with the path as the display name."""
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    claude = tmp_path / "alpha" / "-x-repo" / "sessC"
+    claude.mkdir(parents=True)
+    (claude / "sessC.jsonl").write_text(_TX_A)
+    lane = tmp_path / "beta" / "sessions" / "8805b8ac99ad" / "sessD"
+    lane.mkdir(parents=True)
+    shutil.copy(_FIX_ROOT / "parser" / "codex_min.jsonl",
+                lane / "wire.jsonl")
+    (tmp_path / "beta" / "sessions" / "8805b8ac99ad"
+     / "project.json").write_text(json.dumps({"path": "/x/repo"}))
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["inserted"] == 2
+
+    with db.viz_conn() as c:
+        pids = sorted(r[0] for r in c.execute(
+            "SELECT DISTINCT project_id FROM files"))
+        display = c.execute(
+            "SELECT display_name FROM projects WHERE project_id = '-x-repo'"
+        ).fetchone()
+    assert pids == ["-x-repo"], (
+        "one directory is ONE project across buckets")
+    assert display is not None and display[0] == "/x/repo"

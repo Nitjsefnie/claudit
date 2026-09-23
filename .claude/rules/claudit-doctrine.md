@@ -177,7 +177,12 @@ for a session id picks an arbitrary one. With the planned `codex+kimi`
 pairing this needs no handling; any pairing that puts the same session
 id in two configured buckets and a format without cross-file uuids
 (kimi-code, legacy Kimi) into both will double-count at the session
-level.
+level. Project identity follows the directory, not the lane: a lane
+project whose project.json marker named a directory is keyed by that
+directory's Claude slug (`key_layout.project_slug`) — the same id a
+Claude-layout bucket derives for it — so one directory is ONE project
+across buckets, while a lane project read without a marker keeps its
+hash.
 
 The schema is per-file, not per-session. Two tables hold the parse
 output (see `backend/schema.sql`):

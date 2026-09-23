@@ -123,7 +123,11 @@ VERSION = _read_version()
 # 50 routes every transcript through the format dispatcher: Codex and
 # Kimi transcripts parse instead of landing in the claude parser.
 # 51 persists the Codex long-context meter on records.long_context.
-PARSER_VERSION = "51"
+# 52 keys a lane project by the Claude slug of the directory its
+# project.json marker names, so one directory is ONE project across
+# buckets; the bump reparses every file and re-derives project ids
+# (codex/kimi deploys re-key their projects on that run).
+PARSER_VERSION = "52"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also
