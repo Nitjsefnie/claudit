@@ -76,3 +76,27 @@ def test_path_traversal_blocked(mini_r2):
         r2.get_object("claude/../../etc/passwd")
     with pytest.raises(PermissionError):
         r2.get_stream("claude/../../etc/passwd")
+
+
+def test_a_bucket_segment_that_is_not_a_plain_name_cannot_escape(
+        mini_r2, monkeypatch):
+    """The configured-bucket check is list membership, not a path check,
+    and buckets()' grammar is what normally keeps '..' out. Even if a
+    segment that is not a plain name reached the read path anyway, the
+    _scan_root join itself (now _safe_join, like every other key-derived
+    path) refuses to escape the mirror root."""
+    monkeypatch.setattr(r2, "buckets", lambda: ["claude", "..", "..."])
+    # '..' climbs out of the root: refused by the join, not by a lookup.
+    with pytest.raises(PermissionError):
+        r2.get_object("../secret.jsonl")
+    with pytest.raises(PermissionError):
+        r2.get_stream("../secret.jsonl")
+    # A non-plain name that stays UNDER the root ('...' — a '/'
+    # -carrying one cannot even get this far: split_key splits it off)
+    # merely has no mirror directory, so reading refuses without ever
+    # touching anything outside the root.
+    with pytest.raises(FileNotFoundError):
+        r2.get_object(".../secret.jsonl")
+    # ...and the listing path hits the same join: '..' raises there too.
+    with pytest.raises(PermissionError):
+        list(r2.list_keys())

@@ -133,8 +133,13 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     no mirror directory, which the LISTING path must refuse (raise) just
     as the read path does, because a silently empty bucket would let the
     orphan sweep delete its whole history.
+
+    The join goes through _safe_join (realpath + containment check) like
+    every other key-derived path here: the bucket is validated against
+    buckets() upstream, but that is list membership, not a path check,
+    so the join itself refuses a segment that would escape the root.
     """
-    candidate = os.path.join(root, bucket)
+    candidate = _safe_join(root, bucket)
     if os.path.isdir(candidate):
         return candidate
     return None if multi else root
