@@ -814,14 +814,17 @@ def list_projects(rng: str = Query("30d", alias="range")) -> dict:
     files+usage_rollup. Ordered by the RANGE-scoped cost, descending, so
     the picker re-sorts as the dashboard's time range changes — the same
     `range` convention /api/dashboard takes (`_parse_range`, default
-    "30d").
+    "30d"). Range-scoped TOKENS order the zero-cost projects and break
+    cost ties (a free lane's usage still ranks it); project_id breaks
+    token ties deterministically.
 
-    Projects whose ALL-TIME cost is 0 are dropped entirely (never-cost
-    projects are noise). A project with all-time cost but nothing in the
-    selected range is still returned — sorted to the bottom with a cost
-    of 0 — since this is a re-sort of the existing list, not a range
-    filter; the ALL-TIME-zero exclusion and the RANGE-scoped ordering are
-    two different aggregates and must not be conflated.
+    Projects whose ALL-TIME TOKENS are 0 — no usage at all — are dropped
+    entirely. A lane priced at $0 has usage and stays listed. A project
+    with all-time usage but nothing in the selected range is still
+    returned — sorted to the bottom with a cost of 0 — since this is a
+    re-sort of the existing list, not a range filter; the ALL-TIME-token
+    exclusion and the RANGE-scoped ordering are two different aggregates
+    and must not be conflated.
 
     Cost comes from usage_rollup instead of joining every record: this
     used to fan `projects x files x records` out to ~296k rows and was
@@ -848,17 +851,27 @@ def list_projects(rng: str = Query("30d", alias="range")) -> dict:
               FROM files GROUP BY project_id
             ) fc ON fc.project_id = p.project_id
             JOIN (
-              SELECT project_id, SUM(cost_usd) AS total_cost
+              SELECT project_id,
+                     SUM(fresh_tokens + output_tokens
+                         + cache_creation_tokens
+                         + cache_read_tokens) AS total_tokens
               FROM usage_rollup GROUP BY project_id
-              HAVING SUM(cost_usd) <> 0
+              HAVING SUM(fresh_tokens + output_tokens
+                         + cache_creation_tokens
+                         + cache_read_tokens) <> 0
             ) uc ON uc.project_id = p.project_id
             LEFT JOIN (
-              SELECT project_id, SUM(cost_usd) AS range_cost
+              SELECT project_id,
+                     SUM(cost_usd) AS range_cost,
+                     SUM(fresh_tokens + output_tokens
+                         + cache_creation_tokens
+                         + cache_read_tokens) AS range_tokens
               FROM usage_rollup
               WHERE hour >= date_trunc('hour', %s::timestamptz)
               GROUP BY project_id
             ) rc ON rc.project_id = p.project_id
-            ORDER BY range_cost DESC
+            ORDER BY range_cost DESC, COALESCE(range_tokens, 0) DESC,
+                     p.project_id
             """,
             (since,),
         ).fetchall()
