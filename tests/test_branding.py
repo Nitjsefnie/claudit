@@ -196,6 +196,17 @@ def test_export_filename_follows_brand(monkeypatch):
     assert api_export.export_filename("all", None) == "My_Meter_all_all.png"
 
 
+def test_export_filename_never_leads_with_underscore(monkeypatch):
+    """APP_NAME set but empty used to export "_all_all.png"; an empty
+    or whitespace-only value must fall back to the default name."""
+    monkeypatch.setenv("APP_NAME", "")
+    assert api_export.export_filename("all", None) == (
+        f"{branding.DEFAULT_NAME}_all_all.png")
+    monkeypatch.setenv("APP_NAME", "   ")
+    assert api_export.export_filename("30d", "proj/one") == (
+        f"{branding.DEFAULT_NAME}_proj_one_30d.png")
+
+
 # ---------------------------------------------------------------------------
 # Frontend source-level guards
 # ---------------------------------------------------------------------------
@@ -216,6 +227,28 @@ def test_script_json_escapes_close_tag():
         '{"a": "x<\\/script>y"}')
 
 
+def test_script_json_escapes_every_script_unsafe_sequence():
+    """Beyond `</`: `<!--` opens a script-hiding HTML comment, and raw
+    U+2028/U+2029 are JS line terminators inside a string literal even
+    though JSON treats them as ordinary whitespace. The `<\\!--` output
+    is a JS string escape, deliberately not JSON-valid (`\\!` is no JSON
+    escape): the payload is consumed as a JS object literal
+    (src/app.jsx's `window.BRAND`), never JSON.parse'd."""
+    assert branding.script_json("a b c") == (
+        '"a\\u2028b\\u2029c"')
+    assert "<!--" not in branding.script_json("x<!--y")
+    assert branding.script_json("x<!--y") == '"x<\\!--y"'
+
+
+def test_brand_payload_through_the_page_survives_hostile_title(
+        page_client, monkeypatch):
+    """End to end: every script-unsafe sequence in an env value is
+    escaped by the time the page is served."""
+    monkeypatch.setenv("APP_TITLE", 'a</script>b<!--c d')
+    served = page_client.get("/").text
+    assert "a<\\/script>b<\\!--c\\u2028d" in served
+
+
 def test_brand_defaults_are_todays_strings():
     assert branding.DEFAULT_NAME == "claudit"
     assert branding.DEFAULT_TITLE == "claudit · Claude Code Usage Dashboard"
@@ -224,3 +257,18 @@ def test_brand_defaults_are_todays_strings():
         "cost-by-model, token breakdown, prompt-cache TTL split, response "
         "sizes, per-session context growth, session burn rate, "
         "tool-usage ratio, reply latency.")
+
+
+def test_empty_or_whitespace_brand_values_fall_back_to_defaults(monkeypatch):
+    """APP_NAME set but EMPTY renders an empty logo and exports
+    "_all_all.png": a value that is empty or whitespace-only must read
+    as unset for all three brand strings."""
+    for value in ("", "   "):
+        monkeypatch.setenv("APP_NAME", value)
+        monkeypatch.setenv("APP_TITLE", value)
+        monkeypatch.setenv("APP_DESCRIPTION", value)
+        assert branding.brand() == {
+            "name": branding.DEFAULT_NAME,
+            "title": branding.DEFAULT_TITLE,
+            "description": branding.DEFAULT_DESCRIPTION,
+        }

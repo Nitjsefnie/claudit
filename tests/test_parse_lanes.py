@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import db, ingest, parse
+from backend import constants, db, ingest, parse
 from backend.r2 import R2Object
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -106,15 +106,16 @@ def _fresh_db_fixture(monkeypatch):
     os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
 
 
-@pytest.mark.parametrize("name,tool_use_id", [
-    ("codex_min.jsonl", "call_synthetic01"),
-    ("kimi_code_min.jsonl", "tool_Synthetic01Example"),
+@pytest.mark.parametrize("name,tool_use_id,prompt_count,models", [
+    ("codex_min.jsonl", "call_synthetic01", 1, ["gpt-6-astra"]),
+    ("kimi_code_min.jsonl", "tool_Synthetic01Example", 2, ["kimi-k2-7-code"]),
     # Legacy ids are per-session sequences ("tc1" repeats across unrelated
     # sessions in the kimi bucket), so the adapter namespaces them with the
     # file key before ingest groups tool_uses by the id ACROSS files.
-    ("kimi_legacy_min.jsonl", "sessions/p/s/wire.jsonl:tc1"),
+    ("kimi_legacy_min.jsonl", "sessions/p/s/wire.jsonl:tc1", 1, ["kimi-k3"]),
 ])
-def test_a_lane_transcript_persists_through_ingest(fresh_db, name, tool_use_id):
+def test_a_lane_transcript_persists_through_ingest(
+        fresh_db, name, tool_use_id, prompt_count, models):
     """Round trip: parse_file -> ingest._persist must land rows in files,
     records and tool_uses. Guards the schema's NOT NULLs -- request_id is
     NOT NULL DEFAULT '' and files.agent_type is NOT NULL -- which None
@@ -131,7 +132,7 @@ def test_a_lane_transcript_persists_through_ingest(fresh_db, name, tool_use_id):
         R2Object(key=key, etag="etag", size=1024, last_modified=when),
         {"project_id": "p", "display_name": "p",
          "first_seen_at": when, "last_seen_at": when},
-        out, "50",
+        out, constants.PARSER_VERSION,
     )
     with db.viz_conn() as c:
         row = c.execute(
@@ -139,6 +140,8 @@ def test_a_lane_transcript_persists_through_ingest(fresh_db, name, tool_use_id):
             "WHERE file_key = %s", (key,)).fetchone()
         assert row is not None, "no files row"
         assert row[0] == "general-purpose"
+        assert row[1] == prompt_count
+        assert row[2] == models
         n_records = c.execute(
             "SELECT COUNT(*) FROM records WHERE file_key = %s", (key,)
         ).fetchone()

@@ -162,7 +162,21 @@ def _list_keys_file(root: str, bucket: str, prefix: str,
     prefix_path = _safe_join(scan_root, prefix) if prefix else scan_root
     if not os.path.isdir(prefix_path):
         return
-    for dp, _dirs, fns in os.walk(prefix_path, followlinks=True):
+
+    def _raise_walk_error(err: OSError) -> None:
+        """Abort the listing on a failed subtree.
+
+        os.walk's default onerror=None SWALLOWS the error, which turns an
+        unreadable subtree into a silent PARTIAL listing — and the ingest
+        orphan sweep deletes every row for keys the listing did not show,
+        so a partial walk could sweep live history. Re-raising aborts the
+        whole ingest run before the sweep, same as the missing-bucket
+        refusal above.
+        """
+        raise err
+
+    for dp, _dirs, fns in os.walk(prefix_path, followlinks=True,
+                                  onerror=_raise_walk_error):
         for fn in fns:
             full = os.path.join(dp, fn)
             rel = os.path.relpath(full, scan_root).replace(os.sep, "/")

@@ -11,7 +11,12 @@ Two escaping contexts, deliberately different (SV-BRAND-ESCAPE):
 - The window.BRAND payload lives inside a <script> element, where
   html-escaping would CORRUPT the JS string (`&amp;` stays `&amp;`).
   The context-correct guard is JS-level: ``script_json`` rewrites `</`
-  to `<\\/` so the payload can never close the tag it lives in.
+  to `<\\/` so the payload can never close the tag it lives in, and
+  escapes the three further sequences that are unsafe inside a script
+  or its JSON string literal: `<!--` (an HTML comment open, which
+  starts script-hiding content in legacy parsing), and the raw
+  U+2028/U+2029 line separators, which are line terminators to a JS
+  string literal despite being ordinary whitespace to JSON.
 """
 from __future__ import annotations
 
@@ -29,16 +34,25 @@ DEFAULT_DESCRIPTION = (
 )
 
 
+def _branded(env: str, default: str) -> str:
+    """The env value when set to something visible, else the default.
+
+    An EMPTY or whitespace-only setting would render an empty logo and
+    export a leading-underscore filename, so it reads as unset.
+    """
+    return os.environ.get(env, "").strip() or default
+
+
 def brand_name() -> str:
-    return os.environ.get("APP_NAME", DEFAULT_NAME)
+    return _branded("APP_NAME", DEFAULT_NAME)
 
 
 def brand_title() -> str:
-    return os.environ.get("APP_TITLE", DEFAULT_TITLE)
+    return _branded("APP_TITLE", DEFAULT_TITLE)
 
 
 def brand_description() -> str:
-    return os.environ.get("APP_DESCRIPTION", DEFAULT_DESCRIPTION)
+    return _branded("APP_DESCRIPTION", DEFAULT_DESCRIPTION)
 
 
 def brand() -> dict[str, str]:
@@ -51,10 +65,17 @@ def brand() -> dict[str, str]:
 
 
 def script_json(value: object) -> str:
-    """JSON safe inside a <script> block: `</` cannot appear, so the
-    payload cannot close (or open a closing context of) the script tag.
+    """JSON safe inside a <script> block: none of the sequences that can
+    close the tag, open a script-hiding HTML comment, or terminate a JS
+    string literal mid-payload can appear.
     """
-    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("</", "<\\/")
+        .replace(" ", "\\u2028")
+        .replace(" ", "\\u2029")
+        .replace("<!--", "<\\!--")
+    )
 
 
 _TITLE_RE = re.compile(r"<title>.*?</title>", re.S)

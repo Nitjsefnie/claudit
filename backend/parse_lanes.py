@@ -7,17 +7,23 @@ codexmeter's field names and row shapes). sniff_format names a blob's
 format; to_claudit projects a lane parse onto claudit's records and
 tool_uses columns.
 
-Detection is codexmeter's: the first line that identifies a format
-wins, Codex's rung is checked FIRST (its records also carry a
-"timestamp" like legacy Kimi's, so a later rung must not claim one),
-and a Claude line is the LAST rung. The order is cheapest-first for
-the lane formats and tie-breaking for the last: a Claude transcript
-carries no lane marker at all, so its rung can sit anywhere -- last is
-where codexmeter had it, and it keeps a hypothetical line carrying BOTH
-a lane marker and a sessionId routing to the lane parser, whose parse
-is the stricter reading of the bytes. sniff_format returns "claude"
-where codexmeter raised UnsupportedTranscriptError: claudit has a
-Claude parser, so the detection's answer is data, not an error.
+Detection scans line by line and the first rung that matches wins.
+What each rung matches:
+
+- codex: a type in parse_codex.RECORD_TYPES whose payload is a dict
+- kimi-code: a "metadata" line carrying created_at, or one of the
+  context./usage./turn. event types listed below
+- legacy: a "metadata" line without created_at, or a message.type in
+  the four legacy names below (a timestamp is not required)
+- claude: a file-history-snapshot/delta type, or any line carrying a
+  sessionId; a file NO line identifies also parses as claude, which
+  keeps the pre-dispatch behaviour. This is where codexmeter raised
+  UnsupportedTranscriptError -- claudit has a Claude parser, so the
+  detection's answer is data, not an error.
+
+The order matters only for a line carrying markers of two formats at
+once: the earlier rung claims it, and no format's marker set is known
+to overlap another's, so on real files any order sniffs the same.
 """
 from __future__ import annotations
 
@@ -87,11 +93,10 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
             continue
         if not isinstance(obj, dict):
             continue
-        # Codex first: its records also carry a "timestamp", so a later rung
-        # must not claim one. The pairing of a Codex record type with a dict
-        # payload is what identifies the format -- "type" alone collides with
-        # nothing here, but a bare event_msg with no payload would be a
-        # truncated line rather than evidence.
+        # Codex rung: the pairing of a Codex record type with a dict
+        # payload is what identifies the format -- "type" alone collides
+        # with nothing here, but a bare event_msg with no payload would be
+        # a truncated line rather than evidence.
         if obj.get("type") in parse_codex.RECORD_TYPES and isinstance(
                 obj.get("payload"), dict):
             return "codex"
@@ -116,10 +121,9 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
             "StatusUpdate", "TurnBegin", "ToolCall", "ContentPart"
         }:
             return "legacy"
-        # Last rung, codexmeter's order kept: a Claude line carries no
-        # lane marker, so this rung's position only matters for a
-        # hypothetical line carrying both, and the lane parser is the
-        # stricter reading of such bytes.
+        # Last rung: its position matters only for a hypothetical line
+        # carrying both a Claude marker and a lane one -- the earlier
+        # rung claims such a line.
         if _is_claude_line(obj):
             return "claude"
     # No rung identified a lane format, so this keeps the behaviour the
@@ -127,7 +131,7 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
     return "claude"
 
 
-def to_claudit(parsed: dict, fmt: str | None = None) -> dict:
+def to_claudit(parsed: dict, fmt: str) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
     The lane parsers keep codexmeter's row shapes. claudit's schema needs
@@ -144,14 +148,14 @@ def to_claudit(parsed: dict, fmt: str | None = None) -> dict:
     A lane tool row's ``model`` is dropped: the column lives on the
     record, and the tool_uses table has no model of its own.
 
-    ``fmt`` namespaces one format's ids: a legacy ToolCall's payload.id is
-    a per-session sequence ("tc1", "ReadFile:0" -- sampled over the kimi
-    bucket, ids repeat across unrelated sessions), while Codex call_ids
-    and kimi-code tool_<random> ids are globally unique. ingest groups
-    tool_uses by tool_use_id ACROSS files (is_canonical), so a bare
-    legacy id would collide with its namesakes in other sessions and
-    wrongly mark real calls non-canonical. The file key is what makes it
-    unique.
+    ``fmt`` (the sniff_format label, required) namespaces one format's
+    ids: a legacy ToolCall's payload.id is a per-session sequence
+    ("tc1", "ReadFile:0" -- sampled over the kimi bucket, ids repeat
+    across unrelated sessions), while Codex call_ids and kimi-code
+    tool_<random> ids are globally unique. ingest groups tool_uses by
+    tool_use_id ACROSS files (is_canonical), so a bare legacy id would
+    collide with its namesakes in other sessions and wrongly mark real
+    calls non-canonical. The file key is what makes it unique.
     """
     for r in parsed["records"]:
         r["thinking_tokens"] = r.pop("reasoning_output_tokens", 0)
