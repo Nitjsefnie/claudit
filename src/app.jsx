@@ -92,7 +92,13 @@ function txToDashData(tx) {
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
       const r = rateFor(u.model);
       const unsplit = Math.max(0, cc - eph5 - eph1h);
-      const cost = (inp * r.fresh + out * r.out + eph5 * r.c5 + (eph1h + unsplit) * r.c1h + cr * r.read) / 1_000_000;
+      // The Codex long-context meter, exactly as pricing.compute_cost
+      // stores it (2x the whole input side, 1.5x output): lane meta
+      // records carry the flag, Claude records never do, and a turn
+      // priced flat here would drift from the stored cost_usd.
+      const lcIn = u.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
+      const lcOut = u.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
+      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000;
       events.push({
         ts: t,
         session_id: sid,

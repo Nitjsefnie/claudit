@@ -564,3 +564,40 @@ def test_browser_long_context_multipliers_equal_backend():
     got = json.loads(proc.stdout)
     assert got["in"] == pricing.LONG_CONTEXT_INPUT_MULT
     assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT
+
+
+def test_browser_inspector_turn_cost_applies_the_long_context_meter():
+    """txToDashData re-derives each Inspector turn's cost from the parsed
+    usage; a long-context record must price at the meter there too, or
+    the Inspector's per-turn cost drifts from the stored figure. The
+    Inspector path prices at LIST by construction (rateFor without a ts
+    — the conservative default SV-DATED-RATES gives an unstamped
+    record), so the expected figure is the metered LIST price."""
+    expected = pricing.compute_cost(
+        "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,
+        unsplit_create=0, read=290_000, long_context=True,
+    )
+    script = f"""
+      global.window = {{ shortModelName: m => m }};
+      require({str(LANES_JS)!r});
+      require({str(PARSER_JS)!r});
+      const text = {json.dumps(_long_context_blob(None).decode())};
+      const tx = window.parseTranscript(text);
+      const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
+      const start = src.indexOf('function txToDashData');
+      const end = src.indexOf('\\nfunction App(', start);
+      eval(src.slice(start, end));
+      const dash = txToDashData(tx);
+      console.log(JSON.stringify({{
+        turns: dash.events.length,
+        cost: dash.events.reduce((s, e) => s + e.cost_usd, 0),
+      }}));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["turns"] == 1
+    assert got["cost"] == pytest.approx(expected)
