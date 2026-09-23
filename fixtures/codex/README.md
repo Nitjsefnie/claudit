@@ -5,7 +5,7 @@ of anyone's session: the prompts, replies, reasoning summaries, commands,
 paths, diffs and ids are all invented, and the timestamps are a round
 sequence starting at `2026-06-14T12:00:00Z`. They describe one toy
 project at `/workspace/toy-project` — a `greeter` module and its tests —
-carried across all seven files so they read as one corpus.
+carried across all eight files so they read as one corpus.
 
 What is *not* invented is the grammar. Record `type` values
 (`session_meta`, `turn_context`, `event_msg`, `response_item`,
@@ -23,6 +23,7 @@ plausible.
 |---|---|---|
 | `rollout_fork_prefix.jsonl` | 47 | a fork — `session_meta` whose `session_id` is the PARENT thread's and whose `id` is this file's own — opening on 40,000,000 inherited cumulative tokens; 20 `token_count` events of which 2 repeat the previous snapshot; ~98% cache-read rate; declares no model |
 | `rollout_model_switch.jsonl` | 48 | a mid-session model switch, `gpt-5.6-sol` through line 28 and `gpt-5.6-terra` from line 29, with `token_count` records on both sides; five turns including one `turn_aborted`; no `session_meta`, so it stands in for a window cut from the middle of a file |
+| `rollout_settings_switch.jsonl` | 3 | a model switch carried ONLY by `thread_settings_applied` — a `turn_context` names `gpt-5.6-sol`, the settings record names `gpt-5.6-terra`, and the one `token_count` after it lands before any `turn_context` re-declares — so a parser that ignores the settings record bills the request under the old model and rate |
 | `rollout_sole_model_prefix.jsonl` | 25 | five `token_count` records BEFORE the file's only model declaration (line 20) — the backfill case a fork's replayed history creates |
 | `rollout_patch_linked.jsonl` | 29 | seven tool calls (five `exec_command`, two `apply_patch`), each with its output, and both `patch_apply_end` events that belong to the `apply_patch` calls |
 | `rollout_shell_churn.jsonl` | 8 | three exec programs whose shell payloads are the churn: a `cat > ... <<'EOF'` heredoc in a `cmd` string, a `tools.monitor({command:["bash","-lc",...]})` argv array, and a plain pytest run that must count zero. No `patch_apply_end` anywhere, so it isolates text-derived churn from the journalled kind |
@@ -52,6 +53,10 @@ being able to catch a wrong parser, which is what these rules are for.
    slip past the assertions.
 5. **Model declarations must sit between the requests they govern**, and
    `token_count` payloads must never name a model of their own.
+   `thread_settings_applied` is a model declaration: a switch may be
+   carried by it alone, with no `turn_context` re-declaring before the
+   next request (`rollout_settings_switch.jsonl` exists to catch a parser
+   that reads only `turn_context`).
 6. **The two spellings must stay unmixed.** `rollout_item_completed.jsonl`
    carries no `patch_apply_end` and no `event_msg/agent_message`, and the
    other six carry no `item_completed`. Adding one to the other side would
