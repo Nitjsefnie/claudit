@@ -319,7 +319,9 @@ def session_detail(session_id: str) -> dict:
 
     return {
         **base,
-        "r2_key": row[2],
+        # Public form: the bucket segment never leaves the server
+        # (SV-FILES-RECORDS).
+        "r2_key": r2.public_key(row[2]),
         "ctx_trace": _ctx_trace(row[3]),
         "burn": burn,
     }

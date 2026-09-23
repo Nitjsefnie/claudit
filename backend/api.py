@@ -30,7 +30,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
-from backend import db, events
+from backend import db, events, r2
 from backend.api_cache import router as cache_router
 from backend.api_common import (
     HEATMAP_TZ, _bucket_seconds, _iso, _parse_range,
@@ -377,7 +377,8 @@ def _latency_from_rollup(rng: str, project: str | None, model: str | None,
             {
                 "ts": o.get("ts"), "model": m,
                 "latency_s": float(o.get("latency_s") or 0),
-                "file_key": o.get("file_key"), "line": int(o.get("line_num") or 0),
+                "file_key": r2.public_key(o.get("file_key")),
+                "line": int(o.get("line_num") or 0),
             }
             for (_b, m, _n, _a, _c2, _d, olist) in rows
             for o in (olist or [])
@@ -468,7 +469,7 @@ def _latency_live(rng: str, project: str | None, model: str | None,
             {
                 "ts": _iso(et), "model": m,
                 "latency_s": float(lat or 0),
-                "file_key": fk, "line": int(ln or 0),
+                "file_key": r2.public_key(fk), "line": int(ln or 0),
             }
             for (b, m, et, fk, ln, lat) in outlier_rows
         ],
@@ -973,7 +974,7 @@ def context_growth_session(session_id: str) -> dict:
             final_ctx = 0
     return {
         "session_id": session_id,
-        "file_key": file_key,
+        "file_key": r2.public_key(file_key),
         "turns": turns,
         "total_turns": count,
         "final_ctx": final_ctx,

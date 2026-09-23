@@ -86,6 +86,28 @@ def split_key(key: str) -> tuple[str, str]:
     return bucket, object_key
 
 
+def public_key(key: str | None) -> str | None:
+    """The PUBLIC form of a stored file key, for anything that leaves the
+    server in a response body: the object key with the leading bucket
+    segment removed. The bucket segment is infrastructure (SV-FILES-
+    RECORDS) — it routes reads to the right bucket and never reaches a
+    client, so a response cannot disclose which buckets a deploy reads.
+
+    A key whose first segment is not a configured bucket — a legacy bare
+    object key, or an already-public key — is returned unchanged, and so
+    is a None/empty input: this is a presentation helper, total over
+    everything a response might carry. Stored keys, DB rows and internal
+    lookups stay bucket-qualified; call this only at the boundary where
+    a file_key enters a response body.
+    """
+    if not key:
+        return key
+    bucket, sep, object_key = key.partition("/")
+    if sep and bucket in buckets():
+        return object_key
+    return key
+
+
 def _configured(key: str) -> tuple[str, str]:
     """split_key() plus the refusal: a bucket not named in R2_BUCKET is
     not ours to serve. Every read path goes through here."""

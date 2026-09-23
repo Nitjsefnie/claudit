@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from backend import db
+from backend import db, r2
 from backend.api_common import Phases, _parse_range, fold_per_model, rate_epoch_sql
 from backend.cache import cache_response
 
@@ -154,7 +154,11 @@ def _top_rows(rows, columns):
                 d[col] = v.isoformat()
             elif col == "cost":
                 d[col] = float(v) if v is not None else 0.0
-            elif col in ("ts", "request_id", "model", "file_key"):
+            elif col == "file_key":
+                # Public form: the bucket segment never leaves the server
+                # (SV-FILES-RECORDS).
+                d[col] = r2.public_key(v)
+            elif col in ("ts", "request_id", "model"):
                 d[col] = v
             else:
                 d[col] = int(v or 0)
