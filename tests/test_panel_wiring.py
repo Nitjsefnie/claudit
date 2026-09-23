@@ -355,6 +355,6 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
     meant to decompose (SV-COST-SPLIT)."""
     src = _strip_line_comments(APP.read_text(encoding="utf-8"))
     assert "(eph1h + unsplit) * r.c1h" in src
-    assert "c.ccUnsplit += unsplit                  * r.c1h;" in src
+    assert "c.ccUnsplit += unsplit                  * r.c1h * lcIn;" in src
     assert "(eph5 + unsplit) * r.c5" not in src
     assert "unsplit                  * r.c5" not in src

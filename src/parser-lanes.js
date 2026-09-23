@@ -18,10 +18,13 @@
 
 // Codex bills a request whose prompt exceeds this many tokens on its
 // long-context meter (2x input-side, 1.5x output — applied by
-// src/parser.js's cost path off the record's long_context flag). Mirrors
-// pricing.LONG_CONTEXT_THRESHOLD; tests/test_parser_js_lanes.py asserts
-// the two agree.
+// src/parser.js's cost path and app.jsx's Token Breakdown off the
+// row's long_context flag). Mirror pricing.LONG_CONTEXT_THRESHOLD and
+// the LONG_CONTEXT_*_MULT pair;
+// tests/test_parser_js_lanes.py asserts all three agree.
 window.LONG_CONTEXT_THRESHOLD = 272000;
+window.LONG_CONTEXT_INPUT_MULT = 2.0;
+window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
 
 // --------------------------------------------------------------------------
 // Shared helpers

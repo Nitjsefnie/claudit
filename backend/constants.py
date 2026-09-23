@@ -122,7 +122,8 @@ VERSION = _read_version()
 # 49 adds the Codex and Kimi rate tables and the long-context meter.
 # 50 routes every transcript through the format dispatcher: Codex and
 # Kimi transcripts parse instead of landing in the claude parser.
-PARSER_VERSION = "50"
+# 51 persists the Codex long-context meter on records.long_context.
+PARSER_VERSION = "51"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also

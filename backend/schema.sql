@@ -126,6 +126,14 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      (cwd_rebuild). Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
+-- 2026-09-22: the Codex long-context meter, per record. A pay-as-you-go
+-- Codex request whose prompt exceeded the 272k threshold bills the WHOLE
+-- request at 2x input side / 1.5x output (pricing.LONG_CONTEXT_*), so a
+-- per-component cost re-derived from the stored tokens at the flat rate
+-- disagrees with the stored cost_usd unless the fold knows the flag.
+-- NULL on everything that is not a lane record (Claude never bills this
+-- way); readers COALESCE to FALSE.
+ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
@@ -167,7 +175,11 @@ CREATE TABLE IF NOT EXISTS usage_rollup (
   -- A SUBSET of output_tokens, never a sixth slice of the partition.
   thinking_tokens     BIGINT      NOT NULL DEFAULT 0,
   cost_usd            NUMERIC(18,8) NOT NULL DEFAULT 0,
-  PRIMARY KEY (session_id, hour, model, is_main)
+  -- Part of the grain (see the constraint swap below): a long-context
+  -- record's tokens must not sum into a row the fold prices at the flat
+  -- rate, or the Token Breakdown re-derivation drifts from cost_usd.
+  long_context        BOOLEAN     NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (session_id, hour, model, is_main, long_context)
 );
 CREATE INDEX IF NOT EXISTS usage_rollup_hour_idx ON usage_rollup (hour);
 CREATE INDEX IF NOT EXISTS usage_rollup_project_idx ON usage_rollup (project_id, hour);
@@ -513,6 +525,30 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
 -- `records` columns, so a rollup rebuild fills them; no reparse needed.
 ALTER TABLE usage_rollup
   ADD COLUMN IF NOT EXISTS thinking_tokens BIGINT NOT NULL DEFAULT 0;
+-- 2026-09-22: the long-context meter joined usage_rollup's grain, so a
+-- re-derived breakdown can apply the meter per row (SV-DATED-RATES: a
+-- breakdown must reconcile with the stored total it decomposes).
+-- long_context is NOT NULL DEFAULT FALSE and rows group under
+-- COALESCE(records.long_context, FALSE). The grain is the PRIMARY KEY, so
+-- widening it means swapping the constraint: the DO block drops the old
+-- four-column PK only when it does not already carry the flag, which makes
+-- the swap idempotent (ADD CONSTRAINT has no IF NOT EXISTS). Re-add is
+-- safe on a fresh DB, whose CREATE above already built the new shape.
+ALTER TABLE usage_rollup
+  ADD COLUMN IF NOT EXISTS long_context BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'usage_rollup_pkey'
+       AND conrelid = 'usage_rollup'::regclass
+       AND pg_get_constraintdef(oid) LIKE '%long_context%'
+  ) THEN
+    ALTER TABLE usage_rollup DROP CONSTRAINT IF EXISTS usage_rollup_pkey;
+    ALTER TABLE usage_rollup ADD CONSTRAINT usage_rollup_pkey
+      PRIMARY KEY (session_id, hour, model, is_main, long_context);
+  END IF;
+END $$;
 ALTER TABLE ctx_cost_rollup
   ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE agent_rollup

@@ -44,6 +44,7 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
           SELECT f.session_id, f.project_id, f.is_main,
                  r.ts AS hour, r.ts AS first_ts, r.ts AS last_ts,
                  COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
+                 COALESCE(r.long_context, FALSE) AS long_context,
                  1::bigint AS requests,
                  r.fresh_tokens, r.output_tokens, r.cache_creation_tokens,
                  r.cache_read_tokens, r.eph5_tokens, r.eph1h_tokens,
@@ -175,6 +176,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                  floor(EXTRACT(EPOCH FROM u.hour) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
                ) AS hour,
                u.model,
+               COALESCE(u.long_context, FALSE) AS long_context,
                SUM(u.fresh_tokens)      AS input_tokens,
                SUM(u.output_tokens)     AS output_tokens,
                SUM(u.eph5_tokens)       AS cache_5m_tokens,
@@ -185,8 +187,8 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                SUM(u.requests)          AS requests,
                COUNT(DISTINCT u.session_id) AS session_count
         {src["roll_src"]}
-        GROUP BY 1, 2
-        ORDER BY 1, 2
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 2, 3
         """,
         src["roll_args"],
     ).fetchall()
@@ -417,9 +419,9 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
     }
 
 
-# The hourly SELECT's column order, minus `hour` and `model`, which the
-# entry treats specially. Named here so the unpack does not spend one
-# local per column.
+# The hourly SELECT's column order, minus `hour`, `model` and
+# `long_context`, which the entry treats specially. Named here so the
+# unpack does not spend one local per column.
 _HOURLY_TOKEN_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -436,16 +438,19 @@ _HOURLY_TOKEN_KEYS = (
 def _hourly_entry(row, seen_hours: set) -> tuple[dict, str, float]:
     """One hourly panel entry, plus its (model, cost) for the
     cost_by_model fold. `session_count` is attributed to the first
-    model row of each hour only — the rows are per (hour, model), so
-    summing the column across models would double-count."""
-    hour, model = row[0], row[1]
-    tokens = row[2:2 + len(_HOURLY_TOKEN_KEYS)]
-    cost, reqs, sc = row[2 + len(_HOURLY_TOKEN_KEYS):]
+    row of each hour only — the rows are per (hour, model,
+    long_context), so summing the column across models would
+    double-count. A long-context row is part of the same hour's data
+    (its flag rides the entry for the browser breakdown to price by)."""
+    hour, model, long_context = row[0], row[1], row[2]
+    tokens = row[3:3 + len(_HOURLY_TOKEN_KEYS)]
+    cost, reqs, sc = row[3 + len(_HOURLY_TOKEN_KEYS):]
     hour_iso = _iso(hour)
     is_first_for_hour = hour_iso not in seen_hours
     seen_hours.add(hour_iso)
     model_name = model or "unknown"
-    entry = {"hour": hour_iso, "model": model_name}
+    entry = {"hour": hour_iso, "model": model_name,
+             "long_context": bool(long_context)}
     entry.update(dict(zip(_HOURLY_TOKEN_KEYS, (int(v or 0) for v in tokens))))
     entry["cost_usd"] = float(cost or 0)
     entry["requests"] = int(reqs or 0)

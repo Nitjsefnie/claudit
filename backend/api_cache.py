@@ -57,6 +57,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
         "per_model", c, f"""
         SELECT model,
                ({epoch_expr})              AS rate_epoch,
+               COALESCE(long_context, FALSE) AS long_context,
                COUNT(*)                    AS turns,
                SUM(fresh_tokens)           AS fresh,
                SUM(cache_creation_tokens)  AS cache_create,
@@ -66,7 +67,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
                SUM(eph1h_tokens)           AS eph1h,
                SUM(cost_usd)               AS cost_total
         {canon_src}
-        GROUP BY model, rate_epoch
+        GROUP BY model, rate_epoch, COALESCE(long_context, FALSE)
         ORDER BY cost_total DESC
         """,
         epoch_params + canon_args,

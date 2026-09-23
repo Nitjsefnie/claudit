@@ -891,9 +891,10 @@ def test_no_rate_limit_hit_is_invented_from_ordinary_utilisation():
 RECORD_KEYS = {
     "file_key", "line_num", "uuid", "request_id", "ts", "model",
     "fresh_tokens", "cache_creation_tokens", "cache_read_tokens",
-    "output_tokens", "thinking_tokens", "cost_usd", "text_chars",
-    "reply_latency_s", "ctx_input", "stop_reason", "effort", "cli_version",
-    "turn_flags", "turn_tool_results", "eph5_tokens", "eph1h_tokens",
+    "output_tokens", "thinking_tokens", "long_context", "cost_usd",
+    "text_chars", "reply_latency_s", "ctx_input", "stop_reason", "effort",
+    "cli_version", "turn_flags", "turn_tool_results", "eph5_tokens",
+    "eph1h_tokens",
 }
 TOOL_USE_KEYS = {
     "file_key", "line_num", "idx", "ts", "tool_name", "tool_use_id",

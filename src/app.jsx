@@ -449,6 +449,10 @@ function backendDashToShape(b) {
     cache_read: h.cache_read_tokens || 0,
     ephemeral_5m: h.cache_5m_tokens || 0,
     ephemeral_1h: h.cache_1h_tokens || 0,
+    // The Codex long-context meter rides the hourly grain: rows tagged
+    // true bill at 2x input side / 1.5x output, which the Token
+    // Breakdown must apply or its bars drift from the stored total.
+    long_context: !!h.long_context,
     cost_usd: h.cost_usd,
     lines_added: h.lines_added || 0,
     lines_deleted: h.lines_deleted || 0,
@@ -636,13 +640,18 @@ function computeTokenBreakdown(events) {
   if (window.rateForModel) {
     for (const e of events) {
       const r = window.rateForModel(e.model, e.ts);
+      // The Codex long-context meter, exactly as pricing.compute_cost
+      // stores it (2x the whole input side, 1.5x output): a long-context
+      // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
+      const lcIn = e.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
+      const lcOut = e.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
       const unsplit = Math.max(0, (e.cache_create || 0) - (e.ephemeral_5m || 0) - (e.ephemeral_1h || 0));
-      c.input     += (e.input_tokens   || 0) * r.fresh;
-      c.output    += (e.output_tokens  || 0) * r.out;
-      c.eph5      += (e.ephemeral_5m   || 0) * r.c5;
-      c.eph1h     += (e.ephemeral_1h   || 0) * r.c1h;
-      c.ccUnsplit += unsplit                  * r.c1h; // unsplit at 1h rate
-      c.cr        += (e.cache_read     || 0) * r.read;
+      c.input     += (e.input_tokens   || 0) * r.fresh * lcIn;
+      c.output    += (e.output_tokens  || 0) * r.out * lcOut;
+      c.eph5      += (e.ephemeral_5m   || 0) * r.c5 * lcIn;
+      c.eph1h     += (e.ephemeral_1h   || 0) * r.c1h * lcIn;
+      c.ccUnsplit += unsplit                  * r.c1h * lcIn; // unsplit at 1h rate
+      c.cr        += (e.cache_read     || 0) * r.read * lcIn;
     }
     for (const k of Object.keys(c)) c[k] = c[k] / 1_000_000;
   }

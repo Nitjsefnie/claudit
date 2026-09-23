@@ -136,21 +136,31 @@ def _empty_model_entry(model: str) -> dict:
 
 def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
                         cr: int, output: int, eph5: int, eph1h: int,
-                        unsplit: int) -> None:
-    """Price one row's tokens into the entry's per-epoch cost buckets."""
+                        unsplit: int, long_context: bool = False) -> None:
+    """Price one row's tokens into the entry's per-epoch cost buckets.
+
+    long_context applies the Codex long-context meter exactly as
+    pricing.compute_cost stores it (2x the whole input side, 1.5x
+    output), so a row billed on that meter keeps its buckets summing to
+    the stored cost_total.
+    """
     b = entry["_buckets"]
-    b["fresh"] += fresh * rates["fresh"] / 1_000_000
-    b["create_5m"] += eph5 * rates["create_5m"] / 1_000_000
+    in_mult = (pricing.LONG_CONTEXT_INPUT_MULT if long_context else 1.0)
+    out_mult = (pricing.LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0)
+    b["fresh"] += fresh * rates["fresh"] * in_mult / 1_000_000
+    b["create_5m"] += eph5 * rates["create_5m"] * in_mult / 1_000_000
     # An undeclared TTL is priced as 1h, exactly as pricing.compute_cost
     # stores it, so the buckets keep summing to the stored total.
-    b["create_1h"] += (eph1h + unsplit) * rates["create_1h"] / 1_000_000
-    b["read"] += cr * rates["read"] / 1_000_000
-    b["output"] += output * rates["output"] / 1_000_000
+    b["create_1h"] += ((eph1h + unsplit) * rates["create_1h"] * in_mult
+                       / 1_000_000)
+    b["read"] += cr * rates["read"] * in_mult / 1_000_000
+    b["output"] += output * rates["output"] * out_mult / 1_000_000
 
 
 def _accumulate_model_row(acc: dict[str, dict], row) -> None:
-    """Fold one (model, rate_epoch, ...) aggregate row into `acc`."""
-    model, epoch, turns, fresh, cc, cr, output, eph5, eph1h, cost = row
+    """Fold one (model, rate_epoch, long_context, ...) aggregate row."""
+    (model, epoch, long_context, turns, fresh, cc, cr, output,
+     eph5, eph1h, cost) = row
     model = model or "unknown"
     fresh = int(fresh or 0)
     cc = int(cc or 0)
@@ -170,7 +180,8 @@ def _accumulate_model_row(acc: dict[str, dict], row) -> None:
     entry["eph5"] += eph5
     entry["eph1h"] += eph1h
     entry["cost_total"] += float(cost or 0)
-    _accumulate_buckets(entry, rates, fresh, cc, cr, output, eph5, eph1h, unsplit)
+    _accumulate_buckets(entry, rates, fresh, cc, cr, output, eph5, eph1h,
+                        unsplit, bool(long_context))
 
 
 def fold_per_model(rows) -> list[dict]:
