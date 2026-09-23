@@ -358,3 +358,28 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
     assert "c.ccUnsplit += unsplit                  * r.c1h * lcIn;" in src
     assert "(eph5 + unsplit) * r.c5" not in src
     assert "unsplit                  * r.c5" not in src
+
+
+def test_tokens_by_project_mirrors_the_cost_panel_treatment():
+    """Tokens by Project sits beside Cost by Project the way Tokens by
+    Model sits beside Cost by Model: the same VBar, the same project
+    filter gate, humanFmt + share-of-charted labels — but gated on
+    having tokens, never on cost, so a free lane (llamameter, priced $0)
+    still sees its project split."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    # Wired from the backend key, absent-safe like cost_by_project.
+    assert "tokensByProject: b.tokens_by_project || []" in src
+    # The whole panel is behind the project filter and a has-tokens guard.
+    guard = "activeProject === '' && tokensByProject.length > 0 && ("
+    assert guard in src
+    idx = src.index('title="Tokens by Project"')
+    assert "<window.VBar" in src[max(0, idx - 40):idx]
+    assert guard in src[max(0, idx - 260):idx]
+    # NOT gated on cost — the one deliberate difference from Cost by
+    # Project (whose length guard doubles as its has-data gate; the cost
+    # visibility rule lives on the list being non-empty).
+    assert "hasCost" not in src[max(0, idx - 120):idx]
+    tokens_window = src[idx:idx + 320]
+    assert "rows={tokensByProject}" in tokens_window
+    assert "window.humanFmt(r.value" in tokens_window
+    assert "tokensByProjectTotal" in tokens_window

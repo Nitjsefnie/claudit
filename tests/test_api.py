@@ -776,6 +776,7 @@ def test_dashboard_cost_by_project_omitted_for_guest(app_with_data):
     proving the strip happens per-request, outside the cached payload."""
     body = app_with_data.get("/api/dashboard?range=3650d").json()
     assert "cost_by_project" in body
+    assert "tokens_by_project" in body
 
     a = FastAPI()
 
@@ -788,6 +789,9 @@ def test_dashboard_cost_by_project_omitted_for_guest(app_with_data):
     guest = TestClient(a).get("/api/dashboard?range=3650d")
     assert guest.status_code == 200
     assert "cost_by_project" not in guest.json()
+    assert "tokens_by_project" not in guest.json(), (
+        "per-project token names are the same guest-withheld data the "
+        "cost key is — stripped server-side, outside the shared cache")
     # The rest of the payload is untouched.
     assert "cost_by_model" in guest.json()
 

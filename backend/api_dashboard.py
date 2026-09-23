@@ -252,6 +252,26 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         src["roll_args"],
     ).fetchall()
 
+    # Per-project range tokens for the "Tokens by Project" panel — the
+    # billed partition Tokens by Model sums (fresh + cache_creation +
+    # cache_read + output; thinking_tokens is a SUBSET of output and is
+    # never added, SV-SUBSET-TOKENS), from the same rollup/live source as
+    # cost_by_project (the >=1h rollup or the same-named live subquery),
+    # under the same range/project/model filters. Sorted DESC so the
+    # top-10/Other fold below is a plain slice.
+    tokens_by_project_rows = ph.execute(
+        "tokens_by_project", c, f"""
+        SELECT u.project_id,
+               SUM(u.fresh_tokens + u.output_tokens
+                   + u.cache_creation_tokens + u.cache_read_tokens)
+                 AS total_tokens
+        {src["roll_src"]}
+        GROUP BY 1
+        ORDER BY 2 DESC
+        """,
+        src["roll_args"],
+    ).fetchall()
+
     file_counts_row = ph.execute(
         "file_counts", c, f"""
         -- The two EXISTS predicates were correlated subqueries
@@ -412,6 +432,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         "churn": churn_rows,
         "total_sessions_row": total_sessions_row,
         "cost_by_project": cost_by_project_rows,
+        "tokens_by_project": tokens_by_project_rows,
         "file_counts_row": file_counts_row,
         "sessions": sessions_rows,
         "ctx_traces": ctx_traces_rows,
@@ -584,6 +605,27 @@ def _fold_cost_by_project(rows) -> list:
     return cost_by_project
 
 
+def _fold_tokens_by_project(rows) -> list:
+    """Tokens by Project's fold — the same shape as _fold_cost_by_project:
+    zero-token rows are noise, top 10 by range tokens, the tail as ONE
+    "Other (N projects)" row. The measure is the billed partition
+    (fresh + cache_creation + cache_read + output); thinking_tokens is a
+    SUBSET of output and never enters the sum (SV-SUBSET-TOKENS)."""
+    positive = [
+        {"project": p or "unknown", "total_tokens": int(t or 0)}
+        for (p, t) in rows
+        if int(t or 0) > 0
+    ]
+    tokens_by_project = positive[:10]
+    if len(positive) > 10:
+        rest = positive[10:]
+        tokens_by_project.append({
+            "project": f"Other ({len(rest)} projects)",
+            "total_tokens": sum(r["total_tokens"] for r in rest),
+        })
+    return tokens_by_project
+
+
 def _turns_projection(raw_turns) -> list:
     """Project raw ctx_turns to {t, ctx} (input is total ctx-window:
     input+cc+cr)."""
@@ -663,6 +705,8 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "token_types": surviving_token_types(hourly),
         "cost_by_model": cost_by_model,
         "cost_by_project": _fold_cost_by_project(rows["cost_by_project"]),
+        "tokens_by_project": _fold_tokens_by_project(
+            rows["tokens_by_project"]),
         "rate_limit_hits": _fold_rate_limits(rows["rate_limits"]),
         "sessions": _fold_sessions(rows["sessions"], rows["ctx_traces"]),
         "total_sessions": int(total_sessions_row[0] or 0) if total_sessions_row else 0,
@@ -712,17 +756,19 @@ def dashboard_route(
 ) -> dict:
     """Route wrapper around the cached dashboard payload.
 
-    The cached body always carries cost_by_project (one cache entry shared
-    by every caller, so `cache.warm(dashboard)` keeps working and a
-    guest never triggers a second compute). Guests get the same payload
-    MINUS that key: per-project names/costs are exactly what the guest
-    gates on /api/projects and on project= exist to withhold (see
-    session.auth_middleware), and /api/dashboard is guest-accessible. The
-    dict comprehension copies rather than mutating so the cached object
-    stays intact for later non-guest hits."""
+    The cached body always carries cost_by_project AND tokens_by_project
+    (one cache entry shared by every caller, so `cache.warm(dashboard)`
+    keeps working and a guest never triggers a second compute). Guests
+    get the same payload MINUS those two keys: per-project names/costs/
+    tokens are exactly what the guest gates on /api/projects and on
+    project= exist to withhold (see session.auth_middleware), and
+    /api/dashboard is guest-accessible. The dict comprehension copies
+    rather than mutating so the cached object stays intact for later
+    non-guest hits."""
     payload = dashboard(rng=rng, project=project, model=model, fresh=fresh)
     if bool(getattr(request.state, "is_guest", False)):
-        payload = {k: v for k, v in payload.items() if k != "cost_by_project"}
+        payload = {k: v for k, v in payload.items()
+                   if k not in ("cost_by_project", "tokens_by_project")}
     return payload
 
 
@@ -742,7 +788,9 @@ def dashboard(
     panel derived from it (hourly, cost_by_model, response_sizes,
     sessions, ctx_traces) is constrained to records matching the model
     substring. cost_by_project is folded from the same rollup source as
-    cost_by_model; the route wrapper strips it for guests."""
+    cost_by_model, and tokens_by_project beside it measures the billed
+    token partition per project; the route wrapper strips BOTH
+    per-project keys for guests."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
     bucket_s = _bucket_seconds(delta)

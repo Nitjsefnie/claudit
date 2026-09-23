@@ -509,6 +509,7 @@ function backendDashToShape(b) {
   return {
     events, limitHits, range, costByModel,
     costByProject: b.cost_by_project || [],
+    tokensByProject: b.tokens_by_project || [],
     sessionsOverride: sessions,
     totalSessions: b.total_sessions,
     mainWUsage: b.main_w_usage,
@@ -760,6 +761,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const {
     events = [], limitHits = [], range: dataRange, costByModel: backendByModel,
     costByProject: backendByProject = [],
+    tokensByProject: backendTokensByProject = [],
     sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
     subagentOnlySessions, totalPrompts, totalTurns, responseSizes,
     ctxTraces, bucketS, tokenTypes,
@@ -828,6 +830,15 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // so the empty list hides the panel for them without an isGuest check.
   const costByProject = backendByProject
     .map(r => ({ label: r.project, value: r.cost_usd, color: window.dashboardCol.costUSD }));
+  // Tokens by Project: the Tokens by Model treatment on the project
+  // axis — the same VBar, humanFmt + share-of-charted labels. It is NOT
+  // gated on cost (a free lane priced $0 is invisible on Cost by
+  // Project and visible here), only on having tokens; guests get no
+  // tokens_by_project key at all (server-side, like cost_by_project),
+  // so the empty list hides the panel for them without an isGuest check.
+  const tokensByProject = backendTokensByProject
+    .map(r => ({ label: r.project, value: r.total_tokens, color: window.dashboardCol.totalTokens }));
+  const tokensByProjectTotal = tokensByProject.reduce((a, r) => a + r.value, 0);
 
   const totalCostStr = window.humanFmt(totals.cost, true);
   // Whether anything in the range cost money at all. A free lane
@@ -926,6 +937,15 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
             title="Cost by Project"
             rows={costByProject}
             fmt={r => window.humanCurrency(r.value)} />
+        </div>
+      )}
+
+      {activeProject === '' && tokensByProject.length > 0 && (
+        <div className="dash-resp">
+          <window.VBar
+            title="Tokens by Project"
+            rows={tokensByProject}
+            fmt={r => `${window.humanFmt(r.value)} (${tokensByProjectTotal > 0 ? (r.value / tokensByProjectTotal * 100).toFixed(1) : '0.0'}%)`} />
         </div>
       )}
 
