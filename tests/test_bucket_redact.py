@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, cache, db, ingest, r2
+from backend import api, app as app_mod, cache, db, ingest, r2
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -107,6 +107,9 @@ def _redact_app_fixture(fresh_db, tmp_path, monkeypatch):
 
     a = FastAPI()
     a.include_router(api.router)
+    # /health is public (session._AUTH_PUBLIC_PATHS) and its error field
+    # mirrors ingest_runs.error — include it in this module's sweep.
+    a.get("/health")(app_mod.health)
     yield TestClient(a)
 
 
@@ -149,6 +152,7 @@ def test_no_endpoint_serves_a_bucket_prefix(redact_app):
         "/api/sessions",
         "/api/sessions/sessS",
         "/api/context-growth/session/sessS",
+        "/health",
     ]
     for url in endpoints:
         r = redact_app.get(url)
@@ -185,3 +189,108 @@ def test_cache_top_lists_present(redact_app):
     for row in top["top_output"] + top["top_cache_create"] \
             + top["top_cache_read"]:
         assert row["file_key"] == _OBJ_KEY
+
+
+# ---------------------------------------------------------------------------
+# The PUBLIC error channel: /health serves ingest_runs.error, whose keys
+# are bucket-qualified and whose fatal text can name a bucket or the
+# mirror root
+# ---------------------------------------------------------------------------
+
+
+def test_redact_strips_bucket_names_and_mirror_root(monkeypatch, tmp_path):
+    """r2.redact is the free-text net: the mirror root and every
+    configured bucket name — path segment, quoted !r, list element after
+    a separator, or key prefix — become placeholders."""
+    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/mirror/")
+    text = (
+        "FileNotFoundError: no mirror directory for bucket 'beta'; "
+        f"cannot stat {tmp_path}/mirror/alpha/projS/sessS/sessS.jsonl "
+        "after 3 attempts: alpha/projS/a.jsonl, beta/projS/b.jsonl"
+    )
+    out = r2.redact(text) or ""
+    assert "alpha" not in out and "beta" not in out
+    assert "<mirror>" in out and "<bucket>" in out
+
+
+def test_failure_summary_publicises_keys(monkeypatch):
+    """failure_summary feeds ingest_runs.error, which the public /health
+    serves: its keys are presentation, so they go through public_key."""
+    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    out = ingest.failure_summary(
+        [("alpha/projS/sessS/sessS.jsonl", "RuntimeError: dropped")])
+    assert out == "1 object failed after retries: projS/sessS/sessS.jsonl"
+
+
+def test_health_per_object_failure_serves_public_keys(
+        redact_app, tmp_path, monkeypatch):
+    """A partial run is ROUTINE. Its ingest_runs.error names the failed
+    objects, and /health serves that field unauthenticated — so the keys
+    must come out in their public form and the failure text must not
+    name a bucket."""
+    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
+
+    def flaky(key: str) -> bytes:
+        if key.startswith("alpha/"):
+            raise RuntimeError(
+                "GET beta/projS/sessS/sessS.jsonl dropped on mirror")
+        return real_fetch(key)
+
+    # Force a reparse of the alpha file (else the run has nothing to
+    # fetch and the flaky fetch never fires).
+    (tmp_path / "alpha" / _OBJ_KEY).touch()
+    monkeypatch.setattr(ingest, "_fetch_with_retry", flaky)
+    result = ingest.run_ingest(trigger="manual")
+    monkeypatch.undo()
+    assert result["failed"] == 1
+    assert result["error"] is not None
+
+    a = FastAPI()
+    a.include_router(api.router)
+    a.get("/health")(app_mod.health)
+    body = TestClient(a).get("/health").text
+    assert "alpha/" not in body, "bucket-qualified failure key leaked"
+    assert "beta/" not in body, "bucket name in failure text leaked"
+    assert "projS/sessS/sessS.jsonl" in body, "public key kept for triage"
+
+
+def test_health_fatal_never_names_a_bucket(redact_app, monkeypatch):
+    """A whole-run fatal (mirror FileNotFoundError, S3 error) names the
+    bucket in its message. The stored fatal text is redacted of every
+    configured bucket name; the full exception stays in the logs."""
+    def broken(prefix: str = ""):
+        raise FileNotFoundError(
+            "no mirror directory for bucket 'beta'; listing refused")
+
+    monkeypatch.setattr(ingest.r2, "list_keys", broken)
+    result = ingest.run_ingest(trigger="manual")
+    monkeypatch.undo()
+    assert result["error"] is not None
+    assert "FileNotFoundError" in result["error"], "type name kept"
+    assert "beta" not in result["error"], "fatal text must be redacted"
+
+    a = FastAPI()
+    a.include_router(api.router)
+    a.get("/health")(app_mod.health)
+    body = TestClient(a).get("/health").text
+    assert "beta" not in body
+    assert "FileNotFoundError" in body, "the type name is safe to serve"
+
+
+def test_health_db_failure_is_generic(redact_app, monkeypatch):
+    """The DB-failure branch of /health must not echo driver exception
+    text (which can name hosts, databases, buckets) on a public
+    endpoint; details go to the logs."""
+    def boom():
+        raise RuntimeError(
+            "connection failed: host 'alpha-db', database 'beta-rows'")
+
+    monkeypatch.setattr(db, "viz_conn", boom)
+    a = FastAPI()
+    a.include_router(api.router)
+    a.get("/health")(app_mod.health)
+    body = TestClient(a).get("/health").text
+    monkeypatch.undo()
+    assert "alpha-db" not in body and "beta-rows" not in body
+    assert "database unavailable" in body

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from starlette.responses import FileResponse, HTMLResponse, Response
 
 from backend import api, constants, db, events, ingest, login, r2, session
 from backend import branding
+
+log = logging.getLogger("claudit.app")
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -130,11 +133,17 @@ def health() -> dict:
                     "trigger": row[3],
                     "r2_listed": row[4],
                     "reparsed": row[5],
-                    "error": row[6],
+                    # /health is unauthenticated: the error text is a
+                    # presentation surface (ingest redacts at the source;
+                    # this net also covers rows stored by older builds).
+                    "error": r2.redact(row[6]),
                 }
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        # Driver text can name hosts, databases, buckets — the public
+        # body gets a generic message; the details go to the logs.
+        log.exception("health: database query failed")
         return {
-            "ok": False, "db": False, "error": str(e),
+            "ok": False, "db": False, "error": "database unavailable",
             "version": constants.VERSION,
             "parser_version": parser_version,
             "now": datetime.now(timezone.utc).isoformat(),

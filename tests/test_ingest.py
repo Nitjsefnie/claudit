@@ -6,11 +6,12 @@ import shutil
 import tempfile
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from backend import api, cache, constants, db, ingest
+from backend import api, cache, constants, db, ingest, lane_projects
 from backend.api_dashboard import dashboard
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -785,3 +786,111 @@ def test_transient_marker_failure_keeps_the_stored_display_name(
         "no file may flip back to the hash id: the stored hash→slug "
         "mapping keeps one directory ONE project across a marker miss"
     )
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Migration-stall rekey + deterministic stored mapping (fix round 1)
+# ---------------------------------------------------------------------------
+
+
+def test_marker_ok_run_rekeys_a_hash_stalled_by_a_failed_marker(
+        fresh_db, tmp_path, monkeypatch):
+    """Run 1's marker GET fails (a per-object failure, not fatal): the
+    files persist under the hash. Run 2 reads the marker fine but NO
+    etag changed, so nothing reparses — the stored rows are re-keyed to
+    the slug directly, the orphan hash project row is dropped, and one
+    directory is ONE project again. Without the rekey the files sit
+    hash-keyed until each etag changes, and the first reparse creates
+    TWO project rows for one directory."""
+    proj = "8805b8ac99ad"
+    slug = "-home-me-lanework"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / proj / "01a0-uuid"
+    lane.mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    (bucket / "sessions" / proj / "project.json").write_text(
+        json.dumps({"path": "/home/me/lanework"}))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+
+    # Run 1: the marker GET fails after retries - a per-object failure.
+    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
+
+    def failing_fetch(key: str) -> bytes:
+        if key.endswith("project.json"):
+            raise RuntimeError("marker GET dropped")
+        return real_fetch(key)
+
+    monkeypatch.setattr(ingest, "_fetch_with_retry", failing_fetch)
+    r1 = ingest.run_ingest(trigger="manual")
+    # Restore the fetch (calling undo() here would also wipe this
+    # test's R2_ENDPOINT); teardown handles the rest.
+    monkeypatch.setattr(ingest, "_fetch_with_retry", real_fetch)
+    assert r1["error"] is not None
+    assert r1["failed"] == 1
+    with db.viz_conn() as c:
+        pids = [r[0] for r in c.execute(
+            "SELECT DISTINCT project_id FROM files")]
+    assert pids == [proj], "a marker-failed run keeps the hash"
+
+    # Run 2: the marker reads fine and NOTHING was touched - no etag
+    # change, no reparse.
+    r2res = ingest.run_ingest(trigger="manual")
+    assert r2res["error"] is None
+    assert r2res["reparsed"] == 0
+    with db.viz_conn() as c:
+        pids = [r[0] for r in c.execute(
+            "SELECT DISTINCT project_id FROM files")]
+        display = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (slug,))
+        hash_rows = _scalar(
+            c, "SELECT COUNT(*) FROM projects WHERE project_id = %s",
+            (proj,))
+    assert pids == [slug], (
+        "a marker-OK run re-keys the stalled files onto the slug even "
+        "with nothing reparsed")
+    assert display == "/home/me/lanework"
+    assert hash_rows == 0, "the orphan hash project row must be gone"
+
+
+def test_stored_lane_mapping_prefers_slug_then_the_larger_side(
+        fresh_db, monkeypatch):
+    """If a crash ever left one hash's files split across two ids, the
+    stored hash->project mapping must resolve deterministically: prefer
+    the slug form, else the id holding more files, ties by id. The
+    hash-keyed side's rows are inserted FIRST (and hold more files), so
+    the old setdefault would have picked it on insertion order."""
+    import psycopg  # pylint: disable=import-outside-toplevel
+
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+            conn.cursor() as cur:
+        for pid in ("8805b8ac99ad", "not-a-slug", "zzz-hash", "aaa-hash"):
+            cur.execute(
+                "INSERT INTO projects (project_id, display_name, "
+                "first_seen_at, last_seen_at) VALUES (%s, %s, now(), now())",
+                (pid, pid))
+        for pid, keys in (
+            ("8805b8ac99ad", ("claude/sessions/hx/s1/wire.jsonl",)),
+            ("not-a-slug", ("claude/sessions/hx/s2/wire.jsonl",
+                            "claude/sessions/hx/s3/wire.jsonl")),
+            ("zzz-hash", ("claude/sessions/hy/s9/wire.jsonl",)),
+            ("aaa-hash", ("claude/sessions/hy/sa/wire.jsonl",
+                          "claude/sessions/hy/sb/wire.jsonl")),
+        ):
+            for k in keys:
+                cur.execute(
+                    "INSERT INTO files (file_key, project_id, session_id, "
+                    "is_main, r2_etag, r2_size_bytes, r2_last_modified, "
+                    "parsed_at, parser_version) "
+                    "VALUES (%s, %s, 's', TRUE, 'e', 1, now(), now(), 't')",
+                    (k, pid))
+        conn.commit()
+
+    mapping = lane_projects.stored_lane_ids()
+    # hx: the slug form wins over the larger hash-keyed side. hy: both
+    # sides are non-slug, so the id holding more files wins; a count tie
+    # would fall to the lexicographically smaller id.
+    assert mapping["hx"] == "not-a-slug"
+    assert mapping["hy"] == "aaa-hash"

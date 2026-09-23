@@ -16,6 +16,10 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from backend import constants, db, ingest
 
+# failure_summary serves the PUBLIC key form (the error column feeds the
+# public /health), so assertions on it strip the configured bucket.
+_FLAKY_PUBLIC_KEY = _FLAKY_KEY.split("/", 1)[1]
+
 
 # ------------------------------------------- per-object R2 failures (#2)
 
@@ -62,7 +66,8 @@ def test_one_failed_object_does_not_abort_the_run(
 
     assert result["failed"] == 1
     assert result["inserted"] == 4, "the other four files must still persist"
-    assert result["error"] == f"1 object failed after retries: {_FLAKY_KEY}"
+    assert result["error"] == (
+        f"1 object failed after retries: {_FLAKY_PUBLIC_KEY}")
     assert counts[_FLAKY_KEY] == ingest.FETCH_ATTEMPTS
     with db.viz_conn() as c:
         keys = [r[0] for r in c.execute(
@@ -215,7 +220,7 @@ def test_fetch_gives_up_after_three_attempts(
     assert result["failed"] == 1
     assert "connection reset" not in (result["error"] or ""), \
         "the summary names keys, not stack noise"
-    assert _FLAKY_KEY in result["error"]
+    assert _FLAKY_PUBLIC_KEY in result["error"]
 
 
 _CORRUPT_XZ_KEY = "claude/projC/sess-E/sess-E.jsonl.xz"
@@ -245,7 +250,8 @@ def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
     assert result["r2_listed"] == 6
     assert result["failed"] == 1
     assert result["error"] == (
-        f"1 object failed after retries: {_CORRUPT_XZ_KEY}"
+        f"1 object failed after retries: "
+        f"{_CORRUPT_XZ_KEY.split('/', 1)[1]}"
     )
     assert result["inserted"] == 5, "the intact objects are still persisted"
     assert counts[_CORRUPT_XZ_KEY] == 1, "a corrupt object must not be re-fetched"

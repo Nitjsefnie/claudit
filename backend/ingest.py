@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import api, cache, constants, db, events, key_layout, parse, r2
+from backend import api, cache, constants, db, events, key_layout, lane_projects, parse, r2
 from backend.api_dashboard import dashboard
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state below is their
@@ -191,56 +191,13 @@ def _existing_files() -> dict:
         }
 
 
-def _stored_lane_ids() -> dict[str, str]:
-    """Lane hash → the project id its files are currently stored under.
-
-    The mapping this run consults when a project's marker was NOT read
-    (missing, malformed, or its GET failed): the stored mapping keeps
-    the slug a marker run chose, so a transient marker-fetch failure
-    cannot flip a slug-keyed project back to its hash and split one
-    project into two ids until the next successful marker read. Read
-    back from the files rows themselves — a lane file_key's object part
-    is sessions/<hash>/... — so no extra table is needed; a hash with no
-    stored rows (first sight) falls back to the hash."""
-    mapping: dict[str, str] = {}
-    with db.viz_conn() as c:
-        rows = c.execute(
-            "SELECT file_key, project_id FROM files "
-            "WHERE file_key LIKE '%/sessions/%'"
-        ).fetchall()
-    for file_key, project_id in rows:
-        parts = r2.split_key(file_key)[1].split("/")
-        if len(parts) >= 2 and parts[0] == key_layout.LANE_ROOT:
-            mapping.setdefault(parts[1], project_id)
-    return mapping
-
-
-def _resolve_lane_project(lane_hash: str, marker_path: str | None,
-                          stored_lane: dict[str, str]) -> str:
-    """The project id a file classified under lane hash `lane_hash`
-    lands under this run.
-
-    A marker path read THIS RUN wins — the project is the path's Claude
-    slug (key_layout.lane_project_id), the same id a Claude-layout
-    bucket derives for that directory, so one directory is ONE project
-    across buckets. Without one — marker absent, malformed, or its GET
-    failed — the stored hash→project_id mapping keeps the slug a
-    previous marker run chose, so a transient marker failure cannot
-    split one project into two ids until the next successful marker
-    read; a hash with no stored rows keeps the hash (legacy Kimi has no
-    marker)."""
-    if marker_path is not None:
-        return key_layout.lane_project_id(lane_hash, marker_path)
-    return stored_lane.get(lane_hash, lane_hash)
-
-
 def _track_project(seen_projects: dict[str, dict], project_id: str,
                    last_modified, project_path: str | None) -> None:
     """Accumulate first/last seen mtimes for one project.
 
     `project_id` is the id this run resolved for the file — the slug of
     the project's marker path when the run read one, else the stored or
-    bare-hash id (_resolve_lane_project). display_name comes from that
+    bare-hash id (lane_projects.resolve_lane_project). display_name comes from that
     marker path where one was read; every other project — and a lane
     project whose marker was missing or malformed — displays its id.
     `display_name_set` records which case this run is, so _persist's
@@ -346,10 +303,10 @@ def _track_walked_project(seen_projects: dict[str, dict], info, obj,
 
     Returns the seen_projects entry (which _persist keys its project_id
     off), so the walk and every persist of the run share one identity —
-    marker slug, stored mapping, or bare hash (_resolve_lane_project).
+    marker slug, stored mapping, or bare hash (lane_projects.resolve_lane_project).
     """
     marker_path = project_paths.get(info.project_id)
-    project_id = _resolve_lane_project(
+    project_id = lane_projects.resolve_lane_project(
         info.project_id, marker_path, stored_lane)
     _track_project(seen_projects, project_id,
                    obj.last_modified, marker_path)
@@ -366,7 +323,7 @@ def _collect_todo(existing: dict, parser_version: str,
     to lives in key_layout: the walk keeps only the keys classify()
     accepts as transcripts; session/is_main come out of the same
     classify() in _persist, and the PROJECT id is resolved once, here —
-    marker slug, stored mapping, or bare hash (_resolve_lane_project) —
+    marker slug, stored mapping, or bare hash (lane_projects.resolve_lane_project) —
     so the walk and every _persist of the run agree on it.
 
     Marker bodies are fetched before the todo loop so a lane project's
@@ -381,7 +338,8 @@ def _collect_todo(existing: dict, parser_version: str,
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
-    stored_lane = _stored_lane_ids()
+    stored_lane = lane_projects.stored_lane_ids()
+    lane_projects.rekey_stale_lane_projects(project_paths, stored_lane)
     for obj in wire_objs:
         info = key_layout.classify(r2.split_key(obj.key)[1])
         if info is None:  # pragma: no cover - the scan kept only transcripts
@@ -535,7 +493,12 @@ def run_ingest_locked(trigger: str) -> dict:
             parser_version, failed
         )
     except Exception as e:  # noqa: BLE001
-        fatal = f"{type(e).__name__}: {e}"
+        # The full exception goes to the logs; the stored text (served by
+        # the public /health) is redacted of bucket names and the mirror
+        # root, which the message of a mirror FileNotFoundError or an S3
+        # error would otherwise carry.
+        log.exception("ingest (%s): fatal, run aborted", trigger)
+        fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
 
     # `error` reports BOTH kinds of trouble, but only `fatal` gates anything.
     err = fatal if fatal is not None else failure_summary(failed)
@@ -638,11 +601,14 @@ def failure_summary(failed: list[tuple[str, str]]) -> str | None:
     """One line naming how many objects failed and which, or None.
 
     Goes into ingest_runs.error so a partial run is visible in the admin
-    view, without pretending the whole run failed.
+    view, without pretending the whole run failed. The keys are
+    presentation here (the column feeds the public /health), so they go
+    out in their public form — the bucket segment never leaves the
+    server (SV-FILES-RECORDS); the log keeps the qualified keys.
     """
     if not failed:
         return None
-    keys = [key for key, _ in failed]
+    keys = [r2.public_key(key) or key for key, _ in failed]
     shown = ", ".join(keys[:FAILURE_KEYS_IN_SUMMARY])
     if len(keys) > FAILURE_KEYS_IN_SUMMARY:
         shown += f", ... (+{len(keys) - FAILURE_KEYS_IN_SUMMARY} more)"

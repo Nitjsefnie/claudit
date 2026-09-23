@@ -108,6 +108,34 @@ def public_key(key: str | None) -> str | None:
     return key
 
 
+def redact(text: str | None) -> str | None:
+    """Best-effort scrub of infrastructure names from free TEXT bound for
+    a response body or the error column a public endpoint serves: the
+    file-mode mirror root, and every configured bucket name in the forms
+    it actually takes — a path segment (`/claude/`), a quoted !r value
+    ('claude'), a list element after a separator (` claude/`), or a key
+    prefix (claude/...). Unlike public_key this is a filter over free
+    text, not a structural strip, so it is defence in depth behind
+    keeping such strings out of response bodies by construction."""
+    if not text:
+        return text
+    out = text
+    file_mode, root = _is_file_mode()
+    if file_mode and root:
+        # Root arrives WITH its trailing slash (urlparse of file://host/path/),
+        # so keep one slash after the placeholder; the stripped form covers
+        # a mention without the trailing slash.
+        out = out.replace(root, "<mirror>/")
+        out = out.replace(root.rstrip("/"), "<mirror>")
+    for bucket in buckets():
+        out = out.replace(f"/{bucket}/", "/<bucket>/")
+        out = out.replace(f" {bucket}/", " <bucket>/")
+        out = out.replace(f"'{bucket}'", "'<bucket>'")
+        if out.startswith(f"{bucket}/"):
+            out = out.replace(f"{bucket}/", "<bucket>/", 1)
+    return out
+
+
 def _configured(key: str) -> tuple[str, str]:
     """split_key() plus the refusal: a bucket not named in R2_BUCKET is
     not ours to serve. Every read path goes through here."""
