@@ -1,11 +1,14 @@
 # claudit
 
-**Claude Code Usage Dashboard** — a self-hosted web app for visualising Claude
-Code session JSONL transcripts.
+**Claude Code Usage Dashboard** — a self-hosted web app for visualising AI
+coding-session usage transcripts.
 
 A FastAPI backend ingests transcripts from Cloudflare R2 (or a local `file://`
 mirror), parses them into Postgres, and serves dashboards and raw transcripts
-to a React + in-browser-Babel frontend (no build step).
+to a React + in-browser-Babel frontend (no build step). One deploy can ingest
+several buckets and several transcript formats at once: Claude Code session
+JSONLs, Codex rollouts, and the two Kimi CLI wire formats (kimi-code and
+legacy).
 
 ## Scope
 
@@ -124,6 +127,18 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   into their parent session without double-counting.
 - **Rate-limit hit** detection (Claude Code's `out of extra usage`
   marker on `type:"assistant"` records).
+- **Codex and Kimi transcripts parse into the same tables.** Codex
+  rollouts are differenced out of their cumulative token counters, dedup
+  by request identity across resumed/forked rollouts, and billed on the
+  long-context meter when a pay-as-you-go request's prompt exceeds the
+  272k threshold (2× input side, 1.5× output — persisted per record so
+  every cost breakdown reconciles). Kimi's kimi-code and legacy wire
+  formats land in the same tables with their own rate rows. The
+  browser's Inspector parses every format too (`src/parser-lanes.js`).
+- **Configurable branding** — `APP_NAME` / `APP_TITLE` /
+  `APP_DESCRIPTION` set the browser title, meta description, logo,
+  sign-in page and export-PNG filename, so this codebase can serve as
+  codexmeter or kimimeter by config alone.
 - **Time-range picker** (24h / 7d / 30d / 90d / 1y / all).
 - **Live updates**: server-sent `ingest_done` events trigger a
   data refetch — no page reload.
@@ -134,15 +149,17 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
 ## Architecture
 
 ```
-R2 (claude bucket)
+R2 (one or more buckets: claude, codex, kimi, …)
   ↓  hourly ingest  (APScheduler @ :15 UTC, or POST /admin/ingest)
 Postgres `claudit`
   • projects     (project_id PK)
-  • files        (file_key PK, ctx_turns JSONB, rate_limit_hits JSONB)
+  • files        (file_key PK = <bucket>/<object-key>, ctx_turns JSONB,
+                  rate_limit_hits JSONB)
   • records      (file_key, line_num PK, per-request tokens + cost
                   + text_chars for visible-response size
                   + reply_latency_s for the user→assistant gap
                   + stop_reason / effort / thinking_tokens
+                  + long_context for the Codex meter
                   + cli_version / turn_flags / turn_tool_results)
   • tool_uses    (file_key, line_num, idx PK, ts, tool_name,
                   tool_use_id, is_canonical, is_error, result_chars,
@@ -160,11 +177,53 @@ React + in-browser Babel  →  /  (served by FastAPI)
 ```
 
 `backend/parse.py` mirrors `~/.claude/scripts/parse_session.py` for
-Phase 1 within-file `requestId` max-merge; cross-file uuid dedup
-(Phase 2) is performed at query time via `DISTINCT ON (uuid)` in the
+Phase 1 within-file `requestId` max-merge, sniffs each blob's format
+(`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the lane
+parsers; cross-file uuid dedup (Phase 2) is performed at query time via
+`DISTINCT ON (uuid)` in the
 read endpoints. Costs are pre-computed at ingest using
 `backend/pricing.py` (single source of truth — bump `PARSER_VERSION`
 in `backend/constants.py` when rates change to force a full reparse).
+
+## Configuration
+
+- `R2_BUCKET` names one or more buckets joined by `+` (e.g. `R2_BUCKET=claude`
+  or `R2_BUCKET=codex+kimi`). Every stored file key is qualified with its
+  bucket as `<bucket>/<object-key>`; a bucket not named here is not served
+  or listed, and an invalid name aborts startup. Configuring several buckets
+  is how one deploy serves Codex and Kimi transcripts beside Claude Code
+  ones (a codexmeter / kimimeter deploy).
+- `APP_NAME`, `APP_TITLE`, `APP_DESCRIPTION` brand every user-visible
+  surface — browser title, meta description, logo text, sign-in page,
+  export-PNG filename. Unset, they reproduce the claudit strings exactly;
+  a codexmeter deploy sets `APP_NAME=codexmeter` and nothing else changes.
+- The rest of the environment (`DATABASE_URL_VIZ`, `R2_ENDPOINT`, auth and
+  admin keys) is documented inline in [`backend/.env.example`](backend/.env.example).
+
+### First deploy / first boot after enabling a lane bucket
+
+The first ingest after adding a bucket to `R2_BUCKET` **re-keys every
+stored file**: stored identity moves from the bare object key to
+`<bucket>/<object-key>`, so each old row is deleted and re-inserted
+under its new key in the same run. That one-time run has known,
+self-healing behaviour:
+
+- (a) until the run finishes, the new rows (which default
+  `is_canonical=TRUE`) and the not-yet-swept old rows are both
+  canonical, so live reads double-count for the duration; kimi-code and
+  legacy tool ids are file-key-scoped and cannot dedup at all in that
+  window;
+- (b) a fatal mid-run leaves that double-count in place until the next
+  clean run rebuilds derived state;
+- (c) a transcript or sidecar request for a still-unswept old row
+  returns an error, because its `-root-x`-style key names a bucket that
+  is no longer configured;
+- (d) a per-object fetch failure during the run drops that file's rows
+  until the next hourly run (on the previous build, a failed fetch kept
+  the old row).
+
+Run the cutover off-peak and watch `/health` until the run finishes;
+every window closes on its own once one clean run completes.
 
 ## Quick start
 
@@ -244,8 +303,8 @@ restart).
 
 ## Layout
 
-- `backend/` — FastAPI app, auth, ingest, parser, R2 client, pricing,
-  caches, schema, SSE broadcaster.
+- `backend/` — FastAPI app, auth, ingest, parser (Claude + Codex +
+  Kimi), R2 client, pricing, caches, schema, SSE broadcaster.
 - `public/` — `index.html`, `app.css`. Served at `/`.
 - `src/` — React JSX modules. Served at `/src/*` with mtime-based
   cache-bust.

@@ -20,6 +20,21 @@ analyst). Both the in-browser `src/parser.js` AND the backend
 - `MODEL_RATES` table (single source of truth: `backend/pricing.py`,
   initially copied from parse_session.py:1148-1166)
 
+**Lane parsers are in their own lockstep pair.** `parse_file()` sniffs
+each blob's format and dispatches Codex rollouts and the two Kimi wire
+formats to `backend/parse_codex.py` / `backend/parse_kimi.py`
+(format-independent machinery in `backend/parse_common.py`, adapted to
+claudit's columns by `backend/parse_lanes.py`). Their browser mirror is
+`src/parser-lanes.js`: changing HOW a lane format parses — record
+identity, cumulative-token differencing, the long-context decision,
+model attribution, tool-result settling — in the backend REQUIRES the
+same change there, or the Inspector silently shows different numbers
+than the database stores. The node parity tests
+(`tests/test_parser_js_lanes.py`) fail on drift; so does the lane
+browser test when `window.LONG_CONTEXT_THRESHOLD` /
+`LONG_CONTEXT_INPUT_MULT` / `LONG_CONTEXT_OUTPUT_MULT` stop matching
+`pricing.LONG_CONTEXT_*`.
+
 When you find a discrepancy: the Python canonical is right by default.
 If the canonical itself has a real bug, file it for analyst via mailbox;
 don't quietly fork the semantics here.
@@ -74,9 +89,13 @@ git (this repo) + `pip install -r backend/requirements.txt`.
 ## Test fixtures stay small (SV-FIXTURE-SIZE)
 
 `fixtures/parser/*.jsonl` are hand-crafted single-record samples,
-each under 1 KB. `fixtures/r2_mini/` is the end-to-end mini mirror
+each under 1 KB. `fixtures/codex/` are ported verbatim from the public
+codexmeter repo and are EXEMPT from that cap — shrinking or rewriting
+them breaks their value as ported fixtures, and a grep of the directory
+must stay clean of real paths, ids and secrets before committing.
+`fixtures/r2_mini/` is the end-to-end mini mirror
 (2 projects, 4 sessions, 1 sidecar, 1 cross-session shared uuid).
-Don't grow either by accident — larger samples go under
+Don't grow any of these by accident — larger samples go under
 `/tmp/analyst.BCYKic3p/r2/` (the local R2 mirror, not committed).
 
 ## Develop against the full corpus, never the local tree (SV-FULL-CORPUS)
@@ -138,6 +157,24 @@ than silently degrading to a broken auth flow at first login.
 
 ## Per-file files+records contract (SV-FILES-RECORDS)
 
+Stored file identity is BUCKET-QUALIFIED: `files.file_key` is
+`<bucket>/<object-key>`, where the bucket is one of the names in
+`R2_BUCKET` (several buckets may be configured, joined by `+`). The
+bucket segment travels with every stored row and every read: transcript
+and sidecar serving derive it from the stored `file_key`, never from
+the request, and `r2._configured` refuses a bucket not named in
+`R2_BUCKET`. psql analyses over `records`/`tool_uses` key on the same
+shape (a `file_key` LIKE filter starts with the bucket).
+
+The same object key in TWO configured buckets is TWO files but one
+project and session: the rows dedup naturally by uuid where the format
+supports it (Claude, Codex), and a read that must pick one main file
+for a session id picks an arbitrary one. With the planned `codex+kimi`
+pairing this needs no handling; any pairing that puts the same session
+id in two configured buckets and a format without cross-file uuids
+(kimi-code, legacy Kimi) into both will double-count at the session
+level.
+
 The schema is per-file, not per-session. Two tables hold the parse
 output (see `backend/schema.sql`):
 
@@ -149,7 +186,7 @@ output (see `backend/schema.sql`):
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
   reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
-  turn_flags, turn_tool_results)`
+  turn_flags, turn_tool_results, long_context)`
   PK `(file_key, line_num)` — one row per usage-bearing line AFTER
   per-file Phase 1 max-merge for matching `request_id`.
 
@@ -252,7 +289,7 @@ tokens.
 ## Aggregates are precomputed at ingest (SV-ROLLUP)
 
 `usage_rollup` holds pre-summed usage at grain
-`(session_id, hour, model, is_main)`, rebuilt by
+`(session_id, hour, model, is_main, long_context)`, rebuilt by
 `ingest.rebuild_rollup()` after every successful ingest (AFTER
 `recompute_canonical()` — it reads `is_canonical`). ~6.1k rows stand in
 for ~286k records.
@@ -266,6 +303,11 @@ The grain is load-bearing, do not "simplify" it:
   `argmax(SUM(requests))` over the in-range rows — exactly what
   `MODE() WITHIN GROUP` computed from raw records, not an
   approximation.
+- **Carries `long_context`.** A re-derived per-component cost cannot
+  apply the Codex long-context meter to a row whose tokens already
+  summed across both meters — the flag is part of the grain so each
+  row prices by its own meter and the breakdown reconciles with
+  `cost_usd` (SV-DATED-RATES).
 - **Carries `first_ts`/`last_ts`.** Burn-rate span is
   `MAX(last_ts) - MIN(first_ts)`, which composes; a stored duration
   would not.
@@ -327,7 +369,12 @@ what a dispatch asked for:
   Bash result opening `Exit code N` (the harness's own wording for a
   nonzero exit — 58% of all errored results in a recent sample, and in
   `failed` indistinguishable from a denial). `rejected`/`failed` mean it
-  never ran, so those rows carry no `write_targets` and no churn.
+  never ran, so those rows carry no `write_targets` and no churn. The
+  lane wires carry no status field, so the lane classifier decides from
+  the failure text: an errored lane result that is not a recognizable
+  rejection is `tool_error` (the call ran and reported failure), and an
+  errored result with no readable text stays `failed` — no evidence it
+  ran. Non-errored calls keep NULL.
 - `error_text` — leading `parse.ERROR_TEXT_MAX` chars of the failed
   result. Grouping on it is how hook denials get separated from real
   failures, which is why the parser needs no hook vocabulary.
@@ -445,10 +492,57 @@ rather than only the live entries, so the path cannot rot whenever the
 table happens to be empty.
 
 Any read path that RE-DERIVES rates from summed tokens must group by
-`pricing.RATE_EPOCHS` (`api.rate_epoch_sql` / `api.fold_per_model`), or
-its per-component breakdown drifts from the `SUM(cost_usd)` total it
-claims to decompose. Totals themselves always come from the stored
-per-record `cost_usd` — do not recompute them at read time.
+`pricing.RATE_EPOCHS` (`api.rate_epoch_sql` / `api.fold_per_model`)
+AND by `COALESCE(long_context, FALSE)` — the Codex meter multiplies a
+record's whole input side by 2 and its output by 1.5, and a fold that
+forgot the flag prices a long-context record at the flat rate, so its
+breakdown drifts from the `SUM(cost_usd)` total it claims to
+decompose. Totals themselves always come from the stored per-record
+`cost_usd` — do not recompute them at read time.
+
+## Brand values escape per context (SV-BRAND-ESCAPE)
+
+`APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` are config, and config is
+hostile input. `backend/branding.py` injects them into three different
+escaping contexts, each with its own function — use the right one and
+never hand-concatenate a brand value into a page:
+
+- HTML text/attribute contexts (title, meta, logo, sign-in page): the
+  html-escape path. `<title>` and `<meta>` are replaced before the
+  injected script block in `public/index.html`, so the `count=1`
+  substitutions hit the real elements.
+- The `window.BRAND` script payload: script-context escaping, which
+  additionally neutralises `</script>`, `<!--` and the U+2028/U+2029
+  line separators (raw U+2028/2029 are a syntax error in the JS string
+  grammar, and `<!--` opens a bypass into the legacy HTML-like comment).
+- The export-PNG `Content-Disposition` filename: slugified to
+  `[A-Za-z0-9._-]`, so header characters and path separators cannot
+  survive.
+
+A new surface that echoes a brand value MUST route through one of these
+functions — not a copy, not a new escape, and never `f"{value}"`.
+
+## The first deploy after enabling a lane bucket re-keys every file (SV-REKEY-CUTOVER)
+
+Adding a bucket to `R2_BUCKET` (or first boot of this build over an
+existing DB) re-keys stored identity from the bare object key to
+`<bucket>/<object-key>`: the run deletes each old row and re-inserts it
+under its new key. One-time, converging, and with known windows that
+close when the first clean run finishes — plan the cutover around them
+(run off-peak, watch `/health` until the run completes):
+
+- (a) for the duration of the run, new rows (default `is_canonical=TRUE`)
+  and not-yet-swept old rows are BOTH canonical, so live reads
+  double-count; kimi-code and legacy tool ids are `file_key`-scoped and
+  cannot dedup at all in that window.
+- (b) a fatal mid-run leaves the double-count in place until the next
+  clean run rebuilds derived state.
+- (c) a transcript or sidecar request for a still-unswept old row errors
+  (its `-root-x`-style key names a bucket that is no longer configured).
+- (d) a per-object fetch failure during the run drops that file's rows
+  until the next hourly run.
+
+A fresh DB has no such windows.
 
 ## Model resolution flags estimates (SV-RATE-ESTIMATES)
 
