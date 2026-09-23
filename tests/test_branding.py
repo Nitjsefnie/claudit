@@ -184,16 +184,16 @@ def test_login_page_escapes_the_name(login_client, monkeypatch):
 
 def test_export_filename_default(monkeypatch):
     monkeypatch.delenv("APP_NAME", raising=False)
-    assert api_export._export_filename("30d", "proj/one") == (
+    assert api_export.export_filename("30d", "proj/one") == (
         "claudit_proj_one_30d.png")
 
 
 def test_export_filename_follows_brand(monkeypatch):
     monkeypatch.setenv("APP_NAME", "codexmeter")
-    assert api_export._export_filename("30d", "proj/one") == (
+    assert api_export.export_filename("30d", "proj/one") == (
         "codexmeter_proj_one_30d.png")
     monkeypatch.setenv("APP_NAME", "My Meter")  # slugified like project
-    assert api_export._export_filename("all", None) == "My_Meter_all_all.png"
+    assert api_export.export_filename("all", None) == "My_Meter_all_all.png"
 
 
 # ---------------------------------------------------------------------------

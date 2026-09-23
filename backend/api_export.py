@@ -43,9 +43,11 @@ def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]
     return argv
 
 
-def _export_filename(rng: str, project: str | None) -> str:
+def export_filename(rng: str, project: str | None) -> str:
     """Safe download filename: <brand>_<project-or-all>_<range>.png —
-    the brand name slugified the same way the project is."""
+    the brand name slugified the same way the project is. Public: the
+    filename is part of the branding contract (every APP_NAME surfaces),
+    and the branding tests pin it directly."""
     name = re.sub(r"[^A-Za-z0-9._-]", "_", branding.brand_name())
     proj_slug = re.sub(r"[^A-Za-z0-9._-]", "_", project) if project else "all"
     return f"{name}_{proj_slug}_{rng}.png"
@@ -99,6 +101,6 @@ async def export_png(
         media_type="image/png",
         headers={
             "Content-Disposition":
-                f'attachment; filename="{_export_filename(rng, project)}"'
+                f'attachment; filename="{export_filename(rng, project)}"'
         },
     )
