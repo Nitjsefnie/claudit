@@ -163,7 +163,11 @@ Stored file identity is BUCKET-QUALIFIED: `files.file_key` is
 bucket segment travels with every stored row and every read: transcript
 and sidecar serving derive it from the stored `file_key`, never from
 the request, and `r2._configured` refuses a bucket not named in
-`R2_BUCKET`. psql analyses over `records`/`tool_uses` key on the same
+`R2_BUCKET`. The bucket segment is INTERNAL and never leaves the server:
+every file_key carried in an API response body goes through
+`r2.public_key`, which strips the leading bucket segment (returned
+unchanged when the first segment is not a configured bucket). psql
+analyses over `records`/`tool_uses` key on the same
 shape (a `file_key` LIKE filter starts with the bucket).
 
 The same object key in TWO configured buckets is TWO files but one
