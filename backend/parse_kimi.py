@@ -22,8 +22,9 @@ from backend.bash_churn import bash_churn
 from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _close_turn, _end_turn, _finish_parse,
                                   _line_count, _mark_assistant_event,
-                                  _ParseState, _start_turn, _to_dt,
-                                  _turn_boundary)
+                                  _ParseState, _settle_lane_tool_result,
+                                  _start_turn, _to_dt, _turn_boundary)
+from backend.tool_errors import _flatten_result_text
 
 # Model attribution, oldest first. Each constant is a frozen UTC epoch, NOT a
 # live expression.
@@ -196,7 +197,9 @@ def _legacy_tool_result(st: _ParseState, payload: dict) -> None:
         return_value.get("is_error", False)
     )
     if tc_id:
-        st.tool_result_is_error[str(tc_id)] = is_err
+        text = (str(return_value.get("output") or "")
+                if isinstance(return_value, dict) else "")
+        _settle_lane_tool_result(st, tc_id, is_err, text if is_err else "")
 
 
 def _legacy_status_update(st: _ParseState, line_num: int,
@@ -344,7 +347,10 @@ def _kc_append_message(st: _ParseState, line_num: int, ts: datetime | None,
     elif role == "tool":
         tcid = msg.get("toolCallId", "")
         if tcid:
-            st.tool_result_is_error[str(tcid)] = bool(msg.get("isError"))
+            is_err = bool(msg.get("isError"))
+            text = (_flatten_result_text(msg.get("content"))
+                    if is_err else "")
+            _settle_lane_tool_result(st, tcid, is_err, text)
     # role == user / system: no parser-side action
 
 
@@ -378,9 +384,11 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         res = ev.get("result") or {}
         tcid = ev.get("toolCallId", "")
         if tcid:
-            st.tool_result_is_error[str(tcid)] = bool(
-                res.get("isError") if isinstance(res, dict) else False
-            )
+            is_err = bool(res.get("isError") if isinstance(res, dict)
+                          else False)
+            text = (_flatten_result_text(res.get("output"))
+                    if is_err else "")
+            _settle_lane_tool_result(st, tcid, is_err, text)
     # et == "step.end": informational; the turn stays open until the next
     # turn boundary (new turnId or turn.prompt).
 

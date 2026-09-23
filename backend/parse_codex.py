@@ -60,8 +60,10 @@ from backend.bash_argv import argv_churn
 from backend.bash_churn import bash_churn
 from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _end_turn, _finish_parse,
-                                  _mark_assistant_event, _ParseState, _to_dt,
+                                  _mark_assistant_event, _ParseState,
+                                  _settle_lane_tool_result, _to_dt,
                                   _turn_boundary)
+from backend.tool_errors import ERROR_KIND_FAILED
 
 # The single custom tool is `exec`, whose input is a JS program calling
 # tools.<api>({...}). The api is the useful tool name — `exec` alone would
@@ -462,9 +464,8 @@ def _codex_tool_result(st: _CodexState, payload: dict) -> None:
         return
     text = _codex_output_text(payload)
     head = text.split("\n", 1)[0] if text else ""
-    st.tool_result_is_error[str(call_id)] = head.startswith(
-        _CODEX_FAILURE_HEADS
-    )
+    is_err = head.startswith(_CODEX_FAILURE_HEADS)
+    _settle_lane_tool_result(st, call_id, is_err, text if is_err else "")
 
 
 def _codex_patch(st: _CodexState, line_num: int, ts: datetime | None,
@@ -505,12 +506,15 @@ def _codex_patch(st: _CodexState, line_num: int, ts: datetime | None,
         tool_use["lines_deleted"] += deleted
         return
     # No tool_call_id: _resolve_tool_errors must leave this row's is_error,
-    # which is settled here and nowhere else, alone.
+    # which is settled here and nowhere else, alone. A failed patch
+    # carried no output text to classify, so its kind is `failed` — the
+    # patch attempt is the thing that never produced a change.
     _append_tool_use(
         st, line_num, ts, "apply_patch", "", (added, deleted),
         model=_codex_model(st.model or st.sole_model),
     )
     st.tool_uses[-1]["is_error"] = not ok
+    st.tool_uses[-1]["error_kind"] = None if ok else ERROR_KIND_FAILED
 
 
 def _codex_item_completed(st: _CodexState, line_num: int,
