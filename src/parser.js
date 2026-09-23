@@ -358,6 +358,12 @@ window.modelRates = {
   'claude-3-opus-':    { fresh: 15,   c5: 18.75, c1h: 30,   read: 1.5,  out: 75 },
   'claude-3-haiku-':   { fresh: 0.25, c5: 0.30,  c1h: 0.50, read: 0.03, out: 1.25 },
 };
+
+// Every rate an OpenRouter free model carries: zero. Returned for any id
+// ending in ':free' or starting with 'stealth/' — see _isFreeModel.
+// Mirrors backend/pricing.py FREE_RATES (SV-PARSER-SPEC); deliberately
+// NOT a window.modelRates row, so it is not enumerable as an exact key.
+window.FREE_RATES = { fresh: 0, c5: 0, c1h: 0, read: 0, out: 0 };
 // Dated overrides, per exact key. Mirrors pricing.DATED_RATES.
 // GLM-5.3-Flash launch promotion: 50% off list through 2026-09-09 24:00
 // UTC+8 (= 16:00 UTC); month is 0-based in Date.UTC.
@@ -428,6 +434,17 @@ function _normaliseModel(model) {
   return m.replace(/\./g, '-');
 }
 
+// OpenRouter's :free tier and stealth/ preview models are $0; matched on
+// the id's shape (the list churns weekly), on the raw id AND the
+// normalised one, because _normaliseModel strips everything before
+// 'claude' — a 'stealth/claude-…' id loses its prefix there. Mirrors
+// backend/pricing.py `_is_free` (SV-PARSER-SPEC).
+function _isFreeModel(model, norm) {
+  const raw = String(model || '').trim().toLowerCase();
+  return raw.endsWith(':free') || raw.startsWith('stealth/')
+      || norm.endsWith(':free') || norm.startsWith('stealth/');
+}
+
 function _matchRateKey(norm) {
   for (const k of Object.keys(window.modelRates)) {
     if (!norm.startsWith(k)) continue;
@@ -447,6 +464,9 @@ function _toMillis(ts) {
 // 'exact' | 'tier' | 'default'. Anything but 'exact' is an estimate.
 window.resolveModelRate = function resolveModelRate(model, ts) {
   const norm = _normaliseModel(model);
+  if (_isFreeModel(model, norm)) {
+    return { rates: window.FREE_RATES, kind: 'exact', key: norm };
+  }
   const key = _matchRateKey(norm);
   if (key) {
     const t = _toMillis(ts);

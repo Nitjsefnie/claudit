@@ -25,6 +25,15 @@ Three resolution behaviours matter, in priority order:
    can mark the figure estimated rather than presenting it as fact.
 3. DEFAULT — anything else. Also flagged.
 
+Before all three, a model id ending in ``:free`` or starting with
+``stealth/`` (OpenRouter's free tier and preview models) prices at ZERO.
+The id list churns weekly, so the match is on the id's shape rather than
+an enumerated row — checked on the raw id AND its normalised form,
+case-insensitively, so no spelling can dodge it, and it outranks an
+exact table key (``stealth/claude-opus-4-8`` stays free). It is reported
+``kind="exact"``: the zero is a deliberate price, not an estimate, so
+the API must not flag it (the same reasoning as the bonsai-2-27b row).
+
 Rates are a function of (model, timestamp): a model may carry dated
 overrides (e.g. an introductory price). Cost must be computed against the
 timestamp of the request being priced, not the time of rendering.
@@ -95,6 +104,10 @@ MODEL_RATES = {
 }
 
 DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]
+
+# Every rate an OpenRouter free model carries: zero. Returned for any id
+# ending in ":free" or starting with "stealth/" (see _is_free).
+FREE_RATES = {k: 0.00 for k in MODEL_RATES["bonsai-2-27b"]}
 
 # A Codex request whose prompt exceeds this size bills the WHOLE request at
 # the long-context meter: 2x input, 1.5x output. Ported from codexmeter.
@@ -230,6 +243,21 @@ def _normalise(model: str) -> str:
     return m.replace(".", "-")
 
 
+def _is_free(model: str, norm: str) -> bool:
+    """True for an OpenRouter free model: an id ending in ``:free`` or
+    starting with ``stealth/``, case-insensitively.
+
+    Checked on the raw id as well as its normalised form because
+    ``_normalise`` strips everything before ``claude`` — a
+    ``stealth/claude-…`` id loses that prefix in ``norm`` and only the
+    raw check still sees it. (The ``:free`` suffix survives every
+    normalisation step; the raw check covers it symmetrically.)
+    """
+    raw = (model or "").strip().lower()
+    return (norm.endswith(":free") or norm.startswith("stealth/")
+            or raw.endswith(":free") or raw.startswith("stealth/"))
+
+
 def _match_key(norm: str) -> str | None:
     for key in MODEL_RATES:
         if not norm.startswith(key):
@@ -255,6 +283,8 @@ def _dated(key: str, ts: datetime | None) -> dict:
 def resolve(model: str, ts: datetime | None = None) -> Resolution:
     """Resolve a model id to rates, reporting how confident the match is."""
     norm = _normalise(model)
+    if _is_free(model, norm):
+        return Resolution(FREE_RATES, "exact", norm)
     key = _match_key(norm)
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)

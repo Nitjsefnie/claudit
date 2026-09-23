@@ -55,6 +55,14 @@ CASES = [
     ("glm-5.3-flash", "2026-09-09T15:59:59Z"),
     ("glm-5.3-flash", "2026-09-09T16:00:00Z"),
     ("GLM-5.3-Flash[1m]", None),
+    # OpenRouter free/stealth shape match (raw + normalised id, in both
+    # implementations) beside a paid id that must stay on DEFAULT.
+    ("stealth/space-bunny-alpha", None),
+    ("Stealth/Space-Bunny-Alpha", None),
+    ("thinkingmachines/inkling:free", None),
+    ("nvidia/nemotron-3-ultra-550b-a55b:free", None),
+    ("stealth/claude-opus-4-8", None),
+    ("openai/gpt-6-sol", None),
 ]
 
 _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",

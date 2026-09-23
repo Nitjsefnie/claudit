@@ -131,7 +131,12 @@ VERSION = _read_version()
 # to lowercase, so a Windows directory whose sessions were ingested
 # under differently-cased paths is ONE project; the bump reparses every
 # file and merges Windows projects that differed only in case.
-PARSER_VERSION = "53"
+# 54 prices OpenRouter's :free-suffix and stealth/-prefix model ids at
+# zero (matched on id shape, on the raw id and its normalised form, so a
+# spelling variant cannot dodge it); the bump reparses every file so
+# stored cost_usd stops carrying the Opus-list estimate those records
+# previously resolved to.
+PARSER_VERSION = "54"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also

@@ -347,6 +347,72 @@ def test_glm_flash_compute_cost_promo_known_vector():
     assert abs(cost - (2 * 0.075 + 0.25 + 4 * 0.015)) < 1e-9
 
 
+# --- OpenRouter free and stealth lanes (zero-priced) ------------------------
+# An OpenRouter id ending in `:free` or starting with `stealth/` is a $0
+# model, and the id list churns weekly, so the match is on the id's SHAPE
+# rather than an enumerated table row. kind is EXACT so the deliberate
+# zero is not flagged as an estimate (same reasoning as bonsai-2-27b).
+
+FREE_MODELS = (
+    "thinkingmachines/inkling:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+)
+
+
+def test_openrouter_free_suffix_prices_at_zero():
+    for model in FREE_MODELS:
+        r = pricing.resolve(model)
+        assert (r.kind, r.key) == ("exact", model)
+        assert r.rates == pricing.FREE_RATES
+        assert all(v == 0 for v in r.rates.values())
+        assert r.estimated is False
+
+
+def test_openrouter_stealth_prefix_prices_at_zero():
+    r = pricing.resolve("stealth/space-bunny-alpha")
+    assert (r.kind, r.key) == ("exact", "stealth/space-bunny-alpha")
+    assert r.rates == pricing.FREE_RATES
+    assert r.estimated is False
+
+
+def test_free_models_cost_nothing():
+    for model in (*FREE_MODELS, "stealth/space-bunny-alpha"):
+        assert pricing.compute_cost(
+            model, fresh=1_000_000, output=1_000_000,
+            eph5=1_000_000, eph1h=1_000_000, unsplit_create=1_000_000,
+            read=1_000_000,
+        ) == 0
+
+
+def test_free_match_survives_spelling_variants():
+    """Case, whitespace and dot-folding must not dodge the match; the
+    check runs on the raw id AND the normalised form, and it outranks an
+    exact table key."""
+    assert pricing.resolve("Stealth/Space-Bunny-Alpha").rates == pricing.FREE_RATES
+    assert pricing.resolve(" NVIDIA/Nemotron-3:FREE ").rates == pricing.FREE_RATES
+    # _normalise strips everything before 'claude', so only the raw-id
+    # check still sees this id's stealth/ prefix — and the free match
+    # must win over the claude-opus-4-8 key the normalised form hits.
+    r = pricing.resolve("stealth/claude-opus-4-8")
+    assert (r.kind, r.rates) == ("exact", pricing.FREE_RATES)
+
+
+def test_nonfree_openrouter_id_is_unchanged():
+    """A paid OpenRouter id keeps today's resolution: DEFAULT fallback,
+    because only text before 'claude' is stripped, not an openai/ prefix."""
+    r = pricing.resolve("openai/gpt-6-sol")
+    assert r.kind == "default"
+    assert r.rates == pricing.DEFAULT_RATES
+    # the unprefixed id still resolves exact against the table
+    assert pricing.resolve("gpt-6-sol").kind == "exact"
+
+
+def test_free_matching_does_not_touch_claude_ids():
+    r = pricing.resolve("claude-opus-4-8")
+    assert r.kind == "exact"
+    assert r.rates is pricing.MODEL_RATES["claude-opus-4-8"]
+
+
 def test_bonsai_local_lane_is_priced_at_zero_and_resolves_exact():
     """bonsai-2-27b is served by a local llama.cpp, so it has no price.
 
