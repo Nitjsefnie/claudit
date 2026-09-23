@@ -413,5 +413,64 @@ def test_tokens_by_project_mirrors_the_cost_panel_treatment():
     assert "hasCost" not in src[max(0, idx - 120):idx]
     tokens_window = src[idx:idx + 320]
     assert "rows={tokensByProject}" in tokens_window
-    assert "window.humanFmt(r.value" in tokens_window
-    assert "tokensByProjectTotal" in tokens_window
+    # Value-ONLY fmt, mirroring Cost by Project's value-only humanCurrency:
+    # VBar prints each bar's share itself, so a fmt that appends one
+    # renders the share twice ("35B (18.0%)" above "(18.0%)"). Panned for
+    # generally by test_vbar_fmt_is_value_only below.
+    assert "fmt={r => window.humanFmt(r.value)}" in tokens_window
+
+
+def test_vbar_fmt_is_value_only():
+    """VBar prints each bar's share itself — the `({pct}%)` line under the
+    value — so a call site whose fmt ALSO appends a percent renders the
+    share twice ("35B (18.0%)" above "(18.0%)"), which shipped on Tokens
+    by Project. Every `window.VBar` call site's fmt must therefore be
+    value-only. HBar shows no share of its own, so its fmts are free to
+    append one (Cost by Model and friends do); the guard is scoped to
+    VBar on purpose.
+
+    Premise pinned first: if VBar's own share line is ever removed, a
+    percent-appending fmt becomes legitimate again and this guard needs
+    rewriting, not suppressing.
+    """
+    charts = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
+    start = charts.index("function VBar(")
+    end = charts.index("function BurnRatePanel(", start)
+    assert re.search(r"\(\{pct\}%\)", charts[start:end]), (
+        "VBar no longer renders its own ({pct}%) share line -- percent-"
+        "appending fmts are no longer a double-print; rewrite this guard")
+
+    def jsx_prop(site, name):
+        """A JSX prop's {…} value, brace-balanced -- a plain regex cannot
+        do this: the regressed fmt this guard exists for contains ${…}
+        template braces of its own."""
+        key = name + "={"
+        i = site.find(key)
+        if i < 0:
+            return None
+        j = i + len(key)
+        depth = 1
+        while depth:
+            if site[j] == "{":
+                depth += 1
+            elif site[j] == "}":
+                depth -= 1
+            j += 1
+        return site[i + len(key):j - 1]
+
+    sites = 0
+    for path in sorted((ROOT / "src").rglob("*.jsx")):
+        src = _strip_line_comments(path.read_text(encoding="utf-8"))
+        # .*? (not [^>]*?): prop values contain arrow functions, whose `>`
+        # would end the match early and orphan the fmt from its site.
+        for m in re.finditer(r"<window\.VBar\b.*?/>", src, re.S):
+            sites += 1
+            fmt = jsx_prop(m.group(0), "fmt")
+            assert fmt is not None, (
+                f"{path.name}: a window.VBar call site has no fmt prop -- "
+                f"its raw values render unformatted; format them explicitly")
+            assert "%" not in fmt, (
+                f"{path.name}: a VBar fmt appends a percent "
+                f"({fmt.strip()!r}) -- VBar already prints each "
+                f"bar's share, so it renders twice")
+    assert sites >= 1, "no window.VBar call sites found - the guard would pass vacuously"
