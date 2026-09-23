@@ -140,3 +140,61 @@ def test_parser_js_rate_table_is_the_whole_backend_table_in_order():
             assert js_row[js_field] == pytest.approx(py_row[py_field]), (
                 f"{key}: {py_field}"
             )
+
+
+# --------------------------------------------------------------------------
+# Per-record cost rounding (M5)
+# --------------------------------------------------------------------------
+
+
+def _node_cost(output_tokens: int) -> float:
+    """One record through the real computeSessionStats cost path. The
+    model is the lane table's gpt-6-luna, listed at $0.50/M output — the
+    review's own figure."""
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      const m = {{ type: 'assistant_usage', line: 1,
+                   ts: '2026-06-14T12:00:00Z', model: 'gpt-6-luna',
+                   usage: {{ input_tokens: 0,
+                             cache_creation_input_tokens: 0,
+                             cache_read_input_tokens: 0,
+                             output_tokens: {output_tokens} }} }};
+      console.log(JSON.stringify(window.computeSessionStats([], [m]).cost));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_per_record_cost_rounds_exact_ties_half_even_like_python():
+    """15625 output tokens at $0.50/M cost 0.0078125 exactly. Python's
+    round(x, 6) — which priced the stored cost_usd — returns 0.007812
+    (half-EVEN on the exact tie); Number(x.toFixed(6)) returns 0.007813
+    (half-up). The cost path's comment claims its per-record cost IS the
+    stored value, so it must round the way Python did."""
+    assert 0.0078125 == 2 ** -7, "the case must be an exact tie"
+    assert round(15625 * 0.5 / 1_000_000, 6) == 0.007812
+    assert _node_cost(15_625) == 0.007812
+
+
+def test_per_record_cost_rounding_agrees_with_python_on_a_tie_where_both_agree():
+    """0.0234375 (46875 tokens at $0.50/M) is also an exact tie, one
+    where half-up and half-even agree — the two languages must return
+    the same figure all the same."""
+    assert round(0.0234375, 6) == 0.023438
+    assert _node_cost(46_875) == 0.023438
+
+
+def test_per_record_cost_rounding_matches_python_away_from_ties():
+    """A value whose expansion continues past the sixth decimal must
+    round to whatever Python's round(x, 6) decides on the same double —
+    the honest parity form, since the double's exact expansion is what
+    both decide on."""
+    tokens = 46_877
+    assert _node_cost(tokens) == round(tokens * 0.5 / 1_000_000, 6)
+    tokens = 1_000_001
+    assert _node_cost(tokens) == round(tokens * 0.5 / 1_000_000, 6)

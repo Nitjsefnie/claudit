@@ -369,9 +369,11 @@ const MODEL_CAPS = {
 };
 function capForModel(m) {
   const s = String(m).toLowerCase();
-  // The lane models. gpt-* caps at Codex's 272k context window — the same
-  // figure as the long-context billing threshold
-  // (window.LONG_CONTEXT_THRESHOLD); kimi-* at Kimi's 256k.
+  // The lane models. gpt-* caps at 272k, Codex's LONG-CONTEXT BILLING
+  // threshold (window.LONG_CONTEXT_THRESHOLD) — a billing tier, not a
+  // context window: requests above it happen (the meter exists because
+  // they do), so a long-context trace plots above this line on
+  // purpose. kimi-* at Kimi's 256k.
   if (s.startsWith('gpt')) return 272_000;
   if (s.startsWith('kimi')) return 256_000;
   return MODEL_CAPS[m]
