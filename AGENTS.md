@@ -50,7 +50,40 @@ backend/          — FastAPI application
                     for Edit/Write/Bash, derived from the call
                     arguments; errored calls are zeroed).
                     Mirrors canonical ~/.claude/scripts/parse_session.py
-                    for Phase 1 within-file requestId max-merge.
+                    for Phase 1 within-file requestId max-merge. Owns
+                    the Claude path; parse_file() sniffs the format and
+                    dispatches lane formats to the parsers below.
+  parse_codex.py  — Codex rollout parser (ported from codexmeter):
+                    cumulative-token differencing, cross-file request
+                    identity for uuid dedup, per-record long-context
+                    meter, apply_patch churn attribution.
+  parse_kimi.py   — The two Kimi wire formats (kimi-code and legacy
+                    kimi-cli), ported from codexmeter's parsers.
+  parse_common.py — Format-independent machinery both lane parsers and
+                    the Claude path share: per-file parse state, turn
+                    bookkeeping, the billing-row builder (records the
+                    long_context flag), tool-result settling incl. the
+                    harness-generic error_kind classification.
+  parse_lanes.py  — Format sniffing (sniff_format) and the lane→claudit
+                    row adapter (to_claudit): lane row shapes project
+                    onto claudit's records/tool_uses columns, legacy
+                    Kimi tool ids are namespaced by file key.
+  key_layout.py   — Object key → (project, session, is_main). The one
+                    place that knows both layouts: Claude Code's
+                    <project>/<session>/<stem>.jsonl and the lane
+                    sessions/<project>/<session>/wire.jsonl tree.
+  branding.py     — APP_NAME/APP_TITLE/APP_DESCRIPTION → browser title,
+                    meta, logo, sign-in page, export filename. Escapes
+                    per context (HTML vs script payload) — see
+                    SV-BRAND-ESCAPE.
+  tool_errors.py  — Tool-result text handling and the HARNESS-GENERIC
+                    failure classification (rejected / tool_error /
+                    failed) shared by every format.
+  bash_argv.py    — Line churn for a command given as an ARGV ARRAY
+                    (Codex's `monitor` calls): finds the inline shell/
+                    python payload positionally and hands it to
+                    bash_churn's scanners, so the estimates stay
+                    claudit's.
   bash_reads.py   — read/write TARGETS recovered from Bash command
                     TEXT, plus whether the command emitted the file
                     whole or a slice. Bash is ~79% of the read surface
@@ -98,6 +131,11 @@ src/              — React JSX modules served at /src/* (in-browser Babel)
   parser.js       — In-browser transcript parser for backend-fetched
                     transcripts, plus the shared model rate table.
                     Pricing table here MUST match backend/pricing.py.
+  parser-lanes.js — The lane formats' browser parser (Codex + both Kimi
+                    wires), mirrored from backend parse_codex/parse_kimi
+                    (SV-PARSER-SPEC lockstep) so the Inspector's
+                    in-browser parse yields the stored numbers, plus the
+                    window.LONG_CONTEXT_* constants.
   dashboard-charts.jsx      — Core SVG panels (time series, HBar, burn rate).
   dashboard-charts-extra.jsx — Additional panels (context growth, cache TTL).
   context-growth-view.jsx    — Context growth visualisation components.
@@ -134,6 +172,8 @@ tests/            — pytest suite
 
 fixtures/         — Small JSONL + zip samples for parser and API tests.
   parser/         — Hand-crafted single-record samples, each under 1 KB.
+  codex/          — Ported verbatim from the public codexmeter repo;
+                    exempt from the 1 KB cap (see SV-FIXTURE-SIZE).
   r2_mini/        — Mini filesystem mirror (2 projects, 4 sessions, 1 peer,
                     1 cross-session shared uuid) for ingest/API tests.
 
@@ -390,9 +430,10 @@ block. Never "fix" it by loosening the leading `*`.
 - **Cross-file uuid dedup is resolved at INGEST** into `records.is_canonical` (SV-CANONICAL-FLAG); read paths filter that boolean and must not reintroduce `DISTINCT ON (uuid)`. Per-file `requestId` max-merge also happens at ingest. The same pass sets `tool_uses.is_canonical` on `tool_use_id`, because a compaction sidecar (`agent-acompact-*`) replays the main file's tool calls; every rollup and live read over `tool_uses` filters it.
 - **`records` carries `stop_reason`, `effort` and `thinking_tokens`** alongside the token columns. `stop_reason` comes only from a reply's closing line, so NULL marks a reply whose closing usage never arrived and whose `output_tokens` is the 1-3 opening placeholder; `text_chars / 4` is the honest estimate for those. `cli_version`, `turn_flags` (events in the window before the request: `stop_hook_block`, `interrupt`, `compact`, `api_error`, `model_switch`, `effort_switch`, `advisor_switch`, `version_switch`, `tools_delta`, `image_result`, `slash_command`, `user_prompt`, `date_change`, `user_rejected`, `cwd_switch`, `away_summary`, `resume`, `cwd_rebuild`, and the `prompt_snapshot` diffs `tools_change`, `system_change`, `prompt_rerender`, which are backfilled onto the request BEFORE the snapshot line — see `backend/turn_flags.py`) and `turn_tool_results` exist so a prompt-cache miss can be attributed with a GROUP BY instead of a re-read of the raw file.
 - **Foreign-model records are purged at ingest**, not filtered at read time — `suppressed_models` holds `ILIKE` patterns and `ingest.purge_suppressed()` deletes matching `records` and their `tool_uses` before the canonical pass (SV-SUPPRESSED-MODELS). The table ships empty; populate it per deploy. `files.models` keeps every model the file contained, recorded before the purge, so a session that switched lanes can still be identified and excluded from an analysis.
-- **Aggregates are precomputed at ingest** into `usage_rollup` (grain: session × hour × model × is_main), `tool_rollup` (hour × project × model × tool), `tool_error_rollup` (hour × project × model × tool × error_kind), `dispatch_rollup` (hour × project × agent_type × agent_model), `dispatch_brief_rollup` (hour × project × agent_type × brief_ref, carrying a summed prompt length alongside the count), `ctx_cost_rollup` and `agent_rollup` (both carrying `total_tokens` beside `cost_usd`, so the tokens variant of each panel needs no second pass) and `latency_rollup` — see SV-ROLLUP. The first two hold pure sums/counts/min/max and are summed up to the display bucket; they are valid only for buckets ≥ 1h, so the 24h view takes a live path.
+- **Aggregates are precomputed at ingest** into `usage_rollup` (grain: session × hour × model × is_main × long_context), `tool_rollup` (hour × project × model × tool), `tool_error_rollup` (hour × project × model × tool × error_kind), `dispatch_rollup` (hour × project × agent_type × agent_model), `dispatch_brief_rollup` (hour × project × agent_type × brief_ref, carrying a summed prompt length alongside the count), `ctx_cost_rollup` and `agent_rollup` (both carrying `total_tokens` beside `cost_usd`, so the tokens variant of each panel needs no second pass) and `latency_rollup` — see SV-ROLLUP. The first two hold pure sums/counts/min/max and are summed up to the display bucket; they are valid only for buckets ≥ 1h, so the 24h view takes a live path.
 - **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
 - **Don't invoke `~/.claude/scripts/parse_session.py`** at runtime, and don't edit it from this repo. If the canonical Python and our port drift, fix it here, not there.
 - **Tests use fixtures, not real R2.** The R2 client supports `R2_ENDPOINT=file:///path/to/mirror/` for offline dev.
 - **Parser version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change — every file reparses on next ingest. Never an env var: a parser change and its reparse must ship together.
+- **Several buckets, several formats, one deploy.** `R2_BUCKET` may name several buckets joined by `+`; every stored file key is `<bucket>/<object-key>` and the bucket comes from the stored key, never the request. `parse_file()` sniffs the format (Claude, Codex rollout, kimi-code, legacy Kimi) and dispatches; the lane parsers and `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC). A pay-as-you-go Codex record above the 272k threshold bills the whole record on the long-context meter, persisted on `records.long_context` and applied by every per-component cost re-derivation (SV-DATED-RATES).
 - **Backend is the only load path:** the drag-drop fallback was removed (SV-NO-LOCAL-UPLOAD). `src/parser.js` stays — it parses backend-fetched transcripts and owns the shared rate table.
