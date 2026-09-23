@@ -127,7 +127,11 @@ VERSION = _read_version()
 # project.json marker names, so one directory is ONE project across
 # buckets; the bump reparses every file and re-derives project ids
 # (codex/kimi deploys re-key their projects on that run).
-PARSER_VERSION = "52"
+# 53 case-folds a Windows project slug (a drive letter followed by '--')
+# to lowercase, so a Windows directory whose sessions were ingested
+# under differently-cased paths is ONE project; the bump reparses every
+# file and merges Windows projects that differed only in case.
+PARSER_VERSION = "53"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also

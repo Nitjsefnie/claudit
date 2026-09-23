@@ -192,30 +192,50 @@ def _existing_files() -> dict:
 
 
 def _track_project(seen_projects: dict[str, dict], project_id: str,
-                   last_modified, project_path: str | None) -> None:
+                   last_modified, project_path: str | None,
+                   original_id: str | None = None) -> None:
     """Accumulate first/last seen mtimes for one project.
 
     `project_id` is the id this run resolved for the file — the slug of
     the project's marker path when the run read one, else the stored or
-    bare-hash id (lane_projects.resolve_lane_project). display_name comes from that
+    bare-hash id (lane_projects.resolve_lane_project); `original_id` is
+    the project id the OBJECT KEY carried before that resolution — the
+    pre-fold slug for a Claude-layout file, the lane hash otherwise.
+    display_name comes from that
     marker path where one was read; every other project — and a lane
-    project whose marker was missing or malformed — displays its id.
+    project whose marker was missing or malformed — displays the
+    original-case id holding the MOST files this walk (ties: the first
+    seen) — which for a Windows project is the one session's shell's
+    casing, never the blindly-lowercased folded id.
     `display_name_set` records which case this run is, so _persist's
     upsert can PRESERVE a stored display_name on a run that read no
-    marker instead of resetting it to the bare id. The path is applied
+    marker instead of resetting it to the bare id; a stored display that
+    IS the bare id gets upgraded to this run's cased form in SQL (the
+    upsert's second CASE branch). The path is applied
     even when the entry already exists (a Claude-layout file of the same
     directory created it first): the merge is what the slug id is for.
     """
     proj = seen_projects.setdefault(project_id, {
         "project_id": project_id,
-        "display_name": project_path or project_id,
+        "display_name": project_path or original_id or project_id,
         "display_name_set": bool(project_path),
         "first_seen_at": last_modified,
         "last_seen_at": last_modified,
+        "case_counts": {},
     })
-    if project_path and not proj["display_name_set"]:
-        proj["display_name"] = project_path
-        proj["display_name_set"] = True
+    if project_path:
+        if not proj["display_name_set"]:
+            proj["display_name"] = project_path
+            proj["display_name_set"] = True
+    else:
+        original = original_id or project_id
+        counts: dict[str, int] = proj["case_counts"]
+        counts[original] = counts.get(original, 0) + 1
+        if not proj["display_name_set"]:
+            # max() keeps the FIRST maximal pair, so an equal count
+            # leaves the display with the first-seen slug.
+            proj["display_name"] = max(
+                counts.items(), key=lambda item: item[1])[0]
     if last_modified < proj["first_seen_at"]:
         proj["first_seen_at"] = last_modified
     if last_modified > proj["last_seen_at"]:
@@ -305,11 +325,18 @@ def _track_walked_project(seen_projects: dict[str, dict], info, obj,
     off), so the walk and every persist of the run share one identity —
     marker slug, stored mapping, or bare hash (lane_projects.resolve_lane_project).
     """
+    # The PRE-canonical project id the key carried: classify() folds a
+    # Windows slug on the Claude layout, and the walk needs the raw form
+    # to choose display_name from (never the folded id itself). A lane
+    # key's project is the hash segment; classify leaves it untouched.
+    parts = r2.split_key(obj.key)[1].split("/")
+    original_id = (parts[1] if parts[0] == key_layout.LANE_ROOT
+                   else parts[0])
     marker_path = project_paths.get(info.project_id)
     project_id = lane_projects.resolve_lane_project(
         info.project_id, marker_path, stored_lane)
     _track_project(seen_projects, project_id,
-                   obj.last_modified, marker_path)
+                   obj.last_modified, marker_path, original_id=original_id)
     return seen_projects[project_id]
 
 
@@ -417,6 +444,31 @@ def _delete_orphans(seen_keys: set[str]) -> int:
     return deleted
 
 
+def _delete_orphan_projects() -> int:
+    """Drop project rows no file references any more.
+
+    A project id that moved under its files leaves the old row behind
+    with nothing pointing at it — the Windows case-fold re-keys every
+    pre-53 mixed-case row onto the folded id, the lane slug rekey moves
+    a hash's files onto its marker slug, and a wiped subtree cascades
+    its files away. /api/projects already hides a usage-less project;
+    deleting keeps the table itself honest instead of only the read.
+    Runs every ingest, after the orphan-file sweep.
+    """
+    _set_progress(phase="orphan_projects")
+    with db.viz_conn() as c, c.cursor() as cur:
+        cur.execute(
+            "DELETE FROM projects p WHERE NOT EXISTS "
+            "(SELECT 1 FROM files f WHERE f.project_id = p.project_id) "
+            "RETURNING 1",
+        )
+        deleted = len(cur.fetchall())
+        c.commit()
+    if deleted:
+        log.info("ingest: dropped %d orphan project row(s)", deleted)
+    return deleted
+
+
 def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
                inserted: int, deleted: int, err: str | None) -> None:
     """Write the final counters onto the ingest_runs row."""
@@ -470,6 +522,7 @@ def _walk_and_persist(parser_version: str,
         todo, parser_version, failed, seen_keys
     )
     deleted = _delete_orphans(seen_keys)
+    _delete_orphan_projects()
     return listed, inserted, reparsed, deleted, vanished
 
 
@@ -770,20 +823,28 @@ def _persist(obj, proj, parsed, parser_version) -> None:
     with db.viz_conn() as c, c.cursor() as cur:
         # Project upsert. first_seen_at uses LEAST so a later
         # ingest seeing an older file drags it backward. display_name is
-        # overwritten only when THIS run actually read a marker: a
+        # overwritten only when THIS run actually read a marker, or when
+        # the stored display is the bare project id and this run's walk
+        # recovered a better-cased form (the Windows case-fold: the
+        # folded id must not outshout a known original casing): a
         # transient marker-fetch failure must not reset a stored display
         # path to the bare id until some later reparse repairs it. The
         # flag defaults False so a caller handing _persist a plain
         # {project_id, display_name, ...} dict (tests do) preserves.
-        proj = {**proj, "display_name_set": bool(proj.get("display_name_set"))}
+        proj = {k: v for k, v in proj.items() if k != "case_counts"}
+        proj["display_name_set"] = bool(proj.get("display_name_set"))
         cur.execute(
             "INSERT INTO projects (project_id, display_name, "
             "first_seen_at, last_seen_at) "
             "VALUES (%(project_id)s, %(display_name)s, "
             "%(first_seen_at)s, %(last_seen_at)s) "
             "ON CONFLICT (project_id) DO UPDATE SET "
-            "  display_name = CASE WHEN %(display_name_set)s THEN "
-            "    EXCLUDED.display_name ELSE projects.display_name END, "
+            "  display_name = CASE "
+            "    WHEN %(display_name_set)s THEN EXCLUDED.display_name "
+            "    WHEN projects.display_name = projects.project_id AND "
+            "         EXCLUDED.display_name <> projects.project_id "
+            "      THEN EXCLUDED.display_name "
+            "    ELSE projects.display_name END, "
             "  first_seen_at = LEAST(projects.first_seen_at, "
             "                        EXCLUDED.first_seen_at), "
             "  last_seen_at = GREATEST(projects.last_seen_at, "

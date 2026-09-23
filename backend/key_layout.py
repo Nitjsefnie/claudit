@@ -9,6 +9,8 @@ used to inline in _collect_todo and _persist):
   <project-slug>/<session>/<stem>.jsonl[.xz]
       project = segment 0, session = segment 1,
       is_main = stem == session
+      (the project id is canonical: a Windows slug — a drive letter
+      followed by '--' — is case-folded, canonical_project_id)
 
   Subagent sidecars are simply files whose stem differs from the
   session id (e.g. .../subagents/agent-x.jsonl.xz), so they fall out
@@ -91,15 +93,38 @@ def project_slug(path: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "-", path)
 
 
+# A slug of a WINDOWS path: a drive letter followed by '--', which is
+# what 'C:\\' and 'C:/' slug to ('C:\\Users\\x' -> C--Users-x). A POSIX
+# slug always starts with '-' — slugs derive from absolute paths.
+_WINDOWS_SLUG = re.compile(r"^[A-Za-z]--")
+
+
+def canonical_project_id(project_id: str) -> str:
+    """The canonical project id: a Windows slug is case-folded to
+    lowercase, everything else is returned unchanged.
+
+    Windows paths are case-insensitive, and Claude Code takes the path's
+    case from however the shell reported it, so one Windows directory
+    arrives under two Claude-layout project ids (C--Users-x and
+    c--users-x) that are ONE project. POSIX paths are case-sensitive and
+    their slugs must NOT be folded. Lane content hashes match neither
+    shape and pass through untouched.
+    """
+    if _WINDOWS_SLUG.match(project_id):
+        return project_id.lower()
+    return project_id
+
+
 def lane_project_id(project_id: str, marker_path: str | None) -> str:
-    """The id a lane project goes by: the Claude slug of the marker path
-    when the marker was read, so one directory is ONE project across
-    buckets in a multi-bucket deploy. Without a marker path — legacy
-    Kimi has none; a marker missing, malformed, or not read this run —
-    the hash stays the id."""
+    """The id a lane project goes by: the CANONICAL id of the marker
+    path — its Claude slug, case-folded when it names a Windows
+    directory — so one directory is ONE project across buckets in a
+    multi-bucket deploy. Without a marker path — legacy Kimi has none; a
+    marker missing, malformed, or not read this run — the hash stays the
+    id."""
     if not marker_path:
         return project_id
-    return project_slug(marker_path)
+    return canonical_project_id(project_slug(marker_path))
 
 
 def classify(key: str) -> KeyInfo | None:
@@ -129,7 +154,10 @@ def _classify_claude(parts: list[str]) -> KeyInfo | None:
     stem = _jsonl_stem(parts[-1])
     if stem is None:
         return None
-    return KeyInfo(parts[0], parts[1], stem == parts[1])
+    # The project id is canonical: a Windows slug folds to lowercase so
+    # one directory is ONE project however each session's shell cased
+    # the path (canonical_project_id).
+    return KeyInfo(canonical_project_id(parts[0]), parts[1], stem == parts[1])
 
 
 def _jsonl_stem(basename: str) -> str | None:

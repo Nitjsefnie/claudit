@@ -59,7 +59,10 @@ def preferred_stored_id(ids: dict[str, int]) -> str:
     A module-level function rather than a closure over the dict
     comprehension's loop variable: a lambda capturing a loop variable
     trips pylint's cell-var-from-loop, and the preference rule is a
-    policy worth naming anyway.
+    policy worth naming anyway. Windows slugs (a drive letter + '--')
+    rank like hash ids here — none starts with '-' — and whichever side
+    wins, resolve_lane_project folds it to the canonical form, so two
+    sides differing only in case still resolve onto one id.
     """
     return min(
         ids,
@@ -70,13 +73,18 @@ def preferred_stored_id(ids: dict[str, int]) -> str:
 def resolve_lane_project(lane_hash: str, marker_path: str | None,
                          stored_lane: dict[str, str]) -> str:
     """The id a file classified under lane hash `lane_hash` lands under
-    this run: a marker path read THIS RUN wins (the path's Claude slug,
-    key_layout.project_slug), else the stored mapping keeps the slug a
-    previous marker run chose, else the bare hash (legacy Kimi has no
-    marker; a never-stored hash has nothing to keep)."""
+    this run: a marker path read THIS RUN wins (the path's canonical
+    project id — key_layout.project_slug, case-folded when it names a
+    Windows directory), else the stored mapping keeps the id a previous
+    marker run chose, folded through the same canonical form so a
+    mixed-case id stored by a previous parser version resolves onto the
+    folded id this run, else the bare hash (legacy Kimi has no marker; a
+    never-stored hash has nothing to keep)."""
     if marker_path is not None:
-        return key_layout.project_slug(marker_path)
-    return stored_lane.get(lane_hash, lane_hash)
+        return key_layout.canonical_project_id(
+            key_layout.project_slug(marker_path))
+    return key_layout.canonical_project_id(
+        stored_lane.get(lane_hash, lane_hash))
 
 
 def rekey_stale_lane_projects(project_paths: dict[str, str],
@@ -100,7 +108,12 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
     moved = 0
     with db.viz_conn() as c, c.cursor() as cur:
         for lane_hash, marker_path in project_paths.items():
-            slug = key_layout.project_slug(marker_path)
+            # The folded canonical id: a marker path naming a Windows
+            # directory keys the project lowercase, and a stored
+            # mixed-case id from a previous parser version compares
+            # unequal to it — which is what triggers the rekey below.
+            slug = key_layout.canonical_project_id(
+                key_layout.project_slug(marker_path))
             stored_id = stored_lane.get(lane_hash)
             if stored_id is None or stored_id == slug:
                 continue

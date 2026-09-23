@@ -14,7 +14,8 @@ Tests use bucket-less keys throughout: a later task qualifies stored
 keys with their bucket and strips it before calling classify().
 """
 from backend.key_layout import (
-    KeyInfo, classify, lane_project_id, project_marker, project_slug,
+    KeyInfo, canonical_project_id, classify, lane_project_id,
+    project_marker, project_slug,
 )
 
 
@@ -114,3 +115,46 @@ def test_lane_project_id_keeps_the_hash_without_a_marker_path():
     this run) — the hash stays the id."""
     assert lane_project_id("8805b8ac99ad", None) == "8805b8ac99ad"
     assert lane_project_id("8805b8ac99ad", "") == "8805b8ac99ad"
+
+
+def test_windows_slugs_fold_to_one_id():
+    """A slug of a Windows path ('C:\\' / 'C:/' slug to a drive letter
+    followed by '--') is case-folded: one Windows directory is ONE
+    project however the shell cased it."""
+    assert canonical_project_id("C--Users-A-x") == "c--users-a-x"
+    assert canonical_project_id("c--users-a-x") == "c--users-a-x"
+
+
+def test_posix_slugs_stay_case_sensitive():
+    """A POSIX slug always starts with '-' and is case-sensitive: two
+    Linux/macOS directories differing only in case are TWO projects."""
+    assert canonical_project_id("-root-Claudit") == "-root-Claudit"
+    assert canonical_project_id("-root-claudit") == "-root-claudit"
+
+
+def test_non_slug_ids_pass_through():
+    """A lane content hash is not a slug and is returned unchanged."""
+    assert canonical_project_id("8805b8ac99ad") == "8805b8ac99ad"
+
+
+def test_classify_folds_the_windows_project_slug():
+    """The fold is part of the Claude-layout identity, so every key of
+    the same Windows directory lands on one project id."""
+    upper = classify("C--Users-Z-Repo/sess/sess.jsonl")
+    lower = classify("c--users-z-repo/sess/sess.jsonl")
+    assert upper is not None and lower is not None
+    assert upper.project_id == lower.project_id == "c--users-z-repo"
+
+
+def test_posix_classify_keeps_case():
+    info = classify("-root-Claudit/s1/s1.jsonl")
+    assert info is not None and info.project_id == "-root-Claudit"
+
+
+def test_marker_windows_path_and_claude_key_meet_on_one_id():
+    """A lane marker naming 'C:\\Users\\Z\\Repo' and a Claude-layout key
+    of the same directory resolve to the SAME project id."""
+    marker = lane_project_id("8805b8ac99ad", "C:\\Users\\Z\\Repo")
+    info = classify("c--users-z-repo/sess/sess.jsonl")
+    assert info is not None
+    assert marker == info.project_id == "c--users-z-repo"

@@ -182,7 +182,13 @@ project whose project.json marker named a directory is keyed by that
 directory's Claude slug (`key_layout.project_slug`) — the same id a
 Claude-layout bucket derives for it — so one directory is ONE project
 across buckets, while a lane project read without a marker keeps its
-hash.
+hash. Both routes meet on `key_layout.canonical_project_id`: a Windows
+slug (a drive letter followed by `--`, what `C:\` / `C:/` slug to) is
+case-folded to lowercase, because Windows paths are case-insensitive
+and Claude Code takes the case from however the shell reported it —
+one Windows directory is ONE project whichever casing each session
+carried — while a POSIX slug (always starts with `-`) stays
+case-sensitive and is never folded.
 
 The schema is per-file, not per-session. Two tables hold the parse
 output (see `backend/schema.sql`):
