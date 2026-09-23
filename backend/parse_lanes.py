@@ -176,8 +176,11 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         else:
             tu["tool_use_id"] = tc_id or None
         del tu["model"]
-        tu["error_kind"] = None
-        tu["error_text"] = None
+        # A settled failure already carries its (error_kind, error_text)
+        # from parse_common._settle_lane_tool_result; default the rest to
+        # NULL (SV-WHY-COLUMNS: a kind only on an errored call).
+        tu.setdefault("error_kind", None)
+        tu.setdefault("error_text", None)
         tu["agent_type"] = None
         tu["agent_model"] = None
         tu["dispatch_prompt_chars"] = None

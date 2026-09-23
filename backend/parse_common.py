@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from backend import pricing
+from backend.tool_errors import (ERROR_TEXT_MAX, _pg_text,
+                                 classify_lane_error)
 
 
 def _to_dt(s: str | float | None):
@@ -47,6 +49,10 @@ class _ParseState:
     rate_limit_hits: list[dict] = field(default_factory=list)
     # Per-file map of tool_call_id -> bool(is_error)
     tool_result_is_error: dict[str, bool] = field(default_factory=dict)
+    # Per-file map of tool_call_id -> (error_kind, error_text) for the
+    # calls that errored, recorded when the result settles (SV-WHY-COLUMNS).
+    tool_result_error_info: dict[str, tuple[str, str | None]] = field(
+        default_factory=dict)
     turns: list[dict] = field(default_factory=list)
     current_turn: dict | None = None
     current_turn_id: str | None = None
@@ -211,10 +217,36 @@ def _append_usage_record(st: _ParseState, line_num: int,
         st.current_turn["status_lines"].append(line_num)
 
 
+def _settle_lane_tool_result(st: _ParseState, tc_id: object,
+                             is_error: bool, text: str) -> None:
+    """Record one lane tool_result's outcome against its call id.
+
+    `text` is the readable failure text (empty for a successful or
+    textless result); for an errored result it is classified into the
+    harness-generic error_kind and its leading ERROR_TEXT_MAX characters
+    kept for drill-down, exactly as the Claude path stores them.
+    """
+    st.tool_result_is_error[str(tc_id)] = bool(is_error)
+    if not is_error:
+        return
+    st.tool_result_error_info[str(tc_id)] = (
+        classify_lane_error(text),
+        # A textless failure carries a kind but no text: NULL keeps the
+        # column honest for the GROUP BY drill-down.
+        _pg_text(text)[:ERROR_TEXT_MAX] or None,
+    )
+
+
 def _resolve_tool_errors(tool_uses: list[dict],
-                         tool_result_is_error: dict[str, bool]) -> None:
+                         tool_result_is_error: dict[str, bool],
+                         error_info: dict[str, tuple[str, str | None]] | None
+                         = None) -> None:
     """Resolve tool_result.is_error onto each tool_uses entry, and zero the
-    line churn of calls that failed — a rejected edit changed no lines."""
+    line churn of calls that failed — a rejected edit changed no lines.
+
+    A settled failure also carries its (error_kind, error_text) pair from
+    `error_info`, so lane failures count in the error-kind breakdowns and
+    not only in the is_error rate."""
     for tu in tool_uses:
         # The id stays on the row: parse_lanes.to_claudit renames it to
         # claudit's tool_use_id, and ingest keys is_canonical on it.
@@ -224,6 +256,8 @@ def _resolve_tool_errors(tool_uses: list[dict],
             if tu["is_error"]:
                 tu["lines_added"] = 0
                 tu["lines_deleted"] = 0
+                if error_info and tc_id in error_info:
+                    tu["error_kind"], tu["error_text"] = error_info[tc_id]
 
 
 def _ctx_turns_from_turns(turns: list[dict], records: list[dict]) -> list[dict]:
@@ -263,7 +297,8 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
         _close_turn(st, end_line, None)
     elif st.current_turn is not None:
         st.turns.append(st.current_turn)
-    _resolve_tool_errors(st.tool_uses, st.tool_result_is_error)
+    _resolve_tool_errors(st.tool_uses, st.tool_result_is_error,
+                         st.tool_result_error_info)
     ctx_turns = _ctx_turns_from_turns(st.turns, st.records)
     return {
         "records": st.records,

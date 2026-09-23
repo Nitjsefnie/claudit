@@ -113,3 +113,23 @@ def _classify_error(text: str) -> str:
             or "does not want to proceed" in low):
         return ERROR_KIND_REJECTED
     return ERROR_KIND_FAILED
+
+
+def classify_lane_error(text: str) -> str:
+    """The harness-generic kind for a LANE tool call that errored.
+
+    The lane wires carry no status field: an errored result is one the
+    tool RAN and that reported failure -- Codex's "Script failed" head
+    is that harness's wording for a non-zero exit -- so the default is
+    tool_error. The harness-generic rejection wording demotes it to
+    rejected (the call never ran), and an errored result with no
+    readable text stays failed: there is no evidence it ran. SV-WHY-
+    COLUMNS keeps the kinds harness-generic; no lane-specific kind is
+    added.
+    """
+    if not text or not text.strip():
+        return ERROR_KIND_FAILED
+    generic = _classify_error(text)
+    if generic != ERROR_KIND_FAILED:
+        return generic
+    return ERROR_KIND_TOOL_ERROR
