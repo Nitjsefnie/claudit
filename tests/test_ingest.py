@@ -708,3 +708,29 @@ def test_lane_layout_ingests_with_marker_display_name(
     )
     assert display == "/home/me/lanework"
     assert n_records > 0, "both wire files parsed into records"
+
+
+def test_lane_layout_without_project_marker_displays_the_project_id(
+        fresh_db, tmp_path, monkeypatch):
+    """Same lane tree with the sessions/<project>/project.json marker
+    ABSENT: ingest still succeeds and the project's display_name falls
+    back to the project id, exactly as for a malformed marker."""
+    proj, sess = "8805b8ac99ad", "01a0-uuid"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / proj / sess
+    lane.mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["inserted"] == 1
+    assert result["r2_listed"] == 1
+    with db.viz_conn() as c:
+        display = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (proj,))
+        n_records = _scalar(c, "SELECT COUNT(*) FROM records")
+    assert display == proj, "no marker: the project id is the display name"
+    assert n_records > 0, "the wire file parsed into records"

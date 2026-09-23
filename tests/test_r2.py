@@ -1,4 +1,5 @@
 import lzma
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -38,6 +39,41 @@ def test_list_keys_walks_recursively(mini_r2):
 def test_list_keys_with_prefix(mini_r2):
     keys = [o.key for o in r2.list_keys(prefix="claude/proj-a")]
     assert keys == ["claude/proj-a/sess-1/sess-1.jsonl"]
+
+
+@pytest.mark.skipif(
+    os.geteuid() == 0,
+    reason="root reads through chmod 000, so the unreadable-subtree "
+           "scenario cannot be staged as root; the walk-error test "
+           "below covers the same path",
+)
+def test_list_keys_aborts_when_a_subtree_is_unreadable(mini_r2):
+    """A chmod-000'd subtree must abort the listing, not be silently
+    skipped: os.walk's default onerror swallows the failure, and a
+    partial listing is what the ingest orphan sweep deletes against."""
+    locked = mini_r2 / "proj-b"
+    locked.chmod(0o000)
+    try:
+        with pytest.raises(OSError):
+            list(r2.list_keys())
+    finally:
+        locked.chmod(0o755)
+
+
+def test_list_keys_aborts_when_the_walk_errors(monkeypatch, mini_r2):
+    """Drives os.walk's error path directly (the chmod variant skips as
+    root, this suite's user): the listing must propagate the walk
+    failure instead of yielding a partial walk."""
+    err = OSError(13, "Permission denied")
+
+    def _failing_walk(_top, onerror=None, **_kw):
+        if onerror is not None:
+            onerror(err)
+        return iter(())  # not reached: onerror raises
+
+    monkeypatch.setattr(r2.os, "walk", _failing_walk)
+    with pytest.raises(OSError):
+        list(r2.list_keys())
 
 
 def test_get_object(mini_r2):

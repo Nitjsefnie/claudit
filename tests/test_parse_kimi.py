@@ -742,8 +742,13 @@ def test_claude_detection_survives_a_leading_unrecognized_line():
 
 def test_file_history_lines_are_claude_even_without_a_session_id():
     """The two file-history record types carry no sessionId; their names
-    carry the identification instead."""
-    blob = b'{"type":"file-history-delta","messageId":"m1","delta":{}}\n'
+    carry the identification instead. The line is followed by a Codex
+    session_meta record so the rung is load-bearing: without it the blob
+    would sniff codex (the claude catch-all answers "claude" either
+    way), not claude."""
+    blob = (b'{"type":"file-history-delta","messageId":"m1","delta":{}}\n'
+            b'{"timestamp":"2026-09-10T08:44:15Z","type":"session_meta",'
+            b'"payload":{"session_id":"00000000-0000-4000-8000-0000000000c0"}}\n')
     assert parse.sniff_format(blob) == "claude"
 
 
