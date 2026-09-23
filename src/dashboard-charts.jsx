@@ -525,10 +525,14 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
         {(() => {
           const totalStr = `Total: ${humanFmt(total, isCurrency)}`;
           const boxW = Math.ceil(totalStr.length * monoAdvancePx(11)) + 16;
-          const boxX = w - padR - boxW - 6;
+          // Top-LEFT corner of the plot, the mirror of the old
+          // `w - padR - boxW - 6`: same 6px inset from the gutter, same
+          // padT + 2 top. The cumulative line is lowest at the left, so
+          // the badge now sits where it is least likely to collide.
+          const boxX = padL + 6;
           return (
             <g>
-              <rect x={boxX} y={padT + 2} width={boxW} height={20} rx={4}
+              <rect data-total-badge="" x={boxX} y={padT + 2} width={boxW} height={20} rx={4}
                 fill={TH.bgAxes} stroke={color} strokeOpacity="0.8" />
               <text x={boxX + boxW / 2} y={padT + 16} fontSize="11" fontWeight="bold"
                 fill={color} textAnchor="middle" fontFamily="monospace">

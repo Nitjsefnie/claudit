@@ -360,6 +360,38 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
     assert "unsplit                  * r.c5" not in src
 
 
+def test_panel_totals_render_in_the_top_left_corner():
+    """Every panel that shows a Total badge anchors it at the plot's
+    TOP-LEFT corner (`padL + 6`, the mirror of the old right-corner
+    `w - padR - boxW - 6`). Both render sites are pinned, located through
+    the badge's data-total-badge marker so a variable rename fails loudly
+    instead of silently unguarding: TimeSeriesPanel (one shared block
+    behind every per-bin time series) and CostByContextPanel (Cost/Tokens
+    by Context Size).
+    """
+    charts = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
+    start = charts.index("function TimeSeriesPanel(")
+    end = charts.index("function HBar(", start)
+    sites = [
+        ("dashboard-charts.jsx", charts[start:end]),
+        ("dashboard-charts-extra.jsx", _panel_src("CostByContextPanel")),
+    ]
+    for fname, src in sites:
+        assert 'data-total-badge=""' in src, (
+            f"{fname}: the Total badge lost its data-total-badge marker -- "
+            f"reread the panel before moving it")
+        idx = src.index('data-total-badge=""')
+        window = src[max(0, idx - 600):idx]
+        m = re.search(r"const boxX = ([^\n;]+);", window)
+        assert m, (
+            f"{fname}: no boxX computation found above the Total badge -- "
+            f"the badge's x anchor moved; relocate this guard with it")
+        assert m.group(1).strip() == "padL + 6", (
+            f"{fname}: the Total badge is anchored at `{m.group(1).strip()}` "
+            f"-- totals belong in the panel's TOP-LEFT corner (padL + 6), "
+            f"not back on the right")
+
+
 def test_tokens_by_project_mirrors_the_cost_panel_treatment():
     """Tokens by Project sits beside Cost by Project the way Tokens by
     Model sits beside Cost by Model: the same VBar, the same project

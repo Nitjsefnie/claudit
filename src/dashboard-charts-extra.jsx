@@ -3290,10 +3290,13 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
         {(() => {
           const totalStr = `Total: ${fmtUsd(isTokens ? meta.total_tokens : meta.total_cost_usd)}`;
           const boxW = Math.ceil(totalStr.length * 6.6) + 16;
-          const boxX = padL + plotW - boxW - 6;
+          // Top-LEFT corner of the plot, mirroring TimeSeriesPanel's badge
+          // (`padL + 6`, same padT + 2). The cumulative-share line starts
+          // at 0 on this axis, so the left corner is where it collides least.
+          const boxX = padL + 6;
           return (
             <g>
-              <rect x={boxX} y={padT + 2} width={boxW} height={20} rx={4}
+              <rect data-total-badge="" x={boxX} y={padT + 2} width={boxW} height={20} rx={4}
                     fill={TH_X.bgAxes} stroke={BAR_COLOR} strokeOpacity="0.8" />
               <text x={boxX + boxW / 2} y={padT + 16} fontSize="11" fontWeight="bold"
                     fill={BAR_COLOR} textAnchor="middle" fontFamily="monospace">
