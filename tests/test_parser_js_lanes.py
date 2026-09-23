@@ -19,6 +19,7 @@ import json
 import re
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -467,3 +468,99 @@ def test_capformodel_lane_caps():
     assert got["opus48"] == 1_000_000
     assert got["fable"] == 1_000_000
     assert got["haiku"] == 200_000
+
+
+# --------------------------------------------------------------------------
+# The Token Breakdown's long-context re-derivation (I1)
+# --------------------------------------------------------------------------
+
+APP_JSX = ROOT / "src" / "app.jsx"
+
+
+def _token_breakdown_source() -> str:
+    """computeTokenBreakdown verbatim from the JSX source (node cannot
+    parse the file's JSX elsewhere)."""
+    src = APP_JSX.read_text(encoding="utf-8")
+    start = src.index("function computeTokenBreakdown")
+    end = src.index("\n// Paired token/cost breakdown bars", start)
+    return src[start:end]
+
+
+def test_browser_token_breakdown_applies_the_long_context_meter():
+    """The Token Breakdown re-derives per-component cost from summed
+    tokens, so a long-context row must be priced at the same 2x input /
+    1.5x output pricing.compute_cost stored — or its bars drift from the
+    stored cost_total they decompose."""
+    lc_fresh, lc_out = 300_000, 2_000
+    flat_fresh, flat_out = 50_000, 500
+    # The events' ts is June 2026 — inside sol's pre-Aug21 dated window —
+    # so the expected figures are computed at the SAME rates the browser's
+    # rateForModel resolves, isolating the meter as the only difference.
+    ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
+    expected_lc = pricing.compute_cost(
+        "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, long_context=True, ts=ts,
+    )
+    expected_flat = pricing.compute_cost(
+        "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=ts,
+    )
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(PARSER_JS)!r});
+      window.dashboardCol = {{}};
+      eval({json.dumps(_token_breakdown_source())});
+      const events = [
+        {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+           input_tokens: {lc_fresh}, output_tokens: {lc_out},
+           cache_create: 0, cache_read: 0,
+           ephemeral_5m: 0, ephemeral_1h: 0, long_context: true }},
+        {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+           input_tokens: {flat_fresh}, output_tokens: {flat_out},
+           cache_create: 0, cache_read: 0,
+           ephemeral_5m: 0, ephemeral_1h: 0, long_context: false }},
+      ];
+      const bd = computeTokenBreakdown(events);
+      console.log(JSON.stringify({{
+        costTotal: bd.costTotal,
+        input: bd.rows.find(r => r.label === 'Input'),
+        output: bd.rows.find(r => r.label === 'Output'),
+      }}));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["costTotal"] == pytest.approx(expected_lc + expected_flat)
+    assert got["input"]["cost"] == pytest.approx(
+        (lc_fresh * pricing.LONG_CONTEXT_INPUT_MULT + flat_fresh)
+        * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000
+    )
+    assert got["output"]["cost"] == pytest.approx(
+        (lc_out * pricing.LONG_CONTEXT_OUTPUT_MULT + flat_out)
+        * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000
+    )
+
+
+def test_browser_long_context_multipliers_equal_backend():
+    """The browser's meter multipliers are window constants from
+    parser-lanes.js and must equal pricing's."""
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      console.log(JSON.stringify({{
+        in: window.LONG_CONTEXT_INPUT_MULT,
+        out: window.LONG_CONTEXT_OUTPUT_MULT,
+      }}));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["in"] == pricing.LONG_CONTEXT_INPUT_MULT
+    assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT

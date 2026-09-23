@@ -814,6 +814,11 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 parsed["tool_uses"],
             )
         if parsed["records"]:
+            # long_context is lane-only (parse_common._append_usage_record
+            # sets it); the Claude path's records carry no such key and
+            # store NULL, which every reader COALESCEs to FALSE.
+            for rec in parsed["records"]:
+                rec.setdefault("long_context", None)
             cur.executemany(
                 """
                 INSERT INTO records (file_key, line_num, uuid,
@@ -821,7 +826,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   cache_creation_tokens, cache_read_tokens,
                   output_tokens, eph5_tokens, eph1h_tokens, cost_usd,
                   text_chars, reply_latency_s, stop_reason, effort,
-                  thinking_tokens, cli_version, turn_flags, turn_tool_results)
+                  thinking_tokens, cli_version, turn_flags, turn_tool_results,
+                  long_context)
                 VALUES (%(file_key)s, %(line_num)s, %(uuid)s,
                   %(request_id)s, %(ts)s, %(model)s,
                   %(fresh_tokens)s, %(cache_creation_tokens)s,
@@ -829,7 +835,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(eph5_tokens)s, %(eph1h_tokens)s, %(cost_usd)s,
                   %(text_chars)s, %(reply_latency_s)s, %(stop_reason)s,
                   %(effort)s, %(thinking_tokens)s, %(cli_version)s,
-                  %(turn_flags)s, %(turn_tool_results)s)
+                  %(turn_flags)s, %(turn_tool_results)s, %(long_context)s)
                 """,
                 parsed["records"],
             )

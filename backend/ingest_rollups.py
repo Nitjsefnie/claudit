@@ -165,7 +165,7 @@ def rebuild_rollup() -> int:
         cur = c.execute(
             """
             INSERT INTO usage_rollup (
-              session_id, project_id, hour, model, is_main,
+              session_id, project_id, hour, model, is_main, long_context,
               first_ts, last_ts, requests,
               fresh_tokens, output_tokens, cache_creation_tokens,
               cache_read_tokens, eph5_tokens, eph1h_tokens,
@@ -176,6 +176,7 @@ def rebuild_rollup() -> int:
                    date_trunc('hour', r.ts)                    AS hour,
                    COALESCE(NULLIF(r.model, ''), 'unknown')    AS model,
                    f.is_main,
+                   COALESCE(r.long_context, FALSE)             AS long_context,
                    MIN(r.ts), MAX(r.ts), COUNT(*),
                    COALESCE(SUM(r.fresh_tokens), 0),
                    COALESCE(SUM(r.output_tokens), 0),
@@ -188,7 +189,7 @@ def rebuild_rollup() -> int:
               FROM records r
               JOIN files f ON f.file_key = r.file_key
              WHERE r.is_canonical AND r.ts IS NOT NULL
-             GROUP BY 1, 2, 3, 4, 5
+             GROUP BY 1, 2, 3, 4, 5, 6
             """
         )
         written = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0

@@ -199,6 +199,9 @@ def _append_usage_record(st: _ParseState, line_num: int,
         "cache_read_tokens": read,
         "output_tokens": output,
         "reasoning_output_tokens": reasoning,
+        # Persisted on records so a re-derived cost breakdown can apply
+        # the meter exactly as compute_cost did (SV-DATED-RATES).
+        "long_context": long_context,
         "cost_usd": round(cost, 6),
         "text_chars": st.text_chars_since_turn,
         "reply_latency_s": latency,
