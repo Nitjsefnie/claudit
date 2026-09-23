@@ -54,6 +54,19 @@ TRICKY_BLOBS = [
     b'{"unidentified": true}\n',
 ]
 
+# Cumulative counters for the model-map-order blob: the second snapshot
+# must advance every field or the differencing drops it as a duplicate.
+_MODEL_MAP_USAGE = {
+    "input_tokens": 20_000, "cached_input_tokens": 19_500,
+    "cache_write_input_tokens": 0, "output_tokens": 500,
+    "reasoning_output_tokens": 300, "total_tokens": 20_500,
+}
+_MODEL_MAP_USAGE2 = {
+    "input_tokens": 21_000, "cached_input_tokens": 20_500,
+    "cache_write_input_tokens": 0, "output_tokens": 700,
+    "reasoning_output_tokens": 400, "total_tokens": 21_700,
+}
+
 
 @lru_cache(maxsize=1)
 def _browser_lane_output() -> dict:
@@ -74,10 +87,14 @@ def _browser_lane_output() -> dict:
               line: m.line,
               model: m.model,
               long_context: !!m.long_context,
+              thinking_tokens: m.thinking_tokens || 0,
               fresh: m.usage.input_tokens || 0,
               create: m.usage.cache_creation_input_tokens || 0,
               read: m.usage.cache_read_input_tokens || 0,
               output: m.usage.output_tokens || 0,
+              // One record through the real cost path — no formula
+              // duplicated in this test.
+              cost: window.computeSessionStats([], [m]).cost,
             }})),
           totals: (() => {{
             const s = window.computeSessionStats(events, meta);
@@ -127,6 +144,12 @@ def test_browser_parse_matches_backend_per_record(name):
         assert got["create"] == want["cache_creation_tokens"], f"{label}: create"
         assert got["read"] == want["cache_read_tokens"], f"{label}: read"
         assert got["output"] == want["output_tokens"], f"{label}: output"
+        assert got["thinking_tokens"] == want["thinking_tokens"], (
+            f"{label}: thinking_tokens")
+        # Exact: the browser mirrors pricing.compute_cost's operation
+        # order (per-term division) and Python's round(x, 6), so each
+        # record's derived cost IS the stored cost_usd double.
+        assert got["cost"] == want["cost_usd"], f"{label}: cost"
         # The long_context flag itself is asserted by the dedicated tests
         # below; here the buckets already pin the parse.
 
@@ -139,8 +162,72 @@ def test_browser_session_totals_match_backend_sum(name):
     assert browser["create"] == sum(r["cache_creation_tokens"] for r in backend)
     assert browser["read"] == sum(r["cache_read_tokens"] for r in backend)
     assert browser["output"] == sum(r["output_tokens"] for r in backend)
-    assert browser["cost"] == pytest.approx(
-        sum(r["cost_usd"] for r in backend), rel=1e-5)
+    # Exact: the browser mirrors pricing.compute_cost's operation order
+    # (per-term division) and Python's round(x, 6), so every record's
+    # derived cost IS the stored double (asserted per record above). The
+    # total then depends only on summation: the browser accumulates
+    # naively, CPython's sum() is Neumaier-compensated and may land one
+    # ulp away, so sum here the way the browser does — left to right.
+    total = 0.0
+    for r in backend:
+        total += r["cost_usd"]
+    assert browser["cost"] == total
+
+
+def test_a_settings_only_model_switch_labels_the_following_request():
+    """A switch carried by thread_settings_applied alone, with the next
+    request before any turn_context re-declares: both parsers must label
+    the request gpt-5.6-terra. rollout_model_switch.jsonl has no
+    token_count in that window, so the parity sweep missed it."""
+    blob = (FIX_CODEX / "rollout_settings_switch.jsonl").read_bytes()
+    backend = parse.parse_file("codex/settings_switch.jsonl", blob)["records"]
+    assert len(backend) == 1
+    assert backend[0]["model"] == "gpt-5.6-terra"
+    assert backend[0]["line_num"] == 3
+
+    browser = _browser_records("rollout_settings_switch.jsonl")
+    assert len(browser) == 1
+    assert browser[0]["model"] == "gpt-5.6-terra"
+    assert browser[0]["line"] == 3
+
+
+def test_model_map_order_keeps_the_generations_apart_in_both_parsers():
+    """gpt-6-sol contains the needle sol, so the substring map's order is
+    load-bearing (D7): a bare sol model must fall to gpt-5.6-sol while
+    gpt-6-sol stays itself — in the browser exactly as in the backend."""
+    lines = [
+        {"timestamp": "2026-06-14T12:00:01.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-6-sol"}},
+        {"timestamp": "2026-06-14T12:00:02.000Z", "type": "event_msg",
+         "payload": {"type": "token_count", "info": {
+             "total_token_usage": _MODEL_MAP_USAGE,
+             "last_token_usage": _MODEL_MAP_USAGE}}},
+        {"timestamp": "2026-06-14T12:00:03.000Z", "type": "turn_context",
+         "payload": {"model": "sol"}},
+        {"timestamp": "2026-06-14T12:00:04.000Z", "type": "event_msg",
+         "payload": {"type": "token_count", "info": {
+             "total_token_usage": _MODEL_MAP_USAGE2,
+             "last_token_usage": _MODEL_MAP_USAGE2}}},
+    ]
+    blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+    backend = parse.parse_file("codex/model_map_order.jsonl", blob)["records"]
+    assert [r["model"] for r in backend] == ["gpt-6-sol", "gpt-5.6-sol"]
+
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(PARSER_JS)!r});
+      const {{ events, meta }} = window.parseTranscript(
+        {json.dumps(blob.decode())});
+      console.log(JSON.stringify(
+        meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == ["gpt-6-sol", "gpt-5.6-sol"]
 
 
 # --------------------------------------------------------------------------

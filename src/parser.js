@@ -532,16 +532,18 @@ window.computeSessionStats = function (events, meta) {
     // Claude records never carry it, so the multipliers stay 1.
     const lcIn = m.long_context ? 2.0 : 1.0;
     const lcOut = m.long_context ? 1.5 : 1.0;
-    // Rounded per record, like every stored cost_usd (backend parse.py
-    // rounds the column at parse time) — so this total is the sum of the
-    // stored rows, not a float-drifted lookalike. toFixed reads the
-    // double's exact decimal expansion, which is what Python's
-    // round(x, 6) rounds; a multiply-then-Math.round does not.
-    stats.cost += Number(((f * r.fresh * lcIn
-      + (eph5 + unsplit) * r.c5 * lcIn
-      + eph1h * r.c1h * lcIn
-      + cr * r.read * lcIn
-      + o * r.out * lcOut) / 1_000_000).toFixed(6));
+    // pricing.compute_cost's operation order, term for term — same
+    // multiplies, same per-term division — and rounded per record like
+    // the stored cost_usd column. toFixed reads the double's exact
+    // decimal expansion, which is what Python's round(x, 6) rounds, so
+    // each record's cost here IS the stored value, not a lookalike.
+    stats.cost += Number((
+      f * r.fresh * lcIn / 1_000_000
+      + eph5 * r.c5 * lcIn / 1_000_000
+      + (eph1h + unsplit) * r.c1h * lcIn / 1_000_000
+      + cr * r.read * lcIn / 1_000_000
+      + o * r.out * lcOut / 1_000_000
+    ).toFixed(6));
   }
 
   stats.totalInput = stats.fresh + stats.create + stats.read;

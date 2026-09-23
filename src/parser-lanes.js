@@ -121,7 +121,9 @@ window.sniffTranscriptFormat = function sniffTranscriptFormat(blob) {
     // is what identifies the format.
     if (LANE_CODEX_RECORD_TYPES[obj.type] && laneIsPlainObject(obj.payload)) return 'codex';
     if (obj.type === 'metadata') {
-      return obj.created_at != null ? 'kimi-code' : 'legacy';
+      // `in`, not a null check: a null created_at still names the
+      // kimi-code format (backend parse_lanes.py).
+      return 'created_at' in obj ? 'kimi-code' : 'legacy';
     }
     if (LANE_KIMI_CODE_TYPES.includes(obj.type)) return 'kimi-code';
     // The isinstance guard matters: kimi-code's llm.error carries a STRING
@@ -187,9 +189,19 @@ function parseLaneLegacy(blob) {
     if (!laneIsPlainObject(obj)) continue;
 
     const ts = obj.timestamp;
-    const epochSec = typeof ts === 'number' ? ts
-      : (ts ? Date.parse(ts) / 1000 : null);
-    if (epochSec != null && !Number.isNaN(epochSec) && firstEventTs == null) {
+    // An unparsable timestamp is NO timestamp (backend _to_dt returns
+    // None), so the model ladder falls back — NaN must not slip through
+    // and date-compare false against every cutoff.
+    let epochSec;
+    if (typeof ts === 'number') {
+      epochSec = ts;
+    } else if (ts) {
+      const ms = Date.parse(ts);
+      epochSec = Number.isNaN(ms) ? null : ms / 1000;
+    } else {
+      epochSec = null;
+    }
+    if (epochSec != null && firstEventTs == null) {
       firstEventTs = epochSec;
     }
     const tsIso = laneToIso(ts);
@@ -219,9 +231,18 @@ function parseLaneLegacy(blob) {
     }
     if (msgType === 'ToolCall') {
       const func = laneIsPlainObject(payload.function) ? payload.function : {};
+      // Backend _args_to_dict: a dict passes through as is; a string is
+      // JSON.parse'd (failure, or a parsed non-dict, becomes {}); any
+      // other shape is {}.
       let toolInput = {};
-      try { toolInput = JSON.parse(func.arguments || '{}'); } catch { toolInput = {}; }
-      if (!laneIsPlainObject(toolInput)) toolInput = {};
+      if (laneIsPlainObject(func.arguments)) {
+        toolInput = func.arguments;
+      } else if (typeof func.arguments === 'string' && func.arguments) {
+        try {
+          const parsed = JSON.parse(func.arguments);
+          if (laneIsPlainObject(parsed)) toolInput = parsed;
+        } catch { /* unparsable arguments: an empty input, not a dropped call */ }
+      }
       events.push({
         line: lineNum, type: 'tool_call', ts: tsIso,
         tool_name: func.name || '',
@@ -398,7 +419,8 @@ function parseLaneKimiCode(blob, opts) {
         events.push({
           line: lineNum, type: 'tool_result', ts: tsIso,
           tool_use_id: String(ev.toolCallId || ''),
-          is_error: !!(res.isError || res.is_error),
+          // isError only — the wire spells it one way (parse_kimi.py).
+          is_error: !!res.isError,
           detail: laneKcResultDetail(res),
         });
       }
@@ -534,6 +556,13 @@ function parseLaneCodex(blob, opts) {
         laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload);
       } else if (ptype === 'agent_message') {
         events.push({ line: lineNum, type: 'assistant_text', ts: tsIso, detail: String(payload.message || '') });
+      } else if (ptype === 'thread_settings_applied') {
+        // A model switch can be carried by the settings record alone;
+        // update the model in force from it exactly as from a
+        // turn_context (backend _codex_event_msg), non-empty only.
+        const settings = laneIsPlainObject(payload.thread_settings)
+          ? payload.thread_settings : {};
+        if (settings.model) st.model = String(settings.model);
       } else if (ptype === 'item_completed') {
         const item = laneIsPlainObject(payload.item) ? payload.item : {};
         if (item.type === 'AgentMessage') {
