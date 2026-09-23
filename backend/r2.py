@@ -146,6 +146,19 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     return None if multi else root
 
 
+def _rethrow_walk_error(err: OSError) -> None:
+    """Abort the listing on a failed subtree.
+
+    os.walk's default onerror=None SWALLOWS the error, which turns an
+    unreadable subtree into a silent PARTIAL listing — and the ingest
+    orphan sweep deletes every row for keys the listing did not show,
+    so a partial walk could sweep live history. Re-raising aborts the
+    whole ingest run before the sweep, same as the missing-bucket
+    refusal in _list_keys_file.
+    """
+    raise err
+
+
 def _list_keys_file(root: str, bucket: str, prefix: str,
                     multi: bool) -> Iterator[R2Object]:
     scan_root = _scan_root(root, bucket, multi)
@@ -173,20 +186,8 @@ def _list_keys_file(root: str, bucket: str, prefix: str,
     if not os.path.isdir(prefix_path):
         return
 
-    def _raise_walk_error(err: OSError) -> None:
-        """Abort the listing on a failed subtree.
-
-        os.walk's default onerror=None SWALLOWS the error, which turns an
-        unreadable subtree into a silent PARTIAL listing — and the ingest
-        orphan sweep deletes every row for keys the listing did not show,
-        so a partial walk could sweep live history. Re-raising aborts the
-        whole ingest run before the sweep, same as the missing-bucket
-        refusal above.
-        """
-        raise err
-
     for dp, _dirs, fns in os.walk(prefix_path, followlinks=True,
-                                  onerror=_raise_walk_error):
+                                  onerror=_rethrow_walk_error):
         for fn in fns:
             full = os.path.join(dp, fn)
             rel = os.path.relpath(full, scan_root).replace(os.sep, "/")

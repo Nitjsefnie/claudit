@@ -1,3 +1,4 @@
+import errno
 import lzma
 import os
 import shutil
@@ -173,8 +174,6 @@ def test_list_keys_raises_when_a_listed_file_cannot_be_stated(
     x, a symlink whose target denies) must abort the listing: silently
     dropping the file would let the orphan sweep delete the row of a
     file that is still there."""
-    import errno
-
     victim = mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl"
     real_stat = os.stat
 

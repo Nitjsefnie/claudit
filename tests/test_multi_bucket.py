@@ -5,6 +5,7 @@ a partial listing must never be allowed to sweep a bucket's history.
 """
 from __future__ import annotations
 
+import inspect
 import os
 import shutil
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, db, ingest, r2
+from backend import api, app as app_mod, db, ingest, r2
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -355,16 +356,11 @@ def test_startup_refuses_an_invalid_bucket_name(monkeypatch):
     """app.validate_bucket_config runs in lifespan, so a bad R2_BUCKET
     aborts boot — instead of the scheduler booking a fatal while the
     server half-serves and every transcript fetch 500s."""
-    from backend import app as app_mod
-
     monkeypatch.setenv("R2_BUCKET", "claude+Bad_Name")
     with pytest.raises(ValueError, match="Bad_Name"):
         app_mod.validate_bucket_config()
 
 
 def test_lifespan_calls_the_bucket_validation():
-    from backend import app as app_mod
-    import inspect
-
     src = inspect.getsource(app_mod.lifespan)
     assert "validate_bucket_config()" in src
