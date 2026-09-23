@@ -509,6 +509,46 @@ window.computeSessionStats = function (events, meta) {
     return window.rateForModel(model, ts);
   }
 
+  // Python's round(x, 6), which priced the stored cost_usd: round the
+  // double's EXACT value to 6 places, ties to EVEN. A digit-window over
+  // toFixed() output is not sound for this — near-ties a hair below .5
+  // (a value like ...4999999999999999957) can round UP into a clean
+  // "5000...0" tail at 20 digits and get misread as an exact tie — so
+  // this works on the bits instead: value = mant * 2^exp, and scaling
+  // by 10^6 keeps the divisor a pure power of two, which BigInt divides
+  // exactly. The decision is then the same one Python makes, because it
+  // is made on the same quantity.
+  function round6HalfEven(x) {
+    if (!Number.isFinite(x)) return x;
+    const neg = x < 0;
+    const buf = new ArrayBuffer(8);
+    const view = new DataView(buf);
+    view.setFloat64(0, neg ? -x : x);
+    const bits = view.getBigUint64(0);
+    const rawExp = Number((bits >> 52n) & 0x7ffn);
+    let mant = bits & 0xfffffffffffffn;
+    let exp;
+    if (rawExp === 0) {
+      exp = -1074; // subnormal: no implicit leading bit
+    } else {
+      mant |= 1n << 52n;
+      exp = rawExp - 1075;
+    }
+    const scaled = mant * 1000000n; // value * 1e6 before the 2^exp shift
+    let q;
+    if (exp >= 0) {
+      q = scaled << exp; // an exact integer: nothing fractional to drop
+    } else {
+      const den = 2n ** BigInt(-exp);
+      q = scaled / den;
+      const r = scaled % den;
+      const twice = r * 2n;
+      // More than half rounds up; an exact tie rounds to even.
+      if (twice > den || (twice === den && (q & 1n) === 1n)) q += 1n;
+    }
+    return (neg ? -1 : 1) * Number(q) / 1e6;
+  }
+
   for (const m of meta) {
     if (m.type !== 'assistant_usage') continue;
     stats.turns++;
@@ -530,20 +570,20 @@ window.computeSessionStats = function (events, meta) {
     // window.LONG_CONTEXT_THRESHOLD bills the WHOLE record at 2x input
     // side and 1.5x output. Lanes set m.long_context at parse time;
     // Claude records never carry it, so the multipliers stay 1.
-    const lcIn = m.long_context ? 2.0 : 1.0;
-    const lcOut = m.long_context ? 1.5 : 1.0;
+    const lcIn = m.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
+    const lcOut = m.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
     // pricing.compute_cost's operation order, term for term — same
     // multiplies, same per-term division — and rounded per record like
-    // the stored cost_usd column. toFixed reads the double's exact
-    // decimal expansion, which is what Python's round(x, 6) rounds, so
-    // each record's cost here IS the stored value, not a lookalike.
-    stats.cost += Number((
+    // the stored cost_usd column: Python's round(x, 6), half-even on
+    // the exact expansion (round6HalfEven above). Each record's cost
+    // here IS the stored value, not a lookalike.
+    stats.cost += round6HalfEven(
       f * r.fresh * lcIn / 1_000_000
       + eph5 * r.c5 * lcIn / 1_000_000
       + (eph1h + unsplit) * r.c1h * lcIn / 1_000_000
       + cr * r.read * lcIn / 1_000_000
       + o * r.out * lcOut / 1_000_000
-    ).toFixed(6));
+    );
   }
 
   stats.totalInput = stats.fresh + stats.create + stats.read;
