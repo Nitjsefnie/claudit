@@ -2,6 +2,7 @@ name: tests
 
 on:
   push:
+    branches: [master]
     # Deny-list rather than an allow-list: a new top-level code directory
     # would silently stop being tested under an allow-list, whereas an
     # unlisted path here just runs CI needlessly. Prose changes don't
@@ -15,13 +16,25 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
-  # PRs are NOT built on open/synchronize — only once a review lands, and
-  # only if that review approves. Keeps CI off drive-by and work-in-
-  # progress PRs, and means untrusted code runs only after a human has
-  # looked at it (this event carries a write-scoped token, unlike
-  # `pull_request` from a fork).
-  pull_request_review:
-    types: [submitted]
+  # One run per PR commit, on the merge ref GitHub actually lands — never
+  # a second copy of the master push run for the same SHA. A fork's PR
+  # runs with a read-only token against that merge ref, so untrusted code
+  # never touches a secret.
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - 'PRESENTATION.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+  # Lets a branch without a PR get checked: dispatch the workflow on it
+  # (`gh workflow run tests.yml --ref <branch>`) without opening a PR or
+  # pushing to master.
+  workflow_dispatch:
 
 # Least privilege: every job here only reads the tree. Without an
 # explicit block the job inherits the repository default, which can be
@@ -30,17 +43,15 @@ permissions:
   contents: read
 
 concurrency:
-  # A push that supersedes an in-flight run for the same ref cancels it —
-  # nothing is learned from CI for a commit that is already history.
+  # A fresh push to a pull request cancels its superseded run; master
+  # pushes and scheduled/dispatch runs queue instead of cancelling each
+  # other — a master run is never cancelled.
   group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pytest:
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'push' ||
-      github.event.review.state == 'approved'
 
     services:
       postgres:
@@ -72,9 +83,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # pull_request_review checks out the BASE ref by default, which
-          # would test the wrong code — take the PR head explicitly.
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           # Nothing in this workflow pushes. Leaving the job token in
           # .git/config lets any later step — or anything a dependency
           # pulls in — reuse it.

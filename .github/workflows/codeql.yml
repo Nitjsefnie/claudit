@@ -6,14 +6,13 @@ name: codeql
 # Security tab rather than turning the build red, so a new query shipping
 # upstream cannot block an unrelated push.
 #
-# TRIGGER DIFFERS FROM THE OTHER WORKFLOWS ON PURPOSE. The rest of the
-# suite builds on `pull_request_review` once an approving review lands.
-# CodeQL does not, because `analyze` uploads its SARIF against the ref and
-# SHA of the *event*, while our checkout step deliberately takes
-# `pull_request.head.sha`. On a review event those two are different
-# commits, so the alerts would be filed against a tree that was never the
-# one analysed. `push` fires on every branch in this repo, which already
-# covers the head of any same-repo PR, so nothing is actually lost.
+# TRIGGERS MATCH THE OTHER GATES. `pull_request` used to be skipped here
+# for a reason that no longer exists: `analyze` uploads its SARIF against
+# the ref and SHA of the *event*, and under `pull_request_review` the
+# default checkout takes the base ref — two different commits, so alerts
+# would have been filed against a tree that was never the one analysed.
+# Under `pull_request` the default checkout IS the event's commit (the
+# merge ref), so alerts land on exactly the tree that was analysed.
 #
 # The weekly cron is not redundant with push: CodeQL's query packs are
 # updated continuously, and a new query only ever runs against code that
@@ -22,8 +21,20 @@ name: codeql
 
 on:
   push:
+    branches: [master]
     # Same deny-list as tests.yml — an allow-list would silently stop
     # scanning a new top-level code directory.
+    paths-ignore:
+      - '**/*.md'
+      - 'PRESENTATION.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+  pull_request:
+    branches: [master]
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
@@ -41,8 +52,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  # Same shape as the other gates: a fresh push to a pull request cancels
+  # its superseded run, while master pushes and the weekly scan queue
+  # instead of cancelling each other.
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
@@ -69,9 +83,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # No `ref:` here, unlike the other workflows: CodeQL must analyse
-          # exactly the commit it will file alerts against, which is the
-          # event's own SHA.
+          # No `ref:` here: CodeQL must analyse exactly the commit it will
+          # file alerts against, which is the event's own SHA — the branch
+          # tip on push, the merge ref on pull_request.
           persist-credentials: false
 
       - name: Initialize CodeQL

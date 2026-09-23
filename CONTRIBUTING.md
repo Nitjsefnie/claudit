@@ -92,8 +92,12 @@ python3 -m pytest tests/ -q             # full suite
 python3 -m pytest tests/test_pricing.py -v
 ```
 
-CI runs **ten** separate workflows, so a green suite is a small fraction
-of the gate. These five you can and should run locally before pushing:
+CI runs **ten** separate workflows — on pushes to `master` and on pull
+requests against it; a pull request's commits are checked once, with no
+review gate first, and a branch without a PR is checked by dispatching
+(`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
+small fraction of the gate. These five you can and should run locally
+before pushing:
 
 ```bash
 python3 -m pytest tests/ -q --cov=backend            # tests (+ coverage)

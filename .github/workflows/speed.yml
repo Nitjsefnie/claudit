@@ -36,6 +36,7 @@ name: speed
 
 on:
   push:
+    branches: [master]
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
@@ -45,8 +46,17 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
-  pull_request_review:
-    types: [submitted]
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - 'PRESENTATION.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
   workflow_dispatch:
 
 permissions:
@@ -54,15 +64,11 @@ permissions:
 
 concurrency:
   group: speed-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   speed:
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.review.state == 'approved'
 
     services:
       postgres:
@@ -131,9 +137,12 @@ jobs:
 
       - name: Check out this commit
         if: steps.baseline.outputs.tag != ''
+        # Default checkout: the branch tip on push, the PR merge ref on
+        # pull_request — the same tree every other gate tests, i.e. what
+        # GitHub would actually land. No head-SHA pin needed now that no
+        # event checks out the base.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: head
           persist-credentials: false
 

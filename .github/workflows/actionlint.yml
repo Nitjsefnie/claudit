@@ -31,14 +31,18 @@ name: actionlint
 
 on:
   push:
+    branches: [master]
     paths:
       # An allow-list, and the one place in this repo where that is right:
       # this workflow lints workflow files, so a change anywhere else
       # genuinely cannot affect its result.
       - '.github/workflows/**'
       - '.github/dependabot.yml'
-  pull_request_review:
-    types: [submitted]
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
   workflow_dispatch:
 
 permissions:
@@ -46,15 +50,11 @@ permissions:
 
 concurrency:
   group: actionlint-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   actionlint:
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.review.state == 'approved'
 
     env:
       ACTIONLINT_VERSION: 1.7.12
@@ -65,7 +65,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

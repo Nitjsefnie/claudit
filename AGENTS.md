@@ -248,24 +248,27 @@ Schema migrations are **applied automatically at startup**: `db.apply_schema()` 
 
 ## CI — batch your pushes
 
-`.github/workflows/tests.yml` runs the full suite on **every push that
-touches code** (a `paths-ignore` deny-list skips `*.md`, `PRESENTATION.txt`,
-`docs/`, `examples/`, `.claude/`, licences — a deny-list on purpose, so a
-new code directory can't silently stop being tested), and
-on a PR **only once an approving review lands** (`pull_request_review` /
-`submitted`, gated on `state == 'approved'`) — not on open or on every
-subsequent commit. Postgres 16 service container; fixtures
+Every gate workflow runs on **pushes to `master` that touch code** (a
+`paths-ignore` deny-list skips `*.md`, `PRESENTATION.txt`, `docs/`,
+`examples/`, `.claude/`, licences — a deny-list on purpose, so a new code
+directory can't silently stop being tested) **and on pull requests
+against `master`** — a pull request's commits are checked ONCE, on the
+merge ref, never once per event. Postgres 16 service container; fixtures
 `createdb`/`dropdb` per module, so `PGHOST`/`PGUSER`/`PGPASSWORD` drive
-both libpq and the shelled-out `psql`. That event checks out the base ref
-by default, so the workflow pins `github.event.pull_request.head.sha`.
+both libpq and the shelled-out `psql`.
 
 **Push a batch of commits once, not one at a time.** Pushing N related
 commits individually starts N CI runs; the intermediate ones tell you
 nothing, burn runner minutes, and the only result that matters is the
 tip. Commit as granularly as you like locally — then push once when the
-group is done. (`concurrency: cancel-in-progress` limits the damage by
-cancelling superseded runs on the same ref, but the right fix is not
-generating them.)
+group is done. (`cancel-in-progress` on pull_request runs limits the
+damage by cancelling superseded runs; master pushes queue instead of
+cancelling each other, but the right fix is not generating them.)
+
+**A branch without a PR is checked by dispatch.** A branch push no longer
+fires CI — only a `master` one does — so to check a working branch,
+dispatch the workflow on it: `gh workflow run tests.yml --ref <branch>`
+(every gate carries `workflow_dispatch` for exactly this).
 
 **There are TEN workflows, not one.** `tests.yml` is the one people
 remember, and a green pytest says nothing about the other nine. Six run
@@ -302,9 +305,9 @@ The four that only make sense on GitHub:
 
 | Workflow | Question it answers | Trigger |
 | --- | --- | --- |
-| `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | push + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Deliberately skips `pull_request_review`, because `analyze` files SARIF against the *event's* SHA while our checkout takes the PR head — two different commits. |
-| `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | push + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
-| `speed.yml` | Did the tests that exist in both this commit and the last release get >30% slower? | push. Runs BOTH builds on the same runner, interleaved, min-of-rounds. Skips green while no release exists. |
+| `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | push + PR + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Under `pull_request` the checkout takes the merge ref — the same commit `analyze` files SARIF against — so alerts land on the tree actually analysed. |
+| `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | push + PR + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
+| `speed.yml` | Did the tests that exist in both this commit and the last release get >30% slower? | push + PR. Runs BOTH builds on the same runner, interleaved, min-of-rounds. Skips green while no release exists. |
 | `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. |
 
 **Coverage is a ratchet at 82%**, in `tests.yml`, checked by a step of its

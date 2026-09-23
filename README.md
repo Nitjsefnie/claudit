@@ -265,12 +265,16 @@ Issues and PRs welcome — including agent-authored ones. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, the test suite, and the
 invariants most likely to trip a patch.
 
-Ten CI workflows run against every push: `tests` (pytest plus a coverage
-ratchet), `lint`, `types`, `eslint`, `smoke` (boots the real server
-against the fixture mirror), `codeql`, `audit` (`pip-audit`, daily),
-`actionlint` (lints the workflows themselves), `speed` (benchmarks this
-commit against the last release *on the same runner*), and `release`.
-Most of them run locally too — `CONTRIBUTING.md` lists the commands.
+CI runs on pushes to `master` and on pull requests against it — a pull
+request's commits are checked once, never once per event: `tests` (pytest
+plus a coverage ratchet), `lint`, `types`, `eslint`, `smoke` (boots the
+real server against the fixture mirror), `codeql`, `audit` (`pip-audit`,
+daily), `actionlint` (lints the workflows themselves), `speed`
+(benchmarks this commit against the last release *on the same runner*),
+and `release` (master pushes touching `VERSION` only). A branch without a
+PR is checked by dispatching a workflow on it: `gh workflow run
+tests.yml --ref <branch>`. Most of them run locally too —
+`CONTRIBUTING.md` lists the commands.
 
 Releases are cut by editing the root `VERSION` file: `release.yml` waits
 for every other check on that commit, then tags `v<VERSION>`. The running

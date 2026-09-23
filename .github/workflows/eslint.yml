@@ -25,6 +25,7 @@ name: eslint
 
 on:
   push:
+    branches: [master]
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
@@ -34,8 +35,18 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
-  pull_request_review:
-    types: [submitted]
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - 'PRESENTATION.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+  workflow_dispatch:
 
 # Least privilege: every job here only reads the tree. Without an
 # explicit block the job inherits the repository default, which can be
@@ -45,19 +56,15 @@ permissions:
 
 concurrency:
   group: eslint-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   eslint:
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'push' ||
-      github.event.review.state == 'approved'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           # Nothing in this workflow pushes. Leaving the job token in
           # .git/config lets any later step — or anything a dependency
           # pulls in — reuse it.
