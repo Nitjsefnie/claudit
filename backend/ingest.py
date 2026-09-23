@@ -198,11 +198,15 @@ def _track_project(seen_projects: dict[str, dict], project_id: str,
     display_name comes from the lane bucket's project.json marker where
     one was fetched; every other project — and a lane project whose
     marker was missing or malformed — displays its id, exactly as
-    before the marker read was ported.
+    before the marker read was ported. `display_name_set` records which
+    case this run is, so _persist's upsert can PRESERVE a stored
+    display_name on a run that read no marker instead of resetting it
+    to the bare id.
     """
     proj = seen_projects.setdefault(project_id, {
         "project_id": project_id,
         "display_name": project_paths.get(project_id, project_id),
+        "display_name_set": project_id in project_paths,
         "first_seen_at": last_modified,
         "last_seen_at": last_modified,
     })
@@ -718,14 +722,21 @@ def _persist(obj, proj, parsed, parser_version) -> None:
     project_id, session_id, is_main = info
     with db.viz_conn() as c, c.cursor() as cur:
         # Project upsert. first_seen_at uses LEAST so a later
-        # ingest seeing an older file drags it backward.
+        # ingest seeing an older file drags it backward. display_name is
+        # overwritten only when THIS run actually read a marker: a
+        # transient marker-fetch failure must not reset a stored display
+        # path to the bare id until some later reparse repairs it. The
+        # flag defaults False so a caller handing _persist a plain
+        # {project_id, display_name, ...} dict (tests do) preserves.
+        proj = {**proj, "display_name_set": bool(proj.get("display_name_set"))}
         cur.execute(
             "INSERT INTO projects (project_id, display_name, "
             "first_seen_at, last_seen_at) "
             "VALUES (%(project_id)s, %(display_name)s, "
             "%(first_seen_at)s, %(last_seen_at)s) "
             "ON CONFLICT (project_id) DO UPDATE SET "
-            "  display_name = EXCLUDED.display_name, "
+            "  display_name = CASE WHEN %(display_name_set)s THEN "
+            "    EXCLUDED.display_name ELSE projects.display_name END, "
             "  first_seen_at = LEAST(projects.first_seen_at, "
             "                        EXCLUDED.first_seen_at), "
             "  last_seen_at = GREATEST(projects.last_seen_at, "

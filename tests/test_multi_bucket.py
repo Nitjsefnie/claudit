@@ -329,3 +329,42 @@ def test_sidecar_unconfigured_bucket_surfaces_as_an_error(sidecar_app):
 
     with pytest.raises(ValueError):
         sidecar_app.get("/api/sessions/ghost-sess/sidecar?path=data/ok.txt")
+
+
+def test_single_bucket_missing_root_aborts_the_run_before_the_sweep(
+        fresh_db, tmp_path, monkeypatch):
+    """Single-bucket file mode: an endpoint root that is missing (an
+    unmounted mountpoint) must abort the ingest with a fatal, never list
+    empty — the orphan sweep would delete the bucket's entire history."""
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/absent/")
+    monkeypatch.delenv("R2_BUCKET", raising=False)
+
+    result = ingest.run_ingest(trigger="manual")
+
+    assert result["error"] is not None, (
+        "a missing endpoint root must abort the run, not list empty")
+    assert result["deleted"] == 0, "a failed listing must never sweep"
+
+
+# ---------------------------------------------------------------------------
+# Startup validates R2_BUCKET
+# ---------------------------------------------------------------------------
+
+
+def test_startup_refuses_an_invalid_bucket_name(monkeypatch):
+    """app.validate_bucket_config runs in lifespan, so a bad R2_BUCKET
+    aborts boot — instead of the scheduler booking a fatal while the
+    server half-serves and every transcript fetch 500s."""
+    from backend import app as app_mod
+
+    monkeypatch.setenv("R2_BUCKET", "claude+Bad_Name")
+    with pytest.raises(ValueError, match="Bad_Name"):
+        app_mod.validate_bucket_config()
+
+
+def test_lifespan_calls_the_bucket_validation():
+    from backend import app as app_mod
+    import inspect
+
+    src = inspect.getsource(app_mod.lifespan)
+    assert "validate_bucket_config()" in src

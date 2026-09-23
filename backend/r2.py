@@ -54,8 +54,9 @@ def buckets() -> list[str]:
     or 'claude+codex+kimi' to serve several buckets from one deploy.
     Whitespace around a name is stripped, and every name is validated
     against the S3 bucket-name grammar: an invalid one raises ValueError
-    naming it, on the first call — the startup ingest lists first, so a
-    bad R2_BUCKET aborts startup rather than half-serving.
+    naming it. Lifespan calls this before serving (app.
+    validate_bucket_config), so a bad R2_BUCKET aborts startup rather
+    than half-serving.
     """
     raw = os.environ.get(_BUCKET_ENV) or _DEFAULT_BUCKET
     names: list[str] = []
@@ -159,6 +160,15 @@ def _list_keys_file(root: str, bucket: str, prefix: str,
             f"no mirror directory for configured bucket {bucket!r}; "
             "listing refused rather than report a possibly-partial walk"
         )
+    if not os.path.isdir(scan_root):
+        # Single-bucket mode can land here with the endpoint root itself
+        # missing or not yet mounted: an empty listing would sweep the
+        # whole bucket's history as "orphans", exactly like the missing
+        # mirror directory above. Refuse the listing instead.
+        raise FileNotFoundError(
+            f"bucket root {scan_root!r} is not a directory; listing "
+            "refused rather than report a possibly-partial walk"
+        )
     prefix_path = _safe_join(scan_root, prefix) if prefix else scan_root
     if not os.path.isdir(prefix_path):
         return
@@ -182,8 +192,19 @@ def _list_keys_file(root: str, bucket: str, prefix: str,
             rel = os.path.relpath(full, scan_root).replace(os.sep, "/")
             try:
                 st = os.stat(full)
-            except OSError:
+            except FileNotFoundError:
+                # Listed, then vanished mid-walk: legitimately gone, and
+                # the sweep will see it gone too.
                 continue
+            except OSError as err:
+                # A file the walk can list but not stat (a directory with
+                # r but no x, a symlink whose target denies) must not
+                # silently drop out of the listing — the orphan sweep
+                # would delete the row of a file that is still there.
+                raise OSError(
+                    f"cannot stat {full!r} while listing bucket "
+                    f"{bucket!r}"
+                ) from err
             etag = hashlib.sha1(
                 f"{int(st.st_mtime_ns)}:{st.st_size}".encode()
             ).hexdigest()
