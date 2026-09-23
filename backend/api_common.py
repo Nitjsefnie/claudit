@@ -168,7 +168,6 @@ def _accumulate_model_row(acc: dict[str, dict], row) -> None:
     output = int(output or 0)
     eph5 = int(eph5 or 0)
     eph1h = int(eph1h or 0)
-    unsplit = max(0, cc - eph5 - eph1h)
 
     rates = pricing.rate_for(model, epoch_ts(int(epoch or 0)))
     entry = acc.setdefault(model, _empty_model_entry(model))
@@ -181,7 +180,7 @@ def _accumulate_model_row(acc: dict[str, dict], row) -> None:
     entry["eph1h"] += eph1h
     entry["cost_total"] += float(cost or 0)
     _accumulate_buckets(entry, rates, fresh, cc, cr, output, eph5, eph1h,
-                        unsplit, bool(long_context))
+                        max(0, cc - eph5 - eph1h), bool(long_context))
 
 
 def fold_per_model(rows) -> list[dict]:

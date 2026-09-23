@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 from backend import parse
-from backend.tool_errors import classify_lane_error
+from backend.tool_errors import ERROR_TEXT_MAX, classify_lane_error
 
 UTC_ISO = "2026-06-14T12:00:00.000Z"
 
@@ -76,7 +76,7 @@ def _codex_blob(output_text: str | None) -> bytes:
                          "output": [{"type": "input_text",
                                      "text": output_text}]}},
         )
-    return b"".join(json.dumps(l).encode() + b"\n" for l in lines)
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
 def test_codex_failed_script_classifies_tool_error():
@@ -113,7 +113,7 @@ def _kimi_code_blob(result: dict | None) -> bytes:
              "event": {"type": "tool.result", "toolCallId": "call-1",
                        "result": result}},
         )
-    return b"".join(json.dumps(l).encode() + b"\n" for l in lines)
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
 def test_kimi_code_errored_result_with_text_classifies_tool_error():
@@ -154,7 +154,7 @@ def _legacy_blob(return_value: object) -> bytes:
                      "payload": {"tool_call_id": "call_err",
                                  "return_value": return_value}}},
     ]
-    return b"".join(json.dumps(l).encode() + b"\n" for l in lines)
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
 def test_legacy_errored_result_classifies_from_its_output():
@@ -182,8 +182,6 @@ def test_a_lane_row_without_a_result_stays_unsettled():
 
 
 def test_error_text_is_truncated_to_the_kept_prefix():
-    from backend.tool_errors import ERROR_TEXT_MAX
-
     blob = _codex_blob("Script failed\n" + "y" * (ERROR_TEXT_MAX * 2))
     tus = _tool_uses(blob)
     assert tus[0]["is_error"] is True
