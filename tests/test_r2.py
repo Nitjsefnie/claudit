@@ -136,3 +136,64 @@ def test_a_bucket_segment_that_is_not_a_plain_name_cannot_escape(
     # ...and the listing path hits the same join: '..' raises there too.
     with pytest.raises(PermissionError):
         list(r2.list_keys())
+
+
+# ---------------------------------------------------------------------------
+# M1/M2: a listing the walk cannot prove complete must raise, never be
+# silently partial — the ingest orphan sweep deletes every row for keys
+# the listing did not show.
+# ---------------------------------------------------------------------------
+
+
+def test_list_keys_refuses_a_missing_endpoint_root(monkeypatch, tmp_path):
+    """Single-bucket file mode with the endpoint root itself GONE (a
+    typo'd path, an unmounted mountpoint): the listing must raise like
+    the multi-bucket refusal does, never yield empty and let the orphan
+    sweep delete the bucket's whole history."""
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/absent/")
+    monkeypatch.delenv("R2_BUCKET", raising=False)
+    with pytest.raises(FileNotFoundError):
+        list(r2.list_keys())
+
+
+def test_list_keys_refuses_a_root_that_is_not_a_directory(
+        monkeypatch, tmp_path):
+    """Same scenario with the root present but a plain file."""
+    notdir = tmp_path / "notadir"
+    notdir.write_text("not a mirror")
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{notdir}")
+    monkeypatch.delenv("R2_BUCKET", raising=False)
+    with pytest.raises(FileNotFoundError):
+        list(r2.list_keys())
+
+
+def test_list_keys_raises_when_a_listed_file_cannot_be_stated(
+        monkeypatch, mini_r2):
+    """An os.stat failure other than ENOENT (a directory with r but no
+    x, a symlink whose target denies) must abort the listing: silently
+    dropping the file would let the orphan sweep delete the row of a
+    file that is still there."""
+    import errno
+
+    victim = mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl"
+    real_stat = os.stat
+
+    def denying_stat(path, *args, **kwargs):
+        if str(path) == str(victim):
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(r2.os, "stat", denying_stat)
+    with pytest.raises(OSError):
+        list(r2.list_keys())
+
+
+def test_list_keys_skips_a_file_that_vanished_mid_walk(mini_r2):
+    """ENOENT stays the allowed case: a file that was listed and then
+    deleted before its stat is legitimately gone, and the orphan sweep
+    will see it gone too. The listing succeeds without it."""
+    dangling = mini_r2 / "proj-a" / "sess-1" / "gone.jsonl"
+    dangling.symlink_to(mini_r2 / "nowhere.jsonl")
+    keys = [o.key for o in r2.list_keys()]
+    assert "claude/proj-a/sess-1/gone.jsonl" not in keys
+    assert "claude/proj-a/sess-1/sess-1.jsonl" in keys

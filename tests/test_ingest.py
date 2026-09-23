@@ -734,3 +734,39 @@ def test_lane_layout_without_project_marker_displays_the_project_id(
         n_records = _scalar(c, "SELECT COUNT(*) FROM records")
     assert display == proj, "no marker: the project id is the display name"
     assert n_records > 0, "the wire file parsed into records"
+
+
+def test_transient_marker_failure_keeps_the_stored_display_name(
+        fresh_db, tmp_path, monkeypatch):
+    """A run that reparses a lane project's files while its project.json
+    marker fetch fails (marker gone, GET error) must keep the stored
+    display_name. Resetting a stored display path to the bare project id
+    on one transient miss discards real state that a later run only
+    repairs by re-reading a marker that still exists."""
+    proj, sess = "8805b8ac99ad", "01a0-uuid"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / proj / sess
+    lane.mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    (bucket / "sessions" / proj / "project.json").write_text(
+        json.dumps({"path": "/home/me/lanework"}))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+
+    ingest.run_ingest(trigger="manual")
+
+    # The marker vanishes and the wire's etag changes: the next run
+    # reparses the file having read no marker at all.
+    (bucket / "sessions" / proj / "project.json").unlink()
+    (lane / "wire.jsonl.xz").touch()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["reparsed"] == 1
+
+    with db.viz_conn() as c:
+        display = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (proj,))
+    assert display == "/home/me/lanework", (
+        "a run that read no marker must preserve the stored display name"
+    )

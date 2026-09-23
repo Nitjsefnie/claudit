@@ -15,7 +15,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, Response
 
-from backend import api, constants, db, events, ingest, login, session
+from backend import api, constants, db, events, ingest, login, r2, session
 from backend import branding
 
 
@@ -26,10 +26,23 @@ _PUBLIC = _REPO_ROOT / "public"
 _SRC = _REPO_ROOT / "src"
 
 
+def validate_bucket_config() -> None:
+    """Refuse to boot on an invalid R2_BUCKET.
+
+    r2.buckets() raises on a name that is not a valid S3 bucket name.
+    Called from lifespan, that raise aborts startup — the alternative is
+    the scheduler booking a fatal on the startup ingest while the server
+    keeps half-serving, every transcript fetch for a mis-named bucket
+    dying with a 500.
+    """
+    r2.buckets()
+
+
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     db.apply_schema()
     db.schema_check()
+    validate_bucket_config()
     events.set_loop(asyncio.get_running_loop())
 
     sched = BackgroundScheduler(daemon=True, timezone="UTC")
