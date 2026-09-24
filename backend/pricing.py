@@ -204,7 +204,7 @@ def _endpoint(fresh: float, read: float, output: float) -> dict:
 # one moves, add a PROVIDER_DATED_RATES window for the old price.
 #
 # A provider serving one model from two endpoints at different prices
-# (Modal on glm-5.3-flash, BaseTen's cache reads on deepseek-v4.1-flash)
+# (BaseTen's cache reads on deepseek-v4.1-flash)
 # carries the dearer endpoint: the transcript names only the host, and
 # billing the cheaper one would under-count whenever the other served.
 PROVIDER_RATES_FETCHED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
@@ -231,7 +231,7 @@ PROVIDER_RATES: dict[tuple[str, str], dict] = {
     ("z-ai/glm-5-3-flash", "Fireworks"): _endpoint(0.15, 0.03, 0.5),
     ("z-ai/glm-5-3-flash", "Friendli"): _endpoint(0.15, 0.03, 0.5),
     ("z-ai/glm-5-3-flash", "Inceptron"): _endpoint(0.15, 0.07, 0.5),
-    ("z-ai/glm-5-3-flash", "Modal"): _endpoint(0.45, 0.09, 1.5),
+    ("z-ai/glm-5-3-flash", "Modal"): _endpoint(0.15, 0.03, 0.5),
     ("z-ai/glm-5-3-flash", "Near AI"): _endpoint(0.15, 0.035, 0.5),
     ("z-ai/glm-5-3-flash", "Parasail"): _endpoint(0.15, 0.03, 0.5),
     ("z-ai/glm-5-3-flash", "Reka"): _endpoint(0.15, 0.03, 0.5),

@@ -428,7 +428,7 @@ for (const [model, host, fresh, read, out] of [
   ['z-ai/glm-5-3-flash', 'Fireworks', 0.15, 0.03, 0.5],
   ['z-ai/glm-5-3-flash', 'Friendli', 0.15, 0.03, 0.5],
   ['z-ai/glm-5-3-flash', 'Inceptron', 0.15, 0.07, 0.5],
-  ['z-ai/glm-5-3-flash', 'Modal', 0.45, 0.09, 1.5],
+  ['z-ai/glm-5-3-flash', 'Modal', 0.15, 0.03, 0.5],
   ['z-ai/glm-5-3-flash', 'Near AI', 0.15, 0.035, 0.5],
   ['z-ai/glm-5-3-flash', 'Parasail', 0.15, 0.03, 0.5],
   ['z-ai/glm-5-3-flash', 'Reka', 0.15, 0.03, 0.5],

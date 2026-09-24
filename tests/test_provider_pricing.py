@@ -77,13 +77,18 @@ def test_the_seeded_models_and_their_provider_counts():
 
 
 def test_a_provider_listing_two_prices_bills_the_higher_endpoint():
-    # Modal serves glm-5.3-flash from two endpoints (nvfp4 at 0.15/0.50,
-    # fp8 at 0.45/1.50) and the transcript names only the host. Billing
-    # the cheaper one would under-count whenever the other served.
-    assert pricing.rate_for("z-ai/glm-5.3-flash", provider="Modal") == {
-        "fresh": 0.45, "create_5m": 0.45, "create_1h": 0.45,
-        "read": 0.09, "output": 1.5}
+    # BaseTen serves deepseek-v4.1-flash from two fp8 endpoints that differ
+    # only in cache-read price, and the transcript names only the host.
+    # Billing the cheaper one would under-count whenever the other served.
     assert pricing.rate_for(V41, provider="BaseTen")["read"] == 0.03
+
+
+def test_modal_glm_carries_its_one_remaining_endpoint():
+    # Modal's fp8 glm-5.3-flash endpoint (0.45/1.50) was withdrawn; only the
+    # nvfp4 endpoint at list price remains.
+    assert pricing.rate_for("z-ai/glm-5.3-flash", provider="Modal") == {
+        "fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
+        "read": 0.03, "output": 0.5}
 
 
 # --- NULL provider: exactly today's pricing ---------------------------------
