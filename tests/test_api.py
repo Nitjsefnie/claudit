@@ -572,14 +572,14 @@ def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
     with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
-            "is_error, lines_added, lines_deleted) VALUES "
-            # line_num=2 is sess-A's usage-bearing assistant record, so
-            # the model filter's records join can find it.
+            "model, is_error, lines_added, lines_deleted) VALUES "
+            # The model filter reads the call's own tool_uses.model, as
+            # ingest stores it for sess-A's assistant line.
             "('claude/projA/sess-A/sess-A.jsonl', 2, 0, '2026-05-07T10:00:01Z', "
-            " 'Edit', FALSE, 10, 4), "
+            " 'Edit', 'claude-sonnet-4-5', FALSE, 10, 4), "
             # Errored call: parsed as zero churn, must add nothing.
             "('claude/projA/sess-A/sess-A.jsonl', 2, 1, '2026-05-07T10:00:02Z', "
-            " 'Edit', TRUE, 0, 0)"
+            " 'Edit', 'claude-sonnet-4-5', TRUE, 0, 0)"
         )
         conn.commit()
 
@@ -603,7 +603,7 @@ def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
         "/api/dashboard?range=3650d&project=projB&fresh=1").json()
     assert churn(body_b) == (0, 0)
 
-    # The rolled model dimension preserves the live path's records join.
+    # The rolled model dimension and the live path both read tu.model.
     body_m = app_with_fresh_data.get(
         "/api/dashboard?range=3650d&model=sonnet&fresh=1").json()
     assert churn(body_m) == (10, 4)

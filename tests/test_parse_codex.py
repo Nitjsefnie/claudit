@@ -897,7 +897,7 @@ RECORD_KEYS = {
     "eph1h_tokens",
 }
 TOOL_USE_KEYS = {
-    "file_key", "line_num", "idx", "ts", "tool_name", "tool_use_id",
+    "file_key", "line_num", "idx", "ts", "tool_name", "model", "tool_use_id",
     "is_error", "error_kind", "error_text", "lines_added", "lines_deleted",
     "agent_type", "agent_model", "dispatch_prompt_chars",
     "dispatch_brief_ref", "result_chars", "read_kind", "read_targets",
