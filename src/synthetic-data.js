@@ -89,6 +89,8 @@ window.generateSyntheticData = function () {
         ts,
         session_id: 'sess_' + sessionId,
         model,
+        // The id the Token Breakdown prices by, as a real record names it.
+        model_id: model === '<synthetic>' ? model : 'claude-' + model,
         input_tokens: inputT,
         output_tokens: outputT,
         cache_create: ccT,
