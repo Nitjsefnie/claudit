@@ -67,7 +67,9 @@ def _tool_usage_source(bucket_s: int, project: str | None,
     tool_rollup pre-aggregates (hour, project, model, tool); see
     ingest.rebuild_tool_rollup. Same bucket-width gate as /api/dashboard:
     the 24h view buckets finer than an hour and takes the live path, which
-    filters on the call's own tool_uses.model. Args come back in the order
+    filters on the call's own tool_uses.model and, like the rollup, counts
+    only canonical calls (a compaction sidecar's replays are not; see
+    SV-CANONICAL-FLAG). Args come back in the order
     the placeholders appear in the SQL string: since (in WHERE), then
     project, then model (both in the tail).
     """
@@ -88,7 +90,7 @@ def _tool_usage_source(bucket_s: int, project: str | None,
     proj_filter = "AND f.project_id = %s" if project else ""
     return (
         "tool_uses tu\n            JOIN files f ON f.file_key = tu.file_key",
-        "tu.ts", "COUNT(*)", "tu.ts >= %s",
+        "tu.ts", "COUNT(*)", "tu.ts >= %s AND tu.is_canonical",
         f"{proj_filter} {model_filter}", args,
     )
 

@@ -1,7 +1,12 @@
 """tool_uses.is_canonical (SV-CANONICAL-FLAG, tool half) and the
 latency rollup's canonical filter. Split out of test_ingest.py, which is
 at pylint's module-length limit."""
-from backend import constants, db, ingest
+from datetime import datetime, timezone
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend import api, constants, db, ingest
 # Importing the fixture functions registers them here under their
 # @pytest.fixture(name=...) names.
 from tests.test_ingest import (  # noqa: F401  # pylint: disable=unused-import
@@ -27,6 +32,33 @@ def test_tool_uses_canonical_dedups_shared_tool_use_id(fresh_db, mini_r2_env):
     assert rows[0][0].endswith("agent-aaaa.jsonl")
     assert rolled == 1
     assert ingest.recompute_canonical() == 0
+
+
+def _tool_usage_counts(client: TestClient, rng: str) -> dict[str, int]:
+    body = client.get(f"/api/tool-usage?range={rng}").json()
+    counts: dict[str, int] = {}
+    for b in body["buckets"]:
+        counts[b["tool"]] = counts.get(b["tool"], 0) + b["n"]
+    return counts
+
+
+def test_tool_usage_live_path_skips_replayed_calls(fresh_db, mini_r2_env):
+    """The 24h view (buckets under an hour) reads tool_uses live; the
+    replayed copy of toolu_shared is non-canonical and must not count
+    there, so the live path agrees with the rollup-backed ranges."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute("UPDATE tool_uses SET ts = %s",
+                  (datetime.now(timezone.utc),))
+        c.commit()
+    ingest.rebuild_tool_rollup()
+    app = FastAPI()
+    app.include_router(api.router)
+    client = TestClient(app)
+    live = _tool_usage_counts(client, "1d")
+    rolled = _tool_usage_counts(client, "30d")
+    assert live["Bash"] == 1
+    assert live == rolled
 
 
 def test_latency_rollup_counts_canonical_records_only(fresh_db, mini_r2_env):
