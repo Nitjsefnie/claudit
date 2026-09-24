@@ -240,9 +240,10 @@ def test_tokens_by_model_mirrors_cost_by_model():
     assert "rows={tokensByModel}" in tokens_window
     assert "window.humanFmt(r.value" in tokens_window
     assert "tokensByModelTotal" in tokens_window
-    # Folded from the same hourly events as the cost fallback, over every
-    # token the model processed, not a subset of the types.
-    assert ("tokensByModel[e.model] = (tokensByModel[e.model] || 0) + "
+    # Folded from the same hourly events as the cost fallback, under the
+    # same (model, provider) label, over every token the model processed,
+    # not a subset of the types.
+    assert ("tokensByModel[label] = (tokensByModel[label] || 0) + "
             "e.input_tokens + e.output_tokens + e.cache_create + e.cache_read") in src
 
 

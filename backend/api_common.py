@@ -126,7 +126,9 @@ def _empty_model_entry(model: str) -> dict:
         "eph5": 0,
         "eph1h": 0,
         "cost_total": 0.0,
-        "estimated_rate": pricing.resolve(model).estimated,
+        # OR of every folded row's resolution, so an entry is an estimate
+        # when any of its rows priced at a guessed rate.
+        "estimated_rate": False,
         "_buckets": {
             "fresh": 0.0, "create_5m": 0.0, "create_1h": 0.0,
             "read": 0.0, "output": 0.0,
@@ -157,41 +159,45 @@ def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
     b["output"] += output * rates["output"] * out_mult / 1_000_000
 
 
-def _accumulate_model_row(acc: dict[str, dict], row) -> None:
-    """Fold one (model, rate_epoch, long_context, ...) aggregate row."""
-    (model, epoch, long_context, turns, fresh, cc, cr, output,
-     eph5, eph1h, cost) = row
-    model = model or "unknown"
-    fresh = int(fresh or 0)
-    cc = int(cc or 0)
-    cr = int(cr or 0)
-    output = int(output or 0)
-    eph5 = int(eph5 or 0)
-    eph1h = int(eph1h or 0)
-
-    rates = pricing.rate_for(model, epoch_ts(int(epoch or 0)))
-    entry = acc.setdefault(model, _empty_model_entry(model))
-    entry["turns"] += int(turns or 0)
-    entry["fresh"] += fresh
-    entry["cache_create"] += cc
-    entry["cache_read"] += cr
-    entry["output"] += output
-    entry["eph5"] += eph5
-    entry["eph1h"] += eph1h
-    entry["cost_total"] += float(cost or 0)
-    _accumulate_buckets(entry, rates, fresh, cc, cr, output, eph5, eph1h,
-                        max(0, cc - eph5 - eph1h), bool(long_context))
+# The token columns of a fold row, in SELECT order after `turns`.
+_FOLD_TOKENS = ("fresh", "cache_create", "cache_read", "output", "eph5", "eph1h")
 
 
-def fold_per_model(rows) -> list[dict]:
-    """Fold (model, rate_epoch, ...) aggregate rows into one entry per model.
+def _accumulate_model_row(acc: dict, row, by_provider: bool) -> None:
+    """Fold one (model, provider, rate_epoch, long_context, turns, fresh,
+    cache_create, cache_read, output, eph5, eph1h, cost_total) row.
 
-    Token counts and cost_total sum across epochs; cost_buckets are priced
-    per epoch so they always reconcile with cost_total.
+    Each row is priced by its own provider whichever way the entries are
+    keyed, so a per-model entry's buckets still reconcile with its stored
+    cost when its rows came from several hosts.
     """
-    acc: dict[str, dict] = {}
+    model, provider, epoch, long_context, turns = row[:5]
+    tokens = dict(zip(_FOLD_TOKENS, (int(v or 0) for v in row[5:11])))
+    model = model or "unknown"
+    provider = provider or None
+    res = pricing.resolve(model, epoch_ts(int(epoch or 0)), provider)
+    key = (model, provider) if by_provider else model
+    if key not in acc:
+        acc[key] = _empty_model_entry(model)
+        if by_provider:
+            acc[key]["provider"] = provider
+    entry = acc[key]
+    entry["estimated_rate"] = entry["estimated_rate"] or res.estimated
+    entry["turns"] += int(turns or 0)
+    for field, value in tokens.items():
+        entry[field] += value
+    entry["cost_total"] += float(row[11] or 0)
+    _accumulate_buckets(
+        entry, res.rates, tokens["fresh"], tokens["cache_create"],
+        tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
+        max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
+        bool(long_context))
+
+
+def _fold(rows, by_provider: bool) -> list[dict]:
+    acc: dict = {}
     for row in rows:
-        _accumulate_model_row(acc, row)
+        _accumulate_model_row(acc, row, by_provider)
 
     out = []
     for entry in acc.values():
@@ -205,6 +211,22 @@ def fold_per_model(rows) -> list[dict]:
         out.append(entry)
     out.sort(key=lambda e: e["cost_total"], reverse=True)
     return out
+
+
+def fold_per_model(rows) -> list[dict]:
+    """Fold (model, provider, rate_epoch, ...) rows into one entry per model.
+
+    Token counts and cost_total sum across epochs and providers;
+    cost_buckets are priced per epoch and per provider so they always
+    reconcile with cost_total.
+    """
+    return _fold(rows, by_provider=False)
+
+
+def fold_per_model_provider(rows) -> list[dict]:
+    """The same fold, one entry per (model, provider). `provider` is None
+    for a record that named no serving host (every non-OpenRouter lane)."""
+    return _fold(rows, by_provider=True)
 
 
 # Activity-heatmap timezone. Bound as a SQL parameter (never interpolated);

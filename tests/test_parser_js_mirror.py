@@ -248,3 +248,97 @@ def test_parser_js_merges_on_the_backend_key(name):
     ]
     assert _node_usage_records(path.read_text(encoding="utf-8")) == backend
     assert len(backend) == 1, "both fixtures are one API message"
+
+
+# --------------------------------------------------------------------------
+# Per-provider rates (pricing.PROVIDER_RATES)
+# --------------------------------------------------------------------------
+
+# (model id, ISO timestamp or None, provider or None)
+PROVIDER_CASES = [
+    ("deepseek/deepseek-v4.1-flash", None, "Novita"),
+    ("deepseek/deepseek-v4.1-flash", None, "Morph"),
+    ("deepseek/deepseek-v4.1-flash", None, None),
+    ("deepseek/deepseek-v4.1-flash", None, "NoSuchHost"),
+    ("deepseek/deepseek-v4.1-flash", None, "novita"),
+    ("DeepSeek/DeepSeek-V4.1-Flash", None, "Novita"),
+    ("z-ai/glm-5.3-flash", None, "Modal"),
+    ("glm-5.3-flash", "2026-09-01T00:00:00Z", None),
+    ("glm-5.3-flash", "2026-09-01T00:00:00Z", "Novita"),
+    ("deepseek/deepseek-v4-flash-0731", None, "Cohere"),
+    ("deepseek/deepseek-v4-flash-20260731", None, "Cohere"),
+    ("deepseek/deepseek-v4-flash-20260731", None, "Novita"),
+    ("deepseek/deepseek-v4-flash", None, "Novita"),
+    ("stealth/space-bunny-alpha", None, "Stealth"),
+    ("stealth/space-bunny-alpha", None, None),
+    ("claude-opus-4-8", None, "Novita"),
+]
+
+
+def _node_json(body: str):
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      {body}
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        # Return code checked by hand on the next line.
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_parser_js_resolves_provider_rates_like_the_backend():
+    got_all = _node_json(f"""
+      const cases = {json.dumps(PROVIDER_CASES)};
+      console.log(JSON.stringify(cases.map(([m, ts, p]) =>
+        window.resolveModelRate(m, ts, p))));
+    """)
+    for (model, ts, provider), got in zip(PROVIDER_CASES, got_all):
+        when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+        want = pricing.resolve(model, when, provider)
+        label = f"{model} @ {ts} via {provider}"
+        assert got["kind"] == want.kind, f"{label}: kind"
+        for js_key, py_key in _KEYMAP.items():
+            assert got["rates"][js_key] == pytest.approx(want.rates[py_key]), (
+                f"{label}: {py_key}"
+            )
+
+
+def test_parser_js_provider_table_is_the_whole_backend_table():
+    got = _node_json("""
+      console.log(JSON.stringify({
+        rows: Object.entries(window.providerRates).flatMap(([model, byHost]) =>
+          Object.entries(byHost).map(([host, r]) => [model, host, r])),
+        dated: window.providerDatedRates,
+      }));
+    """)
+    assert {(m, p) for m, p, _ in got["rows"]} == set(pricing.PROVIDER_RATES)
+    for model, provider, js_row in got["rows"]:
+        py_row = pricing.PROVIDER_RATES[(model, provider)]
+        for js_field, py_field in _KEYMAP.items():
+            assert js_row[js_field] == pytest.approx(py_row[py_field]), (
+                f"{model} via {provider}: {py_field}"
+            )
+    assert not got["dated"] and not pricing.PROVIDER_DATED_RATES
+
+
+def test_parser_js_prices_a_provider_record_at_the_stored_cost():
+    """The Inspector's cost for a transcript whose records name a host is
+    the sum of what ingest stored for them."""
+    path = ROOT / "fixtures" / "parser" / "openrouter_provider.jsonl"
+    stored = parse.parse_file("k/s/s.jsonl", path.read_bytes())["records"]
+    got = _node_json(f"""
+      const {{ events, meta }} = window.parseTranscript(
+        {json.dumps(path.read_text(encoding="utf-8"))});
+      console.log(JSON.stringify({{
+        cost: window.computeSessionStats(events, meta).cost,
+        providers: meta.filter(m => m.type === 'assistant_usage')
+                       .map(m => m.provider),
+      }}));
+    """)
+    assert got["providers"] == [r["provider"] for r in stored]
+    assert got["cost"] == pytest.approx(sum(r["cost_usd"] for r in stored),
+                                        abs=1e-9)
