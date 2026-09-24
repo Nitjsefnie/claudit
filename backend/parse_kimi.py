@@ -15,13 +15,15 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_right
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from orjson import JSONDecodeError, loads
 
 from backend.bash_churn import bash_churn
 from backend.parse_common import (_append_tool_use, _append_usage_record,
-                                  _close_turn, _dispatch_prompt_shape,
+                                  _arm_reply_anchor, _close_turn,
+                                  _dispatch_prompt_shape,
                                   _end_turn, _finish_parse, _line_count,
                                   _mark_assistant_event, _nonempty_str,
                                   _note_agent_role, _ParseState,
@@ -330,6 +332,15 @@ def _attribute_tool_models(st: _ParseState) -> None:
 # --------------------------------------------------------------------------
 
 
+@dataclass
+class _KimiCodeState(_ParseState):
+    """_ParseState plus the state only the kimi-code format needs."""
+    # The `input` of every turn.steer not yet delivered into context, oldest
+    # first. A steer that arrives while a step is in flight waits for that
+    # step to finish, so its reply-latency anchor arms at delivery.
+    pending_steers: list[list] = field(default_factory=list)
+
+
 def _kc_parse_tool_call(tc: dict) -> tuple[str, str | None, str]:
     """Extract name, arguments, id from a kimi-code ToolCall (v1.0/v1.1)."""
     if tc.get("type") != "function":
@@ -383,8 +394,8 @@ def _count_content_text(content: list[dict]) -> int:
     return chars
 
 
-def _kc_append_message(st: _ParseState, line_num: int, ts: datetime | None,
-                       obj: dict) -> None:
+def _kc_append_message(st: _KimiCodeState, line_num: int,
+                       ts: datetime | None, obj: dict) -> None:
     msg = obj.get("message") or {}
     role = msg.get("role")
     if role == "assistant":
@@ -405,7 +416,45 @@ def _kc_append_message(st: _ParseState, line_num: int, ts: datetime | None,
             text = (_flatten_result_text(msg.get("content"))
                     if is_err else "")
             _settle_lane_tool_result(st, tcid, is_err, text)
-    # role == user / system: no parser-side action
+    elif role == "user":
+        _kc_deliver_steer(st, ts, msg.get("content"))
+    # role == system: no parser-side action
+
+
+def _kc_steer(st: _KimiCodeState, line_num: int, ts: datetime | None,
+              obj: dict) -> None:
+    """Queue a steer until it is delivered into context.
+
+    It stays a turn boundary for the turn bookkeeping, as turn.prompt is,
+    but it does NOT arm the reply-latency anchor on arrival: a steer that
+    arrives mid-step reaches the model only after that step ends -- which
+    can be minutes later, when the step is waiting on the user -- and the
+    step's billing record is the EARLIER request's, not the steer's reply.
+    """
+    _close_turn(st, line_num, ts)
+    _start_turn(st, line_num, ts)
+    steer_input = obj.get("input")
+    if isinstance(steer_input, list) and steer_input:
+        st.pending_steers.append(steer_input)
+
+
+def _kc_deliver_steer(st: _KimiCodeState, ts: datetime | None,
+                      content: object) -> None:
+    """Arm the reply-latency anchor if this user message delivers a steer.
+
+    kimi-code delivers queued steers first-in first-out, each as a user
+    message whose content IS the steer's input (547 of 547 steers across
+    125 corpus files). Any other user message -- a prompt's own, or a Skill
+    tool's injected instructions landing mid-step -- is not a delivery, and
+    arming there would let the in-flight step's record consume the anchor.
+    Every delivery re-arms, so a batch is timed from its last message, when
+    the next request can start.
+    """
+    for i, pending in enumerate(st.pending_steers):
+        if content == pending:
+            del st.pending_steers[:i + 1]
+            _arm_reply_anchor(st, ts)
+            return
 
 
 def _kc_step_begin(st: _ParseState, line_num: int, ts: datetime | None,
@@ -494,11 +543,14 @@ def _kc_llm_error(st: _ParseState, line_num: int, ts: datetime | None,
     })
 
 
-def _kc_dispatch(st: _ParseState, typ: str, line_num: int,
+def _kc_dispatch(st: _KimiCodeState, typ: str, line_num: int,
                  ts: datetime | None, obj: dict) -> None:
-    # Turn boundary: turn.prompt / turn.steer
-    if typ in ("turn.prompt", "turn.steer"):
+    # Turn boundaries. A prompt reaches the model at once; a steer may wait
+    # behind an in-flight step (see _kc_steer).
+    if typ == "turn.prompt":
         _turn_boundary(st, line_num, ts)
+    elif typ == "turn.steer":
+        _kc_steer(st, line_num, ts, obj)
     elif typ == "context.append_message":
         _kc_append_message(st, line_num, ts, obj)
     elif typ == "context.append_loop_event":
@@ -519,7 +571,7 @@ def parse_kimi_code(file_key: str, blob: bytes) -> dict:
 
     Returns the same shape as _parse_legacy.
     """
-    st = _ParseState(file_key)
+    st = _KimiCodeState(file_key)
     for line_num, raw in enumerate(blob.splitlines(), 1):
         if not raw:
             continue

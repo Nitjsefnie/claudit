@@ -654,7 +654,9 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
     if ptype in ("custom_tool_call", "function_call"):
         _codex_tool_call(st, line_num, ts, payload)
         _mark_assistant_event(st, ts)
-    elif ptype == "reasoning":
+    elif ptype in ("reasoning", "web_search_call", "local_shell_call"):
+        # Model output that is not a tool_uses row here: it can still be
+        # where the reply began.
         _mark_assistant_event(st, ts)
     elif ptype in ("custom_tool_call_output", "function_call_output"):
         _codex_tool_result(st, payload)

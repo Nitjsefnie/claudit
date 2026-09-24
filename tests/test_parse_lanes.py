@@ -412,6 +412,13 @@ _CODEX_ASSISTANT_ITEMS = {
     "function_call": ("response_item",
                       '"type":"function_call","name":"f","call_id":"c1",'
                       '"arguments":"{}"'),
+    "web_search_call": ("response_item",
+                        '"type":"web_search_call","status":"completed",'
+                        '"action":{"type":"search","query":"q"}'),
+    "local_shell_call": ("response_item",
+                         '"type":"local_shell_call","call_id":"c2",'
+                         '"status":"completed","action":{"type":"exec",'
+                         '"command":["true"]}'),
 }
 
 
@@ -497,6 +504,149 @@ def test_kimi_code_latency_without_an_assistant_event_ends_at_the_record():
             + _kc_line(8000, _KC_USAGE))
     out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
     assert [r["reply_latency_s"] for r in out["records"]] == [7.0]
+
+
+_KC_META = _kc_line(0, '"type":"metadata","protocol_version":"1.4",'
+                       '"created_at":1783000000000')
+
+
+def _kc_event(ms: int, event: str) -> bytes:
+    return _kc_line(ms, '"type":"context.append_loop_event","event":{%s}'
+                    % event)
+
+
+def _kc_user(ms: int, text: str) -> bytes:
+    """The user message kimi-code appends when an input enters context."""
+    return _kc_line(ms, '"type":"context.append_message","message":'
+                        '{"role":"user","content":[{"type":"text","text":'
+                        '"%s"}],"toolCalls":[]}' % text)
+
+
+def _kc_input(ms: int, typ: str, text: str) -> bytes:
+    return _kc_line(ms, '"type":"%s","input":[{"type":"text","text":"%s"}]'
+                    % (typ, text))
+
+
+def test_kimi_code_new_turn_id_keeps_the_seen_assistant_event():
+    """A step.begin that opens a new turnId while the anchor is armed
+    closes the bookkeeping turn but must not forget the output already
+    seen: the reply began at the content.part, 2.5 s in."""
+    blob = (_KC_META
+            + _kc_line(1000, '"type":"turn.prompt","input":[]')
+            + _kc_event(3500, '"type":"content.part","turnId":"t1","part":'
+                              '{"type":"text","text":"hi"}')
+            + _kc_event(4000, '"type":"step.begin","turnId":"t2"')
+            + _kc_line(900_000, _KC_USAGE))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.5]
+
+
+def test_kimi_code_assistant_event_before_the_anchor_yields_no_latency():
+    """An assistant event stamped before the anchor (clock skew) ends the
+    window before it opened: a negative gap is dropped, not replaced by
+    the record's own ts."""
+    blob = (_KC_META
+            + _kc_line(5000, '"type":"turn.prompt","input":[]')
+            + _kc_line(3000, _KC_ASSISTANT_EVENTS["content.part think"])
+            + _kc_line(8000, _KC_USAGE))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [None]
+
+
+def _kc_step(begin_ms: int, turn_id: str) -> bytes:
+    return (_kc_event(begin_ms, f'"type":"step.begin","turnId":"{turn_id}"')
+            + _kc_line(begin_ms + 1, '"type":"llm.request","kind":"loop"'))
+
+
+def _kc_step_output(ms: int, turn_id: str) -> bytes:
+    return _kc_event(ms, '"type":"content.part","turnId":"%s","part":'
+                         '{"type":"text","text":"x"}' % turn_id)
+
+
+def _kc_step_end(ms: int, turn_id: str) -> bytes:
+    return (_kc_event(ms, f'"type":"step.end","turnId":"{turn_id}"')
+            + _kc_line(ms, _KC_USAGE))
+
+
+def _kc_prompted_turn() -> bytes:
+    """A prompt at +1 s whose first step replies at +3 s and bills at +4 s,
+    then a second step that is in flight (a tool call at +5 s)."""
+    return (_KC_META
+            + _kc_input(1000, "turn.prompt", "go")
+            + _kc_user(1000, "go")
+            + _kc_step(1001, "t1")
+            + _kc_step_output(3000, "t1")
+            + _kc_step_end(4000, "t1")
+            + _kc_step(4001, "t1")
+            + _kc_event(5000, '"type":"tool.call","turnId":"t1",'
+                              '"toolCallId":"c1","name":"AskUserQuestion",'
+                              '"args":{}'))
+
+
+def test_kimi_code_steer_mid_step_anchors_at_its_delivery():
+    """A steer arriving while a step is in flight (blocked on a question
+    the user answers ~11.5 min later) enters context only after that step
+    ends. The in-flight step's billing record is not the steer's reply;
+    the steer's latency runs from its delivery to the next step's first
+    output, 8 s."""
+    blob = (_kc_prompted_turn()
+            + _kc_input(10_000, "turn.steer", "also this")
+            + _kc_event(700_000, '"type":"tool.result","toolCallId":"c1",'
+                                 '"result":{"output":"ok"}')
+            + _kc_step_end(700_000, "t1")
+            + _kc_user(700_001, "also this")
+            + _kc_step(700_010, "t1")
+            + _kc_step_output(708_001, "t1")
+            + _kc_step_end(709_000, "t1"))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.0, None, 8.0]
+
+
+def test_kimi_code_steer_ignores_other_user_messages_until_delivered():
+    """A user message that is not the steer's own (a Skill tool injecting
+    instructions mid-step) is not its delivery, so it must not arm the
+    anchor for the in-flight step's record to consume."""
+    blob = (_kc_prompted_turn()
+            + _kc_input(10_000, "turn.steer", "also this")
+            + _kc_user(20_000, "Skill tool loaded instructions")
+            + _kc_step_end(20_001, "t1")
+            + _kc_user(20_002, "also this")
+            + _kc_step(20_003, "t1")
+            + _kc_step_output(26_002, "t1")
+            + _kc_step_end(27_000, "t1"))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.0, None, 6.0]
+
+
+def test_kimi_code_queued_steers_are_delivered_in_order():
+    """Two steers queued behind one step are delivered first-in first-out;
+    the window runs from the LAST delivery, when the next request can
+    start, to the next step's first output."""
+    blob = (_kc_prompted_turn()
+            + _kc_input(10_000, "turn.steer", "first")
+            + _kc_input(11_000, "turn.steer", "second")
+            + _kc_step_end(30_000, "t1")
+            + _kc_user(30_001, "first")
+            + _kc_user(30_002, "second")
+            + _kc_step(30_003, "t1")
+            + _kc_step_output(33_002, "t1")
+            + _kc_step_end(34_000, "t1"))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.0, None, 3.0]
+
+
+def test_kimi_code_idle_steer_is_delivered_at_once():
+    """A steer arriving between turns enters context immediately and opens
+    the next turn: its latency runs from that delivery."""
+    blob = (_kc_prompted_turn()
+            + _kc_step_end(6000, "t1")
+            + _kc_input(50_000, "turn.steer", "next")
+            + _kc_user(50_000, "next")
+            + _kc_step(50_007, "t2")
+            + _kc_step_output(53_000, "t2")
+            + _kc_step_end(54_000, "t2"))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.0, None, 3.0]
 
 
 def _legacy_line(sec: float, msg_type: str, payload: str) -> bytes:
