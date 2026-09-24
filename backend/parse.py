@@ -26,9 +26,9 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
-from backend import bash_reads
+from backend import bash_reads, key_layout
 from backend.parse_common import _dispatch_prompt_shape
-from backend.parse_lanes import (LANE_PARSERS, lane_agent_type,
+from backend.parse_lanes import (LANE_PARSERS, lane_sidecar_agent_type,
                                  sniff_format, to_claudit)
 from backend.target_paths import target_key
 
@@ -848,26 +848,27 @@ def sidecar_agent_role(sidecar: bytes) -> str | None:
     return None
 
 
-def apply_agent_sidecar(parsed: dict, sidecar: bytes) -> dict:
+def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     """Fill a parse's agent_type from its transcript's meta.json sidecar.
 
     Precedence is in-band role > sidecar role > DEFAULT_AGENT_TYPE: a
     transcript that named its own role (``attributionAgent``,
     ``agent-setting``, a lane's session_meta / profileName) keeps it,
-    and an unusable sidecar changes nothing. A lane sidecar's role goes
-    through the lane's own normalisation (lane_agent_type), so its name
-    for the default profile is DEFAULT_AGENT_TYPE here too; a Claude
-    one is stored verbatim, like ``attributionAgent``. Mutates and
-    returns `parsed`.
+    and an unusable sidecar changes nothing. `key` is the transcript's
+    OBJECT key (no bucket): which normalisation the role takes follows
+    the key layout, not the sniffed format -- a sidecar in the lane tree
+    goes through the lane's (lane_sidecar_agent_type), so its name for
+    the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
+    stored verbatim, like ``attributionAgent``. Mutates and returns
+    `parsed`.
     """
     if parsed.get("agent_type_in_band"):
         return parsed
     role = sidecar_agent_role(sidecar)
     if role is None:
         return parsed
-    fmt = parsed.get("format", "claude")
-    parsed["agent_type"] = (role if fmt == "claude"
-                            else lane_agent_type(fmt, role))
+    parsed["agent_type"] = (lane_sidecar_agent_type(role)
+                            if key_layout.in_lane_tree(key) else role)
     return parsed
 
 
@@ -935,7 +936,6 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         "agent_type": resolve_agent_type(walk),
         "agent_type_in_band": bool(walk.attribution_agents
                                    or walk.agent_setting),
-        "format": "claude",
     }
 
 
@@ -947,9 +947,8 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     codexmeter's ported parser and projected onto claudit's row shape by
     parse_lanes.to_claudit. Returns records, ctx_turns, turn_count,
     prompt_count, models, rate_limit_hits, tool_uses and agent_type
-    either way, plus the ``format`` label and ``agent_type_in_band``
-    (whether the transcript named its role itself), which
-    apply_agent_sidecar reads.
+    either way, plus ``agent_type_in_band`` (whether the transcript named
+    its role itself), which apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
     if fmt == "claude":

@@ -98,7 +98,8 @@ def test_legacy_wire_takes_the_sidecar_subagent_type():
     out = parse.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": "coder",
-                    "launch_spec": {"subagent_type": "explore"}}).encode())
+                    "launch_spec": {"subagent_type": "explore"}}).encode(),
+        _LANE_KEY)
     assert out["agent_type"] == "coder"
 
 
@@ -106,7 +107,8 @@ def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
     out = parse.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": None,
-                    "launch_spec": {"subagent_type": "explore"}}).encode())
+                    "launch_spec": {"subagent_type": "explore"}}).encode(),
+        _LANE_KEY)
     assert out["agent_type"] == "explore"
 
 
@@ -118,30 +120,47 @@ def test_a_sidecar_role_goes_through_the_lanes_normalisation():
             b'{"type":"turn.prompt","input":[{"type":"text","text":"go"}],'
             b'"origin":{"kind":"user"},"time":1782740973442}\n')
     parsed = parse.parse_file(_LANE_KEY, blob)
-    assert parsed["format"] == "kimi-code"
+    assert parse.sniff_format(blob) == "kimi-code"
     assert parsed["agent_type_in_band"] is False
-    out = parse.apply_agent_sidecar(parsed, b'{"subagent_type":"agent"}')
+    out = parse.apply_agent_sidecar(
+        parsed, b'{"subagent_type":"agent"}', _LANE_KEY)
     assert out["agent_type"] == DEFAULT
+
+
+def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
+    """An empty lane wire sniffs as claude (the catch-all), but its
+    sidecar is still a lane sidecar: Kimi's default-profile name maps to
+    DEFAULT. The same value beside a Claude-layout transcript is kept."""
+    assert parse.sniff_format(b"") == "claude"
+    lane = parse.apply_agent_sidecar(
+        parse.parse_file(_LANE_KEY, b""), b'{"subagent_type":"agent"}',
+        _LANE_KEY)
+    assert lane["agent_type"] == DEFAULT
+    claude = parse.apply_agent_sidecar(
+        parse.parse_file(_CLAUDE_KEY, b""), b'{"agentType":"agent"}',
+        _CLAUDE_KEY)
+    assert claude["agent_type"] == "agent"
 
 
 def test_in_band_kimi_code_profile_wins_over_the_sidecar():
     out = parse.apply_agent_sidecar(
         _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
-        b'{"subagent_type":"implementer"}')
+        b'{"subagent_type":"implementer"}', _LANE_KEY)
     assert out["agent_type"] == "coder"
 
 
 def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
     out = parse.apply_agent_sidecar(
         _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}')
+        b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}',
+        _CLAUDE_KEY)
     assert out["agent_type"] == "code-reviewer"
 
 
 def test_in_band_attribution_agent_wins_over_the_sidecar():
     out = parse.apply_agent_sidecar(
         _parsed("agent_attribution.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"code-reviewer"}')
+        b'{"agentType":"code-reviewer"}', _CLAUDE_KEY)
     assert out["agent_type"] == "implementer"
 
 
@@ -153,7 +172,7 @@ def test_in_band_attribution_agent_wins_over_the_sidecar():
 ])
 def test_an_unusable_sidecar_leaves_the_default(sidecar):
     out = parse.apply_agent_sidecar(
-        _parsed("kimi_legacy_min.jsonl", _LANE_KEY), sidecar)
+        _parsed("kimi_legacy_min.jsonl", _LANE_KEY), sidecar, _LANE_KEY)
     assert out["agent_type"] == DEFAULT
 
 
@@ -301,3 +320,55 @@ def test_a_sidecar_written_after_its_wire_triggers_a_reparse(
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 1
     assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
+
+
+def _fail_sidecar_gets(monkeypatch, exc: Exception) -> list[str]:
+    """Make every GET of a meta.json raise `exc`; sleep is a no-op."""
+    calls: list[str] = []
+    real_get = ingest.r2.get_object
+
+    def get_object(key: str) -> bytes:
+        if "meta.json" in key:
+            calls.append(key)
+            raise exc
+        return real_get(key)
+
+    monkeypatch.setattr(ingest.r2, "get_object", get_object)
+    monkeypatch.setattr(ingest.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_a_transient_sidecar_failure_fails_the_file_and_is_retried(
+        fresh_db, lane_mirror, monkeypatch):
+    """A sidecar GET that keeps failing transiently must NOT persist the
+    file: persisting it would store the pair etag with the default role,
+    and the next healthy run would see nothing changed and never retry."""
+    _put(lane_mirror / _SUB / "a1" / "wire.jsonl",
+         _fixture("kimi_legacy_min.jsonl"))
+    _put(lane_mirror / _SUB / "a1" / "meta.json", b'{"subagent_type":"coder"}')
+    healthy_get = ingest.r2.get_object
+    calls = _fail_sidecar_gets(monkeypatch, ConnectionResetError("reset"))
+    result = ingest.run_ingest(trigger="manual")
+    assert len(calls) == ingest.FETCH_ATTEMPTS, "the sidecar GET is retried"
+    assert result["failed"] == 1
+    assert not _agent_types(), "the file is a failure, not persisted"
+
+    monkeypatch.setattr(ingest.r2, "get_object", healthy_get)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["inserted"] == 1
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "coder"}
+
+
+def test_a_fatal_sidecar_fetch_error_escapes_to_the_run(
+        fresh_db, lane_mirror, monkeypatch):
+    """A bug in the fetch is FatalFetchError on the sidecar path too: it
+    reaches the run-level handler instead of being absorbed per file."""
+    _put(lane_mirror / _SUB / "a1" / "wire.jsonl",
+         _fixture("kimi_legacy_min.jsonl"))
+    _put(lane_mirror / _SUB / "a1" / "meta.json", b'{"subagent_type":"coder"}')
+    calls = _fail_sidecar_gets(monkeypatch, TypeError("bug"))
+    result = ingest.run_ingest(trigger="manual")
+    assert len(calls) == 1, "a bug is not retried"
+    assert result["error"].startswith("FatalFetchError:"), result["error"]
+    assert not _agent_types()

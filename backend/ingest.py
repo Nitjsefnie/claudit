@@ -826,20 +826,20 @@ def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
     nothing but delay.
 
     The meta.json sidecar is fetched only for a transcript naming no role
-    of its own (parse.apply_agent_sidecar), and NO failure of it fails the
-    file: it keeps the default agent_type, as before sidecars were read.
+    of its own (parse.apply_agent_sidecar). A vanished or corrupt one
+    leaves the default agent_type, which no retry would change. A
+    transient failure fails the FILE like its own GET would: persisting
+    it would store the pair etag with the default, and a healthy run
+    would then see nothing to redo. FatalFetchError escapes to the run.
     """
     parsed = parse.parse_file(key, _fetch_with_retry(key))
     if sidecar_key is None or parsed["agent_type_in_band"]:
         return parsed
     try:
-        return parse.apply_agent_sidecar(parsed, _fetch_with_retry(sidecar_key))
-    except VanishedObject:
+        sidecar = _fetch_with_retry(sidecar_key)
+    except (VanishedObject, *CORRUPT_PAYLOAD_ERRORS):
         return parsed
-    except Exception as e:  # noqa: BLE001 - a sidecar never fails the file
-        log.warning("ingest: sidecar %s unreadable, agent_type left to the "
-                    "transcript: %s: %s", sidecar_key, type(e).__name__, e)
-        return parsed
+    return parse.apply_agent_sidecar(parsed, sidecar, r2.split_key(key)[1])
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:

@@ -150,6 +150,17 @@ def lane_agent_type(fmt: str, role: str | None) -> str:
     return role
 
 
+def lane_sidecar_agent_type(role: str) -> str:
+    """files.agent_type for the role a lane-tree meta.json sidecar names.
+
+    The lane tree's sidecars are Kimi's (subagent_type / launch_spec;
+    Codex writes none), so the role takes Kimi's normalisation whatever
+    the wire beside it sniffs as -- an empty legacy wire sniffs as the
+    claude catch-all, and its sidecar is still a Kimi one.
+    """
+    return lane_agent_type("kimi-code", role)
+
+
 def to_claudit(parsed: dict, fmt: str) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
@@ -224,5 +235,4 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     # profile included): a meta.json sidecar may only fill in for a
     # transcript that named none (parse.apply_agent_sidecar).
     out["agent_type_in_band"] = role is not None
-    out["format"] = fmt
     return out
