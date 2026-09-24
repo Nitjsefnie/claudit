@@ -147,7 +147,9 @@ VERSION = _read_version()
 # stores each tool call's own model on tool_uses.model, and takes a
 # role-less subagent's agent type from its meta.json sidecar; the bump
 # reparses every file so stored rows pick all of these up.
-PARSER_VERSION = "57"
+# 58 ends lane reply latency at the first assistant output and anchors
+# a kimi-code steer at its delivery.
+PARSER_VERSION = "58"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also
