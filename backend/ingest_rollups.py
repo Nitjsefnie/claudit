@@ -34,9 +34,11 @@ def purge_suppressed() -> int:
     read path and every rollup already reads `records` as the truth; one
     deletion keeps them all consistent without fifteen extra predicates
     that a new endpoint could forget. `tool_uses` for the same lines go
-    too, otherwise the tool panels keep counting calls whose model row is
-    gone (they LEFT JOIN records, so the calls would resurface as an
-    unlabelled model).
+    too -- matched on the call's OWN model, since most calls sit on a line
+    with no record (a Claude tool_use usually follows its requestId's
+    merged record; a lane call never shares a line with one). The
+    same-line join is kept for rows stored before tool_uses.model existed,
+    which carry NULL there until the next reparse.
 
     Patterns are matched with ILIKE, so 'glm-%' covers a family and a bare
     model id still matches exactly. Runs before the canonical pass on
@@ -49,6 +51,13 @@ def purge_suppressed() -> int:
                         ).fetchone()
         if not row or not row[0]:
             return 0
+        c.execute(
+            """
+            DELETE FROM tool_uses tu
+             WHERE EXISTS (SELECT 1 FROM suppressed_models s
+                            WHERE tu.model ILIKE s.pattern)
+            """
+        )
         c.execute(
             """
             DELETE FROM tool_uses tu
@@ -199,13 +208,13 @@ def rebuild_rollup() -> int:
 
 
 def rebuild_tool_rollup() -> int:
-    """Rebuild `tool_rollup` from tool_uses + records + files.
+    """Rebuild `tool_rollup` from tool_uses + files.
 
-    LEFT JOIN to records on purpose: /api/tool-usage counts every tool
-    call, including ones with no matching usage record, while
-    /api/tool-error-rate inner-joins records. Storing model='' for the
-    unmatched ones lets a single table serve both — error-rate simply
-    excludes model=''.
+    The model is the call's own tool_uses.model, never a join to
+    `records` on (file_key, line_num): most calls sit on a line with no
+    record, and that join labelled them ''. model='' now marks only a row
+    stored before the column existed; /api/tool-error-rate excludes it,
+    /api/tool-usage still counts it.
     """
     with db.viz_conn() as c:
         c.execute("SET LOCAL work_mem = '64MB'")
@@ -225,21 +234,17 @@ def rebuild_tool_rollup() -> int:
             )
             SELECT date_trunc('hour', tu.ts)              AS hour,
                    f.project_id,
-                   COALESCE(r.model, '')                  AS model,
+                   COALESCE(tu.model, '')                 AS model,
                    tu.tool_name,
                    COUNT(*)                               AS n_total,
                    COUNT(*) FILTER (
-                     WHERE tu.is_error IS NOT NULL AND r.file_key IS NOT NULL
+                     WHERE tu.is_error IS NOT NULL
                    )                                      AS n_rated,
-                   COUNT(*) FILTER (
-                     WHERE tu.is_error AND r.file_key IS NOT NULL
-                   )                                      AS n_error,
+                   COUNT(*) FILTER (WHERE tu.is_error)    AS n_error,
                    SUM(tu.lines_added)                     AS lines_added,
                    SUM(tu.lines_deleted)                   AS lines_deleted
               FROM tool_uses tu
               JOIN files f    ON f.file_key = tu.file_key
-              LEFT JOIN records r ON r.file_key = tu.file_key
-                                 AND r.line_num = tu.line_num
              WHERE tu.ts IS NOT NULL AND tu.is_canonical
              GROUP BY 1, 2, 3, 4
             """
@@ -251,10 +256,10 @@ def rebuild_tool_rollup() -> int:
 
 
 def rebuild_tool_error_rollup() -> int:
-    """Rebuild `tool_error_rollup` from tool_uses + records + files.
+    """Rebuild `tool_error_rollup` from tool_uses + files.
 
-    Mirrors rebuild_tool_rollup's joins so the two agree: same LEFT JOIN
-    to records (model '' when a call has no usage record), same hour
+    Mirrors rebuild_tool_rollup so the two agree: same model (the call's
+    own tool_uses.model, '' only on a pre-column row), same hour
     truncation. Only settled failures contribute.
     """
     with db.viz_conn() as c:
@@ -268,14 +273,12 @@ def rebuild_tool_error_rollup() -> int:
             )
             SELECT date_trunc('hour', tu.ts)   AS hour,
                    f.project_id,
-                   COALESCE(r.model, '')       AS model,
+                   COALESCE(tu.model, '')      AS model,
                    tu.tool_name,
                    tu.error_kind,
                    COUNT(*)                    AS n
               FROM tool_uses tu
               JOIN files f    ON f.file_key = tu.file_key
-              LEFT JOIN records r ON r.file_key = tu.file_key
-                                 AND r.line_num = tu.line_num
              WHERE tu.ts IS NOT NULL AND tu.error_kind IS NOT NULL
                AND tu.is_canonical
              GROUP BY 1, 2, 3, 4, 5

@@ -1,0 +1,6 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1783000000000}
+{"type":"turn.prompt","time":1783000001000,"input":[{"type":"text","text":"Go"}],"origin":{"kind":"user"}}
+{"type":"context.append_loop_event","time":1783000002000,"event":{"type":"tool.call","uuid":"tc-1","turnId":"t1","step":1,"toolCallId":"call-s1","name":"Bash","args":{"command":"ls"}}}
+{"type":"usage.record","time":1783000003000,"model":"kimi-k2-7-code","usage":{"inputOther":100,"output":20}}
+{"type":"context.append_loop_event","time":1783000004000,"event":{"type":"tool.call","uuid":"tc-2","turnId":"t1","step":2,"toolCallId":"call-s2","name":"Bash","args":{"command":"pwd"}}}
+{"type":"usage.record","time":1783000005000,"model":"kimi-code/k3","usage":{"inputOther":120,"output":30}}

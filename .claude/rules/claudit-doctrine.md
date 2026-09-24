@@ -253,14 +253,19 @@ live read over `tool_uses` MUST filter `tu.is_canonical`.
 `suppressed_models(pattern, note, added_at)` lists models whose records
 must not count. `ingest.purge_suppressed()` runs FIRST in
 `_rebuild_derived_state()` — before the canonical pass — and DELETEs
-matching `records` plus the `tool_uses` on the same lines.
+matching `records` plus the `tool_uses` whose own `model` matches (and,
+for rows stored before `tool_uses.model` existed, those on a matching
+record's line).
 
 Suppression is a delete, not a read-time predicate, because every read
 path and every rollup already treats `records` as the truth; one deletion
 keeps them consistent without ~15 extra filters a new endpoint could
-forget. The `tool_uses` half is not optional: `tool_rollup` LEFT JOINs
-`records` for the model, so a call whose record is gone reappears under a
-NULL model.
+forget. The `tool_uses` half is not optional: the tool rollups read the
+call's own `tool_uses.model`, so a call left behind would keep counting
+under the suppressed model. It matches on that column, not a join to
+`records` on `(file_key, line_num)`: most calls sit on a line with no
+record (a Claude tool_use usually follows its requestId's merged record,
+and a lane call never shares a line with one).
 
 Patterns are matched `model ILIKE pattern`, so `glm-%` covers a family
 and a bare model id still matches exactly. The table ships EMPTY and must

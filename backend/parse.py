@@ -556,8 +556,13 @@ class _LineWalk:
                 self.seen_request[merge_key] = ev
             self.records_in_order.append(ev)
 
+        # The call's model is its OWN line's -- the value records.model
+        # gets for that line -- never a join to the merged record, which
+        # usually sits on an earlier line of the same requestId (or,
+        # with no requestId, the same message.id).
         self._record_tool_uses(
-            msg_tool_uses, req_id, line_num, obj.get("timestamp", "") or ""
+            msg_tool_uses, req_id, line_num, obj.get("timestamp", "") or "",
+            ev["model"],
         )
 
     def _consume_anchor(self, obj: dict) -> float | None:
@@ -591,7 +596,7 @@ class _LineWalk:
         return reply_latency_s
 
     def _record_tool_uses(self, msg_tool_uses: list, req_id: str,
-                          line_num: int, ts_str: str) -> None:
+                          line_num: int, ts_str: str, model: str) -> None:
         # Dedupe on tool_use.id (globally unique), never on first line of a
         # request: Claude Code writes one line per content block, so 57-71%
         # of tool_use blocks sit on a LATER line of the same requestId.
@@ -607,6 +612,7 @@ class _LineWalk:
                 "idx": tu["idx"],
                 "ts": _to_dt(ts_str),
                 "tool_name": tu["tool_name"],
+                "model": model,
                 "tool_use_id": tu["tool_use_id"],
                 "command": tu["command"],  # popped after the line walk
                 "is_error": None,  # filled after the line walk

@@ -161,7 +161,7 @@ Postgres `claudit`
                   + stop_reason / effort / thinking_tokens
                   + long_context for the Codex meter
                   + cli_version / turn_flags / turn_tool_results)
-  • tool_uses    (file_key, line_num, idx PK, ts, tool_name,
+  • tool_uses    (file_key, line_num, idx PK, ts, tool_name, model,
                   tool_use_id, is_canonical, is_error, result_chars,
                   read_targets, read_kind, is_reread)
   • ingest_runs  (audit log)

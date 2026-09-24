@@ -61,46 +61,35 @@ def me(request: Request) -> dict:
 
 def _tool_usage_source(bucket_s: int, project: str | None,
                        model: str | None, since: datetime) -> tuple:
-    """(FROM, ts column, count expr, model JOIN, since predicate, tail,
-    args) for the bucketed tool-usage query.
+    """(FROM, ts column, count expr, since predicate, tail, args) for the
+    bucketed tool-usage query.
 
     tool_rollup pre-aggregates (hour, project, model, tool); see
     ingest.rebuild_tool_rollup. Same bucket-width gate as /api/dashboard:
-    the 24h view buckets finer than an hour and takes the live path.
-    Args come back in the order the placeholders appear in the SQL
-    string: model_join's LIKE first (it sits in the JOIN, before WHERE),
-    then since (in WHERE), then project (after).
+    the 24h view buckets finer than an hour and takes the live path, which
+    filters on the call's own tool_uses.model. Args come back in the order
+    the placeholders appear in the SQL string: since (in WHERE), then
+    project, then model (both in the tail).
     """
-    args: list[Any] = []
+    args: list[Any] = [since]
+    if project:
+        args.append(project)
+    if model:
+        args.append(f"%{model}%")
+    model_filter = "AND tu.model LIKE %s" if model else ""
     if bucket_s >= 3600:
         proj_filter = "AND tu.project_id = %s" if project else ""
-        model_filter = "AND tu.model LIKE %s" if model else ""
-        args.append(since)
-        if project:
-            args.append(project)
-        if model:
-            args.append(f"%{model}%")
         return (
-            "tool_rollup tu", "tu.hour", "SUM(tu.n_total)", "",
+            "tool_rollup tu", "tu.hour", "SUM(tu.n_total)",
             "tu.hour >= date_trunc('hour', %s::timestamptz)",
             f"{proj_filter} {model_filter}", args,
         )
 
-    model_join = ""
-    if model:
-        model_join = (
-            "JOIN records r ON r.file_key = tu.file_key "
-            "AND r.line_num = tu.line_num AND r.model LIKE %s"
-        )
-        args.append(f"%{model}%")
-    args.append(since)
-    tail = ""
-    if project:
-        tail = "AND f.project_id = %s"
-        args.append(project)
+    proj_filter = "AND f.project_id = %s" if project else ""
     return (
         "tool_uses tu\n            JOIN files f ON f.file_key = tu.file_key",
-        "tu.ts", "COUNT(*)", model_join, "tu.ts >= %s", tail, args,
+        "tu.ts", "COUNT(*)", "tu.ts >= %s",
+        f"{proj_filter} {model_filter}", args,
     )
 
 
@@ -116,13 +105,12 @@ def tool_usage(
     and promotes any tool that ever cracked top-N at any bucket.
     Tools that never make the cut land in 'Other'.
 
-    `model=opus-4-7` filters to tool calls emitted by an assistant
-    message whose record matches the model substring (joined on
-    file_key + line_num)."""
+    `model=opus-4-7` filters to tool calls whose own model
+    (tool_uses.model) matches the substring."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
     bucket_s = _bucket_seconds(delta)
-    tu_from, ts_col, cnt, model_join, since_pred, tail, args = (
+    tu_from, ts_col, cnt, since_pred, tail, args = (
         _tool_usage_source(bucket_s, project, model, since)
     )
 
@@ -135,7 +123,6 @@ def tool_usage(
                    tu.tool_name AS tool,
                    {cnt}        AS n
             FROM {tu_from}
-            {model_join}
             WHERE {since_pred} {tail}
             GROUP BY 1, 2
             ORDER BY 1, 2
@@ -162,9 +149,9 @@ def _tool_error_rate_sql(bucket_s: int, project: str | None,
     tu.ts >= %s (already in `args`), then project, then model.
     """
     if bucket_s >= 3600:
-        # n_rated/n_error already encode "is_error IS NOT NULL and a
-        # records row matched"; model <> '' reproduces the inner join to
-        # records that this endpoint used to do.
+        # n_rated/n_error already encode "is_error IS NOT NULL"; model <> ''
+        # drops rows stored before tool_uses.model existed, exactly as the
+        # live path below does.
         proj_filter = ""
         if project:
             proj_filter = "AND project_id = %s"
@@ -195,20 +182,20 @@ def _tool_error_rate_sql(bucket_s: int, project: str | None,
         args.append(project)
     model_filter = ""
     if model:
-        model_filter = "AND r.model LIKE %s"
+        model_filter = "AND tu.model LIKE %s"
         args.append(f"%{model}%")
     return f"""
             SELECT to_timestamp(
                      floor(EXTRACT(EPOCH FROM tu.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
                    ) AS bucket,
-                   r.model      AS model,
+                   tu.model     AS model,
                    tu.tool_name AS tool,
                    COUNT(*)                              AS n_total,
                    COUNT(*) FILTER (WHERE tu.is_error)   AS n_error
             FROM tool_uses tu
-            JOIN records r ON r.file_key = tu.file_key AND r.line_num = tu.line_num
             JOIN files   f ON f.file_key = tu.file_key
             WHERE tu.is_error IS NOT NULL AND tu.is_canonical
+              AND tu.model <> ''
               AND tu.ts >= %s
               {proj_filter}
               {model_filter}

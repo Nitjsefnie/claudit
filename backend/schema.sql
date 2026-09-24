@@ -190,12 +190,11 @@ CREATE INDEX IF NOT EXISTS usage_rollup_project_idx ON usage_rollup (project_id,
 --
 -- The two endpoints count DIFFERENT populations, so both are stored:
 --   n_total  every tool_use in the group           -> /api/tool-usage
---   n_rated  those with is_error NOT NULL AND a matching records row
---            (tool_error_rate INNER JOINs records) -> denominator
+--   n_rated  those with is_error NOT NULL          -> denominator
 --   n_error  of those, the ones that errored       -> numerator
 --   lines_*  additive Edit/Write churn             -> /api/dashboard
--- `model` is '' when no records row matched; tool_error_rate excludes
--- those, which is what its inner join did.
+-- `model` is the call's own tool_uses.model, '' only for a row stored
+-- before that column existed; tool_error_rate excludes those.
 CREATE TABLE IF NOT EXISTS tool_rollup (
   hour        TIMESTAMPTZ NOT NULL,
   project_id  TEXT        NOT NULL,
@@ -565,6 +564,16 @@ CREATE INDEX IF NOT EXISTS tool_uses_error_kind_idx
 CREATE INDEX IF NOT EXISTS tool_uses_agent_type_idx
   ON tool_uses (agent_type, ts) WHERE agent_type IS NOT NULL;
 
+-- 2026-09-24: the model that emitted the call, stored on the call. Readers
+-- used to join `records` on (file_key, line_num) for it, which misses
+-- most calls: a Claude tool_use block usually sits on a LATER line of its
+-- requestId than the merged record, and a lane tool call never shares a
+-- line with one. Set at parse time -- the Claude path from the call's own
+-- assistant line (the same value records.model gets for that line), the
+-- lanes from the model billing the call's step. NULL only on rows written
+-- before this column existed; the next reparse fills them.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS model TEXT;
+
 CREATE TABLE IF NOT EXISTS ingest_runs (
   id              BIGSERIAL PRIMARY KEY,
   started_at      TIMESTAMPTZ NOT NULL,
@@ -596,8 +605,9 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 --        VALUES ('glm-%', 'z.ai lane; see glmmeter');
 --
 -- Enforced by ingest.purge_suppressed(), which runs before the
--- canonical pass on every ingest: matching `records` and their
--- `tool_uses` are deleted, so every read path and rollup excludes
+-- canonical pass on every ingest: matching `records` and the
+-- `tool_uses` whose own model (or same-line record) matches are
+-- deleted, so every read path and rollup excludes
 -- them without a filter of its own. Removing a pattern brings the
 -- rows back only on a reparse (bump PARSER_VERSION).
 CREATE TABLE IF NOT EXISTS suppressed_models (

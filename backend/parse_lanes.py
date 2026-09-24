@@ -164,8 +164,9 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     - a lane ``tool_call_id`` is claudit's ``tool_use_id`` (ingest keys
       ``tool_uses.is_canonical`` on it).
 
-    A lane tool row's ``model`` is dropped: the column lives on the
-    record, and the tool_uses table has no model of its own.
+    A lane tool row keeps its ``model`` (tool_uses.model): a lane tool
+    call never shares a line with a record, so no reader can recover it
+    by joining one.
 
     The dispatch columns (agent_type, agent_model, dispatch_prompt_chars,
     dispatch_brief_ref) keep whatever the lane parser read off a
@@ -199,7 +200,6 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
             tu["tool_use_id"] = f'{tu["file_key"]}:{tc_id}'
         else:
             tu["tool_use_id"] = tc_id or None
-        del tu["model"]
         # A settled failure already carries its (error_kind, error_text)
         # from parse_common._settle_lane_tool_result; default the rest to
         # NULL (SV-WHY-COLUMNS: a kind only on an errored call).

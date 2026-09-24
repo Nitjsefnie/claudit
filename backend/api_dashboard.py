@@ -65,9 +65,9 @@ def _churn_source(project: str | None, model: str | None,
     """The FROM+WHERE fragment (and its args) for the line-churn query.
 
     Churn lives on tool calls, so hourly-or-coarser buckets use tool_rollup
-    while sub-hour buckets retain the live tool_uses path. The live model
-    filter needs the records join; without it that join is skipped so calls
-    on usage-less assistant lines still count.
+    while sub-hour buckets retain the live tool_uses path. Both filter on
+    the call's own model (tool_uses.model, rolled up as-is), so a call on a
+    line with no record still matches.
     """
     if use_rollup:
         proj_filter = "AND tu.project_id = %s" if project else ""
@@ -89,21 +89,17 @@ def _churn_source(project: str | None, model: str | None,
         }
 
     proj_filter = "AND f.project_id = %s" if project else ""
-    model_join = ""
     model_filter = ""
     args = [since]
     if project:
         args.append(project)
     if model:
-        model_join = ("JOIN records r ON r.file_key = tu.file_key "
-                      "AND r.line_num = tu.line_num")
-        model_filter = "AND r.model LIKE %s"
+        model_filter = "AND tu.model LIKE %s"
         args.append(f"%{model}%")
     return {
         "sql": f"""
             FROM tool_uses tu
             JOIN files f ON f.file_key = tu.file_key
-            {model_join}
             WHERE tu.ts >= %s {proj_filter} {model_filter} AND tu.is_canonical
               AND (tu.lines_added > 0 OR tu.lines_deleted > 0)
         """,

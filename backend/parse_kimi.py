@@ -14,6 +14,7 @@ row.
 from __future__ import annotations
 
 import json
+from bisect import bisect_right
 from datetime import datetime, timezone
 
 from orjson import JSONDecodeError, loads
@@ -297,7 +298,30 @@ def parse_legacy(file_key: str, blob: bytes) -> dict:
             st, msg.get("type", ""), line_num, ts_dt, msg.get("payload", {})
         )
 
+    _attribute_tool_models(st)
     return _finish_parse(st)
+
+
+def _attribute_tool_models(st: _ParseState) -> None:
+    """Give every tool call the model of the usage record billing its step.
+
+    Both Kimi wires write a step's tool calls BEFORE the usage record that
+    closes the step (every step of the 24 kimi-code and legacy files
+    sampled from the kimi bucket reads calls-then-usage), and the model is
+    resolved per record by _model_for. So a call's model is that of the
+    first record after its line; a call after the last record (the file
+    ends inside a step) takes the last record's, and a file with no record
+    resolves the way a record naming no model would.
+    """
+    record_lines = [r["line_num"] for r in st.records]
+    for tu in st.tool_uses:
+        at = bisect_right(record_lines, tu["line_num"])
+        if at < len(st.records):
+            tu["model"] = st.records[at]["model"]
+        elif st.records:
+            tu["model"] = st.records[-1]["model"]
+        else:
+            tu["model"] = _model_for(None, tu["ts"] or st.first_event_ts)
 
 
 # --------------------------------------------------------------------------
@@ -511,4 +535,5 @@ def parse_kimi_code(file_key: str, blob: bytes) -> dict:
         ts_dt = _kc_event_ts(st, obj)
         _kc_dispatch(st, typ, line_num, ts_dt, obj)
 
+    _attribute_tool_models(st)
     return _finish_parse(st, len(blob.splitlines()))
