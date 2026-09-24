@@ -6,7 +6,7 @@
 # and pinning it separately is how the two end up in conflict. fastapi
 # 0.141.1 resolves starlette 1.6.0.
 fastapi==0.141.1
-uvicorn[standard]==0.52.4
+uvicorn[standard]==0.53.0
 psycopg[pool,binary]==3.3.6
 boto3==1.43.89
 orjson==3.12.0
