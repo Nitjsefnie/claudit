@@ -212,6 +212,37 @@ def test_codex_non_string_role_falls_back_to_the_thread_spawn_mirror(bogus):
     assert out["agent_type"] == "adversary"
 
 
+@pytest.mark.parametrize("bogus", [{"name": "x"}, ["x"], 7, True, ""])
+def test_codex_session_role_is_a_string_or_none(bogus):
+    """The thread_spawn mirror goes through the same guard as agent_role:
+    whatever it holds, the helper hands back a non-empty str or None."""
+    from backend import parse_codex  # pylint: disable=import-outside-toplevel
+    payload = {"source": {"subagent": {"thread_spawn": {"agent_role": bogus}}}}
+    assert parse_codex._codex_session_role(payload) is None  # pylint: disable=protected-access
+
+
+def test_codex_replayed_parent_session_meta_does_not_lend_its_role():
+    """A forked subagent rollout opens with its OWN session_meta (no role)
+    and then replays its parent's, which names one. The parent's role is
+    not this thread's: the file stays unattributed. (Shape of a real
+    rollout: thread `k` forked from `f`, both under root session `s`.)"""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
+        ',"id":"k","agent_role":null,"source":{"subagent":{"thread_spawn":'
+        '{"parent_thread_id":"f","agent_role":null}}}',
+        ',"id":"f","agent_role":"code-reviewer","source":{"subagent":'
+        '{"thread_spawn":{"parent_thread_id":"s",'
+        '"agent_role":"code-reviewer"}}}'))
+    assert out["agent_type"] == constants.DEFAULT_AGENT_TYPE
+
+
+def test_codex_later_session_meta_of_the_same_thread_still_names_the_role():
+    """Restricting the role to the file's own thread keeps first-non-empty
+    within it: a later session_meta with the same id may declare it."""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
+        ',"id":"k"', ',"id":"k","agent_role":"explorer"'))
+    assert out["agent_type"] == "explorer"
+
+
 def _dispatch_cols(tu: dict) -> tuple:
     return (tu["agent_type"], tu["agent_model"],
             tu["dispatch_prompt_chars"], tu["dispatch_brief_ref"])

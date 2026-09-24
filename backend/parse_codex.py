@@ -160,6 +160,11 @@ class _CodexState(_ParseState):
     # parent's, which is what makes it the right half of a record's
     # cross-file identity — see _codex_record_uuid.
     session_id: str | None = None
+    # This rollout's own thread: the FIRST session_meta's `id`, and whether
+    # one has been seen yet. A later session_meta under another id is a
+    # replayed parent's, and its agent_role is the parent's, not ours.
+    thread_id: str | None = None
+    thread_seen: bool = False
 
 
 def _codex_declared_models(blob: bytes) -> set[str]:
@@ -453,11 +458,12 @@ def _codex_dispatch_args(payload: dict) -> tuple | None:
             _nonempty_str(args.get("model")), None, None)
 
 
-def _codex_session_role(payload: dict) -> object:
+def _codex_session_role(payload: dict) -> str | None:
     """The agent role one session_meta names, if any.
 
     A subagent's rollout carries it at `agent_role`, mirrored under
     `source.subagent.thread_spawn`; a main rollout carries neither.
+    Anything but a non-empty string, at either place, is no role.
     """
     role = _nonempty_str(payload.get("agent_role"))
     if role:
@@ -466,7 +472,8 @@ def _codex_session_role(payload: dict) -> object:
     subagent = source.get("subagent") if isinstance(source, dict) else None
     spawn = (subagent.get("thread_spawn")
              if isinstance(subagent, dict) else None)
-    return spawn.get("agent_role") if isinstance(spawn, dict) else None
+    return (_nonempty_str(spawn.get("agent_role"))
+            if isinstance(spawn, dict) else None)
 
 
 def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
@@ -659,10 +666,17 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
         # head. Anything later belongs to a replayed parent.
         if st.session_id is None and payload.get("session_id"):
             st.session_id = str(payload["session_id"])
-        # The role is NOT first-line-wins: a subagent rollout can open
-        # with a session_meta naming no role and declare it on a later
-        # one, so the first NON-EMPTY role wins instead.
-        _note_agent_role(st, _codex_session_role(payload))
+        # The role is the first NON-EMPTY one among the session_metas of
+        # THIS thread (same `id` as the first). A fork replays its
+        # parent's session_meta after its own: in the corpus a forked
+        # subagent with no role of its own would otherwise take its
+        # parent's (1 of 158 multi-session_meta rollouts, 2026-09-24).
+        thread_id = _nonempty_str(payload.get("id"))
+        if not st.thread_seen:
+            st.thread_seen = True
+            st.thread_id = thread_id
+        if thread_id == st.thread_id:
+            _note_agent_role(st, _codex_session_role(payload))
     # world_state / compacted / inter_agent_communication_metadata: no
     # billing or tool consequence.
     #
