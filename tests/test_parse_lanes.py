@@ -359,3 +359,178 @@ def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
     assert role is not None and role[0] == "explorer"
     assert calls == [("implementer", "gpt-6-astra"), ("explorer", None)]
     assert rolled == [("explorer", "", 1), ("implementer", "gpt-6-astra", 1)]
+
+
+# ---- reply latency: anchor to the model's FIRST assistant output ----------
+#
+# The Claude path ends the window at the first assistant line (a thinking
+# line included); the lanes must end it at the first assistant event of the
+# turn, not at the turn's first billing record, which can land minutes or
+# hours later when the cumulative counter stays flat.
+
+_CODEX_TOKENS = (
+    b'"info":{"total_token_usage":{"input_tokens":%d,"cached_input_tokens":0,'
+    b'"cache_write_input_tokens":0,"output_tokens":5,'
+    b'"reasoning_output_tokens":0,"total_tokens":%d},"last_token_usage":'
+    b'{"input_tokens":%d,"cached_input_tokens":0,"cache_write_input_tokens":0,'
+    b'"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":%d}}')
+
+
+def _codex_line(sec: int, rtype: str, body: str) -> bytes:
+    """One rollout line `sec` seconds after 2026-09-10T08:00:00Z."""
+    ts = datetime.fromtimestamp(1_789_027_200 + sec, tz=timezone.utc)
+    stamp = ts.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+    return (b'{"timestamp":"%s","type":"%s","payload":{%s}}\n'
+            % (stamp, rtype.encode(), body.encode()))
+
+
+def _codex_tokens(sec: int, total_in: int) -> bytes:
+    info = _CODEX_TOKENS % (total_in, total_in + 5, total_in, total_in + 5)
+    return _codex_line(sec, "event_msg",
+                       '"type":"token_count",' + info.decode())
+
+
+def _codex_turn_rollout(*middle: bytes) -> bytes:
+    return (_codex_line(0, "session_meta", '"session_id":"s"')
+            + _codex_line(10, "event_msg", '"type":"task_started"')
+            + b"".join(middle))
+
+
+_CODEX_ASSISTANT_ITEMS = {
+    "item_completed Reasoning": ("event_msg",
+                                 '"type":"item_completed","item":'
+                                 '{"type":"Reasoning"}'),
+    "response_item reasoning": ("response_item", '"type":"reasoning"'),
+    "event_msg agent_reasoning": ("event_msg",
+                                  '"type":"agent_reasoning","text":"t"'),
+    "item_completed AgentMessage": ("event_msg",
+                                    '"type":"item_completed","item":'
+                                    '{"type":"AgentMessage","content":'
+                                    '[{"type":"Text","text":"hi"}]}'),
+    "event_msg agent_message": ("event_msg",
+                                '"type":"agent_message","message":"hi"'),
+    "function_call": ("response_item",
+                      '"type":"function_call","name":"f","call_id":"c1",'
+                      '"arguments":"{}"'),
+}
+
+
+@pytest.mark.parametrize("item", sorted(_CODEX_ASSISTANT_ITEMS))
+def test_codex_latency_ends_at_the_first_assistant_item(item):
+    """task_started at +10 s, the first assistant item at +16 s, a second
+    one at +18 s, and the cumulative counter only moves at +4934 s: the
+    reply began after 6 s, not 4924 s."""
+    rtype, body = _CODEX_ASSISTANT_ITEMS[item]
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+        _codex_line(16, rtype, body),
+        _codex_line(18, "event_msg", '"type":"agent_message","message":"x"'),
+        _codex_tokens(4934, 100)))
+    assert [r["reply_latency_s"] for r in out["records"]] == [6.0]
+
+
+def test_codex_latency_without_an_assistant_item_still_ends_at_the_record():
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+        _codex_tokens(25, 100)))
+    assert [r["reply_latency_s"] for r in out["records"]] == [15.0]
+
+
+def test_codex_first_assistant_item_does_not_leak_into_the_next_turn():
+    """Turn 1's assistant item, and a stray one between the turns, must
+    not time turn 2, which has no assistant item before its record."""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+        _codex_line(12, "event_msg", '"type":"agent_message","message":"a"'),
+        _codex_tokens(20, 100),
+        _codex_line(21, "event_msg", '"type":"task_complete"'),
+        _codex_line(30, "event_msg", '"type":"agent_message","message":"b"'),
+        _codex_line(100, "event_msg", '"type":"task_started"'),
+        _codex_tokens(110, 300)))
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.0, 10.0]
+
+
+def test_codex_assistant_item_after_the_record_does_not_retime_it():
+    """One latency per turn: an item after the first record is not a
+    second measurement for a later record in the same turn."""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+        _codex_tokens(40, 100),
+        _codex_line(41, "event_msg", '"type":"agent_message","message":"a"'),
+        _codex_tokens(50, 300)))
+    assert [r["reply_latency_s"] for r in out["records"]] == [30.0, None]
+
+
+def _kc_line(ms: int, body: str) -> bytes:
+    return b'{%s,"time":%d}\n' % (body.encode(), 1_783_000_000_000 + ms)
+
+
+_KC_USAGE = ('"type":"usage.record","model":"kimi-code/kimi-for-coding",'
+             '"usage":{"inputOther":10,"output":2,"inputCacheRead":0,'
+             '"inputCacheCreation":0}')
+
+_KC_ASSISTANT_EVENTS = {
+    "content.part think": ('"type":"context.append_loop_event","event":'
+                           '{"type":"content.part","turnId":"t1","part":'
+                           '{"type":"think","think":"hm"}}'),
+    "tool.call": ('"type":"context.append_loop_event","event":'
+                  '{"type":"tool.call","turnId":"t1","toolCallId":"c1",'
+                  '"name":"Bash","args":{"command":"true"}}'),
+    "assistant message": ('"type":"context.append_message","message":'
+                          '{"role":"assistant","content":'
+                          '[{"type":"text","text":"hi"}]}'),
+}
+
+
+@pytest.mark.parametrize("event", sorted(_KC_ASSISTANT_EVENTS))
+def test_kimi_code_latency_ends_at_the_first_assistant_event(event):
+    blob = (_kc_line(0, '"type":"metadata","protocol_version":"1.4",'
+                        '"created_at":1783000000000')
+            + _kc_line(1000, '"type":"turn.prompt","input":[]')
+            + _kc_line(3500, _KC_ASSISTANT_EVENTS[event])
+            + _kc_line(4000, _KC_ASSISTANT_EVENTS["assistant message"])
+            + _kc_line(900_000, _KC_USAGE))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [2.5]
+
+
+def test_kimi_code_latency_without_an_assistant_event_ends_at_the_record():
+    blob = (_kc_line(0, '"type":"metadata","protocol_version":"1.4",'
+                        '"created_at":1783000000000')
+            + _kc_line(1000, '"type":"turn.prompt","input":[]')
+            + _kc_line(8000, _KC_USAGE))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [7.0]
+
+
+def _legacy_line(sec: float, msg_type: str, payload: str) -> bytes:
+    return (b'{"timestamp": %.1f, "message": {"type": "%s", "payload": {%s}}}\n'
+            % (1_784_226_000 + sec, msg_type.encode(), payload.encode()))
+
+
+_LEGACY_STATUS = ('"message_id": "m1", "token_usage": {"input_other": 10, '
+                  '"output": 2, "input_cache_read": 0, '
+                  '"input_cache_creation": 0}')
+
+_LEGACY_ASSISTANT_EVENTS = {
+    "ContentPart think": ("ContentPart", '"type": "think", "think": "hm"'),
+    "ContentPart text": ("ContentPart", '"type": "text", "text": "hi"'),
+    "ToolCall": ("ToolCall", '"type": "function", "id": "tc1", "function": '
+                             '{"name": "Shell", "arguments": "{}"}'),
+}
+
+
+@pytest.mark.parametrize("event", sorted(_LEGACY_ASSISTANT_EVENTS))
+def test_legacy_kimi_latency_ends_at_the_first_assistant_event(event):
+    msg_type, payload = _LEGACY_ASSISTANT_EVENTS[event]
+    blob = (b'{"type": "metadata", "protocol_version": "1.10"}\n'
+            + _legacy_line(0, "TurnBegin", '"user_input": "hi"')
+            + _legacy_line(1.5, msg_type, payload)
+            + _legacy_line(3, "ContentPart", '"type": "text", "text": "x"')
+            + _legacy_line(900, "StatusUpdate", _LEGACY_STATUS))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [1.5]
+
+
+def test_legacy_kimi_latency_without_an_assistant_event_ends_at_the_record():
+    blob = (b'{"type": "metadata", "protocol_version": "1.10"}\n'
+            + _legacy_line(0, "TurnBegin", '"user_input": "hi"')
+            + _legacy_line(4, "StatusUpdate", _LEGACY_STATUS))
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
+    assert [r["reply_latency_s"] for r in out["records"]] == [4.0]

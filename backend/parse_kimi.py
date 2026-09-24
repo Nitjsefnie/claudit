@@ -200,11 +200,12 @@ def _kimi_dispatch_args(name: str, args: dict) -> tuple | None:
 # --------------------------------------------------------------------------
 
 
-def _legacy_content_part(st: _ParseState, payload: dict) -> None:
+def _legacy_content_part(st: _ParseState, ts: datetime | None,
+                         payload: dict) -> None:
     if payload.get("type", "") == "text":
         st.text_chars_since_turn += len(str(payload.get("text", "")))
     # Any ContentPart or ToolCall counts as an assistant event
-    _mark_assistant_event(st)
+    _mark_assistant_event(st, ts)
 
 
 def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
@@ -215,7 +216,7 @@ def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
     _append_tool_use(st, line_num, ts, name, payload.get("id", ""),
                      _edit_churn(name, args),
                      dispatch=_kimi_dispatch_args(name, args))
-    _mark_assistant_event(st)
+    _mark_assistant_event(st, ts)
 
 
 def _legacy_tool_result(st: _ParseState, payload: dict) -> None:
@@ -260,7 +261,7 @@ def _legacy_dispatch(st: _ParseState, msg_type: str, line_num: int,
     elif msg_type == "TurnEnd":
         _end_turn(st, line_num, ts)
     elif msg_type == "ContentPart":
-        _legacy_content_part(st, payload)
+        _legacy_content_part(st, ts, payload)
     elif msg_type == "ToolCall":
         _legacy_tool_call(st, line_num, ts, payload)
     elif msg_type == "ToolResult":
@@ -396,7 +397,7 @@ def _kc_append_message(st: _ParseState, line_num: int, ts: datetime | None,
             _append_tool_use(st, line_num, ts, name, tcid,
                              _edit_churn(name, args),
                              dispatch=_kimi_dispatch_args(name, args))
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
     elif role == "tool":
         tcid = msg.get("toolCallId", "")
         if tcid:
@@ -425,7 +426,7 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         part = ev.get("part") or {}
         if part.get("type") == "text":
             st.text_chars_since_turn += len(str(part.get("text", "")))
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
     elif et == "tool.call":
         name = str(ev.get("name", ""))
         args = _args_to_dict(ev.get("args"))
@@ -433,7 +434,7 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
             st, line_num, ts, name, str(ev.get("toolCallId", "")),
             _edit_churn(name, args), dispatch=_kimi_dispatch_args(name, args),
         )
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
     elif et == "tool.result":
         res = ev.get("result") or {}
         tcid = ev.get("toolCallId", "")
