@@ -56,6 +56,7 @@ window.CacheView = function CacheView({ project, range }) {
         total={data.session_total.cost_total}
         turns={data.session_total.turns}
       />
+      <ProviderSplit rows={data.per_model_provider} sessionTotal={data.session_total} />
     </div>
   );
 };
@@ -180,5 +181,21 @@ function CostBuckets({ buckets, total, turns }) {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+// /api/cache's per_model_provider: the per-model table split by serving
+// host, drawn only when some record named one (OpenRouter). A row whose
+// records named none keeps the bare model label, never an invented host.
+function ProviderSplit({ rows, sessionTotal }) {
+  if (!rows || !rows.some(r => r.provider)) return null;
+  const labelled = rows.map(r => ({
+    ...r, model: r.provider ? `${r.model} · ${r.provider}` : r.model,
+  }));
+  return (
+    <>
+      <h2>BY MODEL AND PROVIDER</h2>
+      <PerModelTable rows={labelled} sessionTotal={sessionTotal} />
+    </>
   );
 }

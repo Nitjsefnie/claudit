@@ -149,7 +149,10 @@ VERSION = _read_version()
 # reparses every file so stored rows pick all of these up.
 # 58 ends lane reply latency at the first assistant output and anchors
 # a kimi-code steer at its delivery.
-PARSER_VERSION = "58"
+# 59 stores an OpenRouter record's serving host (message.provider) on
+# records.provider and prices it from pricing.PROVIDER_RATES; the bump
+# reparses every file so stored rows carry the provider and its price.
+PARSER_VERSION = "59"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also

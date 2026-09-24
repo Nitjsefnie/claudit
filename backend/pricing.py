@@ -37,6 +37,13 @@ the API must not flag it (the same reasoning as the bonsai-2-27b row).
 Rates are a function of (model, timestamp): a model may carry dated
 overrides (e.g. an introductory price). Cost must be computed against the
 timestamp of the request being priced, not the time of rendering.
+
+A record that names its serving provider (OpenRouter's
+``message.provider``) is priced from PROVIDER_RATES, keyed by
+(normalised model, provider), when that pair has a row; otherwise, and
+always when the provider is absent, by the model alone as above. A record
+with no provider therefore prices exactly as it did before the provider
+table existed.
 """
 from __future__ import annotations
 
@@ -172,11 +179,156 @@ DATED_RATES: dict[str, list[tuple[datetime, dict]]] = {
     ],
 }
 
+
+def _endpoint(fresh: float, read: float, output: float) -> dict:
+    """One OpenRouter endpoint's rates in MODEL_RATES shape.
+
+    Cache writes take the endpoint's cache_write price when it is nonzero
+    and the input rate otherwise. Every endpoint in the snapshot lists 0 (no
+    separate write price, not a free write), so every row here writes at
+    the input rate, in both create buckets.
+    """
+    return {"fresh": fresh, "create_5m": fresh, "create_1h": fresh,
+            "read": read, "output": output}
+
+
+# Per-provider rates, keyed by (normalised model id, provider). The provider
+# is OpenRouter's provider_name, spelled as the transcript's
+# message.provider spells it ("Novita", "Morph", "Stealth").
+#
+# Seeded from OpenRouter's endpoints API (/api/v1/models/<author>/<slug>/
+# endpoints), fetched PROVIDER_RATES_FETCHED. Figures are the prices in force
+# then, with the host's promotional discount already applied; a trailing
+# "N% off" records that discount. No discount carries a published end date,
+# so none is encoded: a reversion that has not happened is not a rate. When
+# one moves, add a PROVIDER_DATED_RATES window for the old price.
+#
+# A provider serving one model from two endpoints at different prices
+# (Modal on glm-5.3-flash, BaseTen's cache reads on deepseek-v4.1-flash)
+# carries the dearer endpoint: the transcript names only the host, and
+# billing the cheaper one would under-count whenever the other served.
+PROVIDER_RATES_FETCHED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
+PROVIDER_RATES: dict[tuple[str, str], dict] = {
+    # z-ai/glm-5.3-flash
+    ("z-ai/glm-5-3-flash", "InferenceNet"): _endpoint(0.045, 0.01, 0.14),  # 50% off
+    ("z-ai/glm-5-3-flash", "Sail Research"): _endpoint(0.045, 0.0285, 0.6),
+    ("z-ai/glm-5-3-flash", "Relace"): _endpoint(0.07, 0.02, 0.28),
+    ("z-ai/glm-5-3-flash", "DeepInfra"): _endpoint(0.075, 0.015, 0.25),  # 50% off
+    ("z-ai/glm-5-3-flash", "Wafer"): _endpoint(0.089, 0.03, 0.35),
+    ("z-ai/glm-5-3-flash", "GMICloud"): _endpoint(0.09, 0.018, 0.3),  # 40% off
+    ("z-ai/glm-5-3-flash", "Morph"): _endpoint(0.098, 0.0196, 0.343),  # 2% off
+    ("z-ai/glm-5-3-flash", "OpenInference"): _endpoint(0.1, 0.025, 0.5),
+    ("z-ai/glm-5-3-flash", "Decart"): _endpoint(0.1275, 0.0255, 0.425),  # 15% off
+    ("z-ai/glm-5-3-flash", "Phala"): _endpoint(0.1275, 0.0255, 0.425),  # 15% off
+    ("z-ai/glm-5-3-flash", "Novita"): _endpoint(0.132, 0.0264, 0.44),  # 12% off
+    ("z-ai/glm-5-3-flash", "StreamLake"): _endpoint(0.141, 0.0282, 0.47),  # 6% off
+    ("z-ai/glm-5-3-flash", "Io Net"): _endpoint(0.1425, 0.0285, 0.475),  # 5% off
+    ("z-ai/glm-5-3-flash", "AtlasCloud"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "BaseTen"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "CoreWeave"): _endpoint(0.15, 0.05, 0.5),
+    ("z-ai/glm-5-3-flash", "Crusoe"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "DigitalOcean"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Fireworks"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Friendli"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Inceptron"): _endpoint(0.15, 0.07, 0.5),
+    ("z-ai/glm-5-3-flash", "Modal"): _endpoint(0.45, 0.09, 1.5),
+    ("z-ai/glm-5-3-flash", "Near AI"): _endpoint(0.15, 0.035, 0.5),
+    ("z-ai/glm-5-3-flash", "Parasail"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Reka"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "SiliconFlow"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Together"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Venice"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "Z.AI"): _endpoint(0.15, 0.03, 0.5),
+    ("z-ai/glm-5-3-flash", "NextBit"): _endpoint(0.165, 0.033, 0.55),
+    ("z-ai/glm-5-3-flash", "Cloudflare"): _endpoint(0.3, 0.03, 1.0),
+    # deepseek/deepseek-v4.1-flash
+    ("deepseek/deepseek-v4-1-flash", "DekaLLM"): _endpoint(0.04, 0.01, 1.0),
+    ("deepseek/deepseek-v4-1-flash", "Morph"): _endpoint(0.075, 0.0015, 0.3),  # 50% off
+    ("deepseek/deepseek-v4-1-flash", "OpenInference"): _endpoint(0.1, 0.01, 0.5),
+    ("deepseek/deepseek-v4-1-flash", "Relace"): _endpoint(0.1, 0.01, 0.5),
+    ("deepseek/deepseek-v4-1-flash", "Sail Research"): _endpoint(0.13, 0.01, 0.75),
+    ("deepseek/deepseek-v4-1-flash", "DeepInfra"): _endpoint(0.14, 0.0042, 0.42),  # 30% off
+    ("deepseek/deepseek-v4-1-flash", "Alibaba"): _endpoint(0.15, 0.015, 0.6),
+    ("deepseek/deepseek-v4-1-flash", "DeepSeek"): _endpoint(0.15, 0.003, 0.6),
+    ("deepseek/deepseek-v4-1-flash", "StreamLake"): _endpoint(0.165, 0.0033, 0.66),  # 45% off
+    ("deepseek/deepseek-v4-1-flash", "CoreWeave"): _endpoint(0.2, 0.03, 0.65),
+    ("deepseek/deepseek-v4-1-flash", "Wafer"): _endpoint(0.2, 0.006, 0.6),
+    ("deepseek/deepseek-v4-1-flash", "Fireworks"): _endpoint(0.22, 0.007, 0.66),
+    ("deepseek/deepseek-v4-1-flash", "GMICloud"): _endpoint(0.225, 0.0045, 0.9),  # 25% off
+    ("deepseek/deepseek-v4-1-flash", "Krea"): _endpoint(0.225, 0.006, 0.9),
+    ("deepseek/deepseek-v4-1-flash", "Phala"): _endpoint(0.276, 0.00552, 1.104),  # 20% off
+    ("deepseek/deepseek-v4-1-flash", "Novita"): _endpoint(0.285, 0.0057, 1.14),  # 5% off
+    ("deepseek/deepseek-v4-1-flash", "AtlasCloud"): _endpoint(0.3, 0.03, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "BaseTen"): _endpoint(0.3, 0.03, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "DigitalOcean"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "Makora"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "Modal"): _endpoint(0.3, 0.03, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "NextBit"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "Parasail"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "SiliconFlow"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "Together"): _endpoint(0.3, 0.006, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "Venice"): _endpoint(0.375, 0.0075, 1.5),
+    # stealth/space-bunny-alpha
+    ("stealth/space-bunny-alpha", "Stealth"): _endpoint(0.0, 0.0, 0.0),
+    # deepseek/deepseek-v4-flash-0731
+    ("deepseek/deepseek-v4-flash-0731", "Relace"): _endpoint(0.03, 0.016, 0.32),
+    ("deepseek/deepseek-v4-flash-0731", "Sail Research"): _endpoint(0.038, 0.0228, 0.55),
+    ("deepseek/deepseek-v4-flash-0731", "StreamLake"): _endpoint(0.0528, 0.00168, 0.1584),  # 88% off
+    ("deepseek/deepseek-v4-flash-0731", "DeepInfra"): _endpoint(0.06, 0.015, 0.18),
+    ("deepseek/deepseek-v4-flash-0731", "Wafer"): _endpoint(0.08, 0.02, 0.35),
+    ("deepseek/deepseek-v4-flash-0731", "Inceptron"): _endpoint(0.0828, 0.06, 0.4138),
+    ("deepseek/deepseek-v4-flash-0731", "Reka"): _endpoint(0.088, 0.0056, 0.528),  # 20% off
+    ("deepseek/deepseek-v4-flash-0731", "Makora"): _endpoint(0.09, 0.0196, 0.195),
+    ("deepseek/deepseek-v4-flash-0731", "DigitalOcean"): _endpoint(0.119, 0.0238, 0.238),
+    ("deepseek/deepseek-v4-flash-0731", "BaseTen"): _endpoint(0.13, 0.028, 0.26),
+    ("deepseek/deepseek-v4-flash-0731", "CoreWeave"): _endpoint(0.13, 0.07, 0.28),
+    ("deepseek/deepseek-v4-flash-0731", "Cohere"): _endpoint(0.14, 0.07, 0.28),
+    ("deepseek/deepseek-v4-flash-0731", "Nebius"): _endpoint(0.14, 0.0, 0.28),
+    ("deepseek/deepseek-v4-flash-0731", "OpenInference"): _endpoint(0.14, 0.03, 0.7),
+    ("deepseek/deepseek-v4-flash-0731", "Parasail"): _endpoint(0.14, 0.05, 0.28),
+    ("deepseek/deepseek-v4-flash-0731", "Together"): _endpoint(0.14, 0.03, 0.28),
+    ("deepseek/deepseek-v4-flash-0731", "Morph"): _endpoint(0.141953, 0.035937, 0.399625),
+    ("deepseek/deepseek-v4-flash-0731", "Venice"): _endpoint(0.175, 0.035, 0.35),
+    ("deepseek/deepseek-v4-flash-0731", "Alibaba"): _endpoint(0.176, 0.0176, 0.528),
+    ("deepseek/deepseek-v4-flash-0731", "Mancer 2"): _endpoint(0.2, 0.0, 0.6),
+    ("deepseek/deepseek-v4-flash-0731", "Fireworks"): _endpoint(0.22, 0.007, 0.66),
+    ("deepseek/deepseek-v4-flash-0731", "SiliconFlow"): _endpoint(0.22, 0.028, 0.66),
+    ("deepseek/deepseek-v4-flash-0731", "GMICloud"): _endpoint(0.286, 0.0091, 0.858),  # 35% off
+    ("deepseek/deepseek-v4-flash-0731", "Phala"): _endpoint(0.308, 0.0196, 0.924),  # 30% off
+    ("deepseek/deepseek-v4-flash-0731", "NextBit"): _endpoint(0.352, 0.012, 1.056),
+    ("deepseek/deepseek-v4-flash-0731", "Novita"): _endpoint(0.4092, 0.02604, 1.2276),  # 7% off
+    ("deepseek/deepseek-v4-flash-0731", "AtlasCloud"): _endpoint(0.44, 0.028, 1.32),
+    ("deepseek/deepseek-v4-flash-0731", "Baidu"): _endpoint(0.44, 0.014, 1.32),
+    ("deepseek/deepseek-v4-flash-0731", "Cloudflare"): _endpoint(0.44, 0.014, 1.32),
+    # deepseek/deepseek-v4-flash
+    ("deepseek/deepseek-v4-flash", "Relace"): _endpoint(0.05, 0.01, 0.25),
+    ("deepseek/deepseek-v4-flash", "StreamLake"): _endpoint(0.06398, 0.012796, 0.12796),  # 54% off
+    ("deepseek/deepseek-v4-flash", "Baidu"): _endpoint(0.06538, 0.013076, 0.13076),  # 53% off
+    ("deepseek/deepseek-v4-flash", "DeepInfra"): _endpoint(0.09, 0.018, 0.18),
+    ("deepseek/deepseek-v4-flash", "GMICloud"): _endpoint(0.091, 0.0182, 0.182),  # 35% off
+    ("deepseek/deepseek-v4-flash", "Venice"): _endpoint(0.0966, 0.0196, 0.1925),  # 30% off
+    ("deepseek/deepseek-v4-flash", "DigitalOcean"): _endpoint(0.098, 0.0196, 0.196),
+    ("deepseek/deepseek-v4-flash", "SiliconFlow"): _endpoint(0.13, 0.028, 0.28),
+    ("deepseek/deepseek-v4-flash", "Alibaba"): _endpoint(0.134, 0.0268, 0.268),
+    ("deepseek/deepseek-v4-flash", "AtlasCloud"): _endpoint(0.14, 0.028, 0.28),
+    ("deepseek/deepseek-v4-flash", "Novita"): _endpoint(0.14, 0.028, 0.28),
+    ("deepseek/deepseek-v4-flash", "OpenInference"): _endpoint(0.14, 0.03, 0.7),
+    ("deepseek/deepseek-v4-flash", "Parasail"): _endpoint(0.14, 0.07, 0.28),
+    ("deepseek/deepseek-v4-flash", "NextBit"): _endpoint(0.15, 0.035, 0.3),
+    ("deepseek/deepseek-v4-flash", "Mancer 2"): _endpoint(0.19, 0.0, 0.5),
+    ("deepseek/deepseek-v4-flash", "Azure"): _endpoint(0.21, 0.031, 0.56),
+}
+
+# Dated overrides per (model, provider) row, same shape and semantics as
+# DATED_RATES. Empty: no provider price has moved since the snapshot.
+PROVIDER_DATED_RATES: dict[tuple[str, str], list[tuple[datetime, dict]]] = {}
+
 # Sorted boundaries where any rate changes. Read-time aggregation that
 # re-derives rates from summed tokens must group by these, or its
 # per-component breakdown drifts from the stored per-record cost.
 RATE_EPOCHS: list[datetime] = sorted(
     {end for windows in DATED_RATES.values() for end, _ in windows}
+    | {end for windows in PROVIDER_DATED_RATES.values() for end, _ in windows}
 )
 
 _VERSIONED_KEY = re.compile(r"^claude-([a-z]+)-(\d+(?:-\d+)*)$")
@@ -268,23 +420,55 @@ def _match_key(norm: str) -> str | None:
     return None
 
 
-def _dated(key: str, ts: datetime | None) -> dict:
-    windows = DATED_RATES.get(key)
+def _in_window(windows: list | None, ts: datetime | None,
+               list_rates: dict) -> dict:
     if not windows or ts is None:
-        return MODEL_RATES[key]
+        return list_rates
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     for end_exclusive, rates in windows:
         if ts < end_exclusive:
             return rates
-    return MODEL_RATES[key]
+    return list_rates
 
 
-def resolve(model: str, ts: datetime | None = None) -> Resolution:
-    """Resolve a model id to rates, reporting how confident the match is."""
+def _dated(key: str, ts: datetime | None) -> dict:
+    return _in_window(DATED_RATES.get(key), ts, MODEL_RATES[key])
+
+
+# OpenRouter's dated permaslug ("deepseek/deepseek-v4-flash-20260731") names
+# the same model as its short slug ("deepseek/deepseek-v4-flash-0731").
+_PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
+
+
+def _provider_key(norm: str, provider: str) -> tuple[str, str] | None:
+    """The PROVIDER_RATES key for a record, or None.
+
+    Exact on the normalised id, or on its permaslug folded to the slug.
+    Never MODEL_RATES' snapshot-suffix tolerance: that would read the
+    permaslug as the UNDATED model, a different row at a different price.
+    """
+    for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm)):
+        if (model, provider) in PROVIDER_RATES:
+            return model, provider
+    return None
+
+
+def resolve(model: str, ts: datetime | None = None,
+            provider: str | None = None) -> Resolution:
+    """Resolve a model id to rates, reporting how confident the match is.
+
+    `provider` is the record's serving host. A (model, provider) row wins;
+    with no row, or no provider, the model alone decides.
+    """
     norm = _normalise(model)
     if _is_free(model, norm):
         return Resolution(FREE_RATES, "exact", norm)
+    pkey = _provider_key(norm, provider) if provider else None
+    if pkey is not None:
+        return Resolution(
+            _in_window(PROVIDER_DATED_RATES.get(pkey), ts, PROVIDER_RATES[pkey]),
+            "exact", pkey[0])
     key = _match_key(norm)
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)
@@ -294,9 +478,10 @@ def resolve(model: str, ts: datetime | None = None) -> Resolution:
     return Resolution(DEFAULT_RATES, "default")
 
 
-def rate_for(model: str, ts: datetime | None = None) -> dict:
+def rate_for(model: str, ts: datetime | None = None,
+             provider: str | None = None) -> dict:
     """Rates for a model at a point in time. Omitting ts yields list price."""
-    return resolve(model, ts).rates
+    return resolve(model, ts, provider).rates
 
 
 def compute_cost(
@@ -310,6 +495,7 @@ def compute_cost(
     read: int,
     ts: datetime | None = None,
     long_context: bool = False,
+    provider: str | None = None,
 ) -> float:
     """USD cost for one request's token tally.
 
@@ -325,8 +511,11 @@ def compute_cost(
     1.5x output) to the whole request. It defaults off, so every existing
     caller is unaffected: no Kimi caller passes it (the wire format has no
     such tier), and neither does a Codex record on a subscription.
+
+    provider is the record's serving host (OpenRouter's message.provider);
+    None prices by the model alone, exactly as before the provider table.
     """
-    r = rate_for(model, ts)
+    r = rate_for(model, ts, provider)
     in_mult = LONG_CONTEXT_INPUT_MULT if long_context else 1.0
     out_mult = LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0
     return (

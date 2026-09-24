@@ -540,6 +540,8 @@ class _LineWalk:
             # Only a reply's CLOSING line carries stop_reason; NULL = never closed.
             "stop_reason": msg.get("stop_reason") or None,
             "effort": obj.get("effort") or None,
+            # The serving host (OpenRouter only); NULL on every other lane.
+            "provider": _provider(msg),
         }
         if not (merge_key and merge_key in self.seen_request):
             ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)  # live list: a later prompt_snapshot amends it in place (turn_flags.TurnWindow)
@@ -548,6 +550,8 @@ class _LineWalk:
             existing["usage"] = _merge_usage_max(existing["usage"], usage)
             if ev["stop_reason"] is not None:
                 existing["stop_reason"] = ev["stop_reason"]
+            if existing["provider"] is None:
+                existing["provider"] = ev["provider"]
             # Same Phase 1 max-merge for text_chars: streaming responses
             # log incrementally; the largest sample is the final size.
             if text_chars > existing.get("text_chars", 0):
@@ -695,6 +699,12 @@ def _resolve_rereads(tool_uses: list) -> None:
             seen_whole.discard(target_key(path))
 
 
+def _provider(msg: dict) -> str | None:
+    """message.provider, the host an OpenRouter request was served by."""
+    value = msg.get("provider")
+    return (value.strip() or None) if isinstance(value, str) else None
+
+
 def _project_record(file_key: str, ev: dict) -> dict:
     """One walked event → its records-table row (token columns + cost)."""
     u = ev["usage"]
@@ -717,6 +727,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
         # Dated rates apply to when the tokens were spent, not to
         # when this file happens to be parsed.
         ts=ts,
+        provider=ev.get("provider"),
     )
     return {
         "file_key": file_key,
@@ -725,6 +736,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "request_id": ev["request_id"],
         "ts": ts,
         "model": ev["model"],
+        "provider": ev.get("provider"),
         "fresh_tokens": fresh,
         "cache_creation_tokens": create,
         "cache_read_tokens": read,

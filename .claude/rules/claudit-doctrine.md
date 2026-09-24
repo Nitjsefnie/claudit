@@ -201,7 +201,7 @@ output (see `backend/schema.sql`):
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
   reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
-  turn_flags, turn_tool_results, long_context)`
+  turn_flags, turn_tool_results, long_context, provider)`
   PK `(file_key, line_num)` — one row per usage-bearing line AFTER
   per-file Phase 1 max-merge for matching `request_id`.
 
@@ -309,7 +309,7 @@ tokens.
 ## Aggregates are precomputed at ingest (SV-ROLLUP)
 
 `usage_rollup` holds pre-summed usage at grain
-`(session_id, hour, model, is_main, long_context)`, rebuilt by
+`(session_id, hour, model, provider, is_main, long_context)`, rebuilt by
 `ingest.rebuild_rollup()` after every successful ingest (AFTER
 `recompute_canonical()` — it reads `is_canonical`). ~6.1k rows stand in
 for ~286k records.
@@ -328,6 +328,9 @@ The grain is load-bearing, do not "simplify" it:
   summed across both meters — the flag is part of the grain so each
   row prices by its own meter and the breakdown reconciles with
   `cost_usd` (SV-DATED-RATES).
+- **Carries `provider`** (`''` for a record that named none). One model
+  prices differently per serving host (SV-PROVIDER-RATES), so a row that
+  summed two hosts' tokens could not be re-priced to its stored cost.
 - **Carries `first_ts`/`last_ts`.** Burn-rate span is
   `MAX(last_ts) - MIN(first_ts)`, which composes; a stored duration
   would not.
@@ -568,6 +571,24 @@ close when the first clean run finishes — plan the cutover around them
   until the next hourly run.
 
 A fresh DB has no such windows.
+
+## Rates may be keyed by serving host (SV-PROVIDER-RATES)
+
+An OpenRouter record names the host that served it as
+`message.provider`, stored on `records.provider`. `pricing.resolve(model,
+ts, provider)` prices it from `PROVIDER_RATES[(normalised model,
+provider)]` when that row exists (a dated permaslug such as
+`-20260731` folds to its `-0731` slug), and otherwise by the model alone.
+A record with NO provider (every other lane) always prices by the model
+alone, exactly as before the table existed: the z.ai subscription's GLM
+must never take an OpenRouter host's rate. Free ids (`:free`,
+`stealth/`) stay zero ahead of both.
+
+Provider rows follow SV-DATED-RATES: dated windows live in
+`PROVIDER_DATED_RATES`, their boundaries join `RATE_EPOCHS`, and every
+fold that re-derives rates groups by provider as well as epoch.
+`src/parser.js` mirrors the table (`window.providerRates`) under
+SV-PARSER-SPEC.
 
 ## Model resolution flags estimates (SV-RATE-ESTIMATES)
 

@@ -968,3 +968,20 @@ def test_cwd_rebuild_marks_only_the_turn_that_reopens_on_a_new_cwd():
 def test_models_lists_every_model_in_the_file():
     out = parse.parse_file("k/sess-sr/sess-sr.jsonl", _read("stop_reason_merge.jsonl"))
     assert out["models"] == ["claude-sonnet-4-5"]
+
+
+def test_openrouter_provider_is_stored_and_prices_the_record():
+    """An OpenRouter assistant line names its serving host as
+    message.provider; the record keeps it and is priced from that host's
+    row. A line without the field stores NULL and prices by the model
+    alone, exactly as before the provider table existed."""
+    out = parse.parse_file("k/s/s.jsonl", _read("openrouter_provider.jsonl"))
+    novita, bare = out["records"]
+    assert novita["provider"] == "Novita"
+    assert bare["provider"] is None
+    # Novita's deepseek-v4.1-flash row: 0.285 in / 0.0057 read / 1.14 out.
+    assert novita["cost_usd"] == pytest.approx(
+        round((1000 * 0.285 + 2000 * 0.0057 + 300 * 1.14) / 1e6, 6))
+    # No provider: DEFAULT (Opus 4.7 list, 5 / 0.50 / 25), as before.
+    assert bare["cost_usd"] == pytest.approx(
+        round((1000 * 5.00 + 2000 * 0.50 + 300 * 25.00) / 1e6, 6))

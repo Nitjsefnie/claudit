@@ -45,6 +45,7 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
                  r.ts AS hour, r.ts AS first_ts, r.ts AS last_ts,
                  COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
                  COALESCE(r.long_context, FALSE) AS long_context,
+                 COALESCE(r.provider, '') AS provider,
                  1::bigint AS requests,
                  r.fresh_tokens, r.output_tokens, r.cache_creation_tokens,
                  r.cache_read_tokens, r.eph5_tokens, r.eph1h_tokens,
@@ -173,6 +174,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                ) AS hour,
                u.model,
                COALESCE(u.long_context, FALSE) AS long_context,
+               u.provider,
                SUM(u.fresh_tokens)      AS input_tokens,
                SUM(u.output_tokens)     AS output_tokens,
                SUM(u.eph5_tokens)       AS cache_5m_tokens,
@@ -183,8 +185,8 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                SUM(u.requests)          AS requests,
                COUNT(DISTINCT u.session_id) AS session_count
         {src["roll_src"]}
-        GROUP BY 1, 2, 3
-        ORDER BY 1, 2, 3
+        GROUP BY 1, 2, 3, 4
+        ORDER BY 1, 2, 3, 4
         """,
         src["roll_args"],
     ).fetchall()
@@ -436,8 +438,8 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
     }
 
 
-# The hourly SELECT's column order, minus `hour`, `model` and
-# `long_context`, which the entry treats specially. Named here so the
+# The hourly SELECT's column order, minus `hour`, `model`, `long_context`
+# and `provider`, which the entry treats specially. Named here so the
 # unpack does not spend one local per column.
 _HOURLY_TOKEN_KEYS = (
     "input_tokens",
@@ -452,27 +454,26 @@ _HOURLY_TOKEN_KEYS = (
 )
 
 
-def _hourly_entry(row, seen_hours: set) -> tuple[dict, str, float]:
-    """One hourly panel entry, plus its (model, cost) for the
-    cost_by_model fold. `session_count` is attributed to the first
-    row of each hour only — the rows are per (hour, model,
-    long_context), so summing the column across models would
-    double-count. A long-context row is part of the same hour's data
-    (its flag rides the entry for the browser breakdown to price by)."""
-    hour, model, long_context = row[0], row[1], row[2]
-    tokens = row[3:3 + len(_HOURLY_TOKEN_KEYS)]
-    cost, reqs, sc = row[3 + len(_HOURLY_TOKEN_KEYS):]
+def _hourly_entry(row, seen_hours: set) -> dict:
+    """One hourly panel entry. `session_count` is attributed to the first
+    row of each hour only — the rows are per (hour, model, long_context,
+    provider), so summing the column across models would double-count. A
+    long-context row is part of the same hour's data (its flag rides the
+    entry for the browser breakdown to price by), and so is a provider
+    row: `provider` is None for a record that named no serving host."""
+    hour, model, long_context, provider = row[:4]
+    tokens = row[4:4 + len(_HOURLY_TOKEN_KEYS)]
+    cost, reqs, sc = row[4 + len(_HOURLY_TOKEN_KEYS):]
     hour_iso = _iso(hour)
     is_first_for_hour = hour_iso not in seen_hours
     seen_hours.add(hour_iso)
-    model_name = model or "unknown"
-    entry = {"hour": hour_iso, "model": model_name,
-             "long_context": bool(long_context)}
+    entry = {"hour": hour_iso, "model": model or "unknown",
+             "long_context": bool(long_context), "provider": provider or None}
     entry.update(dict(zip(_HOURLY_TOKEN_KEYS, (int(v or 0) for v in tokens))))
     entry["cost_usd"] = float(cost or 0)
     entry["requests"] = int(reqs or 0)
     entry["session_count"] = int(sc or 0) if is_first_for_hour else 0
-    return entry, model_name, float(cost or 0)
+    return entry
 
 
 # Token-type fields the hourly panel can carry, in render order.
@@ -538,24 +539,44 @@ def surviving_token_types(entries: list[dict]) -> list[str]:
     return [f for f in TOKEN_TYPE_FIELDS if f in present]
 
 
-def _fold_hourly(hourly_rows) -> tuple[list, list]:
-    """The hourly panel plus cost_by_model, folded from the same rows
-    rather than costing its own full pass over the records."""
+# The billed partition (SV-SUBSET-TOKENS: thinking_tokens is inside
+# output_tokens and never added).
+_BILLED_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_5m_tokens",
+                      "cache_1h_tokens", "cache_read_tokens")
+
+
+def _fold_hourly(hourly_rows) -> tuple[list, list, list]:
+    """The hourly panel, cost_by_model and cost_by_model_provider, folded
+    from the same rows rather than costing their own passes over the
+    records.
+
+    cost_by_model_provider is cost AND tokens per (model, provider). It
+    keeps zero-cost rows that carry tokens, because a free host (Stealth)
+    still has tokens to show."""
     hourly = []
     seen_hours: set[str | None] = set()
     cost_by_model_acc: dict[str, float] = {}
+    split_acc: dict[tuple, list] = {}
     for row in hourly_rows:
-        entry, model_name, cost = _hourly_entry(row, seen_hours)
+        entry = _hourly_entry(row, seen_hours)
         hourly.append(entry)
-        cost_by_model_acc[model_name] = (
-            cost_by_model_acc.get(model_name, 0.0) + cost
-        )
+        model, cost = entry["model"], entry["cost_usd"]
+        cost_by_model_acc[model] = cost_by_model_acc.get(model, 0.0) + cost
+        acc = split_acc.setdefault((model, entry["provider"]), [0.0, 0])
+        acc[0] += cost
+        acc[1] += sum(entry[k] for k in _BILLED_TOKEN_KEYS)
     cost_by_model = sorted(
         ({"model": m, "cost_usd": v} for m, v in cost_by_model_acc.items() if v > 0),
         key=lambda r: r["cost_usd"],
         reverse=True,
     )
-    return hourly, cost_by_model
+    cost_by_model_provider = sorted(
+        ({"model": m, "provider": p, "cost_usd": c, "total_tokens": t}
+         for (m, p), (c, t) in split_acc.items() if c > 0 or t > 0),
+        key=lambda r: (r["cost_usd"], r["total_tokens"]),
+        reverse=True,
+    )
+    return hourly, cost_by_model, cost_by_model_provider
 
 
 def _attach_churn(hourly: list, churn_rows) -> None:
@@ -688,7 +709,7 @@ def _fold_rate_limits(rl_rows) -> list:
 def _dashboard_build(rows: dict, rng: str, project: str | None,
                      bucket_s: int) -> dict:
     """Fold the raw panel rows into the response payload."""
-    hourly, cost_by_model = _fold_hourly(rows["hourly"])
+    hourly, cost_by_model, cost_by_model_provider = _fold_hourly(rows["hourly"])
     _attach_churn(hourly, rows["churn"])
     drop_zero_token_types(hourly)
     file_counts_row = rows["file_counts_row"] or (0, 0, 0, 0, 0, 0)
@@ -700,6 +721,7 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "hourly": hourly,
         "token_types": surviving_token_types(hourly),
         "cost_by_model": cost_by_model,
+        "cost_by_model_provider": cost_by_model_provider,
         "cost_by_project": _fold_cost_by_project(rows["cost_by_project"]),
         "tokens_by_project": _fold_tokens_by_project(
             rows["tokens_by_project"]),

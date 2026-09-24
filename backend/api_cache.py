@@ -13,7 +13,8 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from backend import db, r2
-from backend.api_common import Phases, _parse_range, fold_per_model, rate_epoch_sql
+from backend.api_common import (Phases, _parse_range, fold_per_model,
+                                fold_per_model_provider, rate_epoch_sql)
 from backend.cache import cache_response
 
 router = APIRouter()
@@ -56,6 +57,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
     per_model_rows = ph.execute(
         "per_model", c, f"""
         SELECT model,
+               provider,
                ({epoch_expr})              AS rate_epoch,
                COALESCE(long_context, FALSE) AS long_context,
                COUNT(*)                    AS turns,
@@ -67,7 +69,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
                SUM(eph1h_tokens)           AS eph1h,
                SUM(cost_usd)               AS cost_total
         {canon_src}
-        GROUP BY model, rate_epoch, COALESCE(long_context, FALSE)
+        GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE)
         ORDER BY cost_total DESC
         """,
         epoch_params + canon_args,
@@ -180,6 +182,9 @@ def cache_view(
         range, project,
         per_model: [{model, turns, fresh, cache_create, cache_read, output,
                      eph5, eph1h, hit_rate_pct, cost_total, cost_buckets}],
+        per_model_provider: [{same shape, plus provider}] -- one entry per
+                     (model, provider); provider is null for a record
+                     that named no serving host,
         session_total: {same shape, summed across per_model},
         top_output: [{ts, line, request_id, model, output, c_read,
                       c_create_1h, c_create_5m, fresh, cost, file_key}],
@@ -201,12 +206,14 @@ def cache_view(
         )
 
     per_model = fold_per_model(per_model_rows)
+    per_model_provider = fold_per_model_provider(per_model_rows)
     ph.done(models=len(per_model))
 
     return {
         "range": rng,
         "project": project,
         "per_model": per_model,
+        "per_model_provider": per_model_provider,
         "session_total": _session_total(per_model),
         "top_output": _top_rows(top_output, [
             "ts", "line", "request_id", "model",

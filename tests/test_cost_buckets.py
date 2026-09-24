@@ -15,9 +15,9 @@ UTC = timezone.utc
 
 def _row(model, epoch, fresh=0, cc=0, cr=0, output=0, eph5=0, eph1h=0,
          cost=0.0, long_context=False):
-    # (model, rate_epoch, long_context, turns, fresh, cache_create,
-    #  cache_read, output, eph5, eph1h, cost_total)
-    return (model, epoch, long_context, 1, fresh, cc, cr, output,
+    # (model, provider, rate_epoch, long_context, turns, fresh,
+    #  cache_create, cache_read, output, eph5, eph1h, cost_total)
+    return (model, None, epoch, long_context, 1, fresh, cc, cr, output,
             eph5, eph1h, cost)
 
 

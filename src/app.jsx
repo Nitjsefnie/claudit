@@ -11,6 +11,13 @@ const { useState, useEffect, useMemo } = React;
 // string lives in this file.
 const BRAND = window.BRAND || {};
 
+// A Cost/Tokens by Model row label. A record that named its serving host
+// (OpenRouter) is split per host; one that named none keeps the bare model
+// label, the lane's own row, with no invented host name.
+function modelProviderLabel(model, provider) {
+  return provider ? `${model} · ${provider}` : model;
+}
+
 function txToDashData(tx) {
   // Convert a real transcript into dashboard-shaped {events, limitHits, range}.
   // Each event = ONE assistant turn (after applying the parse_session
@@ -90,7 +97,7 @@ function txToDashData(tx) {
       if ((inp + cc + cr) === 0) continue; // refusal/interrupt
       const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
-      const r = rateFor(u.model);
+      const r = rateFor(u.model, undefined, u.provider);
       const unsplit = Math.max(0, cc - eph5 - eph1h);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): lane meta
@@ -104,6 +111,7 @@ function txToDashData(tx) {
         session_id: sid,
         turn_index: turnIdx++,
         model: shortM(u.model),
+        provider: u.provider || null,
         input_tokens: inp,
         output_tokens: out,
         cache_create: cc,
@@ -459,6 +467,9 @@ function backendDashToShape(b) {
     // true bill at 2x input side / 1.5x output, which the Token
     // Breakdown must apply or its bars drift from the stored total.
     long_context: !!h.long_context,
+    // The serving host, priced per row like the long-context flag; null
+    // when the record named none.
+    provider: h.provider || null,
     cost_usd: h.cost_usd,
     lines_added: h.lines_added || 0,
     lines_deleted: h.lines_deleted || 0,
@@ -467,9 +478,17 @@ function backendDashToShape(b) {
   })).filter(e => !isNaN(e.ts));
   if (!events.length) return null;
   const range = backendAggregateRange(events, b.bucket_s);
-  const costByModel = (b.cost_by_model || []).reduce((acc, r) => {
-    const key = short(r.model);
+  // Keyed like the client-side fold in Dashboard: model, split by host
+  // where the records named one. A backend without the split falls back
+  // to the per-model list.
+  const costByModel = (b.cost_by_model_provider || b.cost_by_model || []).reduce((acc, r) => {
+    const key = modelProviderLabel(short(r.model), r.provider);
     acc[key] = (acc[key] || 0) + (r.cost_usd || 0);
+    return acc;
+  }, {});
+  const tokensByModel = (b.cost_by_model_provider || []).reduce((acc, r) => {
+    const key = modelProviderLabel(short(r.model), r.provider);
+    acc[key] = (acc[key] || 0) + (r.total_tokens || 0);
     return acc;
   }, {});
   const limitHits = (b.rate_limit_hits || [])
@@ -507,7 +526,7 @@ function backendDashToShape(b) {
     };
   });
   return {
-    events, limitHits, range, costByModel,
+    events, limitHits, range, costByModel, tokensByModel,
     costByProject: b.cost_by_project || [],
     tokensByProject: b.tokens_by_project || [],
     sessionsOverride: sessions,
@@ -646,7 +665,7 @@ function computeTokenBreakdown(events) {
   const c = { input: 0, output: 0, eph5: 0, eph1h: 0, ccUnsplit: 0, cr: 0 };
   if (window.rateForModel) {
     for (const e of events) {
-      const r = window.rateForModel(e.model, e.ts);
+      const r = window.rateForModel(e.model, e.ts, e.provider);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): a long-context
       // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
@@ -760,6 +779,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const hasData = !!synth;
   const {
     events = [], limitHits = [], range: dataRange, costByModel: backendByModel,
+    tokensByModel: backendTokensByModel,
     costByProject: backendByProject = [],
     tokensByProject: backendTokensByProject = [],
     sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
@@ -769,6 +789,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // Placeholder window so the bin-size maths below stays finite pre-data.
   const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
   const hasBackendByModel = backendByModel && Object.keys(backendByModel).length > 0;
+  const hasBackendTokensByModel = backendTokensByModel && Object.keys(backendTokensByModel).length > 0;
   const computed = useMemo(() => computeSessions(events), [events]);
   const sessions = (sessionsOverride && sessionsOverride.length)
     ? sessionsOverride
@@ -794,23 +815,31 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       // (see api_dashboard._attach_churn), so a plain sum over events
       // is already de-duplicated across models.
       t.linesAdded += e.lines_added || 0; t.linesDeleted += e.lines_deleted || 0;
-      byModel[e.model] = (byModel[e.model] || 0) + e.cost_usd;
+      const label = modelProviderLabel(e.model, e.provider);
+      byModel[label] = (byModel[label] || 0) + e.cost_usd;
       // Every token the model processed, whichever cache tier it came
       // from: the measure Cost by Model prices, before the rate.
-      tokensByModel[e.model] = (tokensByModel[e.model] || 0) + e.input_tokens + e.output_tokens + e.cache_create + e.cache_read;
+      tokensByModel[label] = (tokensByModel[label] || 0) + e.input_tokens + e.output_tokens + e.cache_create + e.cache_read;
     }
     t.total = t.input + t.output + t.cc + t.cr;
-    return { ...t, byModel: hasBackendByModel ? backendByModel : byModel, tokensByModel };
-  }, [events, backendByModel, hasBackendByModel]);
+    return {
+      ...t,
+      byModel: hasBackendByModel ? backendByModel : byModel,
+      tokensByModel: hasBackendTokensByModel ? backendTokensByModel : tokensByModel,
+    };
+  }, [events, backendByModel, hasBackendByModel, backendTokensByModel, hasBackendTokensByModel]);
 
   // Adaptive to the visible data, but never finer than the aggregation the
   // backend already applied to each returned point.
   const binMs = window.dashboardBinMs(range, bucketS);
 
+  // A host-split row ("model · Host") has no fixedColors entry of its
+  // own, so it takes its model's colour.
+  const modelColor = label => window.modelColors[label.split(' · ')[0]];
   const costByModel = Object.entries(totals.byModel)
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => ({ label, value, color: modelColor(label) }));
   // Share of the charted total, not of `totals.cost`: the rows above drop
   // zero-cost models, so summing them is what makes the labels add to 100%.
   const costByModelTotal = costByModel.reduce((a, r) => a + r.value, 0);
@@ -819,7 +848,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const tokensByModel = Object.entries(totals.tokensByModel)
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => ({ label, value, color: modelColor(label) }));
   const tokensByModelTotal = tokensByModel.reduce((a, r) => a + r.value, 0);
 
   // One colour for every bar: this is a magnitude comparison, identity is

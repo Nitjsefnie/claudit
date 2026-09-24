@@ -137,6 +137,11 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 -- NULL on everything that is not a lane record (Claude never bills this
 -- way); readers COALESCE to FALSE.
 ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN;
+-- 2026-09-25: the host that served the request, OpenRouter's
+-- message.provider ("Novita", "Morph", "Stealth"). Priced by
+-- pricing.PROVIDER_RATES; NULL on every other lane, which prices by model
+-- alone exactly as before.
+ALTER TABLE records ADD COLUMN IF NOT EXISTS provider TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
@@ -182,7 +187,10 @@ CREATE TABLE IF NOT EXISTS usage_rollup (
   -- record's tokens must not sum into a row the fold prices at the flat
   -- rate, or the Token Breakdown re-derivation drifts from cost_usd.
   long_context        BOOLEAN     NOT NULL DEFAULT FALSE,
-  PRIMARY KEY (session_id, hour, model, is_main, long_context)
+  -- records.provider, '' for NULL (a key column admits no NULL). In the
+  -- grain because one model prices differently per provider.
+  provider            TEXT        NOT NULL DEFAULT '',
+  PRIMARY KEY (session_id, hour, model, provider, is_main, long_context)
 );
 CREATE INDEX IF NOT EXISTS usage_rollup_hour_idx ON usage_rollup (hour);
 CREATE INDEX IF NOT EXISTS usage_rollup_project_idx ON usage_rollup (project_id, hour);
@@ -549,6 +557,24 @@ BEGIN
     ALTER TABLE usage_rollup DROP CONSTRAINT IF EXISTS usage_rollup_pkey;
     ALTER TABLE usage_rollup ADD CONSTRAINT usage_rollup_pkey
       PRIMARY KEY (session_id, hour, model, is_main, long_context);
+  END IF;
+END $$;
+-- 2026-09-25: provider joined the grain the same way, so a re-derived
+-- breakdown prices each row by its own provider's rates. Same idempotent
+-- swap, keyed on the new column.
+ALTER TABLE usage_rollup
+  ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '';
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'usage_rollup_pkey'
+       AND conrelid = 'usage_rollup'::regclass
+       AND pg_get_constraintdef(oid) LIKE '%provider%'
+  ) THEN
+    ALTER TABLE usage_rollup DROP CONSTRAINT IF EXISTS usage_rollup_pkey;
+    ALTER TABLE usage_rollup ADD CONSTRAINT usage_rollup_pkey
+      PRIMARY KEY (session_id, hour, model, provider, is_main, long_context);
   END IF;
 END $$;
 ALTER TABLE ctx_cost_rollup
