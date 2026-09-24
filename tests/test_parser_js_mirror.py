@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import pricing
+from backend import parse, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSER_JS = ROOT / "src" / "parser.js"
@@ -206,3 +206,45 @@ def test_per_record_cost_rounding_matches_python_away_from_ties():
     assert _node_cost(tokens) == round(tokens * 0.5 / 1_000_000, 6)
     tokens = 1_000_001
     assert _node_cost(tokens) == round(tokens * 0.5 / 1_000_000, 6)
+
+
+# --------------------------------------------------------------------------
+# Claude-format merge key (SV-PARSER-SPEC)
+# --------------------------------------------------------------------------
+
+
+def _node_usage_records(text: str) -> list[dict]:
+    """The browser's assistant_usage events for one Claude transcript."""
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      const {{ meta }} = window.parseTranscript({json.dumps(text)});
+      console.log(JSON.stringify(meta
+        .filter(m => m.type === 'assistant_usage')
+        .map(m => ({{ line: m.line,
+                      fresh: m.usage.input_tokens || 0,
+                      read: m.usage.cache_read_input_tokens || 0,
+                      output: m.usage.output_tokens || 0 }}))));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize(
+    "name", ["message_id_merge.jsonl", "streaming_merge.jsonl"]
+)
+def test_parser_js_merges_on_the_backend_key(name):
+    """A line with no requestId merges on message.id in both parsers, so
+    the Inspector shows the one record the database stores."""
+    path = ROOT / "fixtures" / "parser" / name
+    backend = [
+        {"line": r["line_num"], "fresh": r["fresh_tokens"],
+         "read": r["cache_read_tokens"], "output": r["output_tokens"]}
+        for r in parse.parse_file(f"k/s/{name}", path.read_bytes())["records"]
+    ]
+    assert _node_usage_records(path.read_text(encoding="utf-8")) == backend
+    assert len(backend) == 1, "both fixtures are one API message"

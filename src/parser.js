@@ -45,7 +45,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
   const events = [];
   const meta = [];
   const lines = text.split('\n');
-  const seenReq = new Map(); // requestId -> usage event (for streaming merge)
+  const seenReq = new Map(); // merge key -> usage event (for streaming merge)
   const seenUuids = (opts && opts.seenUuids) || null; // optional cross-file dedup
 
   function mergeUsageMax(existing, incoming) {
@@ -241,6 +241,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
       // aggregation. Mirrors parse_session.py 1.20.4 / backend/parse.py.
       if (usage && (m.model || '') !== '<synthetic>') {
         const reqId = obj.requestId || '';
+        // No requestId (a Z.ai-served transcript): the lines of one API
+        // message still share message.id. Mirrors backend/parse.py _merge_key.
+        const mergeKey = reqId || (typeof m.id === 'string' && m.id ? `msg:${m.id}` : '');
         const ev = {
           line: i + 1, type: 'assistant_usage', ts,
           model: m.model || '(unknown)',
@@ -249,13 +252,13 @@ window.parseTranscript = function parseTranscript(text, opts) {
           sessionId: obj.sessionId || '',
           usage: { ...usage },
         };
-        if (reqId && seenReq.has(reqId)) {
+        if (mergeKey && seenReq.has(mergeKey)) {
           // Recursive max merge — handles streaming where output_tokens is
           // reported incrementally, plus nested cache_creation dict.
-          const existing = seenReq.get(reqId);
+          const existing = seenReq.get(mergeKey);
           existing.usage = mergeUsageMax(existing.usage, usage);
         } else {
-          if (reqId) seenReq.set(reqId, ev);
+          if (mergeKey) seenReq.set(mergeKey, ev);
           meta.push(ev);
         }
       }
