@@ -203,10 +203,10 @@ def _endpoint(fresh: float, read: float, output: float) -> dict:
 # so none is encoded: a reversion that has not happened is not a rate. When
 # one moves, add a PROVIDER_DATED_RATES window for the old price.
 #
-# A provider serving one model from two endpoints at different prices
-# (BaseTen's cache reads on deepseek-v4.1-flash)
-# carries the dearer endpoint: the transcript names only the host, and
-# billing the cheaper one would under-count whenever the other served.
+# A provider listing one model at two prices carries the endpoint this
+# account's keys can reach. BaseTen's deepseek-v4.1-flash cache read is 0.03
+# on its US in-region endpoint and 0.007 on its global one; the keys allow
+# only the global data region, so 0.007 applies.
 PROVIDER_RATES_FETCHED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
 PROVIDER_RATES: dict[tuple[str, str], dict] = {
     # z-ai/glm-5.3-flash
@@ -259,7 +259,7 @@ PROVIDER_RATES: dict[tuple[str, str], dict] = {
     ("deepseek/deepseek-v4-1-flash", "Phala"): _endpoint(0.276, 0.00552, 1.104),  # 20% off
     ("deepseek/deepseek-v4-1-flash", "Novita"): _endpoint(0.285, 0.0057, 1.14),  # 5% off
     ("deepseek/deepseek-v4-1-flash", "AtlasCloud"): _endpoint(0.3, 0.03, 1.2),
-    ("deepseek/deepseek-v4-1-flash", "BaseTen"): _endpoint(0.3, 0.03, 1.2),
+    ("deepseek/deepseek-v4-1-flash", "BaseTen"): _endpoint(0.3, 0.007, 1.2),
     ("deepseek/deepseek-v4-1-flash", "DigitalOcean"): _endpoint(0.3, 0.006, 1.2),
     ("deepseek/deepseek-v4-1-flash", "Makora"): _endpoint(0.3, 0.006, 1.2),
     ("deepseek/deepseek-v4-1-flash", "Modal"): _endpoint(0.3, 0.03, 1.2),

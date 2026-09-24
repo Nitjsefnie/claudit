@@ -76,11 +76,11 @@ def test_the_seeded_models_and_their_provider_counts():
     }
 
 
-def test_a_provider_listing_two_prices_bills_the_higher_endpoint():
-    # BaseTen serves deepseek-v4.1-flash from two fp8 endpoints that differ
-    # only in cache-read price, and the transcript names only the host.
-    # Billing the cheaper one would under-count whenever the other served.
-    assert pricing.rate_for(V41, provider="BaseTen")["read"] == 0.03
+def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
+    # BaseTen lists deepseek-v4.1-flash at two cache-read prices: 0.03 US
+    # in-region, 0.007 global. The account's keys allow only the global
+    # data region, so the global price applies.
+    assert pricing.rate_for(V41, provider="BaseTen")["read"] == 0.007
 
 
 def test_modal_glm_carries_its_one_remaining_endpoint():

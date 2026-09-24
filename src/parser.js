@@ -456,7 +456,7 @@ for (const [model, host, fresh, read, out] of [
   ['deepseek/deepseek-v4-1-flash', 'Phala', 0.276, 0.00552, 1.104],  // 20% off
   ['deepseek/deepseek-v4-1-flash', 'Novita', 0.285, 0.0057, 1.14],  // 5% off
   ['deepseek/deepseek-v4-1-flash', 'AtlasCloud', 0.3, 0.03, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'BaseTen', 0.3, 0.03, 1.2],
+  ['deepseek/deepseek-v4-1-flash', 'BaseTen', 0.3, 0.007, 1.2],
   ['deepseek/deepseek-v4-1-flash', 'DigitalOcean', 0.3, 0.006, 1.2],
   ['deepseek/deepseek-v4-1-flash', 'Makora', 0.3, 0.006, 1.2],
   ['deepseek/deepseek-v4-1-flash', 'Modal', 0.3, 0.03, 1.2],
