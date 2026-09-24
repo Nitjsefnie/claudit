@@ -10,7 +10,6 @@ _LineWalk collects per-file state; helpers project records and ctx_turns.
 """
 from __future__ import annotations
 
-import re
 from collections import Counter
 from datetime import datetime, timezone
 from io import BytesIO
@@ -28,6 +27,7 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
+from backend.parse_common import _dispatch_prompt_shape
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
@@ -322,45 +322,6 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
 
 # Tool names that dispatch a subagent. Both spellings have shipped.
 DISPATCH_TOOLS = ("Agent", "Task")
-
-
-# How far into a dispatch prompt to look for a brief reference. A prompt
-# that delegates to a written brief says so in its opening directive
-# ("Read <path> IN FULL and execute it exactly"); one that mentions a
-# path incidentally does so further down, after the instructions it
-# actually carries.
-BRIEF_REF_SCAN = 400
-
-# An absolute POSIX or Windows path to a Markdown file. Markdown because
-# that is what a brief is written as; a path to a source file being
-# edited is not a brief and must not count as one.
-BRIEF_REF_RE = re.compile(r"(?:/|[A-Za-z]:\\)[^\s`'\"]+\.md\b")
-
-
-def _dispatch_prompt_shape(args: dict) -> tuple:
-    """(prompt_chars, brief_ref) for a dispatching call's prompt.
-
-    Two questions about HOW a dispatch was briefed, neither of which
-    needs the prompt text itself kept:
-
-    `prompt_chars` -- how much brief was written into this call.
-    `brief_ref`    -- whether the opening directive points at a written
-                      brief file instead of carrying the brief inline.
-
-    Together they separate a dispatch that reuses a brief someone
-    committed from one that re-authors the same instructions from
-    scratch, which is the difference between a brief that survives the
-    session and one that dies with its scratch directory.
-
-    The prompt text is deliberately NOT stored: it is unbounded, it is
-    the most sensitive thing in a transcript, and neither question
-    needs it.
-    """
-    prompt = args.get("prompt")
-    if not isinstance(prompt, str) or not prompt:
-        return None, None
-    head = prompt[:BRIEF_REF_SCAN]
-    return len(prompt), BRIEF_REF_RE.search(head) is not None
 
 
 def _dispatch_args(name: str, args: dict) -> tuple:

@@ -131,6 +131,25 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
     return "claude"
 
 
+# Each lane's own name for "no role profile", which is claudit's
+# DEFAULT_AGENT_TYPE rather than a role of its own. Every other role a
+# transcript names is stored verbatim.
+_LANE_DEFAULT_ROLES = {"codex": "default", "kimi-code": "agent"}
+
+
+def lane_agent_type(fmt: str, role: str | None) -> str:
+    """files.agent_type for a lane transcript that declared `role`.
+
+    A transcript naming no role, or naming its lane's default profile,
+    lands in DEFAULT_AGENT_TYPE -- the same unattributable bucket as a
+    Claude transcript without one. Legacy kimi-cli records no role at
+    all, so it always lands there.
+    """
+    if not role or role == _LANE_DEFAULT_ROLES.get(fmt):
+        return DEFAULT_AGENT_TYPE
+    return role
+
+
 def to_claudit(parsed: dict, fmt: str) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
@@ -147,6 +166,11 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
 
     A lane tool row's ``model`` is dropped: the column lives on the
     record, and the tool_uses table has no model of its own.
+
+    The dispatch columns (agent_type, agent_model, dispatch_prompt_chars,
+    dispatch_brief_ref) keep whatever the lane parser read off a
+    dispatching call, and are NULL on every other call. The file's raw
+    ``agent_role`` becomes ``agent_type`` through lane_agent_type.
 
     ``fmt`` (the sniff_format label, required) namespaces one format's
     ids: a legacy ToolCall's payload.id is a per-session sequence
@@ -181,10 +205,10 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         # NULL (SV-WHY-COLUMNS: a kind only on an errored call).
         tu.setdefault("error_kind", None)
         tu.setdefault("error_text", None)
-        tu["agent_type"] = None
-        tu["agent_model"] = None
-        tu["dispatch_prompt_chars"] = None
-        tu["dispatch_brief_ref"] = None
+        tu.setdefault("agent_type", None)
+        tu.setdefault("agent_model", None)
+        tu.setdefault("dispatch_prompt_chars", None)
+        tu.setdefault("dispatch_brief_ref", None)
         tu["result_chars"] = None
         tu["read_kind"] = None
         tu["read_targets"] = None
@@ -193,7 +217,6 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     out = dict(parsed)
     out["prompt_count"] = parsed.get("prompt_count") or 0
     out["models"] = sorted({r["model"] for r in parsed["records"]})
-    # files.agent_type is NOT NULL; a lane transcript records no role,
-    # so it lands in the same unattributable bucket as a Claude one.
-    out["agent_type"] = DEFAULT_AGENT_TYPE
+    # files.agent_type is NOT NULL; lane_agent_type never returns None.
+    out["agent_type"] = lane_agent_type(fmt, out.pop("agent_role", None))
     return out

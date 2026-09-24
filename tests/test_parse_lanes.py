@@ -155,3 +155,166 @@ def test_a_lane_transcript_persists_through_ingest(
             "ORDER BY idx", (key,)).fetchall()]
     assert ids == [tu["tool_use_id"] for tu in out["tool_uses"]]
     assert tool_use_id in ids
+
+
+# ---- agent role: what a lane transcript ran as, what a dispatch asked for --
+
+def _lane(name: str) -> dict:
+    return parse.parse_file("sessions/p/s/wire.jsonl", (FIX / name).read_bytes())
+
+
+def _codex_meta(*payloads: str) -> bytes:
+    """A Codex rollout of session_meta lines, one per payload body."""
+    return b"".join(
+        b'{"timestamp":"2026-09-10T08:44:15Z","type":"session_meta",'
+        b'"payload":{"session_id":"s"%s}}\n' % p.encode() for p in payloads)
+
+
+def test_codex_subagent_file_records_its_agent_role():
+    """The role rides the second session_meta; the first, without it,
+    must not shadow it -- the non-empty value wins."""
+    assert _lane("codex_agent_role.jsonl")["agent_type"] == "explorer"
+
+
+def test_codex_main_file_without_a_role_is_the_default_agent_type():
+    assert _lane("codex_min.jsonl")["agent_type"] == constants.DEFAULT_AGENT_TYPE
+
+
+@pytest.mark.parametrize("payload", [
+    ',"agent_role":"default"',   # Codex's own name for "no role profile"
+    ',"agent_role":""',
+    ',"agent_role":null',
+])
+def test_codex_default_or_empty_role_is_the_default_agent_type(payload):
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(payload))
+    assert out["agent_type"] == constants.DEFAULT_AGENT_TYPE
+
+
+def test_codex_first_non_empty_role_wins():
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
+        "", ',"agent_role":"task-reviewer"', ',"agent_role":"explorer"'))
+    assert out["agent_type"] == "task-reviewer"
+
+
+def test_codex_role_falls_back_to_the_thread_spawn_mirror():
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
+        ',"source":{"subagent":{"thread_spawn":{"agent_role":"adversary"}}}'))
+    assert out["agent_type"] == "adversary"
+
+
+def _dispatch_cols(tu: dict) -> tuple:
+    return (tu["agent_type"], tu["agent_model"],
+            tu["dispatch_prompt_chars"], tu["dispatch_brief_ref"])
+
+
+def test_codex_spawn_agent_calls_record_what_they_asked_for():
+    """Both spellings of the dispatch tool; an empty model is None,
+    unparseable arguments yield nothing, and the encrypted `message`
+    gives no prompt shape. A non-dispatch call stays unattributed even
+    when its arguments happen to carry an agent_type."""
+    by_id = {tu["tool_use_id"]: tu
+             for tu in _lane("codex_spawn_agent.jsonl")["tool_uses"]}
+    assert _dispatch_cols(by_id["call_spawn01"]) == (
+        "implementer", "gpt-6-astra", None, None)
+    assert _dispatch_cols(by_id["call_spawn02"]) == (
+        "explorer", None, None, None)
+    assert _dispatch_cols(by_id["call_spawn03"]) == (None, None, None, None)
+    assert _dispatch_cols(by_id["call_wait01"]) == (None, None, None, None)
+
+
+def test_kimi_code_first_profile_name_is_the_agent_type():
+    assert _lane("kimi_code_agent_dispatch.jsonl")["agent_type"] == "coder"
+
+
+def _kc_profile(profile: str) -> bytes:
+    return (b'{"type":"metadata","protocol_version":"1.4",'
+            b'"created_at":1782740973430}\n'
+            b'{"type":"config.update","profileName":%s,'
+            b'"time":1782740973431}\n' % profile.encode())
+
+
+@pytest.mark.parametrize("profile", ['"agent"', '""', "null"])
+def test_kimi_code_default_or_empty_profile_is_the_default_agent_type(profile):
+    """`agent` is kimi-code's name for the default profile."""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _kc_profile(profile))
+    assert out["agent_type"] == constants.DEFAULT_AGENT_TYPE
+
+
+def test_kimi_code_empty_profile_does_not_shadow_a_later_one():
+    blob = _kc_profile('""') + (b'{"type":"config.update",'
+                                b'"profileName":"implementer"}\n')
+    assert parse.parse_file("sessions/p/s/wire.jsonl", blob)[
+        "agent_type"] == "implementer"
+
+
+def test_kimi_code_without_a_profile_is_the_default_agent_type():
+    assert _lane("kimi_code_min.jsonl")["agent_type"] == constants.DEFAULT_AGENT_TYPE
+
+
+def test_kimi_code_agent_call_records_subagent_type_and_prompt_shape():
+    """The prompt is plain text on this lane, so its shape is measured
+    the same way the Claude path measures it. AgentSwarm stays
+    unattributed."""
+    by_id = {tu["tool_use_id"]: tu
+             for tu in _lane("kimi_code_agent_dispatch.jsonl")["tool_uses"]}
+    prompt = "Read /tmp/briefs/task-1.md IN FULL and execute it."
+    assert _dispatch_cols(by_id["tool_Agent01"]) == (
+        "explore", None, len(prompt), True)
+    assert _dispatch_cols(by_id["tool_Swarm01"]) == (None, None, None, None)
+
+
+def test_kimi_code_message_tool_call_agent_carries_a_model():
+    """The v1.0/v1.1 toolCalls shape, arguments as a JSON string."""
+    blob = (b'{"type":"metadata","protocol_version":"1.4",'
+            b'"created_at":1782740973430}\n'
+            b'{"type":"context.append_message","message":{"role":"assistant",'
+            b'"content":[],"toolCalls":[{"type":"function","id":"tool_A2",'
+            b'"function":{"name":"Agent","arguments":"{\\"subagent_type\\":'
+            b'\\"coder\\",\\"model\\":\\"k3\\",\\"prompt\\":\\"do it\\"}"}}]},'
+            b'"time":1782740973431}\n')
+    tu = parse.parse_file("sessions/p/s/wire.jsonl", blob)["tool_uses"][0]
+    assert _dispatch_cols(tu) == ("coder", "k3", 5, False)
+
+
+def test_legacy_has_no_role_and_its_agent_call_is_shaped():
+    """Legacy kimi-cli carries no role signal, so the file is DEFAULT;
+    its Agent calls name no subagent_type but carry a prompt."""
+    out = _lane("kimi_legacy_agent.jsonl")
+    assert out["agent_type"] == constants.DEFAULT_AGENT_TYPE
+    prompt = "Implement the wiring inline."
+    assert _dispatch_cols(out["tool_uses"][0]) == (
+        None, None, len(prompt), False)
+
+
+def test_lane_parse_output_does_not_leak_the_raw_role():
+    assert "agent_role" not in _lane("codex_agent_role.jsonl")
+
+
+def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
+    """files.agent_type carries the role, tool_uses the dispatch, and
+    dispatch_rollup counts the lane dispatch (it filters on agent_type,
+    not on the Claude tool names)."""
+    key = "sessions/p/s/wire.jsonl"
+    out = parse.parse_file(key, (FIX / "codex_agent_role.jsonl").read_bytes()
+                           + (FIX / "codex_spawn_agent.jsonl").read_bytes())
+    when = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    ingest._persist(  # pylint: disable=protected-access
+        R2Object(key=key, etag="etag", size=1024, last_modified=when),
+        {"project_id": "p", "display_name": "p",
+         "first_seen_at": when, "last_seen_at": when},
+        out, constants.PARSER_VERSION,
+    )
+    ingest.rebuild_dispatch_rollup()
+    with db.viz_conn() as c:
+        role = c.execute("SELECT agent_type FROM files WHERE file_key = %s",
+                         (key,)).fetchone()
+        calls = c.execute(
+            "SELECT agent_type, agent_model FROM tool_uses "
+            "WHERE file_key = %s AND agent_type IS NOT NULL ORDER BY idx",
+            (key,)).fetchall()
+        rolled = c.execute(
+            "SELECT agent_type, agent_model, n FROM dispatch_rollup "
+            "ORDER BY agent_type").fetchall()
+    assert role is not None and role[0] == "explorer"
+    assert calls == [("implementer", "gpt-6-astra"), ("explorer", None)]
+    assert rolled == [("explorer", "", 1), ("implementer", "gpt-6-astra", 1)]

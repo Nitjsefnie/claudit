@@ -16,6 +16,7 @@ looking at belongs in that format's module instead.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -63,6 +64,9 @@ class _ParseState:
     text_chars_since_turn: int = 0
     # First event timestamp drives the per-session model label.
     first_event_ts: datetime | None = None
+    # The role this transcript ran as, in the format's OWN vocabulary
+    # (parse_lanes.to_claudit normalises it). None when no line named one.
+    agent_role: str | None = None
 
 
 def _close_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
@@ -134,9 +138,16 @@ def _line_count(text: object) -> int:
 def _append_tool_use(st: _ParseState, line_num: int, ts: datetime | None,
                      tool_name: str, tool_call_id: str,
                      churn: tuple[int, int] = (0, 0),
-                     model: str = "unknown") -> None:
+                     model: str = "unknown",
+                     dispatch: tuple | None = None) -> None:
+    """Append one tool call row.
+
+    `dispatch` is the (agent_type, agent_model, prompt_chars, brief_ref)
+    a subagent-dispatching call asked for; None for any other call, whose
+    row then carries no such keys and parse_lanes.to_claudit NULLs them.
+    """
     added, deleted = churn
-    st.tool_uses.append({
+    row = {
         "file_key": st.file_key,
         "line_num": line_num,
         "idx": len(st.tool_uses),
@@ -147,7 +158,68 @@ def _append_tool_use(st: _ParseState, line_num: int, ts: datetime | None,
         "is_error": None,
         "lines_added": added,
         "lines_deleted": deleted,
-    })
+    }
+    if dispatch is not None:
+        (row["agent_type"], row["agent_model"],
+         row["dispatch_prompt_chars"], row["dispatch_brief_ref"]) = dispatch
+    st.tool_uses.append(row)
+
+
+def _nonempty_str(value: object) -> str | None:
+    """`value` when it is a non-empty string, else None."""
+    return value if isinstance(value, str) and value else None
+
+
+def _note_agent_role(st: _ParseState, role: object) -> None:
+    """Record the role a transcript declares, if it names one.
+
+    The FIRST non-empty value wins: a file can declare its role on more
+    than one line, and a line naming none must not shadow one that does.
+    """
+    if st.agent_role is None:
+        st.agent_role = _nonempty_str(role)
+
+
+# How far into a dispatch prompt to look for a brief reference. A prompt
+# that delegates to a written brief says so in its opening directive
+# ("Read <path> IN FULL and execute it exactly"); one that mentions a
+# path incidentally does so further down, after the instructions it
+# actually carries.
+BRIEF_REF_SCAN = 400
+
+# An absolute POSIX or Windows path to a Markdown file. Markdown because
+# that is what a brief is written as; a path to a source file being
+# edited is not a brief and must not count as one.
+BRIEF_REF_RE = re.compile(r"(?:/|[A-Za-z]:\\)[^\s`'\"]+\.md\b")
+
+
+def _dispatch_prompt_shape(args: dict) -> tuple:
+    """(prompt_chars, brief_ref) for a dispatching call's prompt.
+
+    Two questions about HOW a dispatch was briefed, neither of which
+    needs the prompt text itself kept:
+
+    `prompt_chars` -- how much brief was written into this call.
+    `brief_ref`    -- whether the opening directive points at a written
+                      brief file instead of carrying the brief inline.
+
+    Together they separate a dispatch that reuses a brief someone
+    committed from one that re-authors the same instructions from
+    scratch, which is the difference between a brief that survives the
+    session and one that dies with its scratch directory.
+
+    The prompt text is deliberately NOT stored: it is unbounded, it is
+    the most sensitive thing in a transcript, and neither question
+    needs it.
+
+    Lives here rather than in parse.py so the lane parsers, which
+    parse.py imports, can share it without an import cycle.
+    """
+    prompt = args.get("prompt")
+    if not isinstance(prompt, str) or not prompt:
+        return None, None
+    head = prompt[:BRIEF_REF_SCAN]
+    return len(prompt), BRIEF_REF_RE.search(head) is not None
 
 
 def _append_usage_record(st: _ParseState, line_num: int,
@@ -309,4 +381,5 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
         "prompt_count": len(st.turns),
         "rate_limit_hits": st.rate_limit_hits,
         "tool_uses": st.tool_uses,
+        "agent_role": st.agent_role,
     }

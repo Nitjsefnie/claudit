@@ -1,0 +1,4 @@
+{"type": "metadata", "protocol_version": "1.10"}
+{"timestamp": 1784226326.5, "message": {"type": "TurnBegin", "payload": {"user_input": "go"}}}
+{"timestamp": 1784226326.6, "message": {"type": "ToolCall", "payload": {"type": "function", "id": "tc1", "function": {"name": "Agent", "arguments": "{\"description\": \"d\", \"prompt\": \"Implement the wiring inline.\", \"run_in_background\": true}"}, "extras": null}}}
+{"timestamp": 1784226326.7, "message": {"type": "TurnEnd", "payload": {}}}
