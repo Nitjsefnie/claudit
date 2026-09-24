@@ -579,12 +579,15 @@ def _codex_item_completed(st: _CodexState, line_num: int,
     ones. The two spellings are disjoint per file — no file among the 287 on
     this box holds both — so handling each is not double counting.
 
-    Only the two items that carry measured quantities are read here.
-    CommandExecution restates the response_item/custom_tool_call that
-    _codex_tool_call already books; counting it too would double every tool
-    row. Reasoning, UserMessage, SubAgentActivity, ContextCompaction,
-    Extension, ImageView and CollabAgentToolCall have no counterpart in the
-    old event_msg set and are not counted by either spelling.
+    Only the two items that carry measured quantities are read here, plus
+    Reasoning, which counts nothing but is model output: like its
+    response_item/reasoning twin it can open the turn's reply, ending the
+    reply-latency window. CommandExecution restates the
+    response_item/custom_tool_call that _codex_tool_call already books;
+    counting it too would double every tool row. UserMessage,
+    SubAgentActivity, ContextCompaction, Extension, ImageView and
+    CollabAgentToolCall have no counterpart in the old event_msg set and
+    are not counted by either spelling.
     """
     item = payload.get("item")
     if not isinstance(item, dict):
@@ -597,7 +600,9 @@ def _codex_item_completed(st: _CodexState, line_num: int,
                      item.get("changes"), payload.get("turn_id"))
     elif itype == "AgentMessage":
         st.text_chars_since_turn += len(_codex_item_text(item))
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
+    elif itype == "Reasoning":
+        _mark_assistant_event(st, ts)
 
 
 def _codex_item_text(item: dict) -> str:
@@ -628,7 +633,11 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
         # role=assistant (every one of 496 distinct assistant texts sampled
         # appears in both), so only this side is counted.
         st.text_chars_since_turn += len(str(payload.get("message") or ""))
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
+    elif ptype == "agent_reasoning":
+        # The flat event_msg spelling of reasoning, as older rollouts write
+        # it: model output, so it can be where the reply began.
+        _mark_assistant_event(st, ts)
     elif ptype == "patch_apply_end":
         _codex_patch(st, line_num, ts, bool(payload.get("success")),
                      payload.get("changes"), payload.get("turn_id"))
@@ -644,7 +653,9 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
                          ts: datetime | None, payload: dict) -> None:
     if ptype in ("custom_tool_call", "function_call"):
         _codex_tool_call(st, line_num, ts, payload)
-        _mark_assistant_event(st)
+        _mark_assistant_event(st, ts)
+    elif ptype == "reasoning":
+        _mark_assistant_event(st, ts)
     elif ptype in ("custom_tool_call_output", "function_call_output"):
         _codex_tool_result(st, payload)
 

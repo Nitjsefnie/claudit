@@ -57,9 +57,11 @@ class _ParseState:
     turns: list[dict] = field(default_factory=list)
     current_turn: dict | None = None
     current_turn_id: str | None = None
-    # For reply latency: track TurnBegin ts, then find first assistant event
+    # Reply latency: the armed anchor's ts (the turn's start), and the ts
+    # of the first assistant event seen while it was armed -- where the
+    # window ends, matching the Claude path's first assistant line.
     pending_turn_begin_ts: datetime | None = None
-    turn_has_assistant_event: bool = False
+    first_assistant_event_ts: datetime | None = None
     # For text_chars: accumulate ContentPart.text since last TurnBegin
     text_chars_since_turn: int = 0
     # First event timestamp drives the per-session model label.
@@ -85,7 +87,6 @@ def _start_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
         "end_ts": None,
         "status_lines": [],
     }
-    st.turn_has_assistant_event = False
     st.text_chars_since_turn = 0
 
 
@@ -93,7 +94,13 @@ def _turn_boundary(st: _ParseState, line_num: int, ts: datetime | None) -> None:
     """Close any open turn, open the next, and arm the reply-latency anchor."""
     _close_turn(st, line_num, ts)
     _start_turn(st, line_num, ts)
+    _arm_reply_anchor(st, ts)
+
+
+def _arm_reply_anchor(st: _ParseState, ts: datetime | None) -> None:
+    """Open a reply-latency window at `ts` (None disarms it)."""
     st.pending_turn_begin_ts = ts
+    st.first_assistant_event_ts = None
 
 
 def _end_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
@@ -102,26 +109,38 @@ def _end_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
     gets one attributed to the next turn's first request."""
     if st.current_turn is not None:
         _close_turn(st, line_num, ts)
-        st.pending_turn_begin_ts = None
+        _arm_reply_anchor(st, None)
 
 
-def _mark_assistant_event(st: _ParseState) -> None:
-    if not st.turn_has_assistant_event and st.pending_turn_begin_ts is not None:
-        st.turn_has_assistant_event = True
+def _mark_assistant_event(st: _ParseState, ts: datetime | None) -> None:
+    """Note model output at `ts`: the first stamped one while the anchor
+    is armed is where the turn's reply latency ends."""
+    if (st.pending_turn_begin_ts is not None
+            and st.first_assistant_event_ts is None):
+        st.first_assistant_event_ts = ts
 
 
 def _consume_reply_latency(st: _ParseState, ts: datetime | None) -> float | None:
-    """Gap from the turn's anchor to this record, if the anchor is open.
+    """Gap from the turn's anchor to its first assistant output, if the
+    anchor is open.
 
-    The anchor is consumed either way: one reply latency per turn, taken
-    from its first billing record.
+    The window ends at the first assistant event recorded since the anchor
+    was armed -- the same end the Claude path uses, its first assistant
+    line -- and at this record's own ts only when the turn produced no
+    assistant event before it. A turn's first billing record can land far
+    later than its first output (a cumulative counter that stays flat
+    while the model works), so ending there measured the whole response.
+
+    The anchor is consumed either way: one reply latency per turn,
+    attributed to its first billing record. A negative gap is dropped.
     """
+    end_ts = st.first_assistant_event_ts or ts
     latency = None
-    if st.pending_turn_begin_ts is not None and ts is not None:
-        delta_s = (ts - st.pending_turn_begin_ts).total_seconds()
+    if st.pending_turn_begin_ts is not None and end_ts is not None:
+        delta_s = (end_ts - st.pending_turn_begin_ts).total_seconds()
         if delta_s >= 0:
             latency = delta_s
-    st.pending_turn_begin_ts = None
+    _arm_reply_anchor(st, None)
     return latency
 
 

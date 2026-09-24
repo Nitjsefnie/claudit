@@ -61,7 +61,9 @@ def test_single_turn_emits_one_record_one_turn():
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
     assert r["text_chars"] == len("hello world")
-    assert r["reply_latency_s"] == pytest.approx(3.0, rel=1e-9)
+    # TurnBegin 12:00:00 -> first ContentPart 12:00:01, not the 12:00:03
+    # StatusUpdate: the window ends at the first assistant output.
+    assert r["reply_latency_s"] == pytest.approx(1.0, rel=1e-9)
     assert len(out["ctx_turns"]) == 1
     t = out["ctx_turns"][0]
     assert t["idx"] == 1
@@ -332,7 +334,9 @@ def test_kimi_code_usage_record_drives_record_and_turn():
     assert r["output_tokens"] == 200
     assert r["ctx_input"] == 1150
     assert r["text_chars"] == len("hello back")
-    assert r["reply_latency_s"] == pytest.approx(4.0, rel=1e-9)
+    # turn.prompt at +1 s -> first content.part at +3 s (the usage.record
+    # at +5 s is not where the reply began).
+    assert r["reply_latency_s"] == pytest.approx(2.0, rel=1e-9)
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
