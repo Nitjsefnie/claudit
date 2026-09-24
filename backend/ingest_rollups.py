@@ -37,8 +37,9 @@ def purge_suppressed() -> int:
     too -- matched on the call's OWN model, since most calls sit on a line
     with no record (a Claude tool_use usually follows its requestId's
     merged record; a lane call never shares a line with one). The
-    same-line join is kept for rows stored before tool_uses.model existed,
-    which carry NULL there until the next reparse.
+    same-line join is kept ONLY for rows stored before tool_uses.model
+    existed (model IS NULL until the next reparse); a call that carries a
+    model is judged by it alone.
 
     Patterns are matched with ILIKE, so 'glm-%' covers a family and a bare
     model id still matches exactly. Runs before the canonical pass on
@@ -62,7 +63,8 @@ def purge_suppressed() -> int:
             """
             DELETE FROM tool_uses tu
              USING records r
-             WHERE tu.file_key = r.file_key
+             WHERE tu.model IS NULL
+               AND tu.file_key = r.file_key
                AND tu.line_num = r.line_num
                AND EXISTS (SELECT 1 FROM suppressed_models s
                             WHERE r.model ILIKE s.pattern)

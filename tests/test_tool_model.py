@@ -7,6 +7,7 @@ shares a line with a record, so most calls came out with model '' and
 dropped out of the error rate. These pin the stored column and every
 reader that used the join.
 """
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -172,3 +173,75 @@ def test_kimi_tool_call_in_a_file_with_no_record_resolves_by_date():
     [tu] = out["tool_uses"]
     assert tu["model"] == parse_kimi._model_for(  # pylint: disable=protected-access
         None, tu["ts"])
+
+
+def _with_a_call_after_each_turn_context(blob: bytes) -> bytes:
+    """The ported switch fixture holds no tool calls; give every turn one,
+    right after the turn_context that sets the model in force."""
+    out = []
+    for i, line in enumerate(blob.splitlines()):
+        out.append(line)
+        if b'"type":"turn_context"' in line:
+            out.append(json.dumps({
+                "timestamp": json.loads(line)["timestamp"],
+                "type": "response_item",
+                "payload": {"type": "function_call", "name": "exec_command",
+                            "call_id": f"call_switch{i}", "arguments": "{}"},
+            }).encode())
+    return b"\n".join(out)
+
+
+def test_codex_tool_calls_follow_a_model_switch():
+    """Each call carries the model its own turn is billed at, so calls on
+    both sides of the switch disagree with each other and agree with the
+    record that follows them."""
+    blob = (FIX / "codex" / "rollout_model_switch.jsonl").read_bytes()
+    out = parse.parse_file("codex/switch.jsonl",
+                           _with_a_call_after_each_turn_context(blob))
+    records = out["records"]
+    assert {tu["model"] for tu in out["tool_uses"]} == {"gpt-5.6-sol",
+                                                        "gpt-5.6-terra"}
+    for tu in out["tool_uses"]:
+        following = next(r for r in records
+                         if r["line_num"] > tu["line_num"])
+        assert tu["model"] == following["model"], tu
+
+
+def test_purge_leaves_every_other_models_tool_calls(fresh_db, mini_r2_env):
+    """The tool half of the purge must delete only what matches."""
+    _add_later_line_session(mini_r2_env)
+    ingest.run_ingest(trigger="manual")
+    survivors_sql = ("SELECT COUNT(*) FROM tool_uses "
+                     "WHERE model NOT ILIKE 'claude-haiku-%'")
+    with db.viz_conn() as c:
+        before = _scalar(c, survivors_sql)
+        c.execute("INSERT INTO suppressed_models (pattern, note) "
+                  "VALUES ('claude-haiku-%', 'test')")
+        c.commit()
+    assert before > 0, "fixture must carry other models' calls"
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        assert _scalar(c, survivors_sql) == before
+
+
+def test_purge_same_line_fallback_spares_a_call_with_its_own_model(
+        fresh_db, mini_r2_env):
+    """The same-line delete exists for rows stored before tool_uses.model;
+    a call that carries a model is judged by that model alone."""
+    _add_later_line_session(mini_r2_env)
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT file_key, line_num FROM records WHERE model = %s",
+            (HAIKU,)).fetchone()
+        assert row is not None
+        c.execute(
+            "INSERT INTO tool_uses (file_key, line_num, idx, tool_name, model) "
+            "VALUES (%s, %s, 7, 'Bash', 'claude-sonnet-4-5')", row)
+        c.execute("INSERT INTO suppressed_models (pattern, note) "
+                  "VALUES ('claude-haiku-%', 'test')")
+        c.commit()
+    ingest.purge_suppressed()
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT COUNT(*) FROM tool_uses WHERE file_key = %s "
+                          "AND line_num = %s AND idx = 7", row) == 1
