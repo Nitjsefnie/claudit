@@ -1,0 +1,5 @@
+{"timestamp":"2026-09-10T08:44:15Z","type":"session_meta","payload":{"session_id":"00000000-0000-4000-8000-0000000000c2"}}
+{"timestamp":"2026-09-10T08:44:17Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","call_id":"call_spawn01","arguments":"{\"agent_type\":\"implementer\",\"model\":\"gpt-6-astra\",\"message\":\"gAAAAB\"}"}}
+{"timestamp":"2026-09-10T08:44:18Z","type":"response_item","payload":{"type":"function_call","name":"multi_agent_v1__spawn_agent","call_id":"call_spawn02","arguments":"{\"agent_type\":\"explorer\",\"model\":\"\"}"}}
+{"timestamp":"2026-09-10T08:44:19Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","call_id":"call_spawn03","arguments":"{not json"}}
+{"timestamp":"2026-09-10T08:44:20Z","type":"response_item","payload":{"type":"function_call","name":"wait_agent","call_id":"call_wait01","arguments":"{\"agent_type\":\"x\"}"}}

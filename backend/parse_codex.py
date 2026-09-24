@@ -60,7 +60,8 @@ from backend.bash_argv import argv_churn
 from backend.bash_churn import bash_churn
 from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _end_turn, _finish_parse,
-                                  _mark_assistant_event, _ParseState,
+                                  _mark_assistant_event, _nonempty_str,
+                                  _note_agent_role, _ParseState,
                                   _settle_lane_tool_result, _to_dt,
                                   _turn_boundary)
 from backend.tool_errors import ERROR_KIND_FAILED
@@ -108,6 +109,10 @@ _CODEX_USAGE_KEYS = (
 # A tool result whose first line starts with one of these is a failure. The
 # payload carries no status field of its own.
 _CODEX_FAILURE_HEADS = ("Script failed", "collab spawn failed")
+
+# function_call names that dispatch a subagent. Both spellings are in the
+# corpus: the prefixed one in older rollouts.
+_CODEX_DISPATCH_TOOLS = ("spawn_agent", "multi_agent_v1__spawn_agent")
 
 # Every top-level record type the format emits; the format's fingerprint.
 RECORD_TYPES = frozenset({
@@ -424,6 +429,46 @@ def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
     })
 
 
+def _codex_dispatch_args(payload: dict) -> tuple | None:
+    """(agent_type, agent_model, prompt_chars, brief_ref) a spawn_agent
+    function_call asked for, or None for any other call.
+
+    `arguments` is a JSON string. Its `message` -- the brief -- is
+    ENCRYPTED, so neither its length nor a brief reference inside it
+    means anything: both prompt-shape fields stay None on this lane.
+    Arguments that do not parse to an object attribute nothing.
+    """
+    if payload.get("type") != "function_call" or (
+            payload.get("name") not in _CODEX_DISPATCH_TOOLS):
+        return None
+    args = payload.get("arguments")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args) if args else None
+        except json.JSONDecodeError:
+            args = None
+    if not isinstance(args, dict):
+        return None, None, None, None
+    return (_nonempty_str(args.get("agent_type")),
+            _nonempty_str(args.get("model")), None, None)
+
+
+def _codex_session_role(payload: dict) -> object:
+    """The agent role one session_meta names, if any.
+
+    A subagent's rollout carries it at `agent_role`, mirrored under
+    `source.subagent.thread_spawn`; a main rollout carries neither.
+    """
+    role = payload.get("agent_role")
+    if role:
+        return role
+    source = payload.get("source")
+    subagent = source.get("subagent") if isinstance(source, dict) else None
+    spawn = (subagent.get("thread_spawn")
+             if isinstance(subagent, dict) else None)
+    return spawn.get("agent_role") if isinstance(spawn, dict) else None
+
+
 def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
                      payload: dict) -> None:
     """Record one tool call.
@@ -445,6 +490,7 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
     _append_tool_use(
         st, line_num, ts, name, str(payload.get("call_id") or ""), churn,
         model=_codex_model(st.model or st.sole_model),
+        dispatch=_codex_dispatch_args(payload),
     )
     if "apply_patch" in apis:
         turn_id = (payload.get("internal_chat_message_metadata_passthrough")
@@ -613,6 +659,10 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
         # head. Anything later belongs to a replayed parent.
         if st.session_id is None and payload.get("session_id"):
             st.session_id = str(payload["session_id"])
+        # The role is NOT first-line-wins: a subagent rollout can open
+        # with a session_meta naming no role and declare it on a later
+        # one, so the first NON-EMPTY role wins instead.
+        _note_agent_role(st, _codex_session_role(payload))
     # world_state / compacted / inter_agent_communication_metadata: no
     # billing or tool consequence.
     #

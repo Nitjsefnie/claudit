@@ -1,0 +1,7 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"config.update","profileName":"coder","time":1782740973431}
+{"type":"config.update","profileName":"explore","time":1782740973432}
+{"type":"turn.prompt","input":[{"type":"text","text":"go"}],"origin":{"kind":"user"},"time":1782740973442}
+{"type":"context.append_loop_event","event":{"type":"step.begin","turnId":"0","step":1},"time":1782740973462}
+{"type":"context.append_loop_event","event":{"type":"tool.call","turnId":"0","step":1,"toolCallId":"tool_Agent01","name":"Agent","args":{"subagent_type":"explore","description":"d","prompt":"Read /tmp/briefs/task-1.md IN FULL and execute it."}},"time":1782740977270}
+{"type":"context.append_loop_event","event":{"type":"tool.call","turnId":"0","step":1,"toolCallId":"tool_Swarm01","name":"AgentSwarm","args":{"subagent_type":"explore","prompt":"p"}},"time":1782740977271}

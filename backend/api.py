@@ -756,8 +756,9 @@ def cost_by_agent(
     """Cost split by the agent role each transcript ran as.
 
     One bar per type, biggest first. `agent_type` comes from
-    parse.resolve_agent_type, which reads the role off the transcript
-    itself; everything it cannot attribute lands in `general-purpose`.
+    parse.resolve_agent_type (Claude) or parse_lanes.lane_agent_type
+    (Codex, Kimi), which read the role off the transcript itself;
+    everything they cannot attribute lands in `general-purpose`.
     That bucket is genuinely mixed -- a plain lead session, a session
     started with an explicit --agent flag, and a subagent transcript
     predating Claude Code 2.1.126 are indistinguishable in the file --

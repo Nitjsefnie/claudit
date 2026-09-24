@@ -140,12 +140,19 @@ VERSION = _read_version()
 # (Z.ai writes no requestId, and repeats a message's full usage on
 # every content-block line); the bump reparses every file so stored
 # zai/llama rows stop counting one response once per line.
-PARSER_VERSION = "56"
+# 57 reads the agent role off Codex and kimi-code transcripts (Codex
+# session_meta agent_role, kimi-code config.update profileName) instead
+# of filing every lane file under the default type, records what a lane
+# dispatch asked for (Codex spawn_agent, Kimi Agent) on tool_uses,
+# stores each tool call's own model on tool_uses.model, and takes a
+# role-less subagent's agent type from its meta.json sidecar; the bump
+# reparses every file so stored rows pick all of these up.
+PARSER_VERSION = "57"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also
 #: where every unattributable file lands — parse.resolve_agent_type for
-#: Claude transcripts, parse_lanes.to_claudit for lane ones.
+#: Claude transcripts, parse_lanes.lane_agent_type for lane ones.
 DEFAULT_AGENT_TYPE = "general-purpose"
 
 # The text Claude Code writes when the user cuts a reply off.

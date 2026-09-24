@@ -20,10 +20,12 @@ from orjson import JSONDecodeError, loads
 
 from backend.bash_churn import bash_churn
 from backend.parse_common import (_append_tool_use, _append_usage_record,
-                                  _close_turn, _end_turn, _finish_parse,
-                                  _line_count, _mark_assistant_event,
-                                  _ParseState, _settle_lane_tool_result,
-                                  _start_turn, _to_dt, _turn_boundary)
+                                  _close_turn, _dispatch_prompt_shape,
+                                  _end_turn, _finish_parse, _line_count,
+                                  _mark_assistant_event, _nonempty_str,
+                                  _note_agent_role, _ParseState,
+                                  _settle_lane_tool_result, _start_turn,
+                                  _to_dt, _turn_boundary)
 from backend.tool_errors import _flatten_result_text
 
 # Model attribution, oldest first. Each constant is a frozen UTC epoch, NOT a
@@ -169,6 +171,29 @@ def _args_to_dict(args) -> dict:
     return {}
 
 
+# The tool that dispatches a subagent, on both Kimi wires. Sampled over the
+# kimi bucket: kimi-code and legacy both call it `Agent`; neither wire
+# carries a `Task` dispatch. AgentSwarm fans out several agents in one call
+# and has no single type to attribute, so it is deliberately absent.
+_KIMI_DISPATCH_TOOLS = ("Agent",)
+
+
+def _kimi_dispatch_args(name: str, args: dict) -> tuple | None:
+    """(agent_type, agent_model, prompt_chars, brief_ref) an `Agent` call
+    asked for, or None for any other tool.
+
+    Same argument names as a Claude dispatch (`subagent_type`, `model`,
+    `prompt`), and the prompt is plain text, so its shape is measured by
+    the Claude path's own helper. A legacy Agent call names no
+    subagent_type, so it carries a prompt shape and no type.
+    """
+    if name not in _KIMI_DISPATCH_TOOLS:
+        return None
+    chars, brief_ref = _dispatch_prompt_shape(args)
+    return (_nonempty_str(args.get("subagent_type")),
+            _nonempty_str(args.get("model")), chars, brief_ref)
+
+
 # --------------------------------------------------------------------------
 # Legacy kimi-cli format
 # --------------------------------------------------------------------------
@@ -185,8 +210,10 @@ def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
                       payload: dict) -> None:
     func = payload.get("function", {})
     name = func.get("name", "")
-    churn = _edit_churn(name, _args_to_dict(func.get("arguments")))
-    _append_tool_use(st, line_num, ts, name, payload.get("id", ""), churn)
+    args = _args_to_dict(func.get("arguments"))
+    _append_tool_use(st, line_num, ts, name, payload.get("id", ""),
+                     _edit_churn(name, args),
+                     dispatch=_kimi_dispatch_args(name, args))
     _mark_assistant_event(st)
 
 
@@ -340,9 +367,11 @@ def _kc_append_message(st: _ParseState, line_num: int, ts: datetime | None,
             msg.get("content") or []
         )
         for tc in msg.get("toolCalls") or []:
-            name, args, tcid = _kc_parse_tool_call(tc)
-            churn = _edit_churn(name, _args_to_dict(args))
-            _append_tool_use(st, line_num, ts, name, tcid, churn)
+            name, raw_args, tcid = _kc_parse_tool_call(tc)
+            args = _args_to_dict(raw_args)
+            _append_tool_use(st, line_num, ts, name, tcid,
+                             _edit_churn(name, args),
+                             dispatch=_kimi_dispatch_args(name, args))
         _mark_assistant_event(st)
     elif role == "tool":
         tcid = msg.get("toolCallId", "")
@@ -375,9 +404,10 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         _mark_assistant_event(st)
     elif et == "tool.call":
         name = str(ev.get("name", ""))
-        churn = _edit_churn(name, _args_to_dict(ev.get("args")))
+        args = _args_to_dict(ev.get("args"))
         _append_tool_use(
-            st, line_num, ts, name, str(ev.get("toolCallId", "")), churn,
+            st, line_num, ts, name, str(ev.get("toolCallId", "")),
+            _edit_churn(name, args), dispatch=_kimi_dispatch_args(name, args),
         )
         _mark_assistant_event(st)
     elif et == "tool.result":
@@ -452,6 +482,11 @@ def _kc_dispatch(st: _ParseState, typ: str, line_num: int,
         _kc_usage_record(st, line_num, ts, obj)
     elif typ == "llm.error":
         _kc_llm_error(st, line_num, ts, obj)
+    elif typ == "config.update":
+        # The role profile this session ran under; the first non-empty
+        # profileName wins. The default profile is named `agent`, which
+        # parse_lanes.to_claudit normalises.
+        _note_agent_role(st, obj.get("profileName"))
 
 
 def parse_kimi_code(file_key: str, blob: bytes) -> dict:
