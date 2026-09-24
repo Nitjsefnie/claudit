@@ -513,10 +513,12 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
       eval({json.dumps(_token_breakdown_source())});
       const events = [
         {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+           model_id: 'gpt-5-6-sol',
            input_tokens: {lc_fresh}, output_tokens: {lc_out},
            cache_create: 0, cache_read: 0,
            ephemeral_5m: 0, ephemeral_1h: 0, long_context: true }},
         {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+           model_id: 'gpt-5-6-sol',
            input_tokens: {flat_fresh}, output_tokens: {flat_out},
            cache_create: 0, cache_read: 0,
            ephemeral_5m: 0, ephemeral_1h: 0, long_context: false }},

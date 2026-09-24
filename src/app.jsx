@@ -111,6 +111,7 @@ function txToDashData(tx) {
         session_id: sid,
         turn_index: turnIdx++,
         model: shortM(u.model),
+        model_id: u.model,
         provider: u.provider || null,
         input_tokens: inp,
         output_tokens: out,
@@ -450,6 +451,9 @@ function backendDashToShape(b) {
     session_id: 'backend-h' + i,
     turn_index: 0,
     model: short(h.model),
+    // The raw id the backend priced cost_usd by. `model` is for display:
+    // a short name matches only its family's tier, i.e. its NEWEST rate.
+    model_id: h.model,
     // Every token field is OPTIONAL: the backend drops any type whose
     // total is zero across the range (api_dashboard.drop_zero_token_types),
     // so these keys can be absent and `a + b` on two absent ones is NaN,
@@ -665,7 +669,7 @@ function computeTokenBreakdown(events) {
   const c = { input: 0, output: 0, eph5: 0, eph1h: 0, ccUnsplit: 0, cr: 0 };
   if (window.rateForModel) {
     for (const e of events) {
-      const r = window.rateForModel(e.model, e.ts, e.provider);
+      const r = window.rateForModel(e.model_id, e.ts, e.provider);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): a long-context
       // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
