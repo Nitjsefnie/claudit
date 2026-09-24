@@ -136,7 +136,11 @@ VERSION = _read_version()
 # spelling variant cannot dodge it); the bump reparses every file so
 # stored cost_usd stops carrying the Opus-list estimate those records
 # previously resolved to.
-PARSER_VERSION = "54"
+# 56 merges a Claude transcript's requestId-less lines on message.id
+# (Z.ai writes no requestId, and repeats a message's full usage on
+# every content-block line); the bump reparses every file so stored
+# zai/llama rows stop counting one response once per line.
+PARSER_VERSION = "56"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also
