@@ -138,6 +138,11 @@ def lane_project_id(project_id: str, marker_path: str | None) -> str:
     return canonical_project_id(project_slug(marker_path))
 
 
+def in_lane_tree(key: str) -> bool:
+    """Whether `key` lies in the lane layout's sessions/ subtree."""
+    return key.split("/", 1)[0] == LANE_ROOT
+
+
 def classify(key: str) -> KeyInfo | None:
     """Map an object key to its (project, session, is_main), or None
     when the key is not a transcript.
