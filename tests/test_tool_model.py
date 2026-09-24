@@ -41,6 +41,17 @@ def test_claude_tool_use_on_a_later_line_carries_its_model():
     assert tu["model"] == HAIKU
 
 
+def test_claude_tool_use_in_a_message_id_merged_group_carries_its_model():
+    """A Z.ai-served line has no requestId, so its lines merge on
+    message.id: the record lives on line 2 and the tool_use on line 3,
+    where a (file_key, line_num) join finds no record."""
+    out = _parse(FIX / "parser" / "message_id_merge.jsonl", "p/s/s.jsonl")
+    assert [r["line_num"] for r in out["records"]] == [2]
+    [tu] = out["tool_uses"]
+    assert tu["line_num"] == 3
+    assert tu["model"] == "glm-5.3-flash"
+
+
 def test_codex_tool_call_keeps_the_model_in_force():
     out = _parse(FIX / "codex" / "rollout_shell_churn.jsonl")
     assert out["tool_uses"]
