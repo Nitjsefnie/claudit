@@ -399,9 +399,14 @@ what a dispatch asked for:
   result. Grouping on it is how hook denials get separated from real
   failures, which is why the parser needs no hook vocabulary.
 - `agent_type` / `agent_model` — read off an `Agent`/`Task` call's
-  arguments. `files.agent_type` records what RAN and exists only when the
-  subagent wrote a JSONL; these record what was ASKED for, so a dispatch
-  that produced no file is still attributable.
+  arguments, and on the lanes off a Codex `spawn_agent` /
+  `multi_agent_v1__spawn_agent` call's arguments and a Kimi `Agent`
+  call's (`subagent_type`, `model`). `files.agent_type` records what RAN
+  and exists only when the subagent wrote a JSONL; these record what was
+  ASKED for, so a dispatch that produced no file is still attributable.
+  A Codex dispatch's prompt shape (`dispatch_prompt_chars`,
+  `dispatch_brief_ref`) stays NULL: its `message` is encrypted, so
+  neither its length nor a brief path inside it means anything.
 
 `tool_error_rollup` and `dispatch_rollup` carry the composable halves
 (pure counts). `error_text` is deliberately NOT in either grain —

@@ -63,11 +63,17 @@ backend/          — FastAPI application
                     the Claude path share: per-file parse state, turn
                     bookkeeping, the billing-row builder (records the
                     long_context flag), tool-result settling incl. the
-                    harness-generic error_kind classification.
+                    harness-generic error_kind classification, and
+                    _dispatch_prompt_shape (a dispatch prompt's length
+                    and brief reference, shared by the Claude path and
+                    Kimi's Agent calls).
   parse_lanes.py  — Format sniffing (sniff_format) and the lane→claudit
                     row adapter (to_claudit): lane row shapes project
                     onto claudit's records/tool_uses columns, legacy
                     Kimi tool ids are namespaced by file key.
+                    lane_agent_type / lane_sidecar_agent_type normalise
+                    a lane's default role (Codex "default", kimi-code
+                    "agent") and a missing one to DEFAULT_AGENT_TYPE.
   key_layout.py   — Object key → (project, session, is_main). The one
                     place that knows both layouts: Claude Code's
                     <project>/<session>/<stem>.jsonl and the lane
