@@ -23,6 +23,13 @@ _plan_work):
   sessions/<project>/<session>/subagents/<id>/wire.jsonl[.xz]
   sessions/<project>/project.json            (display-path marker)
 
+Subagent meta.json sidecars (both layouts) sit beside the transcript
+they describe and name the role it was dispatched as; transcript_stem()
+and sidecar_stem() pair the two:
+
+  <dir>/agent-<id>.meta.json[.xz]            beside agent-<id>.jsonl[.xz]
+  sessions/<p>/<s>/subagents/<id>/meta.json[.xz]   beside its wire
+
 The sessions/ subtree BELONGS to the lane layout: inside it only
 wire.jsonl[.xz] and the depth-3 project.json marker are recognised, and
 everything else — Kimi writes context.jsonl and state.json beside every
@@ -46,6 +53,10 @@ LANE_ROOT = "sessions"
 _LANE_MARKER = "project.json"
 # Basenames a lane transcript may carry; r2 inflates .xz transparently.
 _LANE_WIRE = ("wire.jsonl", "wire.jsonl.xz")
+# A lane subagent's sidecar, beside its wire.jsonl in subagents/<id>/.
+_LANE_AGENT_META = ("meta.json", "meta.json.xz")
+# A Claude subagent's sidecar, beside it: agent-<id>.meta.json[.xz].
+_AGENT_META_SUFFIXES = (".meta.json.xz", ".meta.json")
 _SUBAGENT_DIR = "subagents"
 # Suffixes a Claude-layout transcript may carry, .xz first so a
 # .jsonl.xz object is not mistaken for a bare .jsonl one.
@@ -166,4 +177,46 @@ def _jsonl_stem(basename: str) -> str | None:
     for suffix in _JSONL_SUFFIXES:
         if basename.endswith(suffix):
             return basename[:-len(suffix)]
+    return None
+
+
+def transcript_stem(key: str) -> str | None:
+    """The key a transcript shares with its meta.json sidecar, or None
+    when `key` is not a transcript.
+
+    A Claude transcript's is its key minus the .jsonl[.xz] suffix
+    (<dir>/agent-<id>); a lane wire's is its directory. sidecar_stem()
+    answers the same string for the sidecar that describes it.
+    """
+    parts = key.split("/")
+    if classify(key) is None:
+        return None
+    if parts[0] == LANE_ROOT:
+        return "/".join(parts[:-1])
+    stem = _jsonl_stem(parts[-1])
+    return "/".join(parts[:-1] + [stem]) if stem is not None else None
+
+
+def sidecar_stem(key: str) -> str | None:
+    """The transcript_stem() of the transcript a subagent's meta.json
+    sidecar describes, or None when `key` is not such a sidecar.
+
+    Lane: sessions/<project>/<session>/subagents/<id>/meta.json[.xz],
+    beside that subagent's wire. Claude: <dir>/agent-<id>.meta.json[.xz],
+    beside agent-<id>.jsonl[.xz] — whether <dir> is subagents/ or a
+    workflow's directory under it. Neither is a transcript: classify()
+    answers None for both.
+    """
+    parts = key.split("/")
+    if parts[0] == LANE_ROOT:
+        if (len(parts) > _LANE_MIN_SEGMENTS + 1
+                and parts[-3] == _SUBAGENT_DIR
+                and parts[-1] in _LANE_AGENT_META):
+            return "/".join(parts[:-1])
+        return None
+    if len(parts) < _CLAUDE_MIN_SEGMENTS:
+        return None
+    for suffix in _AGENT_META_SUFFIXES:
+        if parts[-1].endswith(suffix):
+            return key[:-len(suffix)]
     return None
