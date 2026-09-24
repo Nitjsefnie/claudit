@@ -1,6 +1,7 @@
 """JSONL → per-file (records list + ctx_turns array).
 
-Each call processes ONE jsonl with within-file requestId max-merge.
+Each call processes ONE jsonl with within-file requestId max-merge
+(message.id where a line has no requestId — see _merge_key).
 Cross-file uuid dedup is handled separately by ingest. Cost is
 precomputed using pricing.MODEL_RATES; semantic or rate changes
 require a PARSER_VERSION bump to invalidate stored results.
@@ -76,6 +77,22 @@ def _merge_usage_max(existing, incoming):
             out[k] = _merge_usage_max(out.get(k), v) if k in out else v
         return out
     return existing
+
+
+def _merge_key(obj: dict, msg: dict) -> str:
+    """The Phase 1 merge key of one assistant line; '' leaves it unmerged.
+
+    Claude Code writes one line per content block, and every line of one
+    API message shares its requestId. A transcript served by another
+    endpoint (Z.ai) writes no requestId, so the message.id those lines
+    still share is the key instead. Namespaced so a message id can never
+    collide with a requestId.
+    """
+    req_id = obj.get("requestId", "") or ""
+    if req_id:
+        return req_id
+    msg_id = msg.get("id")
+    return f"msg:{msg_id}" if isinstance(msg_id, str) and msg_id else ""
 
 
 def _usage_ctx_input(u: dict) -> int:
@@ -548,6 +565,7 @@ class _LineWalk:
             msg, str(obj.get("cwd", "") or "")
         )
         req_id = obj.get("requestId", "") or ""
+        merge_key = _merge_key(obj, msg)
         ev = {
             "line_num": line_num,
             "uuid": obj.get("uuid") or None,
@@ -561,10 +579,10 @@ class _LineWalk:
             "stop_reason": msg.get("stop_reason") or None,
             "effort": obj.get("effort") or None,
         }
-        if not (req_id and req_id in self.seen_request):
+        if not (merge_key and merge_key in self.seen_request):
             ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)  # live list: a later prompt_snapshot amends it in place (turn_flags.TurnWindow)
-        if req_id and req_id in self.seen_request:
-            existing = self.seen_request[req_id]
+        if merge_key and merge_key in self.seen_request:
+            existing = self.seen_request[merge_key]
             existing["usage"] = _merge_usage_max(existing["usage"], usage)
             if ev["stop_reason"] is not None:
                 existing["stop_reason"] = ev["stop_reason"]
@@ -573,8 +591,8 @@ class _LineWalk:
             if text_chars > existing.get("text_chars", 0):
                 existing["text_chars"] = text_chars
         else:
-            if req_id:
-                self.seen_request[req_id] = ev
+            if merge_key:
+                self.seen_request[merge_key] = ev
             self.records_in_order.append(ev)
 
         self._record_tool_uses(

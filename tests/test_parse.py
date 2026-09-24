@@ -125,6 +125,44 @@ def test_two_records_no_request_id_both_kept():
     assert len(out["records"]) == 2
 
 
+def test_empty_request_id_merges_on_message_id():
+    """Z.ai-served transcripts carry no requestId (absent or ""), but
+    every content-block line of one API message shares message.id. Those
+    lines max-merge exactly like a requestId group: ONE record at the
+    first line, the usage and stop_reason the closing line carried, the
+    reply latency the first line consumed. request_id stays the stored
+    '' — the fallback is a merge key, not a column value."""
+    out = parse.parse_file(
+        "zai/p/sess-m/sess-m.jsonl", _read("message_id_merge.jsonl")
+    )
+    assert len(out["records"]) == 1
+    r = out["records"][0]
+    assert r["line_num"] == 2
+    assert r["request_id"] == ""
+    assert (r["fresh_tokens"], r["cache_read_tokens"], r["output_tokens"]) \
+        == (100, 50, 20)
+    assert r["stop_reason"] == "tool_use"
+    assert r["reply_latency_s"] == pytest.approx(5.0)
+    assert r["text_chars"] == 2
+    # The tool call keeps the line it was written on, as for a
+    # requestId group.
+    assert [(t["line_num"], t["tool_use_id"]) for t in out["tool_uses"]] \
+        == [(3, "t1")]
+    assert [(t["line"], t["input"]) for t in out["ctx_turns"]] == [(2, 150)]
+
+
+def test_empty_request_id_distinct_message_ids_stay_separate():
+    """The fallback keys on message.id, so two messages stay two records."""
+    line = (
+        '{{"type":"assistant","timestamp":"2026-05-07T10:00:0{n}Z",'
+        '"message":{{"id":"msg_{n}","role":"assistant","model":"m",'
+        '"content":[],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}\n'
+    )
+    blob = (line.format(n=1) + line.format(n=2)).encode()
+    out = parse.parse_file("zai/p/s/s.jsonl", blob)
+    assert [r["line_num"] for r in out["records"]] == [1, 2]
+
+
 def test_tool_use_matched_to_error_result():
     """A tool_use with a later tool_result is_error:true on the same
     tool_use_id → tool_uses entry has is_error=True."""
