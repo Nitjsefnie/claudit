@@ -459,7 +459,7 @@ def _codex_session_role(payload: dict) -> object:
     A subagent's rollout carries it at `agent_role`, mirrored under
     `source.subagent.thread_spawn`; a main rollout carries neither.
     """
-    role = payload.get("agent_role")
+    role = _nonempty_str(payload.get("agent_role"))
     if role:
         return role
     source = payload.get("source")

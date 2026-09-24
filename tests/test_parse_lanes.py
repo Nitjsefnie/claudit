@@ -202,6 +202,16 @@ def test_codex_role_falls_back_to_the_thread_spawn_mirror():
     assert out["agent_type"] == "adversary"
 
 
+@pytest.mark.parametrize("bogus", ['{"name":"x"}', '["x"]', "7", "true"])
+def test_codex_non_string_role_falls_back_to_the_thread_spawn_mirror(bogus):
+    """A truthy agent_role that is not a string is no role at all: it must
+    not shadow the thread_spawn mirror."""
+    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
+        ',"agent_role":%s,"source":{"subagent":{"thread_spawn":'
+        '{"agent_role":"adversary"}}}' % bogus))
+    assert out["agent_type"] == "adversary"
+
+
 def _dispatch_cols(tu: dict) -> tuple:
     return (tu["agent_type"], tu["agent_model"],
             tu["dispatch_prompt_chars"], tu["dispatch_brief_ref"])
