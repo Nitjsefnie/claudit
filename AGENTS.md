@@ -72,6 +72,10 @@ backend/          — FastAPI application
                     place that knows both layouts: Claude Code's
                     <project>/<session>/<stem>.jsonl and the lane
                     sessions/<project>/<session>/wire.jsonl tree.
+                    Also pairs a subagent transcript with the
+                    meta.json sidecar beside it (transcript_stem /
+                    sidecar_stem), whose role fills agent_type when
+                    the transcript names none in-band.
   branding.py     — APP_NAME/APP_TITLE/APP_DESCRIPTION → browser title,
                     meta, logo, sign-in page, export filename. Escapes
                     per context (HTML vs script payload) — see

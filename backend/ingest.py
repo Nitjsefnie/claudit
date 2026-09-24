@@ -28,6 +28,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -295,25 +296,48 @@ def _resolve_project_paths(marker_items: list[tuple[str, str]], workers: int,
     return project_paths
 
 
-def _scan_objects() -> tuple[list, list[tuple[str, str]]]:
-    """One listing pass: transcript objects and lane marker items.
+class _Wire(NamedTuple):
+    """A listed transcript and its meta.json sidecar. `etag` joins the
+    sidecar's to the transcript's: the sidecar can decide agent_type, so
+    one landing after its transcript (the archiver uploads it second),
+    changing or going away reparses the file, at no extra request. A main
+    transcript has none, so /api/sessions still serves the object's own.
+    """
 
-    Markers are fetched afterwards by _resolve_project_paths; the keys
-    the layout rules skip (markers themselves, non-wire files inside
-    sessions/, non-jsonl keys outside) are dropped here.
+    key: str
+    etag: str
+    size: int
+    last_modified: datetime
+    sidecar_key: str | None
+
+
+def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str]]]:
+    """One listing pass: transcripts, each paired with the meta.json
+    sidecar listed beside it (_Wire), and lane marker items.
+
+    Markers are fetched afterwards by _resolve_project_paths, sidecars by
+    _fetch_and_parse; the keys the layout rules skip (non-wire files
+    inside sessions/, non-jsonl keys outside) are dropped here.
     """
     wire_objs: list = []
     marker_items: list[tuple[str, str]] = []
+    sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
     for obj in r2.list_keys():
-        marker_project = key_layout.project_marker(
-            r2.split_key(obj.key)[1])
+        bucket, object_key = r2.split_key(obj.key)
+        marker_project = key_layout.project_marker(object_key)
         if marker_project is not None:
             marker_items.append((marker_project, obj.key))
-            continue
-        if key_layout.classify(r2.split_key(obj.key)[1]) is None:
-            continue
-        wire_objs.append(obj)
-    return wire_objs, marker_items
+        elif (stem := key_layout.sidecar_stem(object_key)) is not None:
+            sidecars[(bucket, stem)] = obj
+        elif key_layout.classify(object_key) is not None:
+            wire_objs.append(obj)
+    wires = []
+    for obj in wire_objs:
+        bucket, object_key = r2.split_key(obj.key)
+        side = sidecars.get((bucket, key_layout.transcript_stem(object_key)))
+        wires.append(_Wire(obj.key, obj.etag if side is None else f"{obj.etag}+{side.etag}",
+                           obj.size, obj.last_modified, side.key if side else None))
+    return wires, marker_items
 
 
 def _track_walked_project(seen_projects: dict[str, dict], info, obj,
@@ -409,7 +433,8 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
     for start in range(0, len(todo), chunk):
         for (obj, proj, stored), parsed, exc in _resolve(
             todo[start:start + chunk],
-            lambda it: _fetch_and_parse(it[0].key), workers,
+            lambda it: _fetch_and_parse(it[0].key, it[0].sidecar_key),
+            workers,
         ):
             if isinstance(exc, VanishedObject):
                 log.info("ingest: %s vanished between list and fetch", obj.key)
@@ -793,14 +818,28 @@ def _is_missing(exc: BaseException) -> bool:
     return False
 
 
-def _fetch_and_parse(key: str) -> dict:
+def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
     """Runs on a pool thread. Touches no DB connection.
 
     Only the GET is retried: a parse failure is deterministic, so a second
     attempt reproduces the same error against the same bytes and buys
     nothing but delay.
+
+    The meta.json sidecar is fetched only for a transcript naming no role
+    of its own (parse.apply_agent_sidecar), and NO failure of it fails the
+    file: it keeps the default agent_type, as before sidecars were read.
     """
-    return parse.parse_file(key, _fetch_with_retry(key))
+    parsed = parse.parse_file(key, _fetch_with_retry(key))
+    if sidecar_key is None or parsed["agent_type_in_band"]:
+        return parsed
+    try:
+        return parse.apply_agent_sidecar(parsed, _fetch_with_retry(sidecar_key))
+    except VanishedObject:
+        return parsed
+    except Exception as e:  # noqa: BLE001 - a sidecar never fails the file
+        log.warning("ingest: sidecar %s unreadable, agent_type left to the "
+                    "transcript: %s: %s", sidecar_key, type(e).__name__, e)
+        return parsed
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:

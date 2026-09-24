@@ -218,5 +218,11 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     out["prompt_count"] = parsed.get("prompt_count") or 0
     out["models"] = sorted({r["model"] for r in parsed["records"]})
     # files.agent_type is NOT NULL; lane_agent_type never returns None.
-    out["agent_type"] = lane_agent_type(fmt, out.pop("agent_role", None))
+    role = out.pop("agent_role", None)
+    out["agent_type"] = lane_agent_type(fmt, role)
+    # Whether the transcript itself named a role (its lane's default
+    # profile included): a meta.json sidecar may only fill in for a
+    # transcript that named none (parse.apply_agent_sidecar).
+    out["agent_type_in_band"] = role is not None
+    out["format"] = fmt
     return out
