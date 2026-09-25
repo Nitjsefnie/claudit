@@ -669,7 +669,8 @@ function computeTokenBreakdown(events) {
   const c = { input: 0, output: 0, eph5: 0, eph1h: 0, ccUnsplit: 0, cr: 0 };
   if (window.rateForModel) {
     for (const e of events) {
-      const r = window.rateForModel(e.model_id, e.ts, e.provider);
+      // An event without its raw id is priced by the name it still carries (a Claude short name resolves to its family tier — an estimate); one without either lands on the default row.
+      const r = window.rateForModel(e.model_id || e.model, e.ts, e.provider);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): a long-context
       // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
