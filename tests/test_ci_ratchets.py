@@ -94,7 +94,7 @@ def test_measured_below_recorded_never_lowers():
 
 def test_measured_with_two_decimals_rejected():
     ratchet = _ratchet()
-    with pytest.raises(ValueError, match="at most one decimal place"):
+    with pytest.raises(ValueError, match="exactly one decimal place"):
         ratchet.update(_document(), Decimal("94.25"))
 
 

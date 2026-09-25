@@ -134,8 +134,30 @@ def test_more_than_one_decimal_place_refused(tmp_path, value):
     payload = json.loads(target.read_text(encoding="utf-8"))
     payload["coverage"]["python"]["measured"] = json.loads(value)
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="at most one decimal place"):
+    with pytest.raises(ValueError, match="exactly one decimal place"):
         thresholds.load(target)
+
+
+def test_coverage_number_without_decimal_place_refused(tmp_path):
+    # 92 is refused: the canonical spelling of a coverage number carries
+    # exactly one decimal place (92.0) — what the ratchet writes and
+    # what coverage --precision=1 measures.
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["coverage"]["python"]["measured"] = 92
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly one decimal place"):
+        thresholds.load(target)
+
+
+def test_coverage_number_with_trailing_zero_place_accepted(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["coverage"]["python"]["measured"] = 92.0
+    payload["coverage"]["python"]["floor"] = 90.5
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    doc = thresholds.load(target)
+    assert doc["coverage"]["python"]["measured"] == Decimal("92.0")
 
 
 def test_non_finite_number_refused(tmp_path):
@@ -192,11 +214,22 @@ def test_unsafe_baseline_path_refused(tmp_path, path):
 def test_coverage_value_bounds():
     assert thresholds.coverage_value(
         Decimal("100.0"), "m") == Decimal("100.0")
-    assert thresholds.coverage_value(Decimal("0"), "m") == Decimal("0.0")
+    assert thresholds.coverage_value(Decimal("0.0"), "m") == Decimal("0.0")
     with pytest.raises(ValueError, match="between 0.0 and 100.0"):
         thresholds.coverage_value(Decimal("100.1"), "m")
     with pytest.raises(ValueError, match="between 0.0 and 100.0"):
         thresholds.coverage_value(Decimal("-0.1"), "m")
+    with pytest.raises(ValueError, match="exactly one decimal place"):
+        thresholds.coverage_value(Decimal("92"), "m")
+
+
+def test_committed_document_bytes_are_canonical(tmp_path):
+    # The committed file must be byte-identical to what write() publishes
+    # for the same document — no hand-edited formatting drift.
+    doc = thresholds.load(THRESHOLDS_PATH)
+    target = tmp_path / "canonical.json"
+    thresholds.write(target, doc)
+    assert THRESHOLDS_PATH.read_bytes() == target.read_bytes()
 
 
 def test_coverage_floor_cli_prints_floor():

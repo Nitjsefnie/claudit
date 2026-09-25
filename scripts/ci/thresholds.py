@@ -17,7 +17,6 @@ THRESHOLDS = (Path(__file__).resolve().parents[2]
 # hysteresis a new measurement must clear before the floor moves: both
 # yardstick values, not tunables (SV-CI-RATCHETS).
 CALIBRATION_GAP = Decimal('1.5')
-_ONE_DECIMAL = Decimal('0.1')
 _SCHEMA_VERSION = 1
 _COVERAGE_LANGUAGES = ('python',)
 _BASELINE_FIELDS = ('module_size_baseline',)
@@ -91,16 +90,12 @@ def coverage_value(value, name):
     if result < 0 or result > 100:
         raise ValueError(f'{name} must be between 0.0 and 100.0')
     exponent = result.as_tuple().exponent
-    if not isinstance(exponent, int) or exponent < -1:
-        raise ValueError(f'{name} must have at most one decimal place')
-    try:
-        rounded = result.quantize(_ONE_DECIMAL)
-    except InvalidOperation:
-        raise ValueError(f'{name} must have at most one decimal place') \
-            from None
-    if rounded != result:
-        raise ValueError(f'{name} must have at most one decimal place')
-    return rounded
+    # The canonical spelling of a coverage number carries exactly one
+    # decimal place (92.0, never 92 or 92.00): it is what the ratchet
+    # writes and what coverage --precision=1 measures.
+    if not isinstance(exponent, int) or exponent != -1:
+        raise ValueError(f'{name} must have exactly one decimal place')
+    return result
 
 
 def _path_component_safe(component):

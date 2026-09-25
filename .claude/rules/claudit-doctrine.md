@@ -791,3 +791,32 @@ in the browser).
 
 Never invent a rate for a variant we have no published price for
 (e.g. `-fast`): let it fall back and be flagged.
+
+## CI thresholds are self-raising ratchets (SV-CI-RATCHETS)
+
+Coverage and module size are governed by committed data in
+`.github/ci-thresholds.json`, validated by `scripts/ci/thresholds.py`
+and enforced in `tests.yml` — not by hand-set numbers in a workflow.
+
+- Coverage: the document records `measured` and `floor` per language;
+  `floor = measured − 1.5` (the fixed gap). On a `master` push,
+  `scripts/ci/ratchet.py` raises the calibration only when the run's
+  measurement beats the recorded `measured` by more than the hysteresis
+  (1.5). The floor is never lowered by hand — not to turn a red build
+  green, not for any other reason.
+- Module size (`module_size_baseline`): every tracked `*.py` under
+  `backend/`, `scripts/`, `tests/` is capped per file (production 500 /
+  test 700) by `scripts/ci/size_baseline.py`, which replaces pylint's
+  flat `max-module-lines`. Entries are never added or raised by hand —
+  a file that outgrows its entry is fixed by moving code into a new
+  module. CI tightens an entry as its file shrinks and drops it once
+  the file is back under the ceiling.
+- Coverage numbers carry exactly one decimal place (`92.0`, never `92`
+  or `92.00`) — the canonical spelling the ratchet writes and
+  `coverage --precision=1` measures. The published document is always
+  the loader's canonical bytes; never hand-edit it.
+- The bot commit that raises/tightens on master touches only the data
+  file and must not re-trigger workflows: every gate workflow's push
+  trigger (including `version-guard.yml`) ignores
+  `.github/ci-thresholds.json`. When adding a gate workflow, carry the
+  exemption over.

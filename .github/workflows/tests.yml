@@ -89,9 +89,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Nothing in this workflow pushes. Leaving the job token in
-          # .git/config lets any later step — or anything a dependency
-          # pulls in — reuse it.
+          # One step in this workflow pushes (the master-only ratchet
+          # commit), and its token is interpolated into the push URL from
+          # a step-scoped env — never into .git/config. persist-
+          # credentials: false is what keeps the checkout from leaving
+          # the job token behind for any later step to reuse.
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
