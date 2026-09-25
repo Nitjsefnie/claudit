@@ -14,8 +14,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
-import pytest  # noqa: E402
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
 
@@ -207,7 +205,5 @@ def test_committed_baseline_seeds_only_over_ceiling_files():
     size_baseline = _size_baseline()
     thresholds = _thresholds()
     doc = thresholds.load(THRESHOLDS_PATH)
-    sizes = size_baseline.tracked_sizes()
     for rel, recorded in doc["module_size_baseline"].items():
         assert recorded > size_baseline.ceiling_for(rel)
-

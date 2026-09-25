@@ -10,14 +10,13 @@ file-writing behaviour.
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from decimal import Decimal
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import pytest
 
-import pytest  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
