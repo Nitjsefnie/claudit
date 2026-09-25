@@ -11,17 +11,15 @@ browser breakdown prices from).
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, pricing
+from tests import scratch_db
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 300k prompt / 2k output, pay-as-you-go (no rate_limits.plan_type): the
 # record lands over the threshold with the meter armed.
@@ -51,17 +49,7 @@ _BLOB = b"".join(
 def _fresh_db_fixture(monkeypatch):
     """Per-test schema reset on a separate DB (same shape as
     test_multi_bucket's fixture, kept local so this module stands alone)."""
-    test_db = "claudit_test"
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(
-        f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null"
-    )
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-    db.reset_viz_pool()
-    yield
-    db.reset_viz_pool()
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    yield from scratch_db.scratch_viz_database(monkeypatch, "long_context")
 
 
 @pytest.fixture(name="codex_app")

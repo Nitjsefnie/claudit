@@ -17,6 +17,7 @@ import psycopg
 import pytest
 
 from backend import db, ingest
+from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -41,15 +42,7 @@ def _plant(mirror: Path, project: str, session: str, fixture: str) -> None:
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
     """Per-test schema reset on a separate DB (as in test_ingest.py)."""
-    test_db = "claudit_test"
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-    db.reset_viz_pool()
-    yield
-    db.reset_viz_pool()
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    yield from scratch_db.scratch_viz_database(monkeypatch, "case_fold")
 
 
 def test_windows_case_variants_are_one_project(fresh_db, tmp_path,

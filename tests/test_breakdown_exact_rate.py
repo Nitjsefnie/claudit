@@ -12,7 +12,6 @@ end to end, against /api/dashboard over an ingested fixture.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -24,9 +23,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, pricing
+from tests import scratch_db
 
 ROOT = Path(__file__).resolve().parents[1]
-_DB = "claudit_test_breakdown_rate"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node not available"
@@ -169,6 +168,7 @@ def _transcript(start: datetime) -> str:
 @pytest.fixture(scope="module", name="dashboard_body")
 def _dashboard_body_fixture():
     mp = pytest.MonkeyPatch()
+    test_db = scratch_db.create_database("breakdown_rate")
     tmp = tempfile.mkdtemp(prefix="sv-breakdown-")
     start = (datetime.now(UTC) - timedelta(hours=2)).replace(
         minute=0, second=0, microsecond=0)
@@ -176,10 +176,7 @@ def _dashboard_body_fixture():
     sess.mkdir(parents=True)
     (sess / "sess-bd.jsonl").write_text(_transcript(start), encoding="utf-8")
     try:
-        os.system(f"dropdb --if-exists {_DB} 2>/dev/null")
-        os.system(f"createdb {_DB} 2>/dev/null")
-        os.system(f"psql {_DB} -f {ROOT / 'backend/schema.sql'} >/dev/null")
-        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{_DB}")
+        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
         mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
         db.reset_viz_pool()
         result = ingest.run_ingest(trigger="manual")
@@ -190,7 +187,7 @@ def _dashboard_body_fixture():
     finally:
         db.reset_viz_pool()
         shutil.rmtree(tmp)
-        os.system(f"dropdb --if-exists {_DB} 2>/dev/null")
+        scratch_db.drop_database(test_db)
         mp.undo()
 
 

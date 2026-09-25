@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from backend import (api, api_export, cache, db, ingest,
                      pricing)
+from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -116,14 +117,12 @@ def test_plot_db_project_filter_subsets_events(app_with_data):
     assert len(filtered) < len(all_events), "filter must drop the other project"
 
 
-def _build_api_client(mp, test_db: str):
+def _build_api_client(mp, label: str):
     """Fresh DB + mini R2 + ingest, yielding a TestClient on the api router.
 
     Auth is bypassed by mounting only the router into a clean app.
     """
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null")
+    test_db = scratch_db.create_database(label)
     mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-api-")
@@ -141,7 +140,7 @@ def _build_api_client(mp, test_db: str):
 
     db.reset_viz_pool()
     shutil.rmtree(tmp)
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    scratch_db.drop_database(test_db)
 
 
 # Module-scoped: this setup (dropdb, createdb, schema, copy the R2 tree,
@@ -153,7 +152,7 @@ def _build_api_client(mp, test_db: str):
 def _app_with_data_fixture():
     mp = pytest.MonkeyPatch()          # monkeypatch itself is function-scoped
     try:
-        yield from _build_api_client(mp, "claudit_test_api")
+        yield from _build_api_client(mp, "api")
     finally:
         mp.undo()
 
@@ -164,7 +163,7 @@ def _app_with_fresh_data_fixture():
     contaminate the shared module-scoped client."""
     mp = pytest.MonkeyPatch()
     try:
-        yield from _build_api_client(mp, "claudit_test_api_mut")
+        yield from _build_api_client(mp, "api_mut")
     finally:
         mp.undo()
 
@@ -493,10 +492,7 @@ def _app_with_rl_data_fixture(monkeypatch):
     rate-limit hits by file mtime (r2_last_modified) rather than the hit's
     own ts. Yields (client, in_range_ts, out_of_range_ts).
     """
-    test_db = "claudit_test_api_rl"
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null")
+    test_db = scratch_db.create_database("api_rl")
     monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     tmp = tempfile.mkdtemp(prefix="sv-api-rl-")
     shutil.copytree(_REPO_ROOT / "fixtures/r2_mini", Path(tmp) / "r2")
@@ -545,7 +541,7 @@ def _app_with_rl_data_fixture(monkeypatch):
 
     db.reset_viz_pool()
     shutil.rmtree(tmp)
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    scratch_db.drop_database(test_db)
 
 
 def test_dashboard_returns_prompts_and_turns_totals(app_with_data):

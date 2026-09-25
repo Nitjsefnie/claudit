@@ -199,10 +199,8 @@ jobs:
         # them explicitly rather than trusting an exit code it deliberately
         # ignores.
         #
-        # Sequential, never parallel: the fixtures createdb/dropdb by a
-        # fixed name, so two suites at once would tear down each other's
-        # databases — and two suites sharing a runner would not be a speed
-        # measurement anyway.
+        # Sequential, never parallel: two suites sharing a runner would
+        # not be a speed measurement.
         run: |
           mkdir -p reports
           for round in $(seq 1 "$ROUNDS"); do

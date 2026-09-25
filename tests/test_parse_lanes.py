@@ -1,5 +1,4 @@
 """Codex and Kimi transcripts through claudit's parse_file (D2, D3, D7)."""
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +6,7 @@ import pytest
 
 from backend import constants, db, ingest, parse
 from backend.r2 import R2Object
+from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 CLAUDIT_RECORD_KEYS = {
@@ -95,15 +95,7 @@ def test_a_kimi_code_llm_error_line_with_a_string_message_does_not_crash():
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
     """Per-test schema reset on a separate DB (tests/test_ingest.py's)."""
-    test_db = "claudit_test"
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(f"psql {test_db} -f {Path(__file__).resolve().parents[1] / 'backend/schema.sql'} >/dev/null")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-    db.reset_viz_pool()
-    yield
-    db.reset_viz_pool()
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    yield from scratch_db.scratch_viz_database(monkeypatch, "parse_lanes")
 
 
 @pytest.mark.parametrize("name,tool_use_id,prompt_count,models", [
