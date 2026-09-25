@@ -84,6 +84,9 @@ def _fake_pool_class(server: FakeServer) -> type[ConnectionPool]:
     class _FakeConnectionPool(ConnectionPool):
         def __init__(self, conninfo: str = "", **kwargs) -> None:
             kwargs["connection_class"] = _FakeConnection
+            # Mirror db.py's pools, which open explicitly at construction;
+            # the implicit-open default is deprecated in psycopg_pool.
+            kwargs["open"] = True
             super().__init__(conninfo, **kwargs)
 
     return _FakeConnectionPool

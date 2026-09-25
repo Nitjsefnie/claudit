@@ -55,6 +55,9 @@ def viz_pool() -> ConnectionPool:
             min_size=2, max_size=20, timeout=10,
             kwargs={"autocommit": False},
             check=ConnectionPool.check_connection,
+            # Explicit open: the implicit-open default is deprecated in
+            # psycopg_pool and flips to False in a future release.
+            open=True,
         )
     return _VIZ
 
@@ -80,6 +83,8 @@ def auth_pool() -> ConnectionPool:
             min_size=1, max_size=4, timeout=10,
             kwargs={"autocommit": True},
             check=ConnectionPool.check_connection,
+            # Same explicit open as the viz pool above.
+            open=True,
         )
     return _AUTH
 
