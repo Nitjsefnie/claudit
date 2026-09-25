@@ -91,11 +91,32 @@ def test_detail_drops_the_non_canonical_loser_rows(app_with_data):
 
 
 def test_detail_keeps_fully_canonical_sessions_unchanged(app_with_data):
-    """A session whose main file is all-canonical reads identically
-    before and after the filter: the canonical condition lives in the
-    LEFT JOIN's ON clause, so a file row never vanishes for having no
-    canonical records."""
+    """A session whose main file is all-canonical keeps its exact
+    pre-filter numbers: the canonical condition must not disturb the
+    normal aggregation path. (That a main file with NO canonical
+    records still keeps its detail row is pinned separately by
+    test_detail_returns_zeroed_row_for_non_canonical_main_file.)"""
     body = app_with_data.get("/api/sessions/sess-A").json()
     assert body["request_count"] == 1
     assert body["input_tokens"] == 100
     assert body["output_tokens"] == 200
+
+
+def test_detail_returns_zeroed_row_for_non_canonical_main_file(app_with_data):
+    """sess-C's main file holds only the non-canonical copy of
+    shared-uuid-1 (the canonical winner lives in the agent-aaaa.jsonl
+    sidecar, which the detail endpoint -- main-file-only -- does not
+    read). This pins the deliberate placement of the canonical condition
+    in the LEFT JOIN's ON clause: the file row survives with zeroed
+    aggregates. WHERE-clause placement would drop the row instead and
+    answer 404 for an existing session."""
+    resp = app_with_data.get("/api/sessions/sess-C")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["request_count"] == 1
+    assert body["input_tokens"] == 0
+    assert body["output_tokens"] == 0
+    assert body["cache_create_5m_tokens"] == 0
+    assert body["cache_create_1h_tokens"] == 0
+    assert body["cache_read_tokens"] == 0
+    assert body["models"] == {}
