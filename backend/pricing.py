@@ -51,7 +51,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -88,20 +88,31 @@ class RateTables(TypedDict):
 # The one timestamp spelling both loaders accept: whole seconds and an
 # explicit offset, every field in range (year 1-9999, a real day of that
 # month, hour 0-23, minute and second 0-59, offset under 24:00 with minutes
-# 0-59). src/parser.js checks the same fields itself rather than trusting
-# Date.parse, which rolls 24:00 and 02-30 over where fromisoformat refuses
-# them, so Python and the browser can never read one string as two instants.
+# 0-59). The ranges are enforced by the datetime CONSTRUCTOR, never left to
+# fromisoformat: Python 3.14 accepts the ISO 24:00:00 spelling and rolls it
+# over to the next midnight where 3.13 raised, and src/parser.js checks the
+# same fields itself rather than trusting Date.parse, so the Python loader
+# must not lean on the interpreter's whim either way.
 _INSTANT = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-    r"(?:Z|[+-][0-9]{2}:([0-9]{2}))")
+    r"(?P<y>[0-9]{4})-(?P<mo>[0-9]{2})-(?P<d>[0-9]{2})"
+    r"T(?P<h>[0-9]{2}):(?P<mi>[0-9]{2}):(?P<s>[0-9]{2})"
+    r"(?:Z|(?P<sign>[+-])(?P<oh>[0-9]{2}):(?P<om>[0-9]{2}))")
 
 
 def _instant(stamp: object, where: str) -> datetime:
     m = _INSTANT.fullmatch(stamp) if isinstance(stamp, str) else None
-    # fromisoformat reads an offset of 14:60 as 15:00; the browser refuses it.
-    if m and int(m.group(1) or 0) < 60:
+    # An offset minute of 60+ would normalize through timedelta (14:60
+    # would silently read as 15:00); the browser refuses it, so refuse it.
+    if m and int(m["om"] or 0) < 60:
         try:
-            return datetime.fromisoformat(m.group(0))
+            delta = timedelta(0)
+            if m["sign"]:
+                delta = timedelta(hours=int(m["oh"]), minutes=int(m["om"]))
+                if m["sign"] == "-":
+                    delta = -delta
+            return datetime(int(m["y"]), int(m["mo"]), int(m["d"]),
+                            int(m["h"]), int(m["mi"]), int(m["s"]),
+                            tzinfo=timezone(delta))
         except ValueError:
             pass
     raise ValueError(f"{where}: {stamp!r} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM")
