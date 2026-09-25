@@ -131,6 +131,42 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
     assert got["models"] == ["opus-4-8", "sonnet-4-5"]
 
 
+def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
+    """Issue #55: txToDashData priced every turn with no timestamp, so a
+    turn inside gpt-5-6-sol's GA window (it ends at pricing.AUG21_CUT,
+    where the cut list price begins) costed at list instead. Each turn's
+    cost_usd must equal what pricing.compute_cost stores for that turn's
+    own timestamp, so the turn costs sum to the stored total."""
+    model = "gpt-5-6-sol"
+    cut = pricing.AUG21_CUT
+    ts_in, ts_out = cut - timedelta(days=1), cut + timedelta(days=30)
+    got = _node(f"""
+      const usage = {{ input_tokens: 1000, output_tokens: 700,
+        cache_creation_input_tokens: 5000, cache_read_input_tokens: 90000,
+        cache_creation: {{ ephemeral_5m_input_tokens: 1000,
+                          ephemeral_1h_input_tokens: 4000 }} }};
+      const meta = [
+        {{ type: 'assistant_usage', sessionId: 's', line: 1,
+          ts: {json.dumps(ts_in.isoformat())}, model: {json.dumps(model)}, usage }},
+        {{ type: 'assistant_usage', sessionId: 's', line: 2,
+          ts: {json.dumps(ts_out.isoformat())}, model: {json.dumps(model)}, usage }},
+      ];
+      const dash = txToDashData({{ meta, events: [] }});
+      console.log(JSON.stringify(dash.events.map(e => e.cost_usd)));
+    """)
+    assert len(got) == 2
+    dated = pricing.compute_cost(
+        model, fresh=1000, output=700, eph5=1000, eph1h=4000,
+        unsplit_create=0, read=90000, ts=ts_in)
+    listed = pricing.compute_cost(
+        model, fresh=1000, output=700, eph5=1000, eph1h=4000,
+        unsplit_create=0, read=90000, ts=ts_out)
+    # The fixture means something only while the window reprices it.
+    assert dated != listed
+    assert got[0] == pytest.approx(dated, rel=1e-12)
+    assert got[1] == pytest.approx(listed, rel=1e-12)
+
+
 # (provider or None, model, fresh, 5m write, 1h write, cache read, output):
 # two older Claude models whose short names resolve to a newer tier, a
 # current one, and an OpenRouter record priced by its serving host.

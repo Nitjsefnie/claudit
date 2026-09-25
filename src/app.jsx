@@ -97,7 +97,7 @@ function txToDashData(tx) {
       if ((inp + cc + cr) === 0) continue; // refusal/interrupt
       const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
-      const r = rateFor(u.model, undefined, u.provider);
+      const r = rateFor(u.model, t, u.provider);
       const unsplit = Math.max(0, cc - eph5 - eph1h);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): lane meta

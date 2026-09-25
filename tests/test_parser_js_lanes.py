@@ -571,13 +571,14 @@ def test_browser_long_context_multipliers_equal_backend():
 def test_browser_inspector_turn_cost_applies_the_long_context_meter():
     """txToDashData re-derives each Inspector turn's cost from the parsed
     usage; a long-context record must price at the meter there too, or
-    the Inspector's per-turn cost drifts from the stored figure. The
-    Inspector path prices at LIST by construction (rateFor without a ts
-    — the conservative default SV-DATED-RATES gives an unstamped
-    record), so the expected figure is the metered LIST price."""
+    the Inspector's per-turn cost drifts from the stored figure. The turn
+    prices at the rate in force at its own timestamp (issue #55), so the
+    expected figure is the metered DATED price — the blob's request
+    predates pricing.AUG21_CUT, where gpt-5.6-sol's list price begins."""
     expected = pricing.compute_cost(
         "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,
         unsplit_create=0, read=290_000, long_context=True,
+        ts=datetime(2026, 6, 14, 12, 0, 3, tzinfo=UTC),
     )
     script = f"""
       global.window = {{ shortModelName: m => m }};
