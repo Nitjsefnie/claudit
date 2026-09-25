@@ -132,9 +132,6 @@ def compare(base_paths: list, head_paths: list) -> dict:
 
     pairs = [pair_totals(b, h) for b, h in zip(base_rounds, head_rounds)]
 
-    common = set(base_rounds[0])
-    for other in base_rounds[1:] + head_rounds:
-        common &= set(other)
     # "Removed" and "new" mean present-in-every-round of one side and not
     # the other — a test that flaked out of one round on BOTH sides is
     # neither, and appears in neither count.
@@ -144,6 +141,7 @@ def compare(base_paths: list, head_paths: list) -> dict:
     head_stable = set(head_rounds[0])
     for other in head_rounds[1:]:
         head_stable &= set(other)
+    common = base_stable & head_stable
 
     per_test = []
     for nid in common:

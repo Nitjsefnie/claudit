@@ -49,9 +49,13 @@ name: speed
 #
 # CALIBRATION, so the 30% budget is not a guess. Two runs of IDENTICAL
 # code, back to back on one machine, moved the shared-test total by 1.7%
-# while individual tests moved by up to 370%. That is the whole argument
-# for gating on the median paired ratio (noise ~2%, budget 30%, comfortable
-# margin) and treating any single test's number as unreliable.
+# while individual tests moved by up to 370% — measured under the previous
+# minimum-across-rounds statistic. That is the whole argument for gating
+# on the median paired ratio (noise ~2%, budget 30%, comfortable margin)
+# and treating any single test's number as unreliable; until a fresh
+# calibration is taken under this one, the "spread across pairs" line
+# every run reports is the equivalent evidence for how far a pair can
+# drift on identical code.
 #
 # A FORK'S CODE RUNS HERE. This is the one gate that deliberately EXECUTES
 # a pull request's tree; every other gate only parses it. So the job names
