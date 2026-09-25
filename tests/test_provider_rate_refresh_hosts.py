@@ -138,13 +138,13 @@ def _as_listed_at(run: Run, at: datetime) -> None:
 
 def test_a_top_level_price_that_follows_the_window_moves_nothing(tmp_path, capsys):
     run = Run(tmp_path)
-    before, version = run.snapshot(), run.parser_version()
+    before, version = run.snapshot(), run.pricing_version()
     for hours in (0, 2, 15, 26, 72):
         at = NOW + timedelta(hours=hours)
         _as_listed_at(run, at)
         rc, out, _ = run(capsys, now=at)
         assert rc == 0 and "no rate moved" in out, (hours, out)
-    assert run.snapshot() == before and run.parser_version() == version
+    assert run.snapshot() == before and run.pricing_version() == version
 
 
 def test_a_changed_schedule_appends_one_entry_and_keeps_the_default(tmp_path, capsys):
@@ -386,12 +386,12 @@ def test_twins_differing_in_max_prompt_tokens_are_not_identical(tmp_path, capsys
     _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
-def test_a_file_with_two_parser_versions_is_refused(tmp_path, capsys):
+def test_a_file_with_two_pricing_versions_is_refused(tmp_path, capsys):
     run = Run(tmp_path)
     _move_glm(run)
     run.constants.write_text(run.constants.read_text(encoding="utf-8")
-                             + '\nPARSER_VERSION = "1"\n', encoding="utf-8")
-    _refused(run, capsys, "PARSER_VERSION")
+                             + '\nPRICING_VERSION = "1"\n', encoding="utf-8")
+    _refused(run, capsys, "PRICING_VERSION")
 
 
 def test_the_subject_counts_vanished_hosts(tmp_path, capsys):

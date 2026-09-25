@@ -10,7 +10,7 @@ every master push and PR.
 
 THE BOT CARVE-OUT. The hourly pricing bot commits as
 `github-actions[bot]`, touching only `src/pricing.json` and
-`backend/constants.py` (the PARSER_VERSION bump). Those commits don't
+`backend/constants.py` (the PRICING_VERSION bump). Those commits don't
 change released behaviour, so they must pass even when the tree version is
 stale — a version move is a human commit's job. The carve-out is keyed on
 author AND file shape, never on paths alone: paths-only would need a
@@ -36,7 +36,7 @@ from typing import NamedTuple
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 # The only files a pricing-bot commit ever touches: the rate data and the
-# PARSER_VERSION bump that forces a reparse of the repriced records.
+# PRICING_VERSION bump that forces a reprice of the repriced records.
 BOT_FILES = frozenset({"src/pricing.json", "backend/constants.py"})
 
 # `X.Y.Z` with an optional `-<prerelease>` suffix. The core stays free of

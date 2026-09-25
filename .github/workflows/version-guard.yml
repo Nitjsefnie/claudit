@@ -16,7 +16,7 @@ name: version-guard
 #
 # THE BOT CARVE-OUT (push events only). The hourly pricing bot commits as
 # `github-actions[bot]`, touching only `src/pricing.json` and
-# `backend/constants.py` (the PARSER_VERSION bump). Its commits change no
+# `backend/constants.py` (the PRICING_VERSION bump). Its commits change no
 # released behaviour, so they must pass even when the tree version is
 # stale. The carve-out is keyed on author AND file shape, never on paths
 # alone, and PRs get none — the bot never opens PRs.
