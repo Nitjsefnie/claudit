@@ -303,6 +303,8 @@ Intended to run under systemd behind a reverse proxy. Key settings from `example
 - `Restart=always` with `RestartSec=5`.
 - `After=network.target postgresql.service`.
 
+A restart during an ingest aborts the run cooperatively within the stop timeout: the aborted run's `ingest_runs` row says it was aborted, and the next successful run rebuilds all derived state and converges.
+
 ```bash
 # Typical systemd workflow
 systemctl restart claudit

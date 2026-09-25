@@ -75,6 +75,50 @@ _RUN_LOCK = threading.Lock()
 # lock on one database.
 _INGEST_LOCK_KEY = 0x5356_4D4A
 
+# Cooperative abort (issue #103): a SIGTERM during a run used to wait out
+# the whole ingest until systemd SIGKILLed mid-run. Lifespan teardown sets
+# this event; a run checks it between bounded steps and unwinds via
+# IngestAborted. Per-file transactions are atomic, so the DB stays
+# convergent: derived state is left stale and rebuilt by the next run.
+_SHUTDOWN = threading.Event()
+
+
+def request_shutdown() -> None:
+    """Ask any in-flight run to stop at its next bounded step, and every
+    later run to skip. Called from lifespan teardown."""
+    _SHUTDOWN.set()
+
+
+def clear_shutdown() -> None:
+    """Revoke a shutdown request once it can no longer serve a purpose.
+
+    Lifespan teardown calls this AFTER the bounded wait, when nothing can
+    start a run in this process any more: a shutdown request must not
+    outlive the teardown it belongs to, or it poisons whatever else
+    shares this interpreter.
+    """
+    _SHUTDOWN.clear()
+
+
+class IngestAborted(Exception):
+    """Internal signal: _SHUTDOWN was seen between bounded steps.
+
+    run_ingest_locked catches it SEPARATELY from the generic fatal path:
+    the row is closed as aborted, but the rebuild, the cache
+    invalidation and the ingest_done broadcast are all skipped — an
+    aborted run must not tell clients data changed.
+    """
+
+
+def _check_shutdown() -> None:
+    """Raise IngestAborted if shutdown was requested (bounded steps only)."""
+    if _SHUTDOWN.is_set():
+        raise IngestAborted("shutdown requested")
+
+
+# The ingest_runs.error text an aborted run is closed with.
+_ABORT_ERROR = "aborted: shutdown requested"
+
 
 def progress_snapshot() -> dict:
     with _PROGRESS_LOCK:
@@ -199,29 +243,46 @@ def _db_run_lock() -> Iterator[bool]:
         conn.close()  # pylint: disable=no-member
 
 
+def _skip(trigger: str, reason: str) -> dict:
+    """The skip dict for a run that declines to start; no run row."""
+    return {"skipped": True, "reason": reason, "trigger": trigger}
+
+
 def run_ingest(trigger: str) -> dict:
+    if _SHUTDOWN.is_set():
+        log.warning("ingest (%s) skipped: shutdown requested", trigger)
+        return _skip(trigger, "shutdown requested")
     with _run_lock_nonblocking() as acquired:
         if not acquired:
             log.warning(
                 "ingest (%s) skipped: another run is still in flight", trigger
             )
-            return {
-                "skipped": True,
-                "reason": "ingest already running",
-                "trigger": trigger,
-            }
+            return _skip(trigger, "ingest already running")
         with _db_run_lock() as db_acquired:
             if not db_acquired:
                 log.warning(
                     "ingest (%s) skipped: another instance is still running",
                     trigger,
                 )
-                return {
-                    "skipped": True,
-                    "reason": "ingest already running (another instance)",
-                    "trigger": trigger,
-                }
+                return _skip(trigger, "ingest already running (another instance)")
+            if _SHUTDOWN.is_set():  # landed while waiting on the locks
+                log.warning("ingest (%s) skipped: shutdown requested", trigger)
+                return _skip(trigger, "shutdown requested")
             return run_ingest_locked(trigger)
+
+
+def wait_for_run(timeout: float) -> bool:
+    """Bounded wait for an in-flight run to release _RUN_LOCK.
+
+    True when the lock is free (idle, or the run finished inside the
+    timeout), False when one still holds it. The timeout keeps lifespan
+    teardown inside the unit's stop window.
+    """
+    # A timeout'd acquire has no `with` form; this release IS its finally.
+    if _RUN_LOCK.acquire(timeout=timeout):  # pylint: disable=consider-using-with
+        _RUN_LOCK.release()
+        return True
+    return False
 
 
 def _open_run(started: datetime, trigger: str) -> int:
@@ -489,6 +550,7 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
     workers = worker_count()
     chunk = max(1, workers * 4)
     for start in range(0, len(todo), chunk):
+        _check_shutdown()
         for (obj, proj, stored), parsed, exc in _resolve(
             todo[start:start + chunk],
             lambda it: _fetch_and_parse(it[0].key, it[0].sidecar_key),
@@ -565,31 +627,30 @@ def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
 
 
 def _rebuild_derived_state() -> None:
-    """Canonical flags and teammate roles, then the rollups that read them."""
+    """Canonical flags and teammate roles, then the rollups that read them.
+
+    Each phase is a bounded step, checked for shutdown between: an abort
+    leaves the later rollups unbuilt; the next successful run rebuilds.
+    """
     # Order matters: suppression removes rows the canonical pass would
     # otherwise rank, and the rollups read is_canonical and agent_type.
-    _set_progress(phase="suppressed")
-    purge_suppressed()
-    _set_progress(phase="canonical")
-    recompute_canonical()
-    _set_progress(phase="teammates")
-    resolve_teammate_agent_types()
-    _set_progress(phase="usage_rollup")
-    rebuild_rollup()
-    _set_progress(phase="tool_rollup")
-    rebuild_tool_rollup()
-    _set_progress(phase="tool_error_rollup")
-    rebuild_tool_error_rollup()
-    _set_progress(phase="dispatch_rollup")
-    rebuild_dispatch_rollup()
-    _set_progress(phase="dispatch_brief_rollup")
-    rebuild_dispatch_brief_rollup()
-    _set_progress(phase="latency_rollup")
-    rebuild_latency_rollup()
-    _set_progress(phase="ctx_cost_rollup")
-    rebuild_ctx_cost_rollup()
-    _set_progress(phase="agent_rollup")
-    rebuild_agent_rollup()
+    # The names resolve through this module's globals at call time, so a
+    # test can monkeypatch any phase on `ingest` itself.
+    phases = (
+        ("suppressed", purge_suppressed), ("canonical", recompute_canonical),
+        ("teammates", resolve_teammate_agent_types),
+        ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
+        ("tool_error_rollup", rebuild_tool_error_rollup),
+        ("dispatch_rollup", rebuild_dispatch_rollup),
+        ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup),
+        ("latency_rollup", rebuild_latency_rollup),
+        ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
+        ("agent_rollup", rebuild_agent_rollup),
+    )
+    for phase, rebuild in phases:
+        _check_shutdown()
+        _set_progress(phase=phase)
+        rebuild()
 
 
 def _walk_and_persist(parser_version: str,
@@ -598,22 +659,24 @@ def _walk_and_persist(parser_version: str,
 
     Returns (listed, inserted, reparsed, deleted, vanished). Exceptions
     propagate to run_ingest_locked, which books them as the run-level
-    `fatal`.
+    `fatal` — except IngestAborted, which closes the run as aborted.
     """
     listed, todo, seen_keys = _collect_todo(
         _existing_files(), parser_version, failed
     )
+    _check_shutdown()
     inserted, reparsed, vanished = _fetch_parse_persist(
         todo, parser_version, failed, seen_keys
     )
+    _check_shutdown()
     deleted = _delete_orphans(seen_keys)
     _delete_orphan_projects()
+    _check_shutdown()
     return listed, inserted, reparsed, deleted, vanished
 
 
 def run_ingest_locked(trigger: str) -> dict:
     started = datetime.now(timezone.utc)
-    parser_version = constants.PARSER_VERSION
     run_id = _open_run(started, trigger)
 
     _set_progress(phase="listing", done=0, total=0,
@@ -625,11 +688,17 @@ def run_ingest_locked(trigger: str) -> dict:
     failed: list[tuple[str, str]] = []
     # A whole-run exception, which DOES gate the post-passes below.
     fatal = None
+    # A shutdown request honoured mid-run (issue #103). Like `fatal`, it
+    # gates the post-passes; unlike it, the row closes saying "aborted".
+    aborted = False
 
     try:
         listed, inserted, reparsed, deleted, vanished = _walk_and_persist(
-            parser_version, failed
+            constants.PARSER_VERSION, failed
         )
+    except IngestAborted:
+        log.warning("ingest (%s): aborted, shutdown requested", trigger)
+        aborted = True
     except Exception as e:  # noqa: BLE001
         # The full exception goes to the logs; the stored text (served by
         # the public /health) is redacted of bucket names and the mirror
@@ -638,22 +707,36 @@ def run_ingest_locked(trigger: str) -> dict:
         log.exception("ingest (%s): fatal, run aborted", trigger)
         fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
 
-    # `error` reports BOTH kinds of trouble, but only `fatal` gates anything.
-    err = fatal if fatal is not None else failure_summary(failed)
+    # `error` reports both kinds of trouble plus the abort; only these gate.
+    err: str | None
+    if aborted:
+        err = _ABORT_ERROR
+    elif fatal is not None:
+        err = fatal
+    else:
+        err = failure_summary(failed)
 
     # The rebuild runs BEFORE the run is closed (issue #42): finished_at is
     # the signal that the rollups and canonical flags now describe what
     # THIS run persisted, so a reader that waits on it never lands on the
-    # previous run's aggregates. Gated on `fatal`, NOT on `err`: the
-    # derived state describes whatever `records` now holds, so skipping the
-    # rebuild because one object out of a thousand could not be fetched is
-    # what leaves the rollups and is_canonical describing the PREVIOUS
-    # dataset until the next clean run. A rebuild failure is more severe
-    # than any per-object failure summary, so it books itself as the run's
-    # error — and the run still closes, so the next run can start.
-    if fatal is None:
+    # previous run's aggregates. Gated on `fatal` and `aborted`, NOT on
+    # `err`: the derived state describes whatever `records` now holds, so
+    # skipping it because one object out of a thousand could not be
+    # fetched would leave the rollups describing the PREVIOUS dataset. An
+    # aborted run skips it too — the walk it interrupted is incomplete, so
+    # a rebuild would describe a half-written dataset. A rebuild failure
+    # is more severe than any per-object failure summary, so it books
+    # itself as the run's error — and the run still closes, so the next
+    # run can start.
+    if fatal is None and not aborted:
         try:
             _rebuild_derived_state()
+        except IngestAborted:
+            log.warning(
+                "ingest (%s): aborted during the derived-state rebuild",
+                trigger)
+            aborted = True
+            err = _ABORT_ERROR
         except Exception as e:  # noqa: BLE001
             log.exception(
                 "ingest (%s): fatal, derived-state rebuild failed", trigger)
@@ -674,6 +757,7 @@ def run_ingest_locked(trigger: str) -> dict:
         "deleted": deleted,
         "failed": len(failed),
         "vanished": vanished,
+        "aborted": aborted,
         "error": err,
     }
 
@@ -686,12 +770,13 @@ def run_ingest_locked(trigger: str) -> dict:
     # while marking them stale, so the refetch triggered by ingest_done
     # returns the previous numbers instantly and the fresh ones land via
     # the background refresh. Threadsafe: ingest may run in a scheduler
-    # thread.
-    if fatal is None and (inserted or reparsed or deleted):
+    # thread. An aborted run skips this to match its skipped rebuild: it
+    # must not tell clients data changed.
+    if fatal is None and not aborted and (inserted or reparsed or deleted):
         cache.response_cache.invalidate()
         events.broadcast_threadsafe("ingest_done", summary)
 
-    if fatal is None:
+    if fatal is None and not aborted:
         _set_progress(phase="warming")
         warm_common()
     _set_progress(phase="idle", done=0, total=0)
