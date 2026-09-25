@@ -17,7 +17,7 @@
   /* text */
   --fg:        #e7e9f2;
   --fg-2:      #b9bdd0;
-  --muted:     #6b7193;
+  --muted:     #7a81a8;
   --muted-2:   #4a4f6a;
 
   /* accents — keep teal, add hue-locked siblings for chart use */
@@ -262,6 +262,19 @@ a.loadbtn { display: inline-block; text-decoration: none; }
 .dash-ttl     { min-height: 340px; }
 .dash-foot { font-size: 14px; padding: 4px 4px 24px; }
 .muted { color: var(--muted); font-family: var(--mono); font-size: 13px; }
+/* Visually hidden, still exposed to assistive technology: the chart
+   descriptions (aria-describedby targets) and the ingest-refresh live
+   region. Width/height 1px + clip keeps it out of the layout and off
+   the screen without display:none, which would hide it from readers. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 code {
   font-family: var(--mono); font-size: 13px;
   background: var(--code-bg); padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border);
