@@ -150,6 +150,19 @@ def test_this_run_holds_its_lease():
     assert scratch_db.db_name() in names
 
 
+def test_the_lease_outlives_an_idle_session_timeout():
+    """A server or role may set idle_session_timeout; the lease must not
+    be a session it can end."""
+    proc = _python(
+        "import time; from tests import scratch_db; "
+        "scratch_db.hold_run_lease(); time.sleep(2); "
+        "c = scratch_db.admin_connection(); "
+        "print(scratch_db.db_name() in {a for (a,) in c.execute("
+        "'SELECT application_name FROM pg_stat_activity')})",
+        PGOPTIONS="-c idle_session_timeout=1s")
+    assert proc.stdout.strip() == "True", proc.stderr
+
+
 # ---- stale sweep ------------------------------------------------------
 
 def test_sweep_drops_a_stale_orphan_and_keeps_everything_else():
