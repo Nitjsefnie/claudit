@@ -147,9 +147,9 @@ def reprice_stale() -> int:
             ).fetchall()
             if not raw_rows:
                 break
+            rows = [_StaleRow(*raw) for raw in raw_rows]
             updates = []
-            for raw in raw_rows:
-                row = _StaleRow(*raw)
+            for row in rows:
                 if _stored_pricing_version_is_newer(
                         row.pricing_version, constants.PRICING_VERSION):
                     skipped += 1
@@ -164,7 +164,8 @@ def reprice_stale() -> int:
                     cur.executemany(_UPDATE_SQL, updates)
             c.commit()
         repriced += len(updates)
-        after_key = (raw_rows[-1][0], raw_rows[-1][1])
+        last = rows[-1]
+        after_key = (last.file_key, last.line_num)
     if skipped:
         log.info(
             "reprice: skipped %d record(s) priced by a NEWER "

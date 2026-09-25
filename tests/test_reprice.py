@@ -243,6 +243,25 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
     assert "skipped 1 record" in caplog.text
 
 
+def test_reprice_reprices_a_non_integer_version(fresh_db):
+    """A stored pricing_version that does not parse as an int cannot be
+    shown NEWER, so the guard's ordinary-staleness branch applies: the
+    row is repriced from its stored columns and stamped with the current
+    version, exactly like a NULL."""
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version="abc")
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 1
+
+    with db.viz_conn() as c:
+        cost, version = _pair(
+            c, "SELECT cost_usd, pricing_version FROM records "
+               "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+    assert float(cost) == _seeded_cost()
+    assert version == constants.PRICING_VERSION
+
+
 def test_reprice_is_idempotent(fresh_db):
     """Rows the first run stamped no longer differ from the current
     version, so the second run selects nothing."""
