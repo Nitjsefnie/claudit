@@ -240,20 +240,24 @@ def test_committed_document_bytes_are_canonical(tmp_path):
 
 
 def test_coverage_floor_cli_prints_floor():
+    # The printed floor is whatever the committed document records — the
+    # seed moves; the CLI's contract does not.
+    recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
          "--coverage-floor", "python", "--thresholds", str(THRESHOLDS_PATH)],
         capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == "91.1"
+    assert result.stdout.strip() == f'{recorded["floor"]:.1f}'
 
 
 def test_coverage_measured_cli_prints_measured():
+    recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
          "--coverage-measured", "python", "--thresholds",
          str(THRESHOLDS_PATH)],
         capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == "92.6"
+    assert result.stdout.strip() == f'{recorded["measured"]:.1f}'
 
 
 def test_check_cli_accepts_committed_document():
