@@ -32,7 +32,7 @@ from typing import NamedTuple
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import api, cache, constants, db, events, key_layout, lane_projects, parse, r2
+from backend import api, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
 from backend.api_dashboard import dashboard
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state below is their
@@ -269,30 +269,30 @@ def _fetch_marker(project_id: str, key: str) -> tuple[str, str] | None:
     return None
 
 
-def _resolve_project_paths(marker_items: list[tuple[str, str]], workers: int,
+def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
+                           workers: int,
                            failed: list[tuple[str, str]]) -> dict[str, str]:
-    """Fetch marker bodies on the pool; project_paths must be fully
-    populated before the todo loop starts.
+    """Resolve every listed marker's path before the todo loop starts:
+    stored rows for unchanged etags, a GET on the pool for the rest.
 
-    A marker GET is as droppable as a transcript GET, so its failures go
-    through the same collector and land in the same `failed` summary. A
-    marker that vanished between the listing and its fetch is skipped —
-    the project then displays its id, and if the whole subtree went with
-    the marker the transcript walk will not show the project either.
+    A marker GET is as droppable as a transcript GET, so its failures
+    land in the same `failed` summary; a failed or vanished marker gives
+    no path this run and is not stored, so the next run fetches it again.
     """
-    project_paths: dict[str, str] = {}
-    if not marker_items:
-        return project_paths
+    project_paths, stale = lane_markers.cached_paths(marker_items)
+    read: dict[str, tuple[str, str | None]] = {}
     for item, res, exc in _resolve(
-        marker_items, lambda it: _fetch_marker(*it), workers
+        stale, lambda it: _fetch_marker(it[0], it[1]), workers
     ):
         if isinstance(exc, VanishedObject):
             continue
         if exc is not None:
             _record_failure(failed, item[1], exc)
             continue
+        read[item[1]] = (item[2], res[1] if res is not None else None)
         if res is not None:
             project_paths[res[0]] = res[1]
+    lane_markers.save_markers(read, {key for _, key, _ in marker_items})
     return project_paths
 
 
@@ -311,7 +311,7 @@ class _Wire(NamedTuple):
     sidecar_key: str | None
 
 
-def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str]]]:
+def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     """One listing pass: transcripts, each paired with the meta.json
     sidecar listed beside it (_Wire), and lane marker items.
 
@@ -320,13 +320,13 @@ def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str]]]:
     inside sessions/, non-jsonl keys outside) are dropped here.
     """
     wire_objs: list = []
-    marker_items: list[tuple[str, str]] = []
+    marker_items: list[tuple[str, str, str]] = []
     sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
     for obj in r2.list_keys():
         bucket, object_key = r2.split_key(obj.key)
         marker_project = key_layout.project_marker(object_key)
         if marker_project is not None:
-            marker_items.append((marker_project, obj.key))
+            marker_items.append((marker_project, obj.key, obj.etag))
         elif (stem := key_layout.sidecar_stem(object_key)) is not None:
             sidecars[(bucket, stem)] = obj
         elif key_layout.classify(object_key) is not None:
