@@ -53,6 +53,11 @@ backend/          — FastAPI application
                     within-file requestId max-merge. Owns
                     the Claude path; parse_file() sniffs the format and
                     dispatches lane formats to the parsers below.
+  agent_sidecar.py — Agent-sidecar classification (split out of
+                    parse.py): the role a transcript's meta.json sidecar
+                    names (sidecar_agent_role), whether it marks a named
+                    teammate, and the teammate_name recorded for the
+                    ingest-time join. Nothing here parses a transcript.
   parse_codex.py  — Codex rollout parser (ported from codexmeter):
                     cumulative-token differencing, cross-file request
                     identity for uuid dedup, per-record long-context
@@ -82,6 +87,15 @@ backend/          — FastAPI application
                     meta.json sidecar beside it (transcript_stem /
                     sidecar_stem), whose role fills agent_type when
                     the transcript names none in-band.
+  lane_markers.py — Stored lane project markers: what each
+                    sessions/<project>/project.json said at its last GET
+                    (etag + reader version), so a marker is fetched only
+                    when it has no row or its row holds another etag or
+                    reader version.
+  lane_projects.py — Lane-project identity: the stored hash→project_id
+                    mapping a marker-failed run falls back to, the
+                    marker→stored→hash resolution the walk uses, and the
+                    migration-stall rekey.
   branding.py     — APP_NAME/APP_TITLE/APP_DESCRIPTION → browser title,
                     meta, logo, sign-in page, export filename. Escapes
                     per context (HTML vs script payload) — see
@@ -89,6 +103,10 @@ backend/          — FastAPI application
   tool_errors.py  — Tool-result text handling and the HARNESS-GENERIC
                     failure classification (rejected / tool_error /
                     failed) shared by every format.
+  target_paths.py — Lexical target paths in the transcript's namespace,
+                    never the host's: Windows drive/UNC/device vs POSIX
+                    (incl. Git-Bash /c) spellings. No mount, symlink,
+                    filesystem case or short-name lookup occurs.
   bash_argv.py    — Line churn for a command given as an ARGV ARRAY
                     (Codex's `monitor` calls): finds the inline shell/
                     python payload positionally and hands it to
@@ -99,6 +117,15 @@ backend/          — FastAPI application
                     whole or a slice. Bash is ~79% of the read surface
                     under bypass permissions, so `Read` arguments alone
                     see almost none of the intake.
+  bash_literals.py — Bounded shell words and literal output for the
+                    Bash scanners: quote/expansion provenance kept until
+                    a consumer decides a word is literal. No expansion
+                    or command execution.
+  bash_loops.py   — How many times a heredoc body runs, read off the
+                    loops around it: a literal `for` word list
+                    multiplies the count; a runtime list counts one, the
+                    floor. Split out of bash_churn so that module stays
+                    one concern.
   bash_churn.py   — lines_added/lines_deleted recovered from Bash
                     command TEXT: heredoc bodies redirected into a file,
                     inline git-apply/patch hunks, and python
@@ -119,6 +146,15 @@ backend/          — FastAPI application
                     are data (SV-RATE-DATA).
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
                     in two-phase transactions, broadcasts ingest_done SSE.
+  ingest_persist.py — ingest's `_persist` alone: one file per
+                    transaction, with INSERT columns and VALUES
+                    placeholders laid out one per line in the same order
+                    (issue #86). Re-exported from ingest.
+  ingest_rollups.py — Derived-state rebuilds ingest runs after a walk,
+                    in a load-bearing order: suppression, the canonical
+                    flags, every rollup, the teammate agent_type
+                    resolution. Nothing here fetches, parses or
+                    persists. Re-exported from ingest.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
   auth.py         — PBKDF2-SHA256 password hashing/verification helpers
                     (versioned hash format; a legacy bare-hex hash still
@@ -161,6 +197,8 @@ src/              — React JSX modules served at /src/* (in-browser Babel)
                     (SV-PARSER-SPEC lockstep) so the Inspector's
                     in-browser parse yields the stored numbers, plus the
                     window.LONG_CONTEXT_* constants.
+  dashboard-binning.js — Shared dashboard bin-width selection: frontend
+                    bins never finer than the server-provided bucket.
   dashboard-charts.jsx      — Core SVG panels (time series, HBar, burn rate).
   dashboard-charts-extra.jsx — Additional panels (context growth, cache TTL).
   context-growth-view.jsx    — Context growth visualisation components.
