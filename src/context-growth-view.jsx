@@ -235,10 +235,19 @@ function ContextChart({ rows, cap, hoverIdx, setHoverIdx }) {
     setHoverIdx(idx);
   }
 
+  // window.useChartA11y, not the bare helper: this file loads BEFORE
+  // dashboard-charts.jsx in index.html, so only the window binding is
+  // guaranteed to exist once every script has loaded (components run
+  // at render time, long after all of them have).
+  const a11y = window.useChartA11y(
+    'Context Chart',
+    `context per turn, ${rows.length} turns, peak ${window.humanFmt(peakCtx)}`,
+    `The dashed line marks the ${window.humanFmt(cap)} context cap.`);
   return (
     <div ref={ref} style={{ position: 'relative', minHeight: h, marginTop: 4 }}
       onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
-      <svg data-panel="Context Chart" width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel="Context Chart" width={w} height={h} style={{ display: 'block' }}>
         {/* Y grid */}
         {yTicks.map((v, i) => (
           <line key={'g'+i} x1={padL} x2={w - padR}
@@ -303,6 +312,9 @@ function ContextChart({ rows, cap, hoverIdx, setHoverIdx }) {
           turn {rows.length}
         </text>
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
 
       {/* Tooltip */}
       {hoverIdx != null && (() => {
