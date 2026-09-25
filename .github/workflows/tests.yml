@@ -15,6 +15,7 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
+      - '.github/ci-thresholds.json'
   # One run per PR commit, on the merge ref GitHub actually lands — never
   # a second copy of the master push run for the same SHA. A fork's PR
   # runs with a read-only token against that merge ref, so untrusted code
@@ -50,6 +51,13 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+
+    permissions:
+      # Only this job may write, and only to push the ratchet commit that
+      # raises the coverage floor / tightens the size baseline on master
+      # (see the "Ratchet the thresholds" step). The workflow-level block
+      # above stays contents: read, so every other job remains read-only.
+      contents: write
 
     services:
       postgres:
@@ -127,11 +135,19 @@ jobs:
         # Renders whether or not the gate below passes — a coverage
         # regression is only actionable if you can see WHICH file lost
         # lines, and re-reading a scrolled CI log to find that is exactly
-        # the friction that gets a gate disabled.
+        # the friction that gets a gate disabled. The recorded ratchet
+        # values are printed beside the report so a gap between this run's
+        # measurement and the recorded floor is visible at a glance.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: |
+          recorded_measured="$(python3 scripts/ci/thresholds.py \
+            --coverage-measured python)"
+          floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
           {
             echo '### Coverage'
+            echo
+            echo "Recorded ratchet (from .github/ci-thresholds.json):" \
+              "measured ${recorded_measured}% / floor ${floor}%"
             echo
             python -m coverage report --format=markdown --precision=1
           } >> "$GITHUB_STEP_SUMMARY"
@@ -147,11 +163,92 @@ jobs:
 
       - name: Coverage gate
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        # A RATCHET, not a target. 82 sits just under the 84% measured when
-        # this landed, so ordinary churn stays green and a real regression
-        # goes red. Raise the floor by hand as coverage climbs — never
-        # lower it to make a red build green.
-        run: python -m coverage report --fail-under=82 --precision=1
+        # A RATCHET, not a target. The floor is committed data in
+        # .github/ci-thresholds.json: seeded 1.5 points under the measured
+        # coverage of the run that recorded it, so ordinary churn stays
+        # green and a real regression goes red. On a push to master this
+        # workflow raises the floor itself once coverage climbs more than
+        # the hysteresis (1.5) above the recorded measured — the floor is
+        # never lowered, not even by hand.
+        run: |
+          floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
+          python -m coverage report "--fail-under=${floor}" --precision=1
+
+      - name: Module size baseline
+        # Growth is fixed by moving code into a new module, never by
+        # raising the recorded ceiling: this step fails on any file that
+        # outgrew its baseline entry or crossed its ceiling (production
+        # 500 / test 700). Runs on every event so pull requests are
+        # gated too; master additionally tightens entries below.
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        run: python3 scripts/ci/size_baseline.py
+
+      - name: Ratchet the thresholds
+        # Only measurements from a master push may move the recorded
+        # calibration — a pull request runs untrusted code and must not
+        # be able to write it. The ratchet raises the coverage floor when
+        # this run justifies it, and --tighten follows shrunk files down;
+        # growth is never written here, the step above stays its gate.
+        id: ratchet
+        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
+                && github.event_name == 'push'
+                && github.ref == 'refs/heads/master' }}
+        run: |
+          measured="$(python -m coverage report --format=total --precision=1)"
+          python3 scripts/ci/ratchet.py --measured "${measured}"
+          python3 scripts/ci/size_baseline.py --tighten
+          python3 scripts/ci/thresholds.py --check
+          if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            {
+              echo '### Recorded by this run'
+              echo
+              echo '```diff'
+              git diff -- .github/ci-thresholds.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Coverage ${measured}% and unchanged module sizes" \
+              "justify no raise."
+          fi
+
+      - name: Commit the ratchet
+        # Runs only when the step above changed the data file. The
+        # workflow-level token stays out of .git/config (checkout uses
+        # persist-credentials: false), so the push URL below is the only
+        # place the token appears, scoped to this one step via env.
+        # Only the data file is committed, and a push to it never
+        # re-triggers workflows: every gate's push trigger ignores the
+        # path (GITHUB_TOKEN pushes start no workflows either).
+        if: ${{ !cancelled() && steps.ratchet.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email \
+            '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/ci-thresholds.json
+          git commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten size baseline (automated)' \
+            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
+          if git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" \
+            HEAD:master; then
+            exit 0
+          fi
+          # A rejected push usually means master moved while this run was
+          # going; failing the job for that would turn `tests` red for an
+          # ordinary concurrent push. Distinguish it: if the remote still
+          # points at this commit's parent, the race explanation is wrong
+          # and the push failed for a real reason.
+          git fetch --quiet \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" master
+          if [ "$(git rev-parse HEAD^)" = "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "the ratchet push was rejected while master stood still" >&2
+            exit 1
+          fi
+          echo 'Master moved while this run measured; the next push raises instead.' \
+            >> "$GITHUB_STEP_SUMMARY"
 
   pytest-portable:
     # The same suite minus every test that touches PostgreSQL, run where

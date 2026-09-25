@@ -22,6 +22,7 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
+      - '.github/ci-thresholds.json'
   # Same PR policy as tests.yml: one run per commit, on the merge ref.
   pull_request:
     branches: [master]
