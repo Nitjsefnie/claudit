@@ -30,6 +30,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -147,9 +148,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def post_no_redirect(url: str) -> tuple:
-    """POST that does NOT follow redirects — the Set-Cookie is the point."""
+    """POST that does NOT follow redirects — the Set-Cookie is the point.
+
+    The middleware refuses a mutating request whose Origin does not match
+    Host, and a bare urllib POST carries none — so an Origin-less client
+    gets 403 from every login route (issue #136). A browser never sends
+    such a request: a form POST always carries Origin. Derive it from the
+    URL, scheme://netloc, so this client presents the same-origin page it
+    acts for.
+    """
     opener = urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(url, data=b"", method="POST")
+    origin = urllib.parse.urlsplit(url)
+    req = urllib.request.Request(
+        url, data=b"", method="POST",
+        headers={"Origin": f"{origin.scheme}://{origin.netloc}"},
+    )
     try:
         with opener.open(req, timeout=10) as resp:
             return resp.status, resp.headers
