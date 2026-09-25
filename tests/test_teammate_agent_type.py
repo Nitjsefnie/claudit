@@ -396,3 +396,36 @@ def test_a_plain_subagent_sidecar_is_unchanged_by_the_teammate_pass(
         row = c.execute("SELECT agent_type FROM files WHERE file_key = %s",
                         (f"claude/{key}",)).fetchone()
     assert row == ("code-reviewer",)
+
+
+# ---- the compaction replay must never outrank the canonical dispatch ------
+
+_COMPACTION_KEY = "-root-x/sess-t/subagents/agent-acompact-1.jsonl"
+
+
+def _replayed_dispatch_lines() -> list[dict]:
+    """A compaction sidecar's replay of the lead's dispatch: same uuid,
+    requestId and tool_use_id at the same ts, but a DIFFERENT
+    subagent_type, and sitting at a higher line_num than the original's
+    (the leading user-line copies push it to line 3; the original is
+    line 2 of the lead file)."""
+    user = {"type": "user", "timestamp": "2026-09-01T12:00:00Z",
+            "uuid": "tl-u1", "sessionId": "sess-t",
+            "message": {"role": "user", "content": "split the work"}}
+    replay = _dispatch_line("2026-09-01T12:00:01Z", "toolu_tl1",
+                            "code-reviewer")
+    replay["uuid"] = "tl-a1"
+    replay["requestId"] = "req-tl1"
+    return [user, user, replay]
+
+
+def test_a_compaction_replay_of_the_dispatch_never_wins_the_join(
+        fresh_db, mirror):
+    _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
+    _put(mirror, _COMPACTION_KEY, b"".join(
+        json.dumps(line).encode() + b"\n"
+        for line in _replayed_dispatch_lines()))
+    _put_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "implementer"

@@ -100,7 +100,10 @@ def resolve_teammate_agent_types() -> int:
     role stands. A candidate -- a sidecar that is ONLY ``{"agentType": X}``,
     which an older release wrote for a teammate -- stores X the same way,
     so this join resolves it too, and with no dispatch its parsed role
-    stands.
+    stands. Only canonical tool_uses rows join (SV-CANONICAL-FLAG): a
+    compaction sidecar's replay of the dispatch shares the original's
+    agent_type and ts, so excluding it changes no pick today and a
+    divergent replay twin cannot outrank the original.
 
     A join across files, so it runs on every ingest, before the rollups
     that read `files.agent_type`: a lead archived after its teammate
@@ -119,6 +122,8 @@ def resolve_teammate_agent_types() -> int:
                WHERE f.teammate_name IS NOT NULL
                  AND tu.dispatch_name = f.teammate_name
                  AND tu.is_error IS NOT TRUE
+                 -- SV-CANONICAL-FLAG: a compaction sidecar (agent-acompact-*) replays the lead's dispatch; the twin shares the original's agent_type and ts, so this changes no pick today and a divergent twin cannot win.
+                 AND tu.is_canonical
                  AND tu.ts <= COALESCE(
                        (SELECT min(r.ts) FROM records r
                          WHERE r.file_key = f.file_key),
