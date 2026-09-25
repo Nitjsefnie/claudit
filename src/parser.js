@@ -375,14 +375,74 @@ function _instantMs(stamp) {
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 // Refuses what pricing._history refuses, naming the row the same way.
+// A provider entry's weekly UTC schedule, checked and read into windows of
+// { days (Set or null), start, end (HHMM or null), rates }. Mirrors
+// pricing._schedule, whose docstring states the rules.
+const _DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const _isHhmm = (v) => Number.isInteger(v) && v >= 0 && v <= 2359 && v % 100 < 60;
+function _checkSchedule(schedule, at) {
+  if (!Array.isArray(schedule) || !schedule.length) {
+    throw _pricingError(`${at}: schedule is not a non-empty list of windows`);
+  }
+  return schedule.map((window, j) => {
+    const w = `${at}.schedule[${j}]`;
+    if (window === null || typeof window !== 'object' || Array.isArray(window) || !('rates' in window)
+        || Object.keys(window).some((k) => !['days', 'start', 'end', 'rates'].includes(k))) {
+      throw _pricingError(`${w}: a window is {days?, start?, end?, rates}`);
+    }
+    const { rates, days } = window;
+    if (rates === null || typeof rates !== 'object'
+        || Object.keys(rates).sort().join() !== _FIELD_NAMES
+        || !Object.values(_RATE_FIELDS).every((f) => _isRate(rates[f]))) {
+      throw _pricingError(`${w}: rates are not the five finite non-negative rates`);
+    }
+    if (days !== undefined && !(Array.isArray(days) && days.length
+        && days.every((d) => _DAYS.includes(d)) && new Set(days).size === days.length)) {
+      throw _pricingError(`${w}: days ${JSON.stringify(days)} are not distinct weekday names`);
+    }
+    if (('start' in window) !== ('end' in window)) {
+      throw _pricingError(`${w}: start and end come together`);
+    }
+    if ('start' in window && !(_isHhmm(window.start) && _isHhmm(window.end))) {
+      throw _pricingError(`${w}: start and end are not HHMM times from 0 to 2359`);
+    }
+    if ('start' in window && window.start === window.end) {
+      throw _pricingError(`${w}: start equals end`);
+    }
+    return { days: days ? new Set(days) : null,
+             start: 'start' in window ? window.start : null,
+             end: 'end' in window ? window.end : null, rates: _ratesOf(rates) };
+  });
+}
+
+// The first window a millisecond instant falls in, by UTC weekday and
+// HHMM, or null. Mirrors pricing._scheduled.
+function _scheduledRates(schedule, t) {
+  const at = new Date(t);
+  const day = _DAYS[(at.getUTCDay() + 6) % 7];
+  const hhmm = at.getUTCHours() * 100 + at.getUTCMinutes();
+  for (const { days, start, end, rates } of schedule) {
+    if (days && !days.has(day)) continue;
+    if (start === null || (start < end ? start <= hhmm && hhmm < end : hhmm >= start || hhmm < end)) {
+      return rates;
+    }
+  }
+  return null;
+}
+
 function _checkHistory(entries, where, mayBegin) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
+  const schedules = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${i}]`;
-    const fields = Object.keys(entry).filter((k) => k !== 'from' && k !== 'note');
+    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule'].includes(k));
     if (fields.sort().join() !== _FIELD_NAMES || !('from' in entry)) {
       throw _pricingError(`${at}: fields ${Object.keys(entry).sort()}`);
+    }
+    if ('schedule' in entry) {
+      if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a schedule`);
+      schedules[i] = _checkSchedule(entry.schedule, at);
     }
     const bad = Object.values(_RATE_FIELDS).filter((f) => !_isRate(entry[f]));
     if (bad.length) throw _pricingError(`${at}: ${bad} not a finite non-negative number`);
@@ -405,6 +465,7 @@ function _checkHistory(entries, where, mayBegin) {
     }
     previous = start;
   });
+  return schedules;
 }
 
 // A row's append-only history, oldest first: the newest entry is the list
@@ -412,8 +473,9 @@ function _checkHistory(entries, where, mayBegin) {
 // A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
 function _history(entries, where, mayBegin = false) {
-  _checkHistory(entries, where, mayBegin);
+  const schedules = _checkHistory(entries, where, mayBegin);
   return {
+    schedules,
     list: _ratesOf(entries[entries.length - 1]),
     windows: entries.slice(0, -1).map((entry, i) => (
       { endExclusive: _instantMs(entries[i + 1].from), rates: _ratesOf(entry) })),
@@ -434,9 +496,13 @@ for (const [key, entries] of Object.entries(_PRICING.models)) {
 window.providerRates = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
+window.providerSchedules = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows, start } = _history(entries, `${model} via ${host}`, true);
+    const { list, windows, start, schedules } = _history(entries, `${model} via ${host}`, true);
+    if (Object.keys(schedules).length) {
+      (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
+    }
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {
       (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
@@ -566,8 +632,12 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
   const pkey = provider ? _providerModelKey(norm, provider, ts) : null;
   if (pkey) {
     const windows = (window.providerDatedRates[pkey] || {})[provider];
-    return { rates: _inWindow(windows, ts, window.providerRates[pkey][provider]),
-             kind: 'exact', key: pkey };
+    const rates = _inWindow(windows, ts, window.providerRates[pkey][provider]);
+    const t = _toMillis(ts);
+    const entry = (windows || []).filter((w) => w.endExclusive <= t).length;
+    const schedule = t == null ? null : ((window.providerSchedules[pkey] || {})[provider] || {})[entry];
+    if (!schedule) return { rates, kind: 'exact', key: pkey };
+    return { rates: _scheduledRates(schedule, t) || rates, kind: 'exact', key: pkey };
   }
   const key = _matchRateKey(norm);
   if (key) {

@@ -561,9 +561,32 @@ hour 0-23, minute and second 0-59, offset under 24:00), strictly after its
 predecessor's. The newest entry is the list price; each earlier entry
 applies until its successor's `from` — the SV-DATED-RATES window shape.
 So a price change is recorded by APPENDING `{"from": T, ...}`; an existing
-entry is never edited or removed. Both loaders refuse a file that breaks
-these rules, naming the row; the browser's refusal, like any failure to
-load the file, throws an error naming `pricing.json`.
+entry is never edited or removed, except when a seeded entry misstates the
+price it records. That correction happens only in a human commit that
+bumps `PARSER_VERSION`, since it reprices stored records. Both loaders
+refuse a file that breaks these rules, naming the row; the browser's
+refusal, like any failure to load the file, throws an error naming
+`pricing.json`.
+
+A provider entry may also carry a weekly UTC `schedule`: a list of windows
+`{days?, start?, end?, rates}`.
+- `days` is a list of distinct lowercase weekday names; absent means
+  every day.
+- `start` and `end` are HHMM times from 0 to 2359, both or neither
+  (neither means the whole day), end-exclusive, and wrapping past midnight
+  when `start` is later than `end`. A wrapped window's `days` are the
+  record's own UTC weekday, not the day the window opened.
+- `rates` are the five rates.
+
+Both loaders price a record by its UTC weekday and time: the first window
+it falls in, else the entry's own rates, which are also the price when
+there is no timestamp. Windows repeat weekly, so they are not rate epochs.
+The browser prices each record at its own time, exactly. A read-time fold
+that re-derives cost from summed tokens (`api_common`) cannot: a scheduled
+row's buckets take their split from the rates at the epoch's
+representative time, scaled to the row's stored `cost_usd`. Its total is
+therefore always exact, and its split is exact whenever every window
+scales all five rates alike, as the live schedules do.
 
 The file stays in the layout `json.dumps(doc, indent=2, sort_keys=True)`
 writes, so any writer reproduces it and a one-rate change is a one-line
@@ -589,13 +612,29 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
   listed cache-read price is 0. Endpoints of one host at one price are one
   row.
 - The account is billed only by endpoints in its data region,
-  `openrouter.data_region`: `global`, or a region code. An endpoint's
-  region is the suffix of its tag (`host/<suffix>`) when that suffix is a
-  two-letter code, optionally qualified (`us`, `eu`, `us-east-1`); the
-  quantization suffixes the tags carry (`fp4`, `fp8`, `nvfp4`) never have
-  that shape. `global` takes the endpoints no region suffix names. A host
-  whose only endpoints lie outside the region is not listed for the
-  account, and so is reported as vanished.
+  `openrouter.data_region`: `global`, or a lowercase region code.
+  - **Reading a tag.** An endpoint tag is `host` or
+    `host/<suffix>[/<suffix>...]`. A suffix is a region when it is a known
+    region code (`us`, `eu`, `uk`, `ca`, `ap`, `asia` and the others the
+    script lists), alone or as `<region>-<area>` or `<region>-<area>-<n>`,
+    in any case (`us-east-1`). A suffix that is neither a region nor a
+    known quantization (`fp4`, `fp8`, `nvfp4`, `bf16` and the others) is
+    logged in the run's notices, and it refuses nothing.
+  - **Which endpoints count.** `global` takes the endpoints no region
+    suffix names.
+  - **A host outside the region.** A host whose only endpoints lie outside
+    the region is not listed for the account, and so is reported as
+    vanished.
+- Endpoints are grouped by host before any is read, so a malformed
+  endpoint refuses only its host.
+- **Schedules.** A host's `pricing.overrides` (weekly `utc_days` /
+  `utc_start` / `utc_end` windows, each with the prices it overrides)
+  become its entry's `schedule`. A price a window does not name is the
+  endpoint's own. A change to the default rates or to the schedule, which
+  is compared as a whole, is a move, and the whole entry is appended.
+- **Refused as not modelled.** An override kind the script does not model
+  (a `min_prompt_tokens` tier, say) refuses its host. So does any other
+  pricing key listed at a nonzero price, such as a per-request fee.
 - A run that appends bumps `PARSER_VERSION` to one past whatever
   `backend/constants.py` holds — never a literal — in the same commit: a
   record at or after the detection time that was ingested before the
@@ -631,9 +670,15 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
     reaches (Sail Research's `/us` and BaseTen's US endpoint both are).
     The order survives a price moving and breaks only when it flips.
     Such twins have no identity but their price, so a flip is seen when
-    the twin still listed at the row's price is no longer the cheaper. A
-    tracked twin whose own price crosses the other's between two runs
-    cannot be told from a normal move.
+    the twin still listed at the row's price is no longer the cheaper, and
+    that is refused.
+
+    A tracked twin whose own price crosses the other's between two runs
+    cannot be told from a genuine move. The other twin was the dearer
+    one, so such a switch shows as the row's price rising, unless the
+    other fell at the same time. So every rise of a `cheapest` row is
+    appended and reported in the run's notices as a "possible twin
+    switch" for a human to check.
 
   A resolution is never a price value: a pin on a price stops matching
   the moment that price moves.

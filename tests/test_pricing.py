@@ -197,6 +197,8 @@ def test_expired_windows_keep_pricing_their_own_period():
 def test_rate_epochs_match_the_dated_windows():
     assert pricing.RATE_EPOCHS == sorted(
         {end for w in pricing.DATED_RATES.values() for end, _ in w}
+        | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
+        | set(pricing.PROVIDER_STARTS.values())
     )
 
 

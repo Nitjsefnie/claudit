@@ -16,6 +16,11 @@ from backend.api_common import fold_per_model, fold_per_model_provider
 UTC = timezone.utc
 
 V41 = "deepseek/deepseek-v4.1-flash"
+# The instant the provider table was seeded. The scheduled refresh appends
+# entries effective from later instants only, so the prices these tests
+# assert hold at this instant whatever it has committed since; a list
+# price (no timestamp) is whatever the newest entry says today.
+SEEDED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
 
 
 def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
@@ -31,28 +36,30 @@ def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
 def test_a_record_with_a_provider_is_priced_from_the_provider_table():
     # OpenRouter's Novita endpoint for deepseek-v4.1-flash, 2026-09-24:
     # $0.285 in / $1.14 out / $0.0057 cache read per 1M.
-    r = pricing.resolve(V41, provider="Novita")
+    r = pricing.resolve(V41, SEEDED, provider="Novita")
     assert r.kind == "exact"
     assert r.rates == {"fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
                        "read": 0.0057, "output": 1.14}
-    assert _cost(V41, "Novita", fresh=1_000_000, output=1_000_000,
+    assert _cost(V41, "Novita", SEEDED, fresh=1_000_000, output=1_000_000,
                  read=1_000_000) == pytest.approx(0.285 + 1.14 + 0.0057)
 
 
 def test_two_providers_of_one_model_price_differently():
-    morph = pricing.rate_for(V41, provider="Morph")
-    novita = pricing.rate_for(V41, provider="Novita")
+    morph = pricing.rate_for(V41, SEEDED, provider="Morph")
+    novita = pricing.rate_for(V41, SEEDED, provider="Novita")
     assert (morph["fresh"], morph["output"]) == (0.075, 0.3)
     assert morph != novita
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
-    # Every snapshot row lists cache_write 0, so both create buckets
-    # carry the input rate rather than a free write.
-    for (_model, _provider), rates in pricing.PROVIDER_RATES.items():
-        assert rates["create_5m"] == rates["fresh"]
-        assert rates["create_1h"] == rates["fresh"]
-    assert _cost(V41, "Novita", eph5=1_000_000, eph1h=1_000_000,
+    # Every seeded row lists cache_write 0, so both create buckets carry
+    # the input rate rather than a free write.
+    for model, provider in pricing.PROVIDER_RATES:
+        if (model, provider) not in pricing.PROVIDER_STARTS:
+            rates = pricing.rate_for(model, SEEDED, provider)
+            assert rates["create_5m"] == rates["fresh"]
+            assert rates["create_1h"] == rates["fresh"]
+    assert _cost(V41, "Novita", SEEDED, eph5=1_000_000, eph1h=1_000_000,
                  unsplit_create=1_000_000) == pytest.approx(3 * 0.285)
 
 
@@ -66,7 +73,8 @@ def test_the_provider_table_is_keyed_on_the_normalised_model_id():
 def test_the_seeded_models_and_their_provider_counts():
     per_model: dict[str, set] = {}
     for model, provider in pricing.PROVIDER_RATES:
-        per_model.setdefault(model, set()).add(provider)
+        if (model, provider) not in pricing.PROVIDER_STARTS:
+            per_model.setdefault(model, set()).add(provider)
     assert {m: len(p) for m, p in per_model.items()} == {
         "z-ai/glm-5-3-flash": 31,
         "deepseek/deepseek-v4-1-flash": 26,
@@ -80,13 +88,13 @@ def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
     # BaseTen lists deepseek-v4.1-flash at two cache-read prices: 0.03 US
     # in-region, 0.007 global. The account's keys allow only the global
     # data region, so the global price applies.
-    assert pricing.rate_for(V41, provider="BaseTen")["read"] == 0.007
+    assert pricing.rate_for(V41, SEEDED, provider="BaseTen")["read"] == 0.007
 
 
 def test_modal_glm_carries_its_one_remaining_endpoint():
     # Modal's fp8 glm-5.3-flash endpoint (0.45/1.50) was withdrawn; only the
     # nvfp4 endpoint at list price remains.
-    assert pricing.rate_for("z-ai/glm-5.3-flash", provider="Modal") == {
+    assert pricing.rate_for("z-ai/glm-5.3-flash", SEEDED, provider="Modal") == {
         "fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
         "read": 0.03, "output": 0.5}
 
@@ -140,8 +148,8 @@ def test_stealth_stays_free_with_or_without_a_provider():
 
 
 def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug():
-    slug = pricing.resolve("deepseek/deepseek-v4-flash-0731", provider="Cohere")
-    perma = pricing.resolve("deepseek/deepseek-v4-flash-20260731",
+    slug = pricing.resolve("deepseek/deepseek-v4-flash-0731", SEEDED, provider="Cohere")
+    perma = pricing.resolve("deepseek/deepseek-v4-flash-20260731", SEEDED,
                             provider="Cohere")
     assert slug.rates == perma.rates == {
         "fresh": 0.14, "create_5m": 0.14, "create_1h": 0.14,
@@ -153,9 +161,9 @@ def test_the_permaslug_never_takes_the_undated_models_rate():
     # Novita hosts both: the undated v4-flash at 0.14/0.28 and the 0731
     # snapshot at 0.4092/1.2276. A dated suffix read as "same model" would
     # bill the permaslug at the undated row.
-    assert pricing.rate_for("deepseek/deepseek-v4-flash",
+    assert pricing.rate_for("deepseek/deepseek-v4-flash", SEEDED,
                             provider="Novita")["fresh"] == 0.14
-    assert pricing.rate_for("deepseek/deepseek-v4-flash-20260731",
+    assert pricing.rate_for("deepseek/deepseek-v4-flash-20260731", SEEDED,
                             provider="Novita")["fresh"] == 0.4092
 
 
@@ -188,6 +196,7 @@ def test_live_rate_epochs_include_provider_windows():
     assert pricing.RATE_EPOCHS == sorted(
         {end for w in pricing.DATED_RATES.values() for end, _ in w}
         | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
+        | set(pricing.PROVIDER_STARTS.values())
     )
 
 

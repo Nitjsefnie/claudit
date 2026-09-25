@@ -412,12 +412,36 @@
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
         {
-          "create_1h": 0.15,
-          "create_5m": 0.15,
-          "fresh": 0.15,
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
           "from": null,
-          "output": 0.6,
-          "read": 0.015
+          "output": 1.2,
+          "read": 0.03,
+          "schedule": [
+            {
+              "end": 1400,
+              "rates": {
+                "create_1h": 0.3,
+                "create_5m": 0.3,
+                "fresh": 0.3,
+                "output": 1.2,
+                "read": 0.03
+              },
+              "start": 0
+            },
+            {
+              "end": 0,
+              "rates": {
+                "create_1h": 0.15,
+                "create_5m": 0.15,
+                "fresh": 0.15,
+                "output": 0.6,
+                "read": 0.015
+              },
+              "start": 1400
+            }
+          ]
         }
       ],
       "AtlasCloud": [
@@ -464,12 +488,117 @@
       ],
       "DeepSeek": [
         {
-          "create_1h": 0.15,
-          "create_5m": 0.15,
-          "fresh": 0.15,
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
           "from": null,
-          "output": 0.6,
-          "read": 0.003
+          "output": 1.2,
+          "read": 0.006,
+          "schedule": [
+            {
+              "days": [
+                "saturday",
+                "sunday"
+              ],
+              "rates": {
+                "create_1h": 0.15,
+                "create_5m": 0.15,
+                "fresh": 0.15,
+                "output": 0.6,
+                "read": 0.003
+              }
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 100,
+              "rates": {
+                "create_1h": 0.15,
+                "create_5m": 0.15,
+                "fresh": 0.15,
+                "output": 0.6,
+                "read": 0.003
+              },
+              "start": 0
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 400,
+              "rates": {
+                "create_1h": 0.3,
+                "create_5m": 0.3,
+                "fresh": 0.3,
+                "output": 1.2,
+                "read": 0.006
+              },
+              "start": 100
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 600,
+              "rates": {
+                "create_1h": 0.15,
+                "create_5m": 0.15,
+                "fresh": 0.15,
+                "output": 0.6,
+                "read": 0.003
+              },
+              "start": 400
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 1000,
+              "rates": {
+                "create_1h": 0.3,
+                "create_5m": 0.3,
+                "fresh": 0.3,
+                "output": 1.2,
+                "read": 0.006
+              },
+              "start": 600
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 0,
+              "rates": {
+                "create_1h": 0.15,
+                "create_5m": 0.15,
+                "fresh": 0.15,
+                "output": 0.6,
+                "read": 0.003
+              },
+              "start": 1000
+            }
+          ]
         }
       ],
       "DekaLLM": [
@@ -847,12 +976,36 @@
     "deepseek/deepseek-v4-flash-0731": {
       "Alibaba": [
         {
-          "create_1h": 0.176,
-          "create_5m": 0.176,
-          "fresh": 0.176,
+          "create_1h": 0.352,
+          "create_5m": 0.352,
+          "fresh": 0.352,
           "from": null,
-          "output": 0.528,
-          "read": 0.0176
+          "output": 1.056,
+          "read": 0.0352,
+          "schedule": [
+            {
+              "end": 1400,
+              "rates": {
+                "create_1h": 0.352,
+                "create_5m": 0.352,
+                "fresh": 0.352,
+                "output": 1.056,
+                "read": 0.0352
+              },
+              "start": 0
+            },
+            {
+              "end": 0,
+              "rates": {
+                "create_1h": 0.176,
+                "create_5m": 0.176,
+                "fresh": 0.176,
+                "output": 0.528,
+                "read": 0.0176
+              },
+              "start": 1400
+            }
+          ]
         }
       ],
       "AtlasCloud": [

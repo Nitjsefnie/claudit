@@ -27,7 +27,8 @@ name: refresh-pricing
 #     resolution for it in the JSON;
 #   - a resolution that no longer applies (a pinned tag not listed, twins
 #     no longer identical, their price order tied or flipped);
-#   - a response shape the script does not recognise;
+#   - a price or override kind the script does not model (a per-request
+#     fee, a long-context tier), or a response shape it does not recognise;
 #   - a tracked model with no endpoints (a broken fetch looks exactly like
 #     that).
 # A refusal blocks only itself: every other move is still tested and
@@ -60,8 +61,11 @@ jobs:
 
     services:
       postgres:
-        # Same service as tests.yml: fixtures createdb/dropdb per module.
-        image: postgres:16
+        # The suite's database, as in tests.yml, but pinned by digest: this job
+        # holds a write token, so the image it runs must be the one reviewed.
+        # The service starts on every run, quiet ones included; a job cannot
+        # start a service part-way.
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -95,9 +99,9 @@ jobs:
 
       - name: Fetch and append
         id: fetch
-        # stdlib only: nothing is installed before the fetch, so a quiet hour
-        # costs one checkout and five requests. A refused host blocks only
-        # itself: the script still writes every other move and exits
+        # stdlib only: nothing is installed before the fetch, so beyond the
+        # Postgres service a quiet hour costs one checkout and one request per
+        # tracked model. A refused host blocks only itself: the script still writes every other move and exits
         # nonzero, so this step records the code instead of failing, the
         # moves are tested and committed, and the last step turns the run red.
         run: |
