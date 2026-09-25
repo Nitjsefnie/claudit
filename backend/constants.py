@@ -152,7 +152,11 @@ VERSION = _read_version()
 # 59 stores an OpenRouter record's serving host (message.provider) on
 # records.provider and prices it from pricing.PROVIDER_RATES; the bump
 # reparses every file so stored rows carry the provider and its price.
-PARSER_VERSION = "59"
+# 60 stops storing a named teammate's name as its agent type: its
+# sidecar's name goes to files.teammate_name, the dispatch's `name` to
+# tool_uses.dispatch_name, and the role is joined from the lead's
+# dispatch; the bump reparses every file so both columns are filled.
+PARSER_VERSION = "60"
 
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also

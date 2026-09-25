@@ -16,7 +16,7 @@ import logging
 
 from backend import db
 from backend.constants import (CTX_BUCKET_MAX, CTX_BUCKET_WIDTH,
-                               LATENCY_BUCKETS)
+                               DEFAULT_AGENT_TYPE, LATENCY_BUCKETS)
 
 log = logging.getLogger("claudit.ingest")
 
@@ -82,6 +82,56 @@ def purge_suppressed() -> int:
     if deleted:
         log.info("purge_suppressed: %d records dropped", deleted)
     return deleted
+
+
+def resolve_teammate_agent_types() -> int:
+    """Set each named teammate's `files.agent_type` from its lead's dispatch.
+
+    A teammate's sidecar names the teammate, not a role, so ingest stores
+    that name as `files.teammate_name` and the default as its type. The
+    role is the `agent_type` (subagent_type) of the dispatch in the same
+    session whose `dispatch_name` is that name: the latest one that did not
+    fail and was made at or before the teammate's first record, since a
+    name can be dispatched again. No such dispatch, or one naming no
+    subagent_type, leaves the default.
+
+    A join across files, so it runs on every ingest, before the rollups
+    that read `files.agent_type`: a lead archived after its teammate
+    resolves it on that run without a reparse. Returns rows changed.
+    """
+    with db.viz_conn() as c:
+        cur = c.execute(
+            """
+            WITH resolved AS (
+              SELECT f.file_key,
+                     COALESCE((
+                       SELECT tu.agent_type
+                         FROM files p
+                         JOIN tool_uses tu ON tu.file_key = p.file_key
+                        WHERE p.project_id = f.project_id
+                          AND p.session_id = f.session_id
+                          AND tu.dispatch_name = f.teammate_name
+                          AND tu.is_error IS NOT TRUE
+                          AND tu.ts <= COALESCE(
+                                (SELECT min(r.ts) FROM records r
+                                  WHERE r.file_key = f.file_key),
+                                'infinity')
+                        ORDER BY tu.ts DESC, tu.line_num DESC
+                        LIMIT 1), %(default)s) AS agent_type
+                FROM files f
+               WHERE f.teammate_name IS NOT NULL
+            )
+            UPDATE files f SET agent_type = resolved.agent_type
+              FROM resolved
+             WHERE f.file_key = resolved.file_key
+               AND f.agent_type <> resolved.agent_type
+            """,
+            {"default": DEFAULT_AGENT_TYPE},
+        )
+        changed = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        c.commit()
+    log.info("resolve_teammate_agent_types: %d rows", changed)
+    return changed
 
 
 def recompute_canonical() -> int:

@@ -220,6 +220,7 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         tu.setdefault("agent_model", None)
         tu.setdefault("dispatch_prompt_chars", None)
         tu.setdefault("dispatch_brief_ref", None)
+        tu["dispatch_name"] = None
         tu["result_chars"] = None
         tu["read_kind"] = None
         tu["read_targets"] = None

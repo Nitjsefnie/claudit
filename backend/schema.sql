@@ -44,6 +44,12 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
 -- ("<wire>+<sidecar>", ingest._Wire), so a sidecar change reparses it.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
   agent_type TEXT NOT NULL DEFAULT 'general-purpose';
+-- A named teammate's sidecar names the teammate, not a role
+-- (parse.apply_agent_sidecar). That name is kept here, and every ingest
+-- replaces agent_type with the subagent_type of the lead's same-named
+-- dispatch in this session (ingest_rollups.resolve_teammate_agent_types),
+-- or the default when none joins. NULL for every other file.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS teammate_name TEXT;
 
 CREATE INDEX IF NOT EXISTS files_project_idx ON files (project_id);
 CREATE INDEX IF NOT EXISTS files_session_idx ON files (session_id);
@@ -521,6 +527,9 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_model TEXT;
 -- tool and on a dispatch carrying no prompt argument.
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_prompt_chars INT;
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_brief_ref BOOLEAN;
+-- The `name` a dispatch gave the agent it started: the key a named
+-- teammate's transcript is joined back to its role by. NULL elsewhere.
+ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS dispatch_name TEXT;
 
 -- Errored rows are a small minority, so a partial index keeps the
 -- drill-down cheap without carrying the whole table.
