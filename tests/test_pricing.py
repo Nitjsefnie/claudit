@@ -250,6 +250,98 @@ def test_rate_epochs_are_exposed_sorted_for_read_time_grouping(synthetic_dated_r
     assert pricing.RATE_EPOCHS == [synthetic_dated_rate.cutover]
 
 
+# --- provider rows (exercised via a synthetic row) --------------------------
+# SV-PROVIDER-RATES and SV-DATED-RATES on the provider half of the table.
+# The live provider rows are single-entry today (no moves, no first-seen
+# hosts since the table was seeded), so these drive the machinery through
+# conftest's synthetic_provider_dated_rate rather than a live entry — the
+# same reason the model side uses synthetic_dated_rate above.
+
+
+def _synthetic_provider_doc(w):
+    """A pricing.json-shaped document carrying only the synthetic row."""
+    def entry(rates, frm):
+        return {"from": frm, **{f: rates[f] for f in pricing.RATE_FIELDS}}
+    return {
+        "models": {},
+        "providers": {w.model: {w.host: [
+            entry(w.before, w.start.isoformat()),
+            entry(w.after, w.cutover.isoformat()),
+        ]}},
+        "provider_rates_fetched": w.cutover.isoformat(),
+    }
+
+
+def test_rate_epochs_include_provider_window_ends_and_row_starts(
+        synthetic_provider_dated_rate):
+    """RATE_EPOCHS is the union the read-time fold groups by, and the
+    provider half of the table contributes its window ends AND row starts
+    to it. The union is built once at import from the live file, so this
+    calls load_tables on a made-up doc: the synthetic instants can never
+    appear in the module global, and patching RATE_EPOCHS would make the
+    assertion true by construction."""
+    tables = pricing.load_tables(_synthetic_provider_doc(
+        synthetic_provider_dated_rate))
+    assert tables["RATE_EPOCHS"] == [synthetic_provider_dated_rate.start,
+                                     synthetic_provider_dated_rate.cutover]
+
+
+def test_provider_window_applies_before_its_cutover(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    assert pricing.rate_for(
+        w.model, ts=w.cutover - timedelta(seconds=1), provider=w.host,
+    ) == w.before
+    assert pricing.resolve(
+        w.model, ts=w.cutover - timedelta(seconds=1), provider=w.host,
+    ).kind == "exact"
+
+
+def test_provider_list_rates_apply_from_the_cutover(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    assert pricing.rate_for(w.model, ts=w.cutover, provider=w.host) == w.after
+    assert pricing.rate_for(
+        w.model, ts=w.cutover.replace(year=2027), provider=w.host,
+    ) == w.after
+
+
+def test_provider_row_without_a_timestamp_yields_list_price(
+        synthetic_provider_dated_rate):
+    # Conservative: an unknown timestamp must never silently apply a promo.
+    assert pricing.rate_for(
+        synthetic_provider_dated_rate.model,
+        provider=synthetic_provider_dated_rate.host,
+    ) == synthetic_provider_dated_rate.after
+
+
+def test_provider_record_without_a_provider_prices_by_the_model_alone(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(w.model, ts=w.cutover - timedelta(seconds=1))
+    assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
+
+
+def test_provider_row_before_its_start_prices_by_the_model_alone(
+        synthetic_provider_dated_rate):
+    """A row that begins at a time does not exist for a record before it."""
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(w.model, ts=w.start - timedelta(seconds=1),
+                        provider=w.host)
+    assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
+
+
+def test_provider_compute_cost_splits_at_the_cutover(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    kw = dict(fresh=1_000_000, output=0, eph5=0, eph1h=0,
+              unsplit_create=0, read=0)
+    just_before = pricing.compute_cost(
+        w.model, ts=w.cutover - timedelta(seconds=1), provider=w.host, **kw)
+    at = pricing.compute_cost(w.model, ts=w.cutover, provider=w.host, **kw)
+    assert (just_before, at) == (w.before["fresh"], w.after["fresh"])
+
+
 # --- resolution robustness -------------------------------------------------
 
 

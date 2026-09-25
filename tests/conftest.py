@@ -73,6 +73,51 @@ def synthetic_dated_rate(monkeypatch):
     )
 
 
+@pytest.fixture
+def synthetic_provider_dated_rate(monkeypatch):
+    """Install a made-up dated-rate row for one (model, provider) pair.
+
+    SV-PROVIDER-RATES prices a record naming its serving host from
+    PROVIDER_RATES, keyed (model, host), with SV-DATED-RATES windows and a
+    row start on top. The live provider rows are single-entry today — every
+    host so far has kept one price — so the machinery would go untested
+    until the first refresh appends a move or first-sees a host. Tests
+    install their own row here rather than depending on live data, the
+    same reason the model side uses synthetic_dated_rate.
+
+    The rates are deliberately unlike any real price so a test asserting
+    against them can never be mistaken for a pricing fact.
+
+    RATE_EPOCHS is deliberately NOT patched: a test that needs the union
+    must see the one computed from the real tables (the model-side fixture
+    patches it only to pin the exposed list, never to feed a fold).
+    """
+    cutover = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    before = {
+        "fresh": 7.40, "create_5m": 9.25, "create_1h": 14.80,
+        "read": 0.74, "output": 37.00,
+    }
+    after = {
+        "fresh": 3.20, "create_5m": 4.00, "create_1h": 6.40,
+        "read": 0.32, "output": 16.00,
+    }
+    row = ("acme/acme-9", "HostCo")
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {row: after})
+    monkeypatch.setattr(
+        pricing, "PROVIDER_DATED_RATES", {row: [(cutover, before)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {row: start})
+
+    return SimpleNamespace(
+        model="acme/acme-9",
+        host="HostCo",
+        cutover=cutover,
+        start=start,
+        before=before,
+        after=after,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_response_cache():
     # response_cache is a process-global. Two tests with different fixtures
