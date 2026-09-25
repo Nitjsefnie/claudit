@@ -16,24 +16,15 @@
 version: 2
 updates:
   # Root: requirements-dev.txt (lint/type toolchain) and
-  # requirements-test.txt (coverage toolchain).
+  # requirements-test.txt (coverage toolchain) — AND backend/requirements.txt
+  # (the runtime and test dependencies the deployed service installs), which
+  # the pip file fetcher reaches from here through its one-level walk of the
+  # first-level subdirectories under the configured directory. A separate
+  # /backend entry would double-own that file and open every backend bump
+  # twice (#164 and #165, issue #176) — there must be exactly one owner per
+  # requirements file.
   - package-ecosystem: pip
     directory: "/"
-    schedule:
-      interval: weekly
-      day: wednesday
-      time: "04:30"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps"
-    labels:
-      - dependencies
-
-  # backend/requirements.txt — the runtime and test dependencies the
-  # deployed service actually installs.
-  - package-ecosystem: pip
-    directory: "/backend"
     schedule:
       interval: weekly
       day: wednesday
