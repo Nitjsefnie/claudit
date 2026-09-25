@@ -1,5 +1,4 @@
-# pylint: disable=too-many-lines
-# Fixture-driven parser tests live here 1:1 per testing convention; the module crossed the 1000-line cap with the provider-cost-split coverage, and the check stays on everywhere else.
+# Fixture-driven parser tests live here 1:1 per testing convention; the module size is governed by the size baseline (scripts/ci/size_baseline.py), not pylint's flat module limit.
 """parse.py — per-file extraction.
 
 Each parse_file call returns:
