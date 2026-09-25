@@ -84,6 +84,19 @@ def auth_pool() -> ConnectionPool:
     return _AUTH
 
 
+def reset_auth_pool() -> None:
+    """Close and drop the cached auth pool so the next auth_pool() call
+    re-reads DATABASE_URL_AUTH. Mirrors reset_viz_pool; test suites need
+    this between auth-DB configurations, production code never calls it."""
+    global _AUTH
+    if _AUTH is not None:
+        try:
+            _AUTH.close()
+        except Exception:
+            pass
+    _AUTH = None
+
+
 @contextmanager
 def viz_conn():
     with viz_pool().connection() as conn:
@@ -154,8 +167,13 @@ def schema_check() -> None:
     """Fail fast at startup if either DB's required shape is missing.
 
     For claudit: 'files' table exists.
-    For the auth DB: 'users' table has a JSONB 'config' column.
-    Raises RuntimeError on any mismatch.
+    For the auth DB: 'users' table has a JSONB 'config' column. An empty
+    information_schema probe has three causes, discriminated on the same
+    connection before naming one: (a) no 'users' table visible — the
+    database is wrong or empty; (b) the role holds no SELECT on 'users' —
+    an unprivileged table is invisible in information_schema.columns;
+    (c) the table is visible and readable but lacks 'config' — the column
+    is genuinely absent. Raises RuntimeError on any mismatch.
     """
     with viz_conn() as c:
         row = c.execute(
@@ -172,6 +190,29 @@ def schema_check() -> None:
             "AND column_name='config'"
         ).fetchone()
         if row is None:
+            # An empty probe has three causes (issue #122) — discriminate
+            # on this same connection before naming one.
+            exists = c.execute(
+                "SELECT to_regclass('public.users')"
+            ).fetchone()
+            if exists is None or exists[0] is None:
+                raise RuntimeError(
+                    "auth DB: no 'users' table visible — is "
+                    "DATABASE_URL_AUTH pointing at the right database?"
+                )
+            priv_row = c.execute(
+                "SELECT has_table_privilege(current_user, 'public.users', "
+                "'SELECT'), current_user"
+            ).fetchone()
+            granted = bool(priv_row and priv_row[0])
+            role = str(priv_row[1]) if priv_row else ""
+            if not granted:
+                raise RuntimeError(
+                    f"auth DB: role '{role}' lacks SELECT on 'users' — "
+                    f"grant SELECT ON users TO {role} (a table without "
+                    "SELECT is invisible in information_schema.columns, "
+                    "which is why this looked like a missing column)"
+                )
             raise RuntimeError(
                 "auth DB users table has no 'config' column"
             )
