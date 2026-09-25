@@ -126,8 +126,14 @@ and pylint will report a clean run over every file except the one you
 just wrote.
 
 `pip install -r requirements-dev.txt -r requirements-test.txt` gets the
-pinned toolchain. Coverage is gated at 82% — a ratchet set under the
-current number, not a target.
+pinned toolchain. Coverage is a self-raising ratchet, not a target: the
+measured value and its floor (always 1.5 below it) are committed data in
+`.github/ci-thresholds.json`, and CI raises the floor on master when a
+run measures more than 1.5 above the recorded value. The same file caps
+every Python file's line count too (production 500 / test 700): files
+over the cap carry baseline entries that CI lowers as they shrink, and
+entries are never added or raised by hand — grow a file by moving code
+into a new module instead.
 
 Run these against an environment with the **pinned** runtime deps
 installed too (`pip install -r backend/requirements.txt`). `pyright`
