@@ -64,11 +64,15 @@ def test_invalidate_serves_stale_then_refreshes():
     # The stale value comes back straight away — NOT a recomputed one.
     assert endpoint(rng="30d", fresh=0) == {"n": 1}
 
-    # ...and the refresh lands in the background.
+    # ...and the refresh lands in the background. Poll the CACHE — what
+    # the contract governs — not the endpoint's call log: a poll that
+    # watches `calls` can exit in the window between the refresh
+    # computing its value and that value being put, then the final read
+    # serves stale and fails. Serving stale through that window is the
+    # contract working, so wait on the cache itself. (Issue #155.)
     deadline = time.time() + 5
-    while time.time() < deadline and len(calls) < 2:
+    while time.time() < deadline and endpoint(rng="30d", fresh=0) != {"n": 2}:
         time.sleep(0.02)
-    assert len(calls) == 2, "background refresh never ran"
     assert endpoint(rng="30d", fresh=0) == {"n": 2}
 
 
