@@ -660,7 +660,7 @@ def _session_entry(row, ctx_turns_by_session: dict) -> dict:
     turns_proj = _turns_projection(ctx_turns_by_session.get(sid) or [])
     # null (not 0) when ctx_turns is empty so the UI can flag the dot
     # as "ctx unknown" instead of silently falling back to a synthetic
-    # duration-based size encoding (analyst spec 2026-05-07).
+    # duration-based size encoding.
     ctx_at_end = turns_proj[-1]["ctx"] if turns_proj else None
     return {
         "session_id": sid,

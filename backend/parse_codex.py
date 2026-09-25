@@ -43,8 +43,8 @@ live, so the counts date rather than pin:
    model comes from the most recent turn_context / thread_settings_applied
    record preceding the token_count line.
 
-The logic is ported from ~/.agent-bundle/scripts/parse_codex.py, a
-standalone CLI over the same format, validated against a 46-file corpus.
+The logic is ported from a standalone CLI parser over the same format,
+which was validated against a 46-file corpus.
 """
 from __future__ import annotations
 

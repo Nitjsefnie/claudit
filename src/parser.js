@@ -1,16 +1,17 @@
 // JSONL parser for Claude Code transcripts.
-// Mirrors the shapes from parse_session.py: extracts structured events
-// (user/assistant/tool_call/tool_result/thinking/agent_spawn) plus meta
-// events (assistant_usage, system, queue-operation, attachment).
+// Implements SV-PARSER-SPEC alongside backend/parse.py: extracts
+// structured events (user/assistant/tool_call/tool_result/thinking/
+// agent_spawn) plus meta events (assistant_usage, system,
+// queue-operation, attachment).
 //
 // Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
 // by src/parser-lanes.js, which emits the same shapes; parseTranscript
 // sniffs the format and delegates. One rate table only — the one below.
 
-// Per-call context-window size. Mirrors backend/parse.py:_usage_ctx_input
-// and canonical parse_session.py 1.20.6. When usage.iterations has >1
-// entries (advisor()/sub-agent fan-out), the top-level fresh+create+read
-// is the BILLING sum across iterations, not the peak single-call window.
+// Per-call context-window size. Mirrors backend/parse.py:_usage_ctx_input.
+// When usage.iterations has >1 entries (advisor()/sub-agent fan-out), the
+// top-level fresh+create+read is the BILLING sum across iterations, not
+// the peak single-call window.
 // For context-growth views we want the peak: max-of-iteration-totals.
 // Exposed at top level (not inside parseTranscript) so the lane delegation
 // path, which returns before this body runs, still exposes it.
@@ -51,7 +52,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
   function mergeUsageMax(existing, incoming) {
     // Recursive max merge: numeric fields take max, nested dicts merge
     // key-by-key, non-numeric fields keep `existing` if present else
-    // copy from `incoming`. Mirrors parse_session.py's _merge_usage_max.
+    // copy from `incoming`. Mirrors backend/parse.py's _merge_usage_max.
     if (existing == null) return incoming;
     if (incoming == null) return existing;
     if (typeof existing === 'number' && typeof incoming === 'number') {
@@ -238,7 +239,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
       // Skip synthetic stubs — Claude Code emits these after `/exit` and
       // for interrupted partial responses with all-zero usage and no
       // requestId. They clobber the `last_usage` walk in any per-turn
-      // aggregation. Mirrors parse_session.py 1.20.4 / backend/parse.py.
+      // aggregation. Mirrors backend/parse.py.
       if (usage && (m.model || '') !== '<synthetic>') {
         const reqId = obj.requestId || '';
         // No requestId (a Z.ai-served transcript): the lines of one API

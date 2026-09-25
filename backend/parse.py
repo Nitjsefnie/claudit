@@ -97,7 +97,7 @@ def _merge_key(obj: dict, msg: dict) -> str:
 
 
 def _usage_ctx_input(u: dict) -> int:
-    # Per-call context-window size. Mirrors parse_session.py 1.20.6:
+    # Per-call context-window size (SV-PARSER-SPEC):
     # when the harness fans out multiple sub-calls (advisor()/retries),
     # they get rolled into one `usage` envelope as `iterations`. The
     # top-level fresh+create+read is the BILLING sum across iterations,
@@ -253,13 +253,12 @@ def _content_metrics(msg: dict, cwd: str = "") -> tuple[int, list]:
     """(text_chars, tool_use blocks) for one assistant message.
 
     Visible-response size: sum character lengths of `text` blocks
-    in the assistant message. Per analyst (2026-05-07), thinking
-    tokens roll into output_tokens undifferentiated, so token-based
-    response-size metrics conflate "size" with "how much the model
-    thought". Character count of text content blocks is the clean
-    measure of visible response size.
+    in the assistant message. Thinking tokens roll into output_tokens
+    undifferentiated, so token-based response-size metrics conflate
+    "size" with "how much the model thought". Character count of text
+    content blocks is the clean measure of visible response size.
     Also extract every `tool_use` block — the `name` field is what
-    the canonical parser exposes via --tools. Stored later as one
+    the per-tool panels group by. Stored later as one
     row per tool call in the `tool_uses` table for the per-tool
     ratio panel.
     """
@@ -375,9 +374,9 @@ class _LineWalk:
         # Reply-latency anchor: last NON-instrumentation, NON-interrupt user
         # message timestamp. Cleared when consumed by an assistant message,
         # an interrupt marker, or superseded by a fresher user message.
-        # Mirrors compute_reply_latency() in parse_session.py at the
-        # message granularity (we treat the assistant message line as the
-        # terminator since all assistant content blocks share its ts).
+        # Measured at message granularity (we treat the assistant message
+        # line as the terminator since all assistant content blocks share
+        # its ts).
         self.last_user_ts: datetime | None = None
         # Per-file first-seen line for each user-record uuid. A user record
         # whose uuid already appeared on an EARLIER, DIFFERENT line is a
@@ -519,7 +518,6 @@ class _LineWalk:
         # ctx_turns walk picks them as the trailing `last_usage`,
         # then the post-walk input>0 filter drops them, leaving
         # ctx_turns empty even when real records preceded them.
-        # (Mirrors parse_session.py 1.20.4 fix from analyst 2026-05-07.)
         if (msg.get("model") or "") == "<synthetic>":
             return
 
@@ -575,7 +573,7 @@ class _LineWalk:
         this assistant message's ts. NULL when there's no preceding
         anchored user message (session start, or every recent user
         msg was instrumentation/interrupt) OR when delta is
-        negative (analyst 2026-05-07: negative deltas are
+        negative (negative deltas are
         session-restore / compaction replay artifacts where the
         assistant message came from a prior, re-emitted state and
         isn't actually a reply to the visually-preceding user msg).
@@ -757,8 +755,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
 
 
 def _build_ctx_turns(records: list, user_text_lines: list) -> list:
-    """Build ctx_turns by user-text boundary, mirroring
-    parse_session.py:compute_context_growth lines 2680-2740."""
+    """Build ctx_turns by user-text boundary (SV-PARSER-SPEC)."""
     boundary_lines = sorted(user_text_lines)
     aware_min = datetime.min.replace(tzinfo=timezone.utc)
     sorted_recs = sorted(

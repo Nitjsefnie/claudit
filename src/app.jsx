@@ -20,8 +20,8 @@ function modelProviderLabel(model, provider) {
 
 function txToDashData(tx) {
   // Convert a real transcript into dashboard-shaped {events, limitHits, range}.
-  // Each event = ONE assistant turn (after applying the parse_session
-  // turn-stats algorithm: user-text boundaries → last usage per turn).
+  // Each event = ONE assistant turn (after applying the turn-stats
+  // algorithm: user-text boundaries → last usage per turn).
   // Rates come from the shared window.modelRates table (parser.js) so the
   // Inspector, Token Breakdown, and this path can never disagree on pricing.
   const rateFor = window.rateForModel;

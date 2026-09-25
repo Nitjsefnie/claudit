@@ -1,4 +1,4 @@
-// Cache view — literal replica of parse_session.py --cache output.
+// Cache view — renders /api/cache.
 // Three sections:
 //   1. PerModelTable: one row per model + a SESSION TOTAL row
 //   2. TopTurnsTable × 3 (output, cache_create, cache_read)

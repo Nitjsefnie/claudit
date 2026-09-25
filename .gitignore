@@ -115,7 +115,7 @@
 !/public/*.css
 !/public/*.html
 
-# ---- scripts/ — repo tooling (canonical analyst scripts are NOT vendored) --
+# ---- scripts/ — repo tooling ----------------------------------------------
 !/scripts/
 /scripts/*
 !/scripts/*.sh
