@@ -997,4 +997,4 @@ def test_admin_ingest_runs_off_the_event_loop():
         if isinstance(r, APIRoute) and r.path == "/admin/ingest"
     ]
     assert matches, "no /admin/ingest route is registered"
-    assert not inspect.iscoroutinefunction(matches[0].endpoint)
+    assert all(not inspect.iscoroutinefunction(m.endpoint) for m in matches)
