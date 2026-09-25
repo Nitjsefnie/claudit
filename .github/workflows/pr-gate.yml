@@ -1,0 +1,40 @@
+name: pr gate
+
+# pull_request_target: a fork's pull_request token is read-only, so its
+# comment and close would silently do nothing. The pinned action reads the
+# template at the PR's base SHA and runs no pull-request code; the body
+# reaches it through the API, never through an expression.
+on:
+  pull_request_target:  # zizmor: ignore[dangerous-triggers]
+    types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  # Runs for one pull request queue and GitHub keeps only the newest pending
+  # one. Never cancel: a cancelled run may already have closed, and the
+  # queued run is what reads that and repairs it.
+  group: pr-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # A reopen is authored by github-actions[bot] with this workflow's own
+    # github.token, and GitHub's no-recursion exception holds such an event's
+    # pull_request runs for approval: a draft closed and reopened loses its CI.
+    if: >-
+      github.event.pull_request.user.type != 'Bot'
+      && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: >-
+          Nitjsefnie-Actions/pr-gate@39b1b91ed861dbb070629e34bf63fe25b916e54d
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+          pull-request-author: ${{ github.event.pull_request.user.login }}
