@@ -45,10 +45,14 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
   agent_type TEXT NOT NULL DEFAULT 'general-purpose';
 -- A named teammate's sidecar names the teammate, not a role
--- (parse.apply_agent_sidecar). That name is kept here, and every ingest
--- replaces agent_type with the subagent_type of the lead's same-named
--- dispatch in this session (ingest_rollups.resolve_teammate_agent_types),
--- or the default when none joins. NULL for every other file.
+-- (agent_sidecar.apply_agent_sidecar). That name is kept here, and every
+-- ingest replaces agent_type with the subagent_type of the lead's
+-- same-named dispatch in this session
+-- (ingest_rollups.resolve_teammate_agent_types), or the default when
+-- none joins. An agentType-only sidecar (an older release's teammate:
+-- no name, taskKind or toolUseId) is kept here too, as a candidate this
+-- join resolves -- or whose parsed role stands. NULL for every other
+-- file.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS teammate_name TEXT;
 
 CREATE INDEX IF NOT EXISTS files_project_idx ON files (project_id);

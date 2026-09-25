@@ -35,6 +35,20 @@ def _is_teammate(meta: dict) -> bool:
                 and "toolUseId" not in meta and meta.get("agentType") == name))
 
 
+def _teammate_candidate(meta: dict) -> bool:
+    """An older release wrote a teammate's sidecar as ONLY {"agentType": X}
+    -- no name, no taskKind, no toolUseId. Not a verdict: the same shape
+    could be a plain subagent's role marker, so the parsed role STANDS and
+    the ingest-time join (resolve_teammate_agent_types) decides whether the
+    session's lead dispatched an Agent call named X. A toolUseId (a plain
+    subagent named after its dispatch), any taskKind (the writer marks the
+    kinds it knows), and a fork's isFork keep an ordinary role marker."""
+    return ("name" not in meta and "toolUseId" not in meta
+            and "taskKind" not in meta and not meta.get("isFork")
+            and isinstance(meta.get("agentType"), str)
+            and bool(meta["agentType"]))
+
+
 def _meta_role(meta: dict) -> str | None:
     name = meta.get("name")
     if _is_teammate(meta) and not (isinstance(name, str) and name
@@ -74,8 +88,10 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
     stored verbatim, like ``attributionAgent``. A teammate's sidecar also
     sets ``teammate_name``, which ingest joins to the lead's dispatch; the
-    role stored here stands only when no dispatch joins. Mutates and
-    returns `parsed`.
+    role stored here stands only when no dispatch joins. An agentType-only
+    sidecar (an older release's teammate) is stored the same way, as a
+    candidate the join decides, its role still standing meanwhile. Mutates
+    and returns `parsed`.
     """
     if parsed.get("agent_type_in_band"):
         return parsed
@@ -83,6 +99,8 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     if _is_teammate(meta):
         name = meta.get("name") or meta.get("agentType")
         parsed["teammate_name"] = name if isinstance(name, str) else None
+    elif _teammate_candidate(meta):
+        parsed["teammate_name"] = meta["agentType"]
     role = _meta_role(meta)
     if role is None:
         return parsed
