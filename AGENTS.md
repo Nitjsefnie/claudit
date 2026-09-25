@@ -491,6 +491,17 @@ workflow also sets `permissions:` explicitly and passes
 and a suppression belongs at the offending line with a justification (see
 `eslint.yml`), never as a raised `--min-severity`.
 
+**Pip caches restore anywhere and save only from master pushes.** No
+setup-python step carries `cache: pip`: its post-job save runs after the
+tree under test is checked out, so a pull request's untrusted code would
+write the cross-run cache a later master run restores and installs from.
+Each Python job instead carries an explicit `actions/cache/restore`
+(ungated) and an `actions/cache/save` immediately after that job's
+dependency install, gated
+`github.event_name == 'push' && github.ref == 'refs/heads/master'`.
+`refresh-pricing.yml` keeps its deliberate no-cache setup. The shape is
+pinned by `tests/test_workflow_pip_cache.py` (issue #126).
+
 **`.gitignore` is deny-by-default**: `*` first, then each shipped path
 named back. A new file of an unlisted type is invisible to git and will
 NOT appear in `git status` — `git check-ignore -v <path>` names the rule

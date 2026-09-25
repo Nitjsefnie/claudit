@@ -158,6 +158,13 @@ The rest need GitHub and run on their own:
 | `pr-gate` | Checks every non-draft PR's description against `.github/PULL_REQUEST_TEMPLATE.md` and requires a reference to an issue assigned to the PR's author. A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once the description is corrected. Never runs pull-request code. See [Pull requests](#pull-requests). |
 | `secrets` | gitleaks sweeps the full tree and the full git history for credentials — a digest-pinned binary under the default ruleset, findings redacted in the public log (commit + path + rule, never the matched string). Runs daily, because a push carrying `[skip ci]` or a commit that predates the workflow is scanned the next morning rather than never. Complements `scripts/secrecy-check.sh`, the local literal-based check for this repo's own known-sensitive strings. |
 
+Every workflow that installs Python dependencies follows one cache rule:
+restore on any event, save only from a push of `master`. The explicit
+`actions/cache/restore` / `actions/cache/save` steps replace
+`cache: pip`, whose post-job save ran after the pull-request checkout, so
+untrusted PR code would have written the cross-run cache a later master
+run installs from. `tests/test_workflow_pip_cache.py` pins the shape.
+
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
 
