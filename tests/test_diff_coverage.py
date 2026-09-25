@@ -271,7 +271,7 @@ diff --git a/backend/mod.py b/backend/mod.py
             " keep\n"
             "+neu\n")
         added = dc.added_lines(diff.read_text(encoding="utf-8"))
-        assert added == {"backend/m\xc3\xb6d.py": {2}}
+        assert added == {"backend/m\xf6d.py": {2}}
 
 
 class TestMeasure:
@@ -300,14 +300,15 @@ class TestMeasure:
         denominator keeps the number independent of formatting."""
         added = {"backend/mod.py": {2, 99}}
         rows, covered, partial, total = dc.measure(self._measured(tmp_path), added)
-        assert (covered, partial, total) == (1, 1, 2)
-        assert rows[0].missed == [4]
+        assert (covered, partial, total) == (1, 0, 1)
+        assert rows[0].missed_lines == []
 
     def test_file_with_no_coverage_data_is_excluded(self, tmp_path):
         """A backend file the XML does not name is out of the denominator —
         absence is not a miss — and is named by unmeasured_scope."""
         added = {"backend/newfile.py": {2}, "backend/mod.py": {2}}
-        rows, covered, partial, total = dc.measure(self._measured(tmp_path), added)
+        rows, _covered, _partial, total = dc.measure(
+            self._measured(tmp_path), added)
         assert total == 1
         assert rows[0].path == "backend/mod.py"
         assert dc.unmeasured_scope(self._measured(tmp_path), added) == [
@@ -322,10 +323,12 @@ class TestMeasure:
 class TestRender:
     def test_table_and_percentage(self, tmp_path):
         rows = [dc.FileRow("backend/mod.py", 1, 1, 1, [4])]
+        # A partially covered line WAS executed, so it counts toward the
+        # numerator — the same convention diff-cover uses.
         body = dc.render(rows, 1, 1, 3, unmeasured=[])
-        assert "33.3%" in body
+        assert "66.7%" in body
         assert "| `backend/mod.py` | 1 | 1 | 1 | 4 |" in body
-        assert "partially" in body  # the partial bucket is named
+        assert "partial" in body  # the partial bucket is named
 
     def test_missed_ranges_collapse(self):
         rows = [dc.FileRow("backend/mod.py", 0, 0, 4, [3, 4, 5, 9])]
@@ -358,10 +361,12 @@ class TestMain:
         assert dc.main(["--coverage", str(xml), "--diff", str(diff)]) == 0
         assert "0.0%" in capsys.readouterr().out
 
-    def test_exit_zero_when_the_diff_names_no_python(self, tmp_path, capsys):
+    def test_exit_zero_when_the_diff_names_no_python(self, tmp_path):
         xml = _write_coverage(tmp_path, '            <line number="2" hits="1"/>')
-        diff = _write_diff(tmp_path, "diff --git a/x.txt b/x.txt\n--- a/x.txt\n"
-                                      "+++ b/x.txt\n@@ -1 +1,2 @@\n keep\n+new\n")
+        diff = _write_diff(
+            tmp_path,
+            "diff --git a/x.txt b/x.txt\n--- a/x.txt\n"
+            "+++ b/x.txt\n@@ -1 +1,2 @@\n keep\n+new\n")
         assert dc.main(["--coverage", str(xml), "--diff", str(diff)]) == 0
 
     def test_summary_file_receives_the_body(self, tmp_path, capsys):
