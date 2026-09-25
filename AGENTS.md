@@ -1,4 +1,3 @@
-<!-- From: /root/session-viz/AGENTS.md -->
 # claudit
 
 @README.md
@@ -35,7 +34,8 @@ backend/          — FastAPI application
   api_common.py   — Shared endpoint helpers: Phases timing, dated-rate
                     fold, _parse_range/_bucket_seconds/_iso, HEATMAP_TZ
   api_dashboard.py — /api/dashboard (sources/queries/build split)
-  api_cache.py    — /api/cache (parse_session --cache replica)
+  api_cache.py    — /api/cache (per-model and per-session prompt-cache
+                    totals, TTL-split cost, top requests)
   api_sessions.py — /api/sessions*, transcript, sidecar
   api_export.py   — /api/export PNG render subprocess
   constants.py    — Dependency-free shared constants (LATENCY_BUCKETS);
@@ -49,8 +49,8 @@ backend/          — FastAPI application
                     tool_uses (incl. per-call lines_added/lines_deleted
                     for Edit/Write/Bash, derived from the call
                     arguments; errored calls are zeroed).
-                    Mirrors canonical ~/.claude/scripts/parse_session.py
-                    for Phase 1 within-file requestId max-merge. Owns
+                    Implements SV-PARSER-SPEC, incl. Phase 1
+                    within-file requestId max-merge. Owns
                     the Claude path; parse_file() sniffs the format and
                     dispatches lane formats to the parsers below.
   parse_codex.py  — Codex rollout parser (ported from codexmeter):
@@ -167,10 +167,7 @@ scripts/          — scripts/plots/: our DB-backed usage-plotting script,
                     session/EMA math) and ccusage_plot_timeline.py
                     (metric panels, plot_timeline). Queries the claudit
                     Postgres `records` table (visual-design parity with
-                    upstream nhz-io/ccusage-plot). Canonical analyst scripts
-                    (parse_session.py, discord_mb.py) are NOT vendored
-                    here — invoke them by absolute path under
-                    ~/.claude/scripts/.
+                    upstream nhz-io/ccusage-plot).
 
 tests/            — pytest suite
   conftest.py     — Injects repo root into sys.path; forces file-mode R2 and
@@ -224,7 +221,7 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 
 The first request may block while the startup ingest runs (~30 s on a warm DB, several minutes for a cold cache against a large bucket). `/health` reflects ingest state via the `ingest_runs` table.
 
-For local dev without R2 credentials, point `R2_ENDPOINT` at a filesystem mirror (e.g. `R2_ENDPOINT=file:///tmp/r2/`) — the R2 client falls back to walking the directory tree.
+For local dev without R2 credentials, point `R2_ENDPOINT` at a filesystem mirror (e.g. `R2_ENDPOINT=file:///path/to/mirror/`) — the R2 client falls back to walking the directory tree.
 
 ### Run tests
 
@@ -271,7 +268,7 @@ psql claudit -f backend/schema.sql
 - **API tests** (`test_api.py`) spin up a fresh temporary DB + mini R2 mirror per fixture. They bypass auth by mounting only the `api.router` into a clean FastAPI app.
 - **Ingest tests** (`test_ingest.py`) validate etag-based reparse triggers, orphan deletion, `turn_count` consistency, and cross-file uuid write-time retention (dedup is query-time).
 - **Auth tests** (`test_auth.py`) verify PBKDF2 round-trips and constant-time comparison against garbage inputs.
-- Keep fixture files small: `fixtures/parser/*.jsonl` under 1 KB each; `fixtures/r2_mini/` under a few KB. Larger samples go to `/tmp/analyst.BCYKic3p/r2/` (not committed).
+- Keep fixture files small: `fixtures/parser/*.jsonl` under 1 KB each; `fixtures/r2_mini/` under a few KB. Larger samples stay out of the repo, in a local mirror you point `R2_ENDPOINT` at (not committed).
 
 ## Security considerations
 
@@ -446,7 +443,7 @@ block. Never "fix" it by loosening the leading `*`.
 - **Foreign-model records are purged at ingest**, not filtered at read time — `suppressed_models` holds `ILIKE` patterns and `ingest.purge_suppressed()` deletes matching `records` and their `tool_uses` before the canonical pass (SV-SUPPRESSED-MODELS). The table ships empty; populate it per deploy. `files.models` keeps every model the file contained, recorded before the purge, so a session that switched lanes can still be identified and excluded from an analysis.
 - **Aggregates are precomputed at ingest** into `usage_rollup` (grain: session × hour × model × provider × is_main × long_context), `tool_rollup` (hour × project × model × tool), `tool_error_rollup` (hour × project × model × tool × error_kind), `dispatch_rollup` (hour × project × agent_type × agent_model), `dispatch_brief_rollup` (hour × project × agent_type × brief_ref, carrying a summed prompt length alongside the count), `ctx_cost_rollup` and `agent_rollup` (both carrying `total_tokens` beside `cost_usd`, so the tokens variant of each panel needs no second pass) and `latency_rollup` — see SV-ROLLUP. The first two hold pure sums/counts/min/max and are summed up to the display bucket; they are valid only for buckets ≥ 1h, so the 24h view takes a live path.
 - **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
-- **Don't invoke `~/.claude/scripts/parse_session.py`** at runtime, and don't edit it from this repo. If the canonical Python and our port drift, fix it here, not there.
+- **Parsing is self-contained.** Never invoke or vendor a parser from outside the repo (SV-READ-ONLY-CANONICAL). `backend/parse.py` and `src/parser.js` implement SV-PARSER-SPEC; when they drift, fix it here against the spec and the parser fixtures.
 - **Tests use fixtures, not real R2.** The R2 client supports `R2_ENDPOINT=file:///path/to/mirror/` for offline dev.
 - **Parser version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change — every file reparses on next ingest. Never an env var: a parser change and its reparse must ship together.
 - **Several buckets, several formats, one deploy.** `R2_BUCKET` may name several buckets joined by `+`; every stored file key is `<bucket>/<object-key>` and the bucket comes from the stored key, never the request. `parse_file()` sniffs the format (Claude, Codex rollout, kimi-code, legacy Kimi) and dispatches; the lane parsers and `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC). A pay-as-you-go Codex record above the 272k threshold bills the whole record on the long-context meter, persisted on `records.long_context` and applied by every per-component cost re-derivation (SV-DATED-RATES).

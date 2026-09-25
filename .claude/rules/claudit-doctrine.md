@@ -1,12 +1,13 @@
 # claudit Doctrine
 
-Local rules for the claudit repo. Global rules under `~/.claude/rules/**` still apply.
+Local rules for the claudit repo.
 
 ## Parser-spec ownership (SV-PARSER-SPEC)
 
-The CANONICAL parser is `~/.claude/scripts/parse_session.py` (owned by
-analyst). Both the in-browser `src/parser.js` AND the backend
-`backend/parse.py` MIRROR that semantics. Keep all three in lockstep on:
+This rule is the parse spec. The backend `backend/parse.py` and the
+in-browser `src/parser.js` both implement it, and the parser fixtures
+(`fixtures/parser/`, driven by `tests/test_parse.py`) pin its behaviour.
+Keep both implementations in lockstep on:
 
 - Per-file requestId `_merge_usage_max` during ingest (Phase 1,
   persisted into `records`)
@@ -17,8 +18,7 @@ analyst). Both the in-browser `src/parser.js` AND the backend
   aggregation that used to live in `compute_cache` was dropped in R1.
 - `<task-notification>` ref detection for sub-agent jsonls
 - Sidecar `data/subagents/agent-*.jsonl` resolution
-- `MODEL_RATES` table (single source of truth: `backend/pricing.py`,
-  initially copied from parse_session.py:1148-1166)
+- `MODEL_RATES` table (single source of truth: `backend/pricing.py`)
 
 **Lane parsers are in their own lockstep pair.** `parse_file()` sniffs
 each blob's format and dispatches Codex rollouts and the two Kimi wire
@@ -35,9 +35,12 @@ browser test when `window.LONG_CONTEXT_THRESHOLD` /
 `LONG_CONTEXT_INPUT_MULT` / `LONG_CONTEXT_OUTPUT_MULT` stop matching
 `pricing.LONG_CONTEXT_*`.
 
-When you find a discrepancy: the Python canonical is right by default.
-If the canonical itself has a real bug, file it for analyst via mailbox;
-don't quietly fork the semantics here.
+When you find a discrepancy, resolve it against this spec and the
+parser fixtures, not by picking whichever side looks right: fix the
+implementation that departs from them. If the spec itself has a real
+bug, change it here, in both implementations, and add a fixture that
+pins the corrected behaviour in the same commit; don't quietly fork the
+semantics between them.
 
 ## Cost accounting is split TTL, always (SV-COST-SPLIT)
 
@@ -95,16 +98,18 @@ them breaks their value as ported fixtures, and a grep of the directory
 must stay clean of real paths, ids and secrets before committing.
 `fixtures/r2_mini/` is the end-to-end mini mirror
 (2 projects, 4 sessions, 1 sidecar, 1 cross-session shared uuid).
-Don't grow any of these by accident — larger samples go under
-`/tmp/analyst.BCYKic3p/r2/` (the local R2 mirror, not committed).
+Don't grow any of these by accident — larger samples stay out of the
+repository, in a local mirror outside the working tree that
+`R2_ENDPOINT` points at.
 
 ## Develop against the full corpus, never the local tree (SV-FULL-CORPUS)
 
 Any measurement, probe, or panel prototype reads the R2 corpus (or a
-full local mirror of it), NOT `~/.claude/projects/`. The live session
-tree is pruned by Claude Code, so it is a small and BIASED sample:
-recent sessions survive, long-finished ones are gone, and whichever
-projects were touched lately are over-represented.
+full local mirror of it), NOT the live session tree Claude Code keeps in
+its own config directory. That tree is pruned by Claude Code, so it is
+a small and BIASED sample: recent sessions survive, long-finished ones
+are gone, and whichever projects were touched lately are
+over-represented.
 
 Measured 2026-09-07: 475 local jsonls against 11,204 objects in the
 bucket — 4%. A behavioural rate derived from the local tree is a rate
@@ -122,12 +127,13 @@ Use `backend/r2.py` (`list_keys` / `get_stream`) so a probe honours
 mirror. Stratify and say the sample size in the output; never present
 a corpus-wide claim from an unstated subset.
 
-## Read-only on canonical paths (SV-READ-ONLY-CANONICAL)
+## No external parser, vendored or invoked (SV-READ-ONLY-CANONICAL)
 
-claudit NEVER edits `~/.claude/scripts/parse_session.py` or
-`~/.claude/scripts/discord_mb.py`. Those are owned by analyst, and per
-global doctrine they are NOT copied, symlinked, or hardlinked into this
-repo — invoke them by absolute path under `~/.claude/scripts/`.
+claudit's parsing is self-contained. The backend never invokes, imports
+or shells out to a parser or script from outside this repository, and
+no copy, symlink or hardlink of an external script is committed here.
+The in-repo parsers implement SV-PARSER-SPEC; a drift between them is
+fixed in this repository.
 
 ## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
 
@@ -237,8 +243,7 @@ TRUE so a migrated-but-not-yet-recomputed DB over-counts (behaves like
 no dedup) rather than silently dropping rows.
 
 Changing the winner rule means changing BOTH `recompute_canonical()`
-and `src/parser.js`/`parse_session.py` semantics in lockstep
-(SV-PARSER-SPEC).
+and `src/parser.js` semantics in lockstep (SV-PARSER-SPEC).
 
 `tool_uses.is_canonical` is the same rule keyed on `tool_use_id` (the
 block's globally unique id), set in the same pass. It exists because a
