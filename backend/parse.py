@@ -26,10 +26,9 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
-from backend import bash_reads, key_layout
+from backend import bash_reads
 from backend.parse_common import _dispatch_prompt_shape
-from backend.parse_lanes import (LANE_PARSERS, lane_sidecar_agent_type,
-                                 sniff_format, to_claudit)
+from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
 
@@ -841,81 +840,6 @@ def resolve_agent_type(walk: _LineWalk) -> str:
     return walk.agent_setting or DEFAULT_AGENT_TYPE
 
 
-def _sidecar_meta(sidecar: bytes) -> dict | None:
-    try:
-        meta = loads(sidecar)
-    except JSONDecodeError:
-        return None
-    return meta if isinstance(meta, dict) else None
-
-
-def _is_teammate(meta: dict) -> bool:
-    """Whether agentType may be a teammate NAME: Claude Code marks a named
-    teammate ``taskKind: in_process_teammate``, and an agentType equal to
-    ``name`` is that case unmarked -- unless a ``toolUseId`` (which no
-    teammate sidecar carries) shows a plain subagent named after its role."""
-    name = meta.get("name")
-    return (meta.get("taskKind") == "in_process_teammate"
-            or (isinstance(name, str) and bool(name)
-                and "toolUseId" not in meta and meta.get("agentType") == name))
-
-
-def _meta_role(meta: dict) -> str | None:
-    name = meta.get("name")
-    if _is_teammate(meta) and not (isinstance(name, str) and name
-                                   and meta.get("agentType") != name):
-        return None
-    spec = meta.get("launch_spec")
-    for role in (meta.get("agentType"), meta.get("subagent_type"),
-                 spec.get("subagent_type") if isinstance(spec, dict)
-                 else None):
-        if isinstance(role, str) and role:
-            return role
-    return None
-
-
-def sidecar_agent_role(sidecar: bytes) -> str | None:
-    """The role a subagent's meta.json sidecar names, or None.
-
-    Claude Code writes ``{"agentType": ...}``; kimi-cli writes
-    ``{"subagent_type": ..., "launch_spec": {"subagent_type": ...}}``,
-    the top-level value first. Anything else — undecodable bytes, a
-    top level that is not an object, an empty or non-string value, a
-    teammate's agentType that is its name (_is_teammate) — is no role.
-    """
-    return _meta_role(_sidecar_meta(sidecar) or {})
-
-
-def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
-    """Fill a parse's agent_type from its transcript's meta.json sidecar.
-
-    Precedence is in-band role > sidecar role > DEFAULT_AGENT_TYPE: a
-    transcript that named its own role (``attributionAgent``,
-    ``agent-setting``, a lane's session_meta / profileName) keeps it,
-    and an unusable sidecar changes nothing. `key` is the transcript's
-    OBJECT key (no bucket): which normalisation the role takes follows
-    the key layout, not the sniffed format -- a sidecar in the lane tree
-    goes through the lane's (lane_sidecar_agent_type), so its name for
-    the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
-    stored verbatim, like ``attributionAgent``. A teammate's sidecar also
-    sets ``teammate_name``, which ingest joins to the lead's dispatch; the
-    role stored here stands only when no dispatch joins. Mutates and
-    returns `parsed`.
-    """
-    if parsed.get("agent_type_in_band"):
-        return parsed
-    meta = _sidecar_meta(sidecar) or {}
-    if _is_teammate(meta):
-        name = meta.get("name") or meta.get("agentType")
-        parsed["teammate_name"] = name if isinstance(name, str) else None
-    role = _meta_role(meta)
-    if role is None:
-        return parsed
-    parsed["agent_type"] = (lane_sidecar_agent_type(role)
-                            if key_layout.in_lane_tree(key) else role)
-    return parsed
-
-
 def _parse_claude(file_key: str, blob: bytes) -> dict:
     """Parse one Claude JSONL, max-merging requestIds and retaining idless records.
 
@@ -992,7 +916,7 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     parse_lanes.to_claudit. Returns records, ctx_turns, turn_count,
     prompt_count, models, rate_limit_hits, tool_uses and agent_type
     either way, plus ``agent_type_in_band`` (whether the transcript named
-    its role itself), which apply_agent_sidecar reads.
+    its role itself), which agent_sidecar.apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
     if fmt == "claude":
