@@ -1,8 +1,16 @@
 """/login GET + POST + /logout.
 
 Login UI is inlined HTML (no shared layout chrome — claudit uses
-its own visualizer dark theme). Rate limiting: 5 failures per IP per
-5-minute window.
+its own visualizer dark theme). Every credential failure — unknown
+id, no web password configured, wrong password — answers one generic
+401 with an identical body, and the paths where the real PBKDF2
+verification cannot run run a dummy one instead, so an account id
+cannot be enumerated by response shape or timing (issue #109). Rate
+limiting: 5 failures per IP+user pair per 5-minute window (issue
+#111), so one user's failures never lock a different user behind the
+same egress IP; entries are pruned per key on access and, once the
+table grows past _LOGIN_MAX_KEYS, every fully expired key is swept,
+so it never grows without bound.
 """
 from __future__ import annotations
 
@@ -14,7 +22,6 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from backend import auth, branding
 from backend import session as session_mod
-from backend import db
 
 
 router = APIRouter()
@@ -22,26 +29,61 @@ router = APIRouter()
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _LOGIN_MAX_FAILURES = 5
 _LOGIN_WINDOW_SECONDS = 300
+# Sweep trigger: above this many tracked (ip, user) pairs, every key
+# whose window has fully expired is dropped on the next access, so the
+# dict cannot be grown without bound by a remote peer.
+_LOGIN_MAX_KEYS = 4096
+
+# One answer for every credential failure — identical status and body
+# for unknown id, no web password and wrong password (issue #109).
+_GENERIC_FAILURE_TEXT = "Invalid credentials."
 
 
-def _check_login_rate_limit(ip: str) -> bool:
-    now = time.time()
+def _failure_key(ip: str, uid: int) -> str:
+    return f"{ip}:{uid}"
+
+
+def _prune_key(key: str, now: float) -> list[float]:
+    """Drop one key's expired timestamps; delete the key once empty."""
     attempts = [
-        t for t in _LOGIN_FAILURES.get(ip, [])
+        t for t in _LOGIN_FAILURES.get(key, [])
         if now - t < _LOGIN_WINDOW_SECONDS
     ]
-    _LOGIN_FAILURES[ip] = attempts
+    if attempts:
+        _LOGIN_FAILURES[key] = attempts
+    else:
+        _LOGIN_FAILURES.pop(key, None)
+    return attempts
+
+
+def _sweep_expired_keys(now: float) -> None:
+    """Delete every key whose timestamps have all aged out of the
+    window. Runs only above _LOGIN_MAX_KEYS, so the steady-state cost
+    stays at one key's prune."""
+    expired = [
+        key for key, attempts in _LOGIN_FAILURES.items()
+        if not any(now - t < _LOGIN_WINDOW_SECONDS for t in attempts)
+    ]
+    for key in expired:
+        del _LOGIN_FAILURES[key]
+
+
+def _check_login_rate_limit(ip: str, uid: int) -> bool:
+    now = time.time()
+    attempts = _prune_key(_failure_key(ip, uid), now)
+    if len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
+        _sweep_expired_keys(now)
     return len(attempts) >= _LOGIN_MAX_FAILURES
 
 
-def _record_login_failure(ip: str) -> None:
+def _record_login_failure(ip: str, uid: int) -> None:
     now = time.time()
-    attempts = [
-        t for t in _LOGIN_FAILURES.get(ip, [])
-        if now - t < _LOGIN_WINDOW_SECONDS
-    ]
+    key = _failure_key(ip, uid)
+    attempts = _prune_key(key, now)
     attempts.append(now)
-    _LOGIN_FAILURES[ip] = attempts
+    _LOGIN_FAILURES[key] = attempts
+    if len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
+        _sweep_expired_keys(now)
 
 
 def reset_login_rate_limits() -> None:
@@ -49,16 +91,6 @@ def reset_login_rate_limits() -> None:
     cases that POST from the same TestClient host; production never
     calls it."""
     _LOGIN_FAILURES.clear()
-
-
-def user_exists(user_id: int) -> bool:
-    """Cheap existence probe in the auth DB's users table."""
-    with db.auth_conn() as c:
-        row = c.execute(
-            "SELECT 1 FROM users WHERE user_id = %s LIMIT 1",
-            (user_id,),
-        ).fetchone()
-    return row is not None
 
 
 _LOGIN_HTML = """<!DOCTYPE html>
@@ -121,33 +153,36 @@ async def login_post(
     password: str = Form(""),
 ) -> Response:
     ip = request.client.host if request.client else "unknown"
-    if _check_login_rate_limit(ip):
-        return Response(
-            "Too many login attempts. Try again later.",
-            status_code=429, media_type="text/plain",
-        )
     try:
         uid = int(user_id.strip())
     except ValueError:
         uid = 0
     if uid <= 0:
+        # Malformed input reveals nothing about accounts — uid 0 is the
+        # guest sentinel — and it costs no query and no PBKDF2, so it
+        # answers before the limiter with its own fixed text.
         return Response(
             "Invalid user ID", status_code=400, media_type="text/plain"
         )
-    if not user_exists(uid):
+    if _check_login_rate_limit(ip, uid):
         return Response(
-            "User not found.", status_code=404, media_type="text/plain"
+            "Too many login attempts. Try again later.",
+            status_code=429, media_type="text/plain",
         )
     config = session_mod.load_user_config(uid)
     if not config or not auth.has_web_password(config):
+        # The real verification cannot run: burn the same CPU it would
+        # and give the same generic answer a wrong password gets, so
+        # neither response shape nor timing separates the two (#109).
+        auth.run_dummy_verification(password)
+        _record_login_failure(ip, uid)
         return Response(
-            "Password not configured.", status_code=503,
-            media_type="text/plain",
+            _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
     if not auth.verify_web_password(config, password):
-        _record_login_failure(ip)
+        _record_login_failure(ip, uid)
         return Response(
-            "Invalid password", status_code=401, media_type="text/plain"
+            _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
     secret = session_mod.get_or_create_session_secret(config)
     session_mod.write_user_config(uid, config)
