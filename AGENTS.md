@@ -353,8 +353,8 @@ fires CI — only a `master` one does — so to check a working branch,
 dispatch the workflow on it: `gh workflow run tests.yml --ref <branch>`
 (every gate carries `workflow_dispatch` for exactly this).
 
-**There are ELEVEN workflows, not one.** `tests.yml` is the one people
-remember, and a green pytest says nothing about the other ten. Six run
+**There are TWELVE workflows, not one.** `tests.yml` is the one people
+remember, and a green pytest says nothing about the other eleven. Six run
 locally — run them before pushing, because CI is the backstop, not the
 first check:
 
@@ -384,22 +384,29 @@ pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-
 pyright --pythonpath /path/to/venv/bin/python
 ```
 
-The five that only make sense on GitHub:
+The six that only make sense on GitHub:
 
 | Workflow | Question it answers | Trigger |
 | --- | --- | --- |
 | `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | push + PR + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Under `pull_request` the checkout takes the merge ref — the same commit `analyze` files SARIF against — so alerts land on the tree actually analysed. |
 | `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | push + PR + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
 | `speed.yml` | Did the tests that exist in both this commit and the last release get >30% slower? | push + PR. Runs BOTH builds on the same runner, interleaved, min-of-rounds. Skips green while no release exists. |
-| `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. |
+| `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. A dev version (`X.Y.Z-dev`) skips every step — nothing is tagged. |
+| `version-guard.yml` | Does the tree `VERSION` name a version that has already shipped? Fails a master push or PR whose `VERSION` matches an existing `v<VERSION>` tag — under the dev-suffix discipline this only ever fires on a missed bump. The hourly pricing bot's commits (author AND file shape: only `src/pricing.json` + `backend/constants.py`) are exempt; PRs get no carve-out. | push to `master` + PR, deliberately no path filter: the tag set changes when a release lands, independently of any push. |
 | `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
 
 **Coverage is a ratchet at 82%**, in `tests.yml`, checked by a step of its
 own so "tests failed" and "coverage dropped" stay distinguishable. Raise
 the floor as coverage climbs; never lower it to turn a build green.
 
-**Release = edit `VERSION`.** One bare semver line at the repo root, no
-leading `v`. `release.yml` reacts to it; nothing bumps it automatically,
+**Release = edit `VERSION`.** One semver line at the repo root, no
+leading `v`. Between releases the tree carries the next version with a
+`-dev` suffix (`0.4.0-dev`); a release drops the suffix, and `VERSION`
+is bumped to the next `-dev` immediately after a release lands — the
+tree version never names an already-published release, which
+`version-guard.yml` enforces on every master push and PR (the hourly
+pricing bot's own commits are exempt). `release.yml` reacts to a dropped
+suffix and skips a dev version entirely; nothing bumps it automatically,
 because deciding patch-vs-minor is a judgement about what changed.
 `backend/constants.VERSION` reads it and `/health` reports it.
 
