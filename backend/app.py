@@ -149,9 +149,10 @@ def health() -> dict:
             "now": datetime.now(timezone.utc).isoformat(),
         }
     # Live progress for the run in flight. ingest_runs only gains its
-    # counters in the final UPDATE, and the derived-state rebuilds happen
-    # AFTER finished_at is written — so a caller watching that row alone
-    # sees nothing for minutes, then "done" while rebuilds are still going.
+    # counters in the final UPDATE, which is written only after the
+    # derived-state rebuilds finish — so a caller watching that row sees
+    # nothing for minutes, then "done" with the rollups already rebuilt;
+    # the progress readout below is what shows the rebuilds in flight.
     prog = ingest.progress_snapshot()
     running = prog.get("phase") not in (None, "idle")
     ingest_progress = None
