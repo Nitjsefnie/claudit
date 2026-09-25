@@ -151,19 +151,28 @@ the claudit and glmmeter deploys).
 
 The cost is that ROLLBACK IS ONE-DIRECTIONAL — restarting an older binary
 leaves it against a newer schema. That is acceptable because every
-migration is additive and nullable, with ONE allowed exception:
-schema.sql's guarded, idempotent DO block that swaps `usage_rollup`'s
-primary key to widen the grain (adding `long_context`, then `provider`):
-the table is derived, DELETE+INSERT-rebuilt state, the swap only widens
-the key, and the widened key is a superset of the old one, so an older
-binary's named-column INSERT still satisfies it. An older binary's READS
+migration is additive and nullable, with TWO allowed exceptions, both
+guarded and idempotent:
+
+- schema.sql's DO block that swaps `usage_rollup`'s primary key to widen
+  the grain (adding `long_context`, then `provider`): the table is
+  derived, DELETE+INSERT-rebuilt state, the swap only widens the key, and
+  the widened key is a superset of the old one, so an older binary's
+  named-column INSERT still satisfies it.
+- schema.sql's guarded int→bigint widening of `user_session.user_id`:
+  `user_session` is NOT derived state, but the widening is inert for an
+  older binary — it only ever wrote values that fit INTEGER, and it reads
+  user ids into Python ints indifferent to the column's width, so nothing
+  narrows and nothing drops.
+
+An older binary's READS
 ignore what they do not know, and its INGEST path is guarded: a file
 whose stored parser_version is newer than the binary's own is never
 reparsed, so the newer binary's column values survive a rollback instead
 of being NULLed by the older binary's wholesale re-INSERT. The guard does
-not repair erasure already done by binaries OLDER than itself. Any other
-migration that DROPS or retypes a column breaks this property and needs
-a different mechanism, not a quiet exception.
+not repair erasure already done by binaries OLDER than itself. Apart from
+these two, any migration that DROPS or retypes a column breaks this
+property and needs a different mechanism, not a quiet exception.
 
 ## Schema fail-fast (SV-SCHEMA-FAIL-FAST)
 
