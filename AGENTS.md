@@ -321,6 +321,21 @@ merge ref, never once per event. Postgres 16 service container; fixtures
 `createdb`/`dropdb` per module, so `PGHOST`/`PGUSER`/`PGPASSWORD` drive
 both libpq and the shelled-out `psql`.
 
+**The tests workflow runs the suite twice over a matrix and a job.** The
+`pytest` job keeps the FULL suite with its coverage ratchet on Linux +
+Postgres 16, exactly where it was. A second job, `pytest-portable`, runs
+the same suite minus every database test — `-m "not db"` — matrixed over
+ubuntu/macos/windows × Python 3.13/3.14, the platforms and Pythons a
+Postgres service container cannot reach; it has no services, no `psql`,
+and no coverage steps. The db/portable split is MECHANICAL, not a
+hand-kept list: `tests/conftest.py` marks every test whose fixture
+closure reaches a fixture registered in `tests/db_marker.py`'s
+`DB_FIXTURES`, the tests that reach a server without any DB fixture
+carry `@pytest.mark.db` explicitly, and `tests/test_db_marker.py`
+re-derives both from source and fails on drift — so an unmarked database
+test fails the marker's own meta-test before it can fail the portable
+cells on a missing server.
+
 **Push a batch of commits once, not one at a time.** Pushing N related
 commits individually starts N CI runs; the intermediate ones tell you
 nothing, burn runner minutes, and the only result that matters is the

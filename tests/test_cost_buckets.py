@@ -94,6 +94,7 @@ def test_epoch_sql_binds_every_live_rate_boundary():
     } <= set(params)
 
 
+@pytest.mark.db
 def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
     """Every appended rate entry adds an epoch (SV-RATE-REFRESH), so the
     expression grows with the table. Correctness, not speed: with 200

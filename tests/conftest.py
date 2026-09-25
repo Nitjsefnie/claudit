@@ -127,6 +127,17 @@ def _reset_response_cache():
     cache.response_cache.clear()
 
 
+def pytest_collection_modifyitems(config, items):
+    # The mechanical db/portable split (issue #27): every test whose
+    # fixture closure reaches a registered DB fixture is marked `db`, so
+    # the portable CI matrix can run -m "not db" with no server at all.
+    # Imported in the hook because only collection needs it; same shape
+    # as scratch_viz_database's local backend import.
+    from tests.db_marker import mark_db_items  # pylint: disable=import-outside-toplevel
+
+    mark_db_items(items)
+
+
 def pytest_sessionstart(session):
     # Lease first, so no other run's sweep can take this run's databases;
     # then clear leftovers of runs killed before their finalizer ran.

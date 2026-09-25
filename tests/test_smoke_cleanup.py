@@ -13,6 +13,7 @@ from contextlib import closing
 from pathlib import Path
 
 import psycopg
+import pytest
 
 from tests import scratch_db
 
@@ -59,6 +60,7 @@ def _argv(*extra: str):
     return old
 
 
+@pytest.mark.db
 def test_a_failed_run_drops_what_it_created(monkeypatch, capsys):
     _failing_provision(monkeypatch)
     name = scratch_db.db_name("smoke")
@@ -71,6 +73,7 @@ def test_a_failed_run_drops_what_it_created(monkeypatch, capsys):
     capsys.readouterr()
 
 
+@pytest.mark.db
 def test_keep_databases_spares_them_even_on_failure(monkeypatch, capsys):
     _failing_provision(monkeypatch)
     name = scratch_db.db_name("smoke")
@@ -84,6 +87,7 @@ def test_keep_databases_spares_them_even_on_failure(monkeypatch, capsys):
     capsys.readouterr()
 
 
+@pytest.mark.db
 def test_a_cleanup_failure_never_masks_the_exit_code(monkeypatch, capsys):
     _failing_provision(monkeypatch)
 
