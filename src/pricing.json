@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-25T05:39:26Z",
+  "provider_rates_fetched": "2026-09-25T05:54:04Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -943,6 +943,14 @@
           "from": null,
           "output": 0.7,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-25T05:54:04Z",
+          "output": 0.5,
+          "read": 0.014
         }
       ],
       "Parasail": [
@@ -1238,6 +1246,14 @@
           "from": null,
           "output": 0.7,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-25T05:54:04Z",
+          "output": 0.8,
+          "read": 0.008
         }
       ],
       "Parasail": [
@@ -1524,6 +1540,14 @@
           "note": "5% off",
           "output": 0.475,
           "read": 0.0285
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-25T05:54:04Z",
+          "output": 0.5,
+          "read": 0.03
         }
       ],
       "Modal": [
@@ -1594,6 +1618,14 @@
           "from": "2026-09-25T05:39:26Z",
           "output": 0.36,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-09-25T05:54:04Z",
+          "output": 0.5,
+          "read": 0.025
         }
       ],
       "Parasail": [

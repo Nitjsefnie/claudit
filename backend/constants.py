@@ -164,7 +164,10 @@ VERSION = _read_version()
 # 62 appends the OpenRouter provider rates detected at 2026-09-25T05:39:26Z;
 # the bump reparses every file so a record from then on that was
 # ingested before this commit reached the deploy takes the new rate.
-PARSER_VERSION = "62"
+# 63 appends the OpenRouter provider rates detected at 2026-09-25T05:54:04Z;
+# the bump reparses every file so a record from then on that was
+# ingested before this commit reached the deploy takes the new rate.
+PARSER_VERSION = "63"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
