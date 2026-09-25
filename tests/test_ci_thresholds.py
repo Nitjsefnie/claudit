@@ -217,7 +217,8 @@ def test_coverage_measured_cli_prints_measured():
 
 
 def test_check_cli_accepts_committed_document():
-    result = subprocess.run(
+    # No check=True: the return code is itself the assertion subject.
+    result = subprocess.run(  # pylint: disable=subprocess-run-check
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
          "--check", "--thresholds", str(THRESHOLDS_PATH)],
         capture_output=True, text=True)
@@ -230,7 +231,8 @@ def test_check_cli_rejects_broken_document(tmp_path):
     payload = json.loads(target.read_text(encoding="utf-8"))
     payload["schema_version"] = 7
     target.write_text(json.dumps(payload), encoding="utf-8")
-    result = subprocess.run(
+    # No check=True: a nonzero exit is the expected outcome here.
+    result = subprocess.run(  # pylint: disable=subprocess-run-check
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
          "--check", "--thresholds", str(target)],
         capture_output=True, text=True)

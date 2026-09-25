@@ -104,16 +104,15 @@ def coverage_value(value, name):
 
 
 def _path_component_safe(component):
-    if not component or component in ('.', '..'):
-        return False
-    if component.rstrip(' .') != component:
-        return False
-    if component.upper().split('.', 1)[0] in _DEVICE_NAMES:
-        return False
-    if any(char in _INVALID_PATH_CHARS for char in component):
-        return False
-    if any(ord(char) < 32 or 127 <= ord(char) <= 159
-           or 0xD800 <= ord(char) <= 0xDFFF for char in component):
+    safe = bool(component) and component not in ('.', '..')
+    safe = safe and component.rstrip(' .') == component
+    safe = safe and component.upper().split('.', 1)[0] not in _DEVICE_NAMES
+    safe = safe and not any(char in _INVALID_PATH_CHARS
+                            for char in component)
+    safe = safe and not any(
+        ord(char) < 32 or 127 <= ord(char) <= 159
+        or 0xD800 <= ord(char) <= 0xDFFF for char in component)
+    if not safe:
         return False
     try:
         return len(component.encode('utf-8')) <= 240
