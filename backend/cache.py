@@ -26,6 +26,10 @@ class _IdleLRU:
     Reads and writes are guarded by a lock: the decorated endpoints run
     in FastAPI's threadpool, so concurrent `get`/`put` race otherwise
     (the idle scan iterates the shared OrderedDict on every put).
+
+    A value larger than `max_bytes` is NOT cached — it is served
+    uncached rather than being pinned above the cap, and a put of one
+    leaves any existing entry under that key untouched.
     """
 
     def __init__(self, max_bytes: int, idle_seconds: int):
@@ -46,6 +50,8 @@ class _IdleLRU:
             return data
 
     def put(self, key: str, data: bytes) -> None:
+        if len(data) > self.max_bytes:
+            return
         with self._guard:
             self._evict_idle()
             if key in self._items:
