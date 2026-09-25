@@ -1,6 +1,5 @@
-"""MODEL_RATES is the single source of truth for cost in this repo.
-Mirrors parse_session.py:1148-1166 — the canonical table at the time of
-the spec freeze. If the canonical bumps, bump PARSER_VERSION here.
+"""MODEL_RATES is the single source of truth for cost in this repo
+(SV-PARSER-SPEC). If a rate changes, bump constants.PARSER_VERSION.
 """
 from datetime import datetime, timedelta, timezone
 

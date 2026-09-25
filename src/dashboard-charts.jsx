@@ -1158,7 +1158,7 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
         {sessionData.map((s, i) => {
           // Scale dot AREA by ctx-at-end-of-session.
           //   100k ctx → 25 area-pts²,  1M ctx → 250 area-pts²
-          // When ctxEnd is null (analyst spec 2026-05-07: empty ctx_turns),
+          // When ctxEnd is null (empty ctx_turns),
           // render a fixed small open circle instead of the old durH × 60
           // duration fallback — that fallback collapsed every kvalita
           // subagent-only / synthetic-trailing session to either max-r or

@@ -958,8 +958,8 @@ def context_growth_agg(
 
 @router.get("/context-growth/session/{session_id}")
 def context_growth_session(session_id: str) -> dict:
-    """Per-turn array for the MAIN file of this session, mirroring
-    parse_session.py:compute_context_growth output exactly."""
+    """Per-turn array for the MAIN file of this session: its stored
+    ctx_turns, exactly as parse._build_ctx_turns built them."""
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT file_key, ctx_turns, turn_count "

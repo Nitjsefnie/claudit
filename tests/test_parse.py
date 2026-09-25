@@ -4,7 +4,7 @@ Each parse_file call returns:
   - records: one entry per assistant_usage AFTER within-file requestId
     max-merge. Cross-file uuid dedup happens at query time, not here.
   - ctx_turns: per-turn (idx, ts, line, input, output, delta) array
-    matching parse_session.py:compute_context_growth.
+    (SV-PARSER-SPEC).
 
 Cost is precomputed per record using pricing.MODEL_RATES so the read
 path doesn't need to JOIN against rates.
@@ -81,7 +81,7 @@ def test_ctx_turns_match_canonical_shape():
       input  = fresh + cache_creation + cache_read
       output = output_tokens
       delta  = this_input - previous_input
-    Mirrors parse_session.py:compute_context_growth lines 2680-2740."""
+    (SV-PARSER-SPEC)."""
     out = parse.parse_file(
         "k/sess-1/sess-1.jsonl", _read("single_turn.jsonl")
     )

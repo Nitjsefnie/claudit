@@ -1,4 +1,4 @@
-"""GET /api/cache — the parse_session.py --cache replica.
+"""GET /api/cache — per-model and per-session prompt-cache totals.
 
 Split out of api.py (issue #8 module split). The endpoint body is broken
 into _cache_canon_source (shared WHERE fragment), _cache_queries (the
@@ -175,7 +175,7 @@ def cache_view(
     project: str | None = Query(None),
     model: str | None = Query(None),
 ) -> dict:
-    """Literal replica of parse_session.py --cache output.
+    """Prompt-cache totals per model and per session, with the top requests.
 
     Returns:
       {

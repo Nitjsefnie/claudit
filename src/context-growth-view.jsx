@@ -1,5 +1,5 @@
 // Per-turn context growth view for the Inspector.
-// Mirrors `analyze --turn-stats` from parse_session.py:
+// Turn-stats algorithm (the ctx_turns rule of SV-PARSER-SPEC):
 //   1. Walk events chronologically.
 //   2. User text messages with non-empty text content are turn boundaries.
 //      (User messages that are tool_result-only don't count.)

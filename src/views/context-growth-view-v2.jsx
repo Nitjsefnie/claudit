@@ -1,4 +1,4 @@
-// Context Growth view — replicates parse_session.py --context-growth.
+// Context Growth view — renders /api/context-growth/{agg,session}.
 // Two components:
 //   window.ContextGrowthAgg          — distribution stats (per_turn + per_session_final)
 //   window.ContextGrowthSessionDetail — per-turn array for one session
