@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-25T22:53:43Z",
+  "provider_rates_fetched": "2026-09-25T23:54:28Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -658,6 +658,16 @@
           "read": 0.0045
         }
       ],
+      "InferenceNet": [
+        {
+          "create_1h": 0.035,
+          "create_5m": 0.035,
+          "fresh": 0.035,
+          "from": "2026-09-25T23:54:28Z",
+          "output": 0.29,
+          "read": 0.001
+        }
+      ],
       "Krea": [
         {
           "create_1h": 0.225,
@@ -776,6 +786,14 @@
           "from": null,
           "output": 0.5,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.09,
+          "create_5m": 0.09,
+          "fresh": 0.09,
+          "from": "2026-09-25T23:54:28Z",
+          "output": 0.45,
+          "read": 0.009
         }
       ],
       "Sail Research": [
@@ -1047,6 +1065,14 @@
           "fresh": 0.03,
           "from": "2026-09-25T05:39:26Z",
           "output": 1.28,
+          "read": 0.016
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-25T23:54:28Z",
+          "output": 0.5,
           "read": 0.016
         }
       ],
@@ -1601,6 +1627,14 @@
           "from": "2026-09-25T20:54:24Z",
           "output": 0.18,
           "read": 0.05
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-25T23:54:28Z",
+          "output": 0.35,
+          "read": 0.06
         }
       ]
     },

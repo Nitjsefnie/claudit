@@ -93,7 +93,7 @@ VERSION = _read_version()
 # BUMP THIS in the same commit as any change to parse.py semantics, to a
 # rate in src/pricing.json that reprices stored records, or to the set of
 # columns parse_file() emits.
-PARSER_VERSION = "80"
+PARSER_VERSION = "81"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
