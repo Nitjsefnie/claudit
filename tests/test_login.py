@@ -22,8 +22,13 @@ from starlette.requests import Request
 from backend import auth
 from backend import login as login_mod
 from backend import session as session_mod
+from tests import scratch_db
 
 _ORIGIN = {"Origin": "http://testserver"}
+
+# An 18-digit id — the auth DB's real user_id shape (bigint), far above
+# the 2^31 an INTEGER column holds (issue #185).
+_BIG_UID = 123456789012345678
 
 
 def _post_login(client, user_id, password, follow_redirects=False):
@@ -517,3 +522,26 @@ def test_session_cookie_round_trip(app, fake_user, fake_session_store):
     r = client.get("/api/me")
     assert r.status_code == 200
     assert r.json() == {"user_id": 12345}
+
+
+@pytest.fixture(name="fresh_db")
+def _fresh_db_fixture(monkeypatch):
+    """A fresh claudit DB with the startup schema applied — the real
+    user_session table the big-id login writes through (issue #185)."""
+    yield from scratch_db.scratch_viz_database(monkeypatch, "login")
+
+
+def test_login_with_an_18_digit_user_id_round_trips(app, fake_user, fresh_db):
+    """Issue #185: a real (non-guest) login whose user id needs bigint —
+    the auth DB's actual shape — must persist its user_session row, mint
+    the cookie, and have that cookie resolve back through the REAL store
+    to the same id."""
+    fake_user[_BIG_UID] = {}
+    auth.set_web_password(fake_user[_BIG_UID], "hunter2")
+    client = TestClient(app)
+    r = _post_login(client, _BIG_UID, "hunter2")
+    assert r.status_code in (302, 303)
+    assert session_mod.SESSION_COOKIE_NAME in r.cookies
+    r = client.get("/api/me")
+    assert r.status_code == 200
+    assert r.json() == {"user_id": _BIG_UID}

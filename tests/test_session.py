@@ -27,6 +27,15 @@ def test_token_roundtrip():
     assert session.verify_session_token(tok, secret) == 99
 
 
+def test_token_roundtrip_survives_an_18_digit_user_id():
+    """The token payload carries the user id as a decimal string and the
+    signature covers it whole — an id above 2^31 must round-trip with no
+    32-bit clamp anywhere on the token path (issue #185)."""
+    secret = "super-secret-32-bytes" * 2
+    tok = session.make_session_token(123456789012345678, secret)
+    assert session.verify_session_token(tok, secret) == 123456789012345678
+
+
 def test_token_roundtrip_carries_generation():
     secret = "super-secret-32-bytes" * 2
     tok = session.make_session_token(9, secret, generation=3)
@@ -118,6 +127,17 @@ def test_session_row_conflict_keeps_the_existing_secret(fresh_db):
         )
         c.commit()
     assert session.get_or_create_session_row(555) == ("winner-secret", 0)
+
+
+def test_session_row_accepts_an_18_digit_user_id(fresh_db):
+    """Issue #185: the auth DB's user ids are bigint (18 digits), so the
+    user_session row must hold one — an id above 2^31 must insert, load
+    and round-trip instead of failing with integer-out-of-range."""
+    secret, generation = session.get_or_create_session_row(
+        123456789012345678)
+    assert generation == 0
+    assert secret
+    assert session.load_session_row(123456789012345678) == (secret, 0)
 
 
 def test_resolve_rejects_real_user_without_a_session_row(fresh_db):
