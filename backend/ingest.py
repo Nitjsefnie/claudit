@@ -39,9 +39,9 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
+from backend.ingest_reprice import reprice_stale  # noqa: F401  (re-export)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
-# resolving after the split; _rebuild_derived_state below is their
-# only in-module caller.
+# resolving after the split; _rebuild_derived_state is their caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
     rebuild_dispatch_brief_rollup,
@@ -630,8 +630,8 @@ def _rebuild_derived_state() -> None:
     # The names resolve through this module's globals at call time, so a
     # test can monkeypatch any phase on `ingest` itself.
     phases = (
-        ("suppressed", purge_suppressed), ("canonical", recompute_canonical),
-        ("teammates", resolve_teammate_agent_types),
+        ("suppressed", purge_suppressed), ("reprice", reprice_stale),
+        ("canonical", recompute_canonical), ("teammates", resolve_teammate_agent_types),
         ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
         ("tool_error_rollup", rebuild_tool_error_rollup),
         ("dispatch_rollup", rebuild_dispatch_rollup),
