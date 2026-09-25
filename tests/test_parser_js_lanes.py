@@ -106,8 +106,11 @@ def _browser_lane_output() -> dict:
       }}
       console.log(JSON.stringify(out));
     """
+    # The script goes over STDIN, not -e: it embeds every lane fixture's
+    # text, and Windows refuses a CreateProcess command line over 32k
+    # characters (WinError 206) where POSIX ARG_MAX never notices.
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=120,
+        ["node"], input=script, capture_output=True, text=True, timeout=120,
         check=False,  # Return code checked by hand on the next line.
     )
     assert proc.returncode == 0, proc.stderr

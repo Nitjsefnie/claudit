@@ -411,8 +411,12 @@ def _code(path: Path) -> str:
 
 
 def offending_files(root: Path) -> list[str]:
-    return sorted(str(p.relative_to(root)) for p in root.rglob("*.py")
-                  if p.name != "scratch_db.py" and _FORBIDDEN.search(_code(p)))
+    # Forward slashes: the caller spells planted paths POSIX-style, and
+    # rglob's relative strings carry os.sep on Windows.
+    return sorted(str(p.relative_to(root)).replace(os.sep, "/")
+                  for p in root.rglob("*.py")
+                  if p.name != "scratch_db.py"
+                  and _FORBIDDEN.search(_code(p)))
 
 
 def test_no_test_names_creates_or_drops_a_database_outside_the_helper():
