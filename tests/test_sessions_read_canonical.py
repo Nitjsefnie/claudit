@@ -108,12 +108,14 @@ def test_detail_returns_zeroed_row_for_non_canonical_main_file(app_with_data):
     sidecar, which the detail endpoint -- main-file-only -- does not
     read). This pins the deliberate placement of the canonical condition
     in the LEFT JOIN's ON clause: the file row survives with zeroed
-    aggregates. WHERE-clause placement would drop the row instead and
-    answer 404 for an existing session."""
+    aggregates -- request_count included (issue #146: COUNT(*) over the
+    LEFT JOIN counted the one NULL-extended row the empty canonical
+    population still produces). WHERE-clause placement would drop the
+    row instead and answer 404 for an existing session."""
     resp = app_with_data.get("/api/sessions/sess-C")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["request_count"] == 1
+    assert body["request_count"] == 0
     assert body["input_tokens"] == 0
     assert body["output_tokens"] == 0
     assert body["cache_create_5m_tokens"] == 0
