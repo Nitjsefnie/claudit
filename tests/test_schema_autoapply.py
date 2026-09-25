@@ -8,6 +8,11 @@ schema at boot removes the divergence rather than reporting it.
 from __future__ import annotations
 
 import asyncio
+import logging
+import types
+from contextlib import nullcontext
+
+import pytest
 
 from test_api import _app_with_data_fixture
 
@@ -123,3 +128,79 @@ def test_startup_applies_the_schema_before_checking_it(monkeypatch):
 
     asyncio.run(_run())
     assert calls == ["apply", "check"]
+
+
+# ---------------------------------------------------------------------------
+# Unlock failure must not mask the migration's own error (issue #154): the
+# unlock (and the commit ending its transaction) run in apply_schema's
+# finally, where a failure — an aborted transaction left by a failed DDL,
+# or a connection that died mid-migration — used to REPLACE the error the
+# caller should have seen.
+# ---------------------------------------------------------------------------
+
+
+class _SchemaConn:
+    """Stands in for a pooled viz connection inside apply_schema: records
+    every statement and fails selectively."""
+
+    def __init__(self, fail_unlock_with=None, fail_ddl_with=None):
+        self.sqls = []
+        self._fail_unlock_with = fail_unlock_with
+        self._fail_ddl_with = fail_ddl_with
+
+    def execute(self, sql, params=None):
+        self.sqls.append(sql)
+        if (self._fail_unlock_with is not None
+                and sql.startswith("SELECT pg_advisory_unlock")):
+            raise self._fail_unlock_with
+        if (self._fail_ddl_with is not None
+                and not sql.startswith("SELECT pg_advisory_")):
+            raise self._fail_ddl_with
+        return types.SimpleNamespace(fetchone=lambda: (True,))
+
+    def commit(self):
+        pass
+
+
+def _fake_viz_conn(monkeypatch, conn):
+    """Point db.viz_conn at `conn` — apply_schema's only connection need."""
+    monkeypatch.setattr(db, "viz_conn", lambda: nullcontext(conn))
+
+
+def test_apply_schema_unlock_failure_does_not_mask_the_ddl_error(monkeypatch):
+    """A failed DDL leaves an aborted transaction behind, so the unlock in
+    the finally fails on it — and that failure replaced the migration's
+    own error at the caller. The migration's error is the diagnosable one
+    and must survive; the cleanup failure is swallowed and logged, with
+    the unlock still attempted."""
+    conn = _SchemaConn(
+        fail_ddl_with=RuntimeError("the migration itself failed"),
+        fail_unlock_with=RuntimeError("connection lost"))
+    _fake_viz_conn(monkeypatch, conn)
+
+    with pytest.raises(RuntimeError, match="the migration itself failed"):
+        db.apply_schema()
+
+    assert [s for s in conn.sqls if s.startswith("SELECT pg_advisory_unlock")], (
+        "the unlock must still be attempted")
+
+
+def test_apply_schema_swallows_unlock_failure_after_success(
+        monkeypatch, caplog):
+    """A clean migration with a failed unlock must not fail the boot: the
+    migration committed, and the unlock failure's causes — a dead session,
+    whose lock died with it, or the aborted transaction of a failed DDL,
+    whose error aborts the boot and with it every pooled session — leave
+    the lock free or the process dead either way."""
+    conn = _SchemaConn(fail_unlock_with=RuntimeError("connection lost"))
+    _fake_viz_conn(monkeypatch, conn)
+
+    with caplog.at_level(logging.WARNING, logger="claudit.db"):
+        db.apply_schema()
+
+    assert [s for s in conn.sqls if s.startswith("SELECT pg_advisory_unlock")], (
+        "the unlock must still be attempted")
+    logged = [r for r in caplog.records
+              if r.name == "claudit.db" and r.levelno >= logging.WARNING]
+    assert logged, "a swallowed unlock failure must be logged, not silent"
+    assert "connection lost" in logged[0].getMessage()

@@ -7,10 +7,12 @@ issue #103 were written for test_ingest.py and landed here so that
 module stays under pylint's line cap without its old pragma. The
 fixtures they all share come from test_ingest.
 """
+import logging
 import os
 import threading
 import time
-from contextlib import closing
+import types
+from contextlib import closing, contextmanager
 
 import psycopg
 import pytest
@@ -126,6 +128,86 @@ def test_ingest_lock_released_when_holder_dies(fresh_db, mini_r2_env):
 
 
 # ---------------------------------------------------------------------------
+# Unlock failure must not mask the run's own error (issue #154): the unlock
+# in _db_run_lock's inner finally used to run bare, so a lock connection
+# that died during the run raised at exit and REPLACED the body's exception
+# at the caller. The guard swallows it — a session-scoped advisory lock is
+# released by the server at session death, so the swallow can never leave a
+# stale lock, and the dedicated connection's close() in the outer finally
+# ends the session on every exit path.
+# ---------------------------------------------------------------------------
+
+
+class _DeadAtUnlockConn:
+    """A lock connection that dies at the unlock: the try-lock answers,
+    every unlock raises the way a severed session would."""
+
+    def __init__(self):
+        self.closed = False
+        self.unlock_calls = 0
+
+    def execute(self, sql, params=None):
+        if "pg_advisory_unlock" in sql:
+            self.unlock_calls += 1
+            raise RuntimeError("server closed the connection unexpectedly")
+        return types.SimpleNamespace(fetchone=lambda: (True,))
+
+    def close(self):
+        self.closed = True
+
+
+def _dead_at_unlock_psycopg(monkeypatch, conn):
+    """Point backend.ingest's psycopg.Connection.connect at `conn`.
+
+    Replaces the module reference INSIDE backend.ingest only, so no other
+    code path in the process sees the stand-in.
+    """
+    monkeypatch.setattr(
+        ingest, "psycopg",
+        types.SimpleNamespace(
+            Connection=types.SimpleNamespace(
+                connect=lambda url, autocommit=False: conn)))
+
+
+def test_db_run_lock_never_masks_the_body_error(monkeypatch):
+    """A lock connection that dies during the run raised at the inner
+    finally's unlock, and that failure REPLACED the body's exception at
+    the caller. The caller must see THE BODY'S exception, with the unlock
+    still attempted and the connection still closed."""
+    conn = _DeadAtUnlockConn()
+    _dead_at_unlock_psycopg(monkeypatch, conn)
+
+    with pytest.raises(RuntimeError, match="the run itself failed"):
+        with ingest._db_run_lock() as acquired:  # pylint: disable=protected-access
+            assert acquired is True
+            raise RuntimeError("the run itself failed")
+
+    assert conn.unlock_calls == 1, "the unlock must still be attempted"
+    assert conn.closed, "the connection must still be closed"
+
+
+def test_db_run_lock_swallows_unlock_failure_after_a_successful_run(
+        monkeypatch, caplog):
+    """Same failure with a clean run: swallowed and logged at warning, so
+    the caller sees the body's success. Raising here would fail a run
+    whose work is already done over bookkeeping whose lock is gone either
+    way — the session-scoped lock dies with the dedicated connection."""
+    conn = _DeadAtUnlockConn()
+    _dead_at_unlock_psycopg(monkeypatch, conn)
+
+    with caplog.at_level(logging.WARNING, logger="claudit.ingest"):
+        with ingest._db_run_lock() as acquired:  # pylint: disable=protected-access
+            assert acquired is True
+
+    assert conn.unlock_calls == 1
+    assert conn.closed
+    logged = [r for r in caplog.records
+              if r.name == "claudit.ingest" and r.levelno >= logging.WARNING]
+    assert logged, "a swallowed unlock failure must be logged, not silent"
+    assert "server closed the connection" in logged[0].getMessage()
+
+
+# ---------------------------------------------------------------------------
 # Cooperative abort (issue #103): a shutdown request sets _SHUTDOWN; a run
 # stops at its next bounded step, closes its ingest_runs row as aborted, and
 # skips the derived-state rebuild, the ingest_done broadcast and the cache
@@ -138,6 +220,33 @@ def test_run_ingest_skips_when_shutdown_requested(fresh_db, mini_r2_env):
     opening an ingest_runs row — a queued cron tick can fire while
     lifespan teardown is already asking every run to stop."""
     ingest._SHUTDOWN.set()  # pylint: disable=protected-access
+    try:
+        result = ingest.run_ingest("manual")
+    finally:
+        ingest._SHUTDOWN.clear()  # pylint: disable=protected-access
+
+    assert result["skipped"] is True, result
+    assert result["reason"] == "shutdown requested", result
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT COUNT(*) FROM ingest_runs") == 0
+
+
+def test_run_ingest_skips_when_shutdown_lands_during_lock_take(
+        fresh_db, mini_r2_env, monkeypatch):
+    """The re-check AFTER both locks are acquired ("landed while waiting
+    on the locks") had no test (issue #154): a regression there would pass
+    the suite. Setting the event INSIDE _db_run_lock — while the locks are
+    being taken — must yield the skip dict and open no ingest_runs row,
+    exactly like a shutdown that landed before the run was attempted."""
+    real = ingest._db_run_lock  # pylint: disable=protected-access
+
+    @contextmanager
+    def shutdown_during_take():
+        ingest._SHUTDOWN.set()  # pylint: disable=protected-access
+        with real() as db_acquired:
+            yield db_acquired
+
+    monkeypatch.setattr(ingest, "_db_run_lock", shutdown_during_take)
     try:
         result = ingest.run_ingest("manual")
     finally:

@@ -69,6 +69,12 @@ MARK_ALLOWLIST: dict[str, str] = {
     "test_version.py:test_health_ok_branch_reports_version":
         "monkeypatches db.viz_conn with a fake connection, so the "
         "health endpoint's ok branch runs with no server at all",
+    "test_schema_autoapply.py:test_apply_schema_unlock_failure_does_not_mask_the_ddl_error":
+        "monkeypatches db.viz_conn with a fake connection, so "
+        "apply_schema's unlock guard runs with no server at all",
+    "test_schema_autoapply.py:test_apply_schema_swallows_unlock_failure_after_success":
+        "monkeypatches db.viz_conn with a fake connection, so "
+        "apply_schema's unlock guard runs with no server at all",
 }
 
 
