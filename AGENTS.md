@@ -28,6 +28,7 @@ backend/          — FastAPI application
   api.py          — REST router assembly + the smaller panel endpoints
                     (/api/me, /api/projects, /api/tool-usage,
                     /api/tool-error-rate, /api/activity-heatmap,
+                    /api/cost-by-context, /api/cost-by-agent,
                     /api/reply-latency, /api/events SSE, /api/models,
                     /api/context-growth/{agg,session}); includes the four
                     sub-routers below

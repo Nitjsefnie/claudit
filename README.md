@@ -167,12 +167,13 @@ Postgres `claudit`
                   read_targets, read_kind, is_reread)
   • ingest_runs  (audit log)
   ↓  on-demand
-FastAPI  →  /api/dashboard, /api/cache, /api/context-growth/*,
-            /api/sessions, /api/sessions/{id}/transcript,
+FastAPI  →  /api/dashboard, /api/cache,
+            /api/sessions*, /api/context-growth/*,
+            /api/me, /api/projects, /api/models,
             /api/tool-usage, /api/tool-error-rate,
-            /api/cost-by-context,
-            /api/reply-latency, /api/models,
-            /api/events, /api/export
+            /api/activity-heatmap, /api/cost-by-context,
+            /api/cost-by-agent, /api/reply-latency,
+            /api/events SSE, /api/export
   ↓
 React + in-browser Babel  →  /  (served by FastAPI)
 ```
