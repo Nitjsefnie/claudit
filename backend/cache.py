@@ -22,6 +22,10 @@ class _IdleLRU:
     `idle_seconds` is measured against the LAST ACCESS, not insert.
     A get() refreshes the timestamp; eviction removes anything not
     touched in the last `idle_seconds`.
+
+    Reads and writes are guarded by a lock: the decorated endpoints run
+    in FastAPI's threadpool, so concurrent `get`/`put` race otherwise
+    (the idle scan iterates the shared OrderedDict on every put).
     """
 
     def __init__(self, max_bytes: int, idle_seconds: int):
@@ -29,28 +33,32 @@ class _IdleLRU:
         self.idle_seconds = idle_seconds
         self._items: "OrderedDict[str, tuple[bytes, float]]" = OrderedDict()
         self._size = 0
+        self._guard = threading.Lock()
 
     def get(self, key: str) -> bytes | None:
-        item = self._items.get(key)
-        if item is None:
-            return None
-        data, _ts = item
-        self._items[key] = (data, time.time())
-        self._items.move_to_end(key)
-        return data
+        with self._guard:
+            item = self._items.get(key)
+            if item is None:
+                return None
+            data, _ts = item
+            self._items[key] = (data, time.time())
+            self._items.move_to_end(key)
+            return data
 
     def put(self, key: str, data: bytes) -> None:
-        self._evict_idle()
-        if key in self._items:
-            old_data, _ = self._items.pop(key)
-            self._size -= len(old_data)
-        while self._size + len(data) > self.max_bytes and self._items:
-            _, (oldest_data, _) = self._items.popitem(last=False)
-            self._size -= len(oldest_data)
-        self._items[key] = (data, time.time())
-        self._size += len(data)
+        with self._guard:
+            self._evict_idle()
+            if key in self._items:
+                old_data, _ = self._items.pop(key)
+                self._size -= len(old_data)
+            while self._size + len(data) > self.max_bytes and self._items:
+                _, (oldest_data, _) = self._items.popitem(last=False)
+                self._size -= len(oldest_data)
+            self._items[key] = (data, time.time())
+            self._size += len(data)
 
     def _evict_idle(self) -> None:
+        """Drop entries idle past `idle_seconds`. Caller holds the lock."""
         now = time.time()
         threshold = now - self.idle_seconds
         stale = [k for k, (_, ts) in self._items.items() if ts < threshold]
