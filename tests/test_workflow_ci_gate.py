@@ -16,7 +16,10 @@ check still reports. The invariants pinned here:
   drift apart;
 - no `cache:` on any setup-python step (mirrored here so this file's
   contract is self-contained; `tests/test_workflow_pip_cache.py` owns
-  the pip-cache shape repo-wide).
+  the pip-cache shape repo-wide);
+- every step-running job in every workflow declares `timeout-minutes`
+  (issue #98: GitHub's default is 360, so an undeclared bound lets a
+  hung step occupy a runner for six hours).
 """
 from __future__ import annotations
 
@@ -149,6 +152,25 @@ def test_no_setup_python_step_owns_the_cache_anywhere():
                     continue
                 assert "cache" not in (step.get("with") or {}), (
                     path.name, job_id)
+
+
+def test_every_step_running_job_declares_timeout_minutes():
+    # Issue #98. GitHub's default is 360 minutes per job, so an
+    # undeclared bound lets a hung step occupy a runner for six hours.
+    # A reusable-call job cannot carry the key at all — the schema allows
+    # only name/uses/with/secrets/needs/if/permissions there — so the
+    # bound belongs to the callee's own jobs, which every workflow here
+    # declares.
+    offenders = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = _load(path)
+        for job_id, job in (doc.get("jobs") or {}).items():
+            job = job or {}
+            if "uses" in job:
+                continue
+            if not job.get("timeout-minutes"):
+                offenders.append(f"{path.name}:{job_id}")
+    assert not offenders, offenders
 
 
 def test_gate_freshness_is_dispatch_only_and_runs_the_script():
