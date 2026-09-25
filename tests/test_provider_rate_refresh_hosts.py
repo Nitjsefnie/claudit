@@ -17,8 +17,8 @@ import pytest
 
 from backend import pricing
 from tests.test_provider_rate_refresh import (
-    GLM, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _overrides, _per_token,
-    _refused, refresh)
+    GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _endpoint,
+    _overrides, _per_token, _refused, refresh)
 
 # --- weekly schedules (pricing.overrides) ------------------------------------
 # DeepSeek and Alibaba list time-of-day prices; the seeded rows carry them
@@ -176,6 +176,39 @@ def test_a_price_no_window_names_inherits_the_kept_default(tmp_path, capsys):
     assert history[-1]["schedule"][1]["rates"]["output"] == stored["output"]
 
 
+def _first_seen_scheduled(run: Run) -> None:
+    """A new GLM host, listed inside its weekday 00:00-01:00 half-price
+    window: OpenRouter lists the active window's price as the top level."""
+    schedule = [{"days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                 "start": 0, "end": 100,
+                 "rates": {f: NEWCOMER[f] / 2 for f in RATE_FIELDS}}]
+    endpoint = _endpoint("Newcomer", NEWCOMER)
+    endpoint["pricing"]["overrides"] = _overrides(schedule)
+    endpoint["pricing"].update(_listed(schedule[0]["rates"]))
+    run.endpoints(GLM).append(endpoint)
+
+
+def test_a_first_seen_scheduled_host_inside_a_window_is_refused(tmp_path, capsys):
+    """A first fetch inside a window has no stored default to keep, and the
+    listed top-level price is the window's: starting the row with it would
+    bake a window price in as the stable default. The host is refused and
+    nothing else stops."""
+    run = Run(tmp_path)
+    before = run.doc()
+    _move_glm(run)
+    _first_seen_scheduled(run)
+    rc, _, err = run(capsys)
+    assert rc != 0
+    assert f"{GLM} via Newcomer" in err
+    assert "first seen inside one of its windows" in err
+    after = run.doc()
+    assert "Newcomer" not in after["providers"][GLM], "no row for the refused host"
+    assert after["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
+    after["providers"][GLM]["OpenInference"] = before["providers"][GLM]["OpenInference"]
+    assert after == {**before, "provider_rates_fetched": STAMP}, \
+        "only the OpenInference move commits"
+
+
 def _weekend_only(run: Run) -> dict:
     """OpenInference on GLM at half price at weekends and its default the
     rest of the week."""
@@ -209,6 +242,42 @@ def test_a_new_top_level_price_inside_a_window_moves_nothing(tmp_path, capsys):
     assert run.snapshot() == before
 
 
+def _weekday_night_only(run: Run) -> dict:
+    """OpenInference on GLM at half price on weekdays 00:00-01:00 and no
+    other windows: later on a weekday the fetch is outside every window."""
+    stored = run.doc()["providers"][GLM]["OpenInference"][-1]
+    schedule = [{"days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                 "start": 0, "end": 100,
+                 "rates": {f: stored[f] / 2 for f in RATE_FIELDS}}]
+    run.edit(lambda doc: doc["providers"][GLM]["OpenInference"][-1].update(
+        schedule=schedule))
+    run.endpoint(GLM, "OpenInference")["pricing"]["overrides"] = _overrides(schedule)
+    return stored
+
+
+def test_the_window_edge_is_end_exclusive_and_the_stamp_whole_seconds(
+        tmp_path, capsys):
+    """The detection time is whole seconds, and a window's end excludes it:
+    00:59:59 (a mid-second clock truncates to it) is inside the window, so
+    even a changed top-level price moves nothing; exactly 01:00:00 is the
+    window's end, where the fetch is outside every window and the changed
+    top-level price moves the default."""
+    run = Run(tmp_path)
+    stored = _weekday_night_only(run)
+    run.endpoint(GLM, "OpenInference")["pricing"]["completion"] = _per_token(
+        stored["output"] * 2)
+    before = run.snapshot()
+    rc, out, _ = run(capsys, now=NOW + timedelta(seconds=3599, microseconds=7e5))
+    assert rc == 0 and "no rate moved" in out
+    assert run.snapshot() == before
+    rc, _, _ = run(capsys, now=NOW + timedelta(hours=1))
+    assert rc == 0
+    history = run.doc()["providers"][GLM]["OpenInference"]
+    edge = refresh.detection_stamp(NOW + timedelta(hours=1))
+    assert (history[-1]["from"], history[-1]["output"]) == (edge, stored["output"] * 2)
+    assert history[-1]["schedule"] == history[0]["schedule"]
+
+
 # --- a schedule that splits the Token Breakdown only approximately ----------
 
 
@@ -230,6 +299,17 @@ def test_a_committed_schedule_scaling_every_price_alike_is_not_noticed(tmp_path,
     rc, out, _ = run(capsys)
     assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
     assert "non-uniform" not in out
+
+
+def test_an_uneven_window_that_is_not_the_first_is_noticed(tmp_path, capsys):
+    run = Run(tmp_path)
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"][1]["prompt"] = _per_token(
+        stored["schedule"][1]["rates"]["fresh"] * 2)
+    rc, out, _ = run(capsys)
+    assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
+    assert ("non-uniform schedule: Token Breakdown split is approximate for "
+            f"{V41} via DeepSeek") in out
 
 
 def test_a_paid_window_over_a_free_default_does_not_scale_alike():
