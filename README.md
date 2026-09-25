@@ -211,6 +211,17 @@ stored records, to force a full reparse).
 - The rest of the environment (`DATABASE_URL_VIZ`, `R2_ENDPOINT`, auth and
   admin keys) is documented inline in [`backend/.env.example`](backend/.env.example).
 
+### Client-side internet requirement
+
+The frontend loads its script dependencies from unpkg.com via pinned,
+SRI-hashed tags in `public/index.html` (React, ReactDOM, and Babel
+standalone for in-browser JSX transpilation). If the browser cannot
+reach unpkg.com, the server keeps answering but the page renders
+blank — there is no fallback UI. Google Fonts (fonts.googleapis.com /
+fonts.gstatic.com) is cosmetic only; if unreachable, the UI falls back
+to the system font stacks already declared in `public/app.css`. The
+authoritative pin list is `public/index.html` itself.
+
 ### First boot of this build over an existing database
 
 The first ingest this build runs over a database created by an earlier
@@ -256,6 +267,9 @@ file). `POST /admin/ingest` with the `X-Admin-Token` header and a
 same-origin `Origin` header forces an out-of-band run. The request is
 served on a worker thread (off the event loop), so the service keeps
 answering while the run proceeds.
+
+The server needs outbound reachability to the configured R2 endpoint
+and its Postgres instance.
 
 For local dev without R2 credentials, point `R2_ENDPOINT` at a
 filesystem mirror (e.g. `R2_ENDPOINT=file:///tmp/r2/`) — the R2
