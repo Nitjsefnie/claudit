@@ -182,7 +182,11 @@ def health() -> dict:
 
 
 @app.post("/admin/ingest")
-async def admin_ingest() -> dict:
+# A plain def, not async: FastAPI then runs the handler on its threadpool,
+# so the blocking pipeline never occupies the event loop and the service
+# keeps answering (/health, /api/*, SSE) for the length of the run
+# (issue #101). An `async def` here reintroduces the stall.
+def admin_ingest() -> dict:
     return ingest.run_ingest(trigger="manual")
 
 
