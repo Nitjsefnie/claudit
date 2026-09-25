@@ -59,8 +59,13 @@ def get_sidecar(
         raise HTTPException(404, "session not found")
     file_key = row[0]
     session_prefix = file_key.rsplit("/", 1)[0] + "/"
-    if path.startswith("/") or ".." in path.split("/"):
-        raise HTTPException(400, "bad path")
+    components = path.split("/")
+    if (path.startswith("/") or ".." in components or "." in components
+            or "\x00" in path):
+        # NUL blows up open() with an embedded-null ValueError and a `.`
+        # component makes the key a directory (file mode) or a key no S3
+        # object can have — neither reaches the fetch below.
+        raise HTTPException(400, f"bad path: {path!r}")
     full_key = session_prefix + path
     # Data files may be stored xz-compressed (`<name>.xz`); try the plain key
     # first, then the compressed one. r2.get_object inflates `.xz` transparently,

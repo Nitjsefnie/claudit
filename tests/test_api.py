@@ -441,6 +441,38 @@ def test_sidecar_missing_file_404(app_with_data):
     assert r.status_code == 404
 
 
+def test_sidecar_path_nul_byte_rejected(app_with_data):
+    """A `%00` in `path` must be a 400 naming the bad parameter. It used to
+    pass validation and blow up `open()` with `ValueError: embedded null
+    byte`, escaping as a 500 (issue #112)."""
+    r = app_with_data.get(
+        "/api/sessions/sess-A/sidecar",
+        params={"path": "data/\x00/tool-results.txt"},
+    )
+    assert r.status_code == 400
+    assert "path" in r.json()["detail"]
+
+
+def test_sidecar_path_dot_component_rejected(app_with_data):
+    """A `.` component (a whole-path `.` or mid-path) must be a 400 naming
+    the bad parameter. A whole-path `.` used to become a directory key and
+    blow up file-mode `open()` with IsADirectoryError — a 500; mid-path the
+    two r2 backends silently DISAGREE (file mode resolves `a/./b`, S3 does
+    not), so neither spelling may reach the object fetch (issue #112)."""
+    r = app_with_data.get(
+        "/api/sessions/sess-A/sidecar",
+        params={"path": "."},
+    )
+    assert r.status_code == 400
+    assert "path" in r.json()["detail"]
+    r_dot = app_with_data.get(
+        "/api/sessions/sess-A/sidecar",
+        params={"path": "data/./tool-results/x.txt"},
+    )
+    assert r_dot.status_code == 400
+    assert "path" in r_dot.json()["detail"]
+
+
 def test_context_growth_agg_shape(app_with_data):
     r = app_with_data.get("/api/context-growth/agg?range=3650d")
     assert r.status_code == 200
@@ -736,6 +768,29 @@ def test_dashboard_response_is_cached_and_fresh_bypasses(app_with_fresh_data):
 
     fresh = app_with_fresh_data.get("/api/dashboard?range=all&fresh=1").json()
     assert fresh["cost_by_model"] == []          # fresh=1 sees the empty DB
+
+
+def test_dashboard_range_non_numeric_days_400(app_with_data):
+    """`1e5d` ends in `d` but `int('1e5')` raises, and that ValueError used
+    to escape the shared range parser as a 500. It must come back as the
+    same 400 an unknown suffix gets, naming the parameter (issue #112)."""
+    r = app_with_data.get("/api/dashboard?range=1e5d")
+    assert r.status_code == 400
+    assert "range" in r.json()["detail"]
+
+
+def test_dashboard_range_overflow_400(app_with_data):
+    """`999999999d` parses (timedelta's day cap) and then overflows the
+    caller's `since = now - delta` with OverflowError — a 500. The bound
+    check belongs in the shared parser, so every endpoint returns 400
+    without per-endpoint try/excepts (issue #112). A day count one past
+    timedelta's own cap (construction overflow) is the same behavior."""
+    r = app_with_data.get("/api/dashboard?range=999999999d")
+    assert r.status_code == 400
+    assert "range" in r.json()["detail"]
+    r_cap = app_with_data.get("/api/dashboard?range=1000000000d")
+    assert r_cap.status_code == 400
+    assert "range" in r_cap.json()["detail"]
 
 
 def test_dashboard_cost_by_project_shape(app_with_data):
