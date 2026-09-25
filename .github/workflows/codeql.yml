@@ -32,6 +32,7 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - '.gitignore'
+      - '.github/ci-thresholds.json'
   pull_request:
     branches: [master]
     paths-ignore:
