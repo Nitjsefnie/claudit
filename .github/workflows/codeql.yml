@@ -36,9 +36,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Same shape as the other gates: a fresh push to a pull request cancels
-  # its superseded run, while master pushes and the weekly scan queue
-  # instead of cancelling each other.
+  # Only the weekly cron and standalone dispatches land here now — a
+  # push or pull request is gated by ci-gate.yml, whose own concurrency
+  # group owns supersession for the aggregate. This group keeps the
+  # weekly scan from overlapping a dispatched one.
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
