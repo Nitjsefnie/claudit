@@ -110,7 +110,6 @@ def server_env(port: int) -> dict:
         "R2_ACCOUNT_ID": "",
         "R2_ACCESS_KEY_ID": "",
         "R2_SECRET_ACCESS_KEY": "",
-        "PARSER_VERSION": "smoke",
         "ADMIN_TOKEN": "smoke-admin",
         # TestClient-equivalent: this talks plain HTTP, so Secure cookies
         # would never come back and the guest flow could not be checked.
