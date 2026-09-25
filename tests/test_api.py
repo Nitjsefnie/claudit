@@ -1,3 +1,8 @@
+# pylint: disable=too-many-lines
+# (over 1000 lines: one file because the export/auth/read panels share the
+# expensive module-scoped app_with_data fixture — splitting would either
+# duplicate the fresh-DB+ingest setup or force cross-module fixture imports.)
+import asyncio
 import importlib.util
 import inspect
 import json
@@ -93,6 +98,43 @@ def test_export_render_failure_returns_500(app_with_data, monkeypatch):
     monkeypatch.setattr(api_export, "_render_export", fake_render)
     resp = app_with_data.get("/api/export?range=7d")
     assert resp.status_code == 500
+
+
+def _failing_child_argv(stderr_text: str) -> list[str]:
+    """A real subprocess argv that writes `stderr_text` to stderr and
+    exits 1 — what the plot child looks like on a missing module."""
+    return [sys.executable, "-c",
+            f"import sys; sys.stderr.write({stderr_text!r}); sys.exit(1)"]
+
+
+@pytest.mark.parametrize("stderr_text", [
+    "ModuleNotFoundError: No module named 'matplotlib'",
+    "Traceback (most recent call last):\n"
+    "ModuleNotFoundError: No module named 'psycopg'",
+])
+def test_export_missing_module_child_is_503_naming_export_python(
+    app_with_data, tmp_path, stderr_text
+):
+    """A plot child that died of ModuleNotFoundError means the EXPORT_PYTHON
+    interpreter lacks matplotlib or psycopg — answer 503 naming the knob,
+    not an opaque 500 (issue #115)."""
+    out_path = str(tmp_path / "out.png")
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(api_export._render_export(  # pylint: disable=protected-access
+            _failing_child_argv(stderr_text), out_path))
+    assert excinfo.value.status_code == 503
+    assert "EXPORT_PYTHON" in str(excinfo.value.detail)
+
+
+def test_export_other_child_failure_stays_500(app_with_data, tmp_path):
+    """Any other nonzero exit keeps the plain 500 — only the missing-module
+    shape is classified."""
+    out_path = str(tmp_path / "out.png")
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(api_export._render_export(  # pylint: disable=protected-access
+            _failing_child_argv("some other failure"), out_path))
+    assert excinfo.value.status_code == 500
+    assert str(excinfo.value.detail) == "export render failed"
 
 
 def test_plot_db_project_filter_subsets_events(app_with_data):
