@@ -766,7 +766,11 @@ def test_a_malformed_schedule_is_refused(schedule):
 @pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
 def test_a_malformed_schedule_is_refused_in_the_browser(tmp_path, schedule):
     error = _node_load(tmp_path, _with_schedule(schedule))
-    assert error and "z-ai/glm-5-3-flash via Novita[" in error, error
+    assert error and ("z-ai/glm-5-3-flash via Novita[" in error
+                      # a fractional/exponent HHMM spelling is refused before
+                      # parsing by the raw-text check, which names the offset
+                      # and the spelling rather than the row
+                      or "spells a schedule" in error), error
 
 
 def _model_schedule() -> dict:

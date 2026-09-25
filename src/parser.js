@@ -327,21 +327,184 @@ window.parseTranscript = function parseTranscript(text, opts) {
 // honest price, so the resolver is never defined over nothing.
 const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 
-// Python reads a number spelled with a fraction or an exponent as a float
-// and refuses it as an HHMM time; JSON.parse reads 1400.0 as 1400. So a
-// schedule start or end keeps such a spelling as its source text, which
-// _isHhmm refuses too. Without JSON source text access (context) it cannot.
-const _hhmmSpelling = (key, value, context) => (
-  (key === 'start' || key === 'end') && typeof value === 'number'
-  && context && /[.eE]/.test(context.source) ? context.source : value);
+// A number under a schedule window's start or end must be spelled a plain
+// JSON integer (/^-?\d+$/): Python reads 1400.0 as a float and refuses it
+// (pricing._hhmm), while JSON.parse reads it as 1400 and would silently
+// price what Python refuses to load. No reviver can catch this — it only
+// ever had source-text access under node, so the browser silently accepted
+// 1400.0 — so both load paths run this check on the RAW text, before
+// parsing. The check is scoped by structure, not the key name: only a
+// start/end that is a member of an object which is a direct ELEMENT of the
+// array that is the value of a "schedule" key is an HHMM position; a
+// fractional start anywhere else (a future openrouter.start, a window's
+// rates object) parses untouched. Malformed input bails the scan silently —
+// JSON.parse names that error.
+function _checkHhmmSpelling(text) {
+  const offenses = [];
+  let pos = 0;
+  const n = text.length;
+  const stack = [];
+  const top = () => stack[stack.length - 1];
+
+  const skipWs = () => {
+    while (pos < n && ' \t\n\r'.includes(text[pos])) pos++;
+  };
+
+  // The decoded string literal at pos (pos sits on the opening quote), or
+  // null when malformed — malformed input bails the scan.
+  const readString = () => {
+    let j = pos + 1;
+    let out = '';
+    while (j < n) {
+      const c = text[j];
+      if (c === '"') { pos = j + 1; return out; }
+      if (c === '\\') {
+        const e = text[j + 1];
+        if (e === 'u') {
+          const hex = text.slice(j + 2, j + 6);
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null;
+          out += String.fromCharCode(parseInt(hex, 16));
+          j += 6;
+        } else {
+          const esc = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f',
+                        n: '\n', r: '\r', t: '\t' }[e];
+          if (esc === undefined) return null;
+          out += esc;
+          j += 2;
+        }
+      } else if (c < ' ') {
+        return null;                 // a raw control character: not JSON
+      } else {
+        out += c;
+        j++;
+      }
+    }
+    return null;                     // unterminated
+  };
+
+  // The raw number token at pos, pos advanced past it.
+  const readNumber = () => {
+    const start = pos;
+    if (text[pos] === '-') pos++;
+    while (pos < n && text[pos] >= '0' && text[pos] <= '9') pos++;
+    if (text[pos] === '.') {
+      pos++;
+      while (pos < n && text[pos] >= '0' && text[pos] <= '9') pos++;
+    }
+    if (text[pos] === 'e' || text[pos] === 'E') {
+      pos++;
+      if (text[pos] === '+' || text[pos] === '-') pos++;
+      while (pos < n && text[pos] >= '0' && text[pos] <= '9') pos++;
+    }
+    return text.slice(start, pos);
+  };
+
+  // After a complete value: consume the ',' (more members/elements follow)
+  // or the container's closer (pop, repeat for the parent). Sets `dead`
+  // when the scan ends — root value completed, or a malformed tail that
+  // JSON.parse will name.
+  let dead = false;
+  const finishValue = () => {
+    for (;;) {
+      skipWs();
+      const t = top();
+      if (!t) { dead = true; return; }
+      const c = text[pos];
+      if (c === ',') { pos++; return; }
+      if (t.obj ? c === '}' : c === ']') { pos++; stack.pop(); continue; }
+      dead = true;
+      return;
+    }
+  };
+
+  skipWs();
+  const first = text[pos];
+  if (first === '{') stack.push({ obj: true, key: null, window: false });
+  else if (first === '[') stack.push({ obj: false, schedule: false });
+  else return;                       // a scalar root: nothing to check
+  pos++;
+
+  for (;;) {
+    skipWs();
+    if (pos >= n || !top()) return;  // truncated, or complete
+    const t = top();
+    const c = text[pos];
+    if (c === (t.obj ? '}' : ']')) {  // an empty container
+      pos++;
+      stack.pop();
+      finishValue();
+      if (dead) break;
+      continue;
+    }
+    if (t.obj) {
+      if (c !== '"') return;         // an object key must be a string
+      const key = readString();
+      if (key === null) return;
+      t.key = key;
+      skipWs();
+      if (text[pos] !== ':') return;
+      pos++;
+      skipWs();                      // whitespace between ':' and the value
+    } else if (c === ',') {          // the next element of an array
+      pos++;
+      continue;
+    }
+    // A value position:
+    const v = text[pos];
+    if (v === '{') {
+      pos++;
+      stack.push({ obj: true, key: null, window: !t.obj && t.schedule });
+      continue;
+    }
+    if (v === '[') {
+      pos++;
+      stack.push({ obj: false, schedule: t.obj && t.key === 'schedule' });
+      continue;
+    }
+    if (v === '"') {
+      if (readString() === null) return;
+    } else if (v === '-' || (v >= '0' && v <= '9')) {
+      const at = pos;
+      const token = readNumber();
+      // A malformed token (a bare '-', a leading zero) is not an offense:
+      // JSON.parse refuses the file and names it.
+      if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) return;
+      if (t.obj && t.window && (t.key === 'start' || t.key === 'end')
+          && !/^-?\d+$/.test(token)) {
+        offenses.push(`offset ${at} spells a schedule ${t.key} as ${token}`);
+      }
+    } else if (v === 't' && text.startsWith('true', pos)) {
+      pos += 4;
+    } else if (v === 'f' && text.startsWith('false', pos)) {
+      pos += 5;
+    } else if (v === 'n' && text.startsWith('null', pos)) {
+      pos += 4;
+    } else {
+      return;                        // unexpected; JSON.parse names it
+    }
+    finishValue();
+    if (dead) break;
+  }
+  if (offenses.length) {
+    throw _pricingError(`${offenses.join('; ')}; a schedule start or end`
+      + ' must be spelled a plain JSON integer');
+  }
+}
 
 function _readPricing() {
   if (typeof document === 'undefined') {
+    let text;
     try {
       /* eslint-disable no-undef */
-      return JSON.parse(require('fs').readFileSync(
-        require('path').join(__dirname, 'pricing.json'), 'utf8'), _hhmmSpelling);
+      text = require('fs').readFileSync(
+        require('path').join(__dirname, 'pricing.json'), 'utf8');
       /* eslint-enable no-undef */
+    } catch (e) {
+      throw _pricingError(e.message);
+    }
+    _checkHhmmSpelling(text);
+    try {
+      return JSON.parse(text);
     } catch (e) {
       throw _pricingError(e.message);
     }
@@ -355,8 +518,9 @@ function _readPricing() {
   if (xhr.status !== 200) throw _pricingError(`HTTP ${xhr.status} from ${url}`);
   // Signed out, the request is redirected to the sign-in page, which is a 200.
   if (xhr.responseURL !== url) throw _pricingError(`redirected to ${xhr.responseURL}`);
+  _checkHhmmSpelling(xhr.responseText);
   try {
-    return JSON.parse(xhr.responseText, _hhmmSpelling);
+    return JSON.parse(xhr.responseText);
   } catch (e) {
     throw _pricingError(`not JSON (${e.message})`);
   }
