@@ -21,7 +21,7 @@
     "tests/test_api.py": 979,
     "tests/test_bash_churn.py": 748,
     "tests/test_ingest.py": 954,
-    "tests/test_parse.py": 1047,
+    "tests/test_parse.py": 1046,
     "tests/test_parse_codex.py": 1000,
     "tests/test_parse_kimi.py": 765,
     "tests/test_pricing_data.py": 977,
