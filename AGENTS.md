@@ -242,9 +242,11 @@ Tests use fixture-driven data, not real R2. `conftest.py` forces `R2_ENDPOINT=fi
 ### Manual operations
 
 ```bash
-# Force an out-of-band ingest run
+# Force an out-of-band ingest run. Admin POSTs are origin-checked, so
+# the request must carry a same-origin Origin header.
 curl -X POST http://127.0.0.1:8000/admin/ingest \
-  -H "X-Admin-Token: $ADMIN_TOKEN"
+  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "Origin: http://127.0.0.1:8000"
 
 # Restarting the service also kicks a fresh ingest (a startup ingest
 # runs on every boot of backend/app.py — equivalent to the curl above

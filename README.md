@@ -241,8 +241,8 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 The first request blocks while ingest runs (~30s on a warm DB,
 several minutes for a cold cache against the full `claude` bucket).
 Subsequent ingests are incremental (etag + parser_version check per
-file). `POST /admin/ingest` with the `X-Admin-Token` header forces an
-out-of-band run.
+file). `POST /admin/ingest` with the `X-Admin-Token` header and a
+same-origin `Origin` header forces an out-of-band run.
 
 For local dev without R2 credentials, point `R2_ENDPOINT` at a
 filesystem mirror (e.g. `R2_ENDPOINT=file:///tmp/r2/`) — the R2
