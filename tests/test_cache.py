@@ -73,7 +73,8 @@ def test_invalidate_serves_stale_then_refreshes():
     deadline = time.time() + 5
     while time.time() < deadline and endpoint(rng="30d", fresh=0) != {"n": 2}:
         time.sleep(0.02)
-    assert endpoint(rng="30d", fresh=0) == {"n": 2}
+    assert endpoint(rng="30d", fresh=0) == {"n": 2}, \
+        "background refresh never landed"
 
 
 def test_invalidate_keeps_entries_servable():
