@@ -52,6 +52,25 @@ def test_apply_schema_restores_a_dropped_rollup(app_with_data):
     assert row is not None and row[0] is not None
 
 
+def test_apply_schema_creates_user_session(app_with_data):
+    """Issues #94/#108: the per-user session-secret table is part of the
+    startup-applied schema, and re-applying leaves its rows alone."""
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO user_session (user_id, secret) VALUES (%s, %s) "
+            "ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret",
+            (7, "pre-existing"),
+        )
+        c.commit()
+
+    db.apply_schema()
+
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT secret FROM user_session WHERE user_id = 7").fetchone()
+    assert row is not None and row[0] == "pre-existing"
+
+
 def test_apply_schema_is_idempotent_and_preserves_data(app_with_data):
     """Re-applying on every boot must not disturb existing rows."""
     with db.viz_conn() as c:

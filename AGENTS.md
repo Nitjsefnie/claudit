@@ -128,7 +128,10 @@ backend/          — FastAPI application
                     guest-mode sentinel (user_id=0, per-process secret).
   events.py       — Thread-safe SSE broadcaster (asyncio.Queue per client).
   db.py           — Two psycopg pools: viz_pool (claudit) and auth_pool
-                    (read-only auth DB). Pools never join across DBs.
+                    (the shared auth DB, which is now genuinely
+                    READ-ONLY from this application — user session
+                    secrets live in claudit's own database, the
+                    user_session table). Pools never join across DBs.
   cache.py        — In-process LRU with idle-time eviction for raw transcript
                     bytes (256 MB, 20-min idle).
   schema.sql      — Applied at every startup by db.apply_schema().
@@ -281,6 +284,8 @@ psql claudit -f backend/schema.sql
 - **Auth**: PBKDF2-SHA256 password hashes with per-user hex salts. A stored hash is either a bare hex digest — the legacy shape, always verified at 200,000 iterations — or a versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that carries its own count; new writes use the versioned format at 600,000 iterations. A legacy bare-hex hash verifies unchanged, so hashes written by an external user-management process keep working. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`, 7-day TTL.
 - **Login**: every credential failure — unknown id, no configured password, wrong password — answers the same generic 401 with an identical body, and a fixed dummy PBKDF2 verification runs wherever the real one cannot, so an account id cannot be enumerated by response or timing. The rate limiter keys 5 failures per IP+user pair per 5-minute window (one user's failures never lock a different user behind the same egress IP), prunes expired entries per key on access, and sweeps fully expired keys once the table grows past a cap, so it never grows without bound.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process secret regenerated at startup; cookies invalidate on restart. Guests are blocked from `/api/projects`, `/api/sessions*`, and `?project=` filter params.
+- **Server-side logout (issue #108)**: each real user's session secret and a per-user `generation` counter live in the app's own `user_session` table. A session token carries the generation it was minted at, and verification requires it to still be current — so `GET /logout`, before clearing the cookie, bumps that user's generation and every token that user holds (in any browser) stops verifying, not just the cookie the response clears. Guests have no row and no generation: they keep dying on restart via the process-local secret.
+- **No auth-DB writes (issue #94)**: user session secrets live in claudit's own `user_session` table; the application only ever READS the shared auth DB (`users.config`, for the password hash). Leftover `web_session_secret` values in the shared table are inert, and cleaning them up is the auth-DB owner's business.
 - **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`.
 - **Same-origin**: every mutating route (anything not GET/HEAD/OPTIONS) — including `/login`, `/login/guest` and `/logout` — enforces an origin/referer check: the `Origin` (or `Referer`) header's host must match the request's `Host` header, and a request with no `Host` header is refused. Browsers always send `Origin` on POST, so this only affects command-line/scripted clients, which must send a matching header.
 - **R2 file-mode path traversal**: `_safe_join` in `backend/r2.py` uses `os.path.realpath` to refuse keys that escape the bucket root (defence for sidecar `?path=../../../etc/passwd` attacks).

@@ -2,9 +2,13 @@
 
 Covers: one generic credential failure (issue #109), the dummy PBKDF2
 verification run where the real one cannot, the malformed-id 400 kept
-distinct, and the per-(ip, user) rate limiter with eviction
-(issue #111).
+distinct, the per-(ip, user) rate limiter with eviction (issue #111),
+and the session-secret store (issues #94, #108) — a successful login
+touches nothing in the shared auth DB, and logout invalidates the
+signed-in user's sessions server-side.
 """
+import copy
+import secrets
 import time as time_mod
 
 import pytest
@@ -52,6 +56,30 @@ def _app_fixture():
     return a
 
 
+@pytest.fixture(name="fake_session_store")
+def _fake_session_store_fixture(monkeypatch):
+    """In-memory stand-in for claudit's user_session table, wired into
+    the flow through the same two functions the real store backs."""
+    rows: dict[int, tuple[str, int]] = {}
+
+    def _get_or_create(user_id):
+        return rows.setdefault(user_id, (secrets.token_urlsafe(32), 0))
+
+    def _load(user_id):
+        return rows.get(user_id)
+
+    def _bump(user_id):
+        if user_id in rows:
+            secret, generation = rows[user_id]
+            rows[user_id] = (secret, generation + 1)
+
+    monkeypatch.setattr(
+        session_mod, "get_or_create_session_row", _get_or_create)
+    monkeypatch.setattr(session_mod, "load_session_row", _load)
+    monkeypatch.setattr(session_mod, "bump_session_generation", _bump)
+    return rows
+
+
 @pytest.fixture(name="fake_user")
 def _fake_user_fixture(monkeypatch):
     """Stub the auth DB with one user that has a known password."""
@@ -62,11 +90,7 @@ def _fake_user_fixture(monkeypatch):
     def _load(user_id):
         return store.get(user_id)
 
-    def _write(user_id, cfg):
-        store[user_id] = cfg
-
     monkeypatch.setattr(session_mod, "load_user_config", _load)
-    monkeypatch.setattr(session_mod, "write_user_config", _write)
     return store
 
 
@@ -86,7 +110,7 @@ def _assert_session_cookie_contract(response):
     assert "domain=" not in header
 
 
-def test_successful_login_sets_cookie(app, fake_user):
+def test_successful_login_sets_cookie(app, fake_user, fake_session_store):
     client = TestClient(app)
     r = client.post(
         "/login",
@@ -184,7 +208,7 @@ def test_all_credential_failures_answer_identically(app, fake_user):
 
 
 def test_dummy_verification_runs_where_real_one_cannot(
-    app, fake_user, monkeypatch
+    app, fake_user, fake_session_store, monkeypatch
 ):
     """The dummy helper is invoked on the unknown-id and no-password
     paths, and nowhere else (the real verification runs instead)."""
@@ -220,7 +244,7 @@ def test_rate_limit_after_5_failures(app, fake_user):
     assert r.status_code == 429
 
 
-def test_failures_for_one_user_do_not_lock_another(app, fake_user):
+def test_failures_for_one_user_do_not_lock_another(app, fake_user, fake_session_store):
     """#111: the limiter is keyed per (ip, user) pair. User B's correct
     login survives user A's failures; user A's own pair stays locked."""
     store = fake_user
@@ -296,14 +320,24 @@ def test_under_cap_no_sweep_runs():
     assert failures["198.51.100.7:2"] == [now - 10_000]
 
 
-def test_logout_clears_cookie(app, fake_user):
+def test_successful_login_does_not_write_the_auth_db(
+    app, fake_user, fake_session_store
+):
+    """#94 regression: a successful login must leave the shared users
+    table unchanged — the session secret went to claudit's own store,
+    and no write path to the auth DB exists at all any more."""
+    before = copy.deepcopy(fake_user[12345])
     client = TestClient(app)
-    client.post(
-        "/login",
-        data={"user_id": "12345", "password": "hunter2"},
-        headers=_ORIGIN,
-        follow_redirects=False,
-    )
+    r = _post_login(client, 12345, "hunter2")
+    assert r.status_code in (302, 303)
+    assert fake_user[12345] == before
+    assert "web_session_secret" not in fake_user[12345]
+    assert not hasattr(session_mod, "write_user_config")
+
+
+def test_logout_clears_cookie(app, fake_user, fake_session_store):
+    client = TestClient(app)
+    _post_login(client, 12345, "hunter2")
     r = client.get("/logout", follow_redirects=False)
     assert r.status_code in (302, 303)
     assert any(
@@ -312,14 +346,49 @@ def test_logout_clears_cookie(app, fake_user):
     )
 
 
-def test_session_cookie_round_trip(app, fake_user):
+def test_logout_bumps_generation_and_invalidates_the_session(
+    app, fake_user, fake_session_store
+):
+    """#108: logout is server-side. The bumped generation kills every
+    token the user holds, so a CAPTURED cookie — the threat model — no
+    longer verifies, not just the one the logout response clears."""
     client = TestClient(app)
-    client.post(
-        "/login",
-        data={"user_id": "12345", "password": "hunter2"},
-        headers=_ORIGIN,
-        follow_redirects=False,
+    _post_login(client, 12345, "hunter2")
+    captured = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert captured
+    assert client.get("/api/me").status_code == 200
+
+    r = client.get("/logout", follow_redirects=False)
+
+    assert r.status_code in (302, 303)
+    assert fake_session_store[12345][1] == 1
+    client.cookies.set(session_mod.SESSION_COOKIE_NAME, captured)
+    assert client.get("/api/me").status_code == 401
+
+
+def test_logout_with_guest_cookie_does_not_touch_user_session(
+    app, fake_session_store
+):
+    client = TestClient(app)
+    client.post("/login/guest", headers=_ORIGIN, follow_redirects=False)
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code in (302, 303)
+    assert fake_session_store == {}
+
+
+def test_logout_with_no_cookie_is_a_plain_redirect(app, fake_session_store):
+    r = TestClient(app).get("/logout", follow_redirects=False)
+    assert r.status_code in (302, 303)
+    assert any(
+        session_mod.SESSION_COOKIE_NAME in v
+        for v in r.headers.get_list("set-cookie")
     )
+    assert fake_session_store == {}
+
+
+def test_session_cookie_round_trip(app, fake_user, fake_session_store):
+    client = TestClient(app)
+    _post_login(client, 12345, "hunter2")
     r = client.get("/api/me")
     assert r.status_code == 200
     assert r.json() == {"user_id": 12345}

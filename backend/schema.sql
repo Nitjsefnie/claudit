@@ -673,3 +673,18 @@ CREATE TABLE IF NOT EXISTS lane_markers (
   reader_version  TEXT NOT NULL,
   path            TEXT
 );
+
+-- 2026-09-25 (issues #94, #108): each real user's web-session secret and
+-- a per-user generation counter, in claudit's OWN database. Login inserts
+-- the row on first login (session.get_or_create_session_row); logout
+-- bumps the generation (session.bump_session_generation), which
+-- invalidates every token that user holds, in any browser. The secret
+-- used to live in the SHARED auth DB's users.config, which is what made
+-- claudit write to a database documented read-only — it only ever reads
+-- that DB now. Additive: a brand-new table breaks no older reader, so
+-- this needs no PARSER_VERSION bump.
+CREATE TABLE IF NOT EXISTS user_session (
+  user_id    INTEGER PRIMARY KEY,
+  secret     TEXT NOT NULL,
+  generation INTEGER NOT NULL DEFAULT 0
+);

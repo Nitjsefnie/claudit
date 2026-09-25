@@ -2,7 +2,9 @@
 
 Two pools:
 - viz_pool   → claudit (this app's tables)
-- auth_pool  → external users DB (read-only access to users.config for auth)
+- auth_pool  → external users DB (READ-ONLY from this application:
+               password hashes only; user session secrets live in
+               claudit's own user_session table)
 
 The pools never join across DBs.
 """
