@@ -286,10 +286,11 @@ def _parse_range(s: str) -> timedelta:
     """
     if s == "all":
         return datetime.now(timezone.utc) - _EPOCH
-    if s.endswith(("d", "h")):
+    unit, count = s[-1], s[:-1]
+    if unit in ("d", "h"):
         try:
-            delta = (timedelta(days=int(s[:-1])) if s.endswith("d")
-                     else timedelta(hours=int(s[:-1])))
+            delta = (timedelta(days=int(count)) if unit == "d"
+                     else timedelta(hours=int(count)))
             # Trial subtraction: guards the arithmetic every caller is
             # about to do, HERE, so no endpoint needs its own try/except.
             _ = datetime.now(timezone.utc) - delta
