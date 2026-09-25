@@ -172,45 +172,37 @@ def list_sessions(
     # with cross-file uuid dedup, mirroring /api/dashboard. Sub-agent
     # tokens/cost roll up into the parent session's totals; the session
     # is keyed by session_id (shared between main + its agent files).
+    # Dedup is resolved at ingest into records.is_canonical
+    # (SV-CANONICAL-FLAG): rows with a NULL uuid are always canonical
+    # (schema default + ingest.recompute_canonical), so the flag alone
+    # selects exactly the rows a read-time sort used to keep, without
+    # re-sorting the table on every request.
     sql = f"""
-    WITH deduped AS (
-      (SELECT DISTINCT ON (r.uuid)
-         r.file_key, r.uuid, r.ts, r.model,
-         r.fresh_tokens, r.eph5_tokens, r.eph1h_tokens,
-         r.cache_read_tokens, r.output_tokens, r.cost_usd
-       FROM records r JOIN files f ON f.file_key = r.file_key
-       WHERE r.uuid IS NOT NULL {proj_filter}
-       ORDER BY r.uuid, r.file_key)
-      UNION ALL
-      (SELECT r.file_key, r.uuid, r.ts, r.model,
-              r.fresh_tokens, r.eph5_tokens, r.eph1h_tokens,
-              r.cache_read_tokens, r.output_tokens, r.cost_usd
-       FROM records r JOIN files f ON f.file_key = r.file_key
-       WHERE r.uuid IS NULL {proj_filter})
-    ),
-    per_session AS (
+    WITH per_session AS (
       SELECT f.session_id,
              min(f.project_id) AS project_id,
-             min(d.ts) AS first_event_at,
-             max(d.ts) AS last_event_at,
-             EXTRACT(EPOCH FROM (max(d.ts) - min(d.ts)))::bigint AS duration_s,
+             min(r.ts) AS first_event_at,
+             max(r.ts) AS last_event_at,
+             EXTRACT(EPOCH FROM (max(r.ts) - min(r.ts)))::bigint AS duration_s,
              COUNT(*) AS request_count,
-             SUM(d.fresh_tokens)         AS input_tokens,
-             SUM(d.output_tokens)        AS output_tokens,
-             SUM(d.eph5_tokens)          AS cache_create_5m_tokens,
-             SUM(d.eph1h_tokens)         AS cache_create_1h_tokens,
-             SUM(d.cache_read_tokens)    AS cache_read_tokens,
-             SUM(d.cost_usd)             AS cost_usd,
+             SUM(r.fresh_tokens)         AS input_tokens,
+             SUM(r.output_tokens)        AS output_tokens,
+             SUM(r.eph5_tokens)          AS cache_create_5m_tokens,
+             SUM(r.eph1h_tokens)         AS cache_create_1h_tokens,
+             SUM(r.cache_read_tokens)    AS cache_read_tokens,
+             SUM(r.cost_usd)             AS cost_usd,
              (SELECT json_agg(json_build_object('model', model, 'count', c))
               FROM (
-                SELECT d2.model, COUNT(*) AS c
-                FROM deduped d2
-                JOIN files f2 ON f2.file_key = d2.file_key
-                WHERE f2.session_id = f.session_id AND d2.model <> ''
-                GROUP BY d2.model
+                SELECT r2.model, COUNT(*) AS c
+                FROM records r2
+                JOIN files f2 ON f2.file_key = r2.file_key
+                WHERE f2.session_id = f.session_id AND r2.model <> ''
+                  AND r2.is_canonical
+                GROUP BY r2.model
               ) sub) AS models_raw
-      FROM deduped d
-      JOIN files f ON f.file_key = d.file_key
+      FROM records r
+      JOIN files f ON f.file_key = r.file_key
+      WHERE r.is_canonical {proj_filter}
       GROUP BY f.session_id
     )
     SELECT * FROM per_session
@@ -287,14 +279,17 @@ def session_detail(session_id: str) -> dict:
                         SELECT model, COUNT(*) AS c
                         FROM records r2
                         WHERE r2.file_key = f.file_key AND r2.model <> ''
+                          AND r2.is_canonical
                         GROUP BY model
                       ) sub) AS models_raw,
                      (SELECT model FROM records r3
                       WHERE r3.file_key = f.file_key AND r3.model <> ''
+                        AND r3.is_canonical
                       GROUP BY model ORDER BY count(*) DESC LIMIT 1
                      ) AS dom_model
               FROM files f
-              LEFT JOIN records r ON r.file_key = f.file_key
+              LEFT JOIN records r
+                ON r.file_key = f.file_key AND r.is_canonical
               WHERE f.session_id = %s AND f.is_main = TRUE
               GROUP BY f.session_id, f.project_id, f.file_key, f.ctx_turns
               LIMIT 1
