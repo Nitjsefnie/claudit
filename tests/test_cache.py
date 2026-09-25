@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import sys
+import threading
 import time
 
 from backend import cache as cache_mod
-from backend.cache import _TTLCache, cache_response
+from backend.cache import _IdleLRU, _TTLCache, cache_response
 
 
 def test_ttlcache_put_get():
@@ -79,3 +81,48 @@ def test_invalidate_keeps_entries_servable():
     value, is_stale = entry
     assert value == {"v": 1}   # still servable, unlike clear()
     assert is_stale is True
+
+
+def test_idle_lru_thread_safety():
+    """Concurrent get/put must not raise 'OrderedDict mutated during
+    iteration'.
+
+    Deterministic, not sleep-based: one barrier releases every thread at
+    once so the accesses genuinely overlap, a shrunken interpreter switch
+    interval makes GIL preemption frequent, and every exception is
+    collected into a shared list instead of killing its thread silently.
+    The cache is sized so the idle-eviction scan iterates a few hundred
+    live entries on every put — that iteration is the race window.
+    """
+    lru = _IdleLRU(max_bytes=65536, idle_seconds=1200)
+    errors: list[BaseException] = []
+    n_threads = 8
+    barrier = threading.Barrier(n_threads)
+
+    def worker(tid: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            for i in range(2000):
+                key = f"k{tid}-{i % 50}"
+                if i % 2:
+                    lru.get(key)
+                else:
+                    lru.put(key, b"x" * 32)
+        except BaseException as exc:  # the test IS the handler here
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=worker, args=(tid,), name=f"idle-lru-{tid}")
+        for tid in range(n_threads)
+    ]
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+    finally:
+        sys.setswitchinterval(old_interval)
+    assert not any(t.is_alive() for t in threads), "a worker hung"
+    assert not errors
