@@ -501,18 +501,15 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
     return result
 
 
-def bump_parser_version(text: str, stamp: str) -> str:
-    """PARSER_VERSION one past whatever the file holds, with its history
-    line, so a manual bump that lands first is never collided with."""
+def bump_parser_version(text: str) -> str:
+    """PARSER_VERSION one past whatever the file holds, so a manual bump
+    that lands first is never collided with. Only the version line moves:
+    constants.py carries the rule, the commits carry the history."""
     found = _PARSER_VERSION.findall(text)
     if len(found) != 1:
         raise RefreshError("backend/constants.py: expected exactly one PARSER_VERSION line")
     version = int(found[0]) + 1
-    return _PARSER_VERSION.sub(
-        f"# {version} appends the OpenRouter provider rates detected at {stamp};\n"
-        "# the bump reparses every file so a record from then on that was\n"
-        "# ingested before this commit reached the deploy takes the new rate.\n"
-        f'PARSER_VERSION = "{version}"', text)
+    return _PARSER_VERSION.sub(f'PARSER_VERSION = "{version}"', text)
 
 
 def _move_text(move: Move) -> str:
@@ -577,7 +574,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
         result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
         constants = constants_path.read_text(encoding="utf-8")
         if result.moves:
-            constants = bump_parser_version(constants, stamp)
+            constants = bump_parser_version(constants)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
