@@ -25,7 +25,7 @@ import pytest
 # name ("fresh_db") by having the function object in this module.
 from test_ingest import _fresh_db_fixture
 
-from backend import constants, db, ingest, parse
+from backend import agent_sidecar, constants, db, ingest, parse
 from backend.key_layout import sidecar_stem, transcript_stem
 
 __all__ = ["_fresh_db_fixture"]
@@ -95,7 +95,7 @@ _CLAUDE_KEY = "-root-x/s/subagents/agent-a1.jsonl"
 
 
 def test_legacy_wire_takes_the_sidecar_subagent_type():
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": "coder",
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
@@ -104,7 +104,7 @@ def test_legacy_wire_takes_the_sidecar_subagent_type():
 
 
 def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": None,
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
@@ -122,7 +122,7 @@ def test_a_sidecar_role_goes_through_the_lanes_normalisation():
     parsed = parse.parse_file(_LANE_KEY, blob)
     assert parse.sniff_format(blob) == "kimi-code"
     assert parsed["agent_type_in_band"] is False
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         parsed, b'{"subagent_type":"agent"}', _LANE_KEY)
     assert out["agent_type"] == DEFAULT
 
@@ -132,25 +132,25 @@ def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
     sidecar is still a lane sidecar: Kimi's default-profile name maps to
     DEFAULT. The same value beside a Claude-layout transcript is kept."""
     assert parse.sniff_format(b"") == "claude"
-    lane = parse.apply_agent_sidecar(
+    lane = agent_sidecar.apply_agent_sidecar(
         parse.parse_file(_LANE_KEY, b""), b'{"subagent_type":"agent"}',
         _LANE_KEY)
     assert lane["agent_type"] == DEFAULT
-    claude = parse.apply_agent_sidecar(
+    claude = agent_sidecar.apply_agent_sidecar(
         parse.parse_file(_CLAUDE_KEY, b""), b'{"agentType":"agent"}',
         _CLAUDE_KEY)
     assert claude["agent_type"] == "agent"
 
 
 def test_in_band_kimi_code_profile_wins_over_the_sidecar():
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
         b'{"subagent_type":"implementer"}', _LANE_KEY)
     assert out["agent_type"] == "coder"
 
 
 def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
         b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}',
         _CLAUDE_KEY)
@@ -158,7 +158,7 @@ def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
 
 
 def test_in_band_attribution_agent_wins_over_the_sidecar():
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("agent_attribution.jsonl", _CLAUDE_KEY),
         b'{"agentType":"code-reviewer"}', _CLAUDE_KEY)
     assert out["agent_type"] == "implementer"
@@ -171,7 +171,7 @@ def test_in_band_attribution_agent_wins_over_the_sidecar():
     b"\xff\xfe",
 ])
 def test_an_unusable_sidecar_leaves_the_default(sidecar):
-    out = parse.apply_agent_sidecar(
+    out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY), sidecar, _LANE_KEY)
     assert out["agent_type"] == DEFAULT
 

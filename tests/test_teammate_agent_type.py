@@ -18,7 +18,7 @@ import pytest
 # name ("fresh_db") by having the function object in this module.
 from test_ingest import _fresh_db_fixture
 
-from backend import constants, db, ingest, parse
+from backend import agent_sidecar, constants, db, ingest, parse
 
 __all__ = ["_fresh_db_fixture"]
 
@@ -45,17 +45,17 @@ def _member() -> dict:
 # ---- parse: a teammate sidecar names a teammate, not a role ----------------
 
 def test_a_teammate_sidecar_names_no_role():
-    out = parse.apply_agent_sidecar(_member(), _TEAMMATE_SIDECAR, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(_member(), _TEAMMATE_SIDECAR, _MEMBER_KEY)
     assert out["agent_type"] == DEFAULT
     assert out["teammate_name"] == "migrate-rest"
-    assert parse.sidecar_agent_role(_TEAMMATE_SIDECAR) is None
+    assert agent_sidecar.sidecar_agent_role(_TEAMMATE_SIDECAR) is None
 
 
 def test_a_sidecar_whose_agent_type_is_its_name_is_a_teammate():
     """No taskKind: agentType equal to name still cannot be told from the
     teammate name, so the lead's dispatch decides."""
     sidecar = b'{"agentType":"scout-2","name":"scout-2","description":"d"}'
-    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
     assert out["agent_type"] == DEFAULT
     assert out["teammate_name"] == "scout-2"
 
@@ -65,7 +65,7 @@ def test_a_marked_teammate_whose_agent_type_is_not_its_name_keeps_it_as_fallback
     name may be a real role, so it stands until a dispatch joins."""
     sidecar = (b'{"agentType":"implementer","name":"migrate-rest",'
                b'"taskKind":"in_process_teammate"}')
-    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
     assert out["teammate_name"] == "migrate-rest"
     assert out["agent_type"] == "implementer"
 
@@ -75,7 +75,7 @@ def test_a_subagent_named_after_its_role_with_a_tool_use_id_is_not_a_teammate():
     equals its role keeps that role without depending on the join."""
     sidecar = (b'{"agentType":"implementer","name":"implementer",'
                b'"toolUseId":"toolu_p1"}')
-    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
     assert out["agent_type"] == "implementer"
     assert out.get("teammate_name") is None
 
@@ -85,14 +85,14 @@ def test_a_named_plain_subagent_keeps_its_sidecar_role():
     agentType is the real role and differs from the name."""
     sidecar = (b'{"agentType":"implementer","name":"impl-task1",'
                b'"description":"d","toolUseId":"toolu_p1"}')
-    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
     assert out["agent_type"] == "implementer"
     assert out.get("teammate_name") is None
 
 
 def test_a_teammate_with_an_in_band_role_keeps_it():
     parsed = parse.parse_file(_MEMBER_KEY, _fixture("agent_attribution.jsonl"))
-    out = parse.apply_agent_sidecar(parsed, _TEAMMATE_SIDECAR, _MEMBER_KEY)
+    out = agent_sidecar.apply_agent_sidecar(parsed, _TEAMMATE_SIDECAR, _MEMBER_KEY)
     assert out["agent_type"] == "implementer"
     assert out.get("teammate_name") is None
 

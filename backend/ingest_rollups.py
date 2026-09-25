@@ -91,7 +91,7 @@ def resolve_teammate_agent_types() -> int:
 
     A teammate's sidecar names the teammate, not reliably a role, so ingest
     stores that name as `files.teammate_name` beside the role the parse
-    could take (parse.apply_agent_sidecar: the sidecar's agentType when it
+    could take (agent_sidecar.apply_agent_sidecar: the sidecar's agentType when it
     differs from the name, otherwise the default). When a dispatch in the
     same session has that `dispatch_name`, its `agent_type` (subagent_type,
     or the default when the call named none) replaces it: the latest one

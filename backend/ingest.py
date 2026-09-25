@@ -32,7 +32,7 @@ from typing import NamedTuple
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import api, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
+from backend import agent_sidecar, api, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
 from backend.api_dashboard import dashboard
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
@@ -842,7 +842,7 @@ def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
     nothing but delay.
 
     The meta.json sidecar is fetched only for a transcript naming no role
-    of its own (parse.apply_agent_sidecar). A vanished or corrupt one
+    of its own (agent_sidecar.apply_agent_sidecar). A vanished or corrupt one
     leaves the default agent_type, which no retry would change. A
     transient failure fails the FILE like its own GET would: persisting
     it would store the pair etag with the default, and a healthy run
@@ -855,4 +855,4 @@ def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
         sidecar = _fetch_with_retry(sidecar_key)
     except (VanishedObject, *CORRUPT_PAYLOAD_ERRORS):
         return parsed
-    return parse.apply_agent_sidecar(parsed, sidecar, r2.split_key(key)[1])
+    return agent_sidecar.apply_agent_sidecar(parsed, sidecar, r2.split_key(key)[1])

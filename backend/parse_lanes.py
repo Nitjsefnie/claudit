@@ -234,6 +234,6 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     out["agent_type"] = lane_agent_type(fmt, role)
     # Whether the transcript itself named a role (its lane's default
     # profile included): a meta.json sidecar may only fill in for a
-    # transcript that named none (parse.apply_agent_sidecar).
+    # transcript that named none (agent_sidecar.apply_agent_sidecar).
     out["agent_type_in_band"] = role is not None
     return out
