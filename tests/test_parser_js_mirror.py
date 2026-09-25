@@ -298,3 +298,29 @@ def test_parser_js_prices_a_provider_record_at_the_stored_cost():
     assert got["providers"] == [r["provider"] for r in stored]
     assert got["cost"] == pytest.approx(sum(r["cost_usd"] for r in stored),
                                         abs=1e-9)
+
+
+def test_parser_js_merges_provider_across_streaming_chunks():
+    """One requestId, several assistant lines: the record's provider is
+    the FIRST non-null chunk's, and a later provider-less chunk does not
+    wipe it — the same first-non-null-wins rule the requestId max-merge
+    applies in parse.py, pinned against the backend on the same fixture."""
+    name = "provider_merge.jsonl"
+    path = ROOT / "fixtures" / "parser" / name
+    stored = parse.parse_file(f"k/s/{name}", path.read_bytes())["records"]
+    got = _node_json(f"""
+      const {{ meta }} = window.parseTranscript(
+        {json.dumps(path.read_text(encoding="utf-8"))});
+      console.log(JSON.stringify(meta
+        .filter(m => m.type === 'assistant_usage')
+        .map(m => ({{ provider: m.provider,
+                      fresh: m.usage.input_tokens || 0,
+                      output: m.usage.output_tokens || 0 }}))));
+    """)
+    want = [(r["provider"], r["fresh_tokens"], r["output_tokens"])
+            for r in stored]
+    assert [(g["provider"], g["fresh"], g["output"]) for g in got] == want
+    # The fixture carries both orders — provider arriving on the SECOND
+    # chunk (req-1) and a provider-less chunk after it (req-2) — so neither
+    # mutant (never carrying, always overwriting) can pass it by luck.
+    assert want == [("Novita", 1000, 200), ("Novita", 1000, 300)]
