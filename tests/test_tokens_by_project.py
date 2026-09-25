@@ -25,18 +25,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, api_dashboard, cache, db, ingest
+from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _build_api_client(mp, test_db: str):
+def _build_api_client(mp, label: str):
     """Fresh DB + mini R2 + ingest, yielding a TestClient on the api router.
 
     Auth is bypassed by mounting only the router into a clean app.
     """
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null")
+    test_db = scratch_db.create_database(label)
     mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-tokens-proj-")
@@ -57,14 +56,14 @@ def _build_api_client(mp, test_db: str):
 
     db.reset_viz_pool()
     shutil.rmtree(tmp)
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    scratch_db.drop_database(test_db)
 
 
 @pytest.fixture(scope="module", name="app_with_data")
 def _app_with_data_fixture():
     mp = pytest.MonkeyPatch()          # monkeypatch itself is function-scoped
     try:
-        yield from _build_api_client(mp, "claudit_test_tokens")
+        yield from _build_api_client(mp, "tokens")
     finally:
         mp.undo()
 
@@ -75,7 +74,7 @@ def _app_with_fresh_data_fixture():
     contaminate the shared module-scoped client."""
     mp = pytest.MonkeyPatch()
     try:
-        yield from _build_api_client(mp, "claudit_test_tokens_mut")
+        yield from _build_api_client(mp, "tokens_mut")
     finally:
         mp.undo()
 

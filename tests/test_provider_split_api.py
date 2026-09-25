@@ -17,9 +17,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, pricing
+from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DB = "claudit_test_provider_split"
 V41 = "deepseek/deepseek-v4.1-flash"
 
 # (provider or None, model, fresh, cache_read, output). Two hosts and a
@@ -59,16 +59,14 @@ def _stored_cost(provider, model, fresh, read, output, ts):
 @pytest.fixture(scope="module", name="client")
 def _client_fixture():
     mp = pytest.MonkeyPatch()
+    test_db = scratch_db.create_database("provider_split")
     tmp = tempfile.mkdtemp(prefix="sv-provider-")
     start = datetime.now(timezone.utc) - timedelta(hours=2)
     sess = Path(tmp) / "r2" / "claude" / "projOR" / "sess-or"
     sess.mkdir(parents=True)
     (sess / "sess-or.jsonl").write_text(_lines(start), encoding="utf-8")
     try:
-        os.system(f"dropdb --if-exists {_DB} 2>/dev/null")
-        os.system(f"createdb {_DB} 2>/dev/null")
-        os.system(f"psql {_DB} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null")
-        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{_DB}")
+        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
         mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
         db.reset_viz_pool()
         ingest.run_ingest(trigger="manual")
@@ -78,7 +76,7 @@ def _client_fixture():
     finally:
         db.reset_viz_pool()
         shutil.rmtree(tmp)
-        os.system(f"dropdb --if-exists {_DB} 2>/dev/null")
+        scratch_db.drop_database(test_db)
         mp.undo()
 
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -16,8 +15,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, app as app_mod, db, ingest, r2
+from tests import scratch_db
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Two Claude-layout transcripts with the same object key shape but
 # different bodies, so the two buckets' etags differ.
@@ -49,17 +48,7 @@ def _seed(root: Path, bucket: str, body: str) -> Path:
 def _fresh_db_fixture(monkeypatch):
     """Per-test schema reset on a separate DB (same shape as
     test_ingest's fixture, kept local so this module stands alone)."""
-    test_db = "claudit_test"
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
-    os.system(f"createdb {test_db} 2>/dev/null")
-    os.system(
-        f"psql {test_db} -f {_REPO_ROOT / 'backend/schema.sql'} >/dev/null"
-    )
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-    db.reset_viz_pool()
-    yield
-    db.reset_viz_pool()
-    os.system(f"dropdb --if-exists {test_db} 2>/dev/null")
+    yield from scratch_db.scratch_viz_database(monkeypatch, "multi_bucket")
 
 
 @pytest.fixture(name="two_buckets")

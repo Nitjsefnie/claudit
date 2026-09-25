@@ -6,18 +6,23 @@
 # os.environ.setdefault()s (never overwrites), the first setdefault to run
 # for this key wins the race for the whole test process. backend.cache and
 # backend.pricing are safe to import above it: both are stdlib-only and
-# never touch the env.
+# never touch the env; so is tests.scratch_db, which imports no backend
+# module at load.
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 
 from backend import cache, pricing
+from tests import scratch_db
 
-os.environ.setdefault("DATABASE_URL_VIZ", "postgresql:///claudit_test")
+# An exported DATABASE_URL_VIZ wins; fixtures that create their own
+# database take a run-unique name from scratch_db either way.
+os.environ.setdefault("DATABASE_URL_VIZ", f"postgresql:///{scratch_db.db_name()}")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # ...and this directory, so one test module can import another's fixture
@@ -75,3 +80,19 @@ def _reset_response_cache():
     cache.response_cache.clear()
     yield
     cache.response_cache.clear()
+
+
+def pytest_sessionstart(session):
+    # Leftovers of runs that were killed before their finalizer ran.
+    try:
+        scratch_db.sweep_stale_databases()
+    except psycopg.OperationalError:
+        pass  # no reachable server: this run touches no database either
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # Backstop for fixtures that failed before their own teardown.
+    try:
+        scratch_db.drop_run_databases()
+    except psycopg.OperationalError:
+        pass
