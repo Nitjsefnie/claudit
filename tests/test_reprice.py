@@ -277,8 +277,9 @@ def test_reprice_is_idempotent(fresh_db):
 def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     """Seven rows against a REPRICE_BATCH of 2: the keyset cursor must
     carry past updated AND guard-skipped rows — a batch that could not
-    advance past a skip would spin forever. The skip sits mid-batch
-    (line 4, inside the second batch of two) on purpose."""
+    advance past a skip would spin forever. The skip sits at the batch
+    boundary (line 4, the last row of the second batch of two) on
+    purpose."""
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
     with db.viz_conn() as c:
         for line_num in range(1, 8):
@@ -295,6 +296,32 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
         constants.PRICING_VERSION, "999", constants.PRICING_VERSION,
         constants.PRICING_VERSION, constants.PRICING_VERSION]
     assert float(rows[3][1]) == 0.5, "the skipped row keeps its sentinel"
+
+
+def test_reprice_aborts_between_batches_when_shutdown_requested(
+        fresh_db, monkeypatch):
+    """A shutdown request between batches unwinds the pass via
+    IngestAborted: every batch already committed persists, the batch the
+    abort interrupts never opens, and the next run converges — the
+    ingest stop contract (issue #103) at the reprice pass's own bounded
+    steps. should_stop returning True (or raising) is the signal."""
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
+    with db.viz_conn() as c:
+        for line_num in range(1, 8):
+            _seed(c, _FILE_KEY, line_num)
+        c.commit()
+
+    checks = iter([False, True])
+    with pytest.raises(ingest.IngestAborted):
+        ingest_reprice.reprice_stale(should_stop=lambda: next(checks))
+
+    with db.viz_conn() as c:
+        rows = _rows(c)
+    versions = [row[2] for row in rows]
+    assert versions[:2] == [constants.PRICING_VERSION] * 2, (
+        "the first batch was committed before the abort, so it persists")
+    assert versions[2:] == [None] * 5, (
+        "rows the aborted pass never reached stay stale (NULL version)")
 
 
 def test_reprice_prices_a_provider_row(fresh_db,
@@ -367,7 +394,9 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     order = []
 
     def stub(name):
-        return lambda: order.append(name)
+        # The reprice phase is invoked through a partial that forwards
+        # should_stop, so every stub accepts (and ignores) arguments.
+        return lambda *args, **kwargs: order.append(name)
 
     phases = ("purge_suppressed", "reprice_stale", "recompute_canonical",
               "resolve_teammate_agent_types", "rebuild_rollup",
