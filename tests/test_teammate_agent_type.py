@@ -60,6 +60,26 @@ def test_a_sidecar_whose_agent_type_is_its_name_is_a_teammate():
     assert out["teammate_name"] == "scout-2"
 
 
+def test_a_marked_teammate_whose_agent_type_is_not_its_name_keeps_it_as_fallback():
+    """taskKind alone marks a teammate; an agentType that differs from the
+    name may be a real role, so it stands until a dispatch joins."""
+    sidecar = (b'{"agentType":"implementer","name":"migrate-rest",'
+               b'"taskKind":"in_process_teammate"}')
+    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["teammate_name"] == "migrate-rest"
+    assert out["agent_type"] == "implementer"
+
+
+def test_a_subagent_named_after_its_role_with_a_tool_use_id_is_not_a_teammate():
+    """A teammate sidecar carries no toolUseId; a plain subagent whose name
+    equals its role keeps that role without depending on the join."""
+    sidecar = (b'{"agentType":"implementer","name":"implementer",'
+               b'"toolUseId":"toolu_p1"}')
+    out = parse.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["agent_type"] == "implementer"
+    assert out.get("teammate_name") is None
+
+
 def test_a_named_plain_subagent_keeps_its_sidecar_role():
     """An Agent call with a `name` that is not a teammate: the sidecar's
     agentType is the real role and differs from the name."""
@@ -85,6 +105,19 @@ def test_a_dispatch_records_the_name_it_gave_its_agent():
     plain = parse.parse_file("k/sess-d/sess-d.jsonl",
                              _fixture("agent_dispatch.jsonl"))
     assert [tu["dispatch_name"] for tu in plain["tool_uses"]] == [None] * 3
+
+
+def test_a_non_dispatch_call_with_a_name_argument_records_no_dispatch_name():
+    line = {"type": "assistant", "timestamp": "2026-09-01T12:00:01Z",
+            "uuid": "a1", "requestId": "req-1",
+            "message": {"role": "assistant", "model": "claude-opus-5",
+                        "content": [{"type": "tool_use", "id": "toolu_n1",
+                                     "name": "SendMessage",
+                                     "input": {"name": "migrate-rest",
+                                               "message": "hi"}}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1}}}
+    out = parse.parse_file(_LEAD_KEY, json.dumps(line).encode() + b"\n")
+    assert [tu["dispatch_name"] for tu in out["tool_uses"]] == [None]
 
 
 # ---- ingest: the role is joined from the lead's dispatch -------------------
@@ -148,6 +181,21 @@ def test_a_teammate_with_no_matching_dispatch_is_the_default(
     assert "migrate-rest" not in _rollup_types()
 
 
+def test_a_marked_teammate_with_no_dispatch_keeps_its_sidecar_role(
+        fresh_db, mirror):
+    _put(mirror, _MEMBER_KEY, _fixture("teammate_member.jsonl"))
+    _put(mirror, _MEMBER_KEY.replace(".jsonl", ".meta.json"),
+         b'{"agentType":"code-reviewer","name":"migrate-rest",'
+         b'"taskKind":"in_process_teammate"}')
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "code-reviewer"
+
+    _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
+    ingest.run_ingest(trigger="manual")
+    assert _member_type() == "implementer", "a joined dispatch wins"
+
+
 def test_a_same_named_dispatch_in_another_session_does_not_join(
         fresh_db, mirror):
     _put(mirror, "-root-x/sess-u/sess-u.jsonl",
@@ -207,6 +255,28 @@ def test_a_respawned_name_takes_the_dispatch_that_started_this_teammate(
     _put(mirror, _LEAD_KEY,
          b"".join(json.dumps(line).encode() + b"\n" for line in lines))
     _put_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "implementer"
+
+
+def test_a_dispatch_at_the_teammates_first_record_joins(fresh_db, mirror):
+    """The member's first record is at 12:00:03; a dispatch logged in that
+    same instant still started it."""
+    _put(mirror, _LEAD_KEY, json.dumps(_dispatch_line(
+        "2026-09-01T12:00:03Z", "toolu_eq", "implementer")).encode() + b"\n")
+    _put_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "implementer"
+
+
+def test_a_teammate_with_no_records_yet_still_joins(fresh_db, mirror):
+    _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
+    _put(mirror, _MEMBER_KEY,
+         _fixture("teammate_member.jsonl").splitlines(keepends=True)[0])
+    _put(mirror, _MEMBER_KEY.replace(".jsonl", ".meta.json"),
+         _TEAMMATE_SIDECAR)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
     assert _member_type() == "implementer"
