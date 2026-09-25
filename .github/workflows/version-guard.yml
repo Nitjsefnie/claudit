@@ -29,6 +29,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -63,14 +64,26 @@ jobs:
         # Gathers the facts with gh, decides with scripts/ci/
         # version_guard.py. The script prints the reason to stdout and
         # its exit code is this step's: 0 pass, 1 refuse.
+        #
+        # Both probes FAIL CLOSED. A 404 is the only answer that proves a
+        # tag absent; anything else (network, auth, rate limit, malformed
+        # response) must not read as "free" — this is the one guard that
+        # exists to catch version collisions, so a blip stops the build
+        # instead of green-lighting it. The same holds for the commit
+        # metadata: if the carve-out's premise cannot be verified, the
+        # commit must not silently read as exempt.
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           echo "tree version: $version"
 
-          if gh api "repos/$REPO/git/ref/tags/v$version" >/dev/null 2>&1; then
+          tag_exists=false
+          if tag_probe="$(gh api "repos/$REPO/git/ref/tags/v$version" 2>&1)"; then
             tag_exists=true
+          elif echo "$tag_probe" | grep -q 'HTTP 404'; then
+            : # tag absent — the only trustworthy "not published" answer
           else
-            tag_exists=false
+            echo "could not verify the tag probe for v$version — failing closed" >&2
+            exit 1
           fi
 
           author_email=""
@@ -78,8 +91,16 @@ jobs:
           if [ "$EVENT" = "push" ]; then
             # Commit facts only exist for a push; a PR decides on the tag
             # check alone (the bot never opens PRs, so no carve-out there).
-            author_email="$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.author.email')"
-            changed_files="$(gh api "repos/$REPO/commits/$SHA" --jq '[.files[].filename] | join("\n")')"
+            # A metadata failure must not pass as "no facts" — that would
+            # let the carve-out premise slip through unverified.
+            author_email="$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.author.email')" || {
+              echo "could not verify the commit author probe for $SHA — failing closed" >&2
+              exit 1
+            }
+            changed_files="$(gh api "repos/$REPO/commits/$SHA" --jq '[.files[].filename] | join("\n")')" || {
+              echo "could not verify the changed-files probe for $SHA — failing closed" >&2
+              exit 1
+            }
           fi
 
           python3 scripts/ci/version_guard.py decide \
