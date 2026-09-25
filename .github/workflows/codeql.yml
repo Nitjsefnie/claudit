@@ -27,7 +27,6 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
-      - 'docs/**'
       - 'examples/**'
       - '.claude/**'
       - 'LICENSE'
@@ -38,7 +37,6 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
-      - 'docs/**'
       - 'examples/**'
       - '.claude/**'
       - 'LICENSE'
@@ -101,7 +99,6 @@ jobs:
           config: |
             paths-ignore:
               - fixtures
-              - docs
               - node_modules
 
       - name: Analyze

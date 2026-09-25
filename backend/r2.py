@@ -159,8 +159,8 @@ def _is_file_mode() -> tuple[bool, str]:
 def _safe_join(root: str, key: str) -> str:
     """Join root + key, refuse keys that escape the bucket root.
 
-    Defense for design doc risk #4: a malicious sidecar request like
-    '?path=../../../etc/passwd' must not escape /tmp/.../r2/.
+    Path-traversal defense: a malicious sidecar request like
+    '?path=../../../etc/passwd' must not escape the mirror root.
     """
     base = os.path.realpath(root)
     full = os.path.realpath(os.path.join(base, key))

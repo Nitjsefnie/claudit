@@ -17,7 +17,6 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
-      - 'docs/**'
       - 'examples/**'
       - '.claude/**'
       - 'LICENSE'
@@ -29,7 +28,6 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'PRESENTATION.txt'
-      - 'docs/**'
       - 'examples/**'
       - '.claude/**'
       - 'LICENSE'
