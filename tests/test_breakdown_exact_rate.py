@@ -84,11 +84,25 @@ def _breakdown_of_dashboard(body: dict) -> dict:
 _TS = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
 
-@pytest.mark.parametrize("model", ["claude-opus-4-8", "claude-sonnet-4-5"])
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-4-5"])
 def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
-    """Issue #70's two cases: one hourly row of an older model. The bars
-    must sum to what pricing.compute_cost stored, not to the tier rate
-    its short display name resolves to."""
+    """Issue #70's cases, now pinning that each model is priced by its own
+    EXACT row rather than the default row: a producer dropping model_id
+    must fail here, which the old opus-4-8 case could never show — its
+    exact row equals the default row, while opus-5-5's differs from it and
+    sonnet-4-5's differs from both the default and the tier its short name
+    resolves to."""
+    live = _node(f"""
+      const r = window.resolveModelRate({json.dumps(model)});
+      const d = window.resolveModelRate(undefined);
+      console.log(JSON.stringify({{kind: r.kind, exact: r.rates, dflt: d.rates}}));
+    """)
+    assert live["kind"] == "exact", (
+        f"fixture live only while {model} resolves to an exact row, "
+        f"got kind {live['kind']}")
+    assert live["exact"] != live["dflt"], (
+        f"fixture live only while {model}'s exact row differs from the "
+        "default row")
     fresh, out, eph5, eph1h, read = 12_000, 3_000, 4_000, 20_000, 500_000
     stored = pricing.compute_cost(
         model, fresh=fresh, output=out, eph5=eph5, eph1h=eph1h,
@@ -206,12 +220,15 @@ def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
 
 # (provider or None, model, fresh, 5m write, 1h write, cache read, output):
 # two older Claude models whose short names resolve to a newer tier, a
-# current one, and an OpenRouter record priced by its serving host.
+# current one, an OpenRouter record priced by its serving host, and a
+# dated permaslug priced only through that host (no provider row, no rate).
 _RECORDS = [
     (None, "claude-opus-4-8", 1200, 3000, 15000, 400_000, 2500),
     (None, "claude-sonnet-4-5", 800, 0, 9000, 150_000, 1800),
     (None, "claude-opus-5-5", 500, 1000, 5000, 90_000, 900),
     ("DeepInfra", "z-ai/glm-5.3-flash", 7000, 0, 0, 3000, 1100),
+    ("DeepInfra", "deepseek/deepseek-v4-flash-20260731", 7000, 0, 0, 3000,
+     1100),
 ]
 
 
@@ -274,6 +291,21 @@ def test_breakdown_total_equals_the_stored_cost_for_mixed_models(
         (m, p) for p, m, *_ in _RECORDS}
     stored = sum(h["cost_usd"] for h in hourly)
     assert stored > 0
+    # Liveness: the dated permaslug must travel the provider path — exact
+    # row, folded key, nonzero rate — or the parity assertion below would
+    # pass with both sides on the default row.
+    hour = next(h["hour"] for h in hourly
+                if h["model"] == "deepseek/deepseek-v4-flash-20260731")
+    live = _node(
+        "console.log(JSON.stringify(window.resolveModelRate("
+        "'deepseek/deepseek-v4-flash-20260731', "
+        f"Date.parse({json.dumps(hour)}), 'DeepInfra')))")
+    assert live["kind"] == "exact", (
+        "dated-record fixture live only while the permaslug folds to an "
+        f"exact provider row, got kind {live['kind']}")
+    assert live["key"] == "deepseek/deepseek-v4-flash-0731"
+    assert live["rates"]["fresh"], (
+        "fixture live only while the folded row's rates are nonzero")
     got = _breakdown_of_dashboard(dashboard_body)
     # The stored per-record cost is rounded to 6 places; the breakdown
     # prices the summed tokens unrounded.
