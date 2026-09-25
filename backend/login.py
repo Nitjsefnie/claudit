@@ -18,6 +18,7 @@ expired key is swept, so it never grows without bound.
 from __future__ import annotations
 
 import html
+import logging
 import time
 
 from fastapi import APIRouter, Form, Request
@@ -28,6 +29,8 @@ from backend import session as session_mod
 
 
 router = APIRouter()
+
+log = logging.getLogger("claudit.login")
 
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _LOGIN_MAX_FAILURES = 5
@@ -209,10 +212,26 @@ async def logout(request: Request) -> Response:
     # presents. SameSite=strict already keeps a cross-site GET /logout
     # from carrying the cookie, so it cannot name — or bump — a session
     # it does not hold (issue #108).
+    #
+    # Resolve-and-bump is best-effort: this is the one route whose job
+    # is dropping credentials, so it must not fail closed — if the
+    # session store is unavailable, the cookie is still deleted and the
+    # redirect still returned, and only the server-side invalidation
+    # (issue #108, defense in depth on top of the cookie deletion) is
+    # deferred until the store answers again.
     cookie = request.cookies.get(session_mod.SESSION_COOKIE_NAME, "")
-    user_id = session_mod.resolve_session_user_id(cookie) if cookie else None
-    if user_id is not None and user_id != session_mod.GUEST_USER_ID:
-        session_mod.bump_session_generation(user_id)
+    try:
+        user_id = (
+            session_mod.resolve_session_user_id(cookie) if cookie else None
+        )
+        if user_id is not None and user_id != session_mod.GUEST_USER_ID:
+            session_mod.bump_session_generation(user_id)
+    except Exception:
+        log.warning(
+            "logout: session store unavailable; clearing the cookie "
+            "without the server-side generation bump",
+            exc_info=True,
+        )
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(session_mod.SESSION_COOKIE_NAME, path="/")
     return response

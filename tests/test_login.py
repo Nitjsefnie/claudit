@@ -7,7 +7,8 @@ remainder where it cannot run or runs cheaper — the malformed-id 400
 kept distinct, the per-(ip, user) rate limiter with eviction (issue
 #111), and the session-secret store (issues #94, #108) — a successful
 login touches nothing in the shared auth DB, and logout invalidates
-the signed-in user's sessions server-side.
+the signed-in user's sessions server-side (best-effort: it clears the
+cookie even when the store is unavailable).
 """
 import copy
 import secrets
@@ -464,6 +465,30 @@ def test_logout_bumps_generation_and_invalidates_the_session(
     assert fake_session_store[12345][1] == 1
     client.cookies.set(session_mod.SESSION_COOKIE_NAME, captured)
     assert client.get("/api/me").status_code == 401
+
+
+def test_logout_still_clears_cookie_when_store_fails(
+    app, fake_user, fake_session_store, monkeypatch
+):
+    """Server-side logout is best-effort: when the session store is
+    unavailable, the bump is skipped, but the cookie is still deleted
+    and the redirect still returned — the one route whose job is
+    dropping credentials must not fail closed (it used to 500 with the
+    cookie still set)."""
+    client = TestClient(app)
+    _post_login(client, 12345, "hunter2")
+    assert client.get("/api/me").status_code == 200
+
+    def _store_down(user_id):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(session_mod, "bump_session_generation", _store_down)
+    r = client.get("/logout", follow_redirects=False)
+    assert r.status_code == 303
+    set_cookie = "; ".join(r.headers.get_list("set-cookie")).lower()
+    assert session_mod.SESSION_COOKIE_NAME in set_cookie
+    assert "max-age=0" in set_cookie
+    assert fake_session_store[12345][1] == 0  # the bump never landed
 
 
 def test_logout_with_guest_cookie_does_not_touch_user_session(
