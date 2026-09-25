@@ -219,8 +219,11 @@ def test_abort_releases_the_db_lock(fresh_db, mini_r2_env, monkeypatch):
 
 def test_rebuild_phase_aborts(fresh_db, mini_r2_env, monkeypatch):
     """A shutdown landing during the derived-state rebuild stops after the
-    phase in flight: later rebuilds are skipped, and the row still closes
-    as aborted."""
+    phase in flight: later rebuilds are skipped, the row still closes as
+    aborted, and nothing tells clients data changed. The abort lands AFTER
+    the walk, so files DID change (this first run inserts every mirror
+    file) — the broadcast, the invalidation and the warm are suppressed by
+    `not aborted` alone, which is what the spies here pin."""
     real = ingest.rebuild_rollup
 
     def aborting_rollup():
@@ -230,6 +233,14 @@ def test_rebuild_phase_aborts(fresh_db, mini_r2_env, monkeypatch):
     monkeypatch.setattr(ingest, "rebuild_rollup", aborting_rollup)
     later: list[int] = []
     monkeypatch.setattr(ingest, "rebuild_tool_rollup", lambda: later.append(1))
+    broadcasts: list[tuple] = []
+    monkeypatch.setattr(ingest.events, "broadcast_threadsafe",
+                        lambda *args, **kwargs: broadcasts.append(args))
+    invalidated: list[int] = []
+    monkeypatch.setattr(ingest.cache.response_cache, "invalidate",
+                        lambda: invalidated.append(1))
+    warmed: list[int] = []
+    monkeypatch.setattr(ingest, "warm_common", lambda: warmed.append(1))
 
     try:
         summary = ingest.run_ingest_locked("manual")
@@ -239,6 +250,9 @@ def test_rebuild_phase_aborts(fresh_db, mini_r2_env, monkeypatch):
     assert summary.get("aborted") is True, summary
     assert "aborted" in summary["error"], summary
     assert not later, "rebuilds after the abort point must be skipped"
+    assert not broadcasts, "an aborted run must not broadcast ingest_done"
+    assert not invalidated, "an aborted run must not mark responses stale"
+    assert not warmed, "an aborted run must not warm the cache"
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT finished_at, error FROM ingest_runs WHERE id = %s",

@@ -78,13 +78,17 @@ async def lifespan(fastapi_app: FastAPI):
     # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
     # normally sub-second) plus uvicorn's own 5 s graceful window stays
     # inside TimeoutStopSec=10.
-    if not ingest.wait_for_run(8.0):
+    # Revoke the request only when the wait succeeded: with a straggler
+    # still unwinding past the timeout, revoking would let it run to
+    # completion instead of aborting at its next bounded step.
+    if ingest.wait_for_run(8.0):
+        # Nothing can start a run in this process any more, so a shutdown
+        # never outlives the teardown it belongs to.
+        ingest.clear_shutdown()
+    else:
         log.warning(
             "ingest still running after the shutdown wait; systemd will "
             "SIGKILL at TimeoutStopSec")
-    # Revoke the request once nothing can start a run in this process any
-    # more, so a shutdown never outlives the teardown it belongs to.
-    ingest.clear_shutdown()
     events.clear_loop()
 
 
