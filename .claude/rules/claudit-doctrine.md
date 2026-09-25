@@ -539,8 +539,9 @@ decompose. Totals themselves always come from the stored per-record
 ## Rates are data in one file (SV-RATE-DATA)
 
 Every rate lives in `src/pricing.json`: `models` (normalised model key →
-history), `providers` (normalised model → provider → history) and
-`provider_rates_fetched`. `backend/pricing.py` and `src/parser.js` hold
+history), `providers` (normalised model → provider → history),
+`provider_rates_fetched`, and `openrouter` (each provider-table model's
+OpenRouter id and any pinned resolution, SV-RATE-REFRESH). `backend/pricing.py` and `src/parser.js` hold
 logic only and both read that file — the backend at import, the browser
 synchronously before first use (node `require`s it). The browser fetches
 the URL `public/index.html` names in the parser.js tag's `data-pricing`,
@@ -551,9 +552,13 @@ either source file.
 Each row's history is an append-only list, oldest first. Every entry
 carries the five rates (`fresh`, `create_5m`, `create_1h`, `read`,
 `output`), each a finite non-negative number, and an optional string
-`note`. The first entry's `from` is `null`; every later one's is spelled
-exactly `YYYY-MM-DDTHH:MM:SS` followed by `Z` or `±HH:MM`, strictly after
-its predecessor's. The newest entry is the list price; each earlier entry
+`note`. A model row's first entry has `from: null`: it covers all of time.
+A provider row's may instead name the instant the row begins; before it, a
+record from that host prices by the model alone, and the start joins
+`RATE_EPOCHS`. Every other `from` is spelled exactly `YYYY-MM-DDTHH:MM:SS`
+followed by `Z` or `±HH:MM`, every field in range (a real calendar day,
+hour 0-23, minute and second 0-59, offset under 24:00), strictly after its
+predecessor's. The newest entry is the list price; each earlier entry
 applies until its successor's `from` — the SV-DATED-RATES window shape.
 So a price change is recorded by APPENDING `{"from": T, ...}`; an existing
 entry is never edited or removed. Both loaders refuse a file that breaks
@@ -565,6 +570,36 @@ writes, so any writer reproduces it and a one-rate change is a one-line
 diff. File order never decides which key a model id matches — the LONGEST
 matching key wins; it only breaks a family-fallback tie between equal
 versions, where the first key in file order wins.
+
+## Provider rates refresh from OpenRouter (SV-RATE-REFRESH)
+
+`.github/workflows/refresh-pricing.yml` runs
+`scripts/ci/refresh_provider_rates.py` hourly, and identically on dispatch,
+and commits to `master` as `github-actions[bot]` only after the full suite
+passes on the new data. A hand edit to a provider row keeps the same rules:
+
+- A moved price is a new rate effective from the detection time: an entry
+  APPENDED to the row, never back-dated, never an edit or a deletion. A
+  host seen for the first time gets a row that begins at the detection
+  time. A host no longer listed keeps its row untouched and is reported.
+- Normalisation: OpenRouter's USD per token becomes USD per million. The
+  listed price already has any promotional discount applied; the discount
+  is the entry's `note` (`N% off`), never a rate. Cache writes take the
+  listed write price when it is nonzero, the input rate otherwise; no
+  listed cache-read price is 0. Endpoints of one host at one price are one
+  row.
+- A run that appends bumps `PARSER_VERSION` to one past whatever
+  `backend/constants.py` holds — never a literal — in the same commit: a
+  record at or after the detection time that was ingested before the
+  commit reached the deploy was priced at the old rate. It also moves
+  `provider_rates_fetched`. A run that appends nothing writes nothing.
+- Ambiguity is a red run, never a guess. These exit nonzero and write
+  nothing: a host listing one model at two prices with no pinned
+  resolution in `openrouter.<model>.resolve` (a `match` of rate values
+  naming the endpoint to take, and a `why`), a pin no listed price
+  matches, an unrecognised response shape, a tracked model with no
+  endpoints, and a detection time not after a row's newest entry. The fix
+  is a human decision recorded as data.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 

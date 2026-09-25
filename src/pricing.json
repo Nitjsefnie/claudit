@@ -381,6 +381,31 @@
       }
     ]
   },
+  "openrouter": {
+    "deepseek/deepseek-v4-1-flash": {
+      "id": "deepseek/deepseek-v4.1-flash",
+      "resolve": {
+        "BaseTen": {
+          "match": {
+            "read": 0.007
+          },
+          "why": "BaseTen lists this model on a global endpoint (cache read 0.007) and a US in-region one (0.03); the account's keys reach only the global data region."
+        }
+      }
+    },
+    "deepseek/deepseek-v4-flash": {
+      "id": "deepseek/deepseek-v4-flash"
+    },
+    "deepseek/deepseek-v4-flash-0731": {
+      "id": "deepseek/deepseek-v4-flash-0731"
+    },
+    "stealth/space-bunny-alpha": {
+      "id": "stealth/space-bunny-alpha"
+    },
+    "z-ai/glm-5-3-flash": {
+      "id": "z-ai/glm-5.3-flash"
+    }
+  },
   "provider_rates_fetched": "2026-09-24T22:03:13Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {

@@ -1,0 +1,154 @@
+name: refresh-pricing
+
+# The automated half of SV-RATE-REFRESH: re-fetch OpenRouter's per-provider
+# prices for every model src/pricing.json tracks, and when a price moved or a
+# host appeared, commit the appended entries straight to master.
+#
+# DETECTION TIME IS THE EFFECTIVE TIME. A moved price is appended as a new
+# entry effective from the moment this run saw it, never back-dated, so the
+# cadence is the precision: hourly means a price is right to within the hour.
+# Scheduled runs are dropped or delayed often enough that the same workflow
+# is also dispatched from outside every hour; a dispatched run takes no
+# inputs and behaves exactly like a scheduled one.
+#
+# WHAT COUNTS AS "MOVED" IS THE TWO DATA FILES. The script writes nothing
+# unless it appends: the fetch stamp in the JSON moves only with the data,
+# so a quiet hour leaves the tree clean and commits nothing.
+#
+# THE SUITE RUNS BEFORE THE COMMIT, NOT AFTER. A push made with the job token
+# starts no other workflow, so tests.yml never sees the bot's commit; the
+# suite here is the only check it gets. A red run leaves the last good data
+# on master.
+#
+# The script exits nonzero, writing nothing, on the designed signals: a host
+# listing one model at two prices with no pinned resolution in the JSON, a
+# pin no listed price matches any more, a response shape it does not
+# recognise, a tracked model with no endpoints (a broken fetch looks exactly
+# like that), or a detection time not after a row's newest entry. A red run
+# here means read that model's endpoints by hand and record the decision as
+# data, not retry.
+
+on:
+  schedule:
+    # Hourly, off the hour: the top of the hour is when every cron on GitHub
+    # fires at once and jobs queue.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # Never cancel in progress: a cancelled run can stop between the commit and
+  # the push. Scheduled and dispatched runs share the group, so two never
+  # append at once.
+  group: refresh-pricing
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    # A dispatch on another branch would push that branch's tree to master.
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # commits the data it fetches; nothing else is written
+
+    services:
+      postgres:
+        # Same service as tests.yml: fixtures createdb/dropdb per module.
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The push at the end uses an explicit remote URL instead, so the
+          # token never sits in .git/config for later steps to reuse.
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # No dependency cache: this job writes to master, and a cache any
+          # other workflow can populate is not an input it should trust.
+          python-version: "3.13"
+
+      - name: Fetch and append
+        # stdlib only: nothing is installed before the fetch, so a quiet hour
+        # costs one checkout and five requests.
+        run: |
+          python3 scripts/ci/refresh_provider_rates.py \
+            --commit-msg "$RUNNER_TEMP/commit-msg.txt" > "$RUNNER_TEMP/report.txt"
+          cat "$RUNNER_TEMP/report.txt"
+          {
+            echo '### OpenRouter provider rates'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/report.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Did anything move?
+        id: moved
+        run: |
+          if git diff --quiet -- src/pricing.json backend/constants.py; then
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install postgresql-client
+        if: steps.moved.outputs.moved == 'true'
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+
+      - name: Install dependencies
+        if: steps.moved.outputs.moved == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Wait for postgres
+        if: steps.moved.outputs.moved == 'true'
+        run: |
+          for _ in $(seq 1 30); do
+            pg_isready -q && exit 0
+            sleep 1
+          done
+          echo "postgres never became ready"; exit 1
+
+      - name: Run the suite against the new rates
+        if: steps.moved.outputs.moved == 'true'
+        run: python -m pytest tests/ -q --tb=short -ra
+
+      - name: Commit and push
+        if: steps.moved.outputs.moved == 'true'
+        # The message is the script's own report under a subject naming the
+        # counts. If master moved since checkout the push is refused and the
+        # next run starts again from the new master.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pricing.json backend/constants.py
+          git commit -F "$RUNNER_TEMP/commit-msg.txt"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" HEAD:master
