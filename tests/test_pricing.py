@@ -347,6 +347,69 @@ def test_provider_compute_cost_splits_at_the_cutover(
     assert (just_before, at) == (w.before["fresh"], w.after["fresh"])
 
 
+# --- OpenRouter variant suffixes fold to the bare id (issue 72) -------------
+# A variant suffix (:nitro, :floor) is a service tier, not a price: the
+# tiered id must resolve to the bare model's provider row, not fall to the
+# default estimate. Only :free changes price (zero), and resolve() prices
+# it before the provider lookup. Exercised through the synthetic provider
+# row, like every provider behaviour above.
+
+
+def test_nitro_variant_suffix_resolves_to_the_bare_provider_row(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(f"{w.model}:nitro", ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", w.model)
+    assert r.rates == w.after
+    assert r.rates != pricing.FREE_RATES
+
+
+def test_floor_variant_suffix_resolves_to_the_bare_provider_row(
+        synthetic_provider_dated_rate):
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(f"{w.model}:floor", ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", w.model)
+    assert r.rates == w.after
+    assert r.rates != pricing.FREE_RATES
+
+
+def test_free_suffix_keeps_its_zero_price_and_its_own_key(
+        synthetic_provider_dated_rate):
+    """The free match outranks the provider lookup, so a :free id returns
+    the free rates under its own key — the variant fold must not touch it."""
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(f"{w.model}:free", ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", f"{w.model}:free")
+    assert r.rates == pricing.FREE_RATES
+
+
+def test_variant_suffix_prices_by_the_bare_row_dated_window(
+        synthetic_provider_dated_rate):
+    """The fold looks up the bare row, so the record prices by that row's
+    windows and start: inside the window before the cutover, list from the
+    cutover on, and by the model alone before the row begins."""
+    w = synthetic_provider_dated_rate
+    model, host = f"{w.model}:nitro", w.host
+    assert pricing.rate_for(
+        model, ts=w.cutover - timedelta(seconds=1), provider=host) == w.before
+    assert pricing.rate_for(model, ts=w.cutover, provider=host) == w.after
+    r = pricing.resolve(model, ts=w.start - timedelta(seconds=1),
+                        provider=host)
+    assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
+
+
+def test_an_exact_variant_row_wins_over_the_bare_fold(
+        synthetic_provider_dated_rate, monkeypatch):
+    """The fold is a fallback: when the table holds the variant id itself,
+    that row is the match. Pins the candidate order (exact id first)."""
+    w = synthetic_provider_dated_rate
+    monkeypatch.setitem(pricing.PROVIDER_RATES,
+                        (f"{w.model}:nitro", w.host), w.after)
+    r = pricing.resolve(f"{w.model}:nitro", ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", f"{w.model}:nitro")
+    assert r.rates == w.after
+
+
 # --- resolution robustness -------------------------------------------------
 
 

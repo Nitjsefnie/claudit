@@ -888,3 +888,90 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
     assert cut in got, got
     assert start in got, got
     assert got == [start, cut], "the synthetic row is the only one"
+
+
+# --- a variant suffix folds to the bare id (issue 72) ------------------------
+# A variant suffix (:nitro, :floor) is a service tier, not a price: the
+# tiered id resolves to the bare model's row, exactly as pricing.
+# _provider_key resolves it. Only :free changes price (zero), and
+# resolveModelRate prices it before the provider lookup. Same synthetic
+# row, same assertions as tests/test_pricing.py, browser side.
+
+V_SUFFIXES = [":nitro", ":floor"]
+
+
+def _variant_row_doc() -> dict:
+    """The synthetic row, plus a row keyed by the variant id itself: the
+    fold must not shadow an exact (model, host) row when the table holds
+    one."""
+    doc = _provider_only_doc()
+    doc["providers"]["acme/acme-9:nitro"] = {"HostCo": [
+        {"from": P_START, **P_BEFORE},
+        {"from": P_CUT, **P_AFTER},
+    ]}
+    return doc
+
+
+def _variant_node(tmp_path, doc: dict, body: str):
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    return _node(tmp_path / "parser.js", body)
+
+
+@needs_node
+@pytest.mark.parametrize("suffix", V_SUFFIXES)
+def test_a_variant_suffix_resolves_to_the_bare_row_in_the_browser(
+        tmp_path, suffix):
+    got = _variant_node(tmp_path, _provider_only_doc(), f"""
+      console.log(JSON.stringify({{
+        variant: window.resolveModelRate(
+          'acme/acme-9{suffix}', {json.dumps(P_CUT)}, 'HostCo'),
+        free: window.resolveModelRate(
+          'acme/acme-9:free', {json.dumps(P_CUT)}, 'HostCo'),
+      }}));
+    """)
+    assert (got["variant"]["kind"], got["variant"]["key"]) == \
+        ("exact", "acme/acme-9")
+    assert _js_rates(got["variant"]["rates"]) == P_AFTER
+    assert _js_rates(got["variant"]["rates"]) != \
+        {f: 0.0 for f in RATE_FIELDS}
+    assert (got["free"]["kind"], got["free"]["key"]) == \
+        ("exact", "acme/acme-9:free")
+    assert _js_rates(got["free"]["rates"]) == {f: 0.0 for f in RATE_FIELDS}
+
+
+@needs_node
+@pytest.mark.parametrize("suffix", V_SUFFIXES)
+def test_a_variant_suffix_prices_by_the_bare_row_dated_window_in_the_browser(
+        tmp_path, suffix):
+    before_cut = _stamp(_at(P_CUT) - timedelta(seconds=1))
+    before_start = _stamp(_at(P_START) - timedelta(seconds=1))
+    got = _variant_node(tmp_path, _provider_only_doc(), f"""
+      console.log(JSON.stringify({{
+        before: window.resolveModelRate(
+          'acme/acme-9{suffix}', {json.dumps(before_cut)}, 'HostCo'),
+        at: window.resolveModelRate(
+          'acme/acme-9{suffix}', {json.dumps(P_CUT)}, 'HostCo'),
+        beforeStart: window.resolveModelRate(
+          'acme/acme-9{suffix}', {json.dumps(before_start)}, 'HostCo'),
+        fallback: window.resolveModelRate(
+          'acme/acme-9', {json.dumps(before_start)}),
+      }}));
+    """)
+    assert _js_rates(got["before"]["rates"]) == P_BEFORE
+    assert _js_rates(got["at"]["rates"]) == P_AFTER
+    assert got["beforeStart"] == got["fallback"]
+    assert (got["beforeStart"]["kind"], got["beforeStart"]["key"]) == \
+        ("default", None)
+
+
+@needs_node
+def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
+    """The fold is a fallback: when the table holds the variant id itself,
+    that row is the match. Pins the candidate order (exact id first)."""
+    got = _variant_node(tmp_path, _variant_row_doc(), f"""
+      console.log(JSON.stringify(window.resolveModelRate(
+        'acme/acme-9:nitro', {json.dumps(P_CUT)}, 'HostCo')));
+    """)
+    assert (got["kind"], got["key"]) == ("exact", "acme/acme-9:nitro")
+    assert _js_rates(got["rates"]) == P_AFTER
