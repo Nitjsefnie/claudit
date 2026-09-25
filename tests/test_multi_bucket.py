@@ -40,7 +40,7 @@ def _seed(root: Path, bucket: str, body: str) -> Path:
     d = root / bucket / "projS" / "sessS"
     d.mkdir(parents=True)
     f = d / "sessS.jsonl"
-    f.write_text(body)
+    f.write_text(body, newline="\n")
     return f
 
 
@@ -259,13 +259,13 @@ def _sidecar_app_fixture(fresh_db, tmp_path, monkeypatch):
     _seed(tmp_path, "alpha", _TX_A)
     sess = tmp_path / "alpha" / "projT" / "sessT"
     sess.mkdir(parents=True)
-    (sess / "sessT.jsonl").write_text(_TX_B)
+    (sess / "sessT.jsonl").write_text(_TX_B, newline="\n")
     (sess / "data").mkdir()
-    (sess / "data" / "ok.txt").write_text("alpha ok")
+    (sess / "data" / "ok.txt").write_text("alpha ok", newline="\n")
     beta_sess = tmp_path / "beta" / "projT" / "sessT"
     (beta_sess / "data").mkdir(parents=True)
-    (beta_sess / "data" / "ok.txt").write_text("beta ok")
-    (beta_sess / "data" / "x.txt").write_text("beta payload")
+    (beta_sess / "data" / "ok.txt").write_text("beta ok", newline="\n")
+    (beta_sess / "data" / "x.txt").write_text("beta payload", newline="\n")
 
     ingest.run_ingest(trigger="manual")
 
@@ -373,13 +373,14 @@ def test_lane_and_claude_projects_of_one_directory_merge_by_slug(
     monkeypatch.setenv("R2_BUCKET", "alpha+beta")
     claude = tmp_path / "alpha" / "-x-repo" / "sessC"
     claude.mkdir(parents=True)
-    (claude / "sessC.jsonl").write_text(_TX_A)
+    (claude / "sessC.jsonl").write_text(_TX_A, newline="\n")
     lane = tmp_path / "beta" / "sessions" / "8805b8ac99ad" / "sessD"
     lane.mkdir(parents=True)
     shutil.copy(_FIX_ROOT / "parser" / "codex_min.jsonl",
                 lane / "wire.jsonl")
     (tmp_path / "beta" / "sessions" / "8805b8ac99ad"
-     / "project.json").write_text(json.dumps({"path": "/x/repo"}))
+     / "project.json").write_text(json.dumps({"path": "/x/repo"}),
+                                  newline="\n")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None

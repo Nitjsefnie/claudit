@@ -18,6 +18,7 @@
 
 # ---- repository root ------------------------------------------------------
 !/.eslintrc.json
+!.gitattributes
 !/.gitignore
 !/.pylintrc
 !/AGENTS.md
