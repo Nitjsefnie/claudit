@@ -403,9 +403,9 @@ cells on a missing server.
 commits individually starts N CI runs; the intermediate ones tell you
 nothing, burn runner minutes, and the only result that matters is the
 tip. Commit as granularly as you like locally — then push once when the
-group is done. (`cancel-in-progress` on pull_request runs limits the
-damage by cancelling superseded runs; master pushes queue instead of
-cancelling each other, but the right fix is not generating them.)
+group is done. (`cancel-in-progress` limits the damage by cancelling
+superseded runs whole — pull requests and master pushes alike — but the
+right fix is not generating them.)
 
 **A branch without a PR is checked by dispatch.** A branch push no longer
 fires CI — only a `master` one does — so to check a working branch,

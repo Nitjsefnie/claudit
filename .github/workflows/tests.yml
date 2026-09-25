@@ -17,9 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A fresh push to a pull request cancels its superseded run; master
-  # pushes and scheduled/dispatch runs queue instead of cancelling each
-  # other — a master run is never cancelled.
+  # Only the standalone workflow_dispatch runs of this file land here
+  # now — a push or pull request is gated by ci-gate.yml, whose own
+  # concurrency group owns supersession for the aggregate. This group
+  # keeps dispatched runs of the same ref from overlapping.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
