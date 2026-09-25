@@ -33,7 +33,7 @@ def test_a_flip_back_to_recent_rates_is_reported_not_appended(tmp_path, capsys):
     is left for a human, since an hourly flip-flop would otherwise be
     appended on every change."""
     run = Run(tmp_path)
-    version = run.parser_version()
+    version = run.pricing_version()
     _alternating_row(run, "2030-12-28T00:00:00Z", "2030-12-31T00:00:00Z")
     before = run.snapshot()
     rc, out, _ = run(capsys)
@@ -43,7 +43,7 @@ def test_a_flip_back_to_recent_rates_is_reported_not_appended(tmp_path, capsys):
     assert "alternating price" in out
     assert f"{GLM} via OpenInference" in out
     assert "2030-12-28T00:00:00Z" in out
-    assert run.parser_version() == version, "no append, no bump"
+    assert run.pricing_version() == version, "no append, no bump"
 
 
 def test_a_genuine_move_still_appends(tmp_path, capsys):
@@ -52,12 +52,12 @@ def test_a_genuine_move_still_appends(tmp_path, capsys):
     moved = {**a, "output": a["output"] * 3}
     run.endpoint(GLM, "OpenInference")["pricing"]["completion"] = _per_token(
         moved["output"])
-    version = run.parser_version()
+    version = run.pricing_version()
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
     assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **moved}
-    assert run.parser_version() == version + 1, "a real move still bumps"
+    assert run.pricing_version() == version + 1, "a real move still bumps"
 
 
 def test_a_match_older_than_the_lookback_does_not_fire(tmp_path, capsys):

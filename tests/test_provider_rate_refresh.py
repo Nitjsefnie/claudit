@@ -137,16 +137,16 @@ def _payloads(doc: dict) -> dict:
 class Run:
     """One refresh run against a private copy of the two tracked files."""
 
-    def __init__(self, tmp_path: Path, parser_version: str | None = None):
+    def __init__(self, tmp_path: Path, pricing_version: str | None = None):
         self.pricing = tmp_path / "pricing.json"
         self.constants = tmp_path / "constants.py"
         self.pricing.write_text(json.dumps(
             _seeded(json.loads(PRICING_JSON.read_text(encoding="utf-8"))),
             indent=2, sort_keys=True) + "\n", encoding="utf-8")
         text = CONSTANTS_PY.read_text(encoding="utf-8")
-        if parser_version is not None:
-            text = re.sub(r'(?m)^PARSER_VERSION = "\d+"$',
-                          f'PARSER_VERSION = "{parser_version}"', text)
+        if pricing_version is not None:
+            text = re.sub(r'(?m)^PRICING_VERSION = "\d+"$',
+                          f'PRICING_VERSION = "{pricing_version}"', text)
         self.constants.write_text(text, encoding="utf-8")
         self.payloads = _payloads(self.doc())
         self.commit_msg = tmp_path / "commit-msg.txt"
@@ -170,8 +170,8 @@ class Run:
     def snapshot(self) -> tuple[bytes, bytes]:
         return self.pricing.read_bytes(), self.constants.read_bytes()
 
-    def parser_version(self) -> int:
-        m = re.search(r'(?m)^PARSER_VERSION = "(\d+)"$',
+    def pricing_version(self) -> int:
+        m = re.search(r'(?m)^PRICING_VERSION = "(\d+)"$',
                       self.constants.read_text(encoding="utf-8"))
         assert m
         return int(m.group(1))
@@ -244,18 +244,18 @@ def test_a_moved_price_appends_an_entry_from_the_detection_time(tmp_path, capsys
     assert "OpenInference" in out and "0.1 → 0.07" in out
 
 
-def test_a_run_that_appends_bumps_parser_version_relative_to_the_file(
+def test_a_run_that_appends_bumps_pricing_version_relative_to_the_file(
         tmp_path, capsys):
     """Current + 1, whatever the file holds when the run starts, so a manual
     bump landing first is never collided with. Only the version line moves:
     the bump writes no comment line, the history being the commit that
     carries the bump."""
-    run = Run(tmp_path, parser_version="73")
+    run = Run(tmp_path, pricing_version="73")
     _move_openinference(run)
     assert run(capsys)[0] == 0
-    assert run.parser_version() == 74
+    assert run.pricing_version() == 74
     text = run.constants.read_text(encoding="utf-8")
-    assert len(re.findall(r'(?m)^PARSER_VERSION = "\d+"$', text)) == 1
+    assert len(re.findall(r'(?m)^PRICING_VERSION = "\d+"$', text)) == 1
     assert not re.search(r"(?m)^# 74\b", text)
 
 
@@ -464,10 +464,10 @@ def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
 
 
 def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
-    """Every other move is committed, with the PARSER_VERSION bump; the
+    """Every other move is committed, with the PRICING_VERSION bump; the
     refused host's row is untouched; the run still exits nonzero, and both
     its report and the commit message name the refusal."""
-    run = Run(tmp_path, parser_version="73")
+    run = Run(tmp_path, pricing_version="73")
     before = run.doc()
     moved = _move_openinference(run)
     _two_global_novitas(run)
@@ -476,7 +476,7 @@ def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
     after = run.doc()
     assert after["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **moved}
     assert after["providers"][GLM]["Novita"] == before["providers"][GLM]["Novita"]
-    assert run.parser_version() == 74
+    assert run.pricing_version() == 74
     assert "OpenInference" in out and f"{GLM} via Novita" in out
     assert not re.search(r"vanished\s+Novita", out), "refused is not vanished"
     assert f"{GLM} via Novita" in err

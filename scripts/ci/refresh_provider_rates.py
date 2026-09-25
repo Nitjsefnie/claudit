@@ -4,8 +4,8 @@
 Fetches every tracked model's endpoints from OpenRouter's public API and
 APPENDS an entry, effective from the detection time, to each provider row
 whose price moved; a host seen for the first time gets a row that begins
-then. No existing entry is ever rewritten. A run that appends bumps
-PARSER_VERSION in backend/constants.py by one from whatever it holds, and
+then. No existing entry is ever rewritten. A run that appends bumps PRICING_VERSION
+(a reprice, never a reparse) in backend/constants.py by one from whatever it holds, and
 moves provider_rates_fetched; a run that appends nothing writes nothing.
 
 Only endpoints in the account's data region count (tag_region). A host's
@@ -58,7 +58,7 @@ PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
-_PARSER_VERSION = re.compile(r'^PARSER_VERSION = "(\d+)"$', re.MULTILINE)
+_PRICING_VERSION = re.compile(r'^PRICING_VERSION = "(\d+)"$', re.MULTILINE)
 # An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
 # and data regions. A region is one of these codes, alone or qualified by an
 # area and a number (us, us-east, us-east-1), in any case.
@@ -442,15 +442,15 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
     return result
 
 
-def bump_parser_version(text: str) -> str:
-    """PARSER_VERSION one past whatever the file holds, so a manual bump
+def bump_pricing_version(text: str) -> str:
+    """PRICING_VERSION one past whatever the file holds, so a manual bump
     that lands first is never collided with. Only the version line moves:
     constants.py carries the rule, the commits carry the history."""
-    found = _PARSER_VERSION.findall(text)
+    found = _PRICING_VERSION.findall(text)
     if len(found) != 1:
-        raise RefreshError("backend/constants.py: expected exactly one PARSER_VERSION line")
+        raise RefreshError("backend/constants.py: expected exactly one PRICING_VERSION line")
     version = int(found[0]) + 1
-    return _PARSER_VERSION.sub(f'PARSER_VERSION = "{version}"', text)
+    return _PRICING_VERSION.sub(f'PRICING_VERSION = "{version}"', text)
 
 
 def _move_text(move: Move) -> str:
@@ -515,7 +515,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
         result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
         constants = constants_path.read_text(encoding="utf-8")
         if result.moves:
-            constants = bump_parser_version(constants)
+            constants = bump_pricing_version(constants)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
