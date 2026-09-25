@@ -127,6 +127,16 @@ def test_an_agent_type_only_sidecar_with_a_task_kind_is_not_a_candidate():
     assert out.get("teammate_name") is None
 
 
+def test_an_agent_type_only_sidecar_with_other_extra_keys_is_still_a_candidate():
+    """Keys the predicate does not name (a description, spawnDepth) do not
+    disqualify a candidate: only a name, a toolUseId, a taskKind or an
+    isFork marks a definite kind."""
+    sidecar = b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}'
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["teammate_name"] == "code-reviewer"
+    assert out["agent_type"] == "code-reviewer"
+
+
 def test_a_teammate_with_an_in_band_role_keeps_it():
     parsed = parse.parse_file(_MEMBER_KEY, _fixture("agent_attribution.jsonl"))
     out = agent_sidecar.apply_agent_sidecar(parsed, _TEAMMATE_SIDECAR, _MEMBER_KEY)
