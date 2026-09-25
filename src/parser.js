@@ -337,8 +337,10 @@ const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 // start/end that is a member of an object which is a direct ELEMENT of the
 // array that is the value of a "schedule" key is an HHMM position; a
 // fractional start anywhere else (a future openrouter.start, a window's
-// rates object) parses untouched. Malformed input bails the scan silently —
-// JSON.parse names that error.
+// rates object) parses untouched. A shape the scan cannot spell-check past
+// (a leading zero, a bare minus) bails it silently and JSON.parse names
+// that shape — but a malformed tail reached after an offense was already
+// collected throws the spelling error first.
 function _checkHhmmSpelling(text) {
   const offenses = [];
   let pos = 0;

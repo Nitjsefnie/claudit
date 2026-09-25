@@ -83,7 +83,7 @@ def _render(doc: dict, spelling: str | None = None) -> str:
     text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
     if spelling is not None:
         assert str(SENTINEL) in text, "no placeholder to spell"
-        text = text.replace(str(SENTINEL), spelling)
+        text = text.replace(str(SENTINEL), spelling, 1)
     return text
 
 
