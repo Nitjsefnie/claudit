@@ -247,13 +247,16 @@ def test_a_moved_price_appends_an_entry_from_the_detection_time(tmp_path, capsys
 def test_a_run_that_appends_bumps_parser_version_relative_to_the_file(
         tmp_path, capsys):
     """Current + 1, whatever the file holds when the run starts, so a manual
-    bump landing first is never collided with."""
+    bump landing first is never collided with. Only the version line moves:
+    the bump writes no comment line, the history being the commit that
+    carries the bump."""
     run = Run(tmp_path, parser_version="73")
     _move_openinference(run)
     assert run(capsys)[0] == 0
     assert run.parser_version() == 74
     text = run.constants.read_text(encoding="utf-8")
-    assert re.search(r"(?m)^# 74 .*\n(?:#.*\n)*PARSER_VERSION = \"74\"$", text)
+    assert len(re.findall(r'(?m)^PARSER_VERSION = "\d+"$', text)) == 1
+    assert not re.search(r"(?m)^# 74\b", text)
 
 
 def test_the_commit_message_names_the_counts_and_carries_the_report(
