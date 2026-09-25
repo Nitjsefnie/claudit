@@ -44,7 +44,8 @@ The rules that reject the most patches, in order:
 | Rule | What it forbids |
 |---|---|
 | `SV-COST-SPLIT` | Pricing a cache write at a single rate. 5m is 1.25x input, 1h is 2x. |
-| `SV-PARSER-SPEC` | Changing `backend/pricing.py` without mirroring `src/parser.js` (or vice versa). |
+| `SV-PARSER-SPEC` | Changing rate resolution in `backend/pricing.py` without mirroring `src/parser.js` (or vice versa). |
+| `SV-RATE-DATA` | A rate anywhere but `src/pricing.json`, or rewriting an entry of its history instead of appending one. |
 | `SV-DATED-RATES` | Pricing a record at "now" instead of the record's own timestamp. |
 | `SV-NO-LOCAL-UPLOAD` | Re-adding a file picker, drag-drop, or an upload endpoint. It was removed deliberately. |
 | `SV-FIXTURE-SIZE` | Committing large fixtures. Parser fixtures stay under 1 KB. |
@@ -150,10 +151,12 @@ data and never contacts R2.
 
 Two tests are worth knowing about before you touch pricing:
 
-- `tests/test_parser_js_mirror.py` drives the real `src/parser.js` through
-  `node` and asserts its rate table matches `backend/pricing.py` exactly.
-  Change one side only and this fails, by design. Skips if `node` is
-  absent — do not take a skip as a pass.
+- `tests/test_pricing_data.py` drives the real `src/parser.js` through
+  `node` and asserts it and `backend/pricing.py` price every row of
+  `src/pricing.json` exactly as the file says, either side of every
+  cutover. Change one side's resolution logic only and this fails, by
+  design. Skips its node cases if `node` is absent — do not take a skip
+  as a pass.
 - `tests/test_ingest.py::test_parallel_ingest_matches_sequential_exactly`
   ingests the same mirror at `INGEST_WORKERS=1` and `=8` and requires
   byte-identical output. If you touch ingest concurrency, this is the test
@@ -166,8 +169,9 @@ without the bump, stored `cost_usd` values keep the old rates and the
 dashboard silently mixes them. Mention the bump in your PR so deployers
 know a reparse is coming.
 
-Rates live in `backend/pricing.py` and are mirrored in `src/parser.js`.
-Both must change together.
+Rates live in `src/pricing.json`, which both `backend/pricing.py` and
+`src/parser.js` read. Record a price change by appending an entry to the
+row's history; never edit an existing one.
 
 ## House style
 

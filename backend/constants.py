@@ -90,8 +90,9 @@ VERSION = _read_version()
 # left every stored row at the old semantics with nothing to detect it, and a
 # deploy that never set the variable at all sat forever on the "1" default.
 #
-# BUMP THIS in the same commit as any change to parse.py semantics, to
-# pricing.py rates, or to the set of columns parse_file() emits.
+# BUMP THIS in the same commit as any change to parse.py semantics, to a
+# rate in src/pricing.json that reprices stored records, or to the set of
+# columns parse_file() emits.
 # Sequence continues the values previously carried in .env (last: 26);
 # 27 is the first code-owned value and forces the reparse that fills the
 # tool_uses failure/dispatch columns added alongside it. 28 adds the two
