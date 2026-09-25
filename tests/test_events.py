@@ -97,4 +97,4 @@ async def test_lifespan_keeps_shutdown_request_when_wait_times_out(monkeypatch):
     async with app_mod.lifespan(FastAPI()):
         pass
 
-    assert cleared == []
+    assert not cleared
