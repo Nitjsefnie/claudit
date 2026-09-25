@@ -334,11 +334,16 @@ def test_provider_row_before_its_start_prices_by_the_model_alone(
 def test_provider_compute_cost_splits_at_the_cutover(
         synthetic_provider_dated_rate):
     w = synthetic_provider_dated_rate
-    kw = dict(fresh=1_000_000, output=0, eph5=0, eph1h=0,
-              unsplit_create=0, read=0)
-    just_before = pricing.compute_cost(
-        w.model, ts=w.cutover - timedelta(seconds=1), provider=w.host, **kw)
-    at = pricing.compute_cost(w.model, ts=w.cutover, provider=w.host, **kw)
+
+    def cost(ts):
+        # Spelled out, not **kwargs: a dict[str, int] splat lets pyright
+        # bind an int to compute_cost's bool long_context and fails types.
+        return pricing.compute_cost(
+            w.model, fresh=1_000_000, output=0, eph5=0, eph1h=0,
+            unsplit_create=0, read=0, ts=ts, provider=w.host)
+
+    just_before = cost(w.cutover - timedelta(seconds=1))
+    at = cost(w.cutover)
     assert (just_before, at) == (w.before["fresh"], w.after["fresh"])
 
 
