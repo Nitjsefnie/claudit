@@ -2,7 +2,7 @@
 
 The rates themselves are data in src/pricing.json, which src/parser.js
 reads too (SV-RATE-DATA); this module loads it and resolves a record to
-its rates. Bump PARSER_VERSION when a change reprices stored records.
+its rates. Bump PRICING_VERSION when a change reprices stored records.
 
 Cache writes are split by TTL:
   5m write = 1.25x base input (column 'create_5m')

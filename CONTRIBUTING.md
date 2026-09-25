@@ -171,7 +171,7 @@ The rest need GitHub and run on their own:
 | `speed` | Runs the baseline's suite and yours on the same runner, interleaved in pairs after a discarded warm-up round, and fails if the median of the paired ratios says the tests present in both got more than 30% slower. The baseline is the last release on a master push and the branch's merge base on a pull request. A fork PR waits for a reviewer's approval before the benchmark runs (`fork-speed-benchmark` environment). |
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
-| `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
+| `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PRICING_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
 | `claim` | Lets a contributor without write access take an issue: comment `/claim` on an open, unassigned issue and the workflow assigns you; `/unclaim` and `/release` remove only your own assignment. Runs no repository code — it talks to the GitHub API only. See [Claiming an issue](#claiming-an-issue). |
 | `pr-gate` | Checks every non-draft PR's description against `.github/PULL_REQUEST_TEMPLATE.md` and requires a reference to an issue assigned to the PR's author. A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once the description is corrected. Never runs pull-request code. See [Pull requests](#pull-requests). |
 | `secrets` | gitleaks sweeps the full tree and the full git history for credentials — a digest-pinned binary under the default ruleset, findings redacted in the public log (commit + path + rule, never the matched string). Runs daily, because a push carrying `[skip ci]` or a commit that predates the workflow is scanned the next morning rather than never. Complements `scripts/secrecy-check.sh`, the local literal-based check for this repo's own known-sensitive strings. |
@@ -210,11 +210,16 @@ Two tests are worth knowing about before you touch pricing:
 
 ## If you change how cost is computed
 
-Bump `PARSER_VERSION`, the code constant in `backend/constants.py`, in
-the same commit as the change. Every file reparses on the next ingest;
-without the bump, stored `cost_usd` values keep the old rates and the
-dashboard silently mixes them. Mention the bump in your PR so deployers
-know a reparse is coming.
+Which constant you bump depends on what changed. A cost-only change —
+the rates in `src/pricing.json`, or how they are applied — bumps
+`PRICING_VERSION`, the code constant in `backend/constants.py`, in the
+same commit: the next ingest reprices stored `cost_usd` from each
+record's own stored columns, with no reparse and no R2 fetch (see
+SV-REPRICE). A change to parser semantics bumps `PARSER_VERSION`
+instead, and every file reparses on the next ingest. Without the
+matching bump, stored rows keep the old numbers and the dashboard
+silently mixes them. Mention the bump in your PR so deployers know a
+reprice or reparse is coming.
 
 Rates live in `src/pricing.json`, which both `backend/pricing.py` and
 `src/parser.js` read. Record a price change by appending an entry to the

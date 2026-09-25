@@ -63,8 +63,9 @@ correct multiplier:
   `src/app.jsx` — or a breakdown stops summing to its stored total.
 
 Single-rate `cache_create` cost is BANNED. If a rate change reprices
-stored records, also bump `PARSER_VERSION` in `backend/constants.py` so the
-next ingest reparses every session.
+stored records, bump `PRICING_VERSION` in `backend/constants.py` so the
+next ingest reprices them in place — no reparse, no R2 fetch
+(SV-REPRICE).
 
 ## Backend is the ONLY load path (SV-NO-LOCAL-UPLOAD)
 
@@ -520,12 +521,19 @@ picker and show an outlier as a trend. The data is for querying:
 
 ## The parser version is code, never the environment (SV-PARSER-VERSION)
 
-`constants.PARSER_VERSION` is the ONLY switch that forces a reparse, and
-it lives in code so the bump travels in the same commit as the change
-that needs it. It used to be `os.environ.get("PARSER_VERSION", "1")`,
-which let a parser change ship while every stored row stayed on the old
-semantics with nothing to detect the drift. Do not reintroduce an env
-override.
+`constants.PARSER_VERSION` invalidates stored PARSE results: bumping it
+reparses every stored file, each object fetched from R2 again. It lives
+in code so the bump travels in the same commit as the change that needs
+it. It used to be `os.environ.get("PARSER_VERSION", "1")`, which let a
+parser change ship while every stored row stayed on the old semantics
+with nothing to detect the drift. Do not reintroduce an env override.
+
+Stored PRICES are invalidated by a second switch,
+`constants.PRICING_VERSION`: bumping it reprices every stale record in
+place from its stored token columns — batched, the same
+`pricing.compute_cost` the parser runs, no R2 fetch (SV-REPRICE). A
+rate-data change bumps PRICING_VERSION; a parse-semantics change bumps
+PARSER_VERSION. Neither is an env var.
 
 ## Rates are a function of (model, timestamp) (SV-DATED-RATES)
 
@@ -538,10 +546,11 @@ record's own `ts`; omitting `ts` yields LIST price (conservative — never
 silently applies a discount).
 
 A window (a superseded history entry) is NEVER dropped once it has
-expired. Every `PARSER_VERSION`
-bump reparses the whole bucket, and a record from inside the window must
-come out at the price in force then; removing the window reprices that
-history at list on the next reparse, silently. The machinery is also
+expired. Every `PRICING_VERSION` bump reprices every record from its
+stored columns through these windows (SV-REPRICE), and a record from
+inside the window must come out at the price in force then; removing the
+window silently reprices that history at list on the next reprice. The
+machinery is also
 tested through the `synthetic_dated_rate` fixture in `tests/conftest.py`
 rather than only the live entries, so the path cannot rot whenever the
 table happens to be empty.
@@ -582,7 +591,9 @@ applies until its successor's `from` — the SV-DATED-RATES window shape.
 So a price change is recorded by APPENDING `{"from": T, ...}`; an existing
 entry is never edited or removed, except when a seeded entry misstates the
 price it records. That correction happens only in a human commit that
-bumps `PARSER_VERSION`, since it reprices stored records. Both loaders
+bumps `PRICING_VERSION`, which reprices stored records from their stored
+columns — no reparse needed, since no stored token column changes. Both
+loaders
 refuse a file that breaks these rules, naming the row; the browser's
 refusal, like any failure to load the file, throws an error naming
 `pricing.json`.
@@ -681,7 +692,7 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
 - **Refused as not modelled.** An override kind the script does not model
   (a `min_prompt_tokens` tier, say) refuses its host. So does any other
   pricing key listed at a nonzero price, such as a per-request fee.
-- A run that appends bumps `PARSER_VERSION` to one past whatever
+- A run that appends bumps `PRICING_VERSION` to one past whatever
   `backend/constants.py` holds — never a literal — in the same commit: a
   record at or after the detection time that was ingested before the
   commit reached the deploy was priced at the old rate. It also moves
@@ -700,7 +711,7 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
   - a tracked model with no endpoints, or none in the data region.
 
   A refusal blocks only itself. Every other move is still appended,
-  tested and committed with the `PARSER_VERSION` bump, and then the run
+  tested and committed with the `PRICING_VERSION` bump, and then the run
   exits nonzero, so it is red and its summary names each refused host.
   A detection time not after a row's newest entry is the one refusal
   that writes nothing at all: the loaders refuse the whole file.
@@ -728,6 +739,25 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
 
   A resolution is never a price value: a pin on a price stops matching
   the moment that price moves.
+
+## The reprice pass recomputes stored prices in place (SV-REPRICE)
+
+`backend/ingest_reprice.py` recomputes rate-derived STORED state for
+records whose stored `pricing_version` differs from
+`constants.PRICING_VERSION` (NULL counts as stale). The recomputation
+reads stored columns only — the same `pricing.compute_cost` the parser
+runs, over each row's own tokens and `ts` — so a rate change never
+refetches R2. Rows update in batched transactions, and a stored
+version that parses as an int NEWER than the binary's own is skipped,
+never overwritten (issue #118 symmetry: an older binary must not
+clobber semantics it cannot reproduce). The pass runs in
+`_rebuild_derived_state` between suppression and the canonical pass,
+and a reparse stamps the current version at persist, so freshly parsed
+rows never reprice. No endpoint, panel or rollup reads
+`pricing_version` — the pass changes what the stored numbers SAY, not
+who serves them. `cost_usd` is the recomputed state today; a
+rate-derived flag (the Codex long-context meter,
+`records.long_context`) can ride the same staleness switch (see #194).
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
