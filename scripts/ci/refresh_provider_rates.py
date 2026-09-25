@@ -8,12 +8,14 @@ then. No existing entry is ever rewritten. A run that appends bumps
 PARSER_VERSION in backend/constants.py by one from whatever it holds, and
 moves provider_rates_fetched; a run that appends nothing writes nothing.
 
-Only endpoints in the account's data region count (tag_region). These
-refuse the host or model they concern, which appends nothing:
+Only endpoints in the account's data region count (tag_region). A host's
+weekly time-of-day prices (pricing.overrides) become its entry's schedule.
+These refuse the host or model they concern, which appends nothing:
 - a host with two endpoints in that region at different prices and no
   resolution for it (a tag, or "cheapest" of otherwise identical twins);
 - a resolution that no longer applies;
-- a response shape this script does not recognise;
+- a price or override kind this script does not model, or a response
+  shape it does not recognise;
 - a tracked model with no endpoints, or none in the region.
 
 Every other move is still written, then the script exits nonzero naming
@@ -47,7 +49,20 @@ CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
 _PARSER_VERSION = re.compile(r'^PARSER_VERSION = "(\d+)"$', re.MULTILINE)
-_REGION = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*")
+# An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
+# and data regions. A region is one of these codes, alone or qualified by an
+# area and a number (us, us-east, us-east-1), in any case.
+_REGIONS = ("us", "eu", "uk", "ca", "au", "ap", "jp", "sg", "in", "br", "de", "fr",
+            "nl", "kr", "cn", "hk", "tw", "me", "sa", "za", "asia", "apac", "emea",
+            "latam")
+_REGION = re.compile(rf"(?:{'|'.join(_REGIONS)})(?:-[a-z]+(?:-[0-9]+)?)?",
+                     re.IGNORECASE)
+_QUANTIZATIONS = frozenset({"fp4", "fp6", "fp8", "fp16", "fp32", "bf16", "nvfp4",
+                            "mxfp4", "int4", "int8", "awq", "gptq"})
+# The prices this script models. Any other pricing key listed at a nonzero
+# price (a per-request fee, an image price) refuses its host.
+_PRICED = ("prompt", "completion", "input_cache_read", "input_cache_write")
+_OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *_PRICED})
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
              "max_prompt_tokens")
 # Price order for "select": "cheapest": cache read, then input, then output.
@@ -57,7 +72,21 @@ Fetch = Callable[[str], object]
 
 
 class RefreshError(Exception):
-    """A run a human must look at: nothing is written."""
+    """A host, a model or a run a human must look at: it writes nothing."""
+
+
+@dataclass(frozen=True)
+class Listing:
+    """One listed endpoint, normalised to the table's shape."""
+    tag: str
+    identity: str
+    rates: dict
+    schedule: list | None
+    discount: Decimal
+
+    @property
+    def price(self) -> str:
+        return json.dumps([self.rates, self.schedule], sort_keys=True)
 
 
 @dataclass
@@ -66,8 +95,7 @@ class Move:
     model: str
     host: str
     old: dict | None
-    new: dict
-    discount: Decimal
+    new: Listing
 
 
 def fetch_endpoints(model_id: str) -> object:
@@ -95,80 +123,139 @@ def _per_million(price: object, where: str) -> float:
     return float(value.scaleb(6))
 
 
-def _endpoint(endpoint: object, where: str) -> tuple[str, "Listed"]:
-    """(host, listing) of one listed endpoint.
+def _is_zero(value: object) -> bool:
+    try:
+        return not isinstance(value, bool) and Decimal(str(value)) == 0
+    except InvalidOperation:
+        return False
 
-    The listed price already has any promotional discount applied; the
-    discount is kept only as the note beside it. Cache writes take the
-    listed write price when it is nonzero, the input rate otherwise.
-    """
-    if not (isinstance(endpoint, dict) and isinstance(endpoint.get("provider_name"), str)
-            and isinstance(endpoint.get("tag"), str)
-            and isinstance(endpoint.get("pricing"), dict)):
-        raise RefreshError(f"{where}: unrecognised endpoint shape")
-    price = endpoint["pricing"]
+
+def _rates(price: dict, where: str) -> dict:
+    """The five rates of one price. Cache writes take the listed write
+    price when it is nonzero, the input rate otherwise; no listed cache-read
+    price is 0."""
     fresh = _per_million(price.get("prompt"), where)
     output = _per_million(price.get("completion"), where)
     read = _per_million(price["input_cache_read"], where) if "input_cache_read" in price else 0.0
     write = (_per_million(price["input_cache_write"], where)
              if "input_cache_write" in price else 0.0)
+    create = write or fresh
+    return {"fresh": fresh, "create_5m": create, "create_1h": create,
+            "read": read, "output": output}
+
+
+def _schedule(price: dict, where: str) -> list | None:
+    """The entry schedule for OpenRouter's pricing.overrides: weekly UTC
+    windows (utc_days, utc_start/utc_end as HHMM), each with the prices it
+    overrides; a price it does not name is the endpoint's own."""
+    overrides = price.get("overrides")
+    if overrides is None or overrides == []:
+        return None
+    if not isinstance(overrides, list) or not all(isinstance(o, dict) for o in overrides):
+        raise RefreshError(f"{where}: pricing.overrides is not a list of windows")
+    schedule = []
+    for override in overrides:
+        unknown = set(override) - _OVERRIDE_KEYS
+        if unknown:
+            raise RefreshError(f"{where}: override kind not modelled: {sorted(unknown)}")
+        window: dict = {"rates": _rates({**{k: price[k] for k in _PRICED if k in price},
+                                         **{k: override[k] for k in _PRICED if k in override}},
+                                        where)}
+        if "utc_days" in override:
+            window["days"] = override["utc_days"]
+        if "utc_start" in override or "utc_end" in override:
+            window["start"] = override.get("utc_start")
+            window["end"] = override.get("utc_end")
+        schedule.append(window)
+    try:
+        pricing._schedule(schedule, where)  # pylint: disable=protected-access
+    except ValueError as exc:
+        raise RefreshError(f"{where}: pricing.overrides: {exc}") from exc
+    return schedule
+
+
+def _listing(endpoint: object, where: str) -> Listing:
+    """One listed endpoint. The listed price already has any promotional
+    discount applied; the discount is kept only as the note beside it."""
+    if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
+            and isinstance(endpoint.get("pricing"), dict)):
+        raise RefreshError(f"{where}: unrecognised endpoint shape")
+    price = endpoint["pricing"]
+    for key, value in price.items():
+        if key not in (*_PRICED, "discount", "overrides") and not _is_zero(value):
+            raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
             or not 0 <= discount < 1):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
-    create = write or fresh
-    rates = {"fresh": fresh, "create_5m": create, "create_1h": create,
-             "read": read, "output": output}
     # What tells two of one host's endpoints apart when the price does not.
     identity = json.dumps([endpoint.get(k) for k in _IDENTITY])
-    return endpoint["provider_name"], (endpoint["tag"], identity, rates,
-                                       Decimal(str(discount)))
+    return Listing(endpoint["tag"], identity, _rates(price, where),
+                   _schedule(price, where), Decimal(str(discount)))
 
 
 def tag_region(tag: str) -> str | None:
-    """The data region an endpoint tag names, or None for a global one.
-
-    OpenRouter tags an endpoint `host` or `host/<suffix>`. The suffixes seen
-    are quantizations (fp4, fp8, nvfp4) and regions (us); a region is a
-    two-letter code, optionally qualified (us, eu, us-east-1), a shape no
-    quantization suffix has.
-    """
-    _, slash, suffix = tag.rpartition("/")
-    return suffix if slash and _REGION.fullmatch(suffix) else None
+    """The data region an endpoint tag names, or None for a global one."""
+    for suffix in tag.split("/")[1:]:
+        if _REGION.fullmatch(suffix):
+            return suffix.lower()
+    return None
 
 
-Listed = tuple[str, str, dict, Decimal]    # tag, identity, rates, discount
-Price = tuple[dict, Decimal]                # rates, discount
+def _unknown_suffixes(tag: str) -> list[str]:
+    return [s for s in tag.split("/")[1:]
+            if not _REGION.fullmatch(s) and s.lower() not in _QUANTIZATIONS]
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
-                stored: dict[str, dict]) -> tuple[dict[str, Price], dict[str, str]]:
-    """Each host's one price for `model`, and each refused host's reason.
+                stored: dict[str, dict]
+                ) -> tuple[dict[str, Listing], dict[str, str], list[str]]:
+    """Each host's one listing for `model`, each refused host's reason, and
+    notices for a human that refuse nothing.
 
-    A host's endpoints outside the data `region` (None: global, untagged
-    by region) are not ones the account is billed by, unless the file pins
-    that host to a tag. Endpoints at one price are one row; several prices
-    left over need a resolution in the file, or that host is refused rather
-    than guessed. `stored` is each host's current rates, which is how a
-    price-order resolution sees its order flip.
+    Endpoints are grouped by host before any is read, so a malformed one
+    refuses its own host only. A host's endpoints outside the data `region`
+    (None: global, untagged by region) are not ones the account is billed
+    by, unless the file pins that host to a tag. Endpoints at one price are
+    one row; several prices left over need a resolution in the file, or
+    that host is refused rather than guessed. `stored` is each host's
+    current rates, which is how a price-order resolution sees its order.
     """
-    by_host: dict[str, list[Listed]] = {}
-    for i, endpoint in enumerate(_endpoints_of(model, payload)):
-        host, listing = _endpoint(endpoint, f"{model} endpoint {i}")
-        by_host.setdefault(host, []).append(listing)
-    rows, refused = {}, {}
-    for host, listed in by_host.items():
+    rows, refused, notices = {}, {}, []
+    for host, endpoints in _by_host(model, payload).items():
         try:
-            price = _host_price(f"{model} via {host}", listed, region,
-                                resolutions.get(host), stored.get(host))
+            chosen, host_notices = _host_row(f"{model} via {host}", endpoints, region,
+                                             resolutions.get(host), stored.get(host))
         except RefreshError as exc:
             refused[host] = str(exc)
             continue
-        if price is not None:
-            rows[host] = price
+        notices += host_notices
+        if chosen is not None:
+            rows[host] = chosen
     if not rows and not refused:
         raise RefreshError(f"{model}: no endpoint in the data region")
-    return rows, refused
+    return rows, refused, notices
+
+
+def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]:
+    """The payload's endpoints (with their index), grouped by host."""
+    by_host: dict[str, list[tuple[int, object]]] = {}
+    for i, endpoint in enumerate(_endpoints_of(model, payload)):
+        host = endpoint.get("provider_name") if isinstance(endpoint, dict) else None
+        if not isinstance(host, str):
+            raise RefreshError(f"{model} endpoint {i}: names no provider")
+        by_host.setdefault(host, []).append((i, endpoint))
+    return by_host
+
+
+def _host_row(where: str, endpoints: list[tuple[int, object]], region: str | None,
+              pin: object, stored: dict | None) -> tuple[Listing | None, list[str]]:
+    """One host's listing, and its notices; RefreshError refuses the host."""
+    listed = [_listing(e, f"{where} (endpoint {i})") for i, e in endpoints]
+    chosen, notice = _host_price(where, listed, region, pin, stored)
+    notices = [f"{where}: tag {tag!r} names neither a known region nor a quantization"
+               for tag in sorted({e.tag for e in listed if _unknown_suffixes(e.tag)})]
+    return chosen, notices + ([notice] if notice else [])
 
 
 def _endpoints_of(model: str, payload: object) -> list:
@@ -182,29 +269,29 @@ def _endpoints_of(model: str, payload: object) -> list:
     return endpoints
 
 
-def _host_price(where: str, listed: list[Listed], region: str | None, pin: object,
-                stored: dict | None) -> Price | None:
-    """A host's one price, or None when it lists nothing the account can use."""
+def _host_price(where: str, listed: list[Listing], region: str | None, pin: object,
+                stored: dict | None) -> tuple[Listing | None, str | None]:
+    """A host's one listing (None when it lists nothing the account can
+    use), and a notice when a price-order resolution may have switched."""
     override = _override(where, pin)
     if override.get("tag") is not None:
-        chosen = [e for e in listed if e[0] == override["tag"]]
+        chosen = [e for e in listed if e.tag == override["tag"]]
         if not chosen:
-            tags = ", ".join(sorted({e[0] for e in listed}))
+            tags = ", ".join(sorted({e.tag for e in listed}))
             raise RefreshError(f"{where}: pinned tag {override['tag']!r} is not listed "
                                f"({tags})")
         listed = chosen
     else:
-        listed = [e for e in listed if tag_region(e[0]) == region]
-    prices = list({json.dumps(rates, sort_keys=True): (rates, discount)
-                   for _, _, rates, discount in reversed(listed)}.values())
+        listed = [e for e in listed if tag_region(e.tag) == region]
+    prices = list({e.price: e for e in reversed(listed)}.values())
     if len(prices) > 1 and override.get("select") == "cheapest":
-        return _cheapest(where, listed, prices, stored)
+        return _cheapest(where, prices, stored)
     if len(prices) > 1:
-        tags = ", ".join(sorted({tag or "(untagged)" for tag, _, _, _ in listed}))
+        tags = ", ".join(sorted({e.tag or "(untagged)" for e in listed}))
         raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
                            f"{len(prices)} different prices; resolve it in "
                            "openrouter.models.<model>.resolve")
-    return prices[0] if prices else None
+    return (prices[0] if prices else None), None
 
 
 def _override(where: str, pin: object) -> dict:
@@ -221,8 +308,8 @@ def _override(where: str, pin: object) -> dict:
                        f"'cheapest' (with a 'why'), never a price: {pin!r}")
 
 
-def _cheapest(where: str, listed: list[Listed], prices: list[Price],
-              stored: dict | None) -> Price:
+def _cheapest(where: str, prices: list[Listing],
+              stored: dict | None) -> tuple[Listing, str | None]:
     """The cheaper of endpoints that differ in nothing but price, ordered by
     cache read, then input, then output.
 
@@ -230,43 +317,63 @@ def _cheapest(where: str, listed: list[Listed], prices: list[Price],
     row tracks is the one still listed at the row's price. When that one is
     no longer the cheaper, the order has flipped and a human must look; an
     equal order between different prices is refused the same way.
+
+    A rise is reported, not refused. The tracked twin moving above the
+    other looks exactly like the other becoming the row's price, and since
+    the other was the dearer one, that always shows as the row's price
+    rising (unless the other fell at the same time). No data can tell it
+    from a genuine rise.
     """
-    if len({identity for _, identity, _, _ in listed}) > 1:
+    if len({e.identity for e in prices}) > 1:
         raise RefreshError(f"{where}: 'cheapest' applies only to endpoints identical "
                            "in tag, quantization and limits; these differ")
-    ranked = sorted(prices, key=lambda p: [p[0][f] for f in _ORDER])
-    if [ranked[0][0][f] for f in _ORDER] == [ranked[1][0][f] for f in _ORDER]:
+    ranked = sorted(prices, key=lambda e: [e.rates[f] for f in _ORDER])
+    chosen, other = ranked[0], ranked[1]
+    if [chosen.rates[f] for f in _ORDER] == [other.rates[f] for f in _ORDER]:
         raise RefreshError(f"{where}: a tie in price order between different prices")
-    if stored is not None and any(rates == stored for rates, _ in ranked[1:]):
+    if stored is not None and any(e.rates == stored for e in ranked[1:]):
         raise RefreshError(f"{where}: the price order flipped: the endpoint at the "
                            "row's price is no longer the cheaper")
-    return ranked[0]
+    notice = None
+    if stored is not None and [chosen.rates[f] for f in _ORDER] > [stored[f] for f in _ORDER]:
+        moved = ", ".join(f"{f} {stored[f]!r} → {chosen.rates[f]!r}"
+                          for f in _ORDER if chosen.rates[f] != stored[f])
+        notice = (f"possible twin switch: {where}: the price rose ({moved}); the other "
+                  f"twin is at {', '.join(f'{f} {other.rates[f]!r}' for f in _ORDER)}. "
+                  "Check which endpoint the row tracks")
+    return chosen, notice
 
 
-def _entry(stamp: str, rates: dict, discount: Decimal) -> dict:
-    entry = {"from": stamp, **rates}
-    if discount:
-        entry["note"] = f"{format((discount * 100).normalize(), 'f')}% off"
+def _entry(stamp: str, listing: Listing) -> dict:
+    entry = {"from": stamp, **listing.rates}
+    if listing.discount:
+        entry["note"] = _discount_note(listing.discount)
+    if listing.schedule:
+        entry["schedule"] = listing.schedule
     return entry
 
 
-def _append(model: str, hosts: dict, rows: dict[str, tuple[dict, Decimal]],
-            stamp: str) -> list[Move]:
-    """Append each moved price to its row, and start a row for each new
-    host, in place; the moves made."""
+def _discount_note(discount: Decimal) -> str:
+    return f"{format((discount * 100).normalize(), 'f')}% off"
+
+
+def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str) -> list[Move]:
+    """Append each moved price (a rate or the schedule, compared as a
+    whole) to its row, and start a row for each new host, in place; the
+    moves made."""
     moves = []
-    for host, (rates, discount) in rows.items():
+    for host, listing in rows.items():
         history = hosts.get(host)
         if history is None:
-            hosts[host] = [_entry(stamp, rates, discount)]
-            moves.append(Move(model, host, None, rates, discount))
+            hosts[host] = [_entry(stamp, listing)]
+            moves.append(Move(model, host, None, listing))
             continue
         newest = history[-1]
-        if all(newest[field] == rates[field] for field in RATE_FIELDS):
+        if ({f: newest[f] for f in RATE_FIELDS} == listing.rates
+                and newest.get("schedule") == listing.schedule):
             continue
-        history.append(_entry(stamp, rates, discount))
-        moves.append(Move(model, host, {f: newest[f] for f in RATE_FIELDS},
-                          rates, discount))
+        history.append(_entry(stamp, listing))
+        moves.append(Move(model, host, newest, listing))
     return moves
 
 
@@ -281,11 +388,12 @@ def _fetch(fetch: Fetch, model: str, source: object) -> object:
 
 def data_region(config: object) -> str | None:
     """openrouter.data_region: "global" (None: endpoints no region tag
-    names) or the region code whose tagged endpoints the account uses."""
+    names) or the lowercase region code whose tagged endpoints the account
+    uses."""
     region = config.get("data_region") if isinstance(config, dict) else None
     if region == "global":
         return None
-    if isinstance(region, str) and _REGION.fullmatch(region):
+    if isinstance(region, str) and region == region.lower() and _REGION.fullmatch(region):
         return region
     raise RefreshError(f"openrouter.data_region {region!r} is neither 'global' "
                        "nor a region code")
@@ -300,40 +408,47 @@ def _sources(doc: dict) -> tuple[dict, str | None]:
     return tracked, data_region(config)
 
 
-def refresh(doc: dict, fetch: Fetch, stamp: str
-            ) -> tuple[dict, list[Move], list[tuple[str, str]], list[str]]:
-    """The file with every move appended, the moves, the vanished hosts,
-    and each refusal. A refused host, or a refused model, blocks only
-    itself: its rows are left untouched and every other move stands."""
+@dataclass
+class Result:
+    """A run's outcome: the file it would write, and what it reports."""
+    doc: dict
+    moves: list[Move]
+    vanished: list[tuple[str, str]]
+    refusals: list[str]
+    notices: list[str]
+
+
+def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
+    """The file with every move appended, and what the run reports. A
+    refused host, or a refused model, blocks only itself: its rows are left
+    untouched and every other move stands."""
     tracked, region = _sources(doc)
-    new_doc = copy.deepcopy(doc)
-    moves: list[Move] = []
-    vanished: list[tuple[str, str]] = []
-    refusals: list[str] = []
+    result = Result(copy.deepcopy(doc), [], [], [], [])
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at.
-        hosts = new_doc["providers"].setdefault(model, {})
+        hosts = result.doc["providers"].setdefault(model, {})
         try:
-            rows, refused = listed_rows(
+            rows, refused, notices = listed_rows(
                 model, _fetch(fetch, model, source), region, source.get("resolve", {}),
                 {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()})
         except RefreshError as exc:
-            refusals.append(str(exc))
+            result.refusals.append(str(exc))
             continue
-        refusals += refused.values()
-        moves += _append(model, hosts, rows, stamp)
-        vanished += [(model, host) for host in hosts
-                     if host not in rows and host not in refused]
-    if moves:
-        new_doc["provider_rates_fetched"] = stamp
+        result.refusals += refused.values()
+        result.notices += notices
+        result.moves += _append(model, hosts, rows, stamp)
+        result.vanished += [(model, host) for host in hosts
+                            if host not in rows and host not in refused]
+    if result.moves:
+        result.doc["provider_rates_fetched"] = stamp
     # The loaders' own rules, run on what would be written: among them, a
     # detection time not after a row's newest entry.
     try:
-        pricing.load_tables(new_doc)
+        pricing.load_tables(result.doc)
     except ValueError as exc:
         raise RefreshError(f"the refreshed file would not load: {exc}") from exc
-    return new_doc, moves, vanished, refusals
+    return result
 
 
 def bump_parser_version(text: str, stamp: str) -> str:
@@ -350,40 +465,45 @@ def bump_parser_version(text: str, stamp: str) -> str:
         f'PARSER_VERSION = "{version}"', text)
 
 
-def _rates_text(rates: dict) -> str:
-    return ", ".join(f"{field} {rates[field]!r}" for field in RATE_FIELDS)
+def _move_text(move: Move) -> str:
+    new = move.new
+    off = f" ({_discount_note(new.discount)})" if new.discount else ""
+    windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
+    if move.old is None:
+        rates = ", ".join(f"{f} {new.rates[f]!r}" for f in RATE_FIELDS)
+        return f"  new       {move.host}: {rates}{windows}{off}"
+    moved = [f"{f} {move.old[f]!r} → {new.rates[f]!r}"
+             for f in RATE_FIELDS if move.old[f] != new.rates[f]]
+    if move.old.get("schedule") != new.schedule:
+        moved.append(f"schedule of {len(move.old.get('schedule') or [])} → "
+                     f"{len(new.schedule or [])} windows")
+    return f"  changed   {move.host}: {', '.join(moved)}{off}"
 
 
-def report(stamp: str, moves: list[Move], vanished: list[tuple[str, str]],
-           tracked: dict, refusals: list[str]) -> str:
+def report(stamp: str, result: Result, tracked: dict) -> str:
     lines = [f"OpenRouter provider rates, detected {stamp}"]
-    if not moves:
+    if not result.moves:
         lines.append("no rate moved")
     for model, source in tracked.items():
-        section = []
-        for move in (m for m in moves if m.model == model):
-            off = f" ({_entry('', {}, move.discount)['note']})" if move.discount else ""
-            if move.old is None:
-                section.append(f"  new       {move.host}: {_rates_text(move.new)}{off}")
-            else:
-                moved = ", ".join(f"{f} {move.old[f]!r} → {move.new[f]!r}"
-                                  for f in RATE_FIELDS if move.old[f] != move.new[f])
-                section.append(f"  changed   {move.host}: {moved}{off}")
-        section += [f"  vanished  {host} (row kept)" for m, host in vanished if m == model]
+        section = [_move_text(m) for m in result.moves if m.model == model]
+        section += [f"  vanished  {host} (row kept)"
+                    for m, host in result.vanished if m == model]
         if section:
             lines += ["", f"{model} ({source['id']})", *section]
-    if refusals:
-        lines += ["", "refused, rows left untouched:", *(f"  {r}" for r in refusals)]
+    if result.refusals:
+        lines += ["", "refused, rows left untouched:", *(f"  {r}" for r in result.refusals)]
+    if result.notices:
+        lines += ["", "notices:", *(f"  {n}" for n in result.notices)]
     return "\n".join(lines)
 
 
-def commit_message(moves: list[Move], vanished: list[tuple[str, str]],
-                   refusals: list[str], body: str) -> str:
-    changed = sum(1 for m in moves if m.old is not None)
+def commit_message(result: Result, body: str) -> str:
+    changed = sum(1 for m in result.moves if m.old is not None)
+    added = len(result.moves) - changed
     counts = [f"{changed} changed" if changed else "",
-              f"{len(moves) - changed} new" if len(moves) > changed else "",
-              f"{len(vanished)} vanished" if vanished else "",
-              f"{len(refusals)} refused" if refusals else ""]
+              f"{added} new" if added else "",
+              f"{len(result.vanished)} vanished" if result.vanished else "",
+              f"{len(result.refusals)} refused" if result.refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
@@ -404,26 +524,25 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
     args = _arguments(argv)
     stamp = detection_stamp(now or datetime.now(timezone.utc))
     try:
-        new_doc, moves, vanished, refusals = refresh(
-            json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
+        result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
         constants = constants_path.read_text(encoding="utf-8")
-        if moves:
+        if result.moves:
             constants = bump_parser_version(constants, stamp)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    body = report(stamp, moves, vanished, new_doc["openrouter"]["models"], refusals)
+    body = report(stamp, result, result.doc["openrouter"]["models"])
     print(body)
-    if moves and not args.dry_run:
-        pricing_path.write_text(json.dumps(new_doc, indent=2, sort_keys=True) + "\n",
+    if result.moves and not args.dry_run:
+        pricing_path.write_text(json.dumps(result.doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
         if args.commit_msg:
-            args.commit_msg.write_text(commit_message(moves, vanished, refusals, body),
-                                       encoding="utf-8")
+            args.commit_msg.write_text(commit_message(result, body), encoding="utf-8")
     # Every other move is written; the run is still red, so a human sees it.
-    if refusals:
-        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals), file=sys.stderr)
+    if result.refusals:
+        print("\n".join(f"refresh_provider_rates: {r}" for r in result.refusals),
+              file=sys.stderr)
         return 1
     return 0
 

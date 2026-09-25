@@ -157,7 +157,11 @@ VERSION = _read_version()
 # sidecar's name goes to files.teammate_name, the dispatch's `name` to
 # tool_uses.dispatch_name, and the role is joined from the lead's
 # dispatch; the bump reparses every file so both columns are filled.
-PARSER_VERSION = "60"
+# 61 prices DeepSeek's and Alibaba's OpenRouter rows by their weekly UTC
+# schedules (pricing.overrides): their seeded rows held the off-peak price
+# for every hour; the bump reparses every file so peak-hour records take
+# the peak price.
+PARSER_VERSION = "61"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from

@@ -3,14 +3,15 @@ per rate epoch. With dated rates, re-deriving one rate for a range that
 straddles a cutover makes the buckets disagree with the authoritative
 SUM(cost_usd) they claim to decompose.
 """
+import json
 from datetime import datetime, timedelta, timezone
 
-import psycopg
 import pytest
 
 from backend import pricing
-from backend.db import sql_text
 from backend.api_common import epoch_ts, fold_per_model, rate_epoch_sql
+from backend.db import sql_text
+from tests import scratch_db
 
 UTC = timezone.utc
 
@@ -75,16 +76,22 @@ def test_epoch_sql_collapses_to_a_constant_when_no_rates_are_dated(monkeypatch):
 
 
 def test_epoch_sql_binds_every_live_rate_boundary():
-    # The live windows: the GLM-5.3-Flash promotion cutover plus the two
-    # GPT-5.6 repricings ported from codexmeter. Each boundary is bound as
-    # a parameter, one CASE per boundary.
+    """Each boundary the file carries is bound as a parameter, one CASE per
+    boundary. Derived from the file, provider windows and row starts
+    included, because the scheduled refresh appends boundaries: a literal
+    list here would fail the first commit it makes."""
     expr, params = rate_epoch_sql("ts")
-    assert params == [
+    assert params == sorted(
+        {end for w in pricing.DATED_RATES.values() for end, _ in w}
+        | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
+        | set(pricing.PROVIDER_STARTS.values()))
+    assert expr.count("CASE") == len(params)
+    # The model rows' own boundaries, which no refresh touches, are there.
+    assert {
         datetime(2026, 7, 30, 18, 12, tzinfo=UTC),   # GPT-5.6 JUL30_CUT
         datetime(2026, 8, 21, 19, 40, tzinfo=UTC),   # GPT-5.6 AUG21_CUT
         datetime(2026, 9, 9, 16, 0, tzinfo=UTC),     # GLM promo cutover
-    ]
-    assert expr.count("CASE") == 3
+    } <= set(params)
 
 
 def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
@@ -102,7 +109,7 @@ def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
     probes = [(e + d, i + (d >= timedelta(0)))
               for i, e in enumerate(epochs) for d in (-tick, timedelta(0), tick)]
     probes += [(epoch_ts(i), i) for i in range(201)]
-    with psycopg.connect("postgresql:///postgres") as conn:
+    with scratch_db.admin_connection() as conn:
         got = conn.execute(
             sql_text(f"SELECT {expr} FROM unnest(%s::timestamptz[]) WITH ORDINALITY"
                      " AS v(ts, n) ORDER BY n"),
@@ -185,3 +192,56 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry():
     assert m["cost_total"] == pytest.approx(stored_lc + stored_flat)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
     assert m["cost_buckets"]["fresh"] == pytest.approx(stored_lc + stored_flat)
+
+
+def _schedule_novita(monkeypatch, schedule):
+    """Give GLM's Novita row a weekly schedule, through the real loader."""
+    doc = json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))
+    doc["providers"]["z-ai/glm-5-3-flash"]["Novita"][-1]["schedule"] = schedule
+    for name, value in pricing.load_tables(doc).items():
+        monkeypatch.setattr(pricing, name, value)
+
+
+HALF = {"fresh": 0.066, "create_5m": 0.066, "create_1h": 0.066,
+        "read": 0.0132, "output": 0.22}
+
+
+@pytest.mark.parametrize("schedule", [
+    pytest.param([{"start": 1400, "end": 0, "rates": HALF}], id="uniform-scaling"),
+    pytest.param([{"start": 1400, "end": 0, "rates": {**HALF, "output": 0.9}}],
+                 id="uneven"),
+])
+def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule):
+    """A fold row is summed over records priced in different windows, and
+    re-derives at one representative time. A scheduled row's buckets take
+    their split from those rates and are scaled to the row's stored total:
+    the total is always exact, and the split is exact whenever every window
+    scales all five rates alike."""
+    _schedule_novita(monkeypatch, schedule)
+    model, host = "z-ai/glm-5.3-flash", "Novita"
+    peak = datetime(2031, 1, 6, 9, tzinfo=UTC)
+    off_peak = datetime(2031, 1, 6, 20, tzinfo=UTC)
+    tokens = {"fresh": 1_000_000, "output": 500_000, "read": 2_000_000}
+    stored = sum(pricing.compute_cost(model, fresh=tokens["fresh"], output=tokens["output"],
+                                      eph5=0, eph1h=0, unsplit_create=0,
+                                      read=tokens["read"], ts=ts, provider=host)
+                 for ts in (peak, off_peak))
+    row = (model, host, len(pricing.RATE_EPOCHS), False, 2, 2 * tokens["fresh"], 0,
+           2 * tokens["read"], 2 * tokens["output"], 0, 0, stored)
+    got = fold_per_model([row])[0]["cost_buckets"]
+    assert sum(got.values()) == pytest.approx(stored)
+    if schedule[0]["rates"] == HALF:
+        want = {f: sum(pricing.rate_for(model, ts, host)[r] * tokens[t] / 1e6
+                       for ts in (peak, off_peak))
+                for f, r, t in (("fresh", "fresh", "fresh"), ("read", "read", "read"),
+                                ("output", "output", "output"))}
+        for field, value in want.items():
+            assert got[field] == pytest.approx(value)
+
+
+def test_a_schedule_adds_no_rate_epoch(monkeypatch):
+    """Time-of-day windows repeat every week; they are not epochs, and the
+    epoch list is exactly what it was without them."""
+    before = list(pricing.RATE_EPOCHS)
+    _schedule_novita(monkeypatch, [{"days": ["saturday"], "rates": HALF}])
+    assert pricing.RATE_EPOCHS == before

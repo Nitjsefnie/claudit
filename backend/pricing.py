@@ -67,6 +67,12 @@ RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 Windows = list[tuple[datetime, dict]]
 
 
+# One window of a weekly UTC schedule: (days or None for every day, start
+# HHMM or None for the whole day, end HHMM, rates). See _schedule.
+ScheduleWindow = tuple[frozenset[str] | None, int | None, int | None, dict]
+_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
 class RateTables(TypedDict):
     """load_tables' result, keyed by the module attribute each value binds."""
     MODEL_RATES: dict[str, dict]
@@ -74,6 +80,7 @@ class RateTables(TypedDict):
     PROVIDER_RATES: dict[tuple[str, str], dict]
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
+    PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
 
@@ -106,8 +113,52 @@ def _is_rate(value: object) -> bool:
             and math.isfinite(value) and value >= 0)
 
 
-def _history(entries: list[dict], where: str,
-             may_begin: bool = False) -> tuple[dict, Windows, datetime | None]:
+def _hhmm(value: object, at: str) -> int:
+    if (isinstance(value, int) and not isinstance(value, bool)
+            and 0 <= value <= 2359 and value % 100 < 60):
+        return value
+    raise ValueError(f"{at}: {value!r} is not an HHMM time from 0 to 2359")
+
+
+def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
+    """A provider entry's weekly UTC schedule, checked. Mirrored by
+    parser.js's _checkSchedule.
+
+    Each window is {days?, start?, end?, rates}: `days` a list of distinct
+    lowercase weekday names (absent: every day), `start`/`end` HHMM times,
+    both or neither (absent: the whole day), end-exclusive and wrapping
+    past midnight when start > end.
+    """
+    if not isinstance(schedule, list) or not schedule:
+        raise ValueError(f"{at}: schedule is not a non-empty list of windows")
+    out: list[ScheduleWindow] = []
+    for j, window in enumerate(schedule):
+        w = f"{at}.schedule[{j}]"
+        if (not isinstance(window, dict) or "rates" not in window
+                or set(window) - {"days", "start", "end", "rates"}):
+            raise ValueError(f"{w}: a window is {{days?, start?, end?, rates}}")
+        rates = window["rates"]
+        if (not isinstance(rates, dict) or set(rates) != set(RATE_FIELDS)
+                or not all(_is_rate(rates[f]) for f in RATE_FIELDS)):
+            raise ValueError(f"{w}: rates are not the five finite non-negative rates")
+        days = window.get("days")
+        if days is not None and not (
+                isinstance(days, list) and days and all(d in _DAYS for d in days)
+                and len(set(days)) == len(days)):
+            raise ValueError(f"{w}: days {days!r} are not distinct weekday names")
+        if ("start" in window) != ("end" in window):
+            raise ValueError(f"{w}: start and end come together")
+        start = _hhmm(window["start"], w) if "start" in window else None
+        end = _hhmm(window["end"], w) if "end" in window else None
+        if start is not None and start == end:
+            raise ValueError(f"{w}: start equals end")
+        out.append((frozenset(days) if days else None, start, end,
+                    {f: rates[f] for f in RATE_FIELDS}))
+    return out
+
+
+def _history(entries: list[dict], where: str, may_begin: bool = False
+             ) -> tuple[dict, Windows, datetime | None, dict[int, list[ScheduleWindow]]]:
     """A row's append-only history as (list rates, dated windows, start).
 
     Entries run oldest first; every ``from`` after the first is strictly
@@ -123,11 +174,16 @@ def _history(entries: list[dict], where: str,
     """
     rates: list[dict] = []
     starts: list[datetime] = []
+    schedules: dict[int, list[ScheduleWindow]] = {}
     for i, entry in enumerate(entries):
         at = f"{where}[{i}]"
-        fields = set(entry) - {"from", "note"}
+        fields = set(entry) - {"from", "note", "schedule"}
         if fields != set(RATE_FIELDS) or "from" not in entry:
             raise ValueError(f"{at}: fields {sorted(entry)}")
+        if "schedule" in entry:
+            if not may_begin:
+                raise ValueError(f"{at}: only a provider row carries a schedule")
+            schedules[i] = _schedule(entry["schedule"], at)
         bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
         if bad:
             raise ValueError(f"{at}: {bad} not a finite non-negative number")
@@ -148,7 +204,7 @@ def _history(entries: list[dict], where: str,
         raise ValueError(f"{where}: empty history")
     begin = entries[0]["from"] is not None
     return (rates[-1], list(zip(starts[begin:], rates[:-1])),
-            starts[0] if begin else None)
+            starts[0] if begin else None, schedules)
 
 
 def load_tables(doc: dict) -> RateTables:
@@ -156,16 +212,19 @@ def load_tables(doc: dict) -> RateTables:
     model_rates: dict[str, dict] = {}
     dated_rates: dict[str, Windows] = {}
     for key, entries in doc["models"].items():
-        model_rates[key], windows, _ = _history(entries, key)
+        model_rates[key], windows, _, _ = _history(entries, key)
         if windows:
             dated_rates[key] = windows
     provider_rates: dict[tuple[str, str], dict] = {}
     provider_dated: dict[tuple[str, str], Windows] = {}
     provider_starts: dict[tuple[str, str], datetime] = {}
+    provider_schedules: dict[tuple[str, str], dict[int, list[ScheduleWindow]]] = {}
     for model, hosts in doc["providers"].items():
         for host, entries in hosts.items():
-            provider_rates[model, host], windows, start = _history(
+            provider_rates[model, host], windows, start, schedules = _history(
                 entries, f"{model} via {host}", may_begin=True)
+            if schedules:
+                provider_schedules[model, host] = schedules
             if windows:
                 provider_dated[model, host] = windows
             if start is not None:
@@ -176,6 +235,7 @@ def load_tables(doc: dict) -> RateTables:
         "PROVIDER_RATES": provider_rates,
         "PROVIDER_DATED_RATES": provider_dated,
         "PROVIDER_STARTS": provider_starts,
+        "PROVIDER_SCHEDULES": provider_schedules,
         "PROVIDER_RATES_FETCHED": _instant(doc["provider_rates_fetched"],
                                            "provider_rates_fetched"),
         # Sorted boundaries where any rate changes. Read-time aggregation
@@ -206,6 +266,10 @@ PROVIDER_DATED_RATES = _TABLES["PROVIDER_DATED_RATES"]
 # The instant a provider row first applies, for a host first seen after the
 # table was seeded; before it, a record from that host prices by the model.
 PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
+# Weekly UTC schedules, per provider row, by the index of the history entry
+# that carries one. A schedule's windows are not rate epochs: see
+# SV-RATE-DATA for how the read-time fold treats a scheduled row.
+PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 
@@ -270,6 +334,10 @@ class Resolution:
     rates: dict
     kind: str
     key: str | None = None
+    # True when the rates came from a weekly schedule's window or default
+    # for this record's own time: a fold re-deriving cost at one
+    # representative time cannot reproduce them (SV-RATE-DATA).
+    scheduled: bool = False
 
     @property
     def estimated(self) -> bool:
@@ -332,6 +400,34 @@ def _in_window(windows: list | None, ts: datetime | None,
     return list_rates
 
 
+def _scheduled(schedule: list[ScheduleWindow], ts: datetime) -> dict | None:
+    """The first window `ts` falls in (by UTC weekday and HHMM), or None."""
+    ts = (ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts).astimezone(UTC)
+    day, hhmm = _DAYS[ts.weekday()], ts.hour * 100 + ts.minute
+    for days, start, end, rates in schedule:
+        if days is not None and day not in days:
+            continue
+        if (start is None or end is None or (start <= hhmm < end if start < end
+                                             else hhmm >= start or hhmm < end)):
+            return rates
+    return None
+
+
+def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, bool]:
+    """A provider row's rates at `ts`, and whether a schedule set them."""
+    windows = PROVIDER_DATED_RATES.get(pkey)
+    rates = _in_window(windows, ts, PROVIDER_RATES[pkey])
+    if ts is None:
+        return rates, False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    entry = sum(1 for end, _ in windows or [] if end <= ts)
+    schedule = PROVIDER_SCHEDULES.get(pkey, {}).get(entry)
+    if schedule is None:
+        return rates, False
+    return _scheduled(schedule, ts) or rates, True
+
+
 def _dated(key: str, ts: datetime | None) -> dict:
     return _in_window(DATED_RATES.get(key), ts, MODEL_RATES[key])
 
@@ -373,9 +469,8 @@ def resolve(model: str, ts: datetime | None = None,
         return Resolution(FREE_RATES, "exact", norm)
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
-        return Resolution(
-            _in_window(PROVIDER_DATED_RATES.get(pkey), ts, PROVIDER_RATES[pkey]),
-            "exact", pkey[0])
+        rates, scheduled = _provider_rates(pkey, ts)
+        return Resolution(rates, "exact", pkey[0], scheduled)
     key = _match_key(norm)
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)

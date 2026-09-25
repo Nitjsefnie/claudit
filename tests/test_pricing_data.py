@@ -11,7 +11,7 @@ import json
 import re
 import shutil
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -62,12 +62,22 @@ def _histories(doc: dict):
 
 def _in_force(history: list[dict], stamp: str | None) -> dict:
     """The rates the file itself says apply at `stamp`: the newest entry
-    whose `from` is not after it, or the newest entry when no stamp."""
+    whose `from` is not after it, or the newest entry when no stamp; within
+    it, the first schedule window the UTC weekday and HHMM fall in."""
     when = _when(stamp)
     current = history[0]
     for entry in history[1:]:
         if when is None or _at(entry["from"]) <= when:
             current = entry
+    if when is not None:
+        utc = when.astimezone(timezone.utc)
+        day, hhmm = utc.strftime("%A").lower(), utc.hour * 100 + utc.minute
+        for window in current.get("schedule", []):
+            start, end = window.get("start"), window.get("end")
+            if day in window.get("days", [day]) and (
+                    start is None or (start <= hhmm < end if start < end
+                                      else hhmm >= start or hhmm < end)):
+                return dict(window["rates"])
     return {f: current[f] for f in RATE_FIELDS}
 
 
@@ -579,3 +589,219 @@ def test_a_model_row_cannot_begin_at_a_time():
 def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
     error = _node_load(tmp_path, _model_row_beginning())
     assert error and "glm-5-3-flash[0]" in error, error
+
+
+# --- a provider entry may carry a weekly UTC schedule ------------------------
+# OpenRouter lists some hosts at time-of-day prices (pricing.overrides): a
+# default price, plus windows by UTC weekday and HHMM time. Both loaders
+# resolve a record by its UTC weekday and time: first matching window, else
+# the entry's default rates.
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+
+
+def _flat(fresh, read, output):
+    return {"fresh": fresh, "create_5m": fresh, "create_1h": fresh,
+            "read": read, "output": output}
+
+
+R_WEEKEND = _flat(0.1, 0.01, 0.4)
+R_NIGHT = _flat(0.2, 0.02, 0.8)
+R_WRAP = _flat(0.3, 0.03, 1.2)
+SCHEDULE = [
+    {"days": ["saturday", "sunday"], "rates": R_WEEKEND},
+    {"days": WEEKDAYS, "start": 0, "end": 100, "rates": R_NIGHT},
+    {"start": 2200, "end": 200, "rates": R_WRAP},
+]
+SCHEDULED = ("z-ai/glm-5-3-flash", "Novita")
+
+
+def _with_schedule(schedule=None) -> dict:
+    doc = copy.deepcopy(_doc())
+    model, host = SCHEDULED
+    doc["providers"][model][host][-1]["schedule"] = copy.deepcopy(
+        SCHEDULE if schedule is None else schedule)
+    return doc
+
+
+# 2031-01-06 is a Monday.
+SCHEDULE_CASES = [
+    ("2031-01-04T12:00:00Z", R_WEEKEND),     # Saturday, all day
+    ("2031-01-05T23:30:00Z", R_WEEKEND),     # Sunday: first match wins over wrap
+    ("2031-01-06T00:00:00Z", R_NIGHT),       # Monday 00:00, window start
+    ("2031-01-06T00:59:59Z", R_NIGHT),
+    ("2031-01-06T01:00:00Z", R_WRAP),        # night ends exclusive; wrap still open
+    ("2031-01-06T01:59:59Z", R_WRAP),
+    ("2031-01-06T02:00:00Z", None),          # wrap ends exclusive: default
+    ("2031-01-06T21:59:59Z", None),
+    ("2031-01-06T22:00:00Z", R_WRAP),        # wrap opens
+    ("2031-01-06T23:59:59Z", R_WRAP),
+    ("2031-01-07T00:30:00+02:00", R_WRAP),   # Monday 22:30 UTC
+    ("2031-01-10T23:59:59Z", R_WRAP),        # Friday night into Saturday
+    ("2031-01-11T00:00:00Z", R_WEEKEND),     # Saturday 00:00
+]
+
+
+@pytest.mark.parametrize("stamp, want", SCHEDULE_CASES)
+def test_a_scheduled_entry_prices_by_utc_weekday_and_time(monkeypatch, stamp, want):
+    model, host = SCHEDULED
+    default = {f: _doc()["providers"][model][host][-1][f] for f in RATE_FIELDS}
+    for name, value in pricing.load_tables(_with_schedule()).items():
+        monkeypatch.setattr(pricing, name, value)
+    assert pricing.rate_for("z-ai/glm-5.3-flash", _at(stamp), host) == (want or default)
+
+
+def test_a_scheduled_entry_prices_a_naive_timestamp_as_utc(monkeypatch):
+    for name, value in pricing.load_tables(_with_schedule()).items():
+        monkeypatch.setattr(pricing, name, value)
+    assert pricing.rate_for("z-ai/glm-5.3-flash", datetime(2031, 1, 4, 12),
+                            "Novita") == R_WEEKEND
+
+
+def test_a_scheduled_entry_with_no_timestamp_is_its_default(monkeypatch):
+    model, host = SCHEDULED
+    default = {f: _doc()["providers"][model][host][-1][f] for f in RATE_FIELDS}
+    for name, value in pricing.load_tables(_with_schedule()).items():
+        monkeypatch.setattr(pricing, name, value)
+    assert pricing.rate_for("z-ai/glm-5.3-flash", None, host) == default
+
+
+@needs_node
+def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
+    """Every hour of a week, one second either side of each window edge,
+    the midnight wrap and both weekend days."""
+    doc = _with_schedule()
+    start = _at("2031-01-06T00:00:00Z")
+    stamps = [_stamp(start + timedelta(minutes=30 * i)) for i in range(7 * 48)]
+    for day in range(8):
+        for hhmm in (0, 100, 200, 2200):
+            edge = start + timedelta(days=day - 1, hours=hhmm // 100)
+            stamps += [_stamp(edge + timedelta(seconds=s)) for s in (-1, 0, 1)]
+    model = "z-ai/glm-5.3-flash"
+    tables = pricing.load_tables(doc)
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    got = _node(tmp_path / "parser.js", f"""
+      const stamps = {json.dumps(stamps)};
+      console.log(JSON.stringify(stamps.map(
+        ts => window.rateForModel({json.dumps(model)}, ts, 'Novita'))));
+    """)
+    saved = {name: getattr(pricing, name) for name in tables}
+    try:
+        for name, value in tables.items():
+            setattr(pricing, name, value)
+        want = [pricing.rate_for(model, _at(s), "Novita") for s in stamps]
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+    assert [_js_rates(r) for r in got] == want
+    assert {json.dumps(w, sort_keys=True) for w in want} >= {
+        json.dumps(r, sort_keys=True) for r in (R_WEEKEND, R_NIGHT, R_WRAP)}
+
+
+SCHEDULE_DAMAGE = [
+    pytest.param([], id="empty"),
+    pytest.param([{"days": ["funday"], "rates": R_NIGHT}], id="unknown-day"),
+    pytest.param([{"days": [], "rates": R_NIGHT}], id="no-days"),
+    pytest.param([{"days": ["monday", "monday"], "rates": R_NIGHT}], id="repeated-day"),
+    pytest.param([{"start": 100, "rates": R_NIGHT}], id="start-without-end"),
+    pytest.param([{"start": 160, "end": 200, "rates": R_NIGHT}], id="minute-60"),
+    pytest.param([{"start": 2400, "end": 100, "rates": R_NIGHT}], id="hour-24"),
+    pytest.param([{"start": 100, "end": 100, "rates": R_NIGHT}], id="empty-window"),
+    pytest.param([{"start": "0100", "end": 200, "rates": R_NIGHT}], id="string-time"),
+    pytest.param([{"days": WEEKDAYS}], id="no-rates"),
+    pytest.param([{"rates": {**R_NIGHT, "read": "0.02"}}], id="string-rate"),
+    pytest.param([{"rates": R_NIGHT, "min_prompt_tokens": 1000}], id="unknown-key"),
+    pytest.param({"rates": R_NIGHT}, id="not-a-list"),
+]
+
+
+@pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
+def test_a_malformed_schedule_is_refused(schedule):
+    with pytest.raises(ValueError, match=r"z-ai/glm-5-3-flash via Novita\[\d+\]"):
+        pricing.load_tables(_with_schedule(schedule))
+
+
+@needs_node
+@pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
+def test_a_malformed_schedule_is_refused_in_the_browser(tmp_path, schedule):
+    error = _node_load(tmp_path, _with_schedule(schedule))
+    assert error and "z-ai/glm-5-3-flash via Novita[" in error, error
+
+
+def _model_schedule() -> dict:
+    doc = copy.deepcopy(_doc())
+    doc["models"]["glm-5-3-flash"][-1]["schedule"] = SCHEDULE
+    return doc
+
+
+def test_a_model_row_cannot_carry_a_schedule():
+    with pytest.raises(ValueError, match=r"glm-5-3-flash\[\d+\]"):
+        pricing.load_tables(_model_schedule())
+
+
+@needs_node
+def test_a_model_row_cannot_carry_a_schedule_in_the_browser(tmp_path):
+    error = _node_load(tmp_path, _model_schedule())
+    assert error and "glm-5-3-flash[" in error, error
+
+
+# --- a row that begins at a time, then moves ---------------------------------
+
+LATER = "2032-06-01T12:00:00Z"
+MOVED = {"create_1h": 0.4, "create_5m": 0.4, "fresh": 0.4, "output": 1.8, "read": 0.1}
+
+
+def _newcomer_then_moved() -> dict:
+    doc = _with_newcomer()
+    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"].append({"from": LATER, **MOVED})
+    return doc
+
+
+def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
+    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    before = _at(CUT) - timedelta(seconds=1)
+    fallback = pricing.resolve(model, before)
+    for name, value in pricing.load_tables(_newcomer_then_moved()).items():
+        monkeypatch.setattr(pricing, name, value)
+    assert {_at(CUT), _at(LATER)} <= set(pricing.RATE_EPOCHS)
+    assert pricing.resolve(model, before, host) == fallback
+    assert pricing.rate_for(model, _at(CUT), host) == NEWCOMER
+    assert pricing.rate_for(model, _at(LATER) - timedelta(seconds=1), host) == NEWCOMER
+    assert pricing.rate_for(model, _at(LATER), host) == MOVED
+    assert pricing.rate_for(model, None, host) == MOVED
+
+
+def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch):
+    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    for name, value in pricing.load_tables(_newcomer_then_moved()).items():
+        monkeypatch.setattr(pricing, name, value)
+    start = _at(CUT).replace(tzinfo=None)
+    assert pricing.resolve(model, start - timedelta(seconds=1), host).key != model.replace(".", "-")
+    assert pricing.rate_for(model, start, host) == NEWCOMER
+    assert pricing.rate_for(model, _at(LATER).replace(tzinfo=None), host) == MOVED
+
+
+@needs_node
+def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
+    doc = _newcomer_then_moved()
+    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    stamps = [_stamp(_at(CUT) - timedelta(seconds=1)), CUT,
+              _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    got = _node(tmp_path / "parser.js", f"""
+      console.log(JSON.stringify({json.dumps(stamps)}.map(
+        ts => window.resolveModelRate({json.dumps(model)}, ts, {json.dumps(host)}))));
+    """)
+    tables = pricing.load_tables(doc)
+    saved = {name: getattr(pricing, name) for name in tables}
+    try:
+        for name, value in tables.items():
+            setattr(pricing, name, value)
+        want = [pricing.resolve(model, _when(s), host) for s in stamps]
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+    assert [(g["kind"], _js_rates(g["rates"])) for g in got] == \
+        [(w.kind, w.rates) for w in want]

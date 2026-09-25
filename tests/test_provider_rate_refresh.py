@@ -1,8 +1,12 @@
 """SV-RATE-REFRESH: scripts/ci/refresh_provider_rates.py, driven by fixture
 endpoint payloads — never the network.
 
-The payloads are built from src/pricing.json itself, so "nothing moved"
-is the committed data exactly, and each test moves one thing.
+Every run starts from the SEEDED view of src/pricing.json: each provider row
+as it was seeded, before any refresh appended to it. The refresh only ever
+appends dated entries, so that view, and every price these tests move away
+from, is the same whatever the scheduled job has committed since. The
+payloads reproduce it, so "nothing moved" is exact, and each test moves one
+thing.
 """
 from __future__ import annotations
 
@@ -74,6 +78,33 @@ def _endpoint(host: str, rates: dict, discount: float = 0, tag: str = "") -> dic
     }
 
 
+def _seeded(doc: dict) -> dict:
+    """The file with every provider row cut back to its seeded entry, and
+    rows first seen by a refresh dropped."""
+    doc = copy.deepcopy(doc)
+    doc["providers"] = {
+        model: {host: history[:1] for host, history in hosts.items()
+                if history[0]["from"] is None}
+        for model, hosts in doc["providers"].items()}
+    doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
+    return doc
+
+
+def _overrides(schedule: list) -> list:
+    """An entry schedule as OpenRouter lists it (pricing.overrides)."""
+    out = []
+    for window in schedule:
+        override = {"prompt": _per_token(window["rates"]["fresh"]),
+                    "completion": _per_token(window["rates"]["output"]),
+                    "input_cache_read": _per_token(window["rates"]["read"])}
+        if "days" in window:
+            override["utc_days"] = window["days"]
+        if "start" in window:
+            override["utc_start"], override["utc_end"] = window["start"], window["end"]
+        out.append(override)
+    return out
+
+
 def _discount(entry: dict) -> float:
     m = re.fullmatch(r"(\d+(?:\.\d+)?)% off", entry.get("note", ""))
     return float(m.group(1)) / 100 if m else 0
@@ -88,6 +119,9 @@ def _payloads(doc: dict) -> dict:
     for key, hosts in doc["providers"].items():
         endpoints = [_endpoint(host, history[-1], _discount(history[-1]))
                      for host, history in hosts.items()]
+        for endpoint, history in zip(endpoints, hosts.values()):
+            if history[-1].get("schedule"):
+                endpoint["pricing"]["overrides"] = _overrides(history[-1]["schedule"])
         if key == V41:
             for endpoint in endpoints:
                 if endpoint["provider_name"] == "BaseTen":
@@ -106,7 +140,9 @@ class Run:
     def __init__(self, tmp_path: Path, parser_version: str | None = None):
         self.pricing = tmp_path / "pricing.json"
         self.constants = tmp_path / "constants.py"
-        shutil.copy(PRICING_JSON, self.pricing)
+        self.pricing.write_text(json.dumps(
+            _seeded(json.loads(PRICING_JSON.read_text(encoding="utf-8"))),
+            indent=2, sort_keys=True) + "\n", encoding="utf-8")
         text = CONSTANTS_PY.read_text(encoding="utf-8")
         if parser_version is not None:
             text = re.sub(r'(?m)^PARSER_VERSION = "\d+"$',
@@ -458,6 +494,14 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("tag, region", [
+    ("h/us/fp8", "us"),
+    ("h/fp8/eu", "eu"),
+    ("h/US", "us"),
+    ("h/Us-East-1", "us-east-1"),
+    ("h/us2", None),
+    ("h/ai", None),
+    ("h/xl", None),
+    ("h/us-fp8", None),
     ("sail-research/us", "us"),
     ("baseten/us", "us"),
     ("provider/eu", "eu"),

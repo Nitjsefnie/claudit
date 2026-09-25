@@ -186,12 +186,30 @@ def _accumulate_model_row(acc: dict, row, by_provider: bool) -> None:
     entry["turns"] += int(turns or 0)
     for field, value in tokens.items():
         entry[field] += value
-    entry["cost_total"] += float(row[11] or 0)
+    stored = float(row[11] or 0)
+    entry["cost_total"] += stored
+    _accumulate_row_buckets(entry, res, tokens, bool(long_context), stored)
+
+
+def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
+                            long_context: bool, stored: float) -> None:
+    """Price one fold row's tokens into the entry's buckets.
+
+    A scheduled row's records were priced by their own time of day, which
+    one representative time cannot reproduce: its buckets take their split
+    from these rates and are scaled to its stored total (SV-RATE-DATA).
+    """
+    target = {"_buckets": dict.fromkeys(entry["_buckets"], 0.0)} if res.scheduled else entry
     _accumulate_buckets(
-        entry, res.rates, tokens["fresh"], tokens["cache_create"],
+        target, res.rates, tokens["fresh"], tokens["cache_create"],
         tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
         max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
-        bool(long_context))
+        long_context)
+    if target is not entry:
+        derived = sum(target["_buckets"].values())
+        scale = stored / derived if derived else 1.0
+        for field, value in target["_buckets"].items():
+            entry["_buckets"][field] += value * scale
 
 
 def _fold(rows, by_provider: bool) -> list[dict]:
