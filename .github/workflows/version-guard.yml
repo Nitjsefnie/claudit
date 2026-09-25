@@ -21,13 +21,18 @@ name: version-guard
 # stale. The carve-out is keyed on author AND file shape, never on paths
 # alone, and PRs get none — the bot never opens PRs.
 #
-# NO PATHS FILTER on push, unlike most workflows here: the tag set
-# changes when a release lands, independently of any push, so even a
-# VERSION-less push is a fresh fact worth checking.
+# NO PATHS FILTER beyond the shared bot-commit exemption below: the tag
+# set changes when a release lands, independently of any push, so even a
+# VERSION-less push is a fresh fact worth checking. The one ignored path
+# is the CI ratchet's data file — the only thing the ratchet bot's
+# master commit touches, which says nothing about the tree VERSION and
+# must not start the guard (same exemption every other gate carries).
 
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - '.github/ci-thresholds.json'
   pull_request:
   workflow_dispatch:
 
