@@ -90,10 +90,18 @@ VERSION = _read_version()
 # left every stored row at the old semantics with nothing to detect it, and a
 # deploy that never set the variable at all sat forever on the "1" default.
 #
-# BUMP THIS in the same commit as any change to parse.py semantics, to a
-# rate in src/pricing.json that reprices stored records, or to the set of
-# columns parse_file() emits.
+# BUMP THIS in the same commit as any change to parse.py semantics or to
+# the set of columns parse_file() emits. A rate change in src/pricing.json
+# reprices stored records instead of reparsing them: bump PRICING_VERSION
+# below for that.
 PARSER_VERSION = "81"
+
+# The rate-data semantics version, stored per record: the ONLY switch
+# that forces a REPRICE, and a reprice never refetches R2 — the reprice
+# pass (issue #193) recomputes each stale row's cost_usd from its own
+# stored token columns. PARSER_VERSION bumps only for parser-semantics
+# changes from now on.
+PRICING_VERSION = "1"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
