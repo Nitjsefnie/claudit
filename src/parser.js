@@ -355,12 +355,27 @@ const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 
 const _FIELD_NAMES = Object.values(_RATE_FIELDS).sort().join();
 const _ratesOf = (entry) => Object.fromEntries(
   Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]]));
-// The one timestamp spelling both loaders accept. Mirrors pricing._INSTANT.
-const _INSTANT = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
+// The one timestamp spelling both loaders accept, every field in range.
+// Mirrors pricing._INSTANT. The instant is computed here, never by
+// Date.parse, which rolls 24:00 and 02-30 over where Python refuses them.
+const _INSTANT = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:Z|([+-])([0-9]{2}):([0-9]{2}))$/;
+function _instantMs(stamp) {
+  const m = typeof stamp === 'string' ? _INSTANT.exec(stamp) : null;
+  if (!m) return NaN;
+  const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
+  const [oh, om] = [Number(m[8] || 0), Number(m[9] || 0)];
+  const wall = new Date(0);
+  wall.setUTCFullYear(y, mo - 1, d);
+  wall.setUTCHours(h, mi, s, 0);
+  const inRange = y >= 1 && oh < 24 && om < 60
+    && wall.getUTCFullYear() === y && wall.getUTCMonth() === mo - 1 && wall.getUTCDate() === d
+    && wall.getUTCHours() === h && wall.getUTCMinutes() === mi && wall.getUTCSeconds() === s;
+  return inRange ? wall.getTime() - (m[7] === '-' ? -1 : 1) * (oh * 60 + om) * 60000 : NaN;
+}
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 // Refuses what pricing._history refuses, naming the row the same way.
-function _checkHistory(entries, where) {
+function _checkHistory(entries, where, mayBegin) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   entries.forEach((entry, i) => {
@@ -374,12 +389,14 @@ function _checkHistory(entries, where) {
     if ('note' in entry && typeof entry.note !== 'string') {
       throw _pricingError(`${at}: 'note' is not a string`);
     }
-    if ((entry.from === null) !== (i === 0)) {
-      throw _pricingError(`${at}: only the first entry has no 'from'`);
+    if (entry.from === null) {
+      if (i > 0) throw _pricingError(`${at}: only the first entry has no 'from'`);
+      return;
     }
-    if (entry.from === null) return;
-    const start = typeof entry.from === 'string' && _INSTANT.test(entry.from)
-      ? Date.parse(entry.from) : NaN;
+    if (i === 0 && !mayBegin) {
+      throw _pricingError(`${at}: this row cannot begin at a time; 'from' must be null`);
+    }
+    const start = _instantMs(entry.from);
     if (Number.isNaN(start)) {
       throw _pricingError(`${at}: ${JSON.stringify(entry.from)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
     }
@@ -392,13 +409,15 @@ function _checkHistory(entries, where) {
 
 // A row's append-only history, oldest first: the newest entry is the list
 // price, and each earlier one a window ending where its successor starts.
+// A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
-function _history(entries, where) {
-  _checkHistory(entries, where);
+function _history(entries, where, mayBegin = false) {
+  _checkHistory(entries, where, mayBegin);
   return {
     list: _ratesOf(entries[entries.length - 1]),
     windows: entries.slice(0, -1).map((entry, i) => (
-      { endExclusive: Date.parse(entries[i + 1].from), rates: _ratesOf(entry) })),
+      { endExclusive: _instantMs(entries[i + 1].from), rates: _ratesOf(entry) })),
+    start: entries[0].from === null ? null : _instantMs(entries[0].from),
   };
 }
 
@@ -414,20 +433,25 @@ for (const [key, entries] of Object.entries(_PRICING.models)) {
 // message.provider spelling).
 window.providerRates = {};
 window.providerDatedRates = {};
+window.providerStarts = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows } = _history(entries, `${model} via ${host}`);
+    const { list, windows, start } = _history(entries, `${model} via ${host}`, true);
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {
       (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
     }
+    if (start !== null) {
+      (window.providerStarts[model] = window.providerStarts[model] || {})[host] = start;
+    }
   }
 }
-window.rateEpochs = [...new Set(
-  [...Object.values(window.datedRates),
-   ...Object.values(window.providerDatedRates).flatMap(Object.values)]
+window.rateEpochs = [...new Set([
+  ...[...Object.values(window.datedRates),
+      ...Object.values(window.providerDatedRates).flatMap(Object.values)]
     .flat().map((w) => w.endExclusive),
-)].sort((a, b) => a - b);
+  ...Object.values(window.providerStarts).flatMap(Object.values),
+])].sort((a, b) => a - b);
 
 // Every rate an OpenRouter free model carries: zero. Returned for any id
 // ending in ':free' or starting with 'stealth/' — see _isFreeModel.
@@ -515,12 +539,17 @@ function _inWindow(windows, ts, listRates) {
 // OpenRouter's dated permaslug ('deepseek/deepseek-v4-flash-20260731') is
 // the same model as its slug ('deepseek/deepseek-v4-flash-0731'). Exact
 // match only, never _SNAPSHOT_SUFFIX: that would read the permaslug as the
-// UNDATED model. Mirrors pricing._provider_key.
+// UNDATED model. A row that begins at a time does not exist for a record
+// before it. Mirrors pricing._provider_key.
 const _PERMASLUG_DATE = /-20\d{2}(\d{4})$/;
-function _providerModelKey(norm, provider) {
+function _providerModelKey(norm, provider, ts) {
+  const t = _toMillis(ts);
   for (const m of [norm, norm.replace(_PERMASLUG_DATE, '-$1')]) {
     const hosts = window.providerRates[m];
-    if (hosts && Object.prototype.hasOwnProperty.call(hosts, provider)) return m;
+    if (hosts && Object.prototype.hasOwnProperty.call(hosts, provider)) {
+      const start = (window.providerStarts[m] || {})[provider];
+      return start !== undefined && t != null && t < start ? null : m;
+    }
   }
   return null;
 }
@@ -534,7 +563,7 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
   if (_isFreeModel(model, norm)) {
     return { rates: window.FREE_RATES, kind: 'exact', key: norm };
   }
-  const pkey = provider ? _providerModelKey(norm, provider) : null;
+  const pkey = provider ? _providerModelKey(norm, provider, ts) : null;
   if (pkey) {
     const windows = (window.providerDatedRates[pkey] || {})[provider];
     return { rates: _inWindow(windows, ts, window.providerRates[pkey][provider]),

@@ -73,21 +73,28 @@ class RateTables(TypedDict):
     DATED_RATES: dict[str, Windows]
     PROVIDER_RATES: dict[tuple[str, str], dict]
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
+    PROVIDER_STARTS: dict[tuple[str, str], datetime]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
 
 
-# The one timestamp spelling both loaders accept (src/parser.js checks the
-# same pattern): whole seconds and an explicit offset, so Python and the
-# browser can never read one string as two instants.
+# The one timestamp spelling both loaders accept: whole seconds and an
+# explicit offset, every field in range (year 1-9999, a real day of that
+# month, hour 0-23, minute and second 0-59, offset under 24:00 with minutes
+# 0-59). src/parser.js checks the same fields itself rather than trusting
+# Date.parse, which rolls 24:00 and 02-30 over where fromisoformat refuses
+# them, so Python and the browser can never read one string as two instants.
 _INSTANT = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:Z|[+-][0-9]{2}:[0-9]{2})")
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:Z|[+-][0-9]{2}:([0-9]{2}))")
 
 
 def _instant(stamp: object, where: str) -> datetime:
-    if isinstance(stamp, str) and _INSTANT.fullmatch(stamp):
+    m = _INSTANT.fullmatch(stamp) if isinstance(stamp, str) else None
+    # fromisoformat reads an offset of 14:60 as 15:00; the browser refuses it.
+    if m and int(m.group(1) or 0) < 60:
         try:
-            return datetime.fromisoformat(stamp)
+            return datetime.fromisoformat(m.group(0))
         except ValueError:
             pass
     raise ValueError(f"{where}: {stamp!r} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM")
@@ -99,15 +106,20 @@ def _is_rate(value: object) -> bool:
             and math.isfinite(value) and value >= 0)
 
 
-def _history(entries: list[dict], where: str) -> tuple[dict, Windows]:
-    """A row's append-only history as (list rates, dated windows).
+def _history(entries: list[dict], where: str,
+             may_begin: bool = False) -> tuple[dict, Windows, datetime | None]:
+    """A row's append-only history as (list rates, dated windows, start).
 
-    Entries run oldest first; the first has ``from: null`` and every later
-    one a strictly later ``from``. The newest entry is the list price, and
+    Entries run oldest first; every ``from`` after the first is strictly
+    later than the one before. The newest entry is the list price, and
     each earlier entry is a window ending where its successor starts —
     the shape DATED_RATES has always had, so appending an entry turns the
-    previous list price into a window without editing it. Mirrored by
-    parser.js's _checkHistory.
+    previous list price into a window without editing it.
+
+    The first entry's ``from`` is null — the row covers all of time —
+    unless `may_begin`, where it may instead name the instant the row
+    begins; start is that instant, else None. Mirrored by parser.js's
+    _checkHistory.
     """
     rates: list[dict] = []
     starts: list[datetime] = []
@@ -122,8 +134,10 @@ def _history(entries: list[dict], where: str) -> tuple[dict, Windows]:
         if not isinstance(entry.get("note", ""), str):
             raise ValueError(f"{at}: 'note' is not a string")
         stamp = entry["from"]
-        if (stamp is None) != (i == 0):
+        if stamp is None and i > 0:
             raise ValueError(f"{at}: only the first entry has no 'from'")
+        if stamp is not None and i == 0 and not may_begin:
+            raise ValueError(f"{at}: this row cannot begin at a time; 'from' must be null")
         if stamp is not None:
             start = _instant(stamp, at)
             if starts and start <= starts[-1]:
@@ -132,7 +146,9 @@ def _history(entries: list[dict], where: str) -> tuple[dict, Windows]:
         rates.append({f: entry[f] for f in RATE_FIELDS})
     if not rates:
         raise ValueError(f"{where}: empty history")
-    return rates[-1], list(zip(starts, rates[:-1]))
+    begin = entries[0]["from"] is not None
+    return (rates[-1], list(zip(starts[begin:], rates[:-1])),
+            starts[0] if begin else None)
 
 
 def load_tables(doc: dict) -> RateTables:
@@ -140,21 +156,26 @@ def load_tables(doc: dict) -> RateTables:
     model_rates: dict[str, dict] = {}
     dated_rates: dict[str, Windows] = {}
     for key, entries in doc["models"].items():
-        model_rates[key], windows = _history(entries, key)
+        model_rates[key], windows, _ = _history(entries, key)
         if windows:
             dated_rates[key] = windows
     provider_rates: dict[tuple[str, str], dict] = {}
     provider_dated: dict[tuple[str, str], Windows] = {}
+    provider_starts: dict[tuple[str, str], datetime] = {}
     for model, hosts in doc["providers"].items():
         for host, entries in hosts.items():
-            provider_rates[model, host], windows = _history(entries, f"{model} via {host}")
+            provider_rates[model, host], windows, start = _history(
+                entries, f"{model} via {host}", may_begin=True)
             if windows:
                 provider_dated[model, host] = windows
+            if start is not None:
+                provider_starts[model, host] = start
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
         "PROVIDER_RATES": provider_rates,
         "PROVIDER_DATED_RATES": provider_dated,
+        "PROVIDER_STARTS": provider_starts,
         "PROVIDER_RATES_FETCHED": _instant(doc["provider_rates_fetched"],
                                            "provider_rates_fetched"),
         # Sorted boundaries where any rate changes. Read-time aggregation
@@ -163,6 +184,7 @@ def load_tables(doc: dict) -> RateTables:
         "RATE_EPOCHS": sorted(
             {end for windows in dated_rates.values() for end, _ in windows}
             | {end for windows in provider_dated.values() for end, _ in windows}
+            | set(provider_starts.values())
         ),
     }
 
@@ -177,10 +199,13 @@ DATED_RATES = _TABLES["DATED_RATES"]
 # provider_name as the transcript's message.provider spells it. Rows come
 # from OpenRouter's endpoints API (/api/v1/models/<author>/<slug>/endpoints)
 # as of PROVIDER_RATES_FETCHED, host promotional discounts already applied
-# (an entry's note records one). Every endpoint lists cache_write 0, so both
-# create buckets carry the input rate.
+# (an entry's note records one); both create buckets carry the listed cache
+# write price when it is nonzero, the input rate otherwise.
 PROVIDER_RATES = _TABLES["PROVIDER_RATES"]
 PROVIDER_DATED_RATES = _TABLES["PROVIDER_DATED_RATES"]
+# The instant a provider row first applies, for a host first seen after the
+# table was seeded; before it, a record from that host prices by the model.
+PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 
@@ -316,15 +341,22 @@ def _dated(key: str, ts: datetime | None) -> dict:
 _PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
 
 
-def _provider_key(norm: str, provider: str) -> tuple[str, str] | None:
+def _provider_key(norm: str, provider: str,
+                  ts: datetime | None) -> tuple[str, str] | None:
     """The PROVIDER_RATES key for a record, or None.
 
     Exact on the normalised id, or on its permaslug folded to the slug.
     Never MODEL_RATES' snapshot-suffix tolerance: that would read the
     permaslug as the UNDATED model, a different row at a different price.
+    A row that begins at a time does not exist for a record before it.
     """
+    if ts is not None and ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
     for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm)):
         if (model, provider) in PROVIDER_RATES:
+            start = PROVIDER_STARTS.get((model, provider))
+            if start is not None and ts is not None and ts < start:
+                return None
             return model, provider
     return None
 
@@ -339,7 +371,7 @@ def resolve(model: str, ts: datetime | None = None,
     norm = _normalise(model)
     if _is_free(model, norm):
         return Resolution(FREE_RATES, "exact", norm)
-    pkey = _provider_key(norm, provider) if provider else None
+    pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
         return Resolution(
             _in_window(PROVIDER_DATED_RATES.get(pkey), ts, PROVIDER_RATES[pkey]),
