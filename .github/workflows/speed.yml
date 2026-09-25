@@ -231,7 +231,23 @@ jobs:
         if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         with:
           python-version: "3.13"
-          cache: pip
+
+      # The pip cache restores on every event but is saved only from a push
+      # of master: `cache: pip` saves in a post-job step that runs after the
+      # pull-request checkout, so untrusted code would write the cross-run
+      # cache a trusted run later installs from (issue #126). Both sides'
+      # requirements are already checked out here, so the key's hashFiles
+      # sees them; it changes whenever either side's pins move.
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('base/backend/requirements.txt', 'head/backend/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-3.13-
 
       - name: Install postgresql-client
         if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
@@ -255,6 +271,24 @@ jobs:
           done
           echo "base pins:"; "venv-base/bin/python" -m pip freeze | head -20
           echo "head pins:"; "venv-head/bin/python" -m pip freeze | head -20
+
+      # Saved here, not in a post-job step: the venv builds above populated
+      # the cache, and the gate keeps every event but a push of master from
+      # writing cross-run state (issue #126). The third clause skips the
+      # save when no measurement is armed (no release on a master push) —
+      # the install steps above were skipped too, so there is nothing to
+      # save and no pip cache directory to hold it.
+      - name: Save the pip cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/master'
+          && (steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != '')
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('base/backend/requirements.txt', 'head/backend/requirements.txt') }}
 
       - name: Wait for postgres
         if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''

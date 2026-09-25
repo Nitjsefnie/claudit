@@ -61,13 +61,40 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-          cache: pip
+
+      # The pip cache restores on every event but is saved only from a push
+      # of master: `cache: pip` saves in a post-job step that runs after the
+      # pull-request checkout, so untrusted code would write the cross-run
+      # cache a trusted run later installs from (issue #126).
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-3.13-
 
       - name: Install linters
         id: install
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      # Saved here, not in a post-job step: the install above populated the
+      # cache, and the gate keeps every event but a push of master from
+      # writing cross-run state (issue #126).
+      - name: Save the pip cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-dev.txt') }}
 
       - name: pylint
         run: git ls-files '*.py' | xargs pylint
