@@ -27,7 +27,7 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
-from backend.parse_common import _dispatch_prompt_shape
+from backend.parse_common import _dispatch_prompt_shape, iter_lines
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
@@ -848,10 +848,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
     _LineWalk.handle_rate_limit; the browser parser has a separate detector.
     """
     walk = _LineWalk(file_key)
-    # LF files can stream lines without copying the whole blob into a list.
-    # Preserve splitlines' CR/CRLF semantics for legacy or mixed endings.
-    lines = blob.splitlines() if b"\r" in blob else BytesIO(blob)
-    for line_num, raw in enumerate(lines, 1):
+    for line_num, raw in enumerate(iter_lines(blob), 1):
         if not raw:
             continue
         try:
