@@ -436,19 +436,43 @@ def _dated(key: str, ts: datetime | None) -> dict:
 # the same model as its short slug ("deepseek/deepseek-v4-flash-0731").
 _PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
 
+# OpenRouter's variant suffix (":nitro", ":floor") names a service tier,
+# not a price: the tiered id is the bare model at the bare model's price.
+# Only ":free" changes price (zero), and resolve() prices it before any
+# provider lookup — the guard here keeps a direct caller honest too.
+_VARIANT_SUFFIX = re.compile(r":([^:]*)$")
+
+
+def _variant_folded(norm: str) -> str:
+    """`norm` without ONE trailing ":<suffix>", when that suffix is not
+    "free" (case-insensitively); `norm` itself otherwise. Mirrored by
+    parser.js's _providerModelKey."""
+    m = _VARIANT_SUFFIX.search(norm)
+    if m is None or m.group(1).lower() == "free":
+        return norm
+    return norm[: m.start()]
+
 
 def _provider_key(norm: str, provider: str,
                   ts: datetime | None) -> tuple[str, str] | None:
     """The PROVIDER_RATES key for a record, or None.
 
-    Exact on the normalised id, or on its permaslug folded to the slug.
-    Never MODEL_RATES' snapshot-suffix tolerance: that would read the
-    permaslug as the UNDATED model, a different row at a different price.
-    A row that begins at a time does not exist for a record before it.
+    Exact on the normalised id, on its permaslug folded to the slug, or on
+    the id with ONE trailing variant suffix stripped: OpenRouter's variant
+    suffixes (":nitro", ":floor") are service tiers that do not change the
+    price, so a tiered id resolves to the bare model's row and prices at
+    the bare model's rate; only ":free" changes price (zero), and
+    resolve() prices it before this lookup — it never folds. The exact id
+    is tried first, so a table row spelled with the suffix still wins over
+    the fold. Never MODEL_RATES' snapshot-suffix tolerance: that would
+    read the permaslug as the UNDATED model, a different row at a
+    different price. A row that begins at a time does not exist for a
+    record before it.
     """
     if ts is not None and ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
-    for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm)):
+    for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm),
+                  _variant_folded(norm)):
         if (model, provider) in PROVIDER_RATES:
             start = PROVIDER_STARTS.get((model, provider))
             if start is not None and ts is not None and ts < start:

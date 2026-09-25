@@ -614,14 +614,23 @@ function _inWindow(windows, ts, listRates) {
 }
 
 // OpenRouter's dated permaslug ('deepseek/deepseek-v4-flash-20260731') is
-// the same model as its slug ('deepseek/deepseek-v4-flash-0731'). Exact
-// match only, never _SNAPSHOT_SUFFIX: that would read the permaslug as the
-// UNDATED model. A row that begins at a time does not exist for a record
-// before it. Mirrors pricing._provider_key.
+// the same model as its slug ('deepseek/deepseek-v4-flash-0731'), and a
+// variant suffix (':nitro', ':floor') names a service tier, not a price:
+// the tiered id resolves to the bare model's row. Exact match only, never
+// _SNAPSHOT_SUFFIX: that would read the permaslug as the UNDATED model.
+// Only ':free' changes price (zero), and resolveModelRate prices it
+// before this lookup — it never folds. The exact id is tried first, so a
+// table row spelled with the suffix still wins over the fold. A row that
+// begins at a time does not exist for a record before it. Mirrors
+// pricing._provider_key.
 const _PERMASLUG_DATE = /-20\d{2}(\d{4})$/;
+const _VARIANT_SUFFIX = /:([^:]*)$/;
 function _providerModelKey(norm, provider, ts) {
   const t = _toMillis(ts);
-  for (const m of [norm, norm.replace(_PERMASLUG_DATE, '-$1')]) {
+  const variant = _VARIANT_SUFFIX.exec(norm);
+  const bare = variant && variant[1].toLowerCase() !== 'free'
+    ? norm.slice(0, variant.index) : norm;
+  for (const m of [norm, norm.replace(_PERMASLUG_DATE, '-$1'), bare]) {
     const hosts = window.providerRates[m];
     if (hosts && Object.prototype.hasOwnProperty.call(hosts, provider)) {
       const start = (window.providerStarts[m] || {})[provider];
