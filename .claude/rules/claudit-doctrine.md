@@ -542,24 +542,29 @@ Every rate lives in `src/pricing.json`: `models` (normalised model key →
 history), `providers` (normalised model → provider → history) and
 `provider_rates_fetched`. `backend/pricing.py` and `src/parser.js` hold
 logic only and both read that file — the backend at import, the browser
-synchronously before first use (node `require`s it). It sits under `src/`
-because that is the directory the app serves to the browser. No rate
-literal belongs in either source file.
+synchronously before first use (node `require`s it). The browser fetches
+the URL `public/index.html` names in the parser.js tag's `data-pricing`,
+cache-busted like every `/src` asset. It sits under `src/` because that is
+the directory the app serves to the browser. No rate literal belongs in
+either source file.
 
 Each row's history is an append-only list, oldest first. Every entry
 carries the five rates (`fresh`, `create_5m`, `create_1h`, `read`,
-`output`) and an optional `note`; the first entry's `from` is `null`,
-every later one's a UTC ISO-8601 instant strictly after its
-predecessor's. The newest entry is the list price; each earlier entry
+`output`), each a finite non-negative number, and an optional string
+`note`. The first entry's `from` is `null`; every later one's is spelled
+exactly `YYYY-MM-DDTHH:MM:SS` followed by `Z` or `±HH:MM`, strictly after
+its predecessor's. The newest entry is the list price; each earlier entry
 applies until its successor's `from` — the SV-DATED-RATES window shape.
 So a price change is recorded by APPENDING `{"from": T, ...}`; an existing
-entry is never edited or removed. The loader refuses a history that
-breaks these rules.
+entry is never edited or removed. Both loaders refuse a file that breaks
+these rules, naming the row; the browser's refusal, like any failure to
+load the file, throws an error naming `pricing.json`.
 
 The file stays in the layout `json.dumps(doc, indent=2, sort_keys=True)`
 writes, so any writer reproduces it and a one-rate change is a one-line
-diff. File order carries no meaning: a model id resolves to the LONGEST
-matching key.
+diff. File order never decides which key a model id matches — the LONGEST
+matching key wins; it only breaks a family-fallback tie between equal
+versions, where the first key in file order wins.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 

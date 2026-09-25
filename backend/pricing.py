@@ -48,6 +48,7 @@ table existed.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -76,11 +77,26 @@ class RateTables(TypedDict):
     RATE_EPOCHS: list[datetime]
 
 
-def _instant(stamp: str, where: str) -> datetime:
-    when = datetime.fromisoformat(stamp)
-    if when.tzinfo is None:
-        raise ValueError(f"{where}: {stamp!r} carries no UTC offset")
-    return when
+# The one timestamp spelling both loaders accept (src/parser.js checks the
+# same pattern): whole seconds and an explicit offset, so Python and the
+# browser can never read one string as two instants.
+_INSTANT = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:Z|[+-][0-9]{2}:[0-9]{2})")
+
+
+def _instant(stamp: object, where: str) -> datetime:
+    if isinstance(stamp, str) and _INSTANT.fullmatch(stamp):
+        try:
+            return datetime.fromisoformat(stamp)
+        except ValueError:
+            pass
+    raise ValueError(f"{where}: {stamp!r} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM")
+
+
+def _is_rate(value: object) -> bool:
+    """A finite, non-negative number; a bool is not one."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
 
 
 def _history(entries: list[dict], where: str) -> tuple[dict, Windows]:
@@ -90,21 +106,28 @@ def _history(entries: list[dict], where: str) -> tuple[dict, Windows]:
     one a strictly later ``from``. The newest entry is the list price, and
     each earlier entry is a window ending where its successor starts —
     the shape DATED_RATES has always had, so appending an entry turns the
-    previous list price into a window without editing it.
+    previous list price into a window without editing it. Mirrored by
+    parser.js's _checkHistory.
     """
     rates: list[dict] = []
     starts: list[datetime] = []
     for i, entry in enumerate(entries):
+        at = f"{where}[{i}]"
         fields = set(entry) - {"from", "note"}
-        if fields != set(RATE_FIELDS):
-            raise ValueError(f"{where}[{i}]: fields {sorted(fields)}")
+        if fields != set(RATE_FIELDS) or "from" not in entry:
+            raise ValueError(f"{at}: fields {sorted(entry)}")
+        bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
+        if bad:
+            raise ValueError(f"{at}: {bad} not a finite non-negative number")
+        if not isinstance(entry.get("note", ""), str):
+            raise ValueError(f"{at}: 'note' is not a string")
         stamp = entry["from"]
         if (stamp is None) != (i == 0):
-            raise ValueError(f"{where}[{i}]: only the first entry has no 'from'")
+            raise ValueError(f"{at}: only the first entry has no 'from'")
         if stamp is not None:
-            start = _instant(stamp, f"{where}[{i}]")
+            start = _instant(stamp, at)
             if starts and start <= starts[-1]:
-                raise ValueError(f"{where}[{i}]: 'from' is not after the previous entry's")
+                raise ValueError(f"{at}: 'from' is not after the previous entry's")
             starts.append(start)
         rates.append({f: entry[f] for f in RATE_FIELDS})
     if not rates:
