@@ -33,10 +33,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import psycopg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-VIZ_DB = "claudit_smoke"
-AUTH_DB = "claudit_smoke_auth"
+sys.path.insert(0, str(REPO_ROOT))
+# Run-named like the suite's, so two smoke runs on one server never drop
+# each other's databases.
+from tests import scratch_db  # noqa: E402  # pylint: disable=wrong-import-position
+
+VIZ_DB = scratch_db.db_name("smoke")
+AUTH_DB = scratch_db.db_name("smoke_auth")
 
 # The mini mirror holds 2 projects / 4 sessions / 1 sidecar. Ingesting it
 # is a few hundred milliseconds, so a generous timeout here only ever
@@ -66,42 +72,20 @@ def psql(dbname: str, sql: str) -> None:
         )
 
 
-def psql_file(dbname: str, path: Path) -> None:
-    proc = subprocess.run(
-        ["psql", "--quiet", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
-         "-d", dbname, "-f", str(path)],
-        capture_output=True, text=True, check=False,
-    )
-    if proc.returncode != 0:
-        raise SmokeFailure(
-            f"applying {path.name} to {dbname!r} failed:\n{proc.stderr.strip()}"
-        )
-
-
-def recreate_database(dbname: str) -> None:
-    """Drop and create, so a rerun on a dirty runner starts clean."""
-    subprocess.run(["dropdb", "--if-exists", dbname],
-                   capture_output=True, text=True, check=False)
-    proc = subprocess.run(["createdb", dbname],
-                          capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise SmokeFailure(
-            f"createdb {dbname!r} failed:\n{proc.stderr.strip()}"
-        )
-
-
 def provision() -> None:
     """Both databases, in the shape db.schema_check() insists on."""
     log(f"creating {VIZ_DB} and applying backend/schema.sql")
-    recreate_database(VIZ_DB)
-    psql_file(VIZ_DB, REPO_ROOT / "backend" / "schema.sql")
+    try:
+        scratch_db.create_database("smoke")
+        scratch_db.create_database("smoke_auth", schema=None)
+    except (RuntimeError, psycopg.Error) as exc:
+        raise SmokeFailure(str(exc)) from exc
 
     # The auth DB is external in production and this repo owns no schema
     # for it. schema_check() requires exactly one thing — users.config as
     # JSONB — so that is exactly what gets built, and nothing more: a
     # richer fake would drift from the real table without anyone noticing.
-    log(f"creating {AUTH_DB} with the minimal users.config shape")
-    recreate_database(AUTH_DB)
+    log(f"giving {AUTH_DB} the minimal users.config shape")
     psql(AUTH_DB, "CREATE TABLE users (id BIGINT PRIMARY KEY, "
                   "config JSONB NOT NULL DEFAULT '{}'::jsonb)")
 
@@ -351,9 +335,7 @@ def main() -> int:
             return 1
 
     if not args.keep_databases:
-        for dbname in (VIZ_DB, AUTH_DB):
-            subprocess.run(["dropdb", "--if-exists", dbname],
-                           capture_output=True, text=True, check=False)
+        scratch_db.drop_run_databases()
 
     log("all checks passed")
     return 0

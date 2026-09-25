@@ -1,4 +1,4 @@
-"""The one place a test database name is made.
+"""The one place a test database is named, created or dropped.
 
 Every name is `claudit_test_run_<epoch>_<pid>_<hex>[_<label>]`, unique to
 this process, so two suites on one Postgres server never touch each
@@ -14,6 +14,7 @@ import re
 import secrets
 import subprocess
 import time
+from collections.abc import Collection
 from contextlib import closing
 from pathlib import Path
 
@@ -22,14 +23,23 @@ from psycopg import sql
 
 NAME_ROOT = "claudit_test"
 RUN_PREFIX = f"{NAME_ROOT}_run_"
-RUN_TAG = f"{int(time.time())}_{os.getpid()}_{secrets.token_hex(4)}"
 # A leftover younger than this may belong to a run still in progress.
 STALE_AFTER_S = 6 * 3600
 
-_SCHEMA = Path(__file__).resolve().parents[1] / "backend" / "schema.sql"
+SCHEMA = Path(__file__).resolve().parents[1] / "backend" / "schema.sql"
 _RUN_NAME = re.compile(
-    rf"^{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}}(?:_[a-z0-9_]+)?$")
+    rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"
+    r"(?:_[a-z0-9_]+)?$")
 _LABEL = re.compile(r"^[a-z0-9_]+$")
+
+
+def draw_run_tag() -> str:
+    return f"{int(time.time())}_{os.getpid()}_{secrets.token_hex(4)}"
+
+
+RUN_TAG = draw_run_tag()
+# The lease connection, once taken; see hold_run_lease.
+_lease: list[psycopg.Connection] = []
 
 
 def db_name(label: str = "") -> str:
@@ -46,9 +56,32 @@ def is_run_database(name: str) -> bool:
     return _RUN_NAME.match(name) is not None
 
 
-def admin_connection() -> psycopg.Connection:
-    return psycopg.connect("postgresql:///postgres", autocommit=True,
-                           connect_timeout=5)
+def admin_connection(**kwargs) -> psycopg.Connection:
+    """A maintenance connection, to `postgres` or, as createdb falls back,
+    to `template1`."""
+    try:
+        return psycopg.connect("postgresql:///postgres", autocommit=True,
+                               connect_timeout=5, **kwargs)
+    except psycopg.OperationalError:
+        return psycopg.connect("postgresql:///template1", autocommit=True,
+                               connect_timeout=5, **kwargs)
+
+
+def hold_run_lease() -> None:
+    """Hold one connection named after this run until the process exits.
+
+    The sweep skips any run whose lease is live, which is the only signal
+    that crosses hosts and PID namespaces and survives the gaps between
+    tests when nobody is connected to the run's databases."""
+    if _lease and not _lease[0].closed:
+        return
+    conn = admin_connection(application_name=db_name())
+    try:
+        # pylint misreads psycopg.connect's return type once kwargs pass through.
+        conn.execute("SET idle_session_timeout = 0")  # pylint: disable=no-member
+    except psycopg.errors.UndefinedObject:
+        pass  # before Postgres 14 there is no such timeout to disable
+    _lease[:] = [conn]
 
 
 def _drop(conn: psycopg.Connection, name: str, force: bool) -> None:
@@ -56,17 +89,27 @@ def _drop(conn: psycopg.Connection, name: str, force: bool) -> None:
     conn.execute(stmt + sql.SQL(" WITH (FORCE)") if force else stmt)
 
 
-def create_database(label: str) -> str:
-    """Fresh database for `label` with backend/schema.sql applied."""
-    name = db_name(label)
+def create_empty_database(name: str) -> None:
+    """Create `name` fresh. template0, because nobody can be connected to
+    it, where a session on template1 would refuse every CREATE."""
     with closing(admin_connection()) as conn:
         _drop(conn, name, force=True)
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    proc = subprocess.run(
-        ["psql", "-q", "-v", "ON_ERROR_STOP=1", "-d", name, "-f", str(_SCHEMA)],
-        capture_output=True, text=True, check=False)
-    if proc.returncode:
-        raise RuntimeError(f"applying schema to {name} failed:\n{proc.stderr}")
+        conn.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
+            sql.Identifier(name)))
+
+
+def create_database(label: str, schema: Path | None = SCHEMA) -> str:
+    """This run's database for `label`, with `schema` applied if given."""
+    hold_run_lease()
+    name = db_name(label)
+    create_empty_database(name)
+    if schema is not None:
+        proc = subprocess.run(
+            ["psql", "-q", "-X", "-v", "ON_ERROR_STOP=1", "-d", name,
+             "-f", str(schema)],
+            capture_output=True, text=True, check=False)
+        if proc.returncode:
+            raise RuntimeError(f"applying schema to {name} failed:\n{proc.stderr}")
     return name
 
 
@@ -101,7 +144,7 @@ def drop_run_databases() -> list[str]:
     return names
 
 
-def _pid_alive(pid: int) -> bool:
+def pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -111,24 +154,33 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def sweep_stale_databases(max_age_s: int = STALE_AFTER_S) -> list[str]:
-    """Drop leftovers of killed runs: run-named, older than `max_age_s`,
-    whose creating process is gone and which nobody is connected to."""
+def sweep_stale_databases(max_age_s: int = STALE_AFTER_S,
+                          names: Collection[str] | None = None) -> list[str]:
+    """Drop leftovers of killed runs, optionally only among `names`.
+
+    A candidate is run-named, owned by a role this one can act as, older
+    than `max_age_s`, its run holds no lease, its PID is gone here, and
+    nobody is connected to it."""
     cutoff = time.time() - max_age_s
     dropped = []
     with closing(admin_connection()) as conn:
         rows = conn.execute(
-            "SELECT datname FROM pg_database WHERE starts_with(datname, %s)",
-            (RUN_PREFIX,)).fetchall()
+            "SELECT datname FROM pg_database WHERE starts_with(datname, %s)"
+            " AND pg_has_role(datdba, 'USAGE')", (RUN_PREFIX,)).fetchall()
+        leased = {a for (a,) in conn.execute(
+            "SELECT application_name FROM pg_stat_activity")}
         for (name,) in rows:
             m = _RUN_NAME.match(name)
-            if (m is None or int(m["epoch"]) > cutoff
-                    or _pid_alive(int(m["pid"]))):
+            if m is None or (names is not None and name not in names):
+                continue
+            if (int(m["epoch"]) > cutoff or m["base"] in leased
+                    or pid_alive(int(m["pid"]))):
                 continue
             try:
                 # Unforced: Postgres refuses while anyone is connected.
                 _drop(conn, name, force=False)
-            except psycopg.errors.ObjectInUse:
+            except (psycopg.errors.ObjectInUse,
+                    psycopg.errors.InsufficientPrivilege):
                 continue
             dropped.append(name)
     return dropped
