@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from backend import db, key_layout, parse, r2
+from backend import constants, db, key_layout, parse, r2
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:
@@ -204,6 +204,10 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # long_context is lane-only (parse_common._append_usage_record),
             # provider Claude-only (parse._provider); a record lacking the
             # key stores NULL, and readers COALESCE long_context to FALSE.
+            # pricing_version is NOT a record field: it is stamped here, at
+            # persist time, from constants.PRICING_VERSION, so every reparse
+            # re-stamps the version its freshly computed cost_usd was
+            # priced under (issue #193).
             for rec in parsed["records"]:
                 rec.update({k: rec.get(k) for k in ("long_context", "provider")})
             cur.executemany(
@@ -231,7 +235,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   turn_flags,
                   turn_tool_results,
                   long_context,
-                  provider)
+                  provider,
+                  pricing_version)
                 VALUES (
                   %(file_key)s,
                   %(line_num)s,
@@ -255,8 +260,12 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(turn_flags)s,
                   %(turn_tool_results)s,
                   %(long_context)s,
-                  %(provider)s)
+                  %(provider)s,
+                  %(pricing_version)s)
                 """,
-                parsed["records"],
+                (
+                    {**rec, "pricing_version": constants.PRICING_VERSION}
+                    for rec in parsed["records"]
+                ),
             )
         c.commit()

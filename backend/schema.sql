@@ -1,5 +1,8 @@
--- claudit schema. Bump the PARSER_VERSION constant in
--- backend/constants.py to invalidate all rows.
+-- claudit schema. Two constants in backend/constants.py invalidate stored
+-- rows: bump PARSER_VERSION to rePARSE every file (parser-semantics
+-- changes), and PRICING_VERSION to rePRICE stored records in place — a
+-- recompute of cost_usd from each row's own stored columns, no R2
+-- refetch.
 
 CREATE TABLE IF NOT EXISTS projects (
   project_id    TEXT PRIMARY KEY,
@@ -153,6 +156,14 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN;
 -- pricing.PROVIDER_RATES; NULL on every other lane, which prices by model
 -- alone exactly as before.
 ALTER TABLE records ADD COLUMN IF NOT EXISTS provider TEXT;
+-- 2026-09-25 (issue #193): the rate-data semantics version this row's
+-- cost_usd was computed under, stamped at persist time from
+-- constants.PRICING_VERSION — so a reparse re-stamps it with the current
+-- version. The reprice pass selects rows whose stored version differs
+-- from the binary's; NULL means priced by a build older than the reprice
+-- machinery, treated as stale and repriced. Additive and nullable
+-- (SV-SCHEMA-AUTOAPPLY), and no reparse and no R2 refetch.
+ALTER TABLE records ADD COLUMN IF NOT EXISTS pricing_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
