@@ -278,7 +278,8 @@ psql claudit -f backend/schema.sql
 
 - **Auth**: PBKDF2-SHA256 with 200,000 iterations and per-user hex salts. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`, 7-day TTL.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process secret regenerated at startup; cookies invalidate on restart. Guests are blocked from `/api/projects`, `/api/sessions*`, and `?project=` filter params.
-- **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`. Admin paths also enforce origin/referer checks.
+- **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`.
+- **Same-origin**: every mutating route (anything not GET/HEAD/OPTIONS) — including `/login`, `/login/guest` and `/logout` — enforces an origin/referer check: the `Origin` (or `Referer`) header's host must match the request's `Host` header, and a request with no `Host` header is refused. Browsers always send `Origin` on POST, so this only affects command-line/scripted clients, which must send a matching header.
 - **R2 file-mode path traversal**: `_safe_join` in `backend/r2.py` uses `os.path.realpath` to refuse keys that escape the bucket root (defence for sidecar `?path=../../../etc/passwd` attacks).
 - **SQL injection**: All DB access uses parameterised psycopg3 queries.
 - **No local upload path at all**: there is no drag-drop target, no `FileReader`, and no upload endpoint. The backend only reads JSONLs from R2 (or its local mirror). Session transcripts are fetched from `/api/sessions/{id}/transcript` and parsed in the browser.

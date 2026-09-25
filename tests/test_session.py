@@ -106,6 +106,16 @@ def test_check_origin_accepts_same_origin_post():
     assert session.check_origin(req)
 
 
+def test_check_origin_rejects_missing_host_header():
+    """A POST with no Host header is malformed, never same-origin."""
+    scope = {
+        "type": "http", "method": "POST", "headers": [],
+        "path": "/login",
+    }
+    req = Request(scope)
+    assert not session.check_origin(req)
+
+
 def test_guest_blocked_from_export():
     app = FastAPI()
     app.middleware("http")(session.auth_middleware)

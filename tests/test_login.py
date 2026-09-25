@@ -76,6 +76,7 @@ def test_successful_login_sets_cookie(app, fake_user):
     r = client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
+        headers={"Origin": "http://testserver"},
         follow_redirects=False,
     )
     assert r.status_code in (302, 303)
@@ -84,10 +85,45 @@ def test_successful_login_sets_cookie(app, fake_user):
 
 
 def test_guest_login_sets_same_cookie_contract(app):
-    r = TestClient(app).post("/login/guest", follow_redirects=False)
+    r = TestClient(app).post(
+        "/login/guest",
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
     assert r.status_code == 303
     assert session_mod.SESSION_COOKIE_NAME in r.cookies
     _assert_session_cookie_contract(r)
+
+
+def test_cross_origin_login_post_is_403(app, fake_user):
+    r = TestClient(app).post(
+        "/login",
+        data={"user_id": "12345", "password": "hunter2"},
+        headers={"Origin": "https://attacker.example"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
+    assert "cross-origin" in r.text
+
+
+def test_cross_origin_guest_login_is_403(app):
+    r = TestClient(app).post(
+        "/login/guest",
+        headers={"Origin": "https://attacker.example"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
+    assert "cross-origin" in r.text
+
+
+def test_login_post_without_origin_is_403(app, fake_user):
+    """Scripted clients must now declare an Origin; browsers always do."""
+    r = TestClient(app).post(
+        "/login",
+        data={"user_id": "12345", "password": "hunter2"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
 
 
 def test_wrong_password_is_401(app, fake_user):
@@ -95,6 +131,7 @@ def test_wrong_password_is_401(app, fake_user):
     r = client.post(
         "/login",
         data={"user_id": "12345", "password": "wrong"},
+        headers={"Origin": "http://testserver"},
     )
     assert r.status_code == 401
 
@@ -104,15 +141,23 @@ def test_unknown_user_is_404(app, fake_user):
     r = client.post(
         "/login",
         data={"user_id": "999", "password": "anything"},
+        headers={"Origin": "http://testserver"},
     )
     assert r.status_code == 404
 
 
 def test_rate_limit_after_5_failures(app, fake_user):
     client = TestClient(app)
+    headers = {"Origin": "http://testserver"}
     for _ in range(5):
-        client.post("/login", data={"user_id": "12345", "password": "x"})
-    r = client.post("/login", data={"user_id": "12345", "password": "x"})
+        client.post(
+            "/login", data={"user_id": "12345", "password": "x"},
+            headers=headers,
+        )
+    r = client.post(
+        "/login", data={"user_id": "12345", "password": "x"},
+        headers=headers,
+    )
     assert r.status_code == 429
 
 
@@ -121,6 +166,7 @@ def test_logout_clears_cookie(app, fake_user):
     client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
+        headers={"Origin": "http://testserver"},
         follow_redirects=False,
     )
     r = client.get("/logout", follow_redirects=False)
@@ -136,6 +182,7 @@ def test_session_cookie_round_trip(app, fake_user):
     client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
+        headers={"Origin": "http://testserver"},
         follow_redirects=False,
     )
     r = client.get("/api/me")
