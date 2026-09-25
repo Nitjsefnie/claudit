@@ -36,7 +36,7 @@ from typing import NamedTuple
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 # The only files a pricing-bot commit ever touches: the rate data and the
-# PRICING_VERSION bump that forces a reprice of the repriced records.
+# PRICING_VERSION bump that forces a reprice, not a reparse, of the records.
 BOT_FILES = frozenset({"src/pricing.json", "backend/constants.py"})
 
 # `X.Y.Z` with an optional `-<prerelease>` suffix. The core stays free of

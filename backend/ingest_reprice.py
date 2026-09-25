@@ -28,12 +28,28 @@ updated — they are counted, logged, and the keyset advances past them.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import NamedTuple
 
 from backend import constants, db, pricing
 
 log = logging.getLogger("claudit.ingest")
+
+
+class IngestAborted(Exception):
+    """Internal signal: the shutdown event was seen between bounded steps.
+
+    Defined HERE, below backend.ingest in the import graph, so the
+    reprice pass can raise it without importing ingest back — a cycle
+    pylint refuses. backend.ingest re-exports it, so
+    `ingest.IngestAborted` resolves exactly as before. run_ingest_locked
+    catches it SEPARATELY from the generic fatal path: the row is closed
+    as aborted, but the rebuild, the cache invalidation and the
+    ingest_done broadcast are all skipped — an aborted run must not tell
+    clients data changed.
+    """
+
 
 # Rows per batch/transaction. Read at call time, so a test can shrink
 # it (monkeypatch the module attribute).
@@ -128,17 +144,28 @@ def _record_updates(row: _StaleRow) -> dict:
     }
 
 
-def reprice_stale() -> int:
+def reprice_stale(should_stop: Callable[[], bool | None] | None = None
+                  ) -> int:
     """Recompute cost_usd for every stale record; return the count.
 
     The keyset cursor advances to the last row of each batch whether the
     row was updated or skipped by the rollback guard, so the pass always
     terminates and a guard skip never spins.
+
+    should_stop, when given, is consulted at the top of every batch
+    iteration: a truthy return — or an exception it raises — unwinds the
+    pass via IngestAborted. Batches already committed persist, the
+    interrupted batch never opens, and the next run converges (the
+    ingest stop contract, issue #103 — no new recovery logic). ingest
+    passes its _check_shutdown, which raises; direct and test callers
+    pass nothing, which prices the whole table in one go.
     """
     repriced = 0
     skipped = 0
     after_key: tuple[str, int] = ("", 0)
     while True:
+        if should_stop is not None and should_stop():
+            raise IngestAborted("shutdown requested")
         with db.viz_conn() as c:
             raw_rows = c.execute(
                 _SELECT_SQL,

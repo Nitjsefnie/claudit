@@ -32,6 +32,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import partial
 from typing import NamedTuple
 
 import psycopg
@@ -39,7 +40,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
-from backend.ingest_reprice import reprice_stale  # noqa: F401  (re-export)
+from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state is their caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
@@ -96,16 +97,6 @@ def clear_shutdown() -> None:
     shares this interpreter.
     """
     _SHUTDOWN.clear()
-
-
-class IngestAborted(Exception):
-    """Internal signal: _SHUTDOWN was seen between bounded steps.
-
-    run_ingest_locked catches it SEPARATELY from the generic fatal path:
-    the row is closed as aborted, but the rebuild, the cache
-    invalidation and the ingest_done broadcast are all skipped — an
-    aborted run must not tell clients data changed.
-    """
 
 
 def _check_shutdown() -> None:
@@ -628,17 +619,16 @@ def _rebuild_derived_state() -> None:
     # Order matters: suppression removes rows the canonical pass would
     # otherwise rank, and the rollups read is_canonical and agent_type.
     # The names resolve through this module's globals at call time, so a
-    # test can monkeypatch any phase on `ingest` itself.
+    # test can monkeypatch any phase on `ingest` itself. The reprice
+    # partial carries the shutdown check into reprice_stale's batches.
+    reprice = partial(reprice_stale, should_stop=_check_shutdown)
     phases = (
-        ("suppressed", purge_suppressed), ("reprice", reprice_stale),
+        ("suppressed", purge_suppressed), ("reprice", reprice),
         ("canonical", recompute_canonical), ("teammates", resolve_teammate_agent_types),
         ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
-        ("tool_error_rollup", rebuild_tool_error_rollup),
-        ("dispatch_rollup", rebuild_dispatch_rollup),
-        ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup),
-        ("latency_rollup", rebuild_latency_rollup),
-        ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
-        ("agent_rollup", rebuild_agent_rollup),
+        ("tool_error_rollup", rebuild_tool_error_rollup), ("dispatch_rollup", rebuild_dispatch_rollup),
+        ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup), ("latency_rollup", rebuild_latency_rollup),
+        ("ctx_cost_rollup", rebuild_ctx_cost_rollup), ("agent_rollup", rebuild_agent_rollup),
     )
     for phase, rebuild in phases:
         _check_shutdown()
