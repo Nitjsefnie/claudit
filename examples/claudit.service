@@ -6,7 +6,7 @@ Wants=postgresql.service
 # Deployment notes ------------------------------------------------------------
 #
 # This unit runs claudit as a dedicated unprivileged account inside a systemd
-# sandbox (the example previously shipped User=root). The app's actual
+# sandbox. The app's actual
 # footprint, checked against the code: it reads its checkout, the .venv
 # inside it and the .env file; it opens TCP listeners and connects to
 # Postgres; and it writes NOTHING to disk outside temp files — the export-PNG
@@ -17,7 +17,7 @@ Wants=postgresql.service
 # One-time account setup (pick a home outside /home and /root — see
 # ProtectHome= below):
 #
-#   useradd --system --home /opt/claudit --shell /usr/sbin/nologin claudit
+#   useradd --system --user-group --home /opt/claudit --shell /usr/sbin/nologin claudit
 #
 # The checkout, the .venv inside it and the .env file must all be readable by
 # that account; keep .env owned by claudit at mode 0600 so its credentials
