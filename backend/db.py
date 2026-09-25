@@ -111,13 +111,16 @@ def apply_schema() -> None:
     """Apply backend/schema.sql to the app DB at startup.
 
     schema.sql is idempotent by construction -- every statement is
-    CREATE ... IF NOT EXISTS or ALTER TABLE ... ADD COLUMN IF NOT EXISTS
-    -- so running it on every boot converges the database onto the shape
-    the running code expects instead of trusting that a human ran psql
-    after deploying (issue #43). Two deploys failed that way in one day:
-    a checkout pulled code writing a new column, the migration step was
-    missed, and every ingest then aborted with UndefinedColumn while the
-    dashboard kept serving stale aggregates.
+    CREATE ... IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
+    or a guarded DO block that widens usage_rollup's primary key (it
+    drops the old constraint only when it does not already carry the
+    widened grain, then re-adds it; ADD CONSTRAINT has no IF NOT
+    EXISTS) -- so running it on every boot converges the database onto
+    the shape the running code expects instead of trusting that a human
+    ran psql after deploying (issue #43). Two deploys failed that way in
+    one day: a checkout pulled code writing a new column, the migration
+    step was missed, and every ingest then aborted with UndefinedColumn
+    while the dashboard kept serving stale aggregates.
 
     Executed through psycopg rather than shelling out to psql: the
     service already holds a connection with the right credentials, and a
@@ -127,9 +130,12 @@ def apply_schema() -> None:
     ROLLBACK IS ONE-DIRECTIONAL, and that is the accepted cost. Deploying
     forward then restarting an older binary leaves it running against a
     schema from the future. Every migration here is additive and
-    nullable, so an older binary ignores what it does not know about;
-    that property is what makes auto-apply safe, and a migration that
-    drops or retypes a column would break it.
+    nullable, with ONE allowed exception: that primary-key swap on
+    usage_rollup. It is a guarded, idempotent constraint WIDENING of
+    derived, DELETE+INSERT-rebuilt state, and the widened key is a
+    superset of the old one, so an older binary's named-column INSERT
+    still satisfies it. Any other migration that drops or retypes a
+    column breaks the property that makes auto-apply safe.
     """
     ddl = SCHEMA_PATH.read_text(encoding="utf-8")
     with viz_conn() as c:
