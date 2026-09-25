@@ -3,11 +3,54 @@ Description=claudit — Claude Code usage dashboard
 After=network.target postgresql.service
 Wants=postgresql.service
 
+# Deployment notes ------------------------------------------------------------
+#
+# This unit runs claudit as a dedicated unprivileged account inside a systemd
+# sandbox (the example previously shipped User=root). The app's actual
+# footprint, checked against the code: it reads its checkout, the .venv
+# inside it and the .env file; it opens TCP listeners and connects to
+# Postgres; and it writes NOTHING to disk outside temp files — the export-PNG
+# render creates its file with tempfile.mkstemp(), and every durable artifact
+# (transcripts, aggregates, session state) lives in Postgres or in memory.
+# The sandbox below is sized to that footprint.
+#
+# One-time account setup (pick a home outside /home and /root — see
+# ProtectHome= below):
+#
+#   useradd --system --home /opt/claudit --shell /usr/sbin/nologin claudit
+#
+# The checkout, the .venv inside it and the .env file must all be readable by
+# that account; keep .env owned by claudit at mode 0600 so its credentials
+# stay private. If you serve transcripts from a local file:// mirror
+# (R2_ENDPOINT=file:///...), the mirror must live OUTSIDE /tmp, /var/tmp,
+# /home and /root — the sandbox makes the service's /tmp private and denies
+# it /home and /root entirely — e.g. /var/lib/claudit/mirror.
+
 [Service]
 Type=simple
-User=root
+User=claudit
+Group=claudit
 WorkingDirectory=/opt/claudit
 EnvironmentFile=/opt/claudit/.env
+
+# Databases: with User=claudit, a socket DSN such as
+# DATABASE_URL_VIZ=postgresql:///claudit connects over the unix socket under
+# peer auth as the OS user "claudit", so that Postgres role must exist (and
+# own its database):
+#
+#   CREATE ROLE claudit LOGIN;
+#   CREATE DATABASE claudit OWNER claudit;
+#
+# (and likewise for the DATABASE_URL_AUTH database) — or point both DSNs at
+# TCP (e.g. 127.0.0.1) with a password stored in this file instead.
+
+# Export-PNG subprocess (see .env.example): EXPORT_PYTHON names the
+# interpreter the render child runs under. matplotlib ships in
+# requirements-dev.txt, NOT backend/requirements.txt, so the app's own .venv
+# cannot render exports — point EXPORT_PYTHON at a Python that has
+# backend/requirements.txt and requirements-dev.txt installed. If the
+# interpreter lacks a module, /api/export answers 503 naming EXPORT_PYTHON.
+
 ExecStart=/opt/claudit/.venv/bin/python -m uvicorn backend.app:app \
     --host 127.0.0.1 --port 8000 \
     --proxy-headers --forwarded-allow-ips '127.0.0.1' \
@@ -17,6 +60,31 @@ RestartSec=5
 TimeoutStopSec=10
 StandardOutput=journal
 StandardError=journal
+
+# Hardening (issue #119). Sized to the footprint above: ProtectSystem=strict
+# mounts the whole file-system hierarchy read-only, which is safe here
+# because the only writes are temp files, and PrivateTmp= is what keeps
+# /tmp and /var/tmp writable under strict (systemd.exec(5)). Read-only mounts
+# do not block connecting to the Postgres unix socket. Python silently skips
+# bytecode-cache writes on a read-only tree (startup-only cost), and
+# matplotlib falls back to a temp dir for its font cache with a warning. If a
+# deploy adds a disk-writing feature, allow-list its path with
+# ReadWritePaths= here; a stock deploy needs none.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
