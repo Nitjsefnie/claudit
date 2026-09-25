@@ -151,6 +151,23 @@ function ingestChangeSummary(e) {
   return parts.join(', ');
 }
 
+// One effect run owns one request (issue #179, #182): whichever
+// response landed LAST used to win, so a slow stale response could
+// overwrite a fresher one. mintRunSignal pairs the run's
+// AbortController with an isCurrent() check: the fetch carries the
+// signal, every handler reads isCurrent() first so a superseded run
+// applies nothing -- and is not a failure, abort is cancellation -- and
+// the returned abort is the effect's cleanup, killing the superseded
+// request when the deps re-fire.
+function mintRunSignal() {
+  const ctrl = new AbortController();
+  return {
+    signal: ctrl.signal,
+    isCurrent: () => !ctrl.signal.aborted,
+    abort: () => ctrl.abort(),
+  };
+}
+
 function App() {
   const [route, setRoute] = useState('dashboard'); // dashboard | sessions | session
   const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
@@ -208,10 +225,22 @@ function App() {
   // or a full reload.
   useEffect(() => {
     if (!backendOn || isGuest) return;
-    fetch(`/api/projects?range=${encodeURIComponent(activeRange)}`, { credentials: 'same-origin' })
+    // Each run owns its request through mintRunSignal (issue #182), the
+    // same guard the dashboard refetch uses: a superseded project list
+    // must not overwrite a fresher one.
+    const run = mintRunSignal();
+    fetch(`/api/projects?range=${encodeURIComponent(activeRange)}`, { credentials: 'same-origin', signal: run.signal })
       .then(r => r.json())
-      .then(b => setProjects(b.projects || []))
-      .catch(err => console.error('projects fetch failed', err));
+      .then(b => {
+        if (!run.isCurrent()) return;
+        setProjects(b.projects || []);
+      })
+      .catch(err => {
+        // A superseded run's abort is not a failure: never a log.
+        if (!run.isCurrent()) return;
+        console.error('projects fetch failed', err);
+      });
+    return run.abort;
   }, [backendOn, isGuest, activeRange, dashNonce]);
 
   // Model list — distinct raw model strings + counts. Frontend dedups
@@ -226,21 +255,20 @@ function App() {
 
   // Fetch dashboard whenever the active project / range / nonce change.
   // `dashNonce` is a counter bumped by the SSE listener below to trigger
-  // a re-fetch without changing project/range.
-  // Each run owns its request through an AbortController (issue #179):
-  // the cleanup aborts the superseded request when the deps re-fire, so
-  // a slow stale response can no longer land after a fresher one and
-  // overwrite it. An aborted run is not a failure — it applies nothing
-  // and leaves the pending announcement line for the run that replaced
-  // it; a real failure still drops that line.
+  // a re-fetch without changing project/range. Each run owns its request
+  // through mintRunSignal (issue #179), so a slow stale response can no
+  // longer land after a fresher one and overwrite it. An aborted run is
+  // not a failure — it applies nothing and leaves the pending
+  // announcement line for the run that replaced it; a real failure
+  // still drops that line.
   useEffect(() => {
     if (!backendOn) return;
-    const ctrl = new AbortController();
+    const run = mintRunSignal();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
-    fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin', signal: ctrl.signal })
+    fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin', signal: run.signal })
       .then(r => r.json())
       .then(b => {
-        if (ctrl.signal.aborted) return;
+        if (!run.isCurrent()) return;
         setBackendDash(b);
         // Announce only once the refetch the event asked for has
         // landed: the live region must never describe a load that is
@@ -254,14 +282,14 @@ function App() {
       .catch(err => {
         // A superseded run's abort is not a failure: the pending line
         // now belongs to the run that replaced this one.
-        if (ctrl.signal.aborted) return;
+        if (!run.isCurrent()) return;
         console.error('dashboard fetch failed', err);
         // The refetch did not land, so the pending what-changed line
         // must not survive to mislabel the NEXT successful
         // announcement -- drop it and wait for the next event.
         refreshRef.current = null;
       });
-    return () => ctrl.abort();
+    return run.abort;
   }, [backendOn, activeProject, activeRange, dashNonce]);
 
   // Live updates: open an SSE stream and bump dashNonce on `ingest_done`.
