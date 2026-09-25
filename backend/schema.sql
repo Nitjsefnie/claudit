@@ -39,7 +39,7 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
 -- parse.DEFAULT_AGENT_TYPE so a migrated-but-not-yet-reparsed DB reads
 -- as one honest "unattributed" bar rather than a NULL every consumer
 -- has to special-case. A subagent transcript naming no role in-band
--- takes the one its meta.json sidecar names (parse.apply_agent_sidecar);
+-- takes the one its meta.json sidecar names (agent_sidecar.apply_agent_sidecar);
 -- such a file's r2_etag is its own etag joined with the sidecar's
 -- ("<wire>+<sidecar>", ingest._Wire), so a sidecar change reparses it.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
