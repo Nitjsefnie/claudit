@@ -12,3 +12,8 @@
 # failure, and the summary still renders when the gate is red.
 coverage==7.16.1
 pytest-cov==7.1.0
+
+# Parses .github/workflows/*.yml for tests/test_workflow_pip_cache.py: the
+# workflow-shape test (issue #126) reads the gates the way actionlint does,
+# so the pip-cache rule is pinned by a test and not by convention.
+pyyaml==6.0.3
