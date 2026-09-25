@@ -2,7 +2,7 @@
 // Loads synthetic events for the dashboard preview; lets you drop a real
 // .jsonl on the Session view to inspect a single transcript.
 
-const { useState, useEffect, useMemo } = React;
+const { useState, useEffect, useMemo, useRef } = React;
 
 // Branding comes from the backend, which injects window.BRAND
 // {name, title, description} into index.html (from APP_NAME /
@@ -136,6 +136,21 @@ function txToDashData(tx) {
   return { events, limitHits, range: { start: start - pad, end: end + pad } };
 }
 
+// One-line what-changed for the live region, read off the ingest_done
+// payload (the run summary backend/ingest broadcasts). Shapes it cannot
+// read degrade to '' -- the announcement is then just "Data refreshed".
+function ingestChangeSummary(e) {
+  let s = null;
+  try { s = JSON.parse(e.data); } catch (_) { return ''; }
+  if (!s || typeof s !== 'object') return '';
+  const parts = [];
+  const n = (k, one, many) => { if (s[k] > 0) parts.push(`${s[k]} ${s[k] === 1 ? one : many}`); };
+  n('inserted', 'new file', 'new files');
+  n('reparsed', 'file updated', 'files updated');
+  n('deleted', 'file removed', 'files removed');
+  return parts.join(', ');
+}
+
 function App() {
   const [route, setRoute] = useState('dashboard'); // dashboard | sessions | session
   const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
@@ -156,6 +171,12 @@ function App() {
   // Bumped by the SSE listener on `ingest_done`; declared up here because
   // the projects fetch below lists it as a dependency.
   const [dashNonce, setDashNonce] = useState(0);
+  // Live region (issue #117): refreshMsg is what the polite region
+  // announces; refreshRef holds the pending what-changed line the SSE
+  // handler stashed, consumed by the dashboard refetch that completes
+  // it. null = nothing pending.
+  const [refreshMsg, setRefreshMsg] = useState('');
+  const refreshRef = useRef(null);
 
   // Synthetic data is the no-backend demo dataset. When a backend is
   // configured its numbers are thrown away the moment /api/dashboard
@@ -211,16 +232,31 @@ function App() {
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
     fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
-      .then(b => setBackendDash(b))
+      .then(b => {
+        setBackendDash(b);
+        // Announce only once the refetch the event asked for has
+        // landed: the live region must never describe a load that is
+        // still in flight.
+        if (refreshRef.current !== null) {
+          const what = refreshRef.current;
+          refreshRef.current = null;
+          setRefreshMsg(`Data refreshed${what ? ` — ${what}` : ''}`);
+        }
+      })
       .catch(err => console.error('dashboard fetch failed', err));
   }, [backendOn, activeProject, activeRange, dashNonce]);
 
   // Live updates: open an SSE stream and bump dashNonce on `ingest_done`.
-  // No page reload — only the data refetches.
+  // No page reload — only the data refetches. The event's run summary
+  // feeds the live region's what-changed line; the announcement itself
+  // is set when the refetch completes (the dashboard fetch above).
   useEffect(() => {
     if (!backendOn) return;
     const es = new EventSource('/api/events', { withCredentials: true });
-    const onIngest = () => setDashNonce(n => n + 1);
+    const onIngest = e => {
+      refreshRef.current = ingestChangeSummary(e);
+      setDashNonce(n => n + 1);
+    };
     es.addEventListener('ingest_done', onIngest);
     es.onerror = () => { /* EventSource auto-reconnects with backoff */ };
     return () => { es.removeEventListener('ingest_done', onIngest); es.close(); };
@@ -286,6 +322,11 @@ function App() {
         </div>
       )}
       {route === 'session' && <SessionView tx={tx} />}
+      {/* Live region for the SSE ingest_done refresh (issue #117).
+          Mounted here, outside the panel tree, so no re-render can
+          unmount it; polite + atomic so it never interrupts or steals
+          focus; text set only after the refetch it announces lands. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{refreshMsg}</div>
     </div>
   );
 }
