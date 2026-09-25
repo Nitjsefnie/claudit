@@ -357,6 +357,18 @@ def test_a_match_older_than_the_lookback_does_not_fire(tmp_path, capsys):
     assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **a}
 
 
+def test_a_match_exactly_at_the_lookback_does_not_fire(tmp_path, capsys):
+    """2030-12-25 is exactly `at` minus 7 days; the lookback is exclusive
+    (`>` against the cutoff), so the boundary entry is outside it and the
+    move appends like any older one."""
+    run = Run(tmp_path)
+    a, _ = _alternating_row(run, "2030-12-25T00:00:00Z", "2030-12-31T00:00:00Z")
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    assert "alternating price" not in out
+    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **a}
+
+
 def test_a_newest_entry_with_a_schedule_is_exempt_from_the_alternation_notice(
         tmp_path, capsys):
     run = Run(tmp_path)
