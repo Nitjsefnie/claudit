@@ -6,13 +6,15 @@ name: codeql
 # Security tab rather than turning the build red, so a new query shipping
 # upstream cannot block an unrelated push.
 #
-# TRIGGERS MATCH THE OTHER GATES. `pull_request` used to be skipped here
-# for a reason that no longer exists: `analyze` uploads its SARIF against
-# the ref and SHA of the *event*, and under `pull_request_review` the
-# default checkout takes the base ref — two different commits, so alerts
-# would have been filed against a tree that was never the one analysed.
-# Under `pull_request` the default checkout IS the event's commit (the
-# merge ref), so alerts land on exactly the tree that was analysed.
+# TRIGGERS MATCH THE OTHER GATES. The commit-side triggers are hosted by
+# ci-gate.yml now, which calls this workflow as a leg on every push and
+# pull request; under that call the default checkout is the caller's
+# event commit — the branch tip on a master push, the merge ref on a
+# pull request — the same tree the direct triggers checked out, so
+# alerts land on exactly the tree that was analysed. (That checkout
+# identity is also why this workflow runs as a leg rather than keeping
+# its own pull_request trigger: two surfaces checking one tree invite
+# them drifting apart.)
 #
 # The weekly cron is not redundant with push: CodeQL's query packs are
 # updated continuously, and a new query only ever runs against code that
@@ -20,29 +22,12 @@ name: codeql
 # would never be applied to a file last touched last year.
 
 on:
-  push:
-    branches: [master]
-    # Same deny-list as tests.yml — an allow-list would silently stop
-    # scanning a new top-level code directory.
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - '.github/ci-thresholds.json'
-  pull_request:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
+  # Trigger ownership moved to ci-gate.yml (issue #127): push and
+  # pull_request fire ci-gate, which calls this workflow as a leg.
+  # workflow_call is the leg's entry; the weekly cron and
+  # workflow_dispatch stay here, where a run answers a question no
+  # commit asked.
+  workflow_call:
   schedule:
     # Wednesday 03:47 UTC. Off the hour and off Monday deliberately: the
     # top of the hour is when every cron on GitHub fires at once and jobs

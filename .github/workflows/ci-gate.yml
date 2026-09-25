@@ -1,0 +1,177 @@
+name: ci gate
+
+# One aggregate gate over every check this repository runs on a push or
+# pull request.
+#
+# WHY ONE WORKFLOW. Eleven independent check names could not be
+# required: a ruleset requires one context per name, and the gate
+# workflows narrowed by paths-ignore, so a documentation-only change
+# started no run at all — those check names went MISSING rather than
+# reporting, and a ruleset requiring them could never go green on such
+# a change. This workflow starts on every push and pull request
+# (one trigger-level ignore: the ratchet bot's data file, below),
+# classifies the changed paths, and either runs every gate leg or
+# narrows to a docs-only run where every leg is skipped and the
+# aggregate still reports. The classifier and its over-run fallbacks
+# live in scripts/ci/classify_changes.py.
+#
+# SUPERSESSION AND CANCELLATION. The concurrency group is one per pull
+# request or branch, with cancel-in-progress: a newer push cancels the
+# older run WHOLE, aggregate included — a superseded run's aggregate
+# never reports, and the newer run's aggregate is the verdict that
+# exists. That is how "a run cancelled because a newer run superseded
+# it gates nothing" holds without any run querying for its own
+# supersession: no stale red aggregate is ever left behind to read. A
+# DELIBERATE cancel of a still-current run leaves that run's aggregate
+# cancelled, which a required-check ruleset treats as never-green — the
+# same stance release.yml takes toward a cancelled check on the SHA it
+# is about to tag.
+#
+# TRIGGER OWNERSHIP. The nine gate workflows below are called as
+# reusable workflows; they keep `workflow_call`, their crons (audit
+# daily, codeql weekly) and `workflow_dispatch`, and they carry no
+# `push` or `pull_request` trigger any more — this file owns that
+# surface. Each callee keeps its own `permissions:` blocks and its
+# concurrency group (the latter governs its standalone dispatch runs).
+# release.yml, refresh-pricing.yml, secrets.yml, version-guard.yml,
+# pr-gate.yml and claim.yml are untouched and outside the aggregate.
+#
+# A FORK'S CODE RUNS IN THE LEGS, exactly as before the move: the legs
+# run on the merge ref with the caller's permissions, and the callee
+# that executes pull-request code (speed) keeps its dual-environment
+# fork admission from speed.yml itself.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    paths-ignore:
+      # The ratchet bot's master commit touches only this data file and
+      # must not start the suite — the guarantee the gate workflows'
+      # own push triggers used to carry (PR #170), hosted here now.
+      - '.github/ci-thresholds.json'
+  workflow_dispatch:
+
+# Read-only at workflow level. The two legs that must write declare
+# more on their calling job: tests (the thresholds ratchet push) and
+# codeql (SARIF upload).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # contents: read pays for the checkout; pull-requests: read is
+      # what the pulls/<n>/files read needs on a pull-request event.
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      reason: ${{ steps.classify.outputs.reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this workflow pushes except the tests leg's
+          # ratchet (inside its callee), and no token left in
+          # .git/config is reusable by later steps.
+          persist-credentials: false
+
+      - name: Classify the changed paths
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BEFORE_SHA: ${{ github.event.before }}
+        # Emits docs_only=true|false plus a reason; every read failure
+        # over-runs to a full gate set (scripts/ci/classify_changes.py).
+        run: python3 scripts/ci/classify_changes.py
+
+  # One leg per gate workflow. `skipped` is reserved for the docs-only
+  # narrowing: any leg skipped without it fails the aggregate, as does
+  # a cancelled or failed leg, a leg missing from the needs document,
+  # or a classifier crash (whose empty output reads as not-docs and
+  # leaves every leg skipped — fail-closed, visibly red).
+
+  tests:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      # The callee's pytest job pushes the thresholds ratchet commit on
+      # a master push and declares the same at its own job level.
+      contents: write
+
+  lint:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/lint.yml
+
+  types:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/types.yml
+
+  eslint:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/eslint.yml
+
+  smoke:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/smoke.yml
+
+  audit:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/audit.yml
+
+  actionlint:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/actionlint.yml
+
+  speed:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/speed.yml
+
+  codeql:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      # Writing the analysis is the whole point of the callee; the rest
+      # stays read-only, as codeql.yml itself declares per job.
+      security-events: write
+      actions: read
+      contents: read
+
+  aggregate:
+    needs: [classify, tests, lint, types, eslint, smoke, audit,
+            actionlint, speed, codeql]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fold the leg results into one verdict
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        # scripts/ci/aggregate_gate.py owns the verdict: success passes,
+        # a skip passes only when docs_only narrowed it, and any other
+        # result fails — with the legs that decided named in the verdict
+        # and in the step summary the script writes.
+        run: python3 scripts/ci/aggregate_gate.py

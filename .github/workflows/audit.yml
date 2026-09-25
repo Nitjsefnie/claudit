@@ -10,12 +10,14 @@ name: audit
 # of a requirements file would ever have shown.
 #
 # WHY THE CRON IS THE IMPORTANT TRIGGER. Every other gate in this repo
-# answers "did this commit break something", so push is the natural trigger.
-# This one answers "is a version we froze months ago still safe", and that
-# answer changes when a stranger publishes an advisory, with no commit here
-# to hang it on. A push-only audit would report clean forever on an
-# abandoned branch. The push trigger is the lesser half: it catches a bad
-# pin at the moment it is introduced, while the diff is on screen.
+# answers "did this commit break something", so a push or pull request is
+# the natural trigger. This one answers "is a version we froze months ago
+# still safe", and that answer changes when a stranger publishes an
+# advisory, with no commit here to hang it on. An event-only audit would
+# report clean forever on an abandoned branch. The commit-side half is
+# now hosted by ci-gate.yml, which runs this workflow as a leg: it
+# catches a bad pin at the moment it is introduced, while the diff is on
+# screen. The cron and workflow_dispatch stay here.
 #
 # This gate FAILS the build rather than filing an advisory, which is the
 # same stance as lint and types: a red gate that a human must look at beats
@@ -24,27 +26,12 @@ name: audit
 # saying why and what would clear it — never silence the whole gate.
 
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - '.github/ci-thresholds.json'
-  pull_request:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
+  # Trigger ownership moved to ci-gate.yml (issue #127): push and
+  # pull_request fire ci-gate, which calls this workflow as a leg.
+  # workflow_call is the leg's entry; the daily cron and
+  # workflow_dispatch stay here, where a run answers a question no
+  # commit asked.
+  workflow_call:
   schedule:
     # Daily, not weekly. An advisory is actionable the day it lands, and
     # this job costs about a minute of a runner. 04:12 UTC, off the hour.

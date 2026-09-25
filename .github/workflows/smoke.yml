@@ -19,27 +19,11 @@ name: smoke
 # client's file:// mode. No credentials, no network, nothing to rot.
 
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - '.github/ci-thresholds.json'
-  pull_request:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
+  # Trigger ownership moved to ci-gate.yml (issue #127): push and
+  # pull_request fire ci-gate, which calls this workflow as a leg.
+  # workflow_call is the leg's entry; workflow_dispatch keeps a direct
+  # run possible.
+  workflow_call:
   workflow_dispatch:
 
 permissions:

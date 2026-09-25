@@ -30,19 +30,12 @@ name: actionlint
 # next one is the one nobody has thought about yet.
 
 on:
-  push:
-    branches: [master]
-    paths:
-      # An allow-list, and the one place in this repo where that is right:
-      # this workflow lints workflow files, so a change anywhere else
-      # genuinely cannot affect its result.
-      - '.github/workflows/**'
-      - '.github/dependabot.yml'
-  pull_request:
-    branches: [master]
-    paths:
-      - '.github/workflows/**'
-      - '.github/dependabot.yml'
+  # Trigger ownership moved to ci-gate.yml (issue #127): push and
+  # pull_request fire ci-gate, which calls this workflow as a leg. The
+  # old paths allow-list went with the triggers: every non-docs run now
+  # lints the workflows, and a change to a workflow file is never
+  # docs-only, so actionlint runs whenever it can matter.
+  workflow_call:
   workflow_dispatch:
 
 permissions:
