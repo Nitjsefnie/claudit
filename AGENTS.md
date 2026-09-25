@@ -360,14 +360,29 @@ Schema migrations are **applied automatically at startup**: `db.apply_schema()` 
 
 ## CI — batch your pushes
 
-Every gate workflow runs on **pushes to `master` that touch code** (a
-`paths-ignore` deny-list skips `*.md`, `PRESENTATION.txt`,
-`examples/`, `.claude/`, licences — a deny-list on purpose, so a new code
-directory can't silently stop being tested) **and on pull requests
-against `master`** — a pull request's commits are checked ONCE, on the
-merge ref, never once per event. Postgres 16 service container; fixtures
-`createdb`/`dropdb` per module, so `PGHOST`/`PGUSER`/`PGPASSWORD` drive
-both libpq and the shelled-out `psql`.
+**`ci-gate.yml` owns the push/PR trigger surface.** It starts on every
+push to `master` and every pull request against it — a pull request's
+commits are checked ONCE, on the merge ref, never once per event. It
+first classifies the changed paths (`scripts/ci/classify_changes.py`):
+a **documentation-only change** (`*.md`, `PRESENTATION.txt`,
+`examples/`, `.claude/`, `LICENSE`, `NOTICE`, `.gitignore` — the exact
+set the gate workflows' old `paths-ignore` deny-lists carried, re-homed
+as classifier patterns; still a deny-list on purpose, so a new code
+directory can't silently stop being tested) skips the expensive legs by
+classification rather than by `paths-ignore`, so every check still
+reports — a docs-only run never produces MISSING checks. Any other
+change runs all of them: every gate workflow, called as a reusable
+workflow, with one `aggregate` job folding the results into a single
+verdict, **`ci gate / aggregate`** — the check name a future ruleset
+requires. A leg skipped by the docs-only narrowing passes the
+aggregate; any other non-success (failure, cancellation, a missing
+leg) fails it and is named in the verdict. The workflow's concurrency
+group cancels a run superseded by a newer push whole, aggregate
+included, so a stale red aggregate never reports; a deliberate cancel
+stays cancelled, which a required-check ruleset reads as never-green.
+Postgres 16 service container; fixtures `createdb`/`dropdb` per
+module, so `PGHOST`/`PGUSER`/`PGPASSWORD` drive both libpq and the
+shelled-out `psql`.
 
 **The tests workflow runs the suite twice over a matrix and a job.** The
 `pytest` job keeps the FULL suite with its coverage ratchet on Linux +
@@ -394,11 +409,13 @@ cancelling each other, but the right fix is not generating them.)
 
 **A branch without a PR is checked by dispatch.** A branch push no longer
 fires CI — only a `master` one does — so to check a working branch,
-dispatch the workflow on it: `gh workflow run tests.yml --ref <branch>`
-(every gate carries `workflow_dispatch` for exactly this).
+dispatch the gate on it: `gh workflow run ci-gate.yml --ref <branch>`
+(ci-gate carries `workflow_dispatch` for exactly this).
 
-**There are FIFTEEN workflows, not one.** `tests.yml` is the one people
-remember, and a green pytest says nothing about the other fourteen. Six run
+**There are SEVENTEEN workflows, not one.** `ci-gate.yml` is the one
+people must remember now — a green `ci gate / aggregate` is the
+repository's single verdict — and a green pytest says nothing about the
+other sixteen. Six run
 locally — run them before pushing, because CI is the backstop, not the
 first check:
 
@@ -428,13 +445,15 @@ pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-
 pyright --pythonpath /path/to/venv/bin/python
 ```
 
-The nine that only make sense on GitHub:
+The eleven that only make sense on GitHub:
 
 | Workflow | Question it answers | Trigger |
 | --- | --- | --- |
-| `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | push + PR + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Under `pull_request` the checkout takes the merge ref — the same commit `analyze` files SARIF against — so alerts land on the tree actually analysed. |
-| `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | push + PR + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
-| `speed.yml` | Did the tests that exist in both this commit and its baseline get >30% slower? The baseline is the last release on a master push, the branch's merge base on a pull request. | push + PR. Runs BOTH builds on the same runner, interleaved in pairs after a discarded warm-up round; the verdict is the median of the paired ratios. Skips green while no release exists (master pushes and dispatches only — a PR always has a merge base). A fork PR waits for a reviewer's approval in the `fork-speed-benchmark` environment before its code runs. |
+| `ci-gate.yml` | Did this push or pull request pass every gate? Classifies the changed paths, runs the nine gate workflows as reusable legs unless the change is docs-only, and folds everything into one verdict: `ci gate / aggregate` — the single check name a ruleset requires. A superseded run is cancelled whole; a deliberate cancel reads never-green. | push to `master` + PR + `workflow_dispatch`, with one `paths-ignore`: the ratchet bot's `.github/ci-thresholds.json` commit must not start the suite. |
+| `gate-freshness.yml` | Which open PR heads would a required `ci gate / aggregate` strand? Lists heads whose latest ci-gate run predates the workflow's first commit, or that have none — the set that must rebase or rerun when the ruleset lands. | `workflow_dispatch` only; posts the list to the run summary. |
+| `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | a ci-gate leg + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Under the leg the checkout takes the merge ref — the same commit `analyze` files SARIF against — so alerts land on the tree actually analysed. |
+| `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | a ci-gate leg + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
+| `speed.yml` | Did the tests that exist in both this commit and its baseline get >30% slower? The baseline is the last release on a master push, the branch's merge base on a pull request. | a ci-gate leg. Runs BOTH builds on the same runner, interleaved in pairs after a discarded warm-up round; the verdict is the median of the paired ratios. Skips green while no release exists (master pushes and dispatches only — a PR always has a merge base). A fork PR waits for a reviewer's approval in the `fork-speed-benchmark` environment before its code runs. |
 | `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. A dev version (`X.Y.Z-dev`) skips every step — nothing is tagged. |
 | `version-guard.yml` | Does the tree `VERSION` name a version that has already shipped? Fails a master push or PR whose `VERSION` matches an existing `v<VERSION>` tag — under the dev-suffix discipline this only ever fires on a missed bump. The hourly pricing bot's commits (author AND file shape: only `src/pricing.json` + `backend/constants.py`) are exempt; PRs get no carve-out. | push to `master` + PR, deliberately no path filter: the tag set changes when a release lands, independently of any push. |
 | `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
@@ -454,9 +473,8 @@ ceiling (`module_size_baseline`: production 500 / test 700 lines, with
 entries seeded for files already over); CI tightens an entry as its file
 shrinks and drops it once the file is back under the ceiling, but
 entries are never added or raised by hand — growth is fixed by moving
-code into a new module. The data file is ignored by every gate
-workflow's push trigger, so the bot's ratchet commit never re-triggers
-CI.
+code into a new module. The data file is ignored by ci-gate's push
+trigger, so the bot's ratchet commit never re-triggers CI.
 
 **Release = edit `VERSION`.** One semver line at the repo root, no
 leading `v`. Between releases the tree carries the next version with a

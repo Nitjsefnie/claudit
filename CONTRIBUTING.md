@@ -103,11 +103,18 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **fifteen** separate workflows — on pushes to `master` and on pull
-requests against it; a pull request's commits are checked once, with no
-review gate first, and a branch without a PR is checked by dispatching
-(`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
-small fraction of the gate. These five you can and should run locally
+CI runs **seventeen** workflows. `ci-gate.yml` owns the push/PR
+surface: it starts on every push to `master` and every pull request
+against it (a pull request's commits are checked once, with no review
+gate first), classifies the changed paths, runs the nine gate
+workflows as reusable legs, and folds them into one verdict —
+**`ci gate / aggregate`**. A documentation-only change (`*.md`,
+`PRESENTATION.txt`, `examples/`, `.claude/`, licences) narrows the
+expensive legs by classification instead of by `paths-ignore`, so
+every check still reports rather than going MISSING. A branch without
+a PR is checked by dispatching the gate on it (`gh workflow run
+ci-gate.yml --ref <branch>`). A green suite is a small fraction of
+the gate. These five you can and should run locally
 before pushing:
 
 ```bash
@@ -147,9 +154,11 @@ The rest need GitHub and run on their own:
 
 | Workflow | What it does |
 | --- | --- |
-| `codeql` | Security analysis for Python and JS; findings go to the Security tab, not the build. Also runs weekly, because new queries only ever see code that changed after they shipped. |
-| `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Runs daily — an advisory lands without a commit here to hang it on. |
-| `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. |
+| `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip the expensive legs; every check still reports), runs the nine gate workflows as reusable legs, and folds them into one `ci gate / aggregate` verdict. A superseded run is cancelled whole; a deliberate cancel reads never-green. |
+| `gate-freshness` | Dispatch-only report naming the open PR heads that must rebase or rerun once `ci gate / aggregate` becomes a required check — heads whose latest ci-gate run predates the workflow, or that have none. |
+| `codeql` | Security analysis for Python and JS; findings go to the Security tab, not the build. Also runs weekly as a standalone cron, because new queries only ever see code that changed after they shipped. |
+| `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Also runs daily as a standalone cron — an advisory lands without a commit here to hang it on. |
+| `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. Runs as a ci-gate leg on every non-docs change. |
 | `speed` | Runs the baseline's suite and yours on the same runner, interleaved in pairs after a discarded warm-up round, and fails if the median of the paired ratios says the tests present in both got more than 30% slower. The baseline is the last release on a master push and the branch's merge base on a pull request. A fork PR waits for a reviewer's approval before the benchmark runs (`fork-speed-benchmark` environment). |
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
