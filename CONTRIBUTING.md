@@ -103,7 +103,7 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **fourteen** separate workflows — on pushes to `master` and on pull
+CI runs **fifteen** separate workflows — on pushes to `master` and on pull
 requests against it; a pull request's commits are checked once, with no
 review gate first, and a branch without a PR is checked by dispatching
 (`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
@@ -156,6 +156,7 @@ The rest need GitHub and run on their own:
 | `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
 | `claim` | Lets a contributor without write access take an issue: comment `/claim` on an open, unassigned issue and the workflow assigns you; `/unclaim` and `/release` remove only your own assignment. Runs no repository code — it talks to the GitHub API only. See [Claiming an issue](#claiming-an-issue). |
 | `pr-gate` | Checks every non-draft PR's description against `.github/PULL_REQUEST_TEMPLATE.md` and requires a reference to an issue assigned to the PR's author. A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once the description is corrected. Never runs pull-request code. See [Pull requests](#pull-requests). |
+| `secrets` | gitleaks sweeps the full tree and the full git history for credentials — a digest-pinned binary under the default ruleset, findings redacted in the public log (commit + path + rule, never the matched string). Runs daily, because a push carrying `[skip ci]` or a commit that predates the workflow is scanned the next morning rather than never. Complements `scripts/secrecy-check.sh`, the local literal-based check for this repo's own known-sensitive strings. |
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
