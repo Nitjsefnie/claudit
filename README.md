@@ -23,7 +23,7 @@ already does that. claudit puts the numbers in front of you and stays out of
 the way; interpreting them is your job, not the dashboard's. PRs that add
 qualitative analysis, an "auditor" agent, or a chatbot are out of scope.
 
-## Why ingest from object storage, not `~/.claude/projects/`?
+## Why ingest from object storage, not the local session directory?
 
 Claude Code prunes old session transcripts from the local tree over time. If
 claudit read those files directly, a reparse after a prune would silently
@@ -176,10 +176,11 @@ FastAPI  →  /api/dashboard, /api/cache, /api/context-growth/*,
 React + in-browser Babel  →  /  (served by FastAPI)
 ```
 
-`backend/parse.py` mirrors `~/.claude/scripts/parse_session.py` for
-Phase 1 within-file `requestId` max-merge, sniffs each blob's format
-(`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the lane
-parsers; cross-file uuid dedup (Phase 2) is performed at query time via
+`backend/parse.py` implements the parse spec (SV-PARSER-SPEC in
+`.claude/rules/claudit-doctrine.md`, pinned by `fixtures/parser/`),
+including Phase 1 within-file `requestId` max-merge, sniffs each blob's
+format (`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the
+lane parsers; cross-file uuid dedup (Phase 2) is performed at query time via
 `DISTINCT ON (uuid)` in the
 read endpoints. Costs are pre-computed at ingest using
 `backend/pricing.py` (single source of truth — bump `PARSER_VERSION`
@@ -311,9 +312,7 @@ restart).
 - `scripts/` — `plots/ccusage_plot_db.py`, our DB-backed usage-plotting
   script (queries the claudit Postgres `records` table), and `ci/`, the
   CI entry points that are too big to live inside a workflow's `run:`
-  block (`smoke.py`, `compare_durations.py`). Canonical analyst scripts
-  are not vendored here; invoke them by absolute path under
-  `~/.claude/scripts/`.
+  block (`smoke.py`, `compare_durations.py`).
 - `tests/` — pytest suite (parser fixtures, ingest, API).
 - `fixtures/` — small JSONL + zip samples for parser tests.
 - `examples/` — sample systemd service file.

@@ -4,7 +4,7 @@ Small jsonl + zip samples for manual UI testing and parser unit tests.
 
 ## Convention
 
-- Keep individual files under 200 KB. Larger samples go gitignored under `fixtures/large/` or pulled on demand from `/tmp/analyst.BCYKic3p/r2/`.
+- Keep individual files under 200 KB. Larger samples go gitignored under `fixtures/large/` or stay in a local mirror you point `R2_ENDPOINT` at (`R2_ENDPOINT=file:///path/to/mirror/`).
 - Naming: `sample-<feature>-<small-uuid>.jsonl` (e.g. `sample-subagent-fan-out-7a9d.jsonl`).
 - Each fixture should target a SPECIFIC parser feature so the corresponding test name maps 1:1.
 
@@ -24,4 +24,4 @@ Suggested starter set:
 | `sample-cache-mixed.jsonl` | both 5m + 1h on same turn |
 | `sample-legacy-no-split.jsonl` | older SDK records with `cache_creation_input_tokens` only (no `ephemeral_*` keys) |
 
-The analyst-side R2 staging at `/tmp/analyst.BCYKic3p/r2/` has 1000+ real jsonls; pull representative samples from there, anonymise if needed, and trim to <200 KB before committing.
+To seed from real transcripts, pull representative samples from your own bucket or local mirror, anonymise if needed, and trim to <200 KB before committing.

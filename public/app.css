@@ -513,7 +513,7 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
   white-space: nowrap;
 }
 
-/* Cache view — replica of parse_session.py --cache terminal output */
+/* Cache view — renders /api/cache (src/views/cache-view.jsx) */
 .cache-view {
   padding: 16px 24px;
   font-family: var(--mono);
