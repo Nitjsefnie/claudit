@@ -519,7 +519,7 @@ picker and show an outlier as a trend. The data is for querying:
 
     SELECT sum(result_chars) FROM tool_uses WHERE is_reread;
 
-## The parser version is code, never the environment (SV-PARSER-VERSION)
+## The parser and pricing versions are code, never the environment (SV-PARSER-VERSION)
 
 `constants.PARSER_VERSION` invalidates stored PARSE results: bumping it
 reparses every stored file, each object fetched from R2 again. It lives
@@ -547,7 +547,8 @@ silently applies a discount).
 
 A window (a superseded history entry) is NEVER dropped once it has
 expired. Every `PRICING_VERSION` bump reprices every record from its
-stored columns through these windows (SV-REPRICE), and a record from
+stored columns through these windows (SV-REPRICE — a record stamped by
+a newer binary is skipped by the rollback guard), and a record from
 inside the window must come out at the price in force then; removing the
 window silently reprices that history at list on the next reprice. The
 machinery is also
