@@ -142,7 +142,7 @@ backend/          — FastAPI application
                     SV-SCHEMA-AUTOAPPLY).
 
 public/           — Static assets served at /
-  index.html      — Bootstraps React, Babel, JSZip from CDN; loads /src/*.
+  index.html      — Bootstraps React, Babel from CDN; loads /src/*.
                     Backend rewrites this on every request to inject
                     window.BACKEND_URL, window.IS_GUEST, and mtime-based ?v=
                     cache-bust query strings on every static asset reference.
