@@ -80,12 +80,19 @@ def test_benchmark_rejects_changed_missing_extra_or_misidentified_outputs(actual
         _check_outputs([{'path': 'file.jsonl', 'sha256': 'original'}], actual)
 
 
-def test_lf_input_avoids_materialising_all_lines():
+@pytest.mark.parametrize('crlf', [False, True],
+                         ids=['lf', 'crlf'])
+def test_line_input_avoids_materialising_all_lines(crlf):
+    # The CR/CRLF branch must stay lazy too: a Windows checkout carries
+    # CRLF fixtures, and an eager splitlines there would hold every line
+    # of every file in memory at once.
     class StreamingOnly(bytes):
         def splitlines(self, keepends=False):
             raise AssertionError('eager whole-file line copies')
 
     blob = (Path(__file__).resolve().parents[1] / 'fixtures/parser/bash_shared_scan.jsonl').read_bytes()
+    if crlf:
+        blob = blob.replace(b'\n', b'\r\n')
     assert parse_file('shared.jsonl', StreamingOnly(blob)) == parse_file('shared.jsonl', blob)
 
 

@@ -17,12 +17,43 @@ looking at belongs in that format's module instead.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from backend import pricing
 from backend.tool_errors import (ERROR_TEXT_MAX, _pg_text,
                                  classify_lane_error)
+
+
+def iter_lines(blob: bytes) -> Iterator[bytes]:
+    """The file's lines, one at a time, with splitlines' CR / LF / CRLF
+    semantics.
+
+    Both callers used to stream LF files through BytesIO and fall back
+    to blob.splitlines() for anything carrying a CR -- an eager copy of
+    every line of the file into one list. A Windows checkout writes CRLF
+    fixtures, so that fallback was the common case there. This yields
+    the same lines without the list: CRLF is one separator, a lone CR is
+    a separator, and the trailing fragment yields only when non-empty.
+    """
+    start = 0
+    while start < len(blob):
+        nl = blob.find(b"\n", start)
+        cr = blob.find(b"\r", start)
+        if cr != -1 and (nl == -1 or cr < nl):
+            if cr == nl - 1:  # CRLF: one separator, not two
+                yield blob[start:cr]
+                start = nl + 1
+            else:  # lone CR, or CR with a later LF
+                yield blob[start:cr]
+                start = cr + 1
+        elif nl != -1:
+            yield blob[start:nl]
+            start = nl + 1
+        else:
+            yield blob[start:]
+            return
 
 
 def _to_dt(s: str | float | None):

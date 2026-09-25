@@ -34,6 +34,7 @@ from orjson import JSONDecodeError, loads
 
 from backend import parse_codex, parse_kimi
 from backend.constants import DEFAULT_AGENT_TYPE
+from backend.parse_common import iter_lines
 
 # The lane parsers parse_file dispatches to, keyed by sniff_format's
 # labels. parse.py imports this mapping (and sniff_format) so that
@@ -84,7 +85,7 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
       with or without a timestamp: a legacy StatusUpdate may carry no
       timestamp, and no other format puts a message.type in that set.
     """
-    for raw in (blob.splitlines() if b"\r" in blob else BytesIO(blob)):
+    for raw in iter_lines(blob):
         if not raw.strip():
             continue
         try:

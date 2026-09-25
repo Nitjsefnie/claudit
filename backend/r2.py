@@ -152,7 +152,15 @@ def _is_file_mode() -> tuple[bool, str]:
     endpoint = os.environ.get("R2_ENDPOINT", "")
     if endpoint.startswith("file://"):
         parsed = urlparse(endpoint)
-        return True, parsed.path
+        path = parsed.path
+        # urlparse keeps the leading slash of a proper Windows file URL
+        # (file:///C:/mirror/ -> /C:/mirror/); ntpath would read that as
+        # an unnamed drive's \C:\mirror. Strip it when a drive letter
+        # follows; no POSIX path starts /X:/.
+        if len(path) >= 3 and path[0] == "/" and path[2] == ":" \
+                and path[1].isalpha():
+            path = path[1:]
+        return True, path
     return False, ""
 
 
