@@ -185,6 +185,11 @@ function CacheTTLPanel({ events, range, binMs }) {
 
   const grandTotal = total5 + total1;
   const sharePctOverall = grandTotal > 0 ? (total5 / grandTotal) * 100 : 0;
+  const a11y = window.useChartA11y(
+    'Prompt-Cache TTL Split',
+    `stacked bars, ${bins.length} bins, 5m share ${sharePctOverall.toFixed(1)}%`,
+    `Cache-create tokens per bucket, ephemeral 5m stacked over ephemeral `
+    + `1h. 5m total ${humanFmt_X(total5)}, 1h total ${humanFmt_X(total1)}.`);
 
   return (
     <div ref={ref} style={{
@@ -193,7 +198,8 @@ function CacheTTLPanel({ events, range, binMs }) {
     }}
     onMouseMove={onMove}
     onMouseLeave={() => setTip(null)}>
-      <svg data-panel="Prompt-Cache TTL Split" width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel="Prompt-Cache TTL Split" width={w} height={h} style={{ display: 'block' }}>
         {/* Title */}
         <text x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH_X.text}
           textAnchor="middle" fontFamily="monospace">
@@ -344,6 +350,9 @@ function CacheTTLPanel({ events, range, binMs }) {
         <rect x={padL} y={shareTop} width={plotW} height={sharePctH}
           fill="none" stroke={TH_X.border} strokeOpacity="0.6" />
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       {tip && <window.DashTooltip tip={tip} />}
     </div>
   );
@@ -557,6 +566,11 @@ function ContextSubPanel({ title, sessions, color, cap, w, h }) {
     return padT + plotH - (c / maxCount) * countAreaH;
   }
 
+  const a11y = window.useChartA11y(
+    `Context Growth — ${title}`,
+    `per-turn context traces, ${nSess} sessions`,
+    `Median, p25-p75 band and p90 context by turn over ${nSess} agent `
+    + `files; longest ${longest} turns, max context ${humanFmt_X(maxCtx)}.`);
   return (
     <div ref={ref} style={{
       position: 'relative', flex: 1, minWidth: 0,
@@ -564,7 +578,8 @@ function ContextSubPanel({ title, sessions, color, cap, w, h }) {
       background: TH_X.bgAxes,
     }}
       onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-      <svg data-panel={"Context Growth — " + title} width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel={"Context Growth — " + title} width={w} height={h} style={{ display: 'block' }}>
         <text x={padL} y={18} fontSize="11" fontWeight="bold" fill={color}
           fontFamily="monospace">{title}</text>
         <text x={padL} y={32} fontSize="9" fill={TH_X.textDim}
@@ -709,6 +724,9 @@ function ContextSubPanel({ title, sessions, color, cap, w, h }) {
           </text>
         ))}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       {tip && <window.DashTooltip tip={tip} />}
     </div>
   );
@@ -1050,11 +1068,18 @@ function ComparisonRow({ models, byModel, w, h }) {
     : series.length === 1
       ? `${series[0].model}  ·  median per turn`
       : series.map(s => s.model).join(' vs ') + '  ·  median per turn';
+  const a11y = window.useChartA11y(
+    'Context Growth — comparison',
+    `median context per turn, ${series.length} models`,
+    series.length
+      ? `Compared: ${series.map(s => `${s.model} (${s.count} files)`).join(', ')}.`
+      : null);
 
   return (
     <div ref={ref} style={{ position: 'relative', borderBottom: `1px solid ${TH_X.border}` }}
       onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-      <svg data-panel="Context Growth — comparison" width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel="Context Growth — comparison" width={w} height={h} style={{ display: 'block' }}>
         <text x={padL} y={20} fontSize="11" fontWeight="bold" fill={TH_X.text}
           fontFamily="monospace">
           {titleText}
@@ -1143,6 +1168,9 @@ function ComparisonRow({ models, byModel, w, h }) {
         <text x={(padL + w - padR)/2} y={padT + plotH + 33} fontSize="9" fill={TH_X.textDim}
           textAnchor="middle" fontFamily="monospace">turn number within session</text>
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       {tip && <window.DashTooltip tip={tip} />}
     </div>
   );
@@ -1379,6 +1407,12 @@ function ResponseSizesPanel({ data, bucketS }) {
     });
   }
 
+  const a11y = window.useChartA11y(
+    'Response Sizes',
+    `daily median + p90 lines, ${visible.length} models, log scale`,
+    visible.length
+      ? `Models shown: ${visible.map(s => s.key).join(', ')}.`
+      : null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -1422,7 +1456,8 @@ function ResponseSizesPanel({ data, bucketS }) {
       </div>
 
       <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-        <svg data-panel="Response Sizes" width={w} height={h} style={{ display: 'block' }}>
+        <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+          data-panel="Response Sizes" width={w} height={h} style={{ display: 'block' }}>
           {/* Y grid */}
           {yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
@@ -1477,6 +1512,9 @@ function ResponseSizesPanel({ data, bucketS }) {
             textAnchor="middle" fontFamily="monospace"
             transform={`rotate(-90 14 ${padT + plotH/2})`}>visible chars (log)</text>
         </svg>
+        {a11y.descText && (
+          <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+        )}
         {tip && <window.DashTooltip tip={tip} />}
       </div>
     </div>
@@ -1805,6 +1843,10 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
     });
   }
 
+  const a11y = window.useChartA11y(
+    `Tool Error Rate — ${modelName}`,
+    `error-rate lines, ${modelData.buckets.length} buckets`,
+    null);
   return (
     <div style={{
       width: w, border: `1px solid ${TH_X.border}`, borderRadius: 3,
@@ -1816,7 +1858,8 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
       </div>
 
       <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-        <svg data-panel={"Tool Error Rate — " + modelName} width={w} height={h} style={{ display: 'block' }}>
+        <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+          data-panel={"Tool Error Rate — " + modelName} width={w} height={h} style={{ display: 'block' }}>
           {/* y axis */}
           <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke={TH_X.border} />
           <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke={TH_X.border} />
@@ -2180,6 +2223,11 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     }
   }
 
+  const a11y = window.useChartA11y(
+    'Tool Usage Ratio',
+    `stacked bands to 100%, ${promotedList.length} tools shown`
+      + (otherTools.length ? ` + ${otherTools.length} in Other` : ''),
+    null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -2289,7 +2337,8 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       </div>
 
       <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-        <svg data-panel="Tool Usage Ratio" width={w} height={h} style={{ display: 'block' }}>
+        <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+          data-panel="Tool Usage Ratio" width={w} height={h} style={{ display: 'block' }}>
           {/* Y grid */}
           {yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
@@ -2548,6 +2597,10 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     });
   }
 
+  const a11y = window.useChartA11y(
+    'Reply Latency',
+    `p10-p90 bands, ${visible.length} models, log scale`,
+    null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -2611,7 +2664,8 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       </div>
 
       <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-        <svg data-panel="Reply Latency" width={w} height={h} style={{ display: 'block' }}>
+        <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+          data-panel="Reply Latency" width={w} height={h} style={{ display: 'block' }}>
           {yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
               y1={yScale(v)} y2={yScale(v)}
@@ -2851,6 +2905,11 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
 
   const legendW = 120;
 
+  const a11y = window.useChartA11y(
+    'Activity Heatmap',
+    `${mspec.label} by weekday and hour, peak `
+      + `${maxVal > 0 ? mspec.fmt(maxVal) : 'no data'}`,
+    null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -2897,7 +2956,8 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
         </div>
       </div>
 
-      <svg data-panel="Activity Heatmap" width="100%" height={h} style={{ display: 'block' }}
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel="Activity Heatmap" width="100%" height={h} style={{ display: 'block' }}
            onMouseLeave={() => setTip(null)}>
         {/* Separator lines in the SUM_GAP bands — margins read as distinct. */}
         <line x1={padL + 23 * (cellW + gap) + cellW + SUM_GAP / 2}
@@ -2990,7 +3050,8 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
         fontFamily: 'monospace', fontSize: 10, color: TH_X.textDim,
       }}>
         <span>0</span>
-        <svg data-panel="Activity Heatmap — legend" width={legendW} height="10">
+        <svg aria-hidden="true" data-panel="Activity Heatmap — legend"
+             width={legendW} height="10">
           <defs>
             <linearGradient id="heatLegendGrad" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%"  stopColor={mspec.color} stopOpacity="0.05" />
@@ -3182,6 +3243,13 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     });
   }
 
+  const a11y = window.useChartA11y(
+    isTokens ? 'Tokens by Context Size' : 'Cost by Context Size',
+    `bars with a cumulative share line, ${bars.length} context buckets`,
+    medianEdge !== null
+      ? `Half of all ${isTokens ? 'tokens sit' : 'spend sits'} above `
+        + `${fmtTok(medianEdge)} context tokens.`
+      : null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -3222,7 +3290,9 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
         </div>
       </div>
 
-      <svg width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel={isTokens ? 'Tokens by Context Size' : 'Cost by Context Size'}
+        width={w} height={h} style={{ display: 'block' }}>
         {[0, 0.25, 0.5, 0.75, 1].map(f => (
           <g key={f}>
             <line x1={padL} x2={padL + plotW} y1={yCost(maxCost * f)} y2={yCost(maxCost * f)}
@@ -3306,6 +3376,9 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
           );
         })()}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
 
       {tip && <window.DashTooltip tip={tip} />}
     </div>

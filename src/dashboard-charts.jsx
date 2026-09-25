@@ -342,6 +342,34 @@ function timeBinIndexAtX(bins, range, padL, plotW, x) {
       || (index === bins.length - 1 && ts === bin.end)));
 }
 
+// --- Accessible chart names (issue #117) ---
+// A chart panel svg is an IMAGE to assistive technology: role="img",
+// named with the panel title plus a one-line summary DERIVED FROM THE
+// DATA the panel already holds. A hardcoded count would go stale the
+// moment a filter or range changes what the panel shows. Where a data
+// alternative adds value (a top-series list the DOM does not already
+// carry as text), a visually-hidden element rendered BESIDE the svg
+// carries the longer description and the svg's aria-describedby points
+// at it.
+//
+// useChartA11y returns { label, descId, descText }. Call sites write
+// role="img" aria-label={a11y.label} aria-describedby={a11y.descId} on
+// the svg (React omits the describedby attribute when descId is
+// undefined) and, when descText is set, a
+//   <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+// next to it. The id comes from React.useId(), never the title:
+// ContextSubPanel and ToolErrorSubPanel mount once per model and
+// TimeSeriesPanel/HBar once per metric, so title-derived ids collide
+// the second time a family mounts two instances.
+function useChartA11y(title, summary, description) {
+  const id = React.useId();
+  return {
+    label: `${title}, ${summary}`,
+    descId: description ? id : undefined,
+    descText: description || null,
+  };
+}
+
 // --- Time-series panel ---
 function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, binMs }) {
   const ref = React.useRef(null);
@@ -417,6 +445,12 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
   }
   const yTicksL = niceTicks(maxBin);
   const yTicksR = niceTicks(maxCum);
+  const peakSum = Math.max(...bins.map(b => b.sum));
+  const a11y = useChartA11y(
+    title,
+    `time series, ${bins.length} bins, total ${humanFmt(total, isCurrency)}`,
+    `One bar per ${binMsLabel(binMs)} bucket, the line is the running `
+    + `total. Peak bucket ${humanFmt(peakSum, isCurrency)}.`);
 
   // Mouse tracking — select the bounded interval under the pointer.
   function onMouseMove(e) {
@@ -454,7 +488,8 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
     }}
     onMouseMove={onMouseMove}
     onMouseLeave={() => setTip(null)}>
-      <svg data-panel={title} width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel={title} width={w} height={h} style={{ display: 'block' }}>
         {yTicksL.map((v, idx) => (
           <line data-plot-boundary="" key={'g'+idx} x1={padL} x2={w - padR}
             y1={yBar(v)} y2={yBar(v)}
@@ -542,6 +577,9 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
           );
         })()}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       <Tooltip tip={tip} />
     </div>
   );
@@ -598,6 +636,13 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
   const xMax = max * 1.4;
 
   const total = rows.reduce((a, r) => a + r.value, 0);
+  const a11y = useChartA11y(
+    title,
+    `horizontal bars, ${rows.length} rows`,
+    rows.length
+      ? `Bar values: ${rows.slice(0, 3)
+        .map(r => `${r.label} ${fmt ? fmt(r) : humanFmt(r.value)}`).join('; ')}.`
+      : null);
 
   function rowTip(r) {
     if (hover == null) return null;
@@ -623,7 +668,8 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
       setMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     }}
     onMouseLeave={() => setHover(null)}>
-      <svg data-panel={title} width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel={title} width={w} height={h} style={{ display: 'block' }}>
         <text x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
         {rows.map((r, idx) => {
@@ -650,6 +696,9 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
           );
         })}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       {hover != null && <Tooltip tip={rowTip(rows[hover])} />}
     </div>
   );
@@ -769,6 +818,13 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
   // Headroom for the two-line value label sitting above the tallest bar.
   const yMax = max * 1.18;
   const total = rows.reduce((a, r) => a + r.value, 0);
+  const a11y = useChartA11y(
+    title,
+    `vertical bars, ${rows.length} rows`,
+    rows.length
+      ? `Bar values: ${rows.slice(0, 3)
+        .map(r => `${r.label} ${fmt ? fmt(r) : humanFmt(r.value)}`).join('; ')}.`
+      : null);
 
   function rowTip(r) {
     const c = (fixedColors && fixedColors[r.label]) || r.color || COL.inputTokens;
@@ -792,7 +848,8 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
       setMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     }}
     onMouseLeave={() => setHover(null)}>
-      <svg data-panel={title} width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel={title} width={w} height={h} style={{ display: 'block' }}>
         <text x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
         <line x1={padL} x2={w - padR} y1={padT + plotH} y2={padT + plotH}
@@ -834,6 +891,9 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
           );
         })}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       {hover != null && <Tooltip tip={rowTip(rows[hover])} />}
     </div>
   );
@@ -1121,6 +1181,12 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     }
   }
 
+  const a11y = useChartA11y(
+    'Session Burn Rate',
+    `scatter, ${sessionData.length} sessions`,
+    `Each dot is one session, its area scaled by context at session end; `
+    + `open dashed dots have unknown context. `
+    + `${limitHits.length} rate-limit ${limitHits.length === 1 ? 'line' : 'lines'} marked.`);
   return (
     <div ref={ref} style={{
       background: TH.bgAxes, border: `1px solid ${TH.border}`,
@@ -1128,7 +1194,8 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     }}
     onMouseMove={onMove}
     onMouseLeave={() => setTip(null)}>
-      <svg data-panel="Session Burn Rate" width={w} height={h} style={{ display: 'block' }}>
+      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+        data-panel="Session Burn Rate" width={w} height={h} style={{ display: 'block' }}>
         <defs>
           <clipPath id="burn-plot-clip">
             <rect x={padL} y={padT} width={plotW} height={plotH} />
@@ -1242,6 +1309,9 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
           );
         })()}
       </svg>
+      {a11y.descText && (
+        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+      )}
       <Tooltip tip={tip} />
     </div>
   );
@@ -1251,6 +1321,7 @@ window.TimeSeriesPanel = TimeSeriesPanel;
 window.HBar = HBar;
 window.VBar = VBar;
 window.BurnRatePanel = BurnRatePanel;
+window.useChartA11y = useChartA11y;
 window.dashboardTheme = TH;
 window.dashboardCol = COL;
 window.modelColors = MODEL_COLORS;
