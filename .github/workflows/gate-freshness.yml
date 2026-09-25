@@ -1,0 +1,46 @@
+name: gate freshness
+
+# Lists the open pull-request heads that must rebase or rerun once
+# `ci gate / aggregate` becomes a required check: those whose latest
+# ci-gate run predates the workflow's first commit on master, or that
+# have none. The decision lives in scripts/ci/gate_freshness.py; its
+# module docstring is the contract and tests/test_gate_freshness.py
+# pins the selection logic.
+#
+# workflow_dispatch-only, on purpose: no ruleset reads this workflow's
+# own check (the deliverable is the step summary naming the stale
+# heads), so nothing else should spend the API calls it takes. Run it
+# when binding the ruleset:
+#
+#     gh workflow run gate-freshness.yml
+#
+# and read the run's summary for the head list.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-freshness
+  cancel-in-progress: false
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The first-ci-gate-commit lookup walks history for the commit
+          # that added the workflow; a shallow clone has no such commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: List the heads a required aggregate would strand
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/gate_freshness.py

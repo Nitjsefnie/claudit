@@ -9,31 +9,11 @@ name: lint
 # test failure at a glance.
 
 on:
-  push:
-    branches: [master]
-    # Deny-list rather than an allow-list, matching tests.yml: a new
-    # top-level code directory would silently stop being checked under an
-    # allow-list.
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - '.github/ci-thresholds.json'
-  # Same PR policy as tests.yml: one run per commit, on the merge ref.
-  pull_request:
-    branches: [master]
-    paths-ignore:
-      - '**/*.md'
-      - 'PRESENTATION.txt'
-      - 'examples/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
+  # Trigger ownership moved to ci-gate.yml (issue #127): push and
+  # pull_request fire ci-gate, which calls this workflow as a leg.
+  # workflow_call is the leg's entry; workflow_dispatch keeps a direct
+  # run possible.
+  workflow_call:
   workflow_dispatch:
 
 # Least privilege: every job here only reads the tree. Without an
