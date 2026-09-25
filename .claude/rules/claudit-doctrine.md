@@ -540,9 +540,9 @@ decompose. Totals themselves always come from the stored per-record
 
 Every rate lives in `src/pricing.json`: `models` (normalised model key →
 history), `providers` (normalised model → provider → history),
-`provider_rates_fetched`, and `openrouter` (each provider-table model's
-OpenRouter id and any pinned resolution, SV-RATE-REFRESH). `backend/pricing.py` and `src/parser.js` hold
-logic only and both read that file — the backend at import, the browser
+`provider_rates_fetched`, and `openrouter` (the account's data region and
+each provider-table model's OpenRouter id, SV-RATE-REFRESH).
+`backend/pricing.py` and `src/parser.js` hold logic only and both read that file — the backend at import, the browser
 synchronously before first use (node `require`s it). The browser fetches
 the URL `public/index.html` names in the parser.js tag's `data-pricing`,
 cache-busted like every `/src` asset. It sits under `src/` because that is
@@ -588,18 +588,37 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
   listed write price when it is nonzero, the input rate otherwise; no
   listed cache-read price is 0. Endpoints of one host at one price are one
   row.
+- The account is billed only by endpoints in its data region,
+  `openrouter.data_region`: `global`, or a region code. An endpoint's
+  region is the suffix of its tag (`host/<suffix>`) when that suffix is a
+  two-letter code, optionally qualified (`us`, `eu`, `us-east-1`); the
+  quantization suffixes the tags carry (`fp4`, `fp8`, `nvfp4`) never have
+  that shape. `global` takes the endpoints no region suffix names. A host
+  whose only endpoints lie outside the region is not listed for the
+  account, and so is reported as vanished.
 - A run that appends bumps `PARSER_VERSION` to one past whatever
   `backend/constants.py` holds — never a literal — in the same commit: a
   record at or after the detection time that was ingested before the
   commit reached the deploy was priced at the old rate. It also moves
   `provider_rates_fetched`. A run that appends nothing writes nothing.
+  Every appended entry adds a rate epoch (SV-DATED-RATES), so the epoch
+  list and the read-time `CASE` over it grow with each detected move.
 - Ambiguity is a red run, never a guess. These exit nonzero and write
-  nothing: a host listing one model at two prices with no pinned
-  resolution in `openrouter.<model>.resolve` (a `match` of rate values
-  naming the endpoint to take, and a `why`), a pin no listed price
-  matches, an unrecognised response shape, a tracked model with no
-  endpoints, and a detection time not after a row's newest entry. The fix
-  is a human decision recorded as data.
+  nothing:
+  - a host with two endpoints inside the data region at different prices
+    (quantization variants, say), named by tag;
+  - a per-host pin that names no listed tag;
+  - a resolution keyed on anything but a tag;
+  - an unrecognised response shape;
+  - a tracked model with no endpoints, or none in the data region;
+  - a detection time not after a row's newest entry.
+
+  The red run still reports what every other model would append, so the
+  decision is made with the whole picture. The fix is a human decision
+  recorded as data. A per-host pin,
+  `openrouter.models.<model>.resolve.<host>`, is `{"tag": ..., "why":
+  ...}` and takes that tag's endpoint whatever its region. It is never a
+  price: a pin on a price stops matching the moment that price moves.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 

@@ -20,13 +20,18 @@ name: refresh-pricing
 # suite here is the only check it gets. A red run leaves the last good data
 # on master.
 #
-# The script exits nonzero, writing nothing, on the designed signals: a host
-# listing one model at two prices with no pinned resolution in the JSON, a
-# pin no listed price matches any more, a response shape it does not
-# recognise, a tracked model with no endpoints (a broken fetch looks exactly
-# like that), or a detection time not after a row's newest entry. A red run
-# here means read that model's endpoints by hand and record the decision as
-# data, not retry.
+# Only endpoints in the account's data region count; a region-tagged one
+# (`host/us`) is not one it is billed by. The script exits nonzero, writing
+# nothing, on the designed signals:
+#   - a host with two in-region endpoints at different prices and no tag
+#     pinned for it in the JSON;
+#   - a pin naming no listed tag;
+#   - a response shape it does not recognise;
+#   - a tracked model with no endpoints (a broken fetch looks exactly like
+#     that);
+#   - a detection time not after a row's newest entry.
+# A red run here means read that model's endpoints by hand and record the
+# decision as data, not retry.
 
 on:
   schedule:
@@ -90,17 +95,22 @@ jobs:
       - name: Fetch and append
         # stdlib only: nothing is installed before the fetch, so a quiet hour
         # costs one checkout and five requests.
+        # A refused run still reports what every other model would append;
+        # the summary shows it beside the refusals before the step fails.
         run: |
+          rc=0
           python3 scripts/ci/refresh_provider_rates.py \
-            --commit-msg "$RUNNER_TEMP/commit-msg.txt" > "$RUNNER_TEMP/report.txt"
-          cat "$RUNNER_TEMP/report.txt"
+            --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
+            > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?
+          cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
           {
             echo '### OpenRouter provider rates'
             echo
             echo '```'
-            cat "$RUNNER_TEMP/report.txt"
+            cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       - name: Did anything move?
         id: moved
