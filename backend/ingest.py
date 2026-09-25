@@ -4,7 +4,7 @@ Per-file granularity: every object key `key_layout.classify()` accepts —
 across EVERY configured bucket (R2_BUCKET names one or more, joined by
 '+') → one row in `files`, keyed by the bucket-qualified
 `<bucket>/<object-key>`, + N rows in `records` (per Phase-1-deduped
-record). Cross-file uuid dedup is a query-time concern.
+record). Cross-file uuid dedup resolves at ingest into records.is_canonical; reads filter the flag.
 
 Reparse trigger per FILE: row missing OR etag changed OR parser_version
 mismatch. Orphan files (R2 key gone) are deleted. CASCADE drops records.

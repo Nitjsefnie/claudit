@@ -151,11 +151,11 @@ backend/          — FastAPI application
                     transaction, with INSERT columns and VALUES
                     placeholders laid out one per line in the same order
                     (issue #86). Re-exported from ingest.
-  ingest_rollups.py — Derived-state rebuilds ingest runs after a walk,
-                    in a load-bearing order: suppression, the canonical
-                    flags, every rollup, the teammate agent_type
-                    resolution. Nothing here fetches, parses or
-                    persists. Re-exported from ingest.
+  ingest_rollups.py — The derived-table rebuilds ingest runs after each
+                    walk, in a load-bearing order: suppression, the
+                    canonical flags, every rollup, the teammate
+                    agent_type resolution. Nothing here fetches, parses
+                    or persists. Re-exported from ingest.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
   auth.py         — PBKDF2-SHA256 password hashing/verification helpers
                     (versioned hash format; a legacy bare-hex hash still
@@ -319,7 +319,7 @@ psql claudit -f backend/schema.sql
 
 - **Parser tests** (`test_parse.py`) are fixture-driven. Add a JSONL fixture to `fixtures/parser/` before changing parser behaviour, and map the test name 1:1 to the feature.
 - **API tests** (`test_api.py`) spin up a fresh temporary DB + mini R2 mirror per fixture. They bypass auth by mounting only the `api.router` into a clean FastAPI app.
-- **Ingest tests** (`test_ingest.py`) validate etag-based reparse triggers, orphan deletion, `turn_count` consistency, and cross-file uuid write-time retention (dedup is query-time).
+- **Ingest tests** (`test_ingest.py`) validate etag-based reparse triggers, orphan deletion, `turn_count` consistency, and cross-file uuid write-time retention (every row is kept; the winner is flagged `is_canonical`).
 - **Auth tests** (`test_auth.py`) verify PBKDF2 round-trips and constant-time comparison against garbage inputs.
 - Keep fixture files small: `fixtures/parser/*.jsonl` under 1 KB each; `fixtures/r2_mini/` under a few KB. Larger samples stay out of the repo, in a local mirror you point `R2_ENDPOINT` at (not committed).
 
