@@ -72,10 +72,17 @@ def hold_run_lease() -> None:
 
     The sweep skips any run whose lease is live, which is the only signal
     that crosses hosts and PID namespaces and survives the gaps between
-    tests when nobody is connected to the run's databases."""
+    tests when nobody is connected to the run's databases.
+
+    The connection sits on THIS run's own small lease database, not on
+    `postgres`/`template1`: Postgres refuses any other client's database
+    creation for as long as a template has an open connection, and the
+    lease is open for the whole run (issue #87)."""
     if _lease and not _lease[0].closed:
         return
-    conn = admin_connection(application_name=db_name())
+    create_empty_database(db_name("lease"))
+    conn = psycopg.connect(dbname=db_name("lease"), application_name=db_name(),
+                           autocommit=True, connect_timeout=5)
     try:
         # pylint misreads psycopg.connect's return type once kwargs pass through.
         conn.execute("SET idle_session_timeout = 0")  # pylint: disable=no-member
@@ -135,6 +142,11 @@ def drop_run_databases() -> list[str]:
     """Drop every database this run created; the end-of-session backstop
     for fixtures that never reached their own teardown."""
     with closing(admin_connection()) as conn:
+        # Release the lease first: the lease database is one of the rows
+        # below, and its WITH (FORCE) drop must not terminate our own
+        # backend (issue #87).
+        if _lease and not _lease[0].closed:
+            _lease[0].close()
         rows = conn.execute(
             "SELECT datname FROM pg_database WHERE starts_with(datname, %s)",
             (db_name(),)).fetchall()
