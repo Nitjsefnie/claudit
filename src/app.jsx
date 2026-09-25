@@ -227,12 +227,20 @@ function App() {
   // Fetch dashboard whenever the active project / range / nonce change.
   // `dashNonce` is a counter bumped by the SSE listener below to trigger
   // a re-fetch without changing project/range.
+  // Each run owns its request through an AbortController (issue #179):
+  // the cleanup aborts the superseded request when the deps re-fire, so
+  // a slow stale response can no longer land after a fresher one and
+  // overwrite it. An aborted run is not a failure — it applies nothing
+  // and leaves the pending announcement line for the run that replaced
+  // it; a real failure still drops that line.
   useEffect(() => {
     if (!backendOn) return;
+    const ctrl = new AbortController();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
-    fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin' })
+    fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin', signal: ctrl.signal })
       .then(r => r.json())
       .then(b => {
+        if (ctrl.signal.aborted) return;
         setBackendDash(b);
         // Announce only once the refetch the event asked for has
         // landed: the live region must never describe a load that is
@@ -244,12 +252,16 @@ function App() {
         }
       })
       .catch(err => {
+        // A superseded run's abort is not a failure: the pending line
+        // now belongs to the run that replaced this one.
+        if (ctrl.signal.aborted) return;
         console.error('dashboard fetch failed', err);
         // The refetch did not land, so the pending what-changed line
         // must not survive to mislabel the NEXT successful
         // announcement -- drop it and wait for the next event.
         refreshRef.current = null;
       });
+    return () => ctrl.abort();
   }, [backendOn, activeProject, activeRange, dashNonce]);
 
   // Live updates: open an SSE stream and bump dashNonce on `ingest_done`.
