@@ -300,8 +300,11 @@ hash is either a bare hex digest — the legacy shape, verified at
 versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that
 carries its own count and salt; `backend/auth.py` verifies both, and
 new writes use the versioned shape at 600,000 iterations. An external
-user-management process can write either shape to issue credentials.
-Every login credential failure answers one generic 401, and every
+user-management process can write either shape to issue credentials —
+the `web_password_salt` key must stay populated either way: a
+versioned string carries its own salt, but the verifier gates on the
+key's presence. Every login credential failure answers one generic
+401, and every
 failure costs about one PBKDF2 run at the write count — the real
 verification where it can run, a dummy remainder run on top where it
 cannot or would run cheaper — so account ids cannot be enumerated
