@@ -438,9 +438,21 @@ The seven that only make sense on GitHub:
 | `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
 | `claim.yml` | Can a contributor without write access take an issue? `/claim` on an open, unassigned issue assigns the commenter; `/unclaim` and `/release` remove only the commenter's own assignment. Runs no repository code — talks to the API only. | `issue_comment` (created), prefiltered to a command-bearing comment on an open non-PR issue from a non-Bot; the action re-checks all of it exactly. |
 
-**Coverage is a ratchet at 82%**, in `tests.yml`, checked by a step of its
-own so "tests failed" and "coverage dropped" stay distinguishable. Raise
-the floor as coverage climbs; never lower it to turn a build green.
+**Coverage and file size are self-raising ratchets**, each checked by a
+step of its own in `tests.yml` so "tests failed" / "coverage dropped" /
+"file grew" stay distinguishable. Both live as committed data in
+`.github/ci-thresholds.json`: the coverage floor sits a fixed 1.5 points
+under the recorded measured value, and on a `master` push CI raises the
+floor automatically once a run measures more than the 1.5-point
+hysteresis above the recorded measured. The floor is never lowered by
+hand. File size replaces pylint's flat 1000-line limit with a per-file
+ceiling (`module_size_baseline`: production 500 / test 700 lines, with
+entries seeded for files already over); CI tightens an entry as its file
+shrinks and drops it once the file is back under the ceiling, but
+entries are never added or raised by hand — growth is fixed by moving
+code into a new module. The data file is ignored by every gate
+workflow's push trigger, so the bot's ratchet commit never re-triggers
+CI.
 
 **Release = edit `VERSION`.** One semver line at the repo root, no
 leading `v`. Between releases the tree carries the next version with a
