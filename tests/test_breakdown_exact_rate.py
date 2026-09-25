@@ -104,6 +104,43 @@ def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
     assert got["models"] == [model.removeprefix("claude-")]
 
 
+def test_breakdown_prices_an_event_without_model_id_by_its_display_name():
+    """The missing-model_id rule: an event without its raw id is priced by
+    the name it still carries — a Claude short name resolves to its family
+    tier, an estimate; an event without either lands on the default row."""
+    got = _node("""
+      const mk = (model) => ({ model, model_id: undefined, provider: null,
+        ts: Date.parse('2026-09-20T12:00:00Z'), long_context: false,
+        input_tokens: 1000, output_tokens: 700, cache_create: 15000,
+        cache_read: 90000, ephemeral_5m: 1000, ephemeral_1h: 4000 });
+      const events = [mk('opus-4-8'), mk(undefined)];
+      const cost = (rates, e) => (e.input_tokens * rates.fresh
+        + e.output_tokens * rates.out + e.ephemeral_5m * rates.c5
+        + e.ephemeral_1h * rates.c1h
+        + Math.max(0, e.cache_create - e.ephemeral_5m - e.ephemeral_1h)
+          * rates.c1h
+        + e.cache_read * rates.read) / 1e6;
+      const tier = window.resolveModelRate('opus-4-8').rates;
+      const dflt = window.resolveModelRate(undefined).rates;
+      const bd = computeTokenBreakdown(events);
+      console.log(JSON.stringify({
+        costTotal: bd.costTotal,
+        expected: cost(tier, events[0]) + cost(dflt, events[1]),
+        allDefault: cost(dflt, events[0]) + cost(dflt, events[1]),
+        tier: tier, dflt: dflt,
+      }));
+    """)
+    # Liveness: the fixture means something only while the tier the
+    # display name resolves to differs from the default row.
+    assert got["tier"] != got["dflt"], (
+        "fixture live only while opus-4-8's family tier differs from the "
+        "default row")
+    assert got["costTotal"] == pytest.approx(got["expected"], rel=1e-12)
+    # Not the all-default value: pricing both events there is exactly the
+    # pre-fix behaviour this rule replaces.
+    assert got["costTotal"] != pytest.approx(got["allDefault"], rel=1e-9)
+
+
 def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
     """The Inspector-loaded path (txToDashData) costs each turn by the
     raw model id; its breakdown must price the same id."""
