@@ -278,6 +278,13 @@ unit file. Key settings:
 - `--timeout-graceful-shutdown 5` so SSE connections drain quickly.
 - `TimeoutStopSec=10` for fast restarts.
 
+A restart during an ingest aborts the run cooperatively within the stop
+timeout: the run stops at its next bounded step, its `ingest_runs` row
+is closed with an "aborted" error instead of lingering unfinished, and
+the derived-state rebuild, the `ingest_done` broadcast and the cache
+warm are skipped — the next successful run rebuilds all derived state
+and converges.
+
 ```bash
 systemctl restart claudit
 systemctl status claudit
