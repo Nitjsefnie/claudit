@@ -1,12 +1,14 @@
-"""Derived-state rebuilds: the tables ingest recomputes from `records`.
+"""Derived-state rebuilds: what ingest recomputes from the parsed rows.
 
 Split out of backend/ingest.py, which crossed pylint's 1000-line gate —
 the same seam api.py was split along. Nothing here fetches, parses or
 persists; every function reads what the ingest walk already wrote and
-rewrites one derived table. They are called in order by
-ingest._rebuild_derived_state(), and that order is load-bearing:
-suppression removes rows the canonical pass would otherwise rank, and
-every rollup reads is_canonical.
+rewrites one derived table -- or, for resolve_teammate_agent_types, the
+derived `files.agent_type` of named teammates, joined across files. They
+are called in order by ingest._rebuild_derived_state(), and that order is
+load-bearing: suppression removes rows the canonical pass would otherwise
+rank, every rollup reads is_canonical, and agent_rollup reads the
+teammates' resolved agent_type.
 
 Re-exported from backend.ingest so existing callers keep working.
 """
@@ -87,13 +89,15 @@ def purge_suppressed() -> int:
 def resolve_teammate_agent_types() -> int:
     """Set each named teammate's `files.agent_type` from its lead's dispatch.
 
-    A teammate's sidecar names the teammate, not a role, so ingest stores
-    that name as `files.teammate_name` and the default as its type. The
-    role is the `agent_type` (subagent_type) of the dispatch in the same
-    session whose `dispatch_name` is that name: the latest one that did not
-    fail and was made at or before the teammate's first record, since a
-    name can be dispatched again. No such dispatch, or one naming no
-    subagent_type, leaves the default.
+    A teammate's sidecar names the teammate, not reliably a role, so ingest
+    stores that name as `files.teammate_name` beside the role the parse
+    could take (parse.apply_agent_sidecar: the sidecar's agentType when it
+    differs from the name, otherwise the default). When a dispatch in the
+    same session has that `dispatch_name`, its `agent_type` (subagent_type,
+    or the default when the call named none) replaces it: the latest one
+    that did not fail and was made at or before the teammate's first
+    record, since a name can be dispatched again. With none, the parsed
+    role stands.
 
     A join across files, so it runs on every ingest, before the rollups
     that read `files.agent_type`: a lead archived after its teammate
@@ -103,23 +107,20 @@ def resolve_teammate_agent_types() -> int:
         cur = c.execute(
             """
             WITH resolved AS (
-              SELECT f.file_key,
-                     COALESCE((
-                       SELECT tu.agent_type
-                         FROM files p
-                         JOIN tool_uses tu ON tu.file_key = p.file_key
-                        WHERE p.project_id = f.project_id
-                          AND p.session_id = f.session_id
-                          AND tu.dispatch_name = f.teammate_name
-                          AND tu.is_error IS NOT TRUE
-                          AND tu.ts <= COALESCE(
-                                (SELECT min(r.ts) FROM records r
-                                  WHERE r.file_key = f.file_key),
-                                'infinity')
-                        ORDER BY tu.ts DESC, tu.line_num DESC
-                        LIMIT 1), %(default)s) AS agent_type
+              SELECT DISTINCT ON (f.file_key) f.file_key,
+                     COALESCE(tu.agent_type, %(default)s) AS agent_type
                 FROM files f
+                JOIN files p ON p.project_id = f.project_id
+                            AND p.session_id = f.session_id
+                JOIN tool_uses tu ON tu.file_key = p.file_key
                WHERE f.teammate_name IS NOT NULL
+                 AND tu.dispatch_name = f.teammate_name
+                 AND tu.is_error IS NOT TRUE
+                 AND tu.ts <= COALESCE(
+                       (SELECT min(r.ts) FROM records r
+                         WHERE r.file_key = f.file_key),
+                       'infinity')
+               ORDER BY f.file_key, tu.ts DESC, tu.line_num DESC
             )
             UPDATE files f SET agent_type = resolved.agent_type
               FROM resolved

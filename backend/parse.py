@@ -349,11 +349,8 @@ def _dispatch_args(name: str, args: dict) -> tuple:
 
 
 def _dispatch_name(name: str, args: dict) -> str | None:
-    """The `name` a dispatching call gave its agent -- a named teammate's
-    only link back to the role it was dispatched as."""
-    if name not in DISPATCH_TOOLS or not isinstance(args, dict):
-        return None
-    value = args.get("name")
+    """The `name` a dispatching call gave its agent: a teammate's link to its role."""
+    value = args.get("name") if name in DISPATCH_TOOLS and isinstance(args, dict) else None
     return value if isinstance(value, str) and value else None
 
 
@@ -853,14 +850,28 @@ def _sidecar_meta(sidecar: bytes) -> dict | None:
 
 
 def _is_teammate(meta: dict) -> bool:
-    """Whether agentType is a teammate NAME, not a role: Claude Code marks
-    a named teammate ``taskKind: in_process_teammate``, and an agentType
-    equal to ``name`` cannot be told from one (a named plain subagent's
-    agentType is its role and differs from its name)."""
+    """Whether agentType may be a teammate NAME: Claude Code marks a named
+    teammate ``taskKind: in_process_teammate``, and an agentType equal to
+    ``name`` is that case unmarked -- unless a ``toolUseId`` (which no
+    teammate sidecar carries) shows a plain subagent named after its role."""
     name = meta.get("name")
     return (meta.get("taskKind") == "in_process_teammate"
             or (isinstance(name, str) and bool(name)
-                and meta.get("agentType") == name))
+                and "toolUseId" not in meta and meta.get("agentType") == name))
+
+
+def _meta_role(meta: dict) -> str | None:
+    name = meta.get("name")
+    if _is_teammate(meta) and not (isinstance(name, str) and name
+                                   and meta.get("agentType") != name):
+        return None
+    spec = meta.get("launch_spec")
+    for role in (meta.get("agentType"), meta.get("subagent_type"),
+                 spec.get("subagent_type") if isinstance(spec, dict)
+                 else None):
+        if isinstance(role, str) and role:
+            return role
+    return None
 
 
 def sidecar_agent_role(sidecar: bytes) -> str | None:
@@ -870,18 +881,9 @@ def sidecar_agent_role(sidecar: bytes) -> str | None:
     ``{"subagent_type": ..., "launch_spec": {"subagent_type": ...}}``,
     the top-level value first. Anything else — undecodable bytes, a
     top level that is not an object, an empty or non-string value, a
-    teammate's sidecar (_is_teammate) — is no role.
+    teammate's agentType that is its name (_is_teammate) — is no role.
     """
-    meta = _sidecar_meta(sidecar)
-    if meta is None or _is_teammate(meta):
-        return None
-    spec = meta.get("launch_spec")
-    for role in (meta.get("agentType"), meta.get("subagent_type"),
-                 spec.get("subagent_type") if isinstance(spec, dict)
-                 else None):
-        if isinstance(role, str) and role:
-            return role
-    return None
+    return _meta_role(_sidecar_meta(sidecar) or {})
 
 
 def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
@@ -895,18 +897,18 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     the key layout, not the sniffed format -- a sidecar in the lane tree
     goes through the lane's (lane_sidecar_agent_type), so its name for
     the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
-    stored verbatim, like ``attributionAgent``. A teammate's sidecar
-    leaves the default and sets ``teammate_name``, which ingest joins to
-    the lead's dispatch. Mutates and returns `parsed`.
+    stored verbatim, like ``attributionAgent``. A teammate's sidecar also
+    sets ``teammate_name``, which ingest joins to the lead's dispatch; the
+    role stored here stands only when no dispatch joins. Mutates and
+    returns `parsed`.
     """
     if parsed.get("agent_type_in_band"):
         return parsed
-    meta = _sidecar_meta(sidecar)
-    if meta is not None and _is_teammate(meta):
+    meta = _sidecar_meta(sidecar) or {}
+    if _is_teammate(meta):
         name = meta.get("name") or meta.get("agentType")
         parsed["teammate_name"] = name if isinstance(name, str) else None
-        return parsed
-    role = sidecar_agent_role(sidecar)
+    role = _meta_role(meta)
     if role is None:
         return parsed
     parsed["agent_type"] = (lane_sidecar_agent_type(role)
