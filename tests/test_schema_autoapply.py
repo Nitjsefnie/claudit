@@ -76,6 +76,40 @@ def test_apply_schema_creates_user_session(app_with_data):
     assert row is not None and row[0] == "pre-existing"
 
 
+def test_apply_schema_widens_an_integer_user_session_user_id(app_with_data):
+    """Issue #185: a DB created while `user_id` was INTEGER is widened to
+    BIGINT at startup — the live databases were hotfixed by hand, so the
+    DO block must be a no-op there too — and re-applying on an
+    already-BIGINT column changes nothing."""
+    def _user_id_type():
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name='user_session' AND column_name='user_id'"
+            ).fetchone()
+        return row[0] if row else None
+
+    with db.viz_conn() as c:
+        c.execute("ALTER TABLE user_session "
+                  "ALTER COLUMN user_id TYPE INTEGER")
+        c.commit()
+    assert _user_id_type() == "integer"
+
+    db.apply_schema()
+    assert _user_id_type() == "bigint"
+
+    # Idempotent: the second boot's pass is a no-op, and the widened
+    # column holds an 18-digit id.
+    db.apply_schema()
+    assert _user_id_type() == "bigint"
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
+            (123456789012345678, "bigint-secret"),
+        )
+        c.commit()
+
+
 def test_apply_schema_is_idempotent_and_preserves_data(app_with_data):
     """Re-applying on every boot must not disturb existing rows."""
     with db.viz_conn() as c:

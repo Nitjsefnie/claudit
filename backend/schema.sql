@@ -684,8 +684,28 @@ CREATE TABLE IF NOT EXISTS lane_markers (
 -- claudit write to a database documented read-only — it only ever reads
 -- that DB now. Additive: a brand-new table breaks no older reader, so
 -- this needs no PARSER_VERSION bump.
+-- Issue #185: user_id is BIGINT because the auth DB's user ids are
+-- bigint (18 digits); an INTEGER here made every real login fail with
+-- integer-out-of-range.
 CREATE TABLE IF NOT EXISTS user_session (
-  user_id    INTEGER PRIMARY KEY,
+  user_id    BIGINT PRIMARY KEY,
   secret     TEXT NOT NULL,
   generation INTEGER NOT NULL DEFAULT 0
 );
+-- The guarded, idempotent widening for a DB created while the column was
+-- still INTEGER: a no-op once the column is BIGINT (SV-SCHEMA-AUTOAPPLY's
+-- second allowed exception — a pure int->bigint widening is inert for an
+-- older binary, which only ever wrote values that fit and reads user ids
+-- indifferent to the column's width; nothing drops, nothing narrows).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = 'user_session'::regclass
+       AND attname = 'user_id'
+       AND NOT attisdropped
+       AND atttypid = 'integer'::regtype
+  ) THEN
+    ALTER TABLE user_session ALTER COLUMN user_id TYPE BIGINT;
+  END IF;
+END $$;
