@@ -324,3 +324,49 @@ def test_parser_js_merges_provider_across_streaming_chunks():
     # chunk (req-1) and a provider-less chunk after it (req-2) — so neither
     # mutant (never carrying, always overwriting) can pass it by luck.
     assert want == [("Novita", 1000, 200), ("Novita", 1000, 300)]
+
+
+# The parsed provider value carries parse._provider's guard: a string is
+# trimmed, a whitespace-only one becomes null, anything else is null.
+
+_UNSET = object()
+
+
+def _provider_blob(raw=_UNSET) -> str:
+    """One assistant line whose message.provider is `raw`; without one the
+    key is absent. Alone on its requestId, so nothing merges."""
+    message = {"role": "assistant", "model": "deepseek/deepseek-v4.1-flash",
+               "content": [],
+               "usage": {"input_tokens": 10, "output_tokens": 1}}
+    if raw is not _UNSET:
+        message["provider"] = raw
+    return json.dumps({"type": "assistant", "requestId": "r-0",
+                       "timestamp": "2026-09-21T10:00:00Z",
+                       "message": message})
+
+
+def _parsed_provider(raw=_UNSET) -> list:
+    return _node_json(f"""
+      const {{ meta }} = window.parseTranscript(
+        {json.dumps(_provider_blob(raw))});
+      console.log(JSON.stringify(meta
+        .filter(m => m.type === 'assistant_usage')
+        .map(m => m.provider)));
+    """)
+
+
+@pytest.mark.parametrize("raw, want", [
+    pytest.param("  Chutes  ", "Chutes", id="padded"),
+    pytest.param("   ", None, id="blank"),
+])
+def test_the_parsed_provider_strips_surrounding_whitespace(raw, want):
+    assert _parsed_provider(raw) == [want]
+
+
+@pytest.mark.parametrize("raw", [42, None], ids=["number", "null"])
+def test_the_parsed_provider_non_string_values_are_null(raw):
+    assert _parsed_provider(raw) == [None]
+
+
+def test_the_parsed_provider_without_a_key_is_null():
+    assert _parsed_provider() == [None]
