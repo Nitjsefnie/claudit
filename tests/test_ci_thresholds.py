@@ -224,12 +224,19 @@ def test_coverage_value_bounds():
 
 
 def test_committed_document_bytes_are_canonical(tmp_path):
-    # The committed file must be byte-identical to what write() publishes
-    # for the same document — no hand-edited formatting drift.
+    # The COMMITTED bytes must be byte-identical to what write()
+    # publishes for the same document — no hand-edited formatting
+    # drift. The bytes come from git, not the working-tree file: a
+    # Windows autocrlf checkout delivers CRLF on disk, and the pin has
+    # to hold on every platform's checkout.
     doc = thresholds.load(THRESHOLDS_PATH)
     target = tmp_path / "canonical.json"
     thresholds.write(target, doc)
-    assert THRESHOLDS_PATH.read_bytes() == target.read_bytes()
+    committed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
+         f"HEAD:{THRESHOLDS_PATH.relative_to(REPO_ROOT).as_posix()}"],
+        capture_output=True, check=True).stdout
+    assert committed == target.read_bytes()
 
 
 def test_coverage_floor_cli_prints_floor():
