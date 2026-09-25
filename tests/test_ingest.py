@@ -949,6 +949,6 @@ def test_a_failed_rebuild_still_closes_the_run(fresh_db, mini_r2_env,
     assert "rollup rebuild exploded" in summary["error"]
     assert _last_run_finished_at() is not None, (
         "a failed rebuild must still close the run")
-    assert broadcasts == [], "a fatal run must not broadcast ingest_done"
+    assert not broadcasts, "a fatal run must not broadcast ingest_done"
     assert cache.response_cache.get_entry("rebuild-fatal-key") == (
         {"v": "old"}, False), "a fatal run must not mark responses stale"
