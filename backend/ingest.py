@@ -25,11 +25,13 @@ import lzma
 import os
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import NamedTuple
 
+import psycopg
 from botocore.exceptions import BotoCoreError, ClientError
 
 from backend import agent_sidecar, api, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
@@ -66,6 +68,12 @@ _PROGRESS_LOCK = threading.Lock()
 # Non-blocking: a skipped run is correct behaviour, not an error — the next
 # hourly tick picks up whatever is left.
 _RUN_LOCK = threading.Lock()
+
+# Advisory-lock key for the db-wide ingest lock (_db_run_lock below). A
+# sibling of db._SCHEMA_LOCK_KEY (0x5356_4D49) — same prefix, next value —
+# so the schema migration and an ingest run can never take each other's
+# lock on one database.
+_INGEST_LOCK_KEY = 0x5356_4D4A
 
 
 def progress_snapshot() -> dict:
@@ -153,6 +161,44 @@ def _run_lock_nonblocking():
             _RUN_LOCK.release()
 
 
+@contextmanager
+def _db_run_lock() -> Iterator[bool]:
+    """Try the db-wide ingest advisory lock on a DEDICATED connection.
+
+    _RUN_LOCK above serialises one process; two app instances sharing one
+    database still ran their ingests concurrently (issue #102: two runs
+    2.4 ms apart, one rollup rebuild UniqueViolation, two ingest_runs
+    rows). pg_try_advisory_lock is session-scoped, so the server releases
+    it when the holding connection dies — a crashed instance can never
+    leave the ingest locked.
+
+    The connection exists ONLY to hold the lock: opened here, closed in
+    the outer finally on every exit path (success, fatal error, and any
+    abort unwinding through the yield), so no pooled connection ever
+    returns to the pool with the lock still held.
+
+    Yields False when another instance holds it — a skipped run is correct
+    behaviour, not an error. A connect failure propagates, the same as
+    today's behaviour when the database is down.
+    """
+    conn = psycopg.Connection.connect(
+        os.environ["DATABASE_URL_VIZ"], autocommit=True)
+    try:
+        row = conn.execute(  # pylint: disable=no-member
+            "SELECT pg_try_advisory_lock(%s)", (_INGEST_LOCK_KEY,)
+        ).fetchone()
+        assert row is not None  # SELECT always yields exactly one row
+        acquired = bool(row[0])
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                conn.execute(  # pylint: disable=no-member
+                    "SELECT pg_advisory_unlock(%s)", (_INGEST_LOCK_KEY,))
+    finally:
+        conn.close()  # pylint: disable=no-member
+
+
 def run_ingest(trigger: str) -> dict:
     with _run_lock_nonblocking() as acquired:
         if not acquired:
@@ -164,7 +210,18 @@ def run_ingest(trigger: str) -> dict:
                 "reason": "ingest already running",
                 "trigger": trigger,
             }
-        return run_ingest_locked(trigger)
+        with _db_run_lock() as db_acquired:
+            if not db_acquired:
+                log.warning(
+                    "ingest (%s) skipped: another instance is still running",
+                    trigger,
+                )
+                return {
+                    "skipped": True,
+                    "reason": "ingest already running (another instance)",
+                    "trigger": trigger,
+                }
+            return run_ingest_locked(trigger)
 
 
 def _open_run(started: datetime, trigger: str) -> int:
