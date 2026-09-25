@@ -30,13 +30,18 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     permissions:
       # Only this job may write, and only to push the ratchet commit that
       # raises the coverage floor / tightens the size baseline on master
-      # (see the "Ratchet the thresholds" step). The workflow-level block
-      # above stays contents: read, so every other job remains read-only.
+      # (see the "Ratchet the thresholds" step), and — on a pull request
+      # only — to post the informational patch-coverage comment (issue
+      # #129). The workflow-level block above stays contents: read, so
+      # every other job remains read-only. ci-gate's calling job grants
+      # the same pair, or the callee would be capped below this.
       contents: write
+      pull-requests: write
 
     services:
       postgres:
@@ -68,6 +73,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history, because the patch-coverage step's merge-base
+          # computation on a pull request walks ancestry across both sides
+          # of the branch; a depth-1 clone would leave the merge ref's
+          # parents missing and the computation would fail (the same
+          # reason speed.yml fetches everything). The repo's history is
+          # small; the fetch is seconds.
+          fetch-depth: 0
           # One step in this workflow pushes (the master-only ratchet
           # commit), and its token is interpolated into the push URL from
           # a step-scoped env — never into .git/config. persist-
@@ -169,6 +181,84 @@ jobs:
           path: coverage.xml
           if-no-files-found: error
 
+      - name: Patch coverage against the merge base
+        # Informational readout (issue #129): of the lines this pull
+        # request ADDED, which did the suite execute. PR-only — the
+        # merge-base computation needs the pull-request event. The diff
+        # is the checked-out merge ref (the exact tree coverage.xml above
+        # measured) against its freshly fetched base tip, so the number
+        # describes the change GitHub would land. INFORMATIONAL BY
+        # DESIGN: no threshold, no gate; the module exits 0 for any
+        # result it computed, even 0%.
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "refs/heads/${BASE_REF}"
+          base="$(git merge-base HEAD FETCH_HEAD)"
+          echo "Patch base: $(git log -1 --format='%h %s' "$base")"
+          git diff "$base" HEAD -- '*.py' > "$RUNNER_TEMP/pr.diff"
+          python3 scripts/ci/diff_coverage.py \
+            --coverage coverage.xml \
+            --diff "$RUNNER_TEMP/pr.diff" \
+            --summary-file "$GITHUB_STEP_SUMMARY" \
+            > "$RUNNER_TEMP/diff-coverage.md"
+
+      - name: Post the patch-coverage comment
+        # ONE comment per pull request, UPDATED on later pushes rather
+        # than duplicated: the marker below is how the bot finds its own
+        # comment again, and an existing one is PATCHed. continue-on-error
+        # keeps a failed comment from reddening the run — the step
+        # summary above still carries the numbers (issue #129: a comment
+        # that failed to post must never be able to block a merge).
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- claudit-diff-coverage -->'
+          {
+            printf '%s\n\n' "$marker"
+            printf 'Patch coverage for commit %s, measured on the merge ref.\n\n' "$HEAD_SHA"
+            cat "$RUNNER_TEMP/diff-coverage.md"
+          } > "$RUNNER_TEMP/comment.md"
+          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+            "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[]' > "$RUNNER_TEMP/comments.json"
+          then
+            echo "listing the comments on PR $PR_NUMBER failed" >&2
+            exit 1
+          fi
+          existing="$(
+            jq -s 'map(select(.user.login == "github-actions[bot]" and
+              ((.body // "") | startswith(
+                "<!-- claudit-diff-coverage -->")))) |
+              .[0].id // empty' "$RUNNER_TEMP/comments.json"
+          )"
+          case "$existing" in
+            '')
+              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+              echo 'posted a new patch-coverage comment'
+              ;;
+            *[!0-9]*)
+              echo "comment id is not only digits: $existing" >&2
+              exit 1
+              ;;
+            *)
+              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+              echo "updated patch-coverage comment $existing"
+              ;;
+          esac
+
       - name: Coverage gate
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         # A RATCHET, not a target. The floor is committed data in
@@ -269,6 +359,7 @@ jobs:
     # cover.
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
