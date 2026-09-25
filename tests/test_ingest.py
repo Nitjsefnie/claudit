@@ -887,3 +887,68 @@ def test_stored_lane_mapping_prefers_slug_then_the_larger_side(
     # would fall to the lexicographically smaller id.
     assert mapping["hx"] == "not-a-slug"
     assert mapping["hy"] == "aaa-hash"
+
+
+# ---------------------------------------------------------------------------
+# Run bookkeeping order (issue #42): finished_at is written only AFTER the
+# derived-state rebuild, so a reader that waits on the run row then reads a
+# rollup sees THIS run's aggregates, never the previous run's.
+# ---------------------------------------------------------------------------
+
+
+def _last_run_finished_at():
+    """finished_at of the newest ingest_runs row (the run just executed)."""
+    with db.viz_conn() as c:
+        return _scalar(
+            c,
+            "SELECT finished_at FROM ingest_runs "
+            "WHERE id = (SELECT MAX(id) FROM ingest_runs)",
+        )
+
+
+def test_finished_at_lands_after_the_derived_state_rebuild(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A reader that waits on ingest_runs.finished_at and then reads a
+    rollup must not land on the PREVIOUS run's aggregates — the rebuild
+    has to run while finished_at is still NULL."""
+    real = ingest._rebuild_derived_state  # pylint: disable=protected-access
+    seen = {}
+
+    def probe():
+        seen["finished_at"] = _last_run_finished_at()
+        real()
+
+    monkeypatch.setattr(ingest, "_rebuild_derived_state", probe)
+    summary = ingest.run_ingest_locked("manual")
+
+    assert summary["error"] is None
+    assert seen["finished_at"] is None, (
+        "the rebuild ran on a run already marked finished")
+    assert _last_run_finished_at() is not None, (
+        "run_ingest_locked must return with finished_at set")
+
+
+def test_a_failed_rebuild_still_closes_the_run(fresh_db, mini_r2_env,
+                                               monkeypatch):
+    """A derived-state rebuild that raises is more severe than any
+    per-object failure summary, so it becomes the run's error — and the
+    run still gets its finished_at. Being fatal, it also gates the
+    ingest_done broadcast and the response-cache invalidation, exactly
+    like a walk-level fatal does."""
+    def boom():
+        raise RuntimeError("rollup rebuild exploded")
+
+    monkeypatch.setattr(ingest, "_rebuild_derived_state", boom)
+    broadcasts = []
+    monkeypatch.setattr(ingest.events, "broadcast_threadsafe",
+                        lambda *args, **kwargs: broadcasts.append(args))
+    cache.response_cache.put("rebuild-fatal-key", {"v": "old"})
+
+    summary = ingest.run_ingest_locked("manual")
+
+    assert "rollup rebuild exploded" in summary["error"]
+    assert _last_run_finished_at() is not None, (
+        "a failed rebuild must still close the run")
+    assert broadcasts == [], "a fatal run must not broadcast ingest_done"
+    assert cache.response_cache.get_entry("rebuild-fatal-key") == (
+        {"v": "old"}, False), "a fatal run must not mark responses stale"

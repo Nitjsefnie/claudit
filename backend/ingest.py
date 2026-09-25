@@ -584,6 +584,25 @@ def run_ingest_locked(trigger: str) -> dict:
     # `error` reports BOTH kinds of trouble, but only `fatal` gates anything.
     err = fatal if fatal is not None else failure_summary(failed)
 
+    # The rebuild runs BEFORE the run is closed (issue #42): finished_at is
+    # the signal that the rollups and canonical flags now describe what
+    # THIS run persisted, so a reader that waits on it never lands on the
+    # previous run's aggregates. Gated on `fatal`, NOT on `err`: the
+    # derived state describes whatever `records` now holds, so skipping the
+    # rebuild because one object out of a thousand could not be fetched is
+    # what leaves the rollups and is_canonical describing the PREVIOUS
+    # dataset until the next clean run. A rebuild failure is more severe
+    # than any per-object failure summary, so it books itself as the run's
+    # error — and the run still closes, so the next run can start.
+    if fatal is None:
+        try:
+            _rebuild_derived_state()
+        except Exception as e:  # noqa: BLE001
+            log.exception(
+                "ingest (%s): fatal, derived-state rebuild failed", trigger)
+            fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
+            err = fatal
+
     finished = datetime.now(timezone.utc)
     _close_run(run_id, finished, listed, reparsed, inserted, deleted, err)
 
@@ -600,12 +619,6 @@ def run_ingest_locked(trigger: str) -> dict:
         "vanished": vanished,
         "error": err,
     }
-    # Gated on `fatal`, NOT on `err`: the derived state describes whatever
-    # `records` now holds, so skipping the rebuild because one object out of
-    # a thousand could not be fetched is what leaves the rollups and
-    # is_canonical describing the PREVIOUS dataset until the next clean run.
-    if fatal is None:
-        _rebuild_derived_state()
 
     # Data changed: mark the response cache stale, then notify connected
     # SSE clients so the dashboard re-fetches without a page reload.
