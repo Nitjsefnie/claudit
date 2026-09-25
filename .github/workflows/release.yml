@@ -15,6 +15,15 @@ name: release
 # a patch or a minor is a judgement about what changed, and a workflow
 # that guesses it would be wrong in exactly the cases that matter. Edit
 # VERSION in the commit that earns the bump; this reacts to that.
+#
+# DEV VERSIONS ARE SKIPPED (issue #131). Between releases, VERSION
+# carries the next version with a `-dev` suffix (`0.4.0-dev`); a release
+# is the suffix being dropped, and VERSION is bumped to the next `-dev`
+# immediately after a release lands. Validation below accepts the
+# suffix, and every step after it is skipped while one is set — a dev
+# version must not create a tag, because a `v*-dev` tag would squat the
+# version string forever. The version-guard workflow keeps the tree
+# version from naming an already-published release.
 
 on:
   push:
@@ -62,16 +71,25 @@ jobs:
         run: |
           version="$(cat VERSION)"
           version="$(echo "$version" | tr -d '[:space:]')"
-          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "VERSION is not bare semver: '$version'" >&2
-            echo "(no leading 'v' — the tag prefix is added here)" >&2
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "VERSION is not semver: '$version'" >&2
+            echo "(expected X.Y.Z with an optional -suffix; no leading" >&2
+            echo "'v' — the tag prefix is added here)" >&2
             exit 1
+          fi
+          # The core has no hyphen, so the first `-` starts the suffix.
+          if echo "$version" | grep -q -- '-'; then
+            echo "prerelease=${version#*-}" >> "$GITHUB_OUTPUT"
+            echo "Development version $version — nothing to release; every later step is skipped"
+          else
+            echo "prerelease=" >> "$GITHUB_OUTPUT"
+            echo "Releasing v$version"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$version"
 
       - name: Refuse to re-release an existing tag
+        if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -103,6 +121,7 @@ jobs:
           echo "$TAG is free"
 
       - name: Wait for the other gates on this commit
+        if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.sha || github.sha }}
@@ -156,6 +175,7 @@ jobs:
           exit 1
 
       - name: Create the release
+        if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
