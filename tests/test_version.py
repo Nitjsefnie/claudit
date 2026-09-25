@@ -12,6 +12,7 @@ import importlib
 import json
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend import constants
@@ -170,3 +171,54 @@ def test_health_ok_branch_reports_version(monkeypatch):
     assert response.status_code == 200
     assert payload["ok"] is True
     assert payload["version"] == constants.VERSION
+
+
+class _RowCursor:
+    """A cursor answering /health's ingest_runs SELECT with one row."""
+
+    @staticmethod
+    def fetchone():
+        started = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+        finished = datetime(2026, 9, 25, 12, 30, tzinfo=timezone.utc)
+        # Column order follows /health's SELECT: id, started_at,
+        # finished_at, trigger, r2_listed, reparsed, newer, error.
+        return (7, started, finished, "manual", 42, 3, 1, None)
+
+
+class _RowConn:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    @staticmethod
+    def execute(*_args, **_kwargs):
+        return _RowCursor()
+
+
+def test_health_last_ingest_carries_newer(monkeypatch):
+    """`last_ingest` carries the newer-version skip count beside
+    `reparsed` (issue #161).
+
+    Files skipped because a NEWER binary stored them are the visible
+    signature of a rollback in progress; /health is the unauthenticated
+    ops surface, and the run row is its only source.
+    """
+    app_mod = importlib.import_module("backend.app")
+
+    monkeypatch.setattr(app_mod.db, "viz_conn", _RowConn)
+    monkeypatch.setattr(
+        app_mod.ingest, "progress_snapshot", lambda: {"phase": "idle"}
+    )
+
+    response = app_mod.health()
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    last = payload["last_ingest"]
+    assert last["id"] == 7
+    assert last["reparsed"] == 3
+    assert last["newer"] == 1
+    assert last["error"] is None
+    assert last["finished_at"] == "2026-09-25T12:30:00+00:00"

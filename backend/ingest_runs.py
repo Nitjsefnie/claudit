@@ -29,12 +29,21 @@ def _open_run(started: datetime, trigger: str) -> int:
 
 
 def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
-               inserted: int, deleted: int, err: str | None) -> None:
-    """Write the final counters onto the ingest_runs row."""
+               inserted: int, deleted: int, newer: int,
+               err: str | None) -> None:
+    """Write the final counters onto the ingest_runs row.
+
+    `newer` counts the files this run declined to reparse because their
+    stored parser_version is newer than this binary's own (the issue #118
+    rollback guard). Persisted so /health can show a rollback in progress
+    without trawling the logs (issue #161).
+    """
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
             "UPDATE ingest_runs SET finished_at=%s, r2_listed=%s, "
-            "reparsed=%s, inserted=%s, deleted=%s, error=%s WHERE id=%s",
-            (finished, listed, reparsed, inserted, deleted, err, run_id),
+            "reparsed=%s, inserted=%s, deleted=%s, newer=%s, "
+            "error=%s WHERE id=%s",
+            (finished, listed, reparsed, inserted, deleted, newer, err,
+             run_id),
         )
         c.commit()

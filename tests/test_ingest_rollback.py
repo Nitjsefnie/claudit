@@ -67,6 +67,13 @@ def test_newer_stored_parser_version_is_never_reparsed(
         "the guarded file row and its records must stay verbatim — "
         "etag and parser_version included")
     with db.viz_conn() as c:
+        stored = c.execute(
+            "SELECT newer FROM ingest_runs WHERE id = %s",
+            (result["id"],)).fetchone()
+    assert stored == (1,), (
+        "the run row must carry the newer skip count — /health reads it "
+        "from there (issue #161)")
+    with db.viz_conn() as c:
         kept = c.execute(
             "SELECT DISTINCT provider FROM records "
             "WHERE file_key LIKE '%sess-A.jsonl'").fetchall()
@@ -90,6 +97,13 @@ def test_older_stored_parser_version_still_reparses(
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 5
     assert result["newer"] == 0
+    with db.viz_conn() as c:
+        stored = c.execute(
+            "SELECT newer FROM ingest_runs WHERE id = %s",
+            (result["id"],)).fetchone()
+    assert stored == (0,), (
+        "a run that skipped nothing must store 0, not NULL — NULL marks "
+        "rows written before the column existed")
 
 
 def test_unparsable_stored_parser_version_still_reparses(

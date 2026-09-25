@@ -743,7 +743,8 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
             err = fatal
 
     finished = datetime.now(timezone.utc)
-    _close_run(run_id, finished, listed, reparsed, inserted, deleted, err)
+    _close_run(run_id, finished, listed, reparsed, inserted, deleted,
+               newer, err)
 
     summary = {
         "id": run_id,

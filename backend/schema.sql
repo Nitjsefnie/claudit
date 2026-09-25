@@ -709,3 +709,13 @@ BEGIN
     ALTER TABLE user_session ALTER COLUMN user_id TYPE BIGINT;
   END IF;
 END $$;
+
+-- 2026-09-25 (issue #161): how many files this run SKIPPED because their
+-- stored parser_version is newer than the binary's own -- the issue #118
+-- rollback guard declining to rewrite rows it cannot write whole. The
+-- count rode the run summary and the warning log only; persisting it puts
+-- a rollback in progress on the unauthenticated /health, beside
+-- `reparsed`. Additive and nullable: an older binary ignores the column
+-- (SV-SCHEMA-AUTOAPPLY), NULL marks rows written before it existed, and
+-- no stored record semantics change, so this needs no PARSER_VERSION bump.
+ALTER TABLE ingest_runs ADD COLUMN IF NOT EXISTS newer INT;
