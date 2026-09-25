@@ -301,10 +301,13 @@ versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that
 carries its own count and salt; `backend/auth.py` verifies both, and
 new writes use the versioned shape at 600,000 iterations. An external
 user-management process can write either shape to issue credentials.
-Every login credential failure answers one generic 401, and paths
-where the real verification cannot run a fixed dummy one instead, so
-account ids cannot be enumerated from the login endpoint. The login
-rate limiter counts 5 failures per IP+user pair per 5-minute window.
+Every login credential failure answers one generic 401, and every
+failure costs about one PBKDF2 run at the write count — the real
+verification where it can run, a dummy remainder run on top where it
+cannot or would run cheaper — so account ids cannot be enumerated
+from the login endpoint (a stored hash versioned above the target
+count still costs longer). The login rate limiter counts 5 failures
+per IP+user pair per 5-minute window.
 Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
 guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server

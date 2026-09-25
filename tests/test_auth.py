@@ -103,9 +103,51 @@ def test_verify_constant_time_against_garbage():
     assert not auth.verify_web_password(config, "anything")
 
 
-def test_dummy_verification_runs_at_write_iterations(monkeypatch):
-    """The dummy helper is a real PBKDF2 run at PBKDF2_WRITE_ITERATIONS,
-    so an unknown-id login costs the same as verifying a modern hash."""
+def test_stored_verification_iterations_for_each_shape():
+    """The count a stored config would verify at: legacy bare hex runs
+    at the legacy count, a versioned string at the count it carries,
+    and nothing at all runs for a missing hash/salt pair or a
+    malformed versioned string."""
+    salt_hex = "11" * 16
+    legacy = {
+        auth.WEB_PASSWORD_HASH_KEY: auth.pbkdf2(
+            "pw", salt_hex, auth.PBKDF2_ITERATIONS
+        ),
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    assert (
+        auth.stored_verification_iterations(legacy)
+        == auth.PBKDF2_ITERATIONS
+    )
+    modern: dict = {}
+    auth.set_web_password(modern, "pw")
+    assert (
+        auth.stored_verification_iterations(modern)
+        == auth.PBKDF2_WRITE_ITERATIONS
+    )
+    carried = {
+        auth.WEB_PASSWORD_HASH_KEY:
+            f"pbkdf2_sha256$1000${salt_hex}"
+            f"${auth.pbkdf2('pw', salt_hex, 1000)}",
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    assert auth.stored_verification_iterations(carried) == 1000
+    assert auth.stored_verification_iterations({}) == 0
+    assert auth.stored_verification_iterations(
+        {auth.WEB_PASSWORD_SALT_KEY: salt_hex}
+    ) == 0
+    malformed = {
+        auth.WEB_PASSWORD_HASH_KEY:
+            f"pbkdf2_sha256$abc${salt_hex}${'ab' * 32}",
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    assert auth.stored_verification_iterations(malformed) == 0
+
+
+def test_normalize_from_zero_is_one_run_at_target(monkeypatch):
+    """A failure with nothing spent (unknown id, no configured
+    password) costs exactly one PBKDF2 run at the target count — the
+    reference at the target is seeded at import, not recomputed."""
     seen: list[int] = []
     real = auth.pbkdf2
 
@@ -114,8 +156,45 @@ def test_dummy_verification_runs_at_write_iterations(monkeypatch):
         return real(password, salt_hex, iterations)
 
     monkeypatch.setattr(auth, "pbkdf2", spy)
-    auth.run_dummy_verification("x")
+    auth.normalize_verification_timing("x", 0)
     assert seen == [auth.PBKDF2_WRITE_ITERATIONS]
+
+
+def test_normalization_tops_up_only_the_remainder(monkeypatch):
+    """spent < target runs one candidate at the remainder plus a
+    reference at that count (the reference only the first time — it is
+    memoized); spent at or above the target runs nothing, so a modern
+    hash pays the real run only."""
+    monkeypatch.setattr(auth, "_DUMMY_REFERENCE_HASHES", {})
+    seen: list[int] = []
+    real = auth.pbkdf2
+
+    def spy(password: str, salt_hex: str, iterations: int) -> str:
+        seen.append(iterations)
+        return real(password, salt_hex, iterations)
+
+    monkeypatch.setattr(auth, "pbkdf2", spy)
+    remainder = auth.PBKDF2_WRITE_ITERATIONS - auth.PBKDF2_ITERATIONS
+    auth.normalize_verification_timing("x", auth.PBKDF2_ITERATIONS)
+    assert seen == [remainder, remainder]  # candidate + first reference
+    auth.normalize_verification_timing("y", auth.PBKDF2_ITERATIONS)
+    assert seen == [remainder, remainder, remainder]  # candidate only
+    auth.normalize_verification_timing("z", auth.PBKDF2_WRITE_ITERATIONS)
+    auth.normalize_verification_timing(
+        "z", auth.PBKDF2_WRITE_ITERATIONS + 1
+    )
+    assert seen == [remainder, remainder, remainder]  # spent >= target
+
+
+def test_normalization_memoizes_the_reference_hash(monkeypatch):
+    """The module-level memo holds one reference hash per distinct
+    count — the second failure at a count never recomputes it."""
+    memo: dict[int, str] = {}
+    monkeypatch.setattr(auth, "_DUMMY_REFERENCE_HASHES", memo)
+    auth.normalize_verification_timing("x", auth.PBKDF2_ITERATIONS)
+    assert list(memo) == [
+        auth.PBKDF2_WRITE_ITERATIONS - auth.PBKDF2_ITERATIONS
+    ]
 
 
 def test_has_web_password_requires_both():

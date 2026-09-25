@@ -123,28 +123,70 @@ def verify_web_password(config: dict, password: str) -> bool:
     return hmac.compare_digest(candidate, expected)
 
 
+def stored_verification_iterations(config: dict) -> int:
+    """The iteration count `verify_web_password` would spend on this
+    stored config: the count a versioned string carries, the legacy
+    count for bare hex, and 0 when nothing would run at all (a missing
+    hash/salt pair, or a malformed versioned string, which fails
+    before any PBKDF2). Mirrors the format branch of
+    `verify_web_password` — the login flow passes this count back as
+    what a failed real verification already spent.
+    """
+    stored_hash = config.get(WEB_PASSWORD_HASH_KEY)
+    stored_salt = config.get(WEB_PASSWORD_SALT_KEY)
+    if not stored_hash or not stored_salt:
+        return 0
+    if stored_hash.startswith(_HASH_SCHEME + "$"):
+        parsed = _parse_versioned(stored_hash)
+        return parsed[0] if parsed else 0
+    return PBKDF2_ITERATIONS
+
+
 # Fixed verification target for the login flow's timing flattening
-# (issue #109): a real PBKDF2 run whose result is discarded, so a
-# login that cannot run the real verification (unknown id, no web
-# password configured) costs the same CPU as one that can. Computed
-# once at import; runs at PBKDF2_WRITE_ITERATIONS to match a modern
-# hash. Side effect: every unauthenticated login attempt burns this
+# (issue #109): every credential failure costs about one PBKDF2 run at
+# PBKDF2_WRITE_ITERATIONS — the real verification where it can run,
+# plus a dummy remainder run where it cannot, or would run cheaper (a
+# legacy 200k hash, a malformed stored hash, no stored hash at all).
+# The dummy compares a candidate for the submitted password against a
+# reference hash of a fixed password at the same count; references are
+# computed lazily and memoized per distinct count (the target itself
+# is seeded below at import), so steady state pays one candidate run
+# per failed login. Side effect: every failed login attempt burns this
 # much CPU, which slows brute force — intended.
 _DUMMY_PASSWORD = "claudit dummy verification target"
 _DUMMY_SALT_HEX = "9f1c3b7e2a5d48069be4c1f0a7d3e5b2"
-_DUMMY_HASH_HEX = pbkdf2(
-    _DUMMY_PASSWORD, _DUMMY_SALT_HEX, PBKDF2_WRITE_ITERATIONS
-)
+_DUMMY_REFERENCE_HASHES: dict[int, str] = {
+    PBKDF2_WRITE_ITERATIONS: pbkdf2(
+        _DUMMY_PASSWORD, _DUMMY_SALT_HEX, PBKDF2_WRITE_ITERATIONS
+    ),
+}
 
 
-def run_dummy_verification(password: str) -> None:
-    """Run a full PBKDF2 verification of `password` against a fixed
-    dummy target and discard the result.
+def _reference_hash(iterations: int) -> str:
+    """The dummy target's reference hash at `iterations`, computed once
+    per distinct count and memoized module-level."""
+    cached = _DUMMY_REFERENCE_HASHES.get(iterations)
+    if cached is None:
+        cached = pbkdf2(_DUMMY_PASSWORD, _DUMMY_SALT_HEX, iterations)
+        _DUMMY_REFERENCE_HASHES[iterations] = cached
+    return cached
 
-    The login flow calls this on every failure path where the real
-    verification does not run, so those responses take the same time
-    as a real verification and a user id cannot be enumerated by
-    timing (issue #109).
+
+def normalize_verification_timing(password: str, spent_iterations: int) -> None:
+    """Bring a failed login's verification cost to about one PBKDF2 run
+    at the target count (PBKDF2_WRITE_ITERATIONS).
+
+    Runs a dummy verification of `password` for the remainder — target
+    minus what the real verification already spent — against the
+    memoized reference hash at that same count, and discards both.
+    Skipped when nothing remains, so a hash already stored at the
+    target count pays the real run only. The login flow calls this on
+    every credential-failure path, so a stored hash's format cannot be
+    read off the response timing (issue #109). One documented residual:
+    a hash versioned ABOVE the target count still costs longer.
     """
-    candidate = pbkdf2(password, _DUMMY_SALT_HEX, PBKDF2_WRITE_ITERATIONS)
-    hmac.compare_digest(candidate, _DUMMY_HASH_HEX)
+    remaining = PBKDF2_WRITE_ITERATIONS - spent_iterations
+    if remaining <= 0:
+        return
+    candidate = pbkdf2(password, _DUMMY_SALT_HEX, remaining)
+    hmac.compare_digest(candidate, _reference_hash(remaining))

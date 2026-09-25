@@ -3,14 +3,17 @@
 Login UI is inlined HTML (no shared layout chrome — claudit uses
 its own visualizer dark theme). Every credential failure — unknown
 id, no web password configured, wrong password — answers one generic
-401 with an identical body, and the paths where the real PBKDF2
-verification cannot run run a dummy one instead, so an account id
-cannot be enumerated by response shape or timing (issue #109). Rate
-limiting: 5 failures per IP+user pair per 5-minute window (issue
-#111), so one user's failures never lock a different user behind the
-same egress IP; entries are pruned per key on access and, once the
-table grows past _LOGIN_MAX_KEYS, every fully expired key is swept,
-so it never grows without bound.
+401 with an identical body, and every failure costs about one PBKDF2
+run at the write count: the real verification where it can run, a
+dummy remainder run on top where it cannot or would run cheaper (a
+legacy 200k hash, a malformed stored hash), so an account id cannot
+be enumerated by response shape or timing (issue #109) — with one
+documented residual: a stored hash versioned above the target count
+still costs longer. Rate limiting: 5 failures per IP+user pair per
+5-minute window (issue #111), so one user's failures never lock a
+different user behind the same egress IP; entries are pruned per key
+on access and, once the table grows past _LOGIN_MAX_KEYS, every fully
+expired key is swept, so it never grows without bound.
 """
 from __future__ import annotations
 
@@ -171,15 +174,23 @@ async def login_post(
         )
     config = session_mod.load_user_config(uid)
     if not config or not auth.has_web_password(config):
-        # The real verification cannot run: burn the same CPU it would
-        # and give the same generic answer a wrong password gets, so
-        # neither response shape nor timing separates the two (#109).
-        auth.run_dummy_verification(password)
+        # The real verification cannot run: normalize from zero — burn
+        # the CPU the real verification would cost — and give the same
+        # generic answer a wrong password gets, so neither response
+        # shape nor timing separates the two (#109).
+        auth.normalize_verification_timing(password, 0)
         _record_login_failure(ip, uid)
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
     if not auth.verify_web_password(config, password):
+        # Top up whatever the real verification spent (its own count
+        # for a versioned hash, the legacy count for bare hex, zero
+        # for a malformed hash that ran no PBKDF2 at all) so a failure
+        # costs ≈ the target whatever shape the stored hash is (#109).
+        auth.normalize_verification_timing(
+            password, auth.stored_verification_iterations(config)
+        )
         _record_login_failure(ip, uid)
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
