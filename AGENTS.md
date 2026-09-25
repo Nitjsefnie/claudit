@@ -120,7 +120,9 @@ backend/          — FastAPI application
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
                     in two-phase transactions, broadcasts ingest_done SSE.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
-  auth.py         — PBKDF2-SHA256 password hashing/verification helpers.
+  auth.py         — PBKDF2-SHA256 password hashing/verification helpers
+                    (versioned hash format; a legacy bare-hex hash still
+                    verifies at 200,000 iterations, unchanged).
   login.py        — /login GET/POST, /logout, /login/guest, rate-limiting.
   session.py      — HMAC-signed session cookie mint/verify, auth middleware,
                     guest-mode sentinel (user_id=0, per-process secret).
@@ -276,7 +278,8 @@ psql claudit -f backend/schema.sql
 
 ## Security considerations
 
-- **Auth**: PBKDF2-SHA256 with 200,000 iterations and per-user hex salts. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`, 7-day TTL.
+- **Auth**: PBKDF2-SHA256 password hashes with per-user hex salts. A stored hash is either a bare hex digest — the legacy shape, always verified at 200,000 iterations — or a versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that carries its own count; new writes use the versioned format at 600,000 iterations. A legacy bare-hex hash verifies unchanged, so hashes written by an external user-management process keep working. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`, 7-day TTL.
+- **Login**: every credential failure — unknown id, no configured password, wrong password — answers the same generic 401 with an identical body, and a fixed dummy PBKDF2 verification runs wherever the real one cannot, so an account id cannot be enumerated by response or timing. The rate limiter keys 5 failures per IP+user pair per 5-minute window (one user's failures never lock a different user behind the same egress IP), prunes expired entries per key on access, and sweeps fully expired keys once the table grows past a cap, so it never grows without bound.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process secret regenerated at startup; cookies invalidate on restart. Guests are blocked from `/api/projects`, `/api/sessions*`, and `?project=` filter params.
 - **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`.
 - **Same-origin**: every mutating route (anything not GET/HEAD/OPTIONS) — including `/login`, `/login/guest` and `/logout` — enforces an origin/referer check: the `Origin` (or `Referer`) header's host must match the request's `Host` header, and a request with no `Host` header is refused. Browsers always send `Origin` on POST, so this only affects command-line/scripted clients, which must send a matching header.

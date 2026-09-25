@@ -1,26 +1,45 @@
+"""Login flow tests.
+
+Covers: one generic credential failure (issue #109), the dummy PBKDF2
+verification run where the real one cannot, the malformed-id 400 kept
+distinct, and the per-(ip, user) rate limiter with eviction
+(issue #111).
+"""
+import time as time_mod
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from backend import auth
 from backend import login as login_mod
 from backend import session as session_mod
-from backend import auth
+
+_ORIGIN = {"Origin": "http://testserver"}
+
+
+def _post_login(client, user_id, password, follow_redirects=False):
+    return client.post(
+        "/login",
+        data={"user_id": str(user_id), "password": password},
+        headers=_ORIGIN,
+        follow_redirects=follow_redirects,
+    )
 
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():
-    """The login module's rate-limit dict is process-global; clear between tests
-    so test_session_cookie_round_trip doesn't inherit failures from
-    test_rate_limit_after_5_failures (both POST from the same TestClient host).
-    """
+    """The rate-limit dict is process-global; clear it around each test
+    so limiter cases never leak failures into neighbouring cases on the
+    same TestClient host."""
     login_mod.reset_login_rate_limits()
     yield
     login_mod.reset_login_rate_limits()
 
 
 @pytest.fixture(name="app")
-def _app_fixture(monkeypatch):
+def _app_fixture():
     """Build a fresh FastAPI app per test, with the auth DB mocked."""
     a = FastAPI()
     a.middleware("http")(session_mod.auth_middleware)
@@ -46,12 +65,8 @@ def _fake_user_fixture(monkeypatch):
     def _write(user_id, cfg):
         store[user_id] = cfg
 
-    def _exists(user_id):
-        return user_id in store
-
     monkeypatch.setattr(session_mod, "load_user_config", _load)
     monkeypatch.setattr(session_mod, "write_user_config", _write)
-    monkeypatch.setattr(login_mod, "user_exists", _exists)
     return store
 
 
@@ -76,7 +91,7 @@ def test_successful_login_sets_cookie(app, fake_user):
     r = client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
-        headers={"Origin": "http://testserver"},
+        headers=_ORIGIN,
         follow_redirects=False,
     )
     assert r.status_code in (302, 303)
@@ -87,7 +102,7 @@ def test_successful_login_sets_cookie(app, fake_user):
 def test_guest_login_sets_same_cookie_contract(app):
     r = TestClient(app).post(
         "/login/guest",
-        headers={"Origin": "http://testserver"},
+        headers=_ORIGIN,
         follow_redirects=False,
     )
     assert r.status_code == 303
@@ -126,39 +141,159 @@ def test_login_post_without_origin_is_403(app, fake_user):
     assert r.status_code == 403
 
 
-def test_wrong_password_is_401(app, fake_user):
+def test_wrong_password_is_generic_401(app, fake_user):
     client = TestClient(app)
-    r = client.post(
-        "/login",
-        data={"user_id": "12345", "password": "wrong"},
-        headers={"Origin": "http://testserver"},
-    )
+    r = _post_login(client, 12345, "wrong")
     assert r.status_code == 401
+    assert r.text == "Invalid credentials."
 
 
-def test_unknown_user_is_404(app, fake_user):
+def test_unknown_user_is_generic_401(app, fake_user):
+    """An unknown id answers exactly what a wrong password answers —
+    not its own status or body (issue #109)."""
     client = TestClient(app)
-    r = client.post(
-        "/login",
-        data={"user_id": "999", "password": "anything"},
-        headers={"Origin": "http://testserver"},
-    )
-    assert r.status_code == 404
+    r = _post_login(client, 999, "anything")
+    assert r.status_code == 401
+    assert r.text == "Invalid credentials."
+
+
+def test_no_password_user_is_generic_401(app, fake_user):
+    store = fake_user
+    store[777] = {}  # known id, no web password configured
+    client = TestClient(app)
+    r = _post_login(client, 777, "anything")
+    assert r.status_code == 401
+    assert r.text == "Invalid credentials."
+
+
+def test_all_credential_failures_answer_identically(app, fake_user):
+    """#109: unknown id, no configured password and wrong password must
+    be indistinguishable — identical status AND identical body."""
+    store = fake_user
+    store[777] = {}
+    client = TestClient(app)
+    modes = [
+        _post_login(client, 999, "anything"),   # unknown id
+        _post_login(client, 777, "anything"),   # no password configured
+        _post_login(client, 12345, "wrong"),    # wrong password
+    ]
+    statuses = {r.status_code for r in modes}
+    bodies = {r.text for r in modes}
+    assert statuses == {401}
+    assert bodies == {"Invalid credentials."}
+
+
+def test_dummy_verification_runs_where_real_one_cannot(
+    app, fake_user, monkeypatch
+):
+    """The dummy helper is invoked on the unknown-id and no-password
+    paths, and nowhere else (the real verification runs instead)."""
+    calls: list[str] = []
+    monkeypatch.setattr(auth, "run_dummy_verification", calls.append)
+    store = fake_user
+    store[777] = {}
+    client = TestClient(app)
+    _post_login(client, 999, "anything")    # unknown id
+    assert len(calls) == 1
+    _post_login(client, 777, "whatever")    # no password configured
+    assert len(calls) == 2
+    _post_login(client, 12345, "wrong")     # real verification runs
+    assert len(calls) == 2
+    _post_login(client, 12345, "hunter2")   # successful login
+    assert len(calls) == 2
+
+
+def test_malformed_user_id_is_still_400(app, fake_user):
+    """The malformed-id 400 reveals nothing about accounts and stays."""
+    client = TestClient(app)
+    for bad in ("abc", "", "0", "-3"):
+        r = _post_login(client, bad, "bad id")
+        assert r.status_code == 400
+        assert r.text == "Invalid user ID"
 
 
 def test_rate_limit_after_5_failures(app, fake_user):
     client = TestClient(app)
-    headers = {"Origin": "http://testserver"}
     for _ in range(5):
-        client.post(
-            "/login", data={"user_id": "12345", "password": "x"},
-            headers=headers,
-        )
-    r = client.post(
-        "/login", data={"user_id": "12345", "password": "x"},
-        headers=headers,
-    )
+        _post_login(client, 12345, "x")
+    r = _post_login(client, 12345, "x")
     assert r.status_code == 429
+
+
+def test_failures_for_one_user_do_not_lock_another(app, fake_user):
+    """#111: the limiter is keyed per (ip, user) pair. User B's correct
+    login survives user A's failures; user A's own pair stays locked."""
+    store = fake_user
+    store[777] = {}
+    auth.set_web_password(store[777], "correct horse")
+    client = TestClient(app)
+    for _ in range(5):
+        _post_login(client, 12345, "wrong")
+    r = _post_login(client, 777, "correct horse")
+    assert r.status_code in (302, 303)
+    r = _post_login(client, 12345, "hunter2")
+    assert r.status_code == 429
+
+
+def test_every_failure_mode_counts_toward_the_limit(app, fake_user):
+    """Failure accounting covers all three generic-401 modes."""
+    store = fake_user
+    store[777] = {}  # no password configured
+    client = TestClient(app)
+    for mode_uid, password in ((999, "x"), (777, "x")):
+        login_mod.reset_login_rate_limits()
+        for _ in range(5):
+            _post_login(client, mode_uid, password)
+        r = _post_login(client, mode_uid, password)
+        assert r.status_code == 429, mode_uid
+
+
+def test_locked_pair_429_does_not_burn_pbkdf2(app, fake_user, monkeypatch):
+    """The 429 path must stay cheap — no dummy run, no DB hit."""
+    calls: list[str] = []
+    monkeypatch.setattr(auth, "run_dummy_verification", calls.append)
+    client = TestClient(app)
+    for _ in range(5):
+        _post_login(client, 12345, "x")
+    monkeypatch.setattr(
+        session_mod, "load_user_config",
+        lambda uid: pytest.fail("429 must not reach the auth DB"),
+    )
+    r = _post_login(client, 12345, "x")
+    assert r.status_code == 429
+    assert not calls
+
+
+def test_empty_key_is_dropped_on_access():
+    login_mod._LOGIN_FAILURES["192.0.2.1:7"] = []  # pylint: disable=protected-access
+    login_mod._check_login_rate_limit("192.0.2.1", 7)  # pylint: disable=protected-access
+    assert "192.0.2.1:7" not in login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+
+
+def test_eviction_sweeps_aged_keys_when_over_cap():
+    """Above _LOGIN_MAX_KEYS, a record/prune pass sweeps every key whose
+    window has expired — the dict never grows without bound (#111)."""
+    now = time_mod.time()
+    failures = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+    aged = now - login_mod._LOGIN_WINDOW_SECONDS - 1  # pylint: disable=protected-access
+    for i in range(login_mod._LOGIN_MAX_KEYS + 1):  # pylint: disable=protected-access
+        failures[f"10.0.0.{i}:1"] = [aged]
+    failures["198.51.100.7:2"] = [now]
+    login_mod._record_login_failure("198.51.100.7", 3)  # pylint: disable=protected-access
+    assert not any(k.startswith("10.0.0.") for k in failures)
+    assert failures["198.51.100.7:2"] == [now]
+    recorded = failures["198.51.100.7:3"]
+    assert len(recorded) == 1 and recorded[0] >= now
+
+
+def test_under_cap_no_sweep_runs():
+    """Below the cap only the touched key is pruned — aged entries
+    elsewhere survive (the sweep is not a standing full scan)."""
+    now = time_mod.time()
+    failures = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+    failures["198.51.100.7:2"] = [now - 10_000]
+    login_mod._record_login_failure("198.51.100.7", 3)  # pylint: disable=protected-access
+    assert failures["198.51.100.7:2"] == [now - 10_000]
 
 
 def test_logout_clears_cookie(app, fake_user):
@@ -166,7 +301,7 @@ def test_logout_clears_cookie(app, fake_user):
     client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
-        headers={"Origin": "http://testserver"},
+        headers=_ORIGIN,
         follow_redirects=False,
     )
     r = client.get("/logout", follow_redirects=False)
@@ -182,7 +317,7 @@ def test_session_cookie_round_trip(app, fake_user):
     client.post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
-        headers={"Origin": "http://testserver"},
+        headers=_ORIGIN,
         follow_redirects=False,
     )
     r = client.get("/api/me")

@@ -295,11 +295,18 @@ psql claudit -f backend/schema.sql
 Login expects a numeric user ID whose row in the auth DB's `users`
 table has a PBKDF2 web-password hash stored under
 `config.web_password_hash` (with a paired `web_password_salt`). The
-hash format mirrors the constants in `backend/auth.py`
-(SHA-256, 200,000 iterations, hex salt) so any external user-management
-process that writes the same shape can issue credentials. Sessions
-are HMAC-signed cookies with a 7-day TTL. A **Continue as guest**
-button mints a read-only guest session (no project filter, no
+hash is either a bare hex digest — the legacy shape, verified at
+200,000 iterations with the `web_password_salt` value — or a
+versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that
+carries its own count and salt; `backend/auth.py` verifies both, and
+new writes use the versioned shape at 600,000 iterations. An external
+user-management process can write either shape to issue credentials.
+Every login credential failure answers one generic 401, and paths
+where the real verification cannot run a fixed dummy one instead, so
+account ids cannot be enumerated from the login endpoint. The login
+rate limiter counts 5 failures per IP+user pair per 5-minute window.
+Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
+guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
 restart).
 
