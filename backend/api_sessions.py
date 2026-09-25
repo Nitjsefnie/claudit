@@ -267,7 +267,7 @@ def session_detail(session_id: str) -> dict:
                      min(r.ts) AS first_event_at,
                      max(r.ts) AS last_event_at,
                      EXTRACT(EPOCH FROM (max(r.ts) - min(r.ts)))::bigint AS duration_s,
-                     COUNT(*) AS request_count,
+                     COUNT(r.file_key) AS request_count,
                      SUM(r.fresh_tokens)         AS input_tokens,
                      SUM(r.output_tokens)        AS output_tokens,
                      SUM(r.eph5_tokens)          AS cache_create_5m_tokens,
