@@ -15,14 +15,14 @@ def _mini_r2_fixture(monkeypatch):
     tmp = tempfile.mkdtemp(prefix="sv-test-r2-")
     root = Path(tmp) / "claude"
     (root / "proj-a" / "sess-1").mkdir(parents=True)
-    (root / "proj-a" / "sess-1" / "sess-1.jsonl").write_text("hello\n")
+    (root / "proj-a" / "sess-1" / "sess-1.jsonl").write_text("hello\n", newline="\n")
     (root / "proj-b" / "sess-2").mkdir(parents=True)
-    (root / "proj-b" / "sess-2" / "sess-2.jsonl").write_text("world\n")
+    (root / "proj-b" / "sess-2" / "sess-2.jsonl").write_text("world\n", newline="\n")
     (root / "proj-b" / "sess-2" / "data" / "tool-results").mkdir(
         parents=True
     )
     (root / "proj-b" / "sess-2" / "data" / "tool-results" / "x.txt"
-     ).write_text("payload")
+     ).write_text("payload", newline="\n")
     # as_uri, not an f"file://{path}" spelling: on Windows the f-string
     # form reads the drive letter as the URL host and loses it from the
     # path, pointing the mirror at a relative directory.
@@ -208,7 +208,7 @@ def test_list_keys_refuses_a_root_that_is_not_a_directory(
         monkeypatch, tmp_path):
     """Same scenario with the root present but a plain file."""
     notdir = tmp_path / "notadir"
-    notdir.write_text("not a mirror")
+    notdir.write_text("not a mirror", newline="\n")
     monkeypatch.setenv("R2_ENDPOINT", notdir.as_uri())
     monkeypatch.delenv("R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):

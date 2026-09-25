@@ -27,7 +27,6 @@ to overlap another's, so on real files any order sniffs the same.
 """
 from __future__ import annotations
 
-from io import BytesIO
 from typing import Callable, Literal
 
 from orjson import JSONDecodeError, loads

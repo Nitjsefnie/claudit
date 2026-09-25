@@ -1,0 +1,4 @@
+# Byte-exact fixtures: the parser and get_object tests compare raw
+# bytes, which git's platform eol translation would rewrite on a
+# Windows checkout (autocrlf) and break.
+fixtures/** -text
