@@ -543,7 +543,7 @@ history), `providers` (normalised model → provider → history),
 `provider_rates_fetched`, and `openrouter` (the account's data region and
 each provider-table model's OpenRouter id, SV-RATE-REFRESH).
 `backend/pricing.py` and `src/parser.js` hold logic only and both read that file — the backend at import, the browser
-synchronously before first use (node `require`s it). The browser fetches
+synchronously before first use (node reads it beside the module). The browser fetches
 the URL `public/index.html` names in the parser.js tag's `data-pricing`,
 cache-busted like every `/src` asset. It sits under `src/` because that is
 the directory the app serves to the browser. No rate literal belongs in
@@ -574,7 +574,8 @@ A provider entry may also carry a weekly UTC `schedule`: a list of windows
   every day.
 - `start` and `end` are HHMM times from 0 to 2359, both or neither
   (neither means the whole day), end-exclusive, and wrapping past midnight
-  when `start` is later than `end`. A wrapped window's `days` are the
+  when `start` is later than `end`. Each is a JSON integer: a spelling
+  with a fraction or an exponent (`1400.0`) is refused on both sides. A wrapped window's `days` are the
   record's own UTC weekday, not the day the window opened.
 - `rates` are the five rates.
 

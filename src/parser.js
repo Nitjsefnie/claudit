@@ -327,10 +327,21 @@ window.parseTranscript = function parseTranscript(text, opts) {
 // honest price, so the resolver is never defined over nothing.
 const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 
+// Python reads a number spelled with a fraction or an exponent as a float
+// and refuses it as an HHMM time; JSON.parse reads 1400.0 as 1400. So a
+// schedule start or end keeps such a spelling as its source text, which
+// _isHhmm refuses too. Without JSON source text access (context) it cannot.
+const _hhmmSpelling = (key, value, context) => (
+  (key === 'start' || key === 'end') && typeof value === 'number'
+  && context && /[.eE]/.test(context.source) ? context.source : value);
+
 function _readPricing() {
   if (typeof document === 'undefined') {
     try {
-      return require('./pricing.json');  // eslint-disable-line no-undef
+      /* eslint-disable no-undef */
+      return JSON.parse(require('fs').readFileSync(
+        require('path').join(__dirname, 'pricing.json'), 'utf8'), _hhmmSpelling);
+      /* eslint-enable no-undef */
     } catch (e) {
       throw _pricingError(e.message);
     }
@@ -345,7 +356,7 @@ function _readPricing() {
   // Signed out, the request is redirected to the sign-in page, which is a 200.
   if (xhr.responseURL !== url) throw _pricingError(`redirected to ${xhr.responseURL}`);
   try {
-    return JSON.parse(xhr.responseText);
+    return JSON.parse(xhr.responseText, _hhmmSpelling);
   } catch (e) {
     throw _pricingError(`not JSON (${e.message})`);
   }

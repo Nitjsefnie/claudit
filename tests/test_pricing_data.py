@@ -748,6 +748,7 @@ SCHEDULE_DAMAGE = [
     pytest.param([{"start": 2400, "end": 100, "rates": R_NIGHT}], id="hour-24"),
     pytest.param([{"start": 100, "end": 100, "rates": R_NIGHT}], id="empty-window"),
     pytest.param([{"start": "0100", "end": 200, "rates": R_NIGHT}], id="string-time"),
+    pytest.param([{"start": 1400.0, "end": 0, "rates": R_NIGHT}], id="float-time"),
     pytest.param([{"days": WEEKDAYS}], id="no-rates"),
     pytest.param([{"rates": {**R_NIGHT, "read": "0.02"}}], id="string-rate"),
     pytest.param([{"rates": R_NIGHT, "min_prompt_tokens": 1000}], id="unknown-key"),

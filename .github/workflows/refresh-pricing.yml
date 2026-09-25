@@ -101,9 +101,10 @@ jobs:
         id: fetch
         # stdlib only: nothing is installed before the fetch, so beyond the
         # Postgres service a quiet hour costs one checkout and one request per
-        # tracked model. A refused host blocks only itself: the script still writes every other move and exits
-        # nonzero, so this step records the code instead of failing, the
-        # moves are tested and committed, and the last step turns the run red.
+        # tracked model. A refused host blocks only itself: the script still
+        # writes every other move and exits nonzero, so this step records the
+        # code instead of failing, the moves are tested and committed, and the
+        # last step turns the run red.
         run: |
           rc=0
           python3 scripts/ci/refresh_provider_rates.py \
