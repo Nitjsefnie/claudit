@@ -19,13 +19,19 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _steps() -> Iterator[tuple[str, str, dict]]:
-    """Yield (workflow, job, step) over every step of every workflow."""
+def _jobs() -> Iterator[tuple[str, str, list]]:
+    """Yield (workflow, job, steps) for every job of every workflow."""
     for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job_id, job in (doc.get("jobs") or {}).items():
-            for step in (job or {}).get("steps") or []:
-                yield path.name, job_id, step
+            yield path.name, job_id, (job or {}).get("steps") or []
+
+
+def _steps() -> Iterator[tuple[str, str, dict]]:
+    """Yield (workflow, job, step) over every step of every workflow."""
+    for workflow, job_id, steps in _jobs():
+        for step in steps:
+            yield workflow, job_id, step
 
 
 def _action(step: dict) -> str:
@@ -55,3 +61,35 @@ def test_every_cache_restore_runs_on_every_event():
         if _action(step) != "actions/cache/restore":
             continue
         assert "if" not in step, (workflow, job, step.get("if"))
+
+
+def test_every_cache_save_directly_follows_the_dependency_install():
+    # The save's position is deliberate: the install is what populates the
+    # cache, so the save must be its immediate successor. A step moved
+    # after the suite (or before the install) fails here.
+    for workflow, job, steps in _jobs():
+        for index, step in enumerate(steps):
+            if _action(step) != "actions/cache/save":
+                continue
+            predecessor = steps[index - 1] if index else {}
+            assert "pip install" in (predecessor.get("run") or ""), (
+                workflow, job, index)
+
+
+def test_restore_and_save_steps_share_their_cache_key():
+    # One key per job, spelled identically in both steps: save stores under
+    # exactly the key restore looks up. Whitespace is normalised so a
+    # folded-scalar spelling cannot split the pair.
+    for workflow, job, steps in _jobs():
+        restore_keys = set()
+        save_keys = set()
+        for step in steps:
+            key = " ".join(
+                ((step.get("with") or {}).get("key") or "").split())
+            if _action(step) == "actions/cache/restore":
+                restore_keys.add(key)
+            if _action(step) == "actions/cache/save":
+                save_keys.add(key)
+        if not restore_keys and not save_keys:
+            continue
+        assert restore_keys == save_keys, (workflow, job)
