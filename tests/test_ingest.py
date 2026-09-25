@@ -106,8 +106,12 @@ def test_etag_change_triggers_per_file_reparse(fresh_db, mini_r2_env):
 
 
 def test_parser_version_bump_reparses_all(fresh_db, mini_r2_env, monkeypatch):
+    """A FORWARD bump (binary newer than stored) reparses every file. The
+    other direction — a stored version NEWER than the binary — is a
+    rollback and must not reparse: see test_ingest_rollback.py."""
     ingest.run_ingest(trigger="manual")
-    monkeypatch.setattr(constants, "PARSER_VERSION", "2")
+    monkeypatch.setattr(
+        constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 5  # all 5 files
 

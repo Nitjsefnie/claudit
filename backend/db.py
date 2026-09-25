@@ -152,8 +152,14 @@ def apply_schema() -> None:
     usage_rollup. It is a guarded, idempotent constraint WIDENING of
     derived, DELETE+INSERT-rebuilt state, and the widened key is a
     superset of the old one, so an older binary's named-column INSERT
-    still satisfies it. Any other migration that drops or retypes a
-    column breaks the property that makes auto-apply safe.
+    still satisfies it. On a rolled-back binary, READS ignore what they
+    do not know about, and its INGEST is guarded instead: a file whose
+    stored parser_version is newer than the binary's own is never
+    reparsed, so newer-column values survive a rollback. Erasure already
+    committed by binaries older than that guard is not repaired by it.
+    Reads tolerating a future schema plus the ingest guard are what make
+    auto-apply safe, and any migration beyond those -- one that drops or
+    retypes a column, or a second exception -- would break it.
     """
     ddl = SCHEMA_PATH.read_text(encoding="utf-8")
     with viz_conn() as c:
