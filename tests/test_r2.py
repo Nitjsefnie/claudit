@@ -23,7 +23,10 @@ def _mini_r2_fixture(monkeypatch):
     )
     (root / "proj-b" / "sess-2" / "data" / "tool-results" / "x.txt"
      ).write_text("payload")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/")
+    # as_uri, not an f"file://{path}" spelling: on Windows the f-string
+    # form reads the drive letter as the URL host and loses it from the
+    # path, pointing the mirror at a relative directory.
+    monkeypatch.setenv("R2_ENDPOINT", f"{Path(tmp).as_uri()}/")
     yield root
     shutil.rmtree(tmp)
 
@@ -42,11 +45,20 @@ def test_list_keys_with_prefix(mini_r2):
     assert keys == ["claude/proj-a/sess-1/sess-1.jsonl"]
 
 
+def _can_stage_chmod_denial() -> bool:
+    """Staging a chmod-000 denial needs POSIX permission bits and a
+    reader they bind: root reads through them, and Windows grants the
+    walk regardless of the mode bits. The stat-monkeypatch test below
+    covers the same walk path where this one cannot run."""
+    return hasattr(os, "geteuid") and os.geteuid() != 0
+
+
 @pytest.mark.skipif(
-    os.geteuid() == 0,
-    reason="root reads through chmod 000, so the unreadable-subtree "
-           "scenario cannot be staged as root; the walk-error test "
-           "below covers the same path",
+    not _can_stage_chmod_denial(),
+    reason="chmod 000 denies nothing to root and binds nothing on "
+           "Windows, so the unreadable-subtree scenario cannot be "
+           "staged here; the stat-monkeypatch test below covers the "
+           "same path",
 )
 def test_list_keys_aborts_when_a_subtree_is_unreadable(mini_r2):
     """A chmod-000'd subtree must abort the listing, not be silently
@@ -179,7 +191,7 @@ def test_list_keys_refuses_a_missing_endpoint_root(monkeypatch, tmp_path):
     typo'd path, an unmounted mountpoint): the listing must raise like
     the multi-bucket refusal does, never yield empty and let the orphan
     sweep delete the bucket's whole history."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/absent/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
     monkeypatch.delenv("R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):
         list(r2.list_keys())
@@ -190,7 +202,7 @@ def test_list_keys_refuses_a_root_that_is_not_a_directory(
     """Same scenario with the root present but a plain file."""
     notdir = tmp_path / "notadir"
     notdir.write_text("not a mirror")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{notdir}")
+    monkeypatch.setenv("R2_ENDPOINT", notdir.as_uri())
     monkeypatch.delenv("R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):
         list(r2.list_keys())
@@ -206,7 +218,11 @@ def test_list_keys_raises_when_a_listed_file_cannot_be_stated(
     real_stat = os.stat
 
     def denying_stat(path, *args, **kwargs):
-        if str(path) == str(victim):
+        # realpath on both sides: the walk root is realpath-resolved by
+        # _safe_join, and on macOS the temp dir sits behind the /var ->
+        # /private/var symlink, so the raw spellings never compare
+        # equal there and the denial would never fire.
+        if os.path.realpath(str(path)) == os.path.realpath(str(victim)):
             raise PermissionError(errno.EACCES, "Permission denied")
         return real_stat(path, *args, **kwargs)
 
