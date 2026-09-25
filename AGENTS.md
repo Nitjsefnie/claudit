@@ -399,6 +399,15 @@ re-derives both from source and fails on drift — so an unmarked database
 test fails the marker's own meta-test before it can fail the portable
 cells on a missing server.
 
+On a pull request the `pytest` job also computes an informational
+**patch-coverage readout** (`scripts/ci/diff_coverage.py`): which of the
+lines the branch added the suite executed, written to the run summary and
+posted as one self-updating PR comment — never a gate, never a required
+check, and a comment that fails to post does not redden the run. Every
+job in every workflow declares `timeout-minutes` (issue #98), so a hung
+step loses its runner in minutes rather than at GitHub's 360-minute
+default.
+
 **Push a batch of commits once, not one at a time.** Pushing N related
 commits individually starts N CI runs; the intermediate ones tell you
 nothing, burn runner minutes, and the only result that matters is the

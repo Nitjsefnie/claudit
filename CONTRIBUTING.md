@@ -142,6 +142,15 @@ over the cap carry baseline entries that CI lowers as they shrink, and
 entries are never added or raised by hand — grow a file by moving code
 into a new module instead.
 
+Beside that tree-level ratchet, a pull request also gets an
+**informational patch-coverage readout** — which of the lines the branch
+added the suite executed (`scripts/ci/diff_coverage.py`), written to the
+run summary and posted as one self-updating PR comment. It is never a
+gate and never a required check: a reviewer judges the number, and a
+comment that fails to post cannot redden the run. Every CI job also
+declares `timeout-minutes`, so a hung step loses its runner in minutes
+rather than at GitHub's 360-minute default.
+
 Run these against an environment with the **pinned** runtime deps
 installed too (`pip install -r backend/requirements.txt`). `pyright`
 resolves third-party types from the installed packages, so a stale local
