@@ -36,10 +36,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Only the weekly cron and standalone dispatches land here now — a
-  # push or pull request is gated by ci-gate.yml, whose own concurrency
-  # group owns supersession for the aggregate. This group keeps the
-  # weekly scan from overlapping a dispatched one.
+  # Push and pull_request runs of this workflow arrive as ci-gate legs
+  # and join this group under the caller's event, alongside the weekly
+  # cron (grouped on refs/heads/master, never cancelled) and any
+  # standalone dispatch on the same ref. ci-gate's own group owns
+  # supersession for the aggregate.
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

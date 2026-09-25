@@ -35,7 +35,7 @@ BEFORE = "2026-09-25T11:00:00+00:00"
 AFTER = "2026-09-25T13:00:00+00:00"
 
 
-def _pr(number, base="master", sha="a" * 40):
+def _pr(number, base="master", sha: str | None = "a" * 40):
     return {"number": number, "base": base, "sha": sha}
 
 
@@ -92,6 +92,13 @@ def test_pull_requests_off_the_gated_base_are_not_reported():
     stale = gf.select_stale(
         [_pr(1, base="main"), _pr(2, base="master")], {}, GATE_TIME)
     assert [entry["number"] for entry in stale] == [2]
+
+
+def test_scannable_is_the_predicate_selection_and_counting_share():
+    assert gf.scannable(_pr(1))
+    assert not gf.scannable(_pr(2, base="main"))
+    assert not gf.scannable(_pr(3, sha="short"))
+    assert not gf.scannable(_pr(4, sha=None))
 
 
 def test_unusable_head_sha_is_skipped():

@@ -75,6 +75,14 @@ def _run_key(entry):
         number
 
 
+def scannable(pr):
+    """Whether `select_stale` scans this pull request: based on
+    BASE_BRANCH with a usable head SHA. The summary's `scanned` count
+    reads the same predicate, so the two cannot drift.
+    """
+    return pr.get('base') == BASE_BRANCH and _hex40(pr.get('sha'))
+
+
 def select_stale(pulls, runs_by_sha, gate_started_at):
     """The open heads on BASE_BRANCH that must rebase or rerun.
 
@@ -87,7 +95,7 @@ def select_stale(pulls, runs_by_sha, gate_started_at):
     stale = []
     for pr in pulls:
         number, sha = pr.get('number'), pr.get('sha')
-        if pr.get('base') != BASE_BRANCH or not _hex40(sha):
+        if not scannable(pr):
             continue
         runs = runs_by_sha.get(sha)
         if not runs:
@@ -259,11 +267,12 @@ def main():
                   f'#{head["number"]}: {error}; reporting the head stale',
                   file=sys.stderr)
     stale = select_stale(heads, runs_by_sha, committed)
+    scanned = sum(1 for head in heads if scannable(head))
     write_summary(os.environ.get('GITHUB_STEP_SUMMARY'), stale,
-                  scanned=len(heads))
+                  scanned=scanned)
     for entry in stale:
         print(f'PR #{entry["number"]}: {entry["reason"]}')
-    print(f'gate freshness: {len(stale)} stale of {len(heads)} open '
+    print(f'gate freshness: {len(stale)} stale of {scanned} open '
           f'pull-request head(s) on {BASE_BRANCH}')
     return 0
 
