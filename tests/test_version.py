@@ -9,6 +9,7 @@ or a `v` prefix would produce a malformed tag.
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -116,11 +117,40 @@ def test_health_error_branch_reports_version(monkeypatch):
 
     monkeypatch.setattr(app_mod.db, "viz_conn", _boom)
 
-    payload = app_mod.health()
+    response = app_mod.health()
+    payload = json.loads(response.body)
 
     assert payload["ok"] is False
     assert payload["version"] == constants.VERSION
     assert "parser_version" in payload
+
+
+def test_health_error_branch_answers_503(monkeypatch):
+    """The DB-error branch must fail at the status line, not only in the
+    body.
+
+    A status-code monitor (curl -fsS, an LB probe) never parses the body:
+    /health answering 200 with ok:false reports the outage as healthy to
+    it. The branch answers 503 carrying the same JSON fields (issue
+    #104).
+    """
+    app_mod = importlib.import_module("backend.app")
+
+    def _boom():
+        raise RuntimeError("no database")
+
+    monkeypatch.setattr(app_mod.db, "viz_conn", _boom)
+
+    response = app_mod.health()
+
+    assert response.status_code == 503
+    payload = json.loads(response.body)
+    assert payload["ok"] is False
+    assert payload["db"] is False
+    assert payload["error"] == "database unavailable"
+    assert payload["version"] == constants.VERSION
+    assert "parser_version" in payload
+    assert "now" in payload
 
 
 def test_health_ok_branch_reports_version(monkeypatch):
@@ -131,7 +161,9 @@ def test_health_ok_branch_reports_version(monkeypatch):
         app_mod.ingest, "progress_snapshot", lambda: {"phase": "idle"}
     )
 
-    payload = app_mod.health()
+    response = app_mod.health()
+    payload = json.loads(response.body)
 
+    assert response.status_code == 200
     assert payload["ok"] is True
     assert payload["version"] == constants.VERSION

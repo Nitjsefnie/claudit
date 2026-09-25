@@ -14,7 +14,12 @@ from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, Response
+from starlette.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+)
 
 from backend import api, constants, db, events, ingest, login, r2, session
 from backend import branding
@@ -134,7 +139,7 @@ app.include_router(api.router)
 
 
 @app.get("/health")
-def health() -> dict:
+def health() -> Response:
     parser_version = constants.PARSER_VERSION
     last_ingest = None
     try:
@@ -161,12 +166,18 @@ def health() -> dict:
         # Driver text can name hosts, databases, buckets — the public
         # body gets a generic message; the details go to the logs.
         log.exception("health: database query failed")
-        return {
-            "ok": False, "db": False, "error": "database unavailable",
-            "version": constants.VERSION,
-            "parser_version": parser_version,
-            "now": datetime.now(timezone.utc).isoformat(),
-        }
+        # A status-code monitor (curl -fsS, an LB probe) never parses the
+        # body, so failing only in the body reads as healthy to it. 503
+        # carries the same JSON fields (issue #104).
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False, "db": False, "error": "database unavailable",
+                "version": constants.VERSION,
+                "parser_version": parser_version,
+                "now": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     # Live progress for the run in flight. ingest_runs only gains its
     # counters in the final UPDATE, which is written only after the
     # derived-state rebuilds finish — so a caller watching that row sees
@@ -186,7 +197,7 @@ def health() -> dict:
             "started_at": prog.get("started_at"),
         }
 
-    return {
+    return JSONResponse(content={
         "ok": True, "db": True,
         "ingest_running": running,
         "ingest_progress": ingest_progress,
@@ -197,7 +208,7 @@ def health() -> dict:
         "version": constants.VERSION,
         "parser_version": parser_version,
         "now": datetime.now(timezone.utc).isoformat(),
-    }
+    })
 
 
 @app.post("/admin/ingest")

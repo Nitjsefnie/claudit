@@ -278,7 +278,11 @@ def test_health_db_failure_is_generic(redact_app, monkeypatch):
     a = FastAPI()
     a.include_router(api.router)
     a.get("/health")(app_mod.health)
-    body = TestClient(a).get("/health").text
+    resp = TestClient(a).get("/health")
+    body = resp.text
     monkeypatch.undo()
+    # 503, not 200: a status-code monitor reads only the status line
+    # (issue #104). Same generic body as before.
+    assert resp.status_code == 503
     assert "alpha-db" not in body and "beta-rows" not in body
     assert "database unavailable" in body
