@@ -303,6 +303,15 @@ hand is still safe, and is how you create a fresh database:
 psql claudit -f backend/schema.sql
 ```
 
+### Rebuilding from the bucket
+
+The database is derived state: everything in it is parsed out of the
+bucket on every ingest, so a fresh database re-ingests to byte-identical
+totals. If a database is lost or damaged beyond repair, recovery is
+`createdb` plus a service restart — the schema auto-applies at startup
+and the ingest run repopulates every table. No backup of the database
+itself is needed beyond the bucket it is built from.
+
 ## Auth
 
 Login expects a numeric user ID whose row in the auth DB's `users`
