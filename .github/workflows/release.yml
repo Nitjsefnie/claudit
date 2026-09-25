@@ -75,10 +75,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          REPO: ${{ github.repository }}
         # A bump to a version that already exists means either a mistaken
         # edit or a rerun after a partial failure. Both want a human, and
         # both are silent if this step is a no-op instead of an error.
+        #
+        # The tag half is here because `gh release create --target` applies
+        # the target only when gh creates the tag itself: if the tag already
+        # exists, the release attaches to whatever commit the tag names — a
+        # commit whose checks this run never waited on. And v* tags are
+        # protected by a ruleset once created: they cannot be moved or
+        # deleted, so a wrongly created tag permanently blocks that version
+        # string, and refusing before create is the only remedy.
         run: |
+          if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — VERSION was set to a" >&2
+            echo "version that has already been tagged. Bump it" >&2
+            echo "further; the tag itself cannot be deleted." >&2
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists — VERSION was set to a" >&2
             echo "version that has already shipped. Bump it further, or" >&2
