@@ -186,8 +186,9 @@ lane parsers; cross-file uuid dedup (Phase 2) is resolved at ingest into
 `records.is_canonical` (`ingest.recompute_canonical`), and the read
 endpoints filter that flag. Costs are pre-computed at ingest using
 the rates in `src/pricing.json` (single source of truth — bump
-`PARSER_VERSION` in `backend/constants.py` when a rate change reprices
-stored records, to force a full reparse).
+`PRICING_VERSION` in `backend/constants.py` when a rate change reprices
+stored records; the reprice recomputes each record's `cost_usd` from its
+own stored columns, with no full reparse).
 
 ## Configuration
 
