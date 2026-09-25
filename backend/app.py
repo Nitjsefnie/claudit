@@ -146,7 +146,7 @@ def health() -> Response:
         with db.viz_conn() as c:
             row = c.execute(
                 "SELECT id, started_at, finished_at, trigger, "
-                "r2_listed, reparsed, error "
+                "r2_listed, reparsed, newer, error "
                 "FROM ingest_runs ORDER BY id DESC LIMIT 1"
             ).fetchone()
             if row:
@@ -157,10 +157,11 @@ def health() -> Response:
                     "trigger": row[3],
                     "r2_listed": row[4],
                     "reparsed": row[5],
+                    "newer": row[6],
                     # /health is unauthenticated: the error text is a
                     # presentation surface (ingest redacts at the source;
                     # this net also covers rows stored by older builds).
-                    "error": r2.redact(row[6]),
+                    "error": r2.redact(row[7]),
                 }
     except Exception:  # noqa: BLE001
         # Driver text can name hosts, databases, buckets — the public
