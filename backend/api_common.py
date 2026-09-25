@@ -276,13 +276,26 @@ def _bucket_seconds(delta: timedelta) -> int:
 def _parse_range(s: str) -> timedelta:
     """`Nd` / `Nh` parse normally. `all` returns now-epoch so callers
     that compute `since = now - delta` end up at the unix epoch — i.e.
-    every row in the DB, not an arbitrary 100-year window."""
+    every row in the DB, not an arbitrary 100-year window.
+
+    A non-integer count (`1e5d`) or one that overflows the caller's
+    `since = now - delta` (`999999999d` — timedelta accepts the day count,
+    the subtraction then runs past datetime.min) raises the same 400 the
+    unknown-suffix branch raises, naming the bad parameter, so a malformed
+    query value cannot escape any endpoint as a 500 (issue #112).
+    """
     if s == "all":
         return datetime.now(timezone.utc) - _EPOCH
-    if s.endswith("d"):
-        return timedelta(days=int(s[:-1]))
-    if s.endswith("h"):
-        return timedelta(hours=int(s[:-1]))
+    if s.endswith(("d", "h")):
+        try:
+            delta = (timedelta(days=int(s[:-1])) if s.endswith("d")
+                     else timedelta(hours=int(s[:-1])))
+            # Trial subtraction: guards the arithmetic every caller is
+            # about to do, HERE, so no endpoint needs its own try/except.
+            _ = datetime.now(timezone.utc) - delta
+        except (ValueError, OverflowError):
+            raise HTTPException(400, f"bad range: {s!r}") from None
+        return delta
     raise HTTPException(400, f"bad range: {s!r}")
 
 
