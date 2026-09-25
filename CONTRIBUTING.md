@@ -103,7 +103,7 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **eleven** separate workflows — on pushes to `master` and on pull
+CI runs **twelve** separate workflows — on pushes to `master` and on pull
 requests against it; a pull request's commits are checked once, with no
 review gate first, and a branch without a PR is checked by dispatching
 (`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
@@ -145,7 +145,8 @@ The rest need GitHub and run on their own:
 | `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Runs daily — an advisory lands without a commit here to hang it on. |
 | `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. |
 | `speed` | Runs the last release's suite and yours on the same runner, interleaved, and fails if the tests present in both got more than 30% slower. |
-| `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. |
+| `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
+| `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
 | `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt

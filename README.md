@@ -354,14 +354,19 @@ subset), `lint`, `types`, `eslint`, `smoke` (boots the
 real server against the fixture mirror), `codeql`, `audit` (`pip-audit`,
 daily), `actionlint` (lints the workflows themselves), `speed`
 (benchmarks this commit against the last release *on the same runner*),
-and `release` (master pushes touching `VERSION` only). A branch without a
+`version-guard` (refuses a tree `VERSION` naming an already-published
+release), and `release` (master pushes touching `VERSION` only). A branch without a
 PR is checked by dispatching a workflow on it: `gh workflow run
 tests.yml --ref <branch>`. Most of them run locally too —
 `CONTRIBUTING.md` lists the commands.
 
-Releases are cut by editing the root `VERSION` file: `release.yml` waits
-for every other check on that commit, then tags `v<VERSION>`. The running
-build reports its version at `/health`.
+Releases are cut by editing the root `VERSION` file. Between releases the
+tree carries the next version with a `-dev` suffix (`0.4.0-dev`); a
+release drops the suffix — `release.yml` waits for every other check on
+that commit, then tags `v<VERSION>` — and `VERSION` is bumped to the next
+`-dev` immediately after. `version-guard` refuses any master push or PR
+whose tree version names a tag that already exists. The running build
+reports its version at `/health`.
 
 ## License
 
