@@ -799,8 +799,10 @@ def dashboard(
 ) -> dict:
     """Hourly aggregates + per-session burns + per-session ctx_lines.
 
-    Cross-file uuid dedup at query time via DISTINCT ON; legacy NULL-uuid
-    rows are kept verbatim. The deduped set is materialised once per
+    Cross-file uuid dedup is resolved at ingest into
+    records.is_canonical (ingest.recompute_canonical); the queries here
+    just filter that boolean. Legacy NULL-uuid rows are kept verbatim
+    and always canonical. The canonical set is materialised once per
     request into a ``ON COMMIT DROP`` temp table, then read by the five
     panel queries. `model=opus-4-7` filters the deduped body so every
     panel derived from it (hourly, cost_by_model, response_sizes,
