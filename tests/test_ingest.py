@@ -1,3 +1,6 @@
+# The db-lock tests near the bottom extend the ingest suite they
+# serialise; the module's line cap yields to keeping them beside it.
+# pylint: disable=too-many-lines
 import inspect
 import json
 import lzma
@@ -9,6 +12,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from backend import api, cache, constants, db, ingest, lane_projects
@@ -414,6 +418,109 @@ def test_ingest_runs_again_once_the_lock_is_free(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     again = ingest.run_ingest(trigger="manual")
     assert again.get("skipped") is not True, again
+
+
+def _wait_db_lock_free(timeout_s: float = 10.0) -> None:
+    """Poll until no backend holds _INGEST_LOCK_KEY.
+
+    pg_terminate_backend is asynchronous: the signal lands, the backend
+    exits, and only then does the server release its session locks. A test
+    that proceeds immediately would race the release, not the feature.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                     autocommit=True)) as probe:
+            row = probe.execute(  # pylint: disable=no-member
+                "SELECT pg_try_advisory_lock(%s)",
+                (ingest._INGEST_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
+            assert row is not None
+            if row[0]:
+                probe.execute(  # pylint: disable=no-member
+                    "SELECT pg_advisory_unlock(%s)",
+                    (ingest._INGEST_LOCK_KEY,))  # pylint: disable=protected-access
+                return
+        time.sleep(0.05)
+    pytest.fail("_INGEST_LOCK_KEY never became free after the holder died")
+
+
+def test_ingest_skips_when_another_instance_holds_the_db_lock(
+        fresh_db, mini_r2_env):
+    """Serialization was per-process only (_RUN_LOCK): two app instances on
+    one database ran their ingests concurrently — one rollup rebuild crashed
+    with UniqueViolation, both wrote ingest_runs rows. When ANOTHER instance
+    holds the db-wide advisory lock, a run must decline in the same dict
+    shape as the in-process skip, naming the other instance."""
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                 autocommit=True)) as holder:
+        row = holder.execute(  # pylint: disable=no-member
+            "SELECT pg_try_advisory_lock(%s)",
+            (ingest._INGEST_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
+        assert row is not None
+        assert row[0] is True, "the fixture itself must acquire the lock"
+        try:
+            result = ingest.run_ingest(trigger="manual")
+        finally:
+            holder.execute(  # pylint: disable=no-member
+                "SELECT pg_advisory_unlock(%s)",
+                (ingest._INGEST_LOCK_KEY,))  # pylint: disable=protected-access
+
+    assert result["skipped"] is True, result
+    assert "another instance" in result["reason"], result
+
+    after = ingest.run_ingest(trigger="manual")
+    assert after.get("skipped") is not True, after
+    assert after["error"] is None, after
+
+
+def test_ingest_lock_released_after_a_run(fresh_db, mini_r2_env):
+    """The lock connection is dedicated and closed after every run, so a
+    fresh connection — another instance's next run — can take the lock."""
+    ingest.run_ingest(trigger="manual")
+
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                 autocommit=True)) as probe:
+        row = probe.execute(  # pylint: disable=no-member
+            "SELECT pg_try_advisory_lock(%s)",
+            (ingest._INGEST_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
+        assert row is not None
+        assert row[0] is True, "a completed run left the lock held"
+        probe.execute(  # pylint: disable=no-member
+            "SELECT pg_advisory_unlock(%s)",
+            (ingest._INGEST_LOCK_KEY,))  # pylint: disable=protected-access
+
+
+def test_ingest_lock_released_when_holder_dies(fresh_db, mini_r2_env):
+    """A crashed instance must never leave the ingest permanently locked.
+    The advisory lock is session-scoped: the SERVER releases it when the
+    holding connection dies, so a surviving instance's next run proceeds
+    with no unlock step ever having run."""
+    holder = psycopg.connect(os.environ["DATABASE_URL_VIZ"], autocommit=True)
+    try:
+        row = holder.execute(  # pylint: disable=no-member
+            "SELECT pg_try_advisory_lock(%s)",
+            (ingest._INGEST_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
+        assert row is not None
+        assert row[0] is True, "the fixture itself must acquire the lock"
+        pid_row = holder.execute(  # pylint: disable=no-member
+            "SELECT pg_backend_pid()").fetchone()
+        assert pid_row is not None
+
+        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                     autocommit=True)) as killer:
+            killed = killer.execute(  # pylint: disable=no-member
+                "SELECT pg_terminate_backend(%s)",
+                (pid_row[0],)).fetchone()
+        assert killed is not None
+        assert killed[0] is True, "pg_terminate_backend refused the pid"
+
+        _wait_db_lock_free()
+    finally:
+        holder.close()  # pylint: disable=no-member
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result.get("skipped") is not True, result
+    assert result["error"] is None, result
 
 
 def _suppress(pattern: str) -> None:
@@ -855,8 +962,6 @@ def test_stored_lane_mapping_prefers_slug_then_the_larger_side(
     the slug form, else the id holding more files, ties by id. The
     hash-keyed side's rows are inserted FIRST (and hold more files), so
     the old setdefault would have picked it on insertion order."""
-    import psycopg  # pylint: disable=import-outside-toplevel
-
     with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         for pid in ("8805b8ac99ad", "not-a-slug", "zzz-hash", "aaa-hash"):
