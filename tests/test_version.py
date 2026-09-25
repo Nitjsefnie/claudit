@@ -20,21 +20,24 @@ from backend import constants
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_PATH = REPO_ROOT / "VERSION"
 
-# Bare semver, no leading `v`: release.yml prefixes the tag itself, so a
-# `v` here would produce `vv0.1.0`.
-SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+# Semver with an optional prerelease suffix, no leading `v`: release.yml
+# prefixes the tag itself, so a `v` here would produce `vv0.1.0`. Between
+# releases the tree carries the `-dev` form (e.g. `0.4.0-dev`); a release
+# is the suffix being dropped (issue #131).
+SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
 def test_version_file_exists():
     assert VERSION_PATH.is_file(), "VERSION is the release machinery's input"
 
 
-def test_version_file_is_one_bare_semver_line():
+def test_version_file_is_one_semver_line():
     raw = VERSION_PATH.read_text(encoding="utf-8")
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert len(lines) == 1, f"VERSION must hold exactly one line, got {lines!r}"
     assert SEMVER.match(lines[0]), (
-        f"VERSION must be bare semver with no leading 'v', got {lines[0]!r}"
+        f"VERSION must be semver X.Y.Z with an optional -suffix and no "
+        f"leading 'v', got {lines[0]!r}"
     )
 
 

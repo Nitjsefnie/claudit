@@ -1,0 +1,89 @@
+name: version-guard
+
+# The tree VERSION must never name an already-published release (issue
+# #131). Between releases, master carries the next version with a `-dev`
+# suffix (`0.4.0-dev`); a release is the suffix being dropped, which is
+# when the tag `v<VERSION>` comes into existence. From that moment the
+# version string is spent: a later tree that still names it would ship
+# different content under a version someone already installed, and
+# nothing outside could tell which one a deployment runs.
+#
+# So this gate fails any master push or PR whose tree VERSION matches an
+# existing `v<VERSION>` tag. Keeping master green costs nothing under the
+# dev-suffix discipline — a human commit that needs a version move bumps
+# VERSION (to the next `-dev`), and a release lands by dropping the
+# suffix.
+#
+# THE BOT CARVE-OUT (push events only). The hourly pricing bot commits as
+# `github-actions[bot]`, touching only `src/pricing.json` and
+# `backend/constants.py` (the PARSER_VERSION bump). Its commits change no
+# released behaviour, so they must pass even when the tree version is
+# stale. The carve-out is keyed on author AND file shape, never on paths
+# alone, and PRs get none — the bot never opens PRs.
+#
+# NO PATHS FILTER on push, unlike most workflows here: the tag set
+# changes when a release lands, independently of any push, so even a
+# VERSION-less push is a fresh fact worth checking.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A superseded guard run tells nothing: the newest tree is the only
+  # interesting one, whether it is a master push or a fresh PR commit.
+  group: version-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge tree on PRs, the pushed SHA on master pushes — both
+          # are exactly the tree the gate should judge.
+          persist-credentials: false
+
+      - name: Check the tree version against the published tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT: ${{ github.event_name }}
+        # Gathers the facts with gh, decides with scripts/ci/
+        # version_guard.py. The script prints the reason to stdout and
+        # its exit code is this step's: 0 pass, 1 refuse.
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "tree version: $version"
+
+          if gh api "repos/$REPO/git/ref/tags/v$version" >/dev/null 2>&1; then
+            tag_exists=true
+          else
+            tag_exists=false
+          fi
+
+          author_email=""
+          changed_files=""
+          if [ "$EVENT" = "push" ]; then
+            # Commit facts only exist for a push; a PR decides on the tag
+            # check alone (the bot never opens PRs, so no carve-out there).
+            author_email="$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.author.email')"
+            changed_files="$(gh api "repos/$REPO/commits/$SHA" --jq '[.files[].filename] | join("\n")')"
+          fi
+
+          python3 scripts/ci/version_guard.py decide \
+            --version "$version" \
+            --tag-exists "$tag_exists" \
+            --author-email "$author_email" \
+            --changed-files "$changed_files"
