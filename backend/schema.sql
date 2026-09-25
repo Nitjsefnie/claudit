@@ -648,13 +648,15 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
 -- One row per lane project marker (sessions/<project>/project.json) the
 -- last listing showed and a GET read: its bucket-qualified key, the etag
 -- that GET saw, and the directory path it named (NULL for a marker that
--- read fine but named none). A run fetches a marker only when its listed
--- etag differs from the stored one or it has no row, and takes every
--- other marker's path from here (backend/lane_markers.py). A failed or
+-- read fine but named none), with the constants.MARKER_READER_VERSION
+-- it was read under. A run fetches a marker only when it has no row or
+-- its row holds another etag or reader version, and takes every other
+-- marker's path from here (backend/lane_markers.py). A failed or
 -- vanished GET writes nothing, so the next run fetches it again; a key
 -- the listing no longer shows loses its row.
 CREATE TABLE IF NOT EXISTS lane_markers (
-  marker_key  TEXT PRIMARY KEY,
-  r2_etag     TEXT NOT NULL,
-  path        TEXT
+  marker_key      TEXT PRIMARY KEY,
+  r2_etag         TEXT NOT NULL,
+  reader_version  TEXT NOT NULL,
+  path            TEXT
 );

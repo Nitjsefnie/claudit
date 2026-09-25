@@ -154,6 +154,12 @@ VERSION = _read_version()
 # reparses every file so stored rows carry the provider and its price.
 PARSER_VERSION = "59"
 
+#: How ingest._fetch_marker turns a project.json body into a path. Each
+#: lane_markers row records the version it was read under, and a row from
+#: another version is re-fetched, so bump this whenever that reading
+#: changes.
+MARKER_READER_VERSION = "1"
+
 #: What a file is attributed to when the transcript records no role at
 #: all. It is the roster's own fallback dispatch type, and it is also
 #: where every unattributable file lands — parse.resolve_agent_type for
