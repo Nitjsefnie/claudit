@@ -286,11 +286,14 @@ def test_ingest_aborts_mid_run(fresh_db, mini_r2_env, monkeypatch):
     assert "aborted" in result["error"], result
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT finished_at, error FROM ingest_runs "
+            "SELECT finished_at, error, newer FROM ingest_runs "
             "ORDER BY id DESC LIMIT 1").fetchone()
     assert row is not None
     assert row[0] is not None, "an aborted run must still close its row"
     assert "aborted" in row[1], row[1]
+    assert row[2] == 0, (
+        "an aborted run that never walked must store 0, not NULL — newer "
+        "rides the same final UPDATE as the other counters")
     assert not rebuilt, "an aborted run must not rebuild derived state"
     assert not broadcasts, "an aborted run must not broadcast ingest_done"
     assert ingest.progress_snapshot()["phase"] == "idle"
@@ -364,11 +367,14 @@ def test_rebuild_phase_aborts(fresh_db, mini_r2_env, monkeypatch):
     assert not warmed, "an aborted run must not warm the cache"
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            "SELECT finished_at, error, newer FROM ingest_runs WHERE id = %s",
             (summary["id"],)).fetchone()
     assert row is not None
     assert row[0] is not None, "the aborted rebuild must still close its row"
     assert "aborted" in row[1], row[1]
+    assert row[2] == 0, (
+        "the walk completed with nothing skipped: the aborted rebuild "
+        "closes the row with newer at 0, not NULL")
 
 
 def test_wait_for_run(fresh_db, mini_r2_env):
