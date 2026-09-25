@@ -110,12 +110,13 @@ backend/          — FastAPI application
                     whether a heredoc write survives a later stage's
                     nonzero exit. Anything needing the command to RUN
                     counts 0, never an estimate.
-  pricing.py      — Single source of truth for per-model token rates (USD/M),
-                    plus PROVIDER_RATES: per-(model, serving host) rates
-                    for OpenRouter records, which carry message.provider
-                    (stored as records.provider). A record with no
-                    provider prices by model alone (SV-PROVIDER-RATES).
-                    Bump constants.PARSER_VERSION whenever this changes.
+  pricing.py      — Loads src/pricing.json and resolves a record to its
+                    per-model token rates (USD/M), or to PROVIDER_RATES:
+                    per-(model, serving host) rates for OpenRouter
+                    records, which carry message.provider (stored as
+                    records.provider). A record with no provider prices by
+                    model alone (SV-PROVIDER-RATES). Logic only; the rates
+                    are data (SV-RATE-DATA).
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
                     in two-phase transactions, broadcasts ingest_done SSE.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
@@ -143,8 +144,10 @@ src/              — React JSX modules served at /src/* (in-browser Babel)
   app.jsx         — Top-level shell, routing, dashboard fetcher, SSE listener,
                     synthetic data preview.
   parser.js       — In-browser transcript parser for backend-fetched
-                    transcripts, plus the shared model rate table.
-                    Pricing table here MUST match backend/pricing.py.
+                    transcripts; prices from src/pricing.json with the
+                    same resolution logic as backend/pricing.py.
+  pricing.json    — Every rate table, as append-only per-row histories.
+                    The single source both sides read (SV-RATE-DATA).
   parser-lanes.js — The lane formats' browser parser (Codex + both Kimi
                     wires), mirrored from backend parse_codex/parse_kimi
                     (SV-PARSER-SPEC lockstep) so the Inspector's
@@ -294,7 +297,7 @@ systemctl status claudit
 journalctl -u claudit -f
 ```
 
-Schema migrations are **applied automatically at startup**: `db.apply_schema()` runs `backend/schema.sql` before `schema_check()` on every boot, so a deploy cannot outrun its database (issue #43). Re-applying by hand stays harmless and is still how you create a fresh DB. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change; every file reparses on the next ingest. It is a code constant so the bump travels in the same commit as the change that needs it.
+Schema migrations are **applied automatically at startup**: `db.apply_schema()` runs `backend/schema.sql` before `schema_check()` on every boot, so a deploy cannot outrun its database (issue #43). Re-applying by hand stays harmless and is still how you create a fresh DB. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics change or a rate change reprices stored records; every file reparses on the next ingest. It is a code constant so the bump travels in the same commit as the change that needs it.
 
 ## CI — batch your pushes
 
@@ -444,6 +447,6 @@ block. Never "fix" it by loosening the leading `*`.
 - **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
 - **Parsing is self-contained.** Never invoke or vendor a parser from outside the repo (SV-READ-ONLY-CANONICAL). `backend/parse.py` and `src/parser.js` implement SV-PARSER-SPEC; when they drift, fix it here against the spec and the parser fixtures.
 - **Tests use fixtures, not real R2.** The R2 client supports `R2_ENDPOINT=file:///path/to/mirror/` for offline dev.
-- **Parser version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics or `pricing.py` rates change — every file reparses on next ingest. Never an env var: a parser change and its reparse must ship together.
+- **Parser version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics change or a `src/pricing.json` change reprices stored records — every file reparses on next ingest. Never an env var: a parser change and its reparse must ship together.
 - **Several buckets, several formats, one deploy.** `R2_BUCKET` may name several buckets joined by `+`; every stored file key is `<bucket>/<object-key>` and the bucket comes from the stored key, never the request. `parse_file()` sniffs the format (Claude, Codex rollout, kimi-code, legacy Kimi) and dispatches; the lane parsers and `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC). A pay-as-you-go Codex record above the 272k threshold bills the whole record on the long-context meter, persisted on `records.long_context` and applied by every per-component cost re-derivation (SV-DATED-RATES).
-- **Backend is the only load path:** the drag-drop fallback was removed (SV-NO-LOCAL-UPLOAD). `src/parser.js` stays — it parses backend-fetched transcripts and owns the shared rate table.
+- **Backend is the only load path:** the drag-drop fallback was removed (SV-NO-LOCAL-UPLOAD). `src/parser.js` stays — it parses backend-fetched transcripts and prices them from `src/pricing.json`.

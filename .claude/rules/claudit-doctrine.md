@@ -18,7 +18,8 @@ Keep both implementations in lockstep on:
   aggregation that used to live in `compute_cache` was dropped in R1.
 - `<task-notification>` ref detection for sub-agent jsonls
 - Sidecar `data/subagents/agent-*.jsonl` resolution
-- `MODEL_RATES` table (single source of truth: `backend/pricing.py`)
+- Rate resolution (normalisation, key matching, window selection) over
+  the tables both sides read from `src/pricing.json` (SV-RATE-DATA)
 
 **Lane parsers are in their own lockstep pair.** `parse_file()` sniffs
 each blob's format and dispatches Codex rollouts and the two Kimi wire
@@ -61,9 +62,9 @@ correct multiplier:
   (`api_common._accumulate_buckets`) and both browser sites in
   `src/app.jsx` — or a breakdown stops summing to its stored total.
 
-Single-rate `cache_create` cost is BANNED. If you bump `MODEL_RATES`,
-also bump `PARSER_VERSION` in `backend/constants.py` so the next ingest reparses every
-session.
+Single-rate `cache_create` cost is BANNED. If a rate change reprices
+stored records, also bump `PARSER_VERSION` in `backend/constants.py` so the
+next ingest reparses every session.
 
 ## Backend is the ONLY load path (SV-NO-LOCAL-UPLOAD)
 
@@ -81,8 +82,8 @@ file picker as a "convenience" — an ingress path is exactly what was cut.
 consumers: `loadFromBackend()` parses the bytes from
 `/api/sessions/{id}/transcript` client-side via `parseTranscript` +
 `computeSessionStats`, and the Token Breakdown panel prices rows through
-`window.rateForModel`. Its rate table remains bound to `backend/pricing.py`
-by SV-PARSER-SPEC and the node parity test.
+`window.rateForModel`. It reads its rates from `src/pricing.json`, the
+file the backend loads (SV-RATE-DATA), and resolves them by SV-PARSER-SPEC.
 
 ## Bundle distribution NOT applicable (SV-NO-BUNDLE)
 
@@ -511,12 +512,14 @@ override.
 
 `pricing.rate_for(model, ts)` — a model may carry dated overrides in
 `DATED_RATES`, a list of `(end_exclusive_utc, rates)` windows per exact
-model key. Cost must be computed against the timestamp of the request
+model key, derived from the row's history in `src/pricing.json`
+(SV-RATE-DATA). Cost must be computed against the timestamp of the request
 being priced, never the time of rendering. `parse.py` passes each
 record's own `ts`; omitting `ts` yields LIST price (conservative — never
 silently applies a discount).
 
-A window is NEVER dropped once it has expired. Every `PARSER_VERSION`
+A window (a superseded history entry) is NEVER dropped once it has
+expired. Every `PARSER_VERSION`
 bump reparses the whole bucket, and a record from inside the window must
 come out at the price in force then; removing the window reprices that
 history at list on the next reparse, silently. The machinery is also
@@ -532,6 +535,31 @@ forgot the flag prices a long-context record at the flat rate, so its
 breakdown drifts from the `SUM(cost_usd)` total it claims to
 decompose. Totals themselves always come from the stored per-record
 `cost_usd` — do not recompute them at read time.
+
+## Rates are data in one file (SV-RATE-DATA)
+
+Every rate lives in `src/pricing.json`: `models` (normalised model key →
+history), `providers` (normalised model → provider → history) and
+`provider_rates_fetched`. `backend/pricing.py` and `src/parser.js` hold
+logic only and both read that file — the backend at import, the browser
+synchronously before first use (node `require`s it). It sits under `src/`
+because that is the directory the app serves to the browser. No rate
+literal belongs in either source file.
+
+Each row's history is an append-only list, oldest first. Every entry
+carries the five rates (`fresh`, `create_5m`, `create_1h`, `read`,
+`output`) and an optional `note`; the first entry's `from` is `null`,
+every later one's a UTC ISO-8601 instant strictly after its
+predecessor's. The newest entry is the list price; each earlier entry
+applies until its successor's `from` — the SV-DATED-RATES window shape.
+So a price change is recorded by APPENDING `{"from": T, ...}`; an existing
+entry is never edited or removed. The loader refuses a history that
+breaks these rules.
+
+The file stays in the layout `json.dumps(doc, indent=2, sort_keys=True)`
+writes, so any writer reproduces it and a one-rate change is a one-line
+diff. File order carries no meaning: a model id resolves to the LONGEST
+matching key.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
@@ -592,8 +620,8 @@ must never take an OpenRouter host's rate. Free ids (`:free`,
 Provider rows follow SV-DATED-RATES: dated windows live in
 `PROVIDER_DATED_RATES`, their boundaries join `RATE_EPOCHS`, and every
 fold that re-derives rates groups by provider as well as epoch.
-`src/parser.js` mirrors the table (`window.providerRates`) under
-SV-PARSER-SPEC.
+Both sides read the rows from `src/pricing.json` (`window.providerRates`
+in the browser).
 
 ## Model resolution flags estimates (SV-RATE-ESTIMATES)
 

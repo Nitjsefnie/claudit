@@ -2,9 +2,9 @@
 // two Kimi wire formats. Ported from backend/parse_codex.py,
 // backend/parse_kimi.py and backend/parse_lanes.py so the Inspector's
 // in-browser parse of a session transcript yields the same per-record
-// token totals (and, through src/parser.js's shared rate table, the same
-// cost) as backend.parse.parse_file — the same lockstep SV-PARSER-SPEC
-// keeps src/parser.js in with backend/pricing.py.
+// token totals (and, through the rates src/parser.js reads from
+// src/pricing.json, the same cost) as backend.parse.parse_file — the same
+// lockstep SV-PARSER-SPEC keeps src/parser.js in with backend/pricing.py.
 //
 // The lane parsers emit the SAME shapes the Claude parser emits, so every
 // Inspector consumer (computeSessionStats, ContextGrowthView, txToDashData,

@@ -183,8 +183,9 @@ format (`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the
 lane parsers; cross-file uuid dedup (Phase 2) is performed at query time via
 `DISTINCT ON (uuid)` in the
 read endpoints. Costs are pre-computed at ingest using
-`backend/pricing.py` (single source of truth — bump `PARSER_VERSION`
-in `backend/constants.py` when rates change to force a full reparse).
+the rates in `src/pricing.json` (single source of truth — bump
+`PARSER_VERSION` in `backend/constants.py` when a rate change reprices
+stored records, to force a full reparse).
 
 ## Configuration
 
