@@ -293,52 +293,63 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        provision()
-    except SmokeFailure as exc:
-        print(f"[smoke] FAILED during provisioning: {exc}", file=sys.stderr)
-        return 1
-
-    port = free_port()
-    base = f"http://127.0.0.1:{port}"
-    log(f"booting backend.app:app on {base}")
-
-    # Output goes to a pipe we drain at the end rather than to the console,
-    # so a failure report shows the server's log next to the failed check
-    # instead of interleaved with it hundreds of lines earlier.
-    with subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "backend.app:app",
-         "--host", "127.0.0.1", "--port", str(port),
-         "--timeout-graceful-shutdown", "5"],
-        cwd=str(REPO_ROOT), env=server_env(port),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    ) as proc:
-        failure = None
         try:
-            run_checks(base, proc)
-        except SmokeFailure as exc:
-            failure = str(exc)
-        except Exception as exc:          # pylint: disable=broad-except
-            failure = f"unexpected {type(exc).__name__}: {exc}"
-        finally:
-            proc.terminate()
-            try:
-                out, _ = proc.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                out, _ = proc.communicate()
-
-        if failure is not None:
-            print(f"\n[smoke] FAILED: {failure}\n", file=sys.stderr)
-            print("---- server log ----", file=sys.stderr)
-            print(out, file=sys.stderr)
-            print("---- end server log ----", file=sys.stderr)
+            provision()
+        except SmokeFailure as wrapped:
+            print(f"[smoke] FAILED during provisioning: {wrapped}",
+                  file=sys.stderr)
             return 1
 
-    if not args.keep_databases:
-        scratch_db.drop_run_databases()
+        port = free_port()
+        base = f"http://127.0.0.1:{port}"
+        log(f"booting backend.app:app on {base}")
 
-    log("all checks passed")
-    return 0
+        # Output goes to a pipe we drain at the end rather than to the console,
+        # so a failure report shows the server's log next to the failed check
+        # instead of interleaved with it hundreds of lines earlier.
+        with subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "backend.app:app",
+             "--host", "127.0.0.1", "--port", str(port),
+             "--timeout-graceful-shutdown", "5"],
+            cwd=str(REPO_ROOT), env=server_env(port),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        ) as proc:
+            failure = None
+            try:
+                run_checks(base, proc)
+            except SmokeFailure as wrapped:
+                failure = str(wrapped)
+            except Exception as exc:      # pylint: disable=broad-except
+                failure = f"unexpected {type(exc).__name__}: {exc}"
+            finally:
+                proc.terminate()
+                try:
+                    out, _ = proc.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    out, _ = proc.communicate()
+
+            if failure is not None:
+                print(f"\n[smoke] FAILED: {failure}\n", file=sys.stderr)
+                print("---- server log ----", file=sys.stderr)
+                print(out, file=sys.stderr)
+                print("---- end server log ----", file=sys.stderr)
+                return 1
+
+        log("all checks passed")
+        return 0
+    finally:
+        # Issue #87: the drop used to sit at the end of the success path
+        # only, so a run that failed after provisioning left its databases
+        # for the stale sweep (six hours). Drop on every exit path;
+        # --keep-databases is the debugging escape hatch. A cleanup
+        # failure is logged, never allowed to mask the primary failure or
+        # change the exit code.
+        if not args.keep_databases:
+            try:
+                scratch_db.drop_run_databases()
+            except psycopg.OperationalError as exc:
+                log(f"dropping the run databases failed: {exc}")
 
 
 if __name__ == "__main__":

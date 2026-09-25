@@ -158,9 +158,38 @@ def test_the_lease_outlives_an_idle_session_timeout():
         "scratch_db.hold_run_lease(); time.sleep(2); "
         "c = scratch_db.admin_connection(); "
         "print(scratch_db.db_name() in {a for (a,) in c.execute("
-        "'SELECT application_name FROM pg_stat_activity')})",
+        "'SELECT application_name FROM pg_stat_activity')}); "
+        "scratch_db.drop_run_databases()",  # no _lease leftover for the sweep
         PGOPTIONS="-c idle_session_timeout=1s")
     assert proc.stdout.strip() == "True", proc.stderr
+
+
+def test_the_lease_connection_sits_on_this_runs_lease_database():
+    """Never on `postgres` and never on `template1`: Postgres refuses any
+    other client's database creation while a template has an open
+    connection, and the lease stays open for the whole run (issue #87)."""
+    scratch_db.hold_run_lease()
+    # The test's subject IS that private connection slot.
+    assert scratch_db._lease[0].info.dbname == scratch_db.db_name("lease")  # pylint: disable=protected-access
+    assert _exists(scratch_db.db_name("lease"))
+
+
+def test_the_end_of_run_cleanup_closes_the_lease_and_drops_the_lease_database():
+    """The lease connection must be released before the drop, or the
+    WITH (FORCE) drop of the lease database terminates our own backend."""
+    proc = _python(
+        "from contextlib import closing\n"
+        "from tests import scratch_db\n"
+        "scratch_db.hold_run_lease()\n"
+        "print(scratch_db._lease[0].closed)\n"
+        "scratch_db.drop_run_databases()\n"
+        "print(scratch_db._lease[0].closed)\n"
+        "with closing(scratch_db.admin_connection()) as c:\n"
+        "    print(c.execute('SELECT 1 FROM pg_database WHERE datname = %s',"
+        " (scratch_db.db_name('lease'),)).fetchone() is None)\n")
+    assert proc.returncode == 0, proc.stderr
+    open_, closed, gone = proc.stdout.split()
+    assert (open_, closed, gone) == ("False", "True", "True"), proc.stdout
 
 
 # ---- stale sweep ------------------------------------------------------
@@ -198,6 +227,41 @@ def test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see():
             assert _exists(leased)
         finally:
             scratch_db.drop_database(leased)
+
+
+def test_a_lease_labelled_database_is_kept_while_leased_and_swept_after():
+    """Mirror of test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see for
+    the `_lease` label this run's own lease database now carries (issue
+    #87): a stale-aged, dead-pid foreign run's `_lease`-labelled database
+    survives the sweep while a connection with that run's base
+    application_name is open, and is swept once no lease connection
+    exists."""
+    leased = _foreign_name(_old_epoch(), _dead_pid(), "lease")
+    with closing(scratch_db.admin_connection(application_name=_base(leased))):
+        scratch_db.create_empty_database(leased)
+        try:
+            scratch_db.sweep_stale_databases(names=[leased])
+            assert _exists(leased)
+        finally:
+            scratch_db.drop_database(leased)
+
+    def app_name_gone():
+        with closing(scratch_db.admin_connection()) as conn:
+            rows = conn.execute(
+                "SELECT application_name FROM pg_stat_activity").fetchall()
+        return _base(leased) not in {a for (a,) in rows}
+
+    deadline = time.monotonic() + 5
+    while not app_name_gone() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert app_name_gone()
+
+    scratch_db.create_empty_database(leased)
+    try:
+        scratch_db.sweep_stale_databases(names=[leased])
+        assert not _exists(leased)
+    finally:
+        scratch_db.drop_database(leased)
 
 
 def test_sweep_never_forces_a_database_someone_is_connected_to():
@@ -307,8 +371,11 @@ def test_a_session_start_sweeps_stale_orphans(tmp_path):
     orphan = _foreign_name(_old_epoch(), _dead_pid(), "orphan")
     scratch_db.create_empty_database(orphan)
     try:
+        # The finish hook is wired too: sessionstart now takes a lease on a
+        # real database, and a session with no finisher would leave it for
+        # the stale sweep on every run.
         proc = _nested_session(tmp_path, "def test_ok():\n    pass\n",
-                               "pytest_sessionstart")
+                               "pytest_sessionstart", "pytest_sessionfinish")
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert not _exists(orphan)
     finally:
