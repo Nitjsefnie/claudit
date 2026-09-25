@@ -152,8 +152,14 @@ the claudit and glmmeter deploys).
 The cost is that ROLLBACK IS ONE-DIRECTIONAL — restarting an older binary
 leaves it against a newer schema. That is acceptable ONLY while every
 migration is additive and nullable, so an older binary ignores what it
-does not know. A migration that DROPS or retypes a column breaks this
-property and needs a different mechanism, not a quiet exception.
+does not know. The ONE allowed exception is schema.sql's guarded,
+idempotent DO block that swaps `usage_rollup`'s primary key to widen the
+grain (adding `long_context`, then `provider`): the table is derived,
+DELETE+INSERT-rebuilt state, the swap only widens the key, and the
+widened key is a superset of the old one, so an older binary's
+named-column INSERT still satisfies it. Any other migration that DROPS
+or retypes a column breaks this property and needs a different
+mechanism, not a quiet exception.
 
 ## Schema fail-fast (SV-SCHEMA-FAIL-FAST)
 

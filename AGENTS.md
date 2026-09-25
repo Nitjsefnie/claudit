@@ -136,7 +136,10 @@ backend/          — FastAPI application
                     bytes (256 MB, 20-min idle).
   schema.sql      — Applied at every startup by db.apply_schema().
                     Idempotent CREATE TABLE IF NOT EXISTS + safe
-                    ALTER TABLE ... ADD COLUMN IF NOT EXISTS migrations.
+                    ALTER TABLE ... ADD COLUMN IF NOT EXISTS migrations,
+                    plus guarded, idempotent constraint widenings on
+                    derived state (the usage_rollup PK swaps — see
+                    SV-SCHEMA-AUTOAPPLY).
 
 public/           — Static assets served at /
   index.html      — Bootstraps React, Babel, JSZip from CDN; loads /src/*.
