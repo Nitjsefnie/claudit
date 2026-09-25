@@ -404,9 +404,10 @@ On a pull request the `pytest` job also computes an informational
 lines the branch added the suite executed, written to the run summary and
 posted as one self-updating PR comment — never a gate, never a required
 check, and a comment that fails to post does not redden the run. Every
-job in every workflow declares `timeout-minutes` (issue #98), so a hung
-step loses its runner in minutes rather than at GitHub's 360-minute
-default.
+runnable job in every workflow declares `timeout-minutes` (issue #98) —
+a reusable-call job cannot carry the key, so its callee's own jobs
+declare it — and a hung step loses its runner in minutes rather than at
+GitHub's 360-minute default.
 
 **Push a batch of commits once, not one at a time.** Pushing N related
 commits individually starts N CI runs; the intermediate ones tell you
