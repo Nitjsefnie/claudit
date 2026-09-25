@@ -192,8 +192,10 @@ def cache_view(
         top_cache_read:   [...]
       }
 
-    Cross-file uuid dedup via DISTINCT ON (uuid) at query time. Records
-    with NULL uuid (legacy) are kept verbatim (UNION ALL leg).
+    Cross-file uuid dedup is resolved at ingest into records.is_canonical
+    (ingest.recompute_canonical); each query just filters a boolean.
+    Records with NULL uuid (legacy) are kept verbatim and always
+    canonical.
     """
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta

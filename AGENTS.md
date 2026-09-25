@@ -272,7 +272,7 @@ psql claudit -f backend/schema.sql
 
 - **Python**: `from __future__ import annotations` at the top of every `.py` file; type hints used throughout; no ORM — raw SQL via psycopg3.
 - **JavaScript/JSX**: ES2020-ish, React functional components with hooks; globals attached to `window.` for cross-module sharing (e.g. `window.parseTranscript`, `window.rateForModel`).
-- **SQL**: Parameterised queries only (`%s` placeholders); never interpolate user input into query strings. `DISTINCT ON (uuid)` for cross-file dedup at read time.
+- **SQL**: Parameterised queries only (`%s` placeholders); never interpolate user input into query strings. Cross-file uuid dedup is resolved at INGEST into `records.is_canonical` (SV-CANONICAL-FLAG); read paths filter that boolean and must not reintroduce `DISTINCT ON (uuid)`.
 - **Naming**: `snake_case` for Python; `camelCase` for JS/JSX; SQL tables are singular nouns.
 - **Error handling**: Parser silently skips malformed JSON lines (`orjson.JSONDecodeError` → `continue`). Ingest catches broad exceptions, logs to `ingest_runs.error`, and never crashes the scheduler.
 

@@ -123,8 +123,9 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   deletions remain zero. A heredoc inside a `for` loop over a literal
   word list counts once per iteration; any loop whose count needs the
   command to run counts once. Commands are never executed to obtain counts.
-- **Cross-file uuid dedup** at query time so sub-agent JSONLs roll
-  into their parent session without double-counting.
+- **Cross-file uuid dedup** resolved at ingest into
+  `records.is_canonical`, so sub-agent JSONLs roll into their parent
+  session without double-counting; read endpoints filter that flag.
 - **Rate-limit hit** detection (Claude Code's `out of extra usage`
   marker on `type:"assistant"` records).
 - **Codex and Kimi transcripts parse into the same tables.** Codex
@@ -180,9 +181,9 @@ React + in-browser Babel  →  /  (served by FastAPI)
 `.claude/rules/claudit-doctrine.md`, pinned by `fixtures/parser/`),
 including Phase 1 within-file `requestId` max-merge, sniffs each blob's
 format (`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the
-lane parsers; cross-file uuid dedup (Phase 2) is performed at query time via
-`DISTINCT ON (uuid)` in the
-read endpoints. Costs are pre-computed at ingest using
+lane parsers; cross-file uuid dedup (Phase 2) is resolved at ingest into
+`records.is_canonical` (`ingest.recompute_canonical`), and the read
+endpoints filter that flag. Costs are pre-computed at ingest using
 the rates in `src/pricing.json` (single source of truth — bump
 `PARSER_VERSION` in `backend/constants.py` when a rate change reprices
 stored records, to force a full reparse).
