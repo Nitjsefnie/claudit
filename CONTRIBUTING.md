@@ -103,7 +103,7 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **thirteen** separate workflows — on pushes to `master` and on pull
+CI runs **fourteen** separate workflows — on pushes to `master` and on pull
 requests against it; a pull request's commits are checked once, with no
 review gate first, and a branch without a PR is checked by dispatching
 (`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
@@ -149,6 +149,7 @@ The rest need GitHub and run on their own:
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
 | `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
 | `claim` | Lets a contributor without write access take an issue: comment `/claim` on an open, unassigned issue and the workflow assigns you; `/unclaim` and `/release` remove only your own assignment. Runs no repository code — it talks to the GitHub API only. See [Claiming an issue](#claiming-an-issue). |
+| `pr gate` | Checks every non-draft PR's description against `.github/PULL_REQUEST_TEMPLATE.md` and requires a reference to an issue assigned to the PR's author. A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once the description is corrected. Never runs pull-request code. See [Pull requests](#pull-requests). |
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
@@ -215,6 +216,15 @@ on. Bot comments, pull requests and closed issues are ignored, and a
 refused command is answered on the issue, not silently dropped.
 
 ## Pull requests
+
+Open the description from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md):
+an admission gate checks every non-draft PR's description against that
+template and requires the PR to reference an issue assigned to its
+author — claim the issue first (see [Claiming an issue](#claiming-an-issue)).
+A non-conforming PR gets a comment naming what is missing and is
+closed; once the description is corrected, the gate reopens it. The
+gate never checks out or executes pull-request code, and an
+agent-authored PR meets the same template.
 
 Small and single-purpose beats large and comprehensive. In the
 description, include:

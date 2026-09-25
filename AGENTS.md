@@ -395,8 +395,8 @@ fires CI — only a `master` one does — so to check a working branch,
 dispatch the workflow on it: `gh workflow run tests.yml --ref <branch>`
 (every gate carries `workflow_dispatch` for exactly this).
 
-**There are THIRTEEN workflows, not one.** `tests.yml` is the one people
-remember, and a green pytest says nothing about the other twelve. Six run
+**There are FOURTEEN workflows, not one.** `tests.yml` is the one people
+remember, and a green pytest says nothing about the other thirteen. Six run
 locally — run them before pushing, because CI is the backstop, not the
 first check:
 
@@ -426,7 +426,7 @@ pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-
 pyright --pythonpath /path/to/venv/bin/python
 ```
 
-The seven that only make sense on GitHub:
+The eight that only make sense on GitHub:
 
 | Workflow | Question it answers | Trigger |
 | --- | --- | --- |
@@ -437,6 +437,7 @@ The seven that only make sense on GitHub:
 | `version-guard.yml` | Does the tree `VERSION` name a version that has already shipped? Fails a master push or PR whose `VERSION` matches an existing `v<VERSION>` tag — under the dev-suffix discipline this only ever fires on a missed bump. The hourly pricing bot's commits (author AND file shape: only `src/pricing.json` + `backend/constants.py`) are exempt; PRs get no carve-out. | push to `master` + PR, deliberately no path filter: the tag set changes when a release lands, independently of any push. |
 | `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
 | `claim.yml` | Can a contributor without write access take an issue? `/claim` on an open, unassigned issue assigns the commenter; `/unclaim` and `/release` remove only the commenter's own assignment. Runs no repository code — talks to the API only. | `issue_comment` (created), prefiltered to a command-bearing comment on an open non-PR issue from a non-Bot; the action re-checks all of it exactly. |
+| `pr-gate.yml` | Does a non-draft PR's description follow `.github/PULL_REQUEST_TEMPLATE.md`, and does it reference an issue its author is assigned? A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once corrected. Never checks out or executes pull-request code; the body arrives through the API. | `pull_request_target` (opened/edited/reopened/ready_for_review) with the zizmor suppression at that line — a fork's `pull_request` token is read-only, so its comment and close would silently do nothing. Skips Bot authors. |
 
 **Coverage is a ratchet at 82%**, in `tests.yml`, checked by a step of its
 own so "tests failed" and "coverage dropped" stay distinguishable. Raise
