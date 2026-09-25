@@ -243,7 +243,13 @@ function App() {
           setRefreshMsg(`Data refreshed${what ? ` — ${what}` : ''}`);
         }
       })
-      .catch(err => console.error('dashboard fetch failed', err));
+      .catch(err => {
+        console.error('dashboard fetch failed', err);
+        // The refetch did not land, so the pending what-changed line
+        // must not survive to mislabel the NEXT successful
+        // announcement -- drop it and wait for the next event.
+        refreshRef.current = null;
+      });
   }, [backendOn, activeProject, activeRange, dashNonce]);
 
   // Live updates: open an SSE stream and bump dashNonce on `ingest_done`.

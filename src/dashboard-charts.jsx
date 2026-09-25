@@ -14,7 +14,7 @@ const TH = {
   bgAxes:  cssVar('--bg-card',  '#12141d'),
   border:  cssVar('--border',   '#1f2230'),
   text:    cssVar('--fg',       '#e7e9f2'),
-  textDim: cssVar('--muted',    '#6b7193'),
+  textDim: cssVar('--muted',    '#7a81a8'),
   grid:    'rgba(255,255,255,0.05)',
 };
 
