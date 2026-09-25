@@ -126,3 +126,19 @@ def test_idle_lru_thread_safety():
         sys.setswitchinterval(old_interval)
     assert not any(t.is_alive() for t in threads), "a worker hung"
     assert not errors
+
+
+def test_idle_lru_refuses_oversized_entry():
+    """A value larger than max_bytes is not cached at all, and an existing
+    entry under the same key is untouched by an oversized put."""
+    lru = _IdleLRU(max_bytes=1024, idle_seconds=1200)
+
+    lru.put("big", b"x" * 2048)
+    assert lru.get("big") is None
+    assert lru._size == 0  # pylint: disable=protected-access
+    assert len(lru._items) == 0  # pylint: disable=protected-access
+
+    lru.put("k", b"small")
+    lru.put("k", b"x" * 2048)          # oversized put for an existing key
+    assert lru.get("k") == b"small"    # the old entry still stands
+    assert lru._size == len(b"small")  # pylint: disable=protected-access
