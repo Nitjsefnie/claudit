@@ -89,6 +89,15 @@ def test_exactly_one_dashboard_fetch_site():
     assert src.count("/api/dashboard?range=") == 1
 
 
+def test_exactly_one_projects_fetch_site():
+    """The projects guards slice the one /api/projects fetch's effect;
+    a second site would make _effect_for take the first occurrence and
+    guard the wrong effect.
+    """
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    assert src.count("/api/projects?range=") == 1
+
+
 def test_each_effect_run_owns_its_request():
     """The mechanism (issue #179, #182): the shared mintRunSignal helper
     mints a fresh AbortController per call, and BOTH guarded effects
@@ -102,6 +111,10 @@ def test_each_effect_run_owns_its_request():
         "the shared helper must mint a fresh AbortController per call")
     assert "signal.aborted" in helper, (
         "the helper's isCurrent must read its controller's signal")
+    assert "ctrl.abort()" in helper, (
+        "the helper's abort must fire the controller -- a neutered "
+        "abort never flips isCurrent, so both races return behind a "
+        "green suite")
     for effect in (_dashboard_effect(), _projects_effect()):
         assert "const run = mintRunSignal();" in effect, (
             "each guarded effect run must mint its own run guard")
