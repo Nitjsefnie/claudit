@@ -383,6 +383,17 @@ def test_free_suffix_keeps_its_zero_price_and_its_own_key(
     assert r.rates == pricing.FREE_RATES
 
 
+def test_uppercase_free_suffix_keeps_its_zero_price_and_its_own_key(
+        synthetic_provider_dated_rate):
+    """The free guard is case-insensitive: ':FREE' resolves exactly like
+    ':free' — the free rates, exact, under the normalised (lowercase)
+    key — never the provider row's priced rates under a mixed-case key."""
+    w = synthetic_provider_dated_rate
+    r = pricing.resolve(f"{w.model}:FREE", ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", f"{w.model}:free")
+    assert r.rates == pricing.FREE_RATES
+
+
 def test_variant_suffix_prices_by_the_bare_row_dated_window(
         synthetic_provider_dated_rate):
     """The fold looks up the bare row, so the record prices by that row's

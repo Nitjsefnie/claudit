@@ -1011,6 +1011,22 @@ def test_provider_merges_across_streaming_chunks_first_non_null_wins():
     assert kept["fresh_tokens"] == 1000
 
 
+def test_provider_merge_conflicting_providers_first_wins():
+    """The case the sibling test leaves open: two chunks of ONE reply
+    naming DIFFERENT non-null hosts. The merged record keeps the FIRST
+    provider it saw — a later chunk never overwrites an already-named
+    host — while usage still max-merges across the conflicting lines."""
+    out = parse.parse_file(
+        "k/sess-pmc/sess-pmc.jsonl", _read("provider_merge_conflict.jsonl")
+    )
+    assert len(out["records"]) == 1
+    merged = out["records"][0]
+    assert merged["request_id"] == "req-1"
+    # 'Chutes' arrives on the second chunk; the record keeps 'Novita'.
+    assert merged["provider"] == "Novita"
+    assert merged["output_tokens"] == 200       # max(50, 200)
+
+
 def test_provider_strips_surrounding_whitespace():
     """message.provider is stored stripped: ' Chutes ' is the host Chutes,
     and a whitespace-only value is no provider at all."""
