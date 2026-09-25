@@ -47,7 +47,7 @@ jobs:
           || contains(github.event.comment.body, '/unclaim')
           || contains(github.event.comment.body, '/release'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
       - uses: Nitjsefnie-Actions/claim@ceaadaa096fd249cdeecc137342158ec17347cb9  # v1.1.0

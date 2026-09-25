@@ -48,6 +48,7 @@ jobs:
   analyze:
     name: analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     permissions:
       # Writing the analysis results is the whole point; everything else

@@ -35,7 +35,7 @@ concurrency:
 jobs:
   freshness:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       # Same grant as the workflow block above, spelled on the job too:
       # the script's two API reads need pull-requests and actions.

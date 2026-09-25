@@ -83,6 +83,7 @@ concurrency:
 jobs:
   speed:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     # The dual-environment fork gate. Both names must exist as
     # environments: `speed-benchmark` with no protection rules,
