@@ -63,6 +63,9 @@ MARK_ALLOWLIST: dict[str, str] = {
     "test_version.py:test_health_error_branch_reports_version":
         "monkeypatches db.viz_conn with a function that raises, so the "
         "health endpoint's error branch runs with no server at all",
+    "test_version.py:test_health_error_branch_answers_503":
+        "monkeypatches db.viz_conn with a function that raises, so the "
+        "health endpoint's error branch runs with no server at all",
     "test_version.py:test_health_ok_branch_reports_version":
         "monkeypatches db.viz_conn with a fake connection, so the "
         "health endpoint's ok branch runs with no server at all",
