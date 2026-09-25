@@ -8,10 +8,14 @@ then. No existing entry is ever rewritten. A run that appends bumps
 PARSER_VERSION in backend/constants.py by one from whatever it holds, and
 moves provider_rates_fetched; a run that appends nothing writes nothing.
 
-Exits nonzero, writing nothing, on anything a human must judge: a host
-listing one model at two prices with no pinned resolution, a pin no listed
-price matches, a response shape this script does not recognise, a tracked
-model with no endpoints, or a detection time not after a row's newest entry.
+Only endpoints in the account's data region count (tag_region). Exits
+nonzero, writing nothing, naming every case a human must judge:
+- a host with two endpoints in that region at different prices and no
+  tag pinned for it;
+- a pin that names no listed tag;
+- a response shape this script does not recognise;
+- a tracked model with no endpoints, or none in the region;
+- a detection time not after a row's newest entry.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
@@ -40,6 +44,7 @@ CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
 _PARSER_VERSION = re.compile(r'^PARSER_VERSION = "(\d+)"$', re.MULTILINE)
+_REGION = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*")
 
 Fetch = Callable[[str], object]
 
@@ -83,14 +88,15 @@ def _per_million(price: object, where: str) -> float:
     return float(value.scaleb(6))
 
 
-def _endpoint(endpoint: object, where: str) -> tuple[str, dict, Decimal]:
-    """(host, rates, discount) of one listed endpoint.
+def _endpoint(endpoint: object, where: str) -> tuple[str, str, dict, Decimal]:
+    """(host, tag, rates, discount) of one listed endpoint.
 
     The listed price already has any promotional discount applied; the
     discount is kept only as the note beside it. Cache writes take the
     listed write price when it is nonzero, the input rate otherwise.
     """
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("provider_name"), str)
+            and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
     price = endpoint["pricing"]
@@ -106,18 +112,49 @@ def _endpoint(endpoint: object, where: str) -> tuple[str, dict, Decimal]:
     create = write or fresh
     rates = {"fresh": fresh, "create_5m": create, "create_1h": create,
              "read": read, "output": output}
-    return endpoint["provider_name"], rates, Decimal(str(discount))
+    return endpoint["provider_name"], endpoint["tag"], rates, Decimal(str(discount))
 
 
-def listed_rows(model: str, payload: object,
+def tag_region(tag: str) -> str | None:
+    """The data region an endpoint tag names, or None for a global one.
+
+    OpenRouter tags an endpoint `host` or `host/<suffix>`. The suffixes seen
+    are quantizations (fp4, fp8, nvfp4) and regions (us); a region is a
+    two-letter code, optionally qualified (us, eu, us-east-1), a shape no
+    quantization suffix has.
+    """
+    _, slash, suffix = tag.rpartition("/")
+    return suffix if slash and _REGION.fullmatch(suffix) else None
+
+
+Listed = tuple[str, dict, Decimal]
+
+
+def listed_rows(model: str, payload: object, region: str | None,
                 resolutions: dict) -> dict[str, tuple[dict, Decimal]]:
     """Each host's one price for `model`, from its endpoints payload.
 
-    Endpoints of one host at one price are one row. A host at several
-    prices needs a pinned resolution in the file (match: the rates that
-    name the endpoint to take); without one, or when nothing matches it,
-    the run is refused rather than guessed.
+    A host's endpoints outside the data `region` (None: global, untagged
+    by region) are not ones the account is billed by, unless the file pins
+    that host to a tag. Endpoints at one price are one row; several prices
+    left over need a tag pinned in the file, or the run is refused rather
+    than guessed.
     """
+    by_host: dict[str, list[Listed]] = {}
+    for i, endpoint in enumerate(_endpoints_of(model, payload)):
+        host, tag, rates, discount = _endpoint(endpoint, f"{model} endpoint {i}")
+        by_host.setdefault(host, []).append((tag, rates, discount))
+    rows = {}
+    for host, listed in by_host.items():
+        price = _host_price(f"{model} via {host}", listed, region, resolutions.get(host))
+        if price is not None:
+            rows[host] = price
+    if not rows:
+        raise RefreshError(f"{model}: no endpoint in the data region")
+    return rows
+
+
+def _endpoints_of(model: str, payload: object) -> list:
     data = payload.get("data") if isinstance(payload, dict) else None
     endpoints = data.get("endpoints") if isinstance(data, dict) else None
     if not isinstance(endpoints, list):
@@ -125,33 +162,39 @@ def listed_rows(model: str, payload: object,
     if not endpoints:
         raise RefreshError(f"{model}: no endpoints listed; read as a broken fetch, "
                            "never as every host vanishing")
-    prices: dict[str, list[tuple[dict, Decimal]]] = {}
-    for i, endpoint in enumerate(endpoints):
-        host, rates, discount = _endpoint(endpoint, f"{model} endpoint {i}")
-        listed = prices.setdefault(host, [])
-        if all(rates != seen for seen, _ in listed):
-            listed.append((rates, discount))
-    return {host: _choose(f"{model} via {host}", listed, resolutions.get(host))
-            for host, listed in prices.items()}
+    return endpoints
 
 
-def _choose(where: str, listed: list[tuple[dict, Decimal]],
-            pin: object) -> tuple[dict, Decimal]:
-    """A host's one price: its only one, or the one its pin names."""
+def _host_price(where: str, listed: list[Listed], region: str | None,
+                pin: object) -> tuple[dict, Decimal] | None:
+    """A host's one price, or None when it lists nothing the account can use."""
     if pin is None:
-        if len(listed) > 1:
-            raise RefreshError(f"{where}: listed at {len(listed)} different prices "
-                               "and the file pins no resolution")
-        return listed[0]
-    match = pin.get("match") if isinstance(pin, dict) else None
-    if not isinstance(match, dict) or not set(match) <= set(RATE_FIELDS):
-        raise RefreshError(f"{where}: resolution needs a 'match' of rate fields")
-    chosen = [row for row in listed
-              if all(row[0][field] == value for field, value in match.items())]
-    if len(chosen) != 1:
-        raise RefreshError(f"{where}: the pinned resolution {match} matches "
-                           f"{len(chosen)} of the {len(listed)} listed prices")
-    return chosen[0]
+        listed = [e for e in listed if tag_region(e[0]) == region]
+    else:
+        listed = _pinned(where, listed, pin)
+    prices = {json.dumps(rates, sort_keys=True): (rates, discount)
+              for _, rates, discount in reversed(listed)}
+    if len(prices) > 1:
+        tags = ", ".join(sorted({tag or "(untagged)" for tag, _, _ in listed}))
+        raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
+                           f"{len(prices)} different prices; pin one by tag in "
+                           "openrouter.models.<model>.resolve")
+    return next(iter(prices.values()), None)
+
+
+def _pinned(where: str, listed: list[Listed], pin: object) -> list[Listed]:
+    """The endpoints a per-host pin names. It is keyed on the endpoint tag,
+    never a price: a pin on a price stops matching the moment it moves."""
+    if (not isinstance(pin, dict) or not isinstance(pin.get("tag"), str)
+            or set(pin) - {"tag", "why"}):
+        raise RefreshError(f"{where}: a resolution is keyed on 'tag' (with a 'why'), "
+                           f"not {pin!r}")
+    tag = pin["tag"]
+    chosen = [e for e in listed if e[0] == tag]
+    if not chosen:
+        tags = ", ".join(sorted({e[0] for e in listed}))
+        raise RefreshError(f"{where}: pinned tag {tag!r} is not listed ({tags})")
+    return chosen
 
 
 def _entry(stamp: str, rates: dict, discount: Decimal) -> dict:
@@ -190,12 +233,27 @@ def _fetch(fetch: Fetch, model: str, source: object) -> object:
         raise RefreshError(f"{model}: fetching {source['id']} failed: {exc}") from exc
 
 
-def refresh(doc: dict, fetch: Fetch,
-            stamp: str) -> tuple[dict, list[Move], list[tuple[str, str]]]:
-    """The file with every move appended, the moves, and vanished hosts."""
-    tracked = doc.get("openrouter")
+def data_region(config: object) -> str | None:
+    """openrouter.data_region: "global" (None: endpoints no region tag
+    names) or the region code whose tagged endpoints the account uses."""
+    region = config.get("data_region") if isinstance(config, dict) else None
+    if region == "global":
+        return None
+    if isinstance(region, str) and _REGION.fullmatch(region):
+        return region
+    raise RefreshError(f"openrouter.data_region {region!r} is neither 'global' "
+                       "nor a region code")
+
+
+def refresh(doc: dict, fetch: Fetch, stamp: str
+            ) -> tuple[dict, list[Move], list[tuple[str, str]], list[str]]:
+    """The file with every move appended, the moves, the vanished hosts,
+    and each refused model's reason (a refused model appends nothing)."""
+    source_config = doc.get("openrouter")
+    tracked = source_config.get("models") if isinstance(source_config, dict) else None
     if not isinstance(tracked, dict) or not set(doc["providers"]) <= set(tracked):
-        raise RefreshError("every provider-table model needs an openrouter id")
+        raise RefreshError("every provider-table model needs an openrouter.models id")
+    region = data_region(source_config)
     new_doc = copy.deepcopy(doc)
     moves: list[Move] = []
     vanished: list[tuple[str, str]] = []
@@ -204,7 +262,7 @@ def refresh(doc: dict, fetch: Fetch,
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at.
         try:
-            rows = listed_rows(model, _fetch(fetch, model, source),
+            rows = listed_rows(model, _fetch(fetch, model, source), region,
                                source.get("resolve", {}))
         except RefreshError as exc:
             refusals.append(str(exc))
@@ -212,8 +270,6 @@ def refresh(doc: dict, fetch: Fetch,
         hosts = new_doc["providers"].setdefault(model, {})
         moves += _append(model, hosts, rows, stamp)
         vanished += [(model, host) for host in hosts if host not in rows]
-    if refusals:
-        raise RefreshError("\n".join(refusals))
     if moves:
         new_doc["provider_rates_fetched"] = stamp
     # The loaders' own rules, run on what would be written: among them, a
@@ -222,7 +278,7 @@ def refresh(doc: dict, fetch: Fetch,
         pricing.load_tables(new_doc)
     except ValueError as exc:
         raise RefreshError(f"the refreshed file would not load: {exc}") from exc
-    return new_doc, moves, vanished
+    return new_doc, moves, vanished, refusals
 
 
 def bump_parser_version(text: str, stamp: str) -> str:
@@ -273,28 +329,36 @@ def commit_message(moves: list[Move], vanished: list[tuple[str, str]], body: str
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
 
-def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
-         now: datetime | None = None, pricing_path: Path = PRICING_JSON,
-         constants_path: Path = CONSTANTS_PY) -> int:
+def _arguments(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Append moved OpenRouter provider rates to src/pricing.json.")
     parser.add_argument("--dry-run", action="store_true",
                         help="report what would be appended; write nothing")
     parser.add_argument("--commit-msg", type=Path,
                         help="write the commit message here when anything is appended")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
+         now: datetime | None = None, pricing_path: Path = PRICING_JSON,
+         constants_path: Path = CONSTANTS_PY) -> int:
+    args = _arguments(argv)
     stamp = detection_stamp(now or datetime.now(timezone.utc))
     try:
-        doc = json.loads(pricing_path.read_text(encoding="utf-8"))
-        new_doc, moves, vanished = refresh(doc, fetch, stamp)
+        new_doc, moves, vanished, refusals = refresh(
+            json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
         constants = constants_path.read_text(encoding="utf-8")
         if moves:
             constants = bump_parser_version(constants, stamp)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    body = report(stamp, moves, vanished, new_doc["openrouter"])
+    body = report(stamp, moves, vanished, new_doc["openrouter"]["models"])
     print(body)
+    # A refused run reports what the rest would append, and writes nothing.
+    if refusals:
+        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals), file=sys.stderr)
+        return 1
     if moves and not args.dry_run:
         pricing_path.write_text(json.dumps(new_doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")

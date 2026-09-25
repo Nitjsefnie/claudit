@@ -90,7 +90,7 @@ def _payloads(doc: dict) -> dict:
         if key == V41:
             us_region = {**hosts["BaseTen"][-1], "read": 0.03}
             endpoints.append(_endpoint("BaseTen", us_region, tag="baseten/us"))
-        model_id = doc["openrouter"][key]["id"]
+        model_id = doc["openrouter"]["models"][key]["id"]
         out[model_id] = {"data": {"id": model_id, "name": model_id,
                                   "endpoints": endpoints}}
     return out
@@ -115,7 +115,14 @@ class Run:
         return json.loads(self.pricing.read_text(encoding="utf-8"))
 
     def endpoints(self, key: str) -> list[dict]:
-        return self.payloads[self.doc()["openrouter"][key]["id"]]["data"]["endpoints"]
+        return self.payloads[self.doc()["openrouter"]["models"][key]["id"]]["data"]["endpoints"]
+
+    def edit(self, change) -> None:
+        """Change the run's pricing.json in place, keeping its layout."""
+        doc = self.doc()
+        change(doc)
+        self.pricing.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8")
 
     def endpoint(self, key: str, host: str) -> dict:
         return next(e for e in self.endpoints(key) if e["provider_name"] == host)
@@ -147,8 +154,9 @@ class Run:
 
 def test_every_provider_table_model_names_its_openrouter_id():
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-    assert set(doc["openrouter"]) == set(doc["providers"])
-    for key, entry in doc["openrouter"].items():
+    assert doc["openrouter"]["data_region"] == "global"
+    assert set(doc["openrouter"]["models"]) == set(doc["providers"])
+    for key, entry in doc["openrouter"]["models"].items():
         assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
 
 
@@ -369,7 +377,7 @@ def test_an_absent_cache_read_price_is_zero(tmp_path, capsys):
 def test_endpoints_of_one_host_at_one_price_are_one_row(tmp_path, capsys):
     run = Run(tmp_path)
     twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
-    twin["tag"] = "novita/us"
+    twin["tag"] = "novita/fp4"
     run.endpoints(GLM).append(twin)
     before = run.snapshot()
     assert run(capsys)[0] == 0
@@ -389,12 +397,16 @@ def _refused(run: Run, capsys, *names: str) -> None:
     assert not run.commit_msg.exists()
 
 
-def test_a_host_at_two_prices_with_no_resolution_is_refused(tmp_path, capsys):
+def test_a_host_at_two_global_prices_is_refused_naming_the_tags(tmp_path, capsys):
+    """Two endpoints outside any region — quantization variants, say — at
+    different prices: nothing in the data says which the account gets."""
     run = Run(tmp_path)
+    run.endpoint(GLM, "Novita")["tag"] = "novita/fp8"
     twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
+    twin["tag"] = "novita/fp4"
     twin["pricing"]["input_cache_read"] = "0.00000005"
     run.endpoints(GLM).append(twin)
-    _refused(run, capsys, GLM, "Novita")
+    _refused(run, capsys, GLM, "Novita", "novita/fp8", "novita/fp4")
 
 
 def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
@@ -408,25 +420,177 @@ def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
     _refused(run, capsys, f"{GLM} via Novita", V41)
 
 
-def test_a_pinned_resolution_that_no_longer_matches_is_refused(tmp_path, capsys):
-    """BaseTen lists deepseek-v4.1-flash at two prices; the file pins the
-    endpoint this account reaches. When no listed endpoint matches the pin,
-    a human decides — the other price is never taken instead."""
+def test_a_refused_run_still_reports_what_the_rest_would_append(tmp_path, capsys):
+    """The red run's report is what a human reads to decide; it shows every
+    other model's moves beside the refusal, and still writes nothing."""
     run = Run(tmp_path)
+    _move_openinference(run)
     for endpoint in run.endpoints(V41):
-        if endpoint["provider_name"] == "BaseTen" and endpoint["tag"] != "baseten/us":
-            endpoint["pricing"]["input_cache_read"] = "0.000000006"
-    _refused(run, capsys, V41, "BaseTen")
+        if endpoint["provider_name"] == "BaseTen":
+            endpoint["tag"] = "baseten/fp8"
+    before = run.snapshot()
+    rc, out, err = run(capsys)
+    assert rc != 0
+    assert "OpenInference" in out and "0.1 → 0.07" in out
+    assert f"{V41} via BaseTen" in err and "baseten/fp8" in err
+    assert run.snapshot() == before and not run.commit_msg.exists()
 
 
-def test_a_pinned_resolution_picks_its_endpoint(tmp_path, capsys):
+# --- the data region -----------------------------------------------------------
+# The account's keys reach only the global data region, so an endpoint
+# whose tag names a region is not one it can be billed by.
+
+
+@pytest.mark.parametrize("tag, region", [
+    ("sail-research/us", "us"),
+    ("baseten/us", "us"),
+    ("provider/eu", "eu"),
+    ("provider/us-east-1", "us-east-1"),
+    ("provider/eu-west", "eu-west"),
+    ("baseten/fp8", None),
+    ("sail-research/fp4", None),
+    ("modal/nvfp4", None),
+    ("provider/bf16", None),
+    ("provider/int4", None),
+    ("relace", None),
+    ("io", None),
+    ("", None),
+])
+def test_the_region_a_tag_names(tag, region):
+    assert refresh.tag_region(tag) == region
+
+
+def _baseten(run: Run, tag: str) -> dict:
+    return next(e for e in run.endpoints(V41)
+                if e["provider_name"] == "BaseTen" and e["tag"] == tag)
+
+
+def test_the_global_endpoint_is_taken_over_a_region_one(tmp_path, capsys):
+    """BaseTen lists deepseek-v4.1-flash globally (cache read 0.007) and in
+    the US (0.03). The global price moving is a move — the rule does not
+    stop matching the way a pin on the old price would."""
     run = Run(tmp_path)
-    for endpoint in run.endpoints(V41):
-        if endpoint["provider_name"] == "BaseTen" and endpoint["tag"] != "baseten/us":
-            endpoint["pricing"]["completion"] = "0.0000013"
+    _baseten(run, "baseten")["pricing"]["completion"] = "0.0000013"
+    _baseten(run, "baseten")["pricing"]["input_cache_read"] = "0.000000008"
     assert run(capsys)[0] == 0
     entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.007, 1.3)
+    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.008, 1.3)
+
+
+def test_a_region_endpoint_moving_alone_moves_nothing(tmp_path, capsys):
+    run = Run(tmp_path)
+    _baseten(run, "baseten/us")["pricing"]["completion"] = "0.000002"
+    before = run.snapshot()
+    assert run(capsys)[0] == 0
+    assert run.snapshot() == before
+
+
+def test_sail_research_takes_its_global_endpoint(tmp_path, capsys):
+    """Its deepseek-v4-flash-0731 is listed as sail-research/fp4 and
+    sail-research/us at different prices; the global one applies."""
+    run = Run(tmp_path)
+    fp4 = {"fresh": 0.03, "create_5m": 0.03, "create_1h": 0.03,
+           "read": 0.016, "output": 0.55}
+    us_region = {"fresh": 0.038, "create_5m": 0.038, "create_1h": 0.038,
+                 "read": 0.0228, "output": 0.55}
+    model = "deepseek/deepseek-v4-flash-0731"
+    run.endpoints(model)[:] = [
+        e for e in run.endpoints(model) if e["provider_name"] != "Sail Research"] + [
+        _endpoint("Sail Research", fp4, tag="sail-research/fp4"),
+        _endpoint("Sail Research", us_region, tag="sail-research/us")]
+    assert run(capsys)[0] == 0
+    assert run.doc()["providers"][model]["Sail Research"][-1] == {"from": STAMP, **fp4}
+
+
+def test_a_host_listed_only_in_a_region_is_reported_vanished(tmp_path, capsys):
+    run = Run(tmp_path)
+    run.endpoint(GLM, "Cloudflare")["tag"] = "cloudflare/us"
+    before = run.snapshot()
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    assert run.snapshot() == before
+    assert re.search(r"vanished\b.*Cloudflare", out)
+
+
+def test_a_model_with_no_endpoint_in_the_data_region_is_refused(tmp_path, capsys):
+    run = Run(tmp_path)
+    for endpoint in run.endpoints(GLM):
+        endpoint["tag"] = endpoint["tag"].split("/")[0] + "/us"
+    _refused(run, capsys, GLM)
+
+
+def test_a_named_data_region_takes_that_region(tmp_path, capsys):
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"].update({"data_region": "us"}))
+    for model in run.doc()["providers"]:
+        if model != V41:
+            for endpoint in run.endpoints(model):
+                endpoint["tag"] = endpoint["tag"].split("/")[0] + "/us"
+    run.endpoints(V41)[:] = [e for e in run.endpoints(V41)
+                             if e["provider_name"] == "BaseTen"]
+    _baseten(run, "baseten")["tag"] = "baseten/eu"
+    assert run(capsys)[0] == 0
+    assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
+
+
+@pytest.mark.parametrize("region", [None, "", "US", "the-us", 5])
+def test_a_malformed_data_region_is_refused(tmp_path, capsys, region):
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"].update({"data_region": region}))
+    _refused(run, capsys, "data_region")
+
+
+# --- a per-host tag override -------------------------------------------------
+
+
+def _two_global_novitas(run: Run) -> None:
+    run.endpoint(GLM, "Novita")["tag"] = "novita/fp8"
+    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
+    twin["tag"] = "novita/fp4"
+    twin["pricing"]["input_cache_read"] = "0.00000005"
+    run.endpoints(GLM).append(twin)
+
+
+def _pin_novita(tag: str):
+    return lambda doc: doc["openrouter"]["models"][GLM].update(
+        {"resolve": {"Novita": {"tag": tag, "why": "fixture"}}})
+
+
+def test_a_tag_override_takes_its_endpoint(tmp_path, capsys):
+    run = Run(tmp_path)
+    _two_global_novitas(run)
+    run.edit(_pin_novita("novita/fp4"))
+    assert run(capsys)[0] == 0
+    entry = run.doc()["providers"][GLM]["Novita"][-1]
+    assert (entry["from"], entry["read"]) == (STAMP, 0.05)
+
+
+def test_a_tag_override_takes_its_endpoint_whatever_its_region(tmp_path, capsys):
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        {"resolve": {"BaseTen": {"tag": "baseten/us", "why": "fixture"}}}))
+    assert run(capsys)[0] == 0
+    assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
+
+
+def test_a_tag_override_naming_no_listed_tag_is_refused(tmp_path, capsys):
+    run = Run(tmp_path)
+    _two_global_novitas(run)
+    run.edit(_pin_novita("novita/int4"))
+    _refused(run, capsys, "Novita", "novita/int4", "novita/fp8")
+
+
+@pytest.mark.parametrize("pin", [
+    pytest.param({"match": {"read": 0.0264}}, id="rate-only"),
+    pytest.param({"tag": "novita", "match": {"read": 0.0264}}, id="tag-and-rate"),
+])
+def test_a_resolution_keyed_on_a_rate_is_refused(tmp_path, capsys, pin):
+    """A pin on a price stops matching the moment that price moves, which
+    turns every run red for exactly the hosts it was meant to settle."""
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][GLM].update(
+        {"resolve": {"Novita": pin}}))
+    _refused(run, capsys, "Novita", "keyed on 'tag'")
 
 
 @pytest.mark.parametrize("damage", [
@@ -438,6 +602,8 @@ def test_a_pinned_resolution_picks_its_endpoint(tmp_path, capsys):
                  id="endpoint-without-pricing"),
     pytest.param(lambda p: p["data"]["endpoints"][0].pop("provider_name"),
                  id="endpoint-without-host"),
+    pytest.param(lambda p: p["data"]["endpoints"][0].pop("tag"),
+                 id="endpoint-without-tag"),
     pytest.param(lambda p: p["data"]["endpoints"][0]["pricing"].update(
         {"prompt": "cheap"}), id="non-numeric-price"),
     pytest.param(lambda p: p["data"]["endpoints"][0]["pricing"].update(
@@ -457,7 +623,7 @@ def test_a_pinned_resolution_picks_its_endpoint(tmp_path, capsys):
 ])
 def test_an_unrecognised_response_shape_is_refused(tmp_path, capsys, damage):
     run = Run(tmp_path)
-    damage(run.payloads[run.doc()["openrouter"][GLM]["id"]])
+    damage(run.payloads[run.doc()["openrouter"]["models"][GLM]["id"]])
     _refused(run, capsys, GLM)
 
 
