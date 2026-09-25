@@ -85,8 +85,15 @@ def test_list_keys_aborts_when_the_walk_errors(monkeypatch, mini_r2):
         return iter(())  # not reached: onerror raises
 
     monkeypatch.setattr(r2.os, "walk", _failing_walk)
-    with pytest.raises(OSError):
-        list(r2.list_keys())
+    try:
+        with pytest.raises(OSError):
+            list(r2.list_keys())
+    finally:
+        # Undo before the fixture's rmtree teardown: POSIX rmtree walks
+        # with directory-descriptor scanning and never calls os.walk,
+        # but Windows rmtree IS os.walk-based, so the patched walk would
+        # blow up the cleanup instead of the listing.
+        monkeypatch.undo()
 
 
 def test_get_object(mini_r2):

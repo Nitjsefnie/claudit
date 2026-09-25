@@ -54,7 +54,7 @@ def _fresh_db_fixture(monkeypatch):
 @pytest.fixture(name="two_buckets")
 def _two_buckets_fixture(monkeypatch, tmp_path):
     """alpha and beta mirrors holding the SAME object key."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.setenv("R2_BUCKET", "alpha+beta")
     _seed(tmp_path, "alpha", _TX_A)
     _seed(tmp_path, "beta", _TX_B)
@@ -110,7 +110,7 @@ def test_get_object_reads_from_the_named_bucket(two_buckets):
 
 
 def test_get_object_refuses_unconfigured_bucket(monkeypatch, tmp_path):
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.setenv("R2_BUCKET", "alpha")
     _seed(tmp_path, "alpha", _TX_A)
     with pytest.raises(ValueError, match="not configured"):
@@ -123,7 +123,7 @@ def test_traversal_still_blocked_on_the_object_key_part(
         monkeypatch, tmp_path):
     """The bucket segment is refused by name; traversal INSIDE the
     object-key part still hits _safe_join's PermissionError."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.setenv("R2_BUCKET", "alpha")
     (tmp_path / "alpha").mkdir()
     with pytest.raises(PermissionError):
@@ -141,7 +141,7 @@ def test_single_bucket_stores_bucket_qualified_key(fresh_db, tmp_path,
                                                    monkeypatch):
     """A single-bucket deploy re-keys too: stored identity is
     'claude/<object-key>', not the bare object key."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.delenv("R2_BUCKET", raising=False)
     _seed(tmp_path, "claude", _TX_A)
 
@@ -254,7 +254,7 @@ def _sidecar_app_fixture(fresh_db, tmp_path, monkeypatch):
     """A session whose file lives in bucket alpha, with one sidecar of
     its own; beta holds the SAME-shaped sidecar under the same relative
     path, so a request that reached across would find beta's copy."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.setenv("R2_BUCKET", "alpha+beta")
     _seed(tmp_path, "alpha", _TX_A)
     sess = tmp_path / "alpha" / "projT" / "sessT"
@@ -327,7 +327,7 @@ def test_single_bucket_missing_root_aborts_the_run_before_the_sweep(
     """Single-bucket file mode: an endpoint root that is missing (an
     unmounted mountpoint) must abort the ingest with a fatal, never list
     empty — the orphan sweep would delete the bucket's entire history."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/absent/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
     monkeypatch.delenv("R2_BUCKET", raising=False)
 
     result = ingest.run_ingest(trigger="manual")
@@ -369,7 +369,7 @@ def test_lane_and_claude_projects_of_one_directory_merge_by_slug(
     """A Claude-layout session of /x/repo (project dir IS the slug) and
     a Codex session whose project.json names /x/repo land under ONE
     project_id '-x-repo', with the path as the display name."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
     monkeypatch.setenv("R2_BUCKET", "alpha+beta")
     claude = tmp_path / "alpha" / "-x-repo" / "sessC"
     claude.mkdir(parents=True)
