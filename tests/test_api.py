@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -11,9 +12,10 @@ from pathlib import Path
 import psycopg
 import pytest
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from backend import (api, api_export, cache, db, ingest,
+from backend import (api, api_export, app as app_mod, cache, db, ingest,
                      pricing)
 from tests import scratch_db
 
@@ -977,3 +979,22 @@ def test_cost_by_agent_live_path_agrees_with_rollup(app_with_data):
     for a in live["agents"]:
         assert set(a) == {
             "agent_type", "requests", "output_tokens", "cost_usd", "share"}
+
+
+# --------------------------------------------------------- backend.app routes
+
+def test_admin_ingest_runs_off_the_event_loop():
+    """POST /admin/ingest must be registered as a plain def.
+
+    Declared `async def`, the handler ran the blocking pipeline directly ON
+    the event loop, so every concurrent request — /health, /api/*, the SSE
+    stream, the login page — stalled for the length of the run. FastAPI
+    moves a plain `def` handler to its threadpool, which is the only thing
+    that keeps the loop free while the ingest blocks a worker (issue #101).
+    """
+    matches = [
+        r for r in app_mod.app.routes
+        if isinstance(r, APIRoute) and r.path == "/admin/ingest"
+    ]
+    assert matches, "no /admin/ingest route is registered"
+    assert not inspect.iscoroutinefunction(matches[0].endpoint)
