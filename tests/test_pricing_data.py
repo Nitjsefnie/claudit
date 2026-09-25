@@ -845,3 +845,46 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
             setattr(pricing, name, value)
     assert [(g["kind"], _js_rates(g["rates"])) for g in got] == \
         [(w.kind, w.rates) for w in want]
+
+
+# --- the loaded rate epochs carry the provider terms -------------------------
+# RATE_EPOCHS is the union every read-time fold groups by (SV-DATED-RATES);
+# window.rateEpochs is its browser twin. A provider row's window ends and
+# its row start must survive into it — the mutant drops the provider terms
+# from the union in parser.js. The document carries ONLY the synthetic row,
+# so the instants are asserted straight out of the loaded window.rateEpochs,
+# never against a parallel derivation of the same union in the test.
+
+P_START = "2026-05-01T00:00:00Z"
+P_CUT = "2026-06-15T12:00:00Z"
+P_BEFORE = {"fresh": 7.40, "create_5m": 9.25, "create_1h": 14.80,
+            "read": 0.74, "output": 37.00}
+P_AFTER = {"fresh": 3.20, "create_5m": 4.00, "create_1h": 6.40,
+           "read": 0.32, "output": 16.00}
+
+
+def _provider_only_doc() -> dict:
+    """A file whose only row is a synthetic (model, host) pair that begins
+    at P_START and moves at P_CUT, at rates unlike any real price."""
+    return {
+        "models": {},
+        "providers": {"acme/acme-9": {"HostCo": [
+            {"from": P_START, **P_BEFORE},
+            {"from": P_CUT, **P_AFTER},
+        ]}},
+    }
+
+
+@needs_node
+def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
+        tmp_path):
+    (tmp_path / "pricing.json").write_text(
+        json.dumps(_provider_only_doc()), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    got = _node(tmp_path / "parser.js",
+                "console.log(JSON.stringify(window.rateEpochs));")
+    start = int(_at(P_START).timestamp() * 1000)
+    cut = int(_at(P_CUT).timestamp() * 1000)
+    assert cut in got, got
+    assert start in got, got
+    assert got == [start, cut], "the synthetic row is the only one"
