@@ -176,7 +176,8 @@ Two tests are worth knowing about before you touch pricing:
 
 ## If you change how cost is computed
 
-Bump `PARSER_VERSION` in `.env`. Every file reparses on the next ingest;
+Bump `PARSER_VERSION`, the code constant in `backend/constants.py`, in
+the same commit as the change. Every file reparses on the next ingest;
 without the bump, stored `cost_usd` values keep the old rates and the
 dashboard silently mixes them. Mention the bump in your PR so deployers
 know a reparse is coming.
