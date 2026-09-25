@@ -84,7 +84,9 @@ class TestPatchCoverageWiring:
 
     def test_comment_step_carries_continue_on_error(self):
         step = _step(_pytest_job(), COMMENT_STEP)
-        assert step.get("continue-on-error") is True
+        # BaseLoader keeps YAML booleans as strings; either spelling is
+        # the one meaning.
+        assert str(step.get("continue-on-error")).lower() == "true"
 
     def test_comment_step_updates_one_marker_comment(self):
         run = _step(_pytest_job(), COMMENT_STEP).get("run") or ""

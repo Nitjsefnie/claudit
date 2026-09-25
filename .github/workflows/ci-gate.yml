@@ -66,7 +66,7 @@ concurrency:
 jobs:
   classify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       # contents: read pays for the checkout; pull-requests: read is
       # what the pulls/<n>/files read needs on a pull-request event.
@@ -105,8 +105,12 @@ jobs:
     uses: ./.github/workflows/tests.yml
     permissions:
       # The callee's pytest job pushes the thresholds ratchet commit on
-      # a master push and declares the same at its own job level.
+      # a master push and posts the informational patch-coverage comment
+      # on a pull request (issue #129), declaring both at its own job
+      # level; a reusable call is capped by what the calling job grants,
+      # so both scopes are named here too.
       contents: write
+      pull-requests: write
 
   lint:
     needs: classify
@@ -159,7 +163,7 @@ jobs:
             actionlint, speed, codeql]
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
