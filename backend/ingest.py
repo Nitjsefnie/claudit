@@ -49,6 +49,8 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     rebuild_tool_error_rollup, rebuild_tool_rollup,
     recompute_canonical, resolve_teammate_agent_types,
 )
+from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _close_run, _open_run)
 from backend.ingest_warm import WARM_RANGES, warm_common  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.ingest_progress import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _set_progress, progress_snapshot)
@@ -276,21 +278,6 @@ def wait_for_run(timeout: float) -> bool:
         _RUN_LOCK.release()
         return True
     return False
-
-
-def _open_run(started: datetime, trigger: str) -> int:
-    """Insert the ingest_runs row, returning its id."""
-    with db.viz_conn() as c, c.cursor() as cur:
-        cur.execute(
-            "INSERT INTO ingest_runs (started_at, trigger) VALUES (%s, %s) "
-            "RETURNING id",
-            (started, trigger),
-        )
-        row = cur.fetchone()
-        assert row is not None  # INSERT ... RETURNING always yields a row
-        run_id = row[0]
-        c.commit()
-    return run_id
 
 
 def _existing_files() -> dict:
@@ -630,18 +617,6 @@ def _delete_orphan_projects() -> int:
     if deleted:
         log.info("ingest: dropped %d orphan project row(s)", deleted)
     return deleted
-
-
-def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
-               inserted: int, deleted: int, err: str | None) -> None:
-    """Write the final counters onto the ingest_runs row."""
-    with db.viz_conn() as c, c.cursor() as cur:
-        cur.execute(
-            "UPDATE ingest_runs SET finished_at=%s, r2_listed=%s, "
-            "reparsed=%s, inserted=%s, deleted=%s, error=%s WHERE id=%s",
-            (finished, listed, reparsed, inserted, deleted, err, run_id),
-        )
-        c.commit()
 
 
 def _rebuild_derived_state() -> None:
