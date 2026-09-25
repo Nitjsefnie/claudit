@@ -720,14 +720,17 @@ never hand-concatenate a brand value into a page:
 A new surface that echoes a brand value MUST route through one of these
 functions — not a copy, not a new escape, and never `f"{value}"`.
 
-## The first deploy after enabling a lane bucket re-keys every file (SV-REKEY-CUTOVER)
+## The first boot of this build over an existing DB re-keys every file (SV-REKEY-CUTOVER)
 
-Adding a bucket to `R2_BUCKET` (or first boot of this build over an
-existing DB) re-keys stored identity from the bare object key to
-`<bucket>/<object-key>`: the run deletes each old row and re-inserts it
-under its new key. One-time, converging, and with known windows that
-close when the first clean run finishes — plan the cutover around them
-(run off-peak, watch `/health` until the run completes):
+The re-key fires on the first boot of THIS BUILD over ANY database
+created by an earlier build, whatever `R2_BUCKET` says: this build's
+`r2.list_keys` yields bucket-qualified keys, so the run re-keys stored
+identity from the bare object key to `<bucket>/<object-key>`, deleting
+each old row and re-inserting it under its new key. Adding a bucket to
+`R2_BUCKET` on an already-migrated deploy re-keys nothing. One-time,
+converging, and with known windows that close when the first clean run
+finishes — plan the cutover around them (run off-peak, watch `/health`
+until the run completes):
 
 - (a) for the duration of the run, new rows (default `is_canonical=TRUE`)
   and not-yet-swept old rows are BOTH canonical, so live reads

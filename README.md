@@ -202,13 +202,15 @@ stored records, to force a full reparse).
 - The rest of the environment (`DATABASE_URL_VIZ`, `R2_ENDPOINT`, auth and
   admin keys) is documented inline in [`backend/.env.example`](backend/.env.example).
 
-### First deploy / first boot after enabling a lane bucket
+### First boot of this build over an existing database
 
-The first ingest after adding a bucket to `R2_BUCKET` **re-keys every
-stored file**: stored identity moves from the bare object key to
-`<bucket>/<object-key>`, so each old row is deleted and re-inserted
-under its new key in the same run. That one-time run has known,
-self-healing behaviour:
+The first ingest this build runs over a database created by an earlier
+build **re-keys every stored file**: this build's `r2.list_keys` yields
+bucket-qualified keys whatever `R2_BUCKET` says, so stored identity
+moves from the bare object key to `<bucket>/<object-key>` and each old
+row is deleted and re-inserted under its new key in the same run.
+Adding a bucket to `R2_BUCKET` on an already-migrated deploy re-keys
+nothing. That one-time run has known, self-healing behaviour:
 
 - (a) until the run finishes, the new rows (which default
   `is_canonical=TRUE`) and the not-yet-swept old rows are both
