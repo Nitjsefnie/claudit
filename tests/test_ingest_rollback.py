@@ -28,14 +28,26 @@ def test_newer_stored_parser_version_is_never_reparsed(
     """A file stored by a NEWER parser_version keeps its file row and its
     records verbatim across a rollback — even when the object's etag
     changed, because the older binary's rewrite would NULL the columns
-    the old binary does not know. The skip is surfaced in the run summary
-    and logged at warning level."""
+    the old binary does not know. A sentinel planted in records.provider
+    — the exact column issue #118 demonstrated being wiped — must
+    survive the run. The skip is surfaced in the run summary and logged
+    at warning level."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         c.execute(
             "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
             (str(int(constants.PARSER_VERSION) + 1),),
         )
+        c.execute(
+            "UPDATE records SET provider = 'sentinel' "
+            "WHERE file_key LIKE '%sess-A.jsonl'")
+        planted = c.execute(
+            "SELECT COUNT(*) FROM records "
+            "WHERE file_key LIKE '%sess-A.jsonl' "
+            "AND provider = 'sentinel'").fetchone()
+        assert planted is not None and planted[0] > 0, (
+            "the fixture must produce records for sess-A, or the "
+            "sentinel proves nothing")
         c.commit()
     before = _snapshot()
 
@@ -54,6 +66,12 @@ def test_newer_stored_parser_version_is_never_reparsed(
     assert _snapshot() == before, (
         "the guarded file row and its records must stay verbatim — "
         "etag and parser_version included")
+    with db.viz_conn() as c:
+        kept = c.execute(
+            "SELECT DISTINCT provider FROM records "
+            "WHERE file_key LIKE '%sess-A.jsonl'").fetchall()
+    assert kept == [("sentinel",)], (
+        "the newer binary's column values must survive the rollback run")
     warned = [r for r in caplog.records
               if r.levelno == logging.WARNING
               and "parser_version is newer" in r.getMessage()]
