@@ -184,9 +184,8 @@ async def login_post(
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
-    secret = session_mod.get_or_create_session_secret(config)
-    session_mod.write_user_config(uid, config)
-    token = session_mod.make_session_token(uid, secret)
+    secret, generation = session_mod.get_or_create_session_row(uid)
+    token = session_mod.make_session_token(uid, secret, generation=generation)
     response = RedirectResponse("/", status_code=303)
     session_mod.set_session_cookie(response, token)
     return response
@@ -194,6 +193,15 @@ async def login_post(
 
 @router.get("/logout")
 async def logout(request: Request) -> Response:
+    # /logout stays on the public path list and self-authenticates via
+    # the cookie: it acts only on the session the request itself
+    # presents. SameSite=strict already keeps a cross-site GET /logout
+    # from carrying the cookie, so it cannot name — or bump — a session
+    # it does not hold (issue #108).
+    cookie = request.cookies.get(session_mod.SESSION_COOKIE_NAME, "")
+    user_id = session_mod.resolve_session_user_id(cookie) if cookie else None
+    if user_id is not None and user_id != session_mod.GUEST_USER_ID:
+        session_mod.bump_session_generation(user_id)
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(session_mod.SESSION_COOKIE_NAME, path="/")
     return response
