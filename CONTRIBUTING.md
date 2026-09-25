@@ -103,7 +103,7 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **twelve** separate workflows — on pushes to `master` and on pull
+CI runs **thirteen** separate workflows — on pushes to `master` and on pull
 requests against it; a pull request's commits are checked once, with no
 review gate first, and a branch without a PR is checked by dispatching
 (`gh workflow run <workflow-file> --ref <branch>`). A green suite is a
@@ -148,6 +148,7 @@ The rest need GitHub and run on their own:
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
 | `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
+| `claim` | Lets a contributor without write access take an issue: comment `/claim` on an open, unassigned issue and the workflow assigns you; `/unclaim` and `/release` remove only your own assignment. Runs no repository code — it talks to the GitHub API only. See [Claiming an issue](#claiming-an-issue). |
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
@@ -201,6 +202,17 @@ row's history; never edit an existing one.
   (line length in particular) are switched off on purpose — match the
   surrounding file for style, and treat anything the linters do flag
   as a real finding.
+
+## Claiming an issue
+
+You do not need write access to take an issue: comment exactly `/claim`
+on an open, unassigned issue and the claim workflow assigns you.
+`/unclaim` (or `/release`, the same command under two names) hands it
+back, removing only your own assignment. The whole comment must be
+exactly the command — `please /claim this` claims nothing — and a
+carried issue number (`/claim #7`) must name the issue it is commented
+on. Bot comments, pull requests and closed issues are ignored, and a
+refused command is answered on the issue, not silently dropped.
 
 ## Pull requests
 

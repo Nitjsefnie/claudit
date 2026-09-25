@@ -1,0 +1,53 @@
+name: claim
+
+# Lets a contributor take an issue without repository write access. GitHub's
+# built-in slash commands do not include assignment, so self-assignment
+# otherwise needs someone with write access to use the assignee control.
+#
+# `/claim` assigns the commenter to an unassigned open issue. `/unclaim` and
+# `/release` are the same command under two names — both remove the
+# commenter's OWN assignment and nobody else's, a DELETE naming exactly one
+# login, so a second assignee is left in place. Two names because the
+# reference implementation this was modelled on calls it `/release` and people
+# arrive expecting that word.
+#
+# The action handles the attacker-controlled comment body without
+# interpolating it into shell source. The `if:` below is only a cheap
+# prefilter; the exact match happens in the action, because expressions have
+# no trim(). The action itself requires an open issue that is not a pull
+# request and a `User` commenter, so the prefilter saves starting a runner
+# rather than being the only enforcement.
+
+on:
+  issue_comment:
+    types: [created]
+
+# The narrowest token that can assign. Nothing here reads the tree, so there
+# is no contents: read and no checkout: the job talks to the API only.
+permissions:
+  issues: write
+
+concurrency:
+  # Per issue, and NOT cancel-in-progress. Two people claiming at once must
+  # both get an answer: cancelling the first would leave the loser of the race
+  # with silence, and cancelling the second would leave it unanswered.
+  group: claim-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  claim:
+    # A pull request is an issue to this event, and its assignees mean
+    # something else. A closed issue cannot be worked. A bot's comment is
+    # never a claim.
+    if: >-
+      github.event.issue.pull_request == null
+      && github.event.issue.state == 'open'
+      && github.event.comment.user.type != 'Bot'
+      && (contains(github.event.comment.body, '/claim')
+          || contains(github.event.comment.body, '/unclaim')
+          || contains(github.event.comment.body, '/release'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: Nitjsefnie-Actions/claim@ceaadaa096fd249cdeecc137342158ec17347cb9  # v1.1.0
