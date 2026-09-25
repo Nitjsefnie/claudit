@@ -107,10 +107,14 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     # shows up as untouched=false even when nothing else observes the doc.
     browser_setup = ""
     if browser:
+        # A real browser's currentScript.src is always an absolute URL; build
+        # one with pathToFileURL so the base `new URL` resolves against is
+        # valid on Windows too (a raw 'file://C:\...' path string is not).
         browser_setup = (
             "global.document = {\n"
             "  currentScript: { dataset: { pricing: 'pricing.json' },\n"
-            f"                   src: 'file://{where}/parser.js' }},\n"
+            "                   src: require('url').pathToFileURL("
+            f"{json.dumps(str(where / 'parser.js'))}).href }},\n"
             "};\n"
             "global.XMLHttpRequest = class {\n"
             "  open(method, url) { this.responseURL = url; }\n"
