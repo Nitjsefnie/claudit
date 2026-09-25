@@ -107,7 +107,10 @@ def test_per_object_failure_still_rebuilds_derived_state(
         c.execute("UPDATE records SET is_canonical = TRUE")
         c.commit()
 
-    monkeypatch.setattr(constants, "PARSER_VERSION", "2")
+    # A forward bump forces the reparse; a rollback would now be skipped
+    # by the guard (issue #118).
+    monkeypatch.setattr(
+        constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1

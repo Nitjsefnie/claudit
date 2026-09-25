@@ -7,7 +7,10 @@ across EVERY configured bucket (R2_BUCKET names one or more, joined by
 record). Cross-file uuid dedup resolves at ingest into records.is_canonical; reads filter the flag.
 
 Reparse trigger per FILE: row missing OR etag changed OR parser_version
-mismatch. Orphan files (R2 key gone) are deleted. CASCADE drops records.
+mismatch — never a NEWER stored parser_version: an older binary's
+ingest rewrites each file's rows with its own column list, which would
+NULL every column the older binary does not know (issue #118). Orphan
+files (R2 key gone) are deleted. CASCADE drops records.
 
 Per-session work spans TWO transactions:
   1. DELETE FROM records WHERE file_key=... + INSERT INTO files (UPSERT)
@@ -483,16 +486,37 @@ def _track_walked_project(seen_projects: dict[str, dict], info, obj,
     return seen_projects[project_id]
 
 
-def _collect_todo(existing: dict, parser_version: str,
+def _stored_version_is_newer(stored, parser_version: str) -> bool:
+    """Whether a stored files row was written by a NEWER parser version.
+
+    A rollback must not let the older binary's ingest rewrite rows it
+    cannot write whole: _persist DELETEs and re-INSERTs each file's rows
+    with its own column list, silently NULLing every column it does not
+    know (issue #118). A stored value that does not parse as an int
+    cannot be shown newer, so the ordinary reparse decision applies.
+    """
+    if stored is None:
+        return False
+    try:
+        return int(stored[1]) > int(parser_version)
+    except (TypeError, ValueError):
+        return False
+
+
+def _collect_todo(existing: dict, parser_version: str,  # pylint: disable=too-many-locals
                   failed: list[tuple[str, str]]) -> tuple:
     """Walk the bucket: count objects, remember live keys, and queue the
     files whose etag/parser_version says they need (re)parsing.
 
-    Returns (listed, todo, seen_keys); todo holds (obj, proj, stored) per
-    file needing work, fetched+parsed later on a pool. What a key maps
-    to lives in key_layout: the walk keeps only the keys classify()
-    accepts as transcripts; session/is_main come out of the same
-    classify() in _persist, and the PROJECT id is resolved once, here —
+    Returns (listed, todo, seen_keys, newer). todo holds (obj, proj,
+    stored) per file needing work, fetched+parsed later on a pool. newer
+    counts the files NOT queued because their stored parser_version is
+    newer than this binary's own — a rollback's older binary must not
+    rewrite rows it cannot write whole (see _stored_version_is_newer).
+    What a key maps to lives in key_layout: the walk keeps only the keys
+    classify() accepts as transcripts; session/is_main come out of the
+    same classify() in _persist, and the PROJECT id is resolved once,
+    here —
     marker slug, stored mapping, or bare hash (lane_projects.resolve_lane_project) —
     so the walk and every _persist of the run agree on it.
 
@@ -508,6 +532,7 @@ def _collect_todo(existing: dict, parser_version: str,
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
+    newer = 0
     stored_lane = lane_projects.stored_lane_ids()
     lane_projects.rekey_stale_lane_projects(project_paths, stored_lane)
     for obj in wire_objs:
@@ -522,8 +547,11 @@ def _collect_todo(existing: dict, parser_version: str,
         stored = existing.get(obj.key)
         if (stored is None or stored[0] != obj.etag
                 or stored[1] != parser_version):
+            if _stored_version_is_newer(stored, parser_version):
+                newer += 1
+                continue
             todo.append((obj, tracked, stored))
-    return listed, todo, seen_keys
+    return listed, todo, seen_keys, newer
 
 
 def _fetch_parse_persist(todo: list[tuple], parser_version: str,
@@ -654,14 +682,16 @@ def _rebuild_derived_state() -> None:
 
 
 def _walk_and_persist(parser_version: str,
-                      failed: list[tuple[str, str]]) -> tuple[int, int, int, int, int]:
+                      failed: list[tuple[str, str]]
+                      ) -> tuple[int, int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
 
-    Returns (listed, inserted, reparsed, deleted, vanished). Exceptions
-    propagate to run_ingest_locked, which books them as the run-level
-    `fatal` — except IngestAborted, which closes the run as aborted.
+    Returns (listed, inserted, reparsed, deleted, vanished, newer).
+    Exceptions propagate to run_ingest_locked, which books them as the
+    run-level `fatal` — except IngestAborted, which closes the run as
+    aborted.
     """
-    listed, todo, seen_keys = _collect_todo(
+    listed, todo, seen_keys, newer = _collect_todo(
         _existing_files(), parser_version, failed
     )
     _check_shutdown()
@@ -672,16 +702,16 @@ def _walk_and_persist(parser_version: str,
     deleted = _delete_orphans(seen_keys)
     _delete_orphan_projects()
     _check_shutdown()
-    return listed, inserted, reparsed, deleted, vanished
+    return listed, inserted, reparsed, deleted, vanished, newer
 
 
-def run_ingest_locked(trigger: str) -> dict:
+def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     started = datetime.now(timezone.utc)
     run_id = _open_run(started, trigger)
 
     _set_progress(phase="listing", done=0, total=0,
                   run_id=run_id, started_at=started.isoformat())
-    listed = inserted = reparsed = deleted = vanished = 0
+    listed = inserted = reparsed = deleted = vanished = newer = 0
     # Per-object failures (key, message). Recorded in the run's `error`, but
     # deliberately NOT used to gate anything: one dropped connection out of
     # 9,213 files is a run with a retry pending, not a failed run.
@@ -693,9 +723,8 @@ def run_ingest_locked(trigger: str) -> dict:
     aborted = False
 
     try:
-        listed, inserted, reparsed, deleted, vanished = _walk_and_persist(
-            constants.PARSER_VERSION, failed
-        )
+        listed, inserted, reparsed, deleted, vanished, newer = (
+            _walk_and_persist(constants.PARSER_VERSION, failed))
     except IngestAborted:
         log.warning("ingest (%s): aborted, shutdown requested", trigger)
         aborted = True
@@ -706,6 +735,11 @@ def run_ingest_locked(trigger: str) -> dict:
         # error would otherwise carry.
         log.exception("ingest (%s): fatal, run aborted", trigger)
         fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
+
+    if newer:
+        log.warning(
+            "ingest (%s): skipped reparse of %d file(s) whose stored "
+            "parser_version is newer than this binary's own", trigger, newer)
 
     # `error` reports both kinds of trouble plus the abort; only these gate.
     err: str | None
@@ -757,6 +791,7 @@ def run_ingest_locked(trigger: str) -> dict:
         "deleted": deleted,
         "failed": len(failed),
         "vanished": vanished,
+        "newer": newer,
         "aborted": aborted,
         "error": err,
     }
