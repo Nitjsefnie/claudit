@@ -207,7 +207,12 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
     a fetch outside every window reads the default from the listing. A host
     with no row yet is refused inside a window: the listing offers no
     default to keep, and starting the row with the window's price would
-    misprice every outside-window record."""
+    misprice every outside-window record. The trigger is per endpoint,
+    before the region filter: an out-of-region endpoint of a first-seen
+    host, one the account is never billed by, carrying a schedule and
+    fetched inside its window refuses the whole host; the direction is
+    conservative, no mispricing, and the next fetch outside every window
+    starts the row."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
