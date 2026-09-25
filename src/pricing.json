@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-25T15:54:39Z",
+  "provider_rates_fetched": "2026-09-25T16:53:37Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -617,6 +617,14 @@
           "from": "2026-09-25T05:39:26Z",
           "output": 0.49,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-25T16:53:37Z",
+          "output": 0.6,
+          "read": 0.005
         }
       ],
       "DigitalOcean": [
@@ -889,6 +897,15 @@
           "note": "65.3% off",
           "output": 0.09716,
           "read": 0.009716
+        },
+        {
+          "create_1h": 0.0483,
+          "create_5m": 0.0483,
+          "fresh": 0.0483,
+          "from": "2026-09-25T16:53:37Z",
+          "note": "65.5% off",
+          "output": 0.0966,
+          "read": 0.00966
         }
       ],
       "DeepInfra": [
@@ -1035,6 +1052,15 @@
           "note": "65.2% off",
           "output": 0.09744,
           "read": 0.009744
+        },
+        {
+          "create_1h": 0.04816,
+          "create_5m": 0.04816,
+          "fresh": 0.04816,
+          "from": "2026-09-25T16:53:37Z",
+          "note": "65.6% off",
+          "output": 0.09632,
+          "read": 0.009632
         }
       ],
       "Venice": [
