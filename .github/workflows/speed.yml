@@ -1,38 +1,65 @@
 name: speed
 
-# Did the test suite get slower since the last release?
+# Did THIS CHANGE make the test suite slower?
 #
 # THE MEASUREMENT ONLY MEANS ANYTHING BECAUSE BOTH BUILDS RUN HERE. A
 # GitHub runner's speed varies by roughly a factor of two between jobs, so
 # a duration recorded in one job compared against a duration recorded in
-# another measures the runners, not the code. This job checks out the last
-# release AND this commit, runs both on the same machine, and reports the
+# another measures the runners, not the code. This job checks out the
+# baseline AND this commit, runs both on the same machine, and reports the
 # ratio. That is what makes a 30% budget a real threshold rather than a
 # coin flip.
 #
-# Rounds are INTERLEAVED — base, head, base, head — and each test's
-# duration is the minimum across its rounds. Interleaving keeps a warming
-# page cache or a noisy neighbour from landing entirely on one side; the
-# minimum estimates the floor, which is the quantity that actually changes
-# when code gets slower.
+# THE BASELINE DEPENDS ON THE EVENT. On a push to master the question is
+# "did this push slow the suite since the last release", so the baseline
+# is the latest release. On a pull request the question is "did THIS
+# BRANCH make the suite slower", and the last release would fold every
+# commit merged to master since the release into the number — all
+# attributed to whoever opened the pull request. So the base side is the
+# branch's real merge base, computed with `git merge-base` against the
+# freshly fetched base branch after checkout; the event payload's
+# `base.sha` is where the PR was opened from, which by run time need not
+# be the merge base. On a master push with no release yet there is nothing
+# to compare against and the job says so and exits green; a pull request
+# always has a merge base, so PR runs always measure.
+#
+# THE WARM-UP IS DISCARDED AND THE ROUNDS ARE PAIRED. A runner's first
+# round pays a cold page cache, so it is systematically the slowest; fold
+# it in anywhere and that bias lands in whichever pair it reaches.
+# Interleaving spreads neighbour noise but cannot remove a warm-up bias
+# that always lands on the first pair. So the run executes ROUNDS + 1
+# interleaved rounds per side: round 0 runs both sides and is thrown away,
+# never reported and never compared, and rounds 1..ROUNDS are read as
+# pairs — round i of the baseline against round i of this commit. Each
+# pair's ratio is its head total over its base total, over the tests
+# passing in BOTH reports of that pair, and the verdict is the MEDIAN of
+# the paired ratios — so one noisy pair cannot fail an otherwise clean
+# branch. ROUNDS counts pairs: 2 pairs plus the warm-up is 6 suite runs
+# per speed run, up from 4.
 #
 # Each side installs ITS OWN pinned dependencies. A release that got
 # slower because a bumped library got slower is a real regression, and
-# holding dependencies fixed across the comparison would hide exactly that.
+# holding dependencies fixed across the comparison would hide exactly
+# that.
 #
 # The comparison itself — intersect on test node id, so adding or removing
-# tests cannot move the number — lives in scripts/ci/compare_durations.py,
-# which has its own tests. Its module docstring explains why total wall
-# time is the wrong metric.
+# tests cannot move the number, with the median of paired ratios as the
+# verdict — lives in scripts/ci/compare_durations.py, which has its own
+# tests. Its module docstring carries the full paired-rounds rationale.
 #
 # CALIBRATION, so the 30% budget is not a guess. Two runs of IDENTICAL
 # code, back to back on one machine, moved the shared-test total by 1.7%
 # while individual tests moved by up to 370%. That is the whole argument
-# for this shape: gate on the total (noise ~2%, budget 30%, comfortable
-# margin) and treat any single test's number as unreliable.
+# for gating on the median paired ratio (noise ~2%, budget 30%, comfortable
+# margin) and treating any single test's number as unreliable.
 #
-# Until the first release exists there is nothing to compare against, and
-# this job says so and exits green rather than failing.
+# A FORK'S CODE RUNS HERE. This is the one gate that deliberately EXECUTES
+# a pull request's tree; every other gate only parses it. So the job names
+# an environment: an in-repo branch gets `speed-benchmark`, which carries
+# no protection rules and starts without ceremony, while a fork's pull
+# request gets `fork-speed-benchmark`, which requires a reviewer's
+# approval before the job starts. That approval is the admission gate for
+# fork-supplied code in this workflow.
 
 on:
   push:
@@ -69,6 +96,13 @@ jobs:
   speed:
     runs-on: ubuntu-latest
 
+    # The dual-environment fork gate. Both names must exist as
+    # environments: `speed-benchmark` with no protection rules,
+    # `fork-speed-benchmark` requiring a review before the job starts.
+    environment: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'fork-speed-benchmark' || 'speed-benchmark' }}
+
     services:
       postgres:
         image: postgres:16
@@ -91,11 +125,14 @@ jobs:
       PGPASSWORD: postgres
       # Fractional slowdown that fails the job.
       MAX_REGRESSION: "0.30"
+      # Number of COMPARED pairs. The run executes ROUNDS + 1 rounds per
+      # side; round 0 is the discarded warm-up.
       ROUNDS: "2"
 
     steps:
       - name: Find the baseline release
         id: baseline
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -135,15 +172,40 @@ jobs:
           fi
 
       - name: Check out this commit
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || github.event_name == 'pull_request'
         # Default checkout: the branch tip on push, the PR merge ref on
         # pull_request — the same tree every other gate tests, i.e. what
-        # GitHub would actually land. No head-SHA pin needed now that no
-        # event checks out the base.
+        # GitHub would actually land. The FULL history is fetched because
+        # the merge-base step below walks ancestry across both sides of
+        # the branch; a depth-1 clone would leave the head commit's
+        # parents missing and the computation would fail.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: head
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Find the pull-request merge base
+        id: merge_base
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # The event payload's base.sha is the merge base AT OPEN TIME. After
+        # force-pushes or merges to master it is not the branch's merge base
+        # any more, and benchmarking against the wrong commit answers
+        # nobody's question — so compute it, against the freshly fetched
+        # tip of the base branch.
+        run: |
+          cd head
+          git fetch --no-tags \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "refs/heads/${BASE_REF}"
+          sha="$(git merge-base "${HEAD_SHA}" "FETCH_HEAD")"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Merge base of ${HEAD_SHA} and origin/${BASE_REF}: $sha"
 
       - name: Check out the baseline release
         if: steps.baseline.outputs.tag != ''
@@ -153,14 +215,22 @@ jobs:
           path: base
           persist-credentials: false
 
+      - name: Check out the pull-request merge base
+        if: steps.merge_base.outputs.sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.merge_base.outputs.sha }}
+          path: base
+          persist-credentials: false
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         with:
           python-version: "3.13"
           cache: pip
 
       - name: Install postgresql-client
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
@@ -168,7 +238,7 @@ jobs:
           sudo apt-get install -y -qq postgresql-client-16
 
       - name: Build one virtualenv per side
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         # Separate environments because the two sides pin different
         # versions, and a shared one would silently benchmark whichever
         # resolved last against both trees.
@@ -183,7 +253,7 @@ jobs:
           echo "head pins:"; "venv-head/bin/python" -m pip freeze | head -20
 
       - name: Wait for postgres
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         run: |
           for _ in $(seq 1 30); do
             pg_isready -q && exit 0
@@ -191,19 +261,34 @@ jobs:
           done
           echo "postgres never became ready"; exit 1
 
-      - name: Run both suites, interleaved
-        if: steps.baseline.outputs.tag != ''
+      - name: Run both suites, interleaved, in pairs
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         # A failing test does NOT fail this job: tests.yml owns that
         # verdict, and here a non-passing testcase is simply excluded from
         # the comparison (see compare_durations.py). What this step must
-        # guarantee is that four usable reports exist, so it checks for
-        # them explicitly rather than trusting an exit code it deliberately
-        # ignores.
+        # guarantee is that a usable report exists for every COMPARED
+        # round, so it checks for them explicitly rather than trusting an
+        # exit code it deliberately ignores.
         #
         # Sequential, never parallel: two suites sharing a runner would
         # not be a speed measurement.
         run: |
-          mkdir -p reports
+          mkdir -p reports/warmup
+          # Round 0 is the discarded warm-up. It is written outside the
+          # reports/base-* and reports/head-* globs the comparison reads,
+          # so nothing has to remember to exclude it, and it is uploaded
+          # with the rest because the size of what it absorbs is the
+          # evidence for doing it at all.
+          for side in base head; do
+            echo "::group::$side warm-up (discarded)"
+            ( cd "$side" && "$GITHUB_WORKSPACE/venv-$side/bin/python" -m pytest \
+                tests/ -q -p no:cacheprovider --tb=no \
+                --junitxml="$GITHUB_WORKSPACE/reports/warmup/$side.xml" ) \
+              && echo "$side warm-up: all passed" \
+              || echo "$side warm-up: some tests did not pass (excluded)"
+            echo "::endgroup::"
+          done
+
           for round in $(seq 1 "$ROUNDS"); do
             for side in base head; do
               echo "::group::$side round $round"
@@ -234,9 +319,9 @@ jobs:
           ls -la reports/
 
       - name: Compare
-        if: steps.baseline.outputs.tag != ''
+        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         env:
-          BASE_TAG: ${{ steps.baseline.outputs.tag }}
+          BASE_LABEL: ${{ steps.baseline.outputs.tag || steps.merge_base.outputs.sha }}
         # The comparator comes from the HEAD checkout, so an improvement to
         # the comparison itself takes effect on the commit that makes it
         # rather than one release later.
@@ -246,11 +331,11 @@ jobs:
             --base $(ls reports/base-*.xml) \
             --head $(ls reports/head-*.xml) \
             --max-regression "$MAX_REGRESSION" \
-            --base-label "$BASE_TAG" \
+            --base-label "$BASE_LABEL" \
             --summary-file "$GITHUB_STEP_SUMMARY"
 
       - name: Upload JUnit reports
-        if: ${{ !cancelled() && steps.baseline.outputs.tag != '' }}
+        if: ${{ !cancelled() && (steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != '') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: speed-junit-reports
