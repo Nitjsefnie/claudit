@@ -311,6 +311,24 @@ DAMAGE = [
     pytest.param(_set_rate(float("inf")), id="infinite-rate"),
     pytest.param(_set_rate(float("nan")), id="nan-rate"),
     pytest.param(lambda h: h[-1].update({"note": 5}), id="non-string-note"),
+    # Well spelled but out of range: V8's Date.parse rolls most of these
+    # over (24:00 to the next midnight, 02-30 to 03-02) where Python refuses,
+    # and Python reads +14:60 as +15:00 where V8 refuses; both loaders must
+    # refuse the same set or one file prices differently on each side.
+    *[pytest.param(_later(**{"from": stamp}), id=name) for name, stamp in [
+        ("hour-24", "2031-08-21T24:00:00Z"),
+        ("february-30", "2031-02-30T00:00:00Z"),
+        ("february-29-common-year", "2031-02-29T00:00:00Z"),
+        ("april-31", "2031-04-31T12:00:00+02:00"),
+        ("month-13", "2031-13-01T00:00:00Z"),
+        ("month-0", "2031-00-10T00:00:00Z"),
+        ("day-0", "2031-01-00T00:00:00Z"),
+        ("minute-60", "2031-01-01T00:60:00Z"),
+        ("second-60", "2031-01-01T00:00:60Z"),
+        ("offset-24h", "2031-01-01T00:00:00+24:00"),
+        ("offset-minute-60", "2031-01-01T00:00:00+14:60"),
+        ("year-0", "0000-01-01T00:00:00Z"),
+    ]],
 ]
 # JSON has no spelling for these, so the browser refuses them at parse
 # time, before any row is read: the error names the file, not the row.
@@ -466,3 +484,98 @@ def test_the_page_names_the_file_with_its_own_cache_bust():
     tag = re.search(r'<script src="/src/parser\.js[^"]*"[^>]*>', page)
     assert tag, page
     assert f'data-pricing="/src/pricing.json?v={version}"' in tag.group(0)
+
+
+# Spellings at the edge of the accepted set: both loaders take them, and
+# must read each as the same instant.
+EDGE_STAMPS = [
+    "2032-02-29T00:00:00Z",
+    "2033-01-01T00:00:00+23:59",
+    "2033-06-01T00:00:00-00:00",
+    "2033-12-31T23:59:59+05:30",
+    "2034-01-01T00:00:00-12:00",
+]
+
+
+@needs_node
+@pytest.mark.parametrize("stamp", EDGE_STAMPS)
+def test_both_sides_read_an_edge_spelling_as_the_same_instant(tmp_path, stamp):
+    doc = copy.deepcopy(_doc())
+    history = doc["models"]["glm-5-3-flash"]
+    history.append({**history[-1], "from": stamp})
+    want = int(_at(stamp).timestamp() * 1000)
+    assert want in [int(e.timestamp() * 1000)
+                    for e in pricing.load_tables(doc)["RATE_EPOCHS"]]
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    assert want in _node(tmp_path / "parser.js",
+                         "console.log(JSON.stringify(window.rateEpochs));")
+
+
+# --- a provider row may begin at a time -------------------------------------
+# A host first seen at T was never priced by its own row before T, so the
+# row starts there: earlier records from it price by the model alone, as
+# they did when they were ingested.
+
+NEWCOMER = {"create_1h": 0.2, "create_5m": 0.2, "fresh": 0.2,
+            "output": 0.9, "read": 0.05}
+
+
+def _with_newcomer() -> dict:
+    doc = copy.deepcopy(_doc())
+    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"] = [
+        {"from": CUT, **NEWCOMER}]
+    return doc
+
+
+def test_a_provider_row_that_begins_at_a_time_prices_from_then_on(monkeypatch):
+    before = _at(CUT) - timedelta(seconds=1)
+    fallback = pricing.resolve("z-ai/glm-5.3-flash", before)
+    for name, value in pricing.load_tables(_with_newcomer()).items():
+        monkeypatch.setattr(pricing, name, value)
+    assert _at(CUT) in pricing.RATE_EPOCHS
+    assert pricing.resolve("z-ai/glm-5.3-flash", before, "Newcomer") == fallback
+    assert pricing.rate_for("z-ai/glm-5.3-flash", _at(CUT), "Newcomer") == NEWCOMER
+    assert pricing.rate_for("z-ai/glm-5.3-flash", None, "Newcomer") == NEWCOMER
+
+
+@needs_node
+def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser(
+        tmp_path):
+    (tmp_path / "pricing.json").write_text(
+        json.dumps(_with_newcomer()), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    before = _stamp(_at(CUT) - timedelta(seconds=1))
+    got = _node(tmp_path / "parser.js", f"""
+      const m = 'z-ai/glm-5.3-flash';
+      console.log(JSON.stringify({{
+        before: window.resolveModelRate(m, {json.dumps(before)}, 'Newcomer'),
+        fallback: window.resolveModelRate(m, {json.dumps(before)}),
+        at: window.rateForModel(m, {json.dumps(CUT)}, 'Newcomer'),
+        now: window.rateForModel(m, null, 'Newcomer'),
+        epochs: window.rateEpochs,
+      }}));
+    """)
+    assert got["before"] == got["fallback"]
+    assert _js_rates(got["at"]) == NEWCOMER
+    assert _js_rates(got["now"]) == NEWCOMER
+    assert int(_at(CUT).timestamp() * 1000) in got["epochs"]
+
+
+def _model_row_beginning() -> dict:
+    doc = copy.deepcopy(_doc())
+    doc["models"]["glm-5-3-flash"][0]["from"] = "2020-01-01T00:00:00Z"
+    return doc
+
+
+def test_a_model_row_cannot_begin_at_a_time():
+    """A model row has no honest fallback — before it, the id would price
+    as a tier or default estimate — so it always covers all of time."""
+    with pytest.raises(ValueError, match=r"glm-5-3-flash\[0\]"):
+        pricing.load_tables(_model_row_beginning())
+
+
+@needs_node
+def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
+    error = _node_load(tmp_path, _model_row_beginning())
+    assert error and "glm-5-3-flash[0]" in error, error
