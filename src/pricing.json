@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-24T22:03:13Z",
+  "provider_rates_fetched": "2026-09-25T05:39:26Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -609,6 +609,14 @@
           "from": null,
           "output": 1.0,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.49,
+          "read": 0.01
         }
       ],
       "DigitalOcean": [
@@ -804,6 +812,14 @@
           "from": null,
           "output": 0.6,
           "read": 0.006
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.6,
+          "read": 0.06
         }
       ]
     },
@@ -847,6 +863,15 @@
           "note": "53% off",
           "output": 0.13076,
           "read": 0.013076
+        },
+        {
+          "create_1h": 0.04886,
+          "create_5m": 0.04886,
+          "fresh": 0.04886,
+          "from": "2026-09-25T05:39:26Z",
+          "note": "65.1% off",
+          "output": 0.09772,
+          "read": 0.009772
         }
       ],
       "DeepInfra": [
@@ -938,6 +963,14 @@
           "from": null,
           "output": 0.25,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 1.28,
+          "read": 0.016
         }
       ],
       "SiliconFlow": [
@@ -959,6 +992,15 @@
           "note": "54% off",
           "output": 0.12796,
           "read": 0.012796
+        },
+        {
+          "create_1h": 0.049,
+          "create_5m": 0.049,
+          "fresh": 0.049,
+          "from": "2026-09-25T05:39:26Z",
+          "note": "65% off",
+          "output": 0.098,
+          "read": 0.0098
         }
       ],
       "Venice": [
@@ -1147,6 +1189,14 @@
           "from": null,
           "output": 0.399625,
           "read": 0.035937
+        },
+        {
+          "create_1h": 0.141953,
+          "create_5m": 0.141953,
+          "fresh": 0.141953,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.399625,
+          "read": 0.0359375
         }
       ],
       "Nebius": [
@@ -1209,6 +1259,14 @@
           "note": "30% off",
           "output": 0.924,
           "read": 0.0196
+        },
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 1.32,
+          "read": 0.028
         }
       ],
       "Reka": [
@@ -1240,6 +1298,14 @@
           "from": null,
           "output": 0.55,
           "read": 0.0228
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.55,
+          "read": 0.016
         }
       ],
       "SiliconFlow": [
@@ -1291,6 +1357,14 @@
           "from": null,
           "output": 0.35,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.35,
+          "read": 0.06
         }
       ]
     },
@@ -1512,6 +1586,14 @@
           "from": null,
           "output": 0.5,
           "read": 0.025
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.36,
+          "read": 0.02
         }
       ],
       "Parasail": [
@@ -1614,6 +1696,14 @@
           "from": null,
           "output": 0.35,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.089,
+          "create_5m": 0.089,
+          "fresh": 0.089,
+          "from": "2026-09-25T05:39:26Z",
+          "output": 0.35,
+          "read": 0.06
         }
       ],
       "Z.AI": [
