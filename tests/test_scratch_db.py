@@ -123,6 +123,7 @@ def test_fixed_and_foreign_names_are_never_run_databases(name):
 
 # ---- create / drop ----------------------------------------------------
 
+@pytest.mark.db
 def test_create_applies_the_schema_and_drop_removes_it():
     name = scratch_db.create_database("roundtrip")
     try:
@@ -133,6 +134,7 @@ def test_create_applies_the_schema_and_drop_removes_it():
     assert not _exists(name)
 
 
+@pytest.mark.db
 def test_a_schema_error_is_raised_not_swallowed(tmp_path):
     broken = tmp_path / "broken.sql"
     broken.write_text("CREATE TABLE t (;\n")
@@ -143,6 +145,7 @@ def test_a_schema_error_is_raised_not_swallowed(tmp_path):
         scratch_db.drop_database(scratch_db.db_name("schema_err"))
 
 
+@pytest.mark.db
 def test_this_run_holds_its_lease():
     with closing(scratch_db.admin_connection()) as conn:
         names = {a for (a,) in conn.execute(
@@ -150,6 +153,7 @@ def test_this_run_holds_its_lease():
     assert scratch_db.db_name() in names
 
 
+@pytest.mark.db
 def test_the_lease_outlives_an_idle_session_timeout():
     """A server or role may set idle_session_timeout; the lease must not
     be a session it can end."""
@@ -164,6 +168,7 @@ def test_the_lease_outlives_an_idle_session_timeout():
     assert proc.stdout.strip() == "True", proc.stderr
 
 
+@pytest.mark.db
 def test_the_lease_connection_sits_on_this_runs_lease_database():
     """Never on `postgres` and never on `template1`: Postgres refuses any
     other client's database creation while a template has an open
@@ -174,6 +179,7 @@ def test_the_lease_connection_sits_on_this_runs_lease_database():
     assert _exists(scratch_db.db_name("lease"))
 
 
+@pytest.mark.db
 def test_the_end_of_run_cleanup_closes_the_lease_and_drops_the_lease_database():
     """The lease connection must be released before the drop, or the
     WITH (FORCE) drop of the lease database terminates our own backend."""
@@ -194,6 +200,7 @@ def test_the_end_of_run_cleanup_closes_the_lease_and_drops_the_lease_database():
 
 # ---- stale sweep ------------------------------------------------------
 
+@pytest.mark.db
 def test_sweep_drops_a_stale_orphan_and_keeps_everything_else():
     """Swept by name, so a concurrent run's sweep and this one never
     decide on each other's fabricated databases."""
@@ -215,6 +222,7 @@ def test_sweep_drops_a_stale_orphan_and_keeps_everything_else():
             scratch_db.drop_database(n)
 
 
+@pytest.mark.db
 def test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see():
     """A live run in another PID namespace or on another host: its PID
     looks dead here and it is older than the threshold, and between
@@ -229,6 +237,7 @@ def test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see():
             scratch_db.drop_database(leased)
 
 
+@pytest.mark.db
 def test_a_lease_labelled_database_is_kept_while_leased_and_swept_after():
     """Mirror of test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see for
     the `_lease` label this run's own lease database now carries (issue
@@ -264,6 +273,7 @@ def test_a_lease_labelled_database_is_kept_while_leased_and_swept_after():
         scratch_db.drop_database(leased)
 
 
+@pytest.mark.db
 def test_sweep_never_forces_a_database_someone_is_connected_to():
     # Young, so no other run's sweep ever considers it; max_age_s=0 makes
     # this sweep consider it.
@@ -284,6 +294,7 @@ def test_a_permission_error_means_the_process_is_alive(monkeypatch):
     assert scratch_db.pid_alive(12345)
 
 
+@pytest.mark.db
 def test_another_roles_stale_database_is_left_alone_not_fatal():
     """On a server shared by several roles, a leftover owned by someone
     else must neither crash this run's sweep nor be dropped."""
@@ -335,6 +346,7 @@ def _nested_session(tmp_path, body: str, *hooks: str):
         capture_output=True, text=True, check=False)
 
 
+@pytest.mark.db
 def test_a_failing_run_still_drops_every_database_it_created(tmp_path):
     """A nested session whose test creates a database and then fails,
     without ever dropping it: the session finalizer must."""
@@ -353,6 +365,7 @@ def test_a_failing_run_still_drops_every_database_it_created(tmp_path):
     assert not _exists(name)
 
 
+@pytest.mark.db
 def test_the_end_of_run_cleanup_spares_every_other_run():
     other = _foreign_name(int(time.time()), os.getpid(), "otherrun")
     scratch_db.create_empty_database(other)
@@ -367,6 +380,7 @@ def test_the_end_of_run_cleanup_spares_every_other_run():
         scratch_db.drop_database(mine)
 
 
+@pytest.mark.db
 def test_a_session_start_sweeps_stale_orphans(tmp_path):
     orphan = _foreign_name(_old_epoch(), _dead_pid(), "orphan")
     scratch_db.create_empty_database(orphan)

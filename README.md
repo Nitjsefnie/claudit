@@ -332,8 +332,10 @@ Issues and PRs welcome — including agent-authored ones. See
 invariants most likely to trip a patch.
 
 CI runs on pushes to `master` and on pull requests against it — a pull
-request's commits are checked once, never once per event: `tests` (pytest
-plus a coverage ratchet), `lint`, `types`, `eslint`, `smoke` (boots the
+request's commits are checked once, never once per event: `tests` (the
+full suite with a coverage ratchet on Linux + Postgres, plus a portable
+matrix over Linux/macOS/Windows × Python 3.13/3.14 for the no-database
+subset), `lint`, `types`, `eslint`, `smoke` (boots the
 real server against the fixture mirror), `codeql`, `audit` (`pip-audit`,
 daily), `actionlint` (lints the workflows themselves), `speed`
 (benchmarks this commit against the last release *on the same runner*),

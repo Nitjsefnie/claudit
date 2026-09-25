@@ -92,7 +92,16 @@ instance in seconds.
 ```bash
 python3 -m pytest tests/ -q             # full suite
 python3 -m pytest tests/test_pricing.py -v
+python3 -m pytest tests/ -q -m "not db" # portable subset — no database needed
 ```
+
+The `db` marker splits the suite for CI's portability matrix (Linux,
+macOS and Windows × Python 3.13/3.14 run everything that needs no
+PostgreSQL). It is applied mechanically, derived from fixture usage —
+a test whose fixture closure reaches a fixture registered in
+`tests/db_marker.py` is marked for you — and the few tests that reach
+the server without any DB fixture carry `@pytest.mark.db` explicitly;
+`tests/test_db_marker.py` holds both halves in place against the source.
 
 CI runs **eleven** separate workflows — on pushes to `master` and on pull
 requests against it; a pull request's commits are checked once, with no
