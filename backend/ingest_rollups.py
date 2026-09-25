@@ -97,7 +97,10 @@ def resolve_teammate_agent_types() -> int:
     or the default when the call named none) replaces it: the latest one
     that did not fail and was made at or before the teammate's first
     record, since a name can be dispatched again. With none, the parsed
-    role stands.
+    role stands. A candidate -- a sidecar that is ONLY ``{"agentType": X}``,
+    which an older release wrote for a teammate -- stores X the same way,
+    so this join resolves it too, and with no dispatch its parsed role
+    stands.
 
     A join across files, so it runs on every ingest, before the rollups
     that read `files.agent_type`: a lead archived after its teammate

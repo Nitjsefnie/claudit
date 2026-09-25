@@ -30,6 +30,10 @@ _TEAMMATE_SIDECAR = json.dumps({
     "name": "migrate-rest", "taskKind": "in_process_teammate",
     "teamName": "session-sess-t", "model": "opus"}).encode()
 
+# An older release's teammate sidecar: ONLY the agentType, which is the
+# NAME the lead gave it -- no ``name``, no ``taskKind``, no ``toolUseId``.
+_CANDIDATE_SIDECAR = b'{"agentType":"worker-1"}'
+
 _MEMBER_KEY = "-root-x/sess-t/subagents/agent-amigrate-rest-0123456789abcdef.jsonl"
 _LEAD_KEY = "-root-x/sess-t/sess-t.jsonl"
 
@@ -90,6 +94,39 @@ def test_a_named_plain_subagent_keeps_its_sidecar_role():
     assert out.get("teammate_name") is None
 
 
+def test_an_agent_type_only_sidecar_is_a_teammate_candidate():
+    """An older release wrote a teammate's sidecar as ONLY the agentType.
+    Not a verdict: the parsed role STANDS, and the name is stored for the
+    ingest-time join to decide."""
+    out = agent_sidecar.apply_agent_sidecar(_member(), _CANDIDATE_SIDECAR,
+                                            _MEMBER_KEY)
+    assert out["teammate_name"] == "worker-1"
+    assert out["agent_type"] == "worker-1"
+
+
+def test_an_agent_type_only_sidecar_with_a_tool_use_id_is_a_plain_role():
+    sidecar = b'{"agentType":"lsp-probe","toolUseId":"toolu_p1"}'
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["agent_type"] == "lsp-probe"
+    assert out.get("teammate_name") is None
+
+
+def test_a_fork_sidecar_is_not_a_teammate_candidate():
+    sidecar = b'{"isFork": true, "agentType":"explorer"}'
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["agent_type"] == "explorer"
+    assert out.get("teammate_name") is None
+
+
+def test_an_agent_type_only_sidecar_with_a_task_kind_is_not_a_candidate():
+    """Any taskKind means the writer marks the kinds it knows; only
+    in_process_teammate is a teammate, via the existing definite path."""
+    sidecar = b'{"taskKind":"fork","agentType":"scout"}'
+    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
+    assert out["agent_type"] == "scout"
+    assert out.get("teammate_name") is None
+
+
 def test_a_teammate_with_an_in_band_role_keeps_it():
     parsed = parse.parse_file(_MEMBER_KEY, _fixture("agent_attribution.jsonl"))
     out = agent_sidecar.apply_agent_sidecar(parsed, _TEAMMATE_SIDECAR, _MEMBER_KEY)
@@ -142,6 +179,12 @@ def _put_member(bucket: Path) -> None:
     _put(bucket, _MEMBER_KEY, _fixture("teammate_member.jsonl"))
     _put(bucket, _MEMBER_KEY.replace(".jsonl", ".meta.json"),
          _TEAMMATE_SIDECAR)
+
+
+def _put_candidate_member(bucket: Path) -> None:
+    _put(bucket, _MEMBER_KEY, _fixture("teammate_member.jsonl"))
+    _put(bucket, _MEMBER_KEY.replace(".jsonl", ".meta.json"),
+         _CANDIDATE_SIDECAR)
 
 
 def _member_type() -> str:
@@ -216,6 +259,53 @@ def test_a_lead_archived_after_its_teammate_resolves_it_on_that_run(
     result = ingest.run_ingest(trigger="manual")
     assert result["inserted"] == 1 and result["reparsed"] == 0
     assert _member_type() == "implementer"
+
+
+def _agent_type_only_line(ts: str, call_id: str) -> dict:
+    """The issue's lead: an Agent dispatch that named its teammate but no
+    subagent_type, so the dispatch call's own agent_type is NULL."""
+    return {"type": "assistant", "timestamp": ts, "uuid": f"u-{call_id}",
+            "requestId": f"req-{call_id}", "sessionId": "sess-t",
+            "message": {"role": "assistant", "model": "claude-opus-5",
+                        "content": [{"type": "tool_use", "id": call_id,
+                                     "name": "Agent",
+                                     "input": {"description": "Do the work",
+                                               "name": "worker-1",
+                                               "run_in_background": True,
+                                               "prompt": "go"}}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1}}}
+
+
+def test_an_agent_type_only_teammate_resolves_from_its_leads_dispatch(
+        fresh_db, mirror):
+    _put(mirror, _LEAD_KEY, json.dumps(_agent_type_only_line(
+        "2026-09-01T12:00:00Z", "toolu_w1")).encode() + b"\n")
+    _put_candidate_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == DEFAULT
+    with db.viz_conn() as c:
+        row = c.execute("SELECT teammate_name FROM files WHERE file_key = %s",
+                        (f"claude/{_MEMBER_KEY}",)).fetchone()
+    assert row == ("worker-1",)
+
+
+def test_an_agent_type_only_sidecar_with_no_matching_dispatch_keeps_its_role(
+        fresh_db, mirror):
+    _put_candidate_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "worker-1"
+
+
+def test_a_candidate_is_joined_only_within_its_own_session(fresh_db, mirror):
+    _put(mirror, "-root-x/sess-u/sess-u.jsonl",
+         json.dumps(_agent_type_only_line(
+             "2026-09-01T12:00:00Z", "toolu_w1")).encode() + b"\n")
+    _put_candidate_member(mirror)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _member_type() == "worker-1"
 
 
 def _dispatch_line(ts: str, call_id: str, role: str) -> dict:
