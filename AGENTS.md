@@ -362,7 +362,7 @@ The five that only make sense on GitHub:
 | `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | push + PR + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
 | `speed.yml` | Did the tests that exist in both this commit and the last release get >30% slower? | push + PR. Runs BOTH builds on the same runner, interleaved, min-of-rounds. Skips green while no release exists. |
 | `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. |
-| `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A red run is a designed signal: read the named model's endpoints by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
+| `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PARSER_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
 
 **Coverage is a ratchet at 82%**, in `tests.yml`, checked by a step of its
 own so "tests failed" and "coverage dropped" stay distinguishable. Raise

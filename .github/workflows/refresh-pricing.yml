@@ -17,21 +17,22 @@ name: refresh-pricing
 #
 # THE SUITE RUNS BEFORE THE COMMIT, NOT AFTER. A push made with the job token
 # starts no other workflow, so tests.yml never sees the bot's commit; the
-# suite here is the only check it gets. A red run leaves the last good data
-# on master.
+# suite here is the only check it gets. A failing suite leaves the last good
+# data on master.
 #
 # Only endpoints in the account's data region count; a region-tagged one
-# (`host/us`) is not one it is billed by. The script exits nonzero, writing
-# nothing, on the designed signals:
-#   - a host with two in-region endpoints at different prices and no tag
-#     pinned for it in the JSON;
-#   - a pin naming no listed tag;
-#   - a response shape it does not recognise;
+# (`host/us`) is not one it is billed by. These designed signals refuse the
+# host or model concerned and leave its rows untouched:
+#   - a host with two in-region endpoints at different prices and no
+#     resolution for it in the JSON;
+#   - a resolution that no longer applies (a pinned tag not listed, twins
+#     no longer identical, their price order tied or flipped);
+#   - a response shape the script does not recognise;
 #   - a tracked model with no endpoints (a broken fetch looks exactly like
-#     that);
-#   - a detection time not after a row's newest entry.
-# A red run here means read that model's endpoints by hand and record the
-# decision as data, not retry.
+#     that).
+# A refusal blocks only itself: every other move is still tested and
+# committed, then the run goes red. A red run here means read the named
+# host's endpoints by hand and record the decision as data, not retry.
 
 on:
   schedule:
@@ -93,10 +94,12 @@ jobs:
           python-version: "3.13"
 
       - name: Fetch and append
+        id: fetch
         # stdlib only: nothing is installed before the fetch, so a quiet hour
-        # costs one checkout and five requests.
-        # A refused run still reports what every other model would append;
-        # the summary shows it beside the refusals before the step fails.
+        # costs one checkout and five requests. A refused host blocks only
+        # itself: the script still writes every other move and exits
+        # nonzero, so this step records the code instead of failing, the
+        # moves are tested and committed, and the last step turns the run red.
         run: |
           rc=0
           python3 scripts/ci/refresh_provider_rates.py \
@@ -110,7 +113,7 @@ jobs:
             cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          exit "$rc"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Did anything move?
         id: moved
@@ -162,3 +165,13 @@ jobs:
           git add src/pricing.json backend/constants.py
           git commit -F "$RUNNER_TEMP/commit-msg.txt"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" HEAD:master
+
+      - name: Fail on a refusal
+        # After the commit: the moves that could be made are on master, and
+        # the red run is the signal that a host needs a human decision.
+        if: steps.fetch.outputs.rc != '0'
+        env:
+          RC: ${{ steps.fetch.outputs.rc }}
+        run: |
+          echo "refresh_provider_rates exited $RC; the summary names each refused host."
+          exit 1

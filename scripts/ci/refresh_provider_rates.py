@@ -8,14 +8,17 @@ then. No existing entry is ever rewritten. A run that appends bumps
 PARSER_VERSION in backend/constants.py by one from whatever it holds, and
 moves provider_rates_fetched; a run that appends nothing writes nothing.
 
-Only endpoints in the account's data region count (tag_region). Exits
-nonzero, writing nothing, naming every case a human must judge:
+Only endpoints in the account's data region count (tag_region). These
+refuse the host or model they concern, which appends nothing:
 - a host with two endpoints in that region at different prices and no
-  tag pinned for it;
-- a pin that names no listed tag;
+  resolution for it (a tag, or "cheapest" of otherwise identical twins);
+- a resolution that no longer applies;
 - a response shape this script does not recognise;
-- a tracked model with no endpoints, or none in the region;
-- a detection time not after a row's newest entry.
+- a tracked model with no endpoints, or none in the region.
+
+Every other move is still written, then the script exits nonzero naming
+each refusal. A detection time not after a row's newest entry writes
+nothing at all.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
@@ -45,6 +48,10 @@ API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
 _PARSER_VERSION = re.compile(r'^PARSER_VERSION = "(\d+)"$', re.MULTILINE)
 _REGION = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*")
+_IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
+             "max_prompt_tokens")
+# Price order for "select": "cheapest": cache read, then input, then output.
+_ORDER = ("read", "fresh", "output")
 
 Fetch = Callable[[str], object]
 
@@ -88,8 +95,8 @@ def _per_million(price: object, where: str) -> float:
     return float(value.scaleb(6))
 
 
-def _endpoint(endpoint: object, where: str) -> tuple[str, str, dict, Decimal]:
-    """(host, tag, rates, discount) of one listed endpoint.
+def _endpoint(endpoint: object, where: str) -> tuple[str, "Listed"]:
+    """(host, listing) of one listed endpoint.
 
     The listed price already has any promotional discount applied; the
     discount is kept only as the note beside it. Cache writes take the
@@ -112,7 +119,10 @@ def _endpoint(endpoint: object, where: str) -> tuple[str, str, dict, Decimal]:
     create = write or fresh
     rates = {"fresh": fresh, "create_5m": create, "create_1h": create,
              "read": read, "output": output}
-    return endpoint["provider_name"], endpoint["tag"], rates, Decimal(str(discount))
+    # What tells two of one host's endpoints apart when the price does not.
+    identity = json.dumps([endpoint.get(k) for k in _IDENTITY])
+    return endpoint["provider_name"], (endpoint["tag"], identity, rates,
+                                       Decimal(str(discount)))
 
 
 def tag_region(tag: str) -> str | None:
@@ -127,31 +137,38 @@ def tag_region(tag: str) -> str | None:
     return suffix if slash and _REGION.fullmatch(suffix) else None
 
 
-Listed = tuple[str, dict, Decimal]
+Listed = tuple[str, str, dict, Decimal]    # tag, identity, rates, discount
+Price = tuple[dict, Decimal]                # rates, discount
 
 
-def listed_rows(model: str, payload: object, region: str | None,
-                resolutions: dict) -> dict[str, tuple[dict, Decimal]]:
-    """Each host's one price for `model`, from its endpoints payload.
+def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
+                stored: dict[str, dict]) -> tuple[dict[str, Price], dict[str, str]]:
+    """Each host's one price for `model`, and each refused host's reason.
 
     A host's endpoints outside the data `region` (None: global, untagged
     by region) are not ones the account is billed by, unless the file pins
     that host to a tag. Endpoints at one price are one row; several prices
-    left over need a tag pinned in the file, or the run is refused rather
-    than guessed.
+    left over need a resolution in the file, or that host is refused rather
+    than guessed. `stored` is each host's current rates, which is how a
+    price-order resolution sees its order flip.
     """
     by_host: dict[str, list[Listed]] = {}
     for i, endpoint in enumerate(_endpoints_of(model, payload)):
-        host, tag, rates, discount = _endpoint(endpoint, f"{model} endpoint {i}")
-        by_host.setdefault(host, []).append((tag, rates, discount))
-    rows = {}
+        host, listing = _endpoint(endpoint, f"{model} endpoint {i}")
+        by_host.setdefault(host, []).append(listing)
+    rows, refused = {}, {}
     for host, listed in by_host.items():
-        price = _host_price(f"{model} via {host}", listed, region, resolutions.get(host))
+        try:
+            price = _host_price(f"{model} via {host}", listed, region,
+                                resolutions.get(host), stored.get(host))
+        except RefreshError as exc:
+            refused[host] = str(exc)
+            continue
         if price is not None:
             rows[host] = price
-    if not rows:
+    if not rows and not refused:
         raise RefreshError(f"{model}: no endpoint in the data region")
-    return rows
+    return rows, refused
 
 
 def _endpoints_of(model: str, payload: object) -> list:
@@ -165,36 +182,65 @@ def _endpoints_of(model: str, payload: object) -> list:
     return endpoints
 
 
-def _host_price(where: str, listed: list[Listed], region: str | None,
-                pin: object) -> tuple[dict, Decimal] | None:
+def _host_price(where: str, listed: list[Listed], region: str | None, pin: object,
+                stored: dict | None) -> Price | None:
     """A host's one price, or None when it lists nothing the account can use."""
-    if pin is None:
-        listed = [e for e in listed if tag_region(e[0]) == region]
+    override = _override(where, pin)
+    if override.get("tag") is not None:
+        chosen = [e for e in listed if e[0] == override["tag"]]
+        if not chosen:
+            tags = ", ".join(sorted({e[0] for e in listed}))
+            raise RefreshError(f"{where}: pinned tag {override['tag']!r} is not listed "
+                               f"({tags})")
+        listed = chosen
     else:
-        listed = _pinned(where, listed, pin)
-    prices = {json.dumps(rates, sort_keys=True): (rates, discount)
-              for _, rates, discount in reversed(listed)}
+        listed = [e for e in listed if tag_region(e[0]) == region]
+    prices = list({json.dumps(rates, sort_keys=True): (rates, discount)
+                   for _, _, rates, discount in reversed(listed)}.values())
+    if len(prices) > 1 and override.get("select") == "cheapest":
+        return _cheapest(where, listed, prices, stored)
     if len(prices) > 1:
-        tags = ", ".join(sorted({tag or "(untagged)" for tag, _, _ in listed}))
+        tags = ", ".join(sorted({tag or "(untagged)" for tag, _, _, _ in listed}))
         raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
-                           f"{len(prices)} different prices; pin one by tag in "
+                           f"{len(prices)} different prices; resolve it in "
                            "openrouter.models.<model>.resolve")
-    return next(iter(prices.values()), None)
+    return prices[0] if prices else None
 
 
-def _pinned(where: str, listed: list[Listed], pin: object) -> list[Listed]:
-    """The endpoints a per-host pin names. It is keyed on the endpoint tag,
-    never a price: a pin on a price stops matching the moment it moves."""
-    if (not isinstance(pin, dict) or not isinstance(pin.get("tag"), str)
-            or set(pin) - {"tag", "why"}):
-        raise RefreshError(f"{where}: a resolution is keyed on 'tag' (with a 'why'), "
-                           f"not {pin!r}")
-    tag = pin["tag"]
-    chosen = [e for e in listed if e[0] == tag]
-    if not chosen:
-        tags = ", ".join(sorted({e[0] for e in listed}))
-        raise RefreshError(f"{where}: pinned tag {tag!r} is not listed ({tags})")
-    return chosen
+def _override(where: str, pin: object) -> dict:
+    """A per-host resolution: {"tag": ...} takes that endpoint whatever its
+    region; {"select": "cheapest"} takes the cheaper of otherwise identical
+    endpoints. Either carries a "why". Never a price: a pin on a price stops
+    matching the moment that price moves."""
+    if pin is None:
+        return {}
+    if isinstance(pin, dict) and set(pin) - {"why"} in ({"tag"}, {"select"}):
+        if isinstance(pin.get("tag"), str) or pin.get("select") == "cheapest":
+            return pin
+    raise RefreshError(f"{where}: a resolution is keyed on 'tag' or 'select': "
+                       f"'cheapest' (with a 'why'), never a price: {pin!r}")
+
+
+def _cheapest(where: str, listed: list[Listed], prices: list[Price],
+              stored: dict | None) -> Price:
+    """The cheaper of endpoints that differ in nothing but price, ordered by
+    cache read, then input, then output.
+
+    The price is the only identity such twins have, so the endpoint the
+    row tracks is the one still listed at the row's price. When that one is
+    no longer the cheaper, the order has flipped and a human must look; an
+    equal order between different prices is refused the same way.
+    """
+    if len({identity for _, identity, _, _ in listed}) > 1:
+        raise RefreshError(f"{where}: 'cheapest' applies only to endpoints identical "
+                           "in tag, quantization and limits; these differ")
+    ranked = sorted(prices, key=lambda p: [p[0][f] for f in _ORDER])
+    if [ranked[0][0][f] for f in _ORDER] == [ranked[1][0][f] for f in _ORDER]:
+        raise RefreshError(f"{where}: a tie in price order between different prices")
+    if stored is not None and any(rates == stored for rates, _ in ranked[1:]):
+        raise RefreshError(f"{where}: the price order flipped: the endpoint at the "
+                           "row's price is no longer the cheaper")
+    return ranked[0]
 
 
 def _entry(stamp: str, rates: dict, discount: Decimal) -> dict:
@@ -245,15 +291,21 @@ def data_region(config: object) -> str | None:
                        "nor a region code")
 
 
+def _sources(doc: dict) -> tuple[dict, str | None]:
+    """The tracked models and the data region, from the openrouter section."""
+    config = doc.get("openrouter")
+    tracked = config.get("models") if isinstance(config, dict) else None
+    if not isinstance(tracked, dict) or not set(doc["providers"]) <= set(tracked):
+        raise RefreshError("every provider-table model needs an openrouter.models id")
+    return tracked, data_region(config)
+
+
 def refresh(doc: dict, fetch: Fetch, stamp: str
             ) -> tuple[dict, list[Move], list[tuple[str, str]], list[str]]:
     """The file with every move appended, the moves, the vanished hosts,
-    and each refused model's reason (a refused model appends nothing)."""
-    source_config = doc.get("openrouter")
-    tracked = source_config.get("models") if isinstance(source_config, dict) else None
-    if not isinstance(tracked, dict) or not set(doc["providers"]) <= set(tracked):
-        raise RefreshError("every provider-table model needs an openrouter.models id")
-    region = data_region(source_config)
+    and each refusal. A refused host, or a refused model, blocks only
+    itself: its rows are left untouched and every other move stands."""
+    tracked, region = _sources(doc)
     new_doc = copy.deepcopy(doc)
     moves: list[Move] = []
     vanished: list[tuple[str, str]] = []
@@ -261,15 +313,18 @@ def refresh(doc: dict, fetch: Fetch, stamp: str
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at.
+        hosts = new_doc["providers"].setdefault(model, {})
         try:
-            rows = listed_rows(model, _fetch(fetch, model, source), region,
-                               source.get("resolve", {}))
+            rows, refused = listed_rows(
+                model, _fetch(fetch, model, source), region, source.get("resolve", {}),
+                {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()})
         except RefreshError as exc:
             refusals.append(str(exc))
             continue
-        hosts = new_doc["providers"].setdefault(model, {})
+        refusals += refused.values()
         moves += _append(model, hosts, rows, stamp)
-        vanished += [(model, host) for host in hosts if host not in rows]
+        vanished += [(model, host) for host in hosts
+                     if host not in rows and host not in refused]
     if moves:
         new_doc["provider_rates_fetched"] = stamp
     # The loaders' own rules, run on what would be written: among them, a
@@ -300,7 +355,7 @@ def _rates_text(rates: dict) -> str:
 
 
 def report(stamp: str, moves: list[Move], vanished: list[tuple[str, str]],
-           tracked: dict) -> str:
+           tracked: dict, refusals: list[str]) -> str:
     lines = [f"OpenRouter provider rates, detected {stamp}"]
     if not moves:
         lines.append("no rate moved")
@@ -317,14 +372,18 @@ def report(stamp: str, moves: list[Move], vanished: list[tuple[str, str]],
         section += [f"  vanished  {host} (row kept)" for m, host in vanished if m == model]
         if section:
             lines += ["", f"{model} ({source['id']})", *section]
+    if refusals:
+        lines += ["", "refused, rows left untouched:", *(f"  {r}" for r in refusals)]
     return "\n".join(lines)
 
 
-def commit_message(moves: list[Move], vanished: list[tuple[str, str]], body: str) -> str:
+def commit_message(moves: list[Move], vanished: list[tuple[str, str]],
+                   refusals: list[str], body: str) -> str:
     changed = sum(1 for m in moves if m.old is not None)
     counts = [f"{changed} changed" if changed else "",
               f"{len(moves) - changed} new" if len(moves) > changed else "",
-              f"{len(vanished)} vanished" if vanished else ""]
+              f"{len(vanished)} vanished" if vanished else "",
+              f"{len(refusals)} refused" if refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
@@ -353,19 +412,19 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    body = report(stamp, moves, vanished, new_doc["openrouter"]["models"])
+    body = report(stamp, moves, vanished, new_doc["openrouter"]["models"], refusals)
     print(body)
-    # A refused run reports what the rest would append, and writes nothing.
-    if refusals:
-        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals), file=sys.stderr)
-        return 1
     if moves and not args.dry_run:
         pricing_path.write_text(json.dumps(new_doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
         if args.commit_msg:
-            args.commit_msg.write_text(commit_message(moves, vanished, body),
+            args.commit_msg.write_text(commit_message(moves, vanished, refusals, body),
                                        encoding="utf-8")
+    # Every other move is written; the run is still red, so a human sees it.
+    if refusals:
+        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals), file=sys.stderr)
+        return 1
     return 0
 
 
