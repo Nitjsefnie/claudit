@@ -253,9 +253,11 @@ def activity_heatmap(
 
     dow is ISO (1=Mon … 7=Sun), hour 0–23. DST handled by Postgres
     tzdata via AT TIME ZONE — UTC+1 in winter (CET), UTC+2 in summer
-    (CEST). Cross-file uuid dedup at read time, mirroring /api/dashboard
-    (SV-PARSER-SPEC). Unlike dashboard's dedup_body, the model filter is
-    applied to BOTH arms so uuid-less legacy rows also honour it."""
+    (CEST). The grid reads usage_rollup, which ingest rebuilds from the
+    is_canonical records only, so cross-file uuid dedup is already baked
+    in (SV-CANONICAL-FLAG); no read-time DISTINCT ON here. The model
+    filter applies to those same rollup rows, legacy NULL-uuid rows
+    included — they are always canonical."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
 
