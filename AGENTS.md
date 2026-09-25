@@ -151,6 +151,8 @@ backend/          — FastAPI application
                     transaction, with INSERT columns and VALUES
                     placeholders laid out one per line in the same order
                     (issue #86). Re-exported from ingest.
+  ingest_progress.py — The live /health progress readout: one dict, its
+                    lock and two accessors. Re-exported from ingest.
   ingest_rollups.py — The derived-table rebuilds ingest runs after each
                     walk, in a load-bearing order: suppression, the
                     canonical flags, every rollup, the teammate
