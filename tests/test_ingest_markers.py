@@ -17,7 +17,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _FIX_ROOT, _fresh_db_fixture, _scalar,
 )
 
-from backend import db, ingest, r2
+from backend import constants, db, ingest, r2
 
 _MARKER = "project.json"
 
@@ -167,6 +167,73 @@ def test_an_etag_change_refetches_that_marker_once(
     marker_gets.clear()
     ingest.run_ingest(trigger="manual")
     assert sum(marker_gets.values()) == 0
+
+
+def test_a_pathless_marker_is_refetched_once_it_changes(
+        fresh_db, lane_tree, marker_gets):
+    """A marker that read fine but named no path is stored like any other,
+    so rewriting it to name a path must still fetch it and move the
+    project onto that path."""
+    _lane_project(lane_tree, "cccc3333", "{not json")
+    ingest.run_ingest(trigger="manual")
+    key = f"claude/sessions/cccc3333/{_MARKER}"
+    assert _marker_rows()[key] is None
+
+    _rewrite_marker(lane_tree, "cccc3333", _path_marker("/home/me/fixed"))
+    marker_gets.clear()
+    ingest.run_ingest(trigger="manual")
+
+    assert marker_gets == Counter({key: 1})
+    assert _marker_rows()[key] == "/home/me/fixed"
+    with db.viz_conn() as c:
+        pid = _scalar(c, "SELECT DISTINCT project_id FROM files "
+                         "WHERE file_key LIKE '%%/cccc3333/%%'")
+    assert pid == "-home-me-fixed"
+
+
+def test_a_reader_version_change_refetches_every_marker(
+        fresh_db, lane_tree, marker_gets, monkeypatch):
+    """A row read under another marker reader version is stale whatever
+    its etag, so changing how markers are read refetches each once."""
+    ingest.run_ingest(trigger="manual")
+    monkeypatch.setattr(constants, "MARKER_READER_VERSION", "test-bump")
+
+    marker_gets.clear()
+    ingest.run_ingest(trigger="manual")
+    assert sum(marker_gets.values()) == 2
+    assert set(marker_gets.values()) == {1}
+
+    marker_gets.clear()
+    ingest.run_ingest(trigger="manual")
+    assert sum(marker_gets.values()) == 0
+
+
+def test_one_marker_key_in_two_buckets_is_two_rows(
+        tmp_path, fresh_db, marker_gets, monkeypatch):
+    """The same object key in two configured buckets is two markers: each
+    keeps its own row and path, and a change in one bucket fetches only
+    that bucket's copy."""
+    for bucket, path in (("alpha", "/home/me/alpha"),
+                         ("beta", "/home/me/beta")):
+        _lane_project(tmp_path / "r2" / bucket, "aaaa1111",
+                      _path_marker(path))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    alpha, beta = (f"{b}/sessions/aaaa1111/{_MARKER}" for b in ("alpha", "beta"))
+
+    ingest.run_ingest(trigger="manual")
+    marker_gets.clear()
+    ingest.run_ingest(trigger="manual")
+    assert sum(marker_gets.values()) == 0, (
+        "each bucket's copy is cached under its own key")
+    assert _marker_rows() == {alpha: "/home/me/alpha", beta: "/home/me/beta"}
+
+    _rewrite_marker(tmp_path / "r2" / "beta", "aaaa1111",
+                    _path_marker("/home/me/gamma"))
+    marker_gets.clear()
+    ingest.run_ingest(trigger="manual")
+    assert marker_gets == Counter({beta: 1})
+    assert _marker_rows() == {alpha: "/home/me/alpha", beta: "/home/me/gamma"}
 
 
 def test_a_marker_that_left_the_listing_drops_its_row(
