@@ -157,6 +157,20 @@ def test_muted2_has_no_non_decorative_text_use():
                 f"-- only the decorative +/- separator may use it")
 
 
+def test_theme_fallback_tracks_the_token_it_mirrors():
+    """The chart theme reads its dim text colour through cssVar with a
+    hardcoded fallback. When the token moves, a stale fallback makes the
+    mirror disagree with app.css the moment the stylesheet fails to
+    load. The fallback must track the lifted token value.
+    """
+    m = re.search(r"textDim: cssVar\('--muted',\s*'(#[0-9a-fA-F]{6})'\)",
+                  CHARTS.read_text(encoding="utf-8"))
+    assert m, "the TH.textDim cssVar fallback moved; relocate this guard"
+    assert m.group(1) == _hex_token("muted"), (
+        f"TH.textDim fallback {m.group(1)} disagrees with the --muted "
+        f"token {_hex_token('muted')}; keep the mirror in step")
+
+
 # -- Chart ARIA --------------------------------------------------------
 
 def _svg_tags(path):
@@ -355,6 +369,14 @@ def test_live_region_announces_only_after_the_refetch_lands():
     assert "setRefreshMsg" not in sse, (
         "the SSE handler must not set the announcement itself -- that "
         "would describe a refresh that has not landed")
+    # A failed refetch must drop the pending what-changed line: a stale
+    # one would mislabel the NEXT successful announcement.
+    catch_m = re.search(r"\.catch\(err => \{(.*?)\}\);", effect, re.S)
+    assert catch_m, "the dashboard refetch lost its block-bodied catch"
+    assert "refreshRef.current = null" in catch_m.group(1), (
+        "a failed refetch must clear refreshRef (refreshRef.current = "
+        "null) so the pending what-changed line cannot mislabel the "
+        "next announcement")
 
 
 def test_ingest_change_summary_degrades_on_unknown_payloads():
