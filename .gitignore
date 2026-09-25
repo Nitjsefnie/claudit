@@ -38,7 +38,7 @@
 /.claude/*
 !/.claude/rules/
 /.claude/rules/*
-!/.claude/rules/*.md
+!/.claude/rules/claudit-doctrine.md
 
 # ---- .github/ — CI workflows, dependabot, issue and PR forms ---------------
 !/.github/
