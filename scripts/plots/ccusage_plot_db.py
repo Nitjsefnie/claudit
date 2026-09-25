@@ -30,7 +30,7 @@ from ccusage_plot_render import (
 )
 from ccusage_plot_timeline import plot_timeline
 
-DEFAULT_DOTENV = Path("/root/session-viz/.env")
+DEFAULT_DOTENV = Path(__file__).resolve().parents[2] / ".env"
 DB_URL: str | None = None  # rebound in main()
 
 
