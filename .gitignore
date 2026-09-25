@@ -63,23 +63,6 @@
 !/backend/requirements.txt
 !/backend/schema.sql
 
-# ---- docs/ — design docs and specs -----------------------------------------
-!/docs/
-/docs/*
-!/docs/*.html
-!/docs/*.md
-!/docs/*.txt
-!/docs/superpowers/
-/docs/superpowers/*
-!/docs/superpowers/plans/
-/docs/superpowers/plans/*
-!/docs/superpowers/plans/*.html
-!/docs/superpowers/plans/*.md
-!/docs/superpowers/specs/
-/docs/superpowers/specs/*
-!/docs/superpowers/specs/*.html
-!/docs/superpowers/specs/*.md
-
 # ---- examples/ — sample systemd unit ---------------------------------------
 !/examples/
 /examples/*

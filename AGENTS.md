@@ -190,7 +190,6 @@ fixtures/         — Small JSONL + zip samples for parser and API tests.
 
 examples/         — Sample systemd service file (claudit.service).
 
-docs/             — Design docs and specs.
 .claude/rules/    — Local doctrine (SV-PARSER-SPEC, SV-COST-SPLIT, etc.).
 ```
 
@@ -300,7 +299,7 @@ Schema migrations are **applied automatically at startup**: `db.apply_schema()` 
 ## CI — batch your pushes
 
 Every gate workflow runs on **pushes to `master` that touch code** (a
-`paths-ignore` deny-list skips `*.md`, `PRESENTATION.txt`, `docs/`,
+`paths-ignore` deny-list skips `*.md`, `PRESENTATION.txt`,
 `examples/`, `.claude/`, licences — a deny-list on purpose, so a new code
 directory can't silently stop being tested) **and on pull requests
 against `master`** — a pull request's commits are checked ONCE, on the
