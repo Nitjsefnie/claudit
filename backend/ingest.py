@@ -42,7 +42,7 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     rebuild_dispatch_brief_rollup,
     rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
     rebuild_tool_error_rollup, rebuild_tool_rollup,
-    recompute_canonical,
+    recompute_canonical, resolve_teammate_agent_types,
 )
 
 log = logging.getLogger("claudit.ingest")
@@ -507,13 +507,15 @@ def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
 
 
 def _rebuild_derived_state() -> None:
-    """Canonical flags, then the rollups that read them."""
+    """Canonical flags and teammate roles, then the rollups that read them."""
     # Order matters: suppression removes rows the canonical pass would
-    # otherwise rank, and the rollups read is_canonical.
+    # otherwise rank, and the rollups read is_canonical and agent_type.
     _set_progress(phase="suppressed")
     purge_suppressed()
     _set_progress(phase="canonical")
     recompute_canonical()
+    _set_progress(phase="teammates")
+    resolve_teammate_agent_types()
     _set_progress(phase="usage_rollup")
     rebuild_rollup()
     _set_progress(phase="tool_rollup")
@@ -901,13 +903,12 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             INSERT INTO files (file_key, project_id, session_id,
               is_main, r2_etag, r2_size_bytes, r2_last_modified,
               parsed_at, parser_version, ctx_turns, turn_count,
-              prompt_count, rate_limit_hits, agent_type, models)
+              prompt_count, rate_limit_hits, agent_type, models, teammate_name)
             VALUES (%(file_key)s, %(project_id)s, %(session_id)s,
               %(is_main)s, %(r2_etag)s, %(r2_size_bytes)s,
               %(r2_last_modified)s, %(parsed_at)s, %(parser_version)s,
-              %(ctx_turns)s::jsonb, %(turn_count)s,
-              %(prompt_count)s, %(rate_limit_hits)s::jsonb,
-              %(agent_type)s, %(models)s)
+              %(ctx_turns)s::jsonb, %(turn_count)s, %(prompt_count)s,
+              %(rate_limit_hits)s::jsonb, %(agent_type)s, %(models)s, %(teammate_name)s)
             ON CONFLICT (file_key) DO UPDATE SET
               project_id = EXCLUDED.project_id,
               session_id = EXCLUDED.session_id,
@@ -922,7 +923,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               prompt_count = EXCLUDED.prompt_count,
               rate_limit_hits = EXCLUDED.rate_limit_hits,
               agent_type = EXCLUDED.agent_type,
-              models = EXCLUDED.models
+              models = EXCLUDED.models,
+              teammate_name = EXCLUDED.teammate_name
             """,
             {
                 "file_key": obj.key,
@@ -940,10 +942,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 "rate_limit_hits": json.dumps(
                     parsed.get("rate_limit_hits", []), default=str
                 ),
-                "agent_type": parsed.get(
-                    "agent_type", parse.DEFAULT_AGENT_TYPE
-                ),
+                "agent_type": parsed.get("agent_type", parse.DEFAULT_AGENT_TYPE),
                 "models": parsed.get("models", []),
+                "teammate_name": parsed.get("teammate_name"),
             },
         )
         # tool_uses cascades from files; explicit DELETE so a
@@ -957,16 +958,15 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name,
                   model, tool_use_id, is_error, error_kind, error_text,
                   lines_added, lines_deleted, agent_type, agent_model,
-                  dispatch_prompt_chars, dispatch_brief_ref,
-                  result_chars, read_kind, read_targets, write_targets,
-                  is_reread)
+                  dispatch_prompt_chars, dispatch_brief_ref, dispatch_name,
+                  result_chars, read_kind, read_targets, write_targets, is_reread)
                 VALUES (%(file_key)s, %(line_num)s, %(idx)s, %(ts)s, %(tool_name)s,
                   %(model)s, %(tool_use_id)s,
                   %(is_error)s, %(error_kind)s, %(error_text)s,
                   %(lines_added)s, %(lines_deleted)s,
                   %(agent_type)s, %(agent_model)s,
                   %(dispatch_prompt_chars)s, %(dispatch_brief_ref)s,
-                  %(result_chars)s, %(read_kind)s, %(read_targets)s,
+                  %(dispatch_name)s, %(result_chars)s, %(read_kind)s, %(read_targets)s,
                   %(write_targets)s, %(is_reread)s)
                 """,
                 parsed["tool_uses"],

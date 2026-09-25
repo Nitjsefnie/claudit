@@ -68,7 +68,7 @@ def test_lane_tool_uses_carry_claudit_columns():
     tu = out["tool_uses"][0]
     for key in ("tool_use_id", "error_kind", "error_text", "agent_type",
                 "agent_model", "dispatch_prompt_chars", "dispatch_brief_ref",
-                "result_chars", "read_kind", "read_targets", "write_targets",
+                "dispatch_name", "result_chars", "read_kind", "read_targets", "write_targets",
                 "is_reread"):
         assert key in tu, key
     assert "tool_call_id" not in tu

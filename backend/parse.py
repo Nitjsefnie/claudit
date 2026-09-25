@@ -314,6 +314,7 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
         "agent_model": a_model,
         "dispatch_prompt_chars": p_chars,
         "dispatch_brief_ref": brief,
+        "dispatch_name": _dispatch_name(name, args),
         "read_kind": r_kind,
         "read_targets": r_targets,
         "write_targets": w_targets,
@@ -345,6 +346,15 @@ def _dispatch_args(name: str, args: dict) -> tuple:
         chars,
         brief_ref,
     )
+
+
+def _dispatch_name(name: str, args: dict) -> str | None:
+    """The `name` a dispatching call gave its agent -- a named teammate's
+    only link back to the role it was dispatched as."""
+    if name not in DISPATCH_TOOLS or not isinstance(args, dict):
+        return None
+    value = args.get("name")
+    return value if isinstance(value, str) and value else None
 
 
 class _LineWalk:
@@ -627,6 +637,7 @@ class _LineWalk:
                 "agent_model": tu["agent_model"],
                 "dispatch_prompt_chars": tu["dispatch_prompt_chars"],
                 "dispatch_brief_ref": tu["dispatch_brief_ref"],
+                "dispatch_name": tu["dispatch_name"],
                 "read_kind": tu["read_kind"],
                 "read_targets": tu["read_targets"],
                 "write_targets": tu["write_targets"],
@@ -833,20 +844,36 @@ def resolve_agent_type(walk: _LineWalk) -> str:
     return walk.agent_setting or DEFAULT_AGENT_TYPE
 
 
+def _sidecar_meta(sidecar: bytes) -> dict | None:
+    try:
+        meta = loads(sidecar)
+    except JSONDecodeError:
+        return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _is_teammate(meta: dict) -> bool:
+    """Whether agentType is a teammate NAME, not a role: Claude Code marks
+    a named teammate ``taskKind: in_process_teammate``, and an agentType
+    equal to ``name`` cannot be told from one (a named plain subagent's
+    agentType is its role and differs from its name)."""
+    name = meta.get("name")
+    return (meta.get("taskKind") == "in_process_teammate"
+            or (isinstance(name, str) and bool(name)
+                and meta.get("agentType") == name))
+
+
 def sidecar_agent_role(sidecar: bytes) -> str | None:
     """The role a subagent's meta.json sidecar names, or None.
 
     Claude Code writes ``{"agentType": ...}``; kimi-cli writes
     ``{"subagent_type": ..., "launch_spec": {"subagent_type": ...}}``,
     the top-level value first. Anything else — undecodable bytes, a
-    top level that is not an object, an empty or non-string value — is
-    no role.
+    top level that is not an object, an empty or non-string value, a
+    teammate's sidecar (_is_teammate) — is no role.
     """
-    try:
-        meta = loads(sidecar)
-    except JSONDecodeError:
-        return None
-    if not isinstance(meta, dict):
+    meta = _sidecar_meta(sidecar)
+    if meta is None or _is_teammate(meta):
         return None
     spec = meta.get("launch_spec")
     for role in (meta.get("agentType"), meta.get("subagent_type"),
@@ -868,10 +895,16 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     the key layout, not the sniffed format -- a sidecar in the lane tree
     goes through the lane's (lane_sidecar_agent_type), so its name for
     the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
-    stored verbatim, like ``attributionAgent``. Mutates and returns
-    `parsed`.
+    stored verbatim, like ``attributionAgent``. A teammate's sidecar
+    leaves the default and sets ``teammate_name``, which ingest joins to
+    the lead's dispatch. Mutates and returns `parsed`.
     """
     if parsed.get("agent_type_in_band"):
+        return parsed
+    meta = _sidecar_meta(sidecar)
+    if meta is not None and _is_teammate(meta):
+        name = meta.get("name") or meta.get("agentType")
+        parsed["teammate_name"] = name if isinstance(name, str) else None
         return parsed
     role = sidecar_agent_role(sidecar)
     if role is None:
