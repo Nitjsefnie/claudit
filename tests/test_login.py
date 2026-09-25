@@ -1,11 +1,13 @@
 """Login flow tests.
 
-Covers: one generic credential failure (issue #109), the dummy PBKDF2
-verification run where the real one cannot, the malformed-id 400 kept
-distinct, the per-(ip, user) rate limiter with eviction (issue #111),
-and the session-secret store (issues #94, #108) — a successful login
-touches nothing in the shared auth DB, and logout invalidates the
-signed-in user's sessions server-side.
+Covers: one generic credential failure (issue #109), failure-cost
+normalization — every credential failure costing about one PBKDF2 run
+at the write count, the real verification topped up with a dummy
+remainder where it cannot run or runs cheaper — the malformed-id 400
+kept distinct, the per-(ip, user) rate limiter with eviction (issue
+#111), and the session-secret store (issues #94, #108) — a successful
+login touches nothing in the shared auth DB, and logout invalidates
+the signed-in user's sessions server-side.
 """
 import copy
 import secrets
@@ -207,24 +209,117 @@ def test_all_credential_failures_answer_identically(app, fake_user):
     assert bodies == {"Invalid credentials."}
 
 
-def test_dummy_verification_runs_where_real_one_cannot(
+def test_normalization_runs_where_real_one_cannot(
     app, fake_user, fake_session_store, monkeypatch
 ):
-    """The dummy helper is invoked on the unknown-id and no-password
-    paths, and nowhere else (the real verification runs instead)."""
-    calls: list[str] = []
-    monkeypatch.setattr(auth, "run_dummy_verification", calls.append)
+    """The timing normalizer is consulted on every credential failure —
+    from zero where nothing ran (unknown id, no configured password),
+    with the spent count on the wrong-password path, where it tops up
+    only a remainder — and never on a success."""
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing",
+        lambda pw, spent: calls.append(spent),
+    )
     store = fake_user
     store[777] = {}
     client = TestClient(app)
     _post_login(client, 999, "anything")    # unknown id
-    assert len(calls) == 1
     _post_login(client, 777, "whatever")    # no password configured
-    assert len(calls) == 2
-    _post_login(client, 12345, "wrong")     # real verification runs
-    assert len(calls) == 2
-    _post_login(client, 12345, "hunter2")   # successful login
-    assert len(calls) == 2
+    assert calls == [0, 0]
+    _post_login(client, 12345, "wrong")     # real 600k verification runs
+    assert calls == [0, 0, auth.PBKDF2_WRITE_ITERATIONS]
+    _post_login(client, 12345, "hunter2")   # success
+    assert calls == [0, 0, auth.PBKDF2_WRITE_ITERATIONS]
+
+
+def test_wrong_password_against_legacy_hash_tops_up(
+    app, fake_user, monkeypatch
+):
+    """The timing hole this closes: a wrong password against a LEGACY
+    bare-hex user ran only the real 200k verification — cheaper than an
+    unknown id's 600k dummy — so failure timing separated legacy-hash
+    users from unknown ids. The real count is now passed so the
+    remainder is topped up to the same target."""
+    salt_hex = "11" * 16
+    store = fake_user
+    store[555] = {
+        auth.WEB_PASSWORD_HASH_KEY: auth.pbkdf2(
+            "pw", salt_hex, auth.PBKDF2_ITERATIONS
+        ),
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing",
+        lambda pw, spent: calls.append(spent),
+    )
+    client = TestClient(app)
+    r = _post_login(client, 555, "wrong")
+    assert r.status_code == 401
+    assert r.text == "Invalid credentials."
+    assert calls == [auth.PBKDF2_ITERATIONS]
+
+
+def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
+    """An unknown id has nothing to verify, so it normalizes from
+    zero: the full dummy run at the target count."""
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing",
+        lambda pw, spent: calls.append(spent),
+    )
+    client = TestClient(app)
+    r = _post_login(client, 999, "anything")
+    assert r.status_code == 401
+    assert r.text == "Invalid credentials."
+    assert calls == [0]
+
+
+def test_malformed_hash_failure_normalizes_from_zero(
+    app, fake_user, monkeypatch
+):
+    """A malformed versioned string used to fail with no PBKDF2 run at
+    all — the cheapest failure on the board. It now normalizes from
+    zero like every other cannot-verify path."""
+    salt_hex = "22" * 16
+    store = fake_user
+    store[556] = {
+        auth.WEB_PASSWORD_HASH_KEY:
+            f"pbkdf2_sha256$abc${salt_hex}${'ab' * 32}",
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing",
+        lambda pw, spent: calls.append(spent),
+    )
+    client = TestClient(app)
+    r = _post_login(client, 556, "anything")
+    assert r.status_code == 401
+    assert r.text == "Invalid credentials."
+    assert calls == [0]
+
+
+def test_wrong_password_at_target_spends_nothing_extra(
+    app, fake_user, monkeypatch
+):
+    """Steady state: one wrong-password attempt against a modern
+    (write-count) hash runs exactly ONE PBKDF2 — the real verification.
+    The normalizer is skipped because the target is already spent, and
+    the reference at the target is seeded at import."""
+    seen: list[int] = []
+    real = auth.pbkdf2
+
+    def spy(password: str, salt_hex: str, iterations: int) -> str:
+        seen.append(iterations)
+        return real(password, salt_hex, iterations)
+
+    monkeypatch.setattr(auth, "pbkdf2", spy)
+    client = TestClient(app)
+    r = _post_login(client, 12345, "wrong")
+    assert r.status_code == 401
+    assert seen == [auth.PBKDF2_WRITE_ITERATIONS]
 
 
 def test_malformed_user_id_is_still_400(app, fake_user):
@@ -273,12 +368,17 @@ def test_every_failure_mode_counts_toward_the_limit(app, fake_user):
 
 
 def test_locked_pair_429_does_not_burn_pbkdf2(app, fake_user, monkeypatch):
-    """The 429 path must stay cheap — no dummy run, no DB hit."""
-    calls: list[str] = []
-    monkeypatch.setattr(auth, "run_dummy_verification", calls.append)
+    """The 429 path must stay cheap — no normalization, no DB hit. The
+    spy goes up only after the five real failures, which legitimately
+    run the real verification (and its no-op top-up at the target)."""
     client = TestClient(app)
     for _ in range(5):
         _post_login(client, 12345, "x")
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing",
+        lambda pw, spent: calls.append(spent),
+    )
     monkeypatch.setattr(
         session_mod, "load_user_config",
         lambda uid: pytest.fail("429 must not reach the auth DB"),
