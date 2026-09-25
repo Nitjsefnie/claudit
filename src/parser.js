@@ -6,7 +6,8 @@
 //
 // Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
 // by src/parser-lanes.js, which emits the same shapes; parseTranscript
-// sniffs the format and delegates. One rate table only — the one below.
+// sniffs the format and delegates. One rate table only — src/pricing.json,
+// loaded below.
 
 // Per-call context-window size. Mirrors backend/parse.py:_usage_ctx_input.
 // When usage.iterations has >1 entries (advisor()/sub-agent fan-out), the
@@ -309,226 +310,76 @@ window.parseTranscript = function parseTranscript(text, opts) {
   return { events, meta };
 };
 
-// Compute session-level stats
-// Mirrors backend/pricing.py — order matters (most-specific first
-// so 'claude-opus-4-7' doesn't misroute to 'claude-opus-4').
-// Single source of truth for in-browser cost computation; both the
-// Inspector (computeSessionStats below) and the Token Breakdown panel
-// (app.jsx) read these via window.modelRates / window.rateForModel.
-window.modelRates = {
-  // bonsai-2-27b is served by a local llama.cpp — no price; listed so it
-  // does not fall to the DEFAULT (Opus list) fallback.
-  'bonsai-2-27b':      { fresh: 0,    c5: 0,     c1h: 0,     read: 0,     out: 0 },
-  // GLM (Z.ai): cache WRITES are free and reads are 0.2x input, so the
-  // Anthropic 1.25x/2x/0.1x relations do not hold; explicit numbers.
-  'glm-5-3-flash':     { fresh: 0.15, c5: 0,     c1h: 0,     read: 0.03,  out: 0.5 },
-  // Codex (OpenAI) and Kimi lanes, merged into claudit's one table from
-  // codexmeter's pricing (D4/D6): every rate explicit. A cache write
-  // prices at ONE rate whatever TTL the record declares (or fails to
-  // declare), so c5 and c1h carry the same value. Kimi bills cache_create
-  // at a flat ZERO; Codex cache writes at 1.25x uncached input, reads at
-  // 0.1x. GPT-6 Sol and Luna are not in codexmeter (D6). Keys are in
-  // _normaliseModel form (dots folded to dashes): 'gpt-5.6-sol'
-  // normalises to 'gpt-5-6-sol' before matching.
-  'kimi-k3':           { fresh: 3,    c5: 0,     c1h: 0,     read: 0.3,   out: 15 },
-  'kimi-k2-7-code':    { fresh: 0.95, c5: 0,     c1h: 0,     read: 0.19,  out: 4 },
-  'kimi-k2-6':         { fresh: 0.95, c5: 0,     c1h: 0,     read: 0.16,  out: 4 },
-  'gpt-6-astra':       { fresh: 10,   c5: 12.5,  c1h: 12.5,  read: 1,     out: 50 },
-  'gpt-6-sol':         { fresh: 2,    c5: 2.5,   c1h: 2.5,   read: 0.2,   out: 10 },
-  'gpt-6-luna':        { fresh: 0.1,  c5: 0.125, c1h: 0.125, read: 0.01,  out: 0.5 },
-  'gpt-5-6-sol':       { fresh: 4,    c5: 5,     c1h: 5,     read: 0.4,   out: 20 },
-  'gpt-5-6-terra':     { fresh: 2,    c5: 2.5,   c1h: 2.5,   read: 0.2,   out: 12 },
-  'gpt-5-6-luna':      { fresh: 0.2,  c5: 0.25,  c1h: 0.25,  read: 0.02,  out: 1.2 },
-  // Fable 5.1 / Mythos 5.1 price cache HITS at 0.025x base input, not the
-  // 0.1x every other model uses — reads are 0.25, a quarter of Fable 5's.
-  'claude-fable-5-1':  { fresh: 10,   c5: 12.5,  c1h: 20,   read: 0.25, out: 50 },
-  'claude-mythos-5-1': { fresh: 10,   c5: 12.5,  c1h: 20,   read: 0.25, out: 50 },
-  'claude-fable-5':    { fresh: 10,   c5: 12.5,  c1h: 20,   read: 1,    out: 50 },
-  'claude-mythos-5':   { fresh: 10,   c5: 12.5,  c1h: 20,   read: 1,    out: 50 },
-  // Opus 5.5 prices cache HITS at 0.05x base input (0.20 on a 4.00 base).
-  'claude-opus-5-5':   { fresh: 4,    c5: 5,     c1h: 8,    read: 0.2,  out: 20 },
-  'claude-opus-5':     { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
-  'claude-opus-4-8':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
-  'claude-opus-4-7':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
-  'claude-opus-4-6':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
-  'claude-opus-4-5':   { fresh: 5,    c5: 6.25,  c1h: 10,   read: 0.5,  out: 25 },
-  'claude-opus-4-1':   { fresh: 15,   c5: 18.75, c1h: 30,   read: 1.5,  out: 75 },
-  'claude-opus-4':     { fresh: 15,   c5: 18.75, c1h: 30,   read: 1.5,  out: 75 },
-  'claude-sonnet-5':   { fresh: 2,    c5: 2.5,   c1h: 4,    read: 0.2,  out: 10 },
-  'claude-sonnet-4-6': { fresh: 3,    c5: 3.75,  c1h: 6,    read: 0.3,  out: 15 },
-  'claude-sonnet-4-5': { fresh: 3,    c5: 3.75,  c1h: 6,    read: 0.3,  out: 15 },
-  'claude-sonnet-4':   { fresh: 3,    c5: 3.75,  c1h: 6,    read: 0.3,  out: 15 },
-  'claude-haiku-4-5':  { fresh: 1,    c5: 1.25,  c1h: 2,    read: 0.1,  out: 5 },
-  'claude-3-7-sonnet-':{ fresh: 3,    c5: 3.75,  c1h: 6,    read: 0.3,  out: 15 },
-  'claude-3-5-sonnet-':{ fresh: 3,    c5: 3.75,  c1h: 6,    read: 0.3,  out: 15 },
-  'claude-3-5-haiku-': { fresh: 0.8,  c5: 1.0,   c1h: 1.6,  read: 0.08, out: 4 },
-  'claude-3-opus-':    { fresh: 15,   c5: 18.75, c1h: 30,   read: 1.5,  out: 75 },
-  'claude-3-haiku-':   { fresh: 0.25, c5: 0.30,  c1h: 0.50, read: 0.03, out: 1.25 },
-};
+// Every rate lives in src/pricing.json (SV-RATE-DATA), the same file
+// backend/pricing.py loads; this file holds resolution logic only. Both
+// the Inspector (computeSessionStats below) and the Token Breakdown panel
+// (app.jsx) read the derived tables via window.modelRates /
+// window.rateForModel.
+//
+// Read synchronously, so window.rateForModel works the moment this script
+// has run — the app prices during render with no hook to await a load.
+// Node (the test suite) reads the file beside this module; the browser
+// fetches it relative to this script's own URL, revalidating so a rate
+// change is never served from a stale cache.
+function _loadPricing() {
+  if (typeof document === 'undefined') {
+    return require('./pricing.json');  // eslint-disable-line no-undef
+  }
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', new URL('pricing.json', document.currentScript.src), false);
+  xhr.setRequestHeader('Cache-Control', 'no-cache');
+  xhr.send();
+  if (xhr.status !== 200) throw new Error(`pricing.json: HTTP ${xhr.status}`);
+  return JSON.parse(xhr.responseText);
+}
+
+const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
+const _ratesOf = (entry) => Object.fromEntries(
+  Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]]));
+
+// A row's append-only history, oldest first: the newest entry is the list
+// price, and each earlier one a window ending where its successor starts.
+// Mirrors pricing._history.
+function _history(entries) {
+  return {
+    list: _ratesOf(entries[entries.length - 1]),
+    windows: entries.slice(0, -1).map((entry, i) => (
+      { endExclusive: Date.parse(entries[i + 1].from), rates: _ratesOf(entry) })),
+  };
+}
+
+const _PRICING = _loadPricing();
+window.modelRates = {};
+window.datedRates = {};
+for (const [key, entries] of Object.entries(_PRICING.models)) {
+  const { list, windows } = _history(entries);
+  window.modelRates[key] = list;
+  if (windows.length) window.datedRates[key] = windows;
+}
+// Keyed by normalised model id then provider (the transcript's
+// message.provider spelling).
+window.providerRates = {};
+window.providerDatedRates = {};
+for (const [model, hosts] of Object.entries(_PRICING.providers)) {
+  for (const [host, entries] of Object.entries(hosts)) {
+    const { list, windows } = _history(entries);
+    (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
+    if (windows.length) {
+      (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
+    }
+  }
+}
+window.rateEpochs = [...new Set(
+  [...Object.values(window.datedRates),
+   ...Object.values(window.providerDatedRates).flatMap(Object.values)]
+    .flat().map((w) => w.endExclusive),
+)].sort((a, b) => a - b);
 
 // Every rate an OpenRouter free model carries: zero. Returned for any id
 // ending in ':free' or starting with 'stealth/' — see _isFreeModel.
-// Mirrors backend/pricing.py FREE_RATES (SV-PARSER-SPEC); deliberately
-// NOT a window.modelRates row, so it is not enumerable as an exact key.
-window.FREE_RATES = { fresh: 0, c5: 0, c1h: 0, read: 0, out: 0 };
-// Dated overrides, per exact key. Mirrors pricing.DATED_RATES.
-// GLM-5.3-Flash launch promotion: 50% off list through 2026-09-09 24:00
-// UTC+8 (= 16:00 UTC); month is 0-based in Date.UTC.
-//
-// The GPT-5.6 repricings are ported from codexmeter, as frozen UTC
-// instants — NOT live expressions (month is 0-based in Date.UTC):
-//   JUL30_CUT 2026-07-30 18:12 UTC — luna -80%, terra -20%; sol untouched
-//   AUG21_CUT 2026-08-21 19:40 UTC — sol -20% in / -33% out; rest untouched
-window.datedRates = {
-  'glm-5-3-flash': [
-    { endExclusive: Date.UTC(2026, 8, 9, 16, 0, 0),
-      rates: { fresh: 0.075, c5: 0, c1h: 0, read: 0.015, out: 0.25 } },
-  ],
-  'gpt-5-6-sol': [
-    { endExclusive: Date.UTC(2026, 7, 21, 19, 40, 0),
-      rates: { fresh: 5, c5: 6.25, c1h: 6.25, read: 0.5, out: 30 } },
-  ],
-  'gpt-5-6-terra': [
-    { endExclusive: Date.UTC(2026, 6, 30, 18, 12, 0),
-      rates: { fresh: 2.5, c5: 3.125, c1h: 3.125, read: 0.25, out: 15 } },
-  ],
-  'gpt-5-6-luna': [
-    { endExclusive: Date.UTC(2026, 6, 30, 18, 12, 0),
-      rates: { fresh: 1, c5: 1.25, c1h: 1.25, read: 0.1, out: 6 } },
-  ],
-};
-// Per-provider rates, keyed by normalised model id then provider (the
-// transcript's message.provider spelling). Mirrors pricing.PROVIDER_RATES:
-// OpenRouter's endpoints API, fetched 2026-09-24 22:03:13 UTC, promotional
-// discounts already applied ("N% off"), none with a published end date.
-// Rows are [model, provider, input, cache_read, output]. Every endpoint
-// lists cache_write 0 (no separate write price), so both create buckets
-// carry the input rate. A provider with two differently priced endpoints
-// carries the dearer one: the transcript names only the host.
-window.providerRates = {};
-for (const [model, host, fresh, read, out] of [
-  // z-ai/glm-5.3-flash
-  ['z-ai/glm-5-3-flash', 'InferenceNet', 0.045, 0.01, 0.14],  // 50% off
-  ['z-ai/glm-5-3-flash', 'Sail Research', 0.045, 0.0285, 0.6],
-  ['z-ai/glm-5-3-flash', 'Relace', 0.07, 0.02, 0.28],
-  ['z-ai/glm-5-3-flash', 'DeepInfra', 0.075, 0.015, 0.25],  // 50% off
-  ['z-ai/glm-5-3-flash', 'Wafer', 0.089, 0.03, 0.35],
-  ['z-ai/glm-5-3-flash', 'GMICloud', 0.09, 0.018, 0.3],  // 40% off
-  ['z-ai/glm-5-3-flash', 'Morph', 0.098, 0.0196, 0.343],  // 2% off
-  ['z-ai/glm-5-3-flash', 'OpenInference', 0.1, 0.025, 0.5],
-  ['z-ai/glm-5-3-flash', 'Decart', 0.1275, 0.0255, 0.425],  // 15% off
-  ['z-ai/glm-5-3-flash', 'Phala', 0.1275, 0.0255, 0.425],  // 15% off
-  ['z-ai/glm-5-3-flash', 'Novita', 0.132, 0.0264, 0.44],  // 12% off
-  ['z-ai/glm-5-3-flash', 'StreamLake', 0.141, 0.0282, 0.47],  // 6% off
-  ['z-ai/glm-5-3-flash', 'Io Net', 0.1425, 0.0285, 0.475],  // 5% off
-  ['z-ai/glm-5-3-flash', 'AtlasCloud', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'BaseTen', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'CoreWeave', 0.15, 0.05, 0.5],
-  ['z-ai/glm-5-3-flash', 'Crusoe', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'DigitalOcean', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Fireworks', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Friendli', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Inceptron', 0.15, 0.07, 0.5],
-  ['z-ai/glm-5-3-flash', 'Modal', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Near AI', 0.15, 0.035, 0.5],
-  ['z-ai/glm-5-3-flash', 'Parasail', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Reka', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'SiliconFlow', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Together', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Venice', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'Z.AI', 0.15, 0.03, 0.5],
-  ['z-ai/glm-5-3-flash', 'NextBit', 0.165, 0.033, 0.55],
-  ['z-ai/glm-5-3-flash', 'Cloudflare', 0.3, 0.03, 1.0],
-  // deepseek/deepseek-v4.1-flash
-  ['deepseek/deepseek-v4-1-flash', 'DekaLLM', 0.04, 0.01, 1.0],
-  ['deepseek/deepseek-v4-1-flash', 'Morph', 0.075, 0.0015, 0.3],  // 50% off
-  ['deepseek/deepseek-v4-1-flash', 'OpenInference', 0.1, 0.01, 0.5],
-  ['deepseek/deepseek-v4-1-flash', 'Relace', 0.1, 0.01, 0.5],
-  ['deepseek/deepseek-v4-1-flash', 'Sail Research', 0.13, 0.01, 0.75],
-  ['deepseek/deepseek-v4-1-flash', 'DeepInfra', 0.14, 0.0042, 0.42],  // 30% off
-  ['deepseek/deepseek-v4-1-flash', 'Alibaba', 0.15, 0.015, 0.6],
-  ['deepseek/deepseek-v4-1-flash', 'DeepSeek', 0.15, 0.003, 0.6],
-  ['deepseek/deepseek-v4-1-flash', 'StreamLake', 0.165, 0.0033, 0.66],  // 45% off
-  ['deepseek/deepseek-v4-1-flash', 'CoreWeave', 0.2, 0.03, 0.65],
-  ['deepseek/deepseek-v4-1-flash', 'Wafer', 0.2, 0.006, 0.6],
-  ['deepseek/deepseek-v4-1-flash', 'Fireworks', 0.22, 0.007, 0.66],
-  ['deepseek/deepseek-v4-1-flash', 'GMICloud', 0.225, 0.0045, 0.9],  // 25% off
-  ['deepseek/deepseek-v4-1-flash', 'Krea', 0.225, 0.006, 0.9],
-  ['deepseek/deepseek-v4-1-flash', 'Phala', 0.276, 0.00552, 1.104],  // 20% off
-  ['deepseek/deepseek-v4-1-flash', 'Novita', 0.285, 0.0057, 1.14],  // 5% off
-  ['deepseek/deepseek-v4-1-flash', 'AtlasCloud', 0.3, 0.03, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'BaseTen', 0.3, 0.007, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'DigitalOcean', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'Makora', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'Modal', 0.3, 0.03, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'NextBit', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'Parasail', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'SiliconFlow', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'Together', 0.3, 0.006, 1.2],
-  ['deepseek/deepseek-v4-1-flash', 'Venice', 0.375, 0.0075, 1.5],
-  // stealth/space-bunny-alpha
-  ['stealth/space-bunny-alpha', 'Stealth', 0.0, 0.0, 0.0],
-  // deepseek/deepseek-v4-flash-0731
-  ['deepseek/deepseek-v4-flash-0731', 'Relace', 0.03, 0.016, 0.32],
-  ['deepseek/deepseek-v4-flash-0731', 'Sail Research', 0.038, 0.0228, 0.55],
-  ['deepseek/deepseek-v4-flash-0731', 'StreamLake', 0.0528, 0.00168, 0.1584],  // 88% off
-  ['deepseek/deepseek-v4-flash-0731', 'DeepInfra', 0.06, 0.015, 0.18],
-  ['deepseek/deepseek-v4-flash-0731', 'Wafer', 0.08, 0.02, 0.35],
-  ['deepseek/deepseek-v4-flash-0731', 'Inceptron', 0.0828, 0.06, 0.4138],
-  ['deepseek/deepseek-v4-flash-0731', 'Reka', 0.088, 0.0056, 0.528],  // 20% off
-  ['deepseek/deepseek-v4-flash-0731', 'Makora', 0.09, 0.0196, 0.195],
-  ['deepseek/deepseek-v4-flash-0731', 'DigitalOcean', 0.119, 0.0238, 0.238],
-  ['deepseek/deepseek-v4-flash-0731', 'BaseTen', 0.13, 0.028, 0.26],
-  ['deepseek/deepseek-v4-flash-0731', 'CoreWeave', 0.13, 0.07, 0.28],
-  ['deepseek/deepseek-v4-flash-0731', 'Cohere', 0.14, 0.07, 0.28],
-  ['deepseek/deepseek-v4-flash-0731', 'Nebius', 0.14, 0.0, 0.28],
-  ['deepseek/deepseek-v4-flash-0731', 'OpenInference', 0.14, 0.03, 0.7],
-  ['deepseek/deepseek-v4-flash-0731', 'Parasail', 0.14, 0.05, 0.28],
-  ['deepseek/deepseek-v4-flash-0731', 'Together', 0.14, 0.03, 0.28],
-  ['deepseek/deepseek-v4-flash-0731', 'Morph', 0.141953, 0.035937, 0.399625],
-  ['deepseek/deepseek-v4-flash-0731', 'Venice', 0.175, 0.035, 0.35],
-  ['deepseek/deepseek-v4-flash-0731', 'Alibaba', 0.176, 0.0176, 0.528],
-  ['deepseek/deepseek-v4-flash-0731', 'Mancer 2', 0.2, 0.0, 0.6],
-  ['deepseek/deepseek-v4-flash-0731', 'Fireworks', 0.22, 0.007, 0.66],
-  ['deepseek/deepseek-v4-flash-0731', 'SiliconFlow', 0.22, 0.028, 0.66],
-  ['deepseek/deepseek-v4-flash-0731', 'GMICloud', 0.286, 0.0091, 0.858],  // 35% off
-  ['deepseek/deepseek-v4-flash-0731', 'Phala', 0.308, 0.0196, 0.924],  // 30% off
-  ['deepseek/deepseek-v4-flash-0731', 'NextBit', 0.352, 0.012, 1.056],
-  ['deepseek/deepseek-v4-flash-0731', 'Novita', 0.4092, 0.02604, 1.2276],  // 7% off
-  ['deepseek/deepseek-v4-flash-0731', 'AtlasCloud', 0.44, 0.028, 1.32],
-  ['deepseek/deepseek-v4-flash-0731', 'Baidu', 0.44, 0.014, 1.32],
-  ['deepseek/deepseek-v4-flash-0731', 'Cloudflare', 0.44, 0.014, 1.32],
-  // deepseek/deepseek-v4-flash
-  ['deepseek/deepseek-v4-flash', 'Relace', 0.05, 0.01, 0.25],
-  ['deepseek/deepseek-v4-flash', 'StreamLake', 0.06398, 0.012796, 0.12796],  // 54% off
-  ['deepseek/deepseek-v4-flash', 'Baidu', 0.06538, 0.013076, 0.13076],  // 53% off
-  ['deepseek/deepseek-v4-flash', 'DeepInfra', 0.09, 0.018, 0.18],
-  ['deepseek/deepseek-v4-flash', 'GMICloud', 0.091, 0.0182, 0.182],  // 35% off
-  ['deepseek/deepseek-v4-flash', 'Venice', 0.0966, 0.0196, 0.1925],  // 30% off
-  ['deepseek/deepseek-v4-flash', 'DigitalOcean', 0.098, 0.0196, 0.196],
-  ['deepseek/deepseek-v4-flash', 'SiliconFlow', 0.13, 0.028, 0.28],
-  ['deepseek/deepseek-v4-flash', 'Alibaba', 0.134, 0.0268, 0.268],
-  ['deepseek/deepseek-v4-flash', 'AtlasCloud', 0.14, 0.028, 0.28],
-  ['deepseek/deepseek-v4-flash', 'Novita', 0.14, 0.028, 0.28],
-  ['deepseek/deepseek-v4-flash', 'OpenInference', 0.14, 0.03, 0.7],
-  ['deepseek/deepseek-v4-flash', 'Parasail', 0.14, 0.07, 0.28],
-  ['deepseek/deepseek-v4-flash', 'NextBit', 0.15, 0.035, 0.3],
-  ['deepseek/deepseek-v4-flash', 'Mancer 2', 0.19, 0.0, 0.5],
-  ['deepseek/deepseek-v4-flash', 'Azure', 0.21, 0.031, 0.56],
-
-]) {
-  (window.providerRates[model] = window.providerRates[model] || {})[host] =
-    { fresh, c5: fresh, c1h: fresh, read, out };
-}
-// Dated overrides per model then provider. Mirrors
-// pricing.PROVIDER_DATED_RATES (empty); a window added here also adds its
-// boundary to window.rateEpochs below.
-window.providerDatedRates = {};
-window.rateEpochs = [
-  Date.UTC(2026, 6, 30, 18, 12, 0),
-  Date.UTC(2026, 7, 21, 19, 40, 0),
-  Date.UTC(2026, 8, 9, 16, 0, 0),
-];
+// Deliberately NOT a window.modelRates row, so it is not enumerable as an
+// exact key.
+window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
 
 // Family fallbacks for unrecognised Claude models — current-generation
 // list rates for the tier, never a dated promotion. The generation is the
@@ -579,13 +430,16 @@ function _isFreeModel(model, norm) {
       || norm.endsWith(':free') || norm.startsWith('stealth/');
 }
 
+// The LONGEST key norm names, whatever the table order. Mirrors
+// pricing._match_key.
 function _matchRateKey(norm) {
+  let best = null;
   for (const k of Object.keys(window.modelRates)) {
-    if (!norm.startsWith(k)) continue;
+    if (!norm.startsWith(k) || (best && k.length <= best.length)) continue;
     const rest = norm.slice(k.length);
-    if (rest === '' || rest[0] === '[' || rest[0] === '@' || _SNAPSHOT_SUFFIX.test(rest)) return k;
+    if (rest === '' || rest[0] === '[' || rest[0] === '@' || _SNAPSHOT_SUFFIX.test(rest)) best = k;
   }
-  return null;
+  return best;
 }
 
 function _toMillis(ts) {
