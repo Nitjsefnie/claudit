@@ -1,9 +1,11 @@
-"""SV-PARSER-SPEC: src/parser.js MIRRORS backend/pricing.py.
+"""SV-PARSER-SPEC: src/parser.js resolves rates like backend/pricing.py.
 
-The in-browser Inspector prices transcripts with its own copy of the rate
-table. If the two drift, the drag-drop view and the dashboard disagree on
-cost for the same file. This asserts parity by driving the real parser.js
-through node — no npm, no build step, matching the repo's no-toolchain rule.
+Both read their rates from src/pricing.json (SV-RATE-DATA), but each carries
+its own resolution logic. If that logic drifts, the Inspector and the
+dashboard disagree on cost for the same file. This asserts parity by driving
+the real parser.js through node — no npm, no build step, matching the repo's
+no-toolchain rule. That both sides derive the same tables from the file is
+pinned in test_pricing_data.py.
 """
 import json
 import shutil
@@ -120,34 +122,6 @@ def test_parser_js_exposes_the_same_rate_epochs():
         datetime.fromtimestamp(ms / 1000, tz=UTC) for ms in json.loads(proc.stdout)
     ]
     assert js_epochs == pricing.RATE_EPOCHS
-
-
-def test_parser_js_rate_table_is_the_whole_backend_table_in_order():
-    """Every MODEL_RATES key present in the JS table, in the same order,
-    with equal rows — and no extra JS keys. A future rate edit on one side
-    alone fails this instead of silently mispricing the Inspector."""
-    script = f"""
-      global.window = {{}};
-      require({str(PARSER_JS)!r});
-      console.log(JSON.stringify({{
-        keys: Object.keys(window.modelRates),
-        rows: window.modelRates,
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        # Return code checked by hand on the next line.
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["keys"] == list(pricing.MODEL_RATES.keys())
-    for key, js_row in got["rows"].items():
-        py_row = pricing.MODEL_RATES[key]
-        for js_field, py_field in _KEYMAP.items():
-            assert js_row[js_field] == pytest.approx(py_row[py_field]), (
-                f"{key}: {py_field}"
-            )
 
 
 # --------------------------------------------------------------------------
@@ -305,24 +279,6 @@ def test_parser_js_resolves_provider_rates_like_the_backend():
             assert got["rates"][js_key] == pytest.approx(want.rates[py_key]), (
                 f"{label}: {py_key}"
             )
-
-
-def test_parser_js_provider_table_is_the_whole_backend_table():
-    got = _node_json("""
-      console.log(JSON.stringify({
-        rows: Object.entries(window.providerRates).flatMap(([model, byHost]) =>
-          Object.entries(byHost).map(([host, r]) => [model, host, r])),
-        dated: window.providerDatedRates,
-      }));
-    """)
-    assert {(m, p) for m, p, _ in got["rows"]} == set(pricing.PROVIDER_RATES)
-    for model, provider, js_row in got["rows"]:
-        py_row = pricing.PROVIDER_RATES[(model, provider)]
-        for js_field, py_field in _KEYMAP.items():
-            assert js_row[js_field] == pytest.approx(py_row[py_field]), (
-                f"{model} via {provider}: {py_field}"
-            )
-    assert not got["dated"] and not pricing.PROVIDER_DATED_RATES
 
 
 def test_parser_js_prices_a_provider_record_at_the_stored_cost():

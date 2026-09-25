@@ -116,6 +116,7 @@
 /src/*
 !/src/*.js
 !/src/*.jsx
+!/src/pricing.json
 !/src/views/
 /src/views/*
 !/src/views/*.jsx

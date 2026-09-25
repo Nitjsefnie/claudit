@@ -1,0 +1,1452 @@
+{
+  "models": {
+    "bonsai-2-27b": [
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 0.0,
+        "from": null,
+        "note": "Served by a local llama.cpp on the operator's own hardware: no price. Listed so it does not fall to the DEFAULT (Opus list) fallback.",
+        "output": 0.0,
+        "read": 0.0
+      }
+    ],
+    "claude-3-5-haiku-": [
+      {
+        "create_1h": 1.6,
+        "create_5m": 1.0,
+        "fresh": 0.8,
+        "from": null,
+        "output": 4.0,
+        "read": 0.08
+      }
+    ],
+    "claude-3-5-sonnet-": [
+      {
+        "create_1h": 6.0,
+        "create_5m": 3.75,
+        "fresh": 3.0,
+        "from": null,
+        "output": 15.0,
+        "read": 0.3
+      }
+    ],
+    "claude-3-7-sonnet-": [
+      {
+        "create_1h": 6.0,
+        "create_5m": 3.75,
+        "fresh": 3.0,
+        "from": null,
+        "output": 15.0,
+        "read": 0.3
+      }
+    ],
+    "claude-3-haiku-": [
+      {
+        "create_1h": 0.5,
+        "create_5m": 0.3,
+        "fresh": 0.25,
+        "from": null,
+        "output": 1.25,
+        "read": 0.03
+      }
+    ],
+    "claude-3-opus-": [
+      {
+        "create_1h": 30.0,
+        "create_5m": 18.75,
+        "fresh": 15.0,
+        "from": null,
+        "output": 75.0,
+        "read": 1.5
+      }
+    ],
+    "claude-fable-5": [
+      {
+        "create_1h": 20.0,
+        "create_5m": 12.5,
+        "fresh": 10.0,
+        "from": null,
+        "output": 50.0,
+        "read": 1.0
+      }
+    ],
+    "claude-fable-5-1": [
+      {
+        "create_1h": 20.0,
+        "create_5m": 12.5,
+        "fresh": 10.0,
+        "from": null,
+        "note": "Cache reads at 0.025x base input.",
+        "output": 50.0,
+        "read": 0.25
+      }
+    ],
+    "claude-haiku-4-5": [
+      {
+        "create_1h": 2.0,
+        "create_5m": 1.25,
+        "fresh": 1.0,
+        "from": null,
+        "output": 5.0,
+        "read": 0.1
+      }
+    ],
+    "claude-mythos-5": [
+      {
+        "create_1h": 20.0,
+        "create_5m": 12.5,
+        "fresh": 10.0,
+        "from": null,
+        "output": 50.0,
+        "read": 1.0
+      }
+    ],
+    "claude-mythos-5-1": [
+      {
+        "create_1h": 20.0,
+        "create_5m": 12.5,
+        "fresh": 10.0,
+        "from": null,
+        "note": "Cache reads at 0.025x base input.",
+        "output": 50.0,
+        "read": 0.25
+      }
+    ],
+    "claude-opus-4": [
+      {
+        "create_1h": 30.0,
+        "create_5m": 18.75,
+        "fresh": 15.0,
+        "from": null,
+        "output": 75.0,
+        "read": 1.5
+      }
+    ],
+    "claude-opus-4-1": [
+      {
+        "create_1h": 30.0,
+        "create_5m": 18.75,
+        "fresh": 15.0,
+        "from": null,
+        "output": 75.0,
+        "read": 1.5
+      }
+    ],
+    "claude-opus-4-5": [
+      {
+        "create_1h": 10.0,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "output": 25.0,
+        "read": 0.5
+      }
+    ],
+    "claude-opus-4-6": [
+      {
+        "create_1h": 10.0,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "output": 25.0,
+        "read": 0.5
+      }
+    ],
+    "claude-opus-4-7": [
+      {
+        "create_1h": 10.0,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "output": 25.0,
+        "read": 0.5
+      }
+    ],
+    "claude-opus-4-8": [
+      {
+        "create_1h": 10.0,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "output": 25.0,
+        "read": 0.5
+      }
+    ],
+    "claude-opus-5": [
+      {
+        "create_1h": 10.0,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "output": 25.0,
+        "read": 0.5
+      }
+    ],
+    "claude-opus-5-5": [
+      {
+        "create_1h": 8.0,
+        "create_5m": 5.0,
+        "fresh": 4.0,
+        "from": null,
+        "note": "Cache reads at 0.05x base input.",
+        "output": 20.0,
+        "read": 0.2
+      }
+    ],
+    "claude-sonnet-4": [
+      {
+        "create_1h": 6.0,
+        "create_5m": 3.75,
+        "fresh": 3.0,
+        "from": null,
+        "output": 15.0,
+        "read": 0.3
+      }
+    ],
+    "claude-sonnet-4-5": [
+      {
+        "create_1h": 6.0,
+        "create_5m": 3.75,
+        "fresh": 3.0,
+        "from": null,
+        "output": 15.0,
+        "read": 0.3
+      }
+    ],
+    "claude-sonnet-4-6": [
+      {
+        "create_1h": 6.0,
+        "create_5m": 3.75,
+        "fresh": 3.0,
+        "from": null,
+        "output": 15.0,
+        "read": 0.3
+      }
+    ],
+    "claude-sonnet-5": [
+      {
+        "create_1h": 4.0,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": null,
+        "output": 10.0,
+        "read": 0.2
+      }
+    ],
+    "glm-5-3-flash": [
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 0.075,
+        "from": null,
+        "note": "Launch promotion: 50% off list through 2026-09-09 24:00 UTC+8.",
+        "output": 0.25,
+        "read": 0.015
+      },
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 0.15,
+        "from": "2026-09-09T16:00:00Z",
+        "note": "List. Cache writes are free and reads are 0.2x input, so the Anthropic 1.25x/2x/0.1x relations do not hold.",
+        "output": 0.5,
+        "read": 0.03
+      }
+    ],
+    "gpt-5-6-luna": [
+      {
+        "create_1h": 1.25,
+        "create_5m": 1.25,
+        "fresh": 1.0,
+        "from": null,
+        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 6.0,
+        "read": 0.1
+      },
+      {
+        "create_1h": 0.25,
+        "create_5m": 0.25,
+        "fresh": 0.2,
+        "from": "2026-07-30T18:12:00Z",
+        "note": "Cut -80%. From: OpenAI's post time, 20:12 Europe/Prague.",
+        "output": 1.2,
+        "read": 0.02
+      }
+    ],
+    "gpt-5-6-sol": [
+      {
+        "create_1h": 6.25,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 30.0,
+        "read": 0.5
+      },
+      {
+        "create_1h": 5.0,
+        "create_5m": 5.0,
+        "fresh": 4.0,
+        "from": "2026-08-21T19:40:00Z",
+        "note": "Cut -20% in / -33% out, promotional, announced through at least 2026-11-21. From: OpenAI's post time, 21:40 Europe/Prague.",
+        "output": 20.0,
+        "read": 0.4
+      }
+    ],
+    "gpt-5-6-terra": [
+      {
+        "create_1h": 3.125,
+        "create_5m": 3.125,
+        "fresh": 2.5,
+        "from": null,
+        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 15.0,
+        "read": 0.25
+      },
+      {
+        "create_1h": 2.5,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": "2026-07-30T18:12:00Z",
+        "note": "Cut -20%. From: OpenAI's post time, 20:12 Europe/Prague.",
+        "output": 12.0,
+        "read": 0.2
+      }
+    ],
+    "gpt-6-astra": [
+      {
+        "create_1h": 12.5,
+        "create_5m": 12.5,
+        "fresh": 10.0,
+        "from": null,
+        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 50.0,
+        "read": 1.0
+      }
+    ],
+    "gpt-6-luna": [
+      {
+        "create_1h": 0.125,
+        "create_5m": 0.125,
+        "fresh": 0.1,
+        "from": null,
+        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 0.5,
+        "read": 0.01
+      }
+    ],
+    "gpt-6-sol": [
+      {
+        "create_1h": 2.5,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": null,
+        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 10.0,
+        "read": 0.2
+      }
+    ],
+    "kimi-k2-6": [
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 0.95,
+        "from": null,
+        "note": "Kimi bills cache writes at a flat zero.",
+        "output": 4.0,
+        "read": 0.16
+      }
+    ],
+    "kimi-k2-7-code": [
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 0.95,
+        "from": null,
+        "note": "Kimi bills cache writes at a flat zero.",
+        "output": 4.0,
+        "read": 0.19
+      }
+    ],
+    "kimi-k3": [
+      {
+        "create_1h": 0.0,
+        "create_5m": 0.0,
+        "fresh": 3.0,
+        "from": null,
+        "note": "Kimi bills cache writes at a flat zero.",
+        "output": 15.0,
+        "read": 0.3
+      }
+    ]
+  },
+  "provider_rates_fetched": "2026-09-24T22:03:13Z",
+  "providers": {
+    "deepseek/deepseek-v4-1-flash": {
+      "Alibaba": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.6,
+          "read": 0.015
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.03
+        }
+      ],
+      "BaseTen": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "note": "Global-region endpoint; the US in-region one reads at 0.03 and these keys cannot reach it.",
+          "output": 1.2,
+          "read": 0.007
+        }
+      ],
+      "CoreWeave": [
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": null,
+          "output": 0.65,
+          "read": 0.03
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "note": "30% off",
+          "output": 0.42,
+          "read": 0.0042
+        }
+      ],
+      "DeepSeek": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.6,
+          "read": 0.003
+        }
+      ],
+      "DekaLLM": [
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": null,
+          "output": 1.0,
+          "read": 0.01
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "Fireworks": [
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": null,
+          "output": 0.66,
+          "read": 0.007
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": null,
+          "note": "25% off",
+          "output": 0.9,
+          "read": 0.0045
+        }
+      ],
+      "Krea": [
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": null,
+          "output": 0.9,
+          "read": 0.006
+        }
+      ],
+      "Makora": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "Modal": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.03
+        }
+      ],
+      "Morph": [
+        {
+          "create_1h": 0.075,
+          "create_5m": 0.075,
+          "fresh": 0.075,
+          "from": null,
+          "note": "50% off",
+          "output": 0.3,
+          "read": 0.0015
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.285,
+          "create_5m": 0.285,
+          "fresh": 0.285,
+          "from": null,
+          "note": "5% off",
+          "output": 1.14,
+          "read": 0.0057
+        }
+      ],
+      "OpenInference": [
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": null,
+          "output": 0.5,
+          "read": 0.01
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "Phala": [
+        {
+          "create_1h": 0.276,
+          "create_5m": 0.276,
+          "fresh": 0.276,
+          "from": null,
+          "note": "20% off",
+          "output": 1.104,
+          "read": 0.00552
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": null,
+          "output": 0.5,
+          "read": 0.01
+        }
+      ],
+      "Sail Research": [
+        {
+          "create_1h": 0.13,
+          "create_5m": 0.13,
+          "fresh": 0.13,
+          "from": null,
+          "output": 0.75,
+          "read": 0.01
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.165,
+          "create_5m": 0.165,
+          "fresh": 0.165,
+          "from": null,
+          "note": "45% off",
+          "output": 0.66,
+          "read": 0.0033
+        }
+      ],
+      "Together": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.2,
+          "read": 0.006
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 0.375,
+          "create_5m": 0.375,
+          "fresh": 0.375,
+          "from": null,
+          "output": 1.5,
+          "read": 0.0075
+        }
+      ],
+      "Wafer": [
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": null,
+          "output": 0.6,
+          "read": 0.006
+        }
+      ]
+    },
+    "deepseek/deepseek-v4-flash": {
+      "Alibaba": [
+        {
+          "create_1h": 0.134,
+          "create_5m": 0.134,
+          "fresh": 0.134,
+          "from": null,
+          "output": 0.268,
+          "read": 0.0268
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.028
+        }
+      ],
+      "Azure": [
+        {
+          "create_1h": 0.21,
+          "create_5m": 0.21,
+          "fresh": 0.21,
+          "from": null,
+          "output": 0.56,
+          "read": 0.031
+        }
+      ],
+      "Baidu": [
+        {
+          "create_1h": 0.06538,
+          "create_5m": 0.06538,
+          "fresh": 0.06538,
+          "from": null,
+          "note": "53% off",
+          "output": 0.13076,
+          "read": 0.013076
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 0.09,
+          "create_5m": 0.09,
+          "fresh": 0.09,
+          "from": null,
+          "output": 0.18,
+          "read": 0.018
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 0.098,
+          "create_5m": 0.098,
+          "fresh": 0.098,
+          "from": null,
+          "output": 0.196,
+          "read": 0.0196
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.091,
+          "create_5m": 0.091,
+          "fresh": 0.091,
+          "from": null,
+          "note": "35% off",
+          "output": 0.182,
+          "read": 0.0182
+        }
+      ],
+      "Mancer 2": [
+        {
+          "create_1h": 0.19,
+          "create_5m": 0.19,
+          "fresh": 0.19,
+          "from": null,
+          "output": 0.5,
+          "read": 0.0
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.3,
+          "read": 0.035
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.028
+        }
+      ],
+      "OpenInference": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.7,
+          "read": 0.03
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.07
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": null,
+          "output": 0.25,
+          "read": 0.01
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 0.13,
+          "create_5m": 0.13,
+          "fresh": 0.13,
+          "from": null,
+          "output": 0.28,
+          "read": 0.028
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.06398,
+          "create_5m": 0.06398,
+          "fresh": 0.06398,
+          "from": null,
+          "note": "54% off",
+          "output": 0.12796,
+          "read": 0.012796
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 0.0966,
+          "create_5m": 0.0966,
+          "fresh": 0.0966,
+          "from": null,
+          "note": "30% off",
+          "output": 0.1925,
+          "read": 0.0196
+        }
+      ]
+    },
+    "deepseek/deepseek-v4-flash-0731": {
+      "Alibaba": [
+        {
+          "create_1h": 0.176,
+          "create_5m": 0.176,
+          "fresh": 0.176,
+          "from": null,
+          "output": 0.528,
+          "read": 0.0176
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": null,
+          "output": 1.32,
+          "read": 0.028
+        }
+      ],
+      "Baidu": [
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": null,
+          "output": 1.32,
+          "read": 0.014
+        }
+      ],
+      "BaseTen": [
+        {
+          "create_1h": 0.13,
+          "create_5m": 0.13,
+          "fresh": 0.13,
+          "from": null,
+          "output": 0.26,
+          "read": 0.028
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": null,
+          "output": 1.32,
+          "read": 0.014
+        }
+      ],
+      "Cohere": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.07
+        }
+      ],
+      "CoreWeave": [
+        {
+          "create_1h": 0.13,
+          "create_5m": 0.13,
+          "fresh": 0.13,
+          "from": null,
+          "output": 0.28,
+          "read": 0.07
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 0.06,
+          "create_5m": 0.06,
+          "fresh": 0.06,
+          "from": null,
+          "output": 0.18,
+          "read": 0.015
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 0.119,
+          "create_5m": 0.119,
+          "fresh": 0.119,
+          "from": null,
+          "output": 0.238,
+          "read": 0.0238
+        }
+      ],
+      "Fireworks": [
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": null,
+          "output": 0.66,
+          "read": 0.007
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.286,
+          "create_5m": 0.286,
+          "fresh": 0.286,
+          "from": null,
+          "note": "35% off",
+          "output": 0.858,
+          "read": 0.0091
+        }
+      ],
+      "Inceptron": [
+        {
+          "create_1h": 0.0828,
+          "create_5m": 0.0828,
+          "fresh": 0.0828,
+          "from": null,
+          "output": 0.4138,
+          "read": 0.06
+        }
+      ],
+      "Makora": [
+        {
+          "create_1h": 0.09,
+          "create_5m": 0.09,
+          "fresh": 0.09,
+          "from": null,
+          "output": 0.195,
+          "read": 0.0196
+        }
+      ],
+      "Mancer 2": [
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": null,
+          "output": 0.6,
+          "read": 0.0
+        }
+      ],
+      "Morph": [
+        {
+          "create_1h": 0.141953,
+          "create_5m": 0.141953,
+          "fresh": 0.141953,
+          "from": null,
+          "output": 0.399625,
+          "read": 0.035937
+        }
+      ],
+      "Nebius": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.0
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 0.352,
+          "create_5m": 0.352,
+          "fresh": 0.352,
+          "from": null,
+          "output": 1.056,
+          "read": 0.012
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.4092,
+          "create_5m": 0.4092,
+          "fresh": 0.4092,
+          "from": null,
+          "note": "7% off",
+          "output": 1.2276,
+          "read": 0.02604
+        }
+      ],
+      "OpenInference": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.7,
+          "read": 0.03
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.05
+        }
+      ],
+      "Phala": [
+        {
+          "create_1h": 0.308,
+          "create_5m": 0.308,
+          "fresh": 0.308,
+          "from": null,
+          "note": "30% off",
+          "output": 0.924,
+          "read": 0.0196
+        }
+      ],
+      "Reka": [
+        {
+          "create_1h": 0.088,
+          "create_5m": 0.088,
+          "fresh": 0.088,
+          "from": null,
+          "note": "20% off",
+          "output": 0.528,
+          "read": 0.0056
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": null,
+          "output": 0.32,
+          "read": 0.016
+        }
+      ],
+      "Sail Research": [
+        {
+          "create_1h": 0.038,
+          "create_5m": 0.038,
+          "fresh": 0.038,
+          "from": null,
+          "output": 0.55,
+          "read": 0.0228
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": null,
+          "output": 0.66,
+          "read": 0.028
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.0528,
+          "create_5m": 0.0528,
+          "fresh": 0.0528,
+          "from": null,
+          "note": "88% off",
+          "output": 0.1584,
+          "read": 0.00168
+        }
+      ],
+      "Together": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.03
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 0.175,
+          "create_5m": 0.175,
+          "fresh": 0.175,
+          "from": null,
+          "output": 0.35,
+          "read": 0.035
+        }
+      ],
+      "Wafer": [
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": null,
+          "output": 0.35,
+          "read": 0.02
+        }
+      ]
+    },
+    "stealth/space-bunny-alpha": {
+      "Stealth": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.0,
+          "from": null,
+          "output": 0.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "z-ai/glm-5-3-flash": {
+      "AtlasCloud": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "BaseTen": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 1.0,
+          "read": 0.03
+        }
+      ],
+      "CoreWeave": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.05
+        }
+      ],
+      "Crusoe": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Decart": [
+        {
+          "create_1h": 0.1275,
+          "create_5m": 0.1275,
+          "fresh": 0.1275,
+          "from": null,
+          "note": "15% off",
+          "output": 0.425,
+          "read": 0.0255
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 0.075,
+          "create_5m": 0.075,
+          "fresh": 0.075,
+          "from": null,
+          "note": "50% off",
+          "output": 0.25,
+          "read": 0.015
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Fireworks": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Friendli": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.09,
+          "create_5m": 0.09,
+          "fresh": 0.09,
+          "from": null,
+          "note": "40% off",
+          "output": 0.3,
+          "read": 0.018
+        }
+      ],
+      "Inceptron": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.07
+        }
+      ],
+      "InferenceNet": [
+        {
+          "create_1h": 0.045,
+          "create_5m": 0.045,
+          "fresh": 0.045,
+          "from": null,
+          "note": "50% off",
+          "output": 0.14,
+          "read": 0.01
+        }
+      ],
+      "Io Net": [
+        {
+          "create_1h": 0.1425,
+          "create_5m": 0.1425,
+          "fresh": 0.1425,
+          "from": null,
+          "note": "5% off",
+          "output": 0.475,
+          "read": 0.0285
+        }
+      ],
+      "Modal": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Morph": [
+        {
+          "create_1h": 0.098,
+          "create_5m": 0.098,
+          "fresh": 0.098,
+          "from": null,
+          "note": "2% off",
+          "output": 0.343,
+          "read": 0.0196
+        }
+      ],
+      "Near AI": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.035
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 0.165,
+          "create_5m": 0.165,
+          "fresh": 0.165,
+          "from": null,
+          "output": 0.55,
+          "read": 0.033
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.132,
+          "create_5m": 0.132,
+          "fresh": 0.132,
+          "from": null,
+          "note": "12% off",
+          "output": 0.44,
+          "read": 0.0264
+        }
+      ],
+      "OpenInference": [
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": null,
+          "output": 0.5,
+          "read": 0.025
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Phala": [
+        {
+          "create_1h": 0.1275,
+          "create_5m": 0.1275,
+          "fresh": 0.1275,
+          "from": null,
+          "note": "15% off",
+          "output": 0.425,
+          "read": 0.0255
+        }
+      ],
+      "Reka": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": null,
+          "output": 0.28,
+          "read": 0.02
+        }
+      ],
+      "Sail Research": [
+        {
+          "create_1h": 0.045,
+          "create_5m": 0.045,
+          "fresh": 0.045,
+          "from": null,
+          "output": 0.6,
+          "read": 0.0285
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.141,
+          "create_5m": 0.141,
+          "fresh": 0.141,
+          "from": null,
+          "note": "6% off",
+          "output": 0.47,
+          "read": 0.0282
+        }
+      ],
+      "Together": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ],
+      "Wafer": [
+        {
+          "create_1h": 0.089,
+          "create_5m": 0.089,
+          "fresh": 0.089,
+          "from": null,
+          "output": 0.35,
+          "read": 0.03
+        }
+      ],
+      "Z.AI": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.5,
+          "read": 0.03
+        }
+      ]
+    }
+  }
+}
