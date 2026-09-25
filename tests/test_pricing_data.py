@@ -16,8 +16,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
+from backend import app as app_mod
 from backend import pricing
+from backend import session as session_mod
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSER_JS = ROOT / "src" / "parser.js"
@@ -84,12 +87,7 @@ def _cases(doc: dict) -> list[tuple[str, str | None, str | None]]:
             for model, host, _ in _histories(doc) for stamp in stamps]
 
 
-def _node(parser_js, body: str):
-    script = f"""
-      global.window = {{}};
-      require({str(parser_js)!r});
-      {body}
-    """
+def _node_raw(script: str):
     proc = subprocess.run(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         # Return code checked by hand on the next line.
@@ -97,6 +95,14 @@ def _node(parser_js, body: str):
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
+
+
+def _node(parser_js, body: str):
+    return _node_raw(f"""
+      global.window = {{}};
+      require({str(parser_js)!r});
+      {body}
+    """)
 
 
 def _js_rates(js: dict) -> dict:
@@ -273,22 +279,190 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_browser(
     assert int(cut.timestamp() * 1000) in got["epochs"]
 
 
-@pytest.mark.parametrize("damage", [
+def _set_rate(value):
+    return lambda h: h[-1].update({"read": value})
+
+
+def _later(**fields):
+    return lambda h: h.append({**h[-1], **fields})
+
+
+DAMAGE = [
     pytest.param(lambda h: h[0].update({"from": CUT}), id="first-has-from"),
-    pytest.param(lambda h: h.append({**h[-1], "from": None}),
-                 id="later-lacks-from"),
+    pytest.param(lambda h: h[0].pop("from"), id="first-lacks-from-key"),
+    pytest.param(_later(**{"from": None}), id="later-lacks-from"),
+    pytest.param(lambda h: h.append(
+        {k: v for k, v in h[-1].items() if k != "from"}),
+        id="later-lacks-from-key"),
     pytest.param(lambda h: h.extend([{**h[-1], "from": CUT},
                                      {**h[-1], "from": CUT}]),
                  id="from-not-increasing"),
     pytest.param(lambda h: h[-1].pop("read"), id="missing-rate"),
     pytest.param(lambda h: h[-1].update({"reed": 1.0}), id="unknown-field"),
-    pytest.param(lambda h: h.append({**h[-1], "from": "2031-01-01T00:00:00"}),
-                 id="naive-from"),
-])
-def test_a_malformed_history_is_refused(damage):
-    """A misordered or rewritten history would silently misprice, so the
-    loader refuses it and the suite goes red instead."""
+    pytest.param(_later(**{"from": "2031-01-01T00:00:00"}), id="naive-from"),
+    pytest.param(_later(**{"from": "2031-01-01 00:00:00Z"}),
+                 id="space-separated-from"),
+    pytest.param(_later(**{"from": "20310101T000000Z"}), id="basic-format-from"),
+    pytest.param(_later(**{"from": 1924992000}), id="numeric-from"),
+    pytest.param(_set_rate("0.031"), id="string-rate"),
+    pytest.param(_set_rate(None), id="null-rate"),
+    pytest.param(_set_rate(-0.01), id="negative-rate"),
+    pytest.param(_set_rate(True), id="bool-rate"),
+    pytest.param(_set_rate(float("inf")), id="infinite-rate"),
+    pytest.param(_set_rate(float("nan")), id="nan-rate"),
+    pytest.param(lambda h: h[-1].update({"note": 5}), id="non-string-note"),
+]
+# JSON has no spelling for these, so the browser refuses them at parse
+# time, before any row is read: the error names the file, not the row.
+UNSPELLABLE_IN_JSON = {"infinite-rate", "nan-rate"}
+
+
+def _damaged(damage) -> dict:
     doc = copy.deepcopy(_doc())
     damage(doc["models"]["glm-5-3-flash"])
-    with pytest.raises(ValueError, match="glm-5-3-flash"):
-        pricing.load_tables(doc)
+    return doc
+
+
+@pytest.mark.parametrize("damage", DAMAGE)
+def test_a_malformed_history_is_refused(damage):
+    """A misordered or rewritten history, or a rate that is not a finite
+    non-negative number, would silently misprice or crash ingest, so the
+    loader refuses it, naming the row, and the suite goes red instead."""
+    with pytest.raises(ValueError, match=r"glm-5-3-flash\[\d+\]"):
+        pricing.load_tables(_damaged(damage))
+
+
+def _node_load(tmp_path, doc: dict) -> str | None:
+    """Require the real parser.js beside `doc`; the load error, if any."""
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    return _node_raw(f"""
+      global.window = {{}};
+      let error = null;
+      try {{ require({str(tmp_path / "parser.js")!r}); }}
+      catch (e) {{ error = e.message; }}
+      console.log(JSON.stringify(error));
+    """)
+
+
+@needs_node
+@pytest.mark.parametrize("damage", DAMAGE)
+def test_a_malformed_history_is_refused_in_the_browser(tmp_path, request, damage):
+    error = _node_load(tmp_path, _damaged(damage))
+    assert error and error.startswith("pricing.json: "), error
+    if request.node.callspec.id not in UNSPELLABLE_IN_JSON:
+        assert re.search(r"glm-5-3-flash\[\d+\]", error), error
+
+
+def _provider_string_rate() -> dict:
+    doc = copy.deepcopy(_doc())
+    doc["providers"]["deepseek/deepseek-v4-flash"]["Azure"][-1]["read"] = "0.031"
+    return doc
+
+
+def test_a_string_provider_rate_is_refused_naming_the_row():
+    with pytest.raises(ValueError, match="deepseek/deepseek-v4-flash via Azure"):
+        pricing.load_tables(_provider_string_rate())
+
+
+@needs_node
+def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_path):
+    error = _node_load(tmp_path, _provider_string_rate())
+    assert error and "deepseek/deepseek-v4-flash via Azure" in error, error
+
+
+# --- the browser load path ---------------------------------------------------
+# node has no document or XMLHttpRequest, so parser.js takes its require path
+# there. These stub both, so the path the browser actually runs is exercised.
+
+ORIGIN = "https://claudit.example"
+
+
+def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
+                  body: str | None = None, redirected_to: str | None = None):
+    """Load the real parser.js as a page would: currentScript is
+    /src/parser.js?v=1 on a page at /dashboard/deep/path."""
+    dataset = {"pricing": pricing_attr} if pricing_attr else {}
+    body = PRICING_JSON.read_text(encoding="utf-8") if body is None else body
+    return _node_raw(f"""
+      global.window = {{}};
+      const requests = [];
+      global.document = {{
+        baseURI: {json.dumps(ORIGIN + "/dashboard/deep/path")},
+        currentScript: {{ src: {json.dumps(ORIGIN + "/src/parser.js?v=1")},
+                          dataset: {json.dumps(dataset)} }},
+      }};
+      global.XMLHttpRequest = class {{
+        open(method, url, async) {{
+          this.url = String(url);
+          requests.push({{ method, url: this.url, async, headers: {{}} }});
+        }}
+        setRequestHeader(name, value) {{
+          requests[requests.length - 1].headers[name] = value;
+        }}
+        send() {{
+          this.status = {status};
+          this.responseText = {json.dumps(body)};
+          this.responseURL = {json.dumps(redirected_to)} || this.url;
+        }}
+      }};
+      let error = null;
+      try {{ require({str(PARSER_JS)!r}); }} catch (e) {{ error = e.message; }}
+      console.log(JSON.stringify({{
+        requests, error,
+        fresh: typeof window.rateForModel === 'function'
+          ? window.rateForModel('claude-opus-4-7').fresh : null,
+      }}));
+    """)
+
+
+@needs_node
+def test_the_browser_loads_the_url_the_page_names_synchronously():
+    got = _browser_load(pricing_attr="/src/pricing.json?v=7")
+    assert got["error"] is None
+    assert got["requests"] == [{
+        "method": "GET", "url": ORIGIN + "/src/pricing.json?v=7",
+        "async": False, "headers": {"Cache-Control": "no-cache"},
+    }]
+    assert got["fresh"] == pricing.MODEL_RATES["claude-opus-4-7"]["fresh"]
+
+
+@needs_node
+def test_with_no_url_named_the_browser_loads_the_file_beside_the_script():
+    """Resolved against the script, not the page: the page may sit at any
+    depth, the script is always /src/parser.js."""
+    got = _browser_load()
+    assert got["error"] is None
+    assert [r["url"] for r in got["requests"]] == [ORIGIN + "/src/pricing.json"]
+    assert got["requests"][0]["async"] is False
+
+
+@needs_node
+@pytest.mark.parametrize("response, reason", [
+    pytest.param({"status": 404}, "HTTP 404", id="not-found"),
+    pytest.param({"status": 200, "body": "<!doctype html><title>Sign in</title>",
+                  "redirected_to": ORIGIN + "/login"},
+                 "redirected to " + ORIGIN + "/login", id="signed-out"),
+    pytest.param({"status": 200, "body": "{not json"}, "not JSON", id="garbled"),
+])
+def test_a_failed_browser_load_throws_naming_the_file(response, reason):
+    """No rates means no honest price, so the script stops rather than
+    priming the resolver with nothing; the thrown error names the file and
+    the cause — a signed-out redirect included, which would otherwise
+    surface as a bare JSON syntax error."""
+    got = _browser_load(**response)
+    assert got["error"].startswith("pricing.json: "), got["error"]
+    assert reason in got["error"], got["error"]
+
+
+def test_the_page_names_the_file_with_its_own_cache_bust():
+    """Every /src asset the page loads carries ?v=<mtime>, so an edge cache
+    serves a fresh copy the moment the file changes; pricing.json too."""
+    client = TestClient(app_mod.app)
+    client.cookies.set(session_mod.SESSION_COOKIE_NAME,
+                       session_mod.make_guest_session_token())
+    page = client.get("/").text
+    version = int(PRICING_JSON.stat().st_mtime)
+    tag = re.search(r'<script src="/src/parser\.js[^"]*"[^>]*>', page)
+    assert tag, page
+    assert f'data-pricing="/src/pricing.json?v={version}"' in tag.group(0)

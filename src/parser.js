@@ -318,29 +318,83 @@ window.parseTranscript = function parseTranscript(text, opts) {
 //
 // Read synchronously, so window.rateForModel works the moment this script
 // has run — the app prices during render with no hook to await a load.
-// Node (the test suite) reads the file beside this module; the browser
-// fetches it relative to this script's own URL, revalidating so a rate
-// change is never served from a stale cache.
-function _loadPricing() {
+// Node (the test suite) reads the file beside this module. The browser
+// fetches the URL the page names on this script tag (data-pricing, which
+// the backend cache-busts like every /src asset), else the file beside this
+// script, and revalidates either way.
+//
+// Any failure throws naming pricing.json: with no valid rates there is no
+// honest price, so the resolver is never defined over nothing.
+const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
+
+function _readPricing() {
   if (typeof document === 'undefined') {
-    return require('./pricing.json');  // eslint-disable-line no-undef
+    try {
+      return require('./pricing.json');  // eslint-disable-line no-undef
+    } catch (e) {
+      throw _pricingError(e.message);
+    }
   }
+  const script = document.currentScript;
+  const url = new URL(script.dataset.pricing || 'pricing.json', script.src).href;
   const xhr = new XMLHttpRequest();
-  xhr.open('GET', new URL('pricing.json', document.currentScript.src), false);
+  xhr.open('GET', url, false);
   xhr.setRequestHeader('Cache-Control', 'no-cache');
   xhr.send();
-  if (xhr.status !== 200) throw new Error(`pricing.json: HTTP ${xhr.status}`);
-  return JSON.parse(xhr.responseText);
+  if (xhr.status !== 200) throw _pricingError(`HTTP ${xhr.status} from ${url}`);
+  // Signed out, the request is redirected to the sign-in page, which is a 200.
+  if (xhr.responseURL !== url) throw _pricingError(`redirected to ${xhr.responseURL}`);
+  try {
+    return JSON.parse(xhr.responseText);
+  } catch (e) {
+    throw _pricingError(`not JSON (${e.message})`);
+  }
 }
 
 const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
+const _FIELD_NAMES = Object.values(_RATE_FIELDS).sort().join();
 const _ratesOf = (entry) => Object.fromEntries(
   Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]]));
+// The one timestamp spelling both loaders accept. Mirrors pricing._INSTANT.
+const _INSTANT = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
+const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+// Refuses what pricing._history refuses, naming the row the same way.
+function _checkHistory(entries, where) {
+  if (!entries.length) throw _pricingError(`${where}: empty history`);
+  let previous = null;
+  entries.forEach((entry, i) => {
+    const at = `${where}[${i}]`;
+    const fields = Object.keys(entry).filter((k) => k !== 'from' && k !== 'note');
+    if (fields.sort().join() !== _FIELD_NAMES || !('from' in entry)) {
+      throw _pricingError(`${at}: fields ${Object.keys(entry).sort()}`);
+    }
+    const bad = Object.values(_RATE_FIELDS).filter((f) => !_isRate(entry[f]));
+    if (bad.length) throw _pricingError(`${at}: ${bad} not a finite non-negative number`);
+    if ('note' in entry && typeof entry.note !== 'string') {
+      throw _pricingError(`${at}: 'note' is not a string`);
+    }
+    if ((entry.from === null) !== (i === 0)) {
+      throw _pricingError(`${at}: only the first entry has no 'from'`);
+    }
+    if (entry.from === null) return;
+    const start = typeof entry.from === 'string' && _INSTANT.test(entry.from)
+      ? Date.parse(entry.from) : NaN;
+    if (Number.isNaN(start)) {
+      throw _pricingError(`${at}: ${JSON.stringify(entry.from)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
+    }
+    if (previous !== null && start <= previous) {
+      throw _pricingError(`${at}: 'from' is not after the previous entry's`);
+    }
+    previous = start;
+  });
+}
 
 // A row's append-only history, oldest first: the newest entry is the list
 // price, and each earlier one a window ending where its successor starts.
 // Mirrors pricing._history.
-function _history(entries) {
+function _history(entries, where) {
+  _checkHistory(entries, where);
   return {
     list: _ratesOf(entries[entries.length - 1]),
     windows: entries.slice(0, -1).map((entry, i) => (
@@ -348,11 +402,11 @@ function _history(entries) {
   };
 }
 
-const _PRICING = _loadPricing();
+const _PRICING = _readPricing();
 window.modelRates = {};
 window.datedRates = {};
 for (const [key, entries] of Object.entries(_PRICING.models)) {
-  const { list, windows } = _history(entries);
+  const { list, windows } = _history(entries, key);
   window.modelRates[key] = list;
   if (windows.length) window.datedRates[key] = windows;
 }
@@ -362,7 +416,7 @@ window.providerRates = {};
 window.providerDatedRates = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows } = _history(entries);
+    const { list, windows } = _history(entries, `${model} via ${host}`);
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {
       (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
