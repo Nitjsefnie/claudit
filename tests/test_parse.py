@@ -1009,3 +1009,21 @@ def test_provider_merges_across_streaming_chunks_first_non_null_wins():
     assert carried["fresh_tokens"] == 1000
     assert kept["output_tokens"] == 300         # max(100, 300)
     assert kept["fresh_tokens"] == 1000
+
+
+def test_provider_strips_surrounding_whitespace():
+    """message.provider is stored stripped: ' Chutes ' is the host Chutes,
+    and a whitespace-only value is no provider at all."""
+    provider = parse._provider  # pylint: disable=protected-access
+    assert provider({"provider": " Chutes "}) == "Chutes"
+    assert provider({"provider": "   "}) is None
+
+
+def test_provider_non_string_values_are_none():
+    """A malformed line whose provider is not a string stores NULL rather
+    than raising or stringifying the value; a missing key is the normal
+    no-provider shape."""
+    provider = parse._provider  # pylint: disable=protected-access
+    for value in (42, None, ["Novita"]):
+        assert provider({"provider": value}) is None, value
+    assert provider({}) is None
