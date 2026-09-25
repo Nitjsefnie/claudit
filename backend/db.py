@@ -10,12 +10,15 @@ The pools never join across DBs.
 """
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import LiteralString, cast
 
 from psycopg_pool import ConnectionPool
+
+log = logging.getLogger("claudit.db")
 
 _VIZ: ConnectionPool | None = None
 _AUTH: ConnectionPool | None = None
@@ -170,8 +173,20 @@ def apply_schema() -> None:
             c.execute(sql_text(ddl))
             c.commit()
         finally:
-            c.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))
-            c.commit()
+            # Issue #154: the unlock (and the commit ending its
+            # transaction) must never mask the DDL's own error — the
+            # diagnosable one. Either failure leaves the lock free or the
+            # boot dead: a dead session's lock died with it, and an unlock
+            # blocked by the failed DDL's aborted transaction accompanies
+            # a migration error that aborts this boot, whose exit takes
+            # every pooled session — lock included — with it.
+            try:
+                c.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))
+                c.commit()
+            except Exception as exc:
+                log.warning(
+                    "schema advisory-lock unlock failed; the migration's "
+                    "own error, if any, is preserved: %s", exc)
 
 
 def schema_check() -> None:
