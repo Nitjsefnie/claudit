@@ -385,7 +385,13 @@
     "data_region": "global",
     "models": {
       "deepseek/deepseek-v4-1-flash": {
-        "id": "deepseek/deepseek-v4.1-flash"
+        "id": "deepseek/deepseek-v4.1-flash",
+        "resolve": {
+          "BaseTen": {
+            "select": "cheapest",
+            "why": "BaseTen lists this model twice under one tag, quantization and limits, with nothing but the price to tell them apart: a global endpoint and a US in-region one. The account's keys reach only the global data region, and a region-premium twin is the dearer one (here cache read 0.03 against 0.007)."
+          }
+        }
       },
       "deepseek/deepseek-v4-flash": {
         "id": "deepseek/deepseek-v4-flash"

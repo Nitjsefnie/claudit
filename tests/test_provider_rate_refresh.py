@@ -82,14 +82,18 @@ def _discount(entry: dict) -> float:
 def _payloads(doc: dict) -> dict:
     """Every tracked model's endpoints payload, reproducing the newest
     entry of every provider row. BaseTen's deepseek-v4.1-flash lists its
-    two real endpoints, one the pinned resolution picks."""
+    two endpoints as OpenRouter does: the same tag, quantization and limits,
+    cache reads 0.007 and 0.03."""
     out = {}
     for key, hosts in doc["providers"].items():
         endpoints = [_endpoint(host, history[-1], _discount(history[-1]))
                      for host, history in hosts.items()]
         if key == V41:
+            for endpoint in endpoints:
+                if endpoint["provider_name"] == "BaseTen":
+                    endpoint["tag"] = "baseten/fp8"
             us_region = {**hosts["BaseTen"][-1], "read": 0.03}
-            endpoints.append(_endpoint("BaseTen", us_region, tag="baseten/us"))
+            endpoints.append(_endpoint("BaseTen", us_region, tag="baseten/fp8"))
         model_id = doc["openrouter"]["models"][key]["id"]
         out[model_id] = {"data": {"id": model_id, "name": model_id,
                                   "endpoints": endpoints}}
@@ -420,20 +424,32 @@ def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
     _refused(run, capsys, f"{GLM} via Novita", V41)
 
 
-def test_a_refused_run_still_reports_what_the_rest_would_append(tmp_path, capsys):
-    """The red run's report is what a human reads to decide; it shows every
-    other model's moves beside the refusal, and still writes nothing."""
-    run = Run(tmp_path)
-    _move_openinference(run)
-    for endpoint in run.endpoints(V41):
-        if endpoint["provider_name"] == "BaseTen":
-            endpoint["tag"] = "baseten/fp8"
-    before = run.snapshot()
+def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
+    """Every other move is committed, with the PARSER_VERSION bump; the
+    refused host's row is untouched; the run still exits nonzero, and both
+    its report and the commit message name the refusal."""
+    run = Run(tmp_path, parser_version="73")
+    before = run.doc()
+    moved = _move_openinference(run)
+    _two_global_novitas(run)
     rc, out, err = run(capsys)
     assert rc != 0
-    assert "OpenInference" in out and "0.1 → 0.07" in out
-    assert f"{V41} via BaseTen" in err and "baseten/fp8" in err
-    assert run.snapshot() == before and not run.commit_msg.exists()
+    after = run.doc()
+    assert after["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **moved}
+    assert after["providers"][GLM]["Novita"] == before["providers"][GLM]["Novita"]
+    assert run.parser_version() == 74
+    assert "OpenInference" in out and f"{GLM} via Novita" in out
+    assert not re.search(r"vanished\s+Novita", out), "refused is not vanished"
+    assert f"{GLM} via Novita" in err
+    message = run.commit_msg.read_text(encoding="utf-8")
+    assert message.startswith("Refresh OpenRouter provider rates: 1 changed")
+    assert f"{GLM} via Novita" in message
+
+
+def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
+    run = Run(tmp_path)
+    _two_global_novitas(run)
+    _refused(run, capsys, f"{GLM} via Novita")
 
 
 # --- the data region -----------------------------------------------------------
@@ -460,26 +476,29 @@ def test_the_region_a_tag_names(tag, region):
     assert refresh.tag_region(tag) == region
 
 
-def _baseten(run: Run, tag: str) -> dict:
-    return next(e for e in run.endpoints(V41)
-                if e["provider_name"] == "BaseTen" and e["tag"] == tag)
+def _novita_region_twin(run: Run) -> dict:
+    """A dearer copy of GLM's Novita endpoint tagged novita/us."""
+    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
+    twin["tag"] = "novita/us"
+    twin["pricing"]["input_cache_read"] = "0.00000005"
+    run.endpoints(GLM).append(twin)
+    return twin
 
 
 def test_the_global_endpoint_is_taken_over_a_region_one(tmp_path, capsys):
-    """BaseTen lists deepseek-v4.1-flash globally (cache read 0.007) and in
-    the US (0.03). The global price moving is a move — the rule does not
-    stop matching the way a pin on the old price would."""
+    """The global price moving is a move — the rule does not stop matching
+    the way a pin on the old price would."""
     run = Run(tmp_path)
-    _baseten(run, "baseten")["pricing"]["completion"] = "0.0000013"
-    _baseten(run, "baseten")["pricing"]["input_cache_read"] = "0.000000008"
+    _novita_region_twin(run)
+    run.endpoint(GLM, "Novita")["pricing"]["completion"] = "0.0000005"
     assert run(capsys)[0] == 0
-    entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.008, 1.3)
+    entry = run.doc()["providers"][GLM]["Novita"][-1]
+    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.0264, 0.5)
 
 
 def test_a_region_endpoint_moving_alone_moves_nothing(tmp_path, capsys):
     run = Run(tmp_path)
-    _baseten(run, "baseten/us")["pricing"]["completion"] = "0.000002"
+    _novita_region_twin(run)["pricing"]["completion"] = "0.000002"
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
@@ -523,14 +542,15 @@ def test_a_named_data_region_takes_that_region(tmp_path, capsys):
     run = Run(tmp_path)
     run.edit(lambda doc: doc["openrouter"].update({"data_region": "us"}))
     for model in run.doc()["providers"]:
-        if model != V41:
-            for endpoint in run.endpoints(model):
-                endpoint["tag"] = endpoint["tag"].split("/")[0] + "/us"
-    run.endpoints(V41)[:] = [e for e in run.endpoints(V41)
-                             if e["provider_name"] == "BaseTen"]
-    _baseten(run, "baseten")["tag"] = "baseten/eu"
+        for endpoint in run.endpoints(model):
+            endpoint["tag"] = endpoint["tag"].split("/")[0] + "/us"
+    global_novita = copy.deepcopy(run.endpoint(GLM, "Novita"))
+    global_novita["tag"] = "novita"
+    global_novita["pricing"]["input_cache_read"] = "0.00000009"
+    run.endpoints(GLM).append(global_novita)
+    run.endpoint(GLM, "Novita")["pricing"]["input_cache_read"] = "0.00000005"
     assert run(capsys)[0] == 0
-    assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
+    assert run.doc()["providers"][GLM]["Novita"][-1]["read"] == 0.05
 
 
 @pytest.mark.parametrize("region", [None, "", "US", "the-us", 5])
@@ -567,10 +587,10 @@ def test_a_tag_override_takes_its_endpoint(tmp_path, capsys):
 
 def test_a_tag_override_takes_its_endpoint_whatever_its_region(tmp_path, capsys):
     run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
-        {"resolve": {"BaseTen": {"tag": "baseten/us", "why": "fixture"}}}))
+    _novita_region_twin(run)
+    run.edit(_pin_novita("novita/us"))
     assert run(capsys)[0] == 0
-    assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
+    assert run.doc()["providers"][GLM]["Novita"][-1]["read"] == 0.05
 
 
 def test_a_tag_override_naming_no_listed_tag_is_refused(tmp_path, capsys):
@@ -591,6 +611,125 @@ def test_a_resolution_keyed_on_a_rate_is_refused(tmp_path, capsys, pin):
     run.edit(lambda doc: doc["openrouter"]["models"][GLM].update(
         {"resolve": {"Novita": pin}}))
     _refused(run, capsys, "Novita", "keyed on 'tag'")
+
+
+# --- choosing the cheaper of identical twins ----------------------------------
+# BaseTen lists deepseek-v4.1-flash twice with nothing but the price to tell
+# the two apart; the file resolves it by price ORDER, which survives a price
+# moving and breaks only when the order flips.
+
+
+def _baseten_twins(run: Run) -> list[dict]:
+    """[cheaper, dearer] by cache read."""
+    twins = [e for e in run.endpoints(V41) if e["provider_name"] == "BaseTen"]
+    return sorted(twins, key=lambda e: Decimal(e["pricing"]["input_cache_read"]))
+
+
+def test_baseten_is_resolved_by_price_order_as_data():
+    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+    pin = doc["openrouter"]["models"][V41]["resolve"]["BaseTen"]
+    assert pin["select"] == "cheapest" and pin["why"]
+    assert set(pin) == {"select", "why"}
+
+
+def test_identical_twins_without_an_override_are_refused(tmp_path, capsys):
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].pop("resolve"))
+    _refused(run, capsys, f"{V41} via BaseTen", "baseten/fp8")
+
+
+def test_a_moved_price_on_the_cheaper_twin_is_appended(tmp_path, capsys):
+    run = Run(tmp_path)
+    cheaper, _ = _baseten_twins(run)
+    cheaper["pricing"]["input_cache_read"] = "0.000000008"
+    cheaper["pricing"]["completion"] = "0.0000013"
+    assert run(capsys)[0] == 0
+    entry = run.doc()["providers"][V41]["BaseTen"][-1]
+    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.008, 1.3)
+
+
+def test_a_moved_price_on_the_dearer_twin_moves_nothing(tmp_path, capsys):
+    run = Run(tmp_path)
+    _, dearer = _baseten_twins(run)
+    dearer["pricing"]["completion"] = "0.000002"
+    before = run.snapshot()
+    assert run(capsys)[0] == 0
+    assert run.snapshot() == before
+
+
+def test_a_flip_in_order_is_refused(tmp_path, capsys):
+    """The twin whose price the row holds is no longer the cheaper one:
+    which twin the account reaches is exactly what a human must check."""
+    run = Run(tmp_path)
+    _, dearer = _baseten_twins(run)
+    dearer["pricing"]["input_cache_read"] = "0.000000005"
+    _refused(run, capsys, f"{V41} via BaseTen", "order")
+
+
+@pytest.mark.parametrize("field, value", [
+    pytest.param("prompt", "0.0000002", id="fresh"),
+    pytest.param("completion", "0.0000011", id="output"),
+])
+def test_cheapest_compares_read_then_fresh_then_output(tmp_path, capsys, field, value):
+    """Equal cache reads fall to the input price, then the output price."""
+    run = Run(tmp_path)
+    cheaper, dearer = _baseten_twins(run)
+    cheaper["pricing"]["input_cache_read"] = "0.000000009"
+    dearer["pricing"]["input_cache_read"] = "0.000000009"
+    cheaper["pricing"][field] = value
+    assert run(capsys)[0] == 0
+    entry = run.doc()["providers"][V41]["BaseTen"][-1]
+    assert entry["from"] == STAMP
+    assert entry["fresh" if field == "prompt" else "output"] == float(
+        Decimal(value).scaleb(6))
+    assert entry["read"] == 0.009
+
+
+def test_cache_read_decides_before_the_input_price(tmp_path, capsys):
+    run = Run(tmp_path)
+    cheaper, _ = _baseten_twins(run)
+    cheaper["pricing"]["input_cache_read"] = "0.000000008"
+    cheaper["pricing"]["prompt"] = "0.0000005"
+    assert run(capsys)[0] == 0
+    entry = run.doc()["providers"][V41]["BaseTen"][-1]
+    assert (entry["read"], entry["fresh"]) == (0.008, 0.5)
+
+
+def test_a_tie_between_different_prices_is_refused(tmp_path, capsys):
+    """Same cache read, input and output, different cache write: the order
+    says nothing about which twin is which."""
+    run = Run(tmp_path)
+    cheaper, dearer = _baseten_twins(run)
+    for field in ("prompt", "completion", "input_cache_read"):
+        dearer["pricing"][field] = cheaper["pricing"][field]
+    dearer["pricing"]["input_cache_write"] = "0.0000009"
+    _refused(run, capsys, f"{V41} via BaseTen", "tie")
+
+
+@pytest.mark.parametrize("field, value", [
+    pytest.param("tag", "baseten/fp4", id="tag"),
+    pytest.param("quantization", "fp4", id="quantization"),
+    pytest.param("context_length", 65536, id="context-length"),
+    pytest.param("max_completion_tokens", 1024, id="max-completion"),
+])
+def test_cheapest_applies_only_to_otherwise_identical_twins(
+        tmp_path, capsys, field, value):
+    run = Run(tmp_path)
+    _, dearer = _baseten_twins(run)
+    dearer[field] = value
+    _refused(run, capsys, f"{V41} via BaseTen", "identical")
+
+
+@pytest.mark.parametrize("pin", [
+    pytest.param({"select": "dearest", "why": "x"}, id="unknown-select"),
+    pytest.param({"select": "cheapest", "tag": "baseten/fp8", "why": "x"},
+                 id="select-and-tag"),
+])
+def test_a_malformed_order_override_is_refused(tmp_path, capsys, pin):
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        {"resolve": {"BaseTen": pin}}))
+    _refused(run, capsys, f"{V41} via BaseTen", "a resolution is keyed on")
 
 
 @pytest.mark.parametrize("damage", [

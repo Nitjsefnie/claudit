@@ -603,22 +603,40 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
   `provider_rates_fetched`. A run that appends nothing writes nothing.
   Every appended entry adds a rate epoch (SV-DATED-RATES), so the epoch
   list and the read-time `CASE` over it grow with each detected move.
-- Ambiguity is a red run, never a guess. These exit nonzero and write
-  nothing:
+- Ambiguity is never a guess. Each of these refuses the host, or the
+  model, it concerns, whose rows stay untouched:
   - a host with two endpoints inside the data region at different prices
-    (quantization variants, say), named by tag;
-  - a per-host pin that names no listed tag;
-  - a resolution keyed on anything but a tag;
+    (quantization variants, say) and no resolution, named by tag;
+  - a resolution that no longer applies: a pinned tag not listed, or
+    twins under `cheapest` that differ in more than price, tie in price
+    order, or have flipped order;
+  - a resolution keyed on anything else, a price included;
   - an unrecognised response shape;
-  - a tracked model with no endpoints, or none in the data region;
-  - a detection time not after a row's newest entry.
+  - a tracked model with no endpoints, or none in the data region.
 
-  The red run still reports what every other model would append, so the
-  decision is made with the whole picture. The fix is a human decision
-  recorded as data. A per-host pin,
-  `openrouter.models.<model>.resolve.<host>`, is `{"tag": ..., "why":
-  ...}` and takes that tag's endpoint whatever its region. It is never a
-  price: a pin on a price stops matching the moment that price moves.
+  A refusal blocks only itself. Every other move is still appended,
+  tested and committed with the `PARSER_VERSION` bump, and then the run
+  exits nonzero, so it is red and its summary names each refused host.
+  A detection time not after a row's newest entry is the one refusal
+  that writes nothing at all: the loaders refuse the whole file.
+
+  The fix is a human decision recorded as data, in
+  `openrouter.models.<model>.resolve.<host>`, with a `why`. There are two
+  forms:
+  - `{"tag": ...}` takes that tag's endpoint, whatever its region.
+  - `{"select": "cheapest"}` takes the cheaper of endpoints identical in
+    tag, quantization and limits. It compares cache read, then input,
+    then output. Region-premium twins are the dearer ones, so under
+    `data_region` `global` the cheaper twin is the one the account
+    reaches (Sail Research's `/us` and BaseTen's US endpoint both are).
+    The order survives a price moving and breaks only when it flips.
+    Such twins have no identity but their price, so a flip is seen when
+    the twin still listed at the row's price is no longer the cheaper. A
+    tracked twin whose own price crosses the other's between two runs
+    cannot be told from a normal move.
+
+  A resolution is never a price value: a pin on a price stops matching
+  the moment that price moves.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 

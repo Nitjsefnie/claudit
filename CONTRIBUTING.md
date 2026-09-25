@@ -46,7 +46,7 @@ The rules that reject the most patches, in order:
 | `SV-COST-SPLIT` | Pricing a cache write at a single rate. 5m is 1.25x input, 1h is 2x. |
 | `SV-PARSER-SPEC` | Changing rate resolution in `backend/pricing.py` without mirroring `src/parser.js` (or vice versa). |
 | `SV-RATE-DATA` | A rate anywhere but `src/pricing.json`, or rewriting an entry of its history instead of appending one. |
-| `SV-RATE-REFRESH` | Back-dating, editing or deleting a provider-rate entry, taking one of a host's two in-region prices without a tag pinned as data, or pinning a price instead of a tag. |
+| `SV-RATE-REFRESH` | Back-dating, editing or deleting a provider-rate entry, taking one of a host's two in-region prices without a resolution recorded as data (a tag, or the cheaper of otherwise identical twins), or pinning a price value. |
 | `SV-DATED-RATES` | Pricing a record at "now" instead of the record's own timestamp. |
 | `SV-NO-LOCAL-UPLOAD` | Re-adding a file picker, drag-drop, or an upload endpoint. It was removed deliberately. |
 | `SV-FIXTURE-SIZE` | Committing large fixtures. Parser fixtures stay under 1 KB. |
@@ -137,7 +137,7 @@ The rest need GitHub and run on their own:
 | `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. |
 | `speed` | Runs the last release's suite and yours on the same runner, interleaved, and fails if the tests present in both got more than 30% slower. |
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. |
-| `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a human decision is needed, such as a host listing one model at two prices; see SV-RATE-REFRESH. |
+| `refresh-pricing` | Hourly (and on dispatch): re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the moment it was seen, bumps `PARSER_VERSION`, and commits to `master` after the suite passes. A red run means a host needs a human decision, such as one listing a model at two prices; every other host's moves are still committed. See SV-RATE-REFRESH. |
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
