@@ -216,10 +216,12 @@ def _db_run_lock() -> Iterator[bool]:
             yield acquired
         finally:
             if acquired:
-                # Issue #154: the unlock must never mask the body's error
-                # (the expected failure is the lock session dying mid-run,
-                # and the server releases a session-scoped advisory lock
-                # at session death), so the swallow leaves no stale lock.
+                # Issue #154: the unlock must never mask the body's error;
+                # the swallow leaves no stale lock either way — the expected
+                # failure is the lock session dying mid-run, where the
+                # server releases a session-scoped advisory lock at session
+                # death, and a still-live session is ended by the close()
+                # in the outer finally on every exit path regardless.
                 try:
                     conn.execute(  # pylint: disable=no-member
                         "SELECT pg_advisory_unlock(%s)", (_INGEST_LOCK_KEY,))
@@ -227,7 +229,9 @@ def _db_run_lock() -> Iterator[bool]:
                     log.warning(
                         "ingest advisory-lock unlock failed; the lock is "
                         "released server-side when the lock session dies, "
-                        "and any in-flight run error is preserved: %s", exc)
+                        "and a still-live session is ended by the close() "
+                        "in the outer finally; any in-flight run error is "
+                        "preserved: %s", exc)
     finally:
         conn.close()  # pylint: disable=no-member
 
