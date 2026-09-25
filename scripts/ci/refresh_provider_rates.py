@@ -9,7 +9,9 @@ PARSER_VERSION in backend/constants.py by one from whatever it holds, and
 moves provider_rates_fetched; a run that appends nothing writes nothing.
 
 Only endpoints in the account's data region count (tag_region). A host's
-weekly time-of-day prices (pricing.overrides) become its entry's schedule.
+weekly time-of-day prices (pricing.overrides) become its entry's schedule;
+its top-level price is the entry's default only when the fetch falls
+outside every window, since inside one it is that window's price.
 These refuse the host or model they concern, which appends nothing:
 - a host with two endpoints in that region at different prices and no
   resolution for it (a tag, or "cheapest" of otherwise identical twins);
@@ -34,6 +36,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from itertools import combinations
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -144,6 +147,17 @@ def _rates(price: dict, where: str) -> dict:
             "read": read, "output": output}
 
 
+def _as_listed(rates: dict) -> dict:
+    """The pricing OpenRouter lists for `rates`: _rates' inverse."""
+    price = {key: format(Decimal(repr(rates[f])).scaleb(-6).normalize(), "f")
+             for key, f in (("prompt", "fresh"), ("completion", "output"),
+                            ("input_cache_read", "read"))}
+    if rates["create_5m"] != rates["fresh"]:
+        price["input_cache_write"] = format(
+            Decimal(repr(rates["create_5m"])).scaleb(-6).normalize(), "f")
+    return price
+
+
 def _schedule(price: dict, where: str) -> list | None:
     """The entry schedule for OpenRouter's pricing.overrides: weekly UTC
     windows (utc_days, utc_start/utc_end as HHMM), each with the prices it
@@ -174,9 +188,20 @@ def _schedule(price: dict, where: str) -> list | None:
     return schedule
 
 
-def _listing(endpoint: object, where: str) -> Listing:
-    """One listed endpoint. The listed price already has any promotional
-    discount applied; the discount is kept only as the note beside it."""
+def _in_a_window(schedule: list, at: datetime) -> bool:
+    # pylint: disable-next=protected-access
+    return pricing._scheduled(pricing._schedule(schedule, "schedule"), at) is not None
+
+
+def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> Listing:
+    """One listed endpoint at the fetch instant `at`. The listed price
+    already has any promotional discount applied; the discount is kept only
+    as the note beside it.
+
+    A scheduled host's top-level price is the window active at `at`, not a
+    stable default. So inside a window the row's own default, `kept`, stays
+    the default, and a price a window does not name is that default's. Only
+    a fetch outside every window reads the default from the listing."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
@@ -190,8 +215,11 @@ def _listing(endpoint: object, where: str) -> Listing:
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     # What tells two of one host's endpoints apart when the price does not.
     identity = json.dumps([endpoint.get(k) for k in _IDENTITY])
-    return Listing(endpoint["tag"], identity, _rates(price, where),
-                   _schedule(price, where), Decimal(str(discount)))
+    rates, schedule = _rates(price, where), _schedule(price, where)
+    if schedule and kept is not None and _in_a_window(schedule, at):
+        rates = kept
+        schedule = _schedule({**_as_listed(kept), "overrides": price["overrides"]}, where)
+    return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)))
 
 
 def tag_region(tag: str) -> str | None:
@@ -208,7 +236,7 @@ def _unknown_suffixes(tag: str) -> list[str]:
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
-                stored: dict[str, dict]
+                stored: dict[str, dict], at: datetime
                 ) -> tuple[dict[str, Listing], dict[str, str], list[str]]:
     """Each host's one listing for `model`, each refused host's reason, and
     notices for a human that refuse nothing.
@@ -219,13 +247,15 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     by, unless the file pins that host to a tag. Endpoints at one price are
     one row; several prices left over need a resolution in the file, or
     that host is refused rather than guessed. `stored` is each host's
-    current rates, which is how a price-order resolution sees its order.
+    current rates, which is how a price-order resolution sees its order,
+    and the default a scheduled host fetched inside a window keeps; `at`
+    is the fetch instant.
     """
     rows, refused, notices = {}, {}, []
     for host, endpoints in _by_host(model, payload).items():
         try:
             chosen, host_notices = _host_row(f"{model} via {host}", endpoints, region,
-                                             resolutions.get(host), stored.get(host))
+                                             resolutions.get(host), stored.get(host), at)
         except RefreshError as exc:
             refused[host] = str(exc)
             continue
@@ -249,9 +279,10 @@ def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]
 
 
 def _host_row(where: str, endpoints: list[tuple[int, object]], region: str | None,
-              pin: object, stored: dict | None) -> tuple[Listing | None, list[str]]:
+              pin: object, stored: dict | None,
+              at: datetime) -> tuple[Listing | None, list[str]]:
     """One host's listing, and its notices; RefreshError refuses the host."""
-    listed = [_listing(e, f"{where} (endpoint {i})") for i, e in endpoints]
+    listed = [_listing(e, f"{where} (endpoint {i})", at, stored) for i, e in endpoints]
     chosen, notice = _host_price(where, listed, region, pin, stored)
     notices = [f"{where}: tag {tag!r} names neither a known region nor a quantization"
                for tag in sorted({e.tag for e in listed if _unknown_suffixes(e.tag)})]
@@ -377,6 +408,21 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str) -> li
     return moves
 
 
+def _scales_alike(listing: Listing) -> bool:
+    """Whether every window is the default times one factor per window,
+    which keeps the read-time fold's Token Breakdown split exact
+    (SV-RATE-DATA)."""
+    for window in listing.schedule or []:
+        pairs = [(Decimal(repr(listing.rates[f])), Decimal(repr(window["rates"][f])))
+                 for f in RATE_FIELDS]
+        if all(base == 0 for base, _ in pairs):
+            if any(rate != 0 for _, rate in pairs):
+                return False
+        elif any(b1 * r2 != b2 * r1 for (b1, r1), (b2, r2) in combinations(pairs, 2)):
+            return False
+    return True
+
+
 def _fetch(fetch: Fetch, model: str, source: object) -> object:
     if not isinstance(source, dict) or not isinstance(source.get("id"), str):
         raise RefreshError(f"{model}: openrouter entry needs an 'id'")
@@ -423,6 +469,7 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
     refused host, or a refused model, blocks only itself: its rows are left
     untouched and every other move stands."""
     tracked, region = _sources(doc)
+    at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     result = Result(copy.deepcopy(doc), [], [], [], [])
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
@@ -431,13 +478,16 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
         try:
             rows, refused, notices = listed_rows(
                 model, _fetch(fetch, model, source), region, source.get("resolve", {}),
-                {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()})
+                {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()}, at)
         except RefreshError as exc:
             result.refusals.append(str(exc))
             continue
         result.refusals += refused.values()
         result.notices += notices
-        result.moves += _append(model, hosts, rows, stamp)
+        moves = _append(model, hosts, rows, stamp)
+        result.moves += moves
+        result.notices += [f"non-uniform schedule: Token Breakdown split is approximate "
+                           f"for {model} via {m.host}" for m in moves if not _scales_alike(m.new)]
         result.vanished += [(model, host) for host in hosts
                             if host not in rows and host not in refused]
     if result.moves:

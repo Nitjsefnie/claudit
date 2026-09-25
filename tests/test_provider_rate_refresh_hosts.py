@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import copy
 import urllib.error
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
+from backend import pricing
 from tests.test_provider_rate_refresh import (
-    GLM, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _per_token, _refused,
-    refresh)
+    GLM, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _overrides, _per_token,
+    _refused, refresh)
 
 # --- weekly schedules (pricing.overrides) ------------------------------------
 # DeepSeek and Alibaba list time-of-day prices; the seeded rows carry them
@@ -109,6 +111,135 @@ def test_a_zero_price_of_a_kind_not_modelled_is_ignored(tmp_path, capsys):
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
+
+
+# --- a scheduled host's top-level price follows the active window ------------
+# OpenRouter lists such a host's top-level price as the window active at the
+# fetch, not as a stable default, so it is the default only when the fetch
+# falls outside every window.
+# NOW is a Wednesday 00:00, inside DeepSeek's weekday 00:00-01:00 half-price
+# window; 02:00 is peak for both hosts, 15:00 half price for both.
+
+
+def _listed(rates: dict) -> dict:
+    return {"prompt": _per_token(rates["fresh"]), "completion": _per_token(rates["output"]),
+            "input_cache_read": _per_token(rates["read"])}
+
+
+def _as_listed_at(run: Run, at: datetime) -> None:
+    """Every scheduled host's top-level price as OpenRouter lists it at `at`."""
+    for model, hosts in run.doc()["providers"].items():
+        for host, history in hosts.items():
+            if schedule := history[-1].get("schedule"):
+                window = pricing._scheduled(  # pylint: disable=protected-access
+                    pricing._schedule(schedule, host), at)  # pylint: disable=protected-access
+                run.endpoint(model, host)["pricing"].update(_listed(window or history[-1]))
+
+
+def test_a_top_level_price_that_follows_the_window_moves_nothing(tmp_path, capsys):
+    run = Run(tmp_path)
+    before, version = run.snapshot(), run.parser_version()
+    for hours in (0, 2, 15, 26, 72):
+        at = NOW + timedelta(hours=hours)
+        _as_listed_at(run, at)
+        rc, out, _ = run(capsys, now=at)
+        assert rc == 0 and "no rate moved" in out, (hours, out)
+    assert run.snapshot() == before and run.parser_version() == version
+
+
+def test_a_changed_schedule_appends_one_entry_and_keeps_the_default(tmp_path, capsys):
+    run = Run(tmp_path)
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"][0]["prompt"] = _per_token(
+        stored["schedule"][0]["rates"]["fresh"] * 2)
+    for hours in (0, 2, 15):
+        _as_listed_at(run, NOW + timedelta(hours=hours))
+        assert run(capsys, now=NOW + timedelta(hours=hours))[0] == 0
+    history = run.doc()["providers"][V41]["DeepSeek"]
+    assert [e["from"] for e in history] == [None, STAMP]
+    assert {f: history[-1][f] for f in RATE_FIELDS} == {f: stored[f] for f in RATE_FIELDS}
+    assert history[-1]["schedule"][0]["rates"]["fresh"] == stored["schedule"][0]["rates"][
+        "fresh"] * 2
+
+
+def test_a_price_no_window_names_inherits_the_kept_default(tmp_path, capsys):
+    """Inside a window the top-level price is that window's, so a price an
+    override leaves out is the row's default, whichever window is active."""
+    run = Run(tmp_path)
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    del _deepseek(run)["pricing"]["overrides"][1]["completion"]
+    for hours in (2, 15, 24):
+        _as_listed_at(run, NOW + timedelta(hours=hours))
+        assert run(capsys, now=NOW + timedelta(hours=hours))[0] == 0
+    history = run.doc()["providers"][V41]["DeepSeek"]
+    assert len(history) == 2
+    assert history[-1]["schedule"][1]["rates"]["output"] == stored["output"]
+
+
+def _weekend_only(run: Run) -> dict:
+    """OpenInference on GLM at half price at weekends and its default the
+    rest of the week."""
+    stored = run.doc()["providers"][GLM]["OpenInference"][-1]
+    schedule = [{"days": ["saturday", "sunday"],
+                 "rates": {f: stored[f] / 2 for f in RATE_FIELDS}}]
+    run.edit(lambda doc: doc["providers"][GLM]["OpenInference"][-1].update(
+        schedule=schedule))
+    endpoint = run.endpoint(GLM, "OpenInference")
+    endpoint["pricing"]["overrides"] = _overrides(schedule)
+    endpoint["pricing"]["completion"] = _per_token(stored["output"] * 2)
+    return stored
+
+
+def test_a_new_top_level_price_outside_every_window_moves_the_default(tmp_path, capsys):
+    run = Run(tmp_path)
+    stored = _weekend_only(run)
+    assert run(capsys)[0] == 0
+    history = run.doc()["providers"][GLM]["OpenInference"]
+    assert history[-1]["from"] == STAMP
+    assert history[-1]["output"] == stored["output"] * 2
+    assert history[-1]["schedule"] == history[0]["schedule"]
+
+
+def test_a_new_top_level_price_inside_a_window_moves_nothing(tmp_path, capsys):
+    run = Run(tmp_path)
+    _weekend_only(run)
+    before = run.snapshot()
+    rc, out, _ = run(capsys, now=datetime(2031, 1, 4, 12, tzinfo=NOW.tzinfo))
+    assert rc == 0 and "no rate moved" in out
+    assert run.snapshot() == before
+
+
+# --- a schedule that splits the Token Breakdown only approximately ----------
+
+
+def test_a_committed_schedule_scaling_prices_unevenly_is_noticed(tmp_path, capsys):
+    run = Run(tmp_path)
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"][0]["prompt"] = _per_token(stored["fresh"])
+    rc, out, _ = run(capsys)
+    assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
+    assert ("non-uniform schedule: Token Breakdown split is approximate for "
+            f"{V41} via DeepSeek") in out
+
+
+def test_a_committed_schedule_scaling_every_price_alike_is_not_noticed(tmp_path, capsys):
+    run = Run(tmp_path)
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"][0].update(_listed(
+        {f: stored[f] * 2 for f in RATE_FIELDS}))
+    rc, out, _ = run(capsys)
+    assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
+    assert "non-uniform" not in out
+
+
+def test_a_paid_window_over_a_free_default_does_not_scale_alike():
+    free = dict.fromkeys(RATE_FIELDS, 0.0)
+
+    def listing(window: dict) -> object:
+        return refresh.Listing("h", "[]", free, [{"rates": window}], Decimal(0))
+    # pylint: disable=protected-access
+    assert refresh._scales_alike(listing(free))
+    assert not refresh._scales_alike(listing({**free, "output": 1.0}))
 
 
 # --- one host's failure is its own -------------------------------------------

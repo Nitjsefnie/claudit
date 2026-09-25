@@ -629,9 +629,23 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
   endpoint refuses only its host.
 - **Schedules.** A host's `pricing.overrides` (weekly `utc_days` /
   `utc_start` / `utc_end` windows, each with the prices it overrides)
-  become its entry's `schedule`. A price a window does not name is the
-  endpoint's own. A change to the default rates or to the schedule, which
-  is compared as a whole, is a move, and the whole entry is appended.
+  become its entry's `schedule`. A change to the default rates or to the
+  schedule, which is compared as a whole, is a move, and the whole entry
+  is appended.
+  - **The default.** OpenRouter lists a scheduled host's top-level price
+    as the window active at the fetch, not as a stable default. So the
+    entry's default rates come from the top-level price only when the
+    fetch falls outside every window of the fetched schedule. Inside one,
+    the row's stored default is kept and only the schedule is compared,
+    so a schedule covering the whole week never moves its default. A host
+    seen for the first time inside a window has no stored default, and
+    takes the top-level price.
+  - **A price a window does not name** is the entry's default: the
+    top-level price outside every window, the kept default inside one.
+  - **An uneven schedule is reported.** An appended entry whose windows
+    do not each scale all five default rates by one factor is reported in
+    the run's notices ("non-uniform schedule"), because the read-time
+    fold's Token Breakdown split is then approximate (SV-RATE-DATA).
 - **Refused as not modelled.** An override kind the script does not model
   (a `min_prompt_tokens` tier, say) refuses its host. So does any other
   pricing key listed at a nonzero price, such as a per-request fee.
