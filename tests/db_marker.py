@@ -46,6 +46,10 @@ import pytest
 #                        scratch DB in-body
 #   client               test_provider_split_api; creates its own
 #                        scratch DB in-body
+#   _viz_ready           test_db_schema_check; autouse, applies the app
+#                        schema to its own scratch viz DB
+#   auth_env             test_db_schema_check; creates its own empty
+#                        scratch auth DB per case
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -56,6 +60,8 @@ DB_FIXTURES = frozenset({
     "app_with_rl_data",
     "dashboard_body",
     "client",
+    "_viz_ready",
+    "auth_env",
 })
 
 
