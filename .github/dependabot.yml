@@ -4,11 +4,10 @@
 # how a fixed CVE stays exploitable. Dependabot pays that cost back — it is
 # the counterpart to audit.yml, which detects the problem but cannot fix it.
 #
-# Note the interaction with the repo's CI policy: PRs are not built until an
-# approving review lands (see tests.yml), so a Dependabot PR sits unbuilt
-# until a human looks at it. That is the existing policy working as intended,
-# not an extra cost of enabling this — an unreviewed bump is exactly the kind
-# of change that should not get a runner.
+# Note the interaction with the repo's CI policy: pull_request builds run
+# unconditionally (there is no review gate — see tests.yml), so a Dependabot
+# PR gets a CI run the moment it opens and the suite's verdict is on the PR
+# before a human reads it.
 #
 # There is no npm entry: the frontend has no package.json on purpose (see
 # eslint.yml), so eslint's pins live inside that workflow and Dependabot
