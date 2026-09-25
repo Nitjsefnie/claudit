@@ -139,14 +139,17 @@ def resolve_session_user_id(token: str) -> int | None:
     return verify_session_token(token, secret)
 
 
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
 def check_origin(request: Request) -> bool:
-    if request.method in {"GET", "HEAD", "OPTIONS"}:
+    if request.method in _SAFE_METHODS:
         return True
     origin = request.headers.get("origin", "")
     referer = request.headers.get("referer", "")
     host = request.headers.get("host", "")
     if not host:
-        return True
+        return False
     if origin:
         return urlparse(origin).netloc == host
     if referer:
@@ -224,6 +227,10 @@ def _session_denied(request: Request) -> Response | None:
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if path in _AUTH_PUBLIC_PATHS:
+        # Public paths still enforce same-origin on mutating methods, so a
+        # cross-origin POST cannot reach /login or /login/guest either.
+        if request.method not in _SAFE_METHODS and not check_origin(request):
+            return Response("Forbidden (cross-origin)", status_code=403)
         return await call_next(request)
     if path.startswith("/admin/"):
         denied = _admin_denied(request)
