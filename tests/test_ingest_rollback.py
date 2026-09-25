@@ -13,6 +13,8 @@ The tests live beside test_ingest (not in it) for the same reason as
 test_ingest_lock: test_ingest.py stays under pylint's line cap. The
 fixtures they share come from test_ingest.
 """
+import importlib
+import json
 import logging
 
 # The fixtures register on import; pylint only sees names nobody calls.
@@ -83,6 +85,33 @@ def test_newer_stored_parser_version_is_never_reparsed(
               if r.levelno == logging.WARNING
               and "parser_version is newer" in r.getMessage()]
     assert warned, "the skip must be logged at warning level"
+
+
+def test_health_surfaces_stored_newer_end_to_end(fresh_db, mini_r2_env):
+    """The full chain over the REAL schema and the REAL /health query: a
+    run that skips a stored-newer file persists the count on its row, and
+    health()'s ingest_runs SELECT serves it back. The fake-cursor payload
+    test in test_version.py pins the JSON shape but never sees the SQL;
+    this is the assert that binds that SELECT's column list to the actual
+    column (issue #161)."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute(
+            "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
+            (str(int(constants.PARSER_VERSION) + 1),),
+        )
+        c.commit()
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["newer"] == 1
+
+    app_mod = importlib.import_module("backend.app")
+    payload = json.loads(app_mod.health().body)
+    assert payload["ok"] is True
+    last = payload["last_ingest"]
+    assert last["id"] == result["id"], "health must read THIS run's row"
+    assert last["reparsed"] == 0
+    assert last["newer"] == 1
 
 
 def test_older_stored_parser_version_still_reparses(
