@@ -1,0 +1,31 @@
+{
+  "coverage": {
+    "python": {
+      "floor": 91.1,
+      "measured": 92.6
+    }
+  },
+  "module_size_baseline": {
+    "backend/api.py": 984,
+    "backend/api_dashboard.py": 832,
+    "backend/bash_churn.py": 982,
+    "backend/bash_literals.py": 584,
+    "backend/ingest.py": 858,
+    "backend/ingest_rollups.py": 609,
+    "backend/parse.py": 920,
+    "backend/parse_codex.py": 729,
+    "backend/parse_kimi.py": 592,
+    "backend/pricing.py": 564,
+    "scripts/ci/refresh_provider_rates.py": 598,
+    "scripts/plots/ccusage_plot_render.py": 704,
+    "tests/test_api.py": 979,
+    "tests/test_bash_churn.py": 748,
+    "tests/test_ingest.py": 954,
+    "tests/test_parse.py": 1047,
+    "tests/test_parse_codex.py": 1000,
+    "tests/test_parse_kimi.py": 765,
+    "tests/test_pricing_data.py": 977,
+    "tests/test_provider_rate_refresh.py": 883
+  },
+  "schema_version": 1
+}
