@@ -3,11 +3,13 @@ per rate epoch. With dated rates, re-deriving one rate for a range that
 straddles a cutover makes the buckets disagree with the authoritative
 SUM(cost_usd) they claim to decompose.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import psycopg
 import pytest
 
 from backend import pricing
+from backend.db import sql_text
 from backend.api_common import epoch_ts, fold_per_model, rate_epoch_sql
 
 UTC = timezone.utc
@@ -83,6 +85,29 @@ def test_epoch_sql_binds_every_live_rate_boundary():
         datetime(2026, 9, 9, 16, 0, tzinfo=UTC),     # GLM promo cutover
     ]
     assert expr.count("CASE") == 3
+
+
+def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
+    """Every appended rate entry adds an epoch (SV-RATE-REFRESH), so the
+    expression grows with the table. Correctness, not speed: with 200
+    boundaries, Postgres puts a timestamp one microsecond before, at and
+    after each boundary in the epoch this module says it is in, and the
+    lookup timestamp epoch_ts(i) of every epoch lands in epoch i."""
+    epochs = [datetime(2031, 1, 1, tzinfo=UTC) + timedelta(hours=7 * i)
+              for i in range(200)]
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", epochs)
+    expr, params = rate_epoch_sql("ts")
+    assert expr.count("CASE") == 200 and params == epochs
+    tick = timedelta(microseconds=1)
+    probes = [(e + d, i + (d >= timedelta(0)))
+              for i, e in enumerate(epochs) for d in (-tick, timedelta(0), tick)]
+    probes += [(epoch_ts(i), i) for i in range(201)]
+    with psycopg.connect("postgresql:///postgres") as conn:
+        got = conn.execute(
+            sql_text(f"SELECT {expr} FROM unnest(%s::timestamptz[]) WITH ORDINALITY"
+                     " AS v(ts, n) ORDER BY n"),
+            [*params, [ts for ts, _ in probes]]).fetchall()
+    assert [row[0] for row in got] == [want for _, want in probes]
 
 
 def test_an_undeclared_ttl_lands_in_the_1h_bucket():
