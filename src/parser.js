@@ -339,8 +339,9 @@ const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 // fractional start anywhere else (a future openrouter.start, a window's
 // rates object) parses untouched. A shape the scan cannot spell-check past
 // (a leading zero, a bare minus) bails it silently and JSON.parse names
-// that shape — but a malformed tail reached after an offense was already
-// collected throws the spelling error first.
+// that shape — most malformed tails leave the error to JSON.parse; only a
+// structural-mismatch tail reached after a collected offense throws the
+// spelling error first.
 function _checkHhmmSpelling(text) {
   const offenses = [];
   let pos = 0;
