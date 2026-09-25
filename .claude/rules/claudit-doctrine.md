@@ -658,14 +658,26 @@ passes on the new data. A hand edit to a provider row keeps the same rules:
     fetch falls outside every window of the fetched schedule. Inside one,
     the row's stored default is kept and only the schedule is compared,
     so a schedule covering the whole week never moves its default. A host
-    seen for the first time inside a window has no stored default, and
-    takes the top-level price.
+    seen for the first time inside a window is REFUSED: the listed
+    top-level price is the active window's, and starting the row with it
+    would misprice every outside-window record; the next fetch outside
+    every window starts the row.
   - **A price a window does not name** is the entry's default: the
     top-level price outside every window, the kept default inside one.
   - **An uneven schedule is reported.** An appended entry whose windows
     do not each scale all five default rates by one factor is reported in
     the run's notices ("non-uniform schedule"), because the read-time
     fold's Token Breakdown split is then approximate (SV-RATE-DATA).
+- **An alternating price is reported, not appended.** When the incoming
+  listing and the row's newest entry both carry no schedule and the
+  listed rates equal those of an entry whose `from` is within the last 7
+  days — measured against the detection time, never wall clock — and
+  which is not the newest entry, the run reports an "alternating price"
+  notice naming the host and that entry, and appends nothing and bumps
+  nothing. A first move away from a stable price never matches, since
+  nothing recent matches; the flip back does. A genuine return to an
+  older price is recorded by hand-appending an entry, which the next run
+  then compares against.
 - **Refused as not modelled.** An override kind the script does not model
   (a `min_prompt_tokens` tier, say) refuses its host. So does any other
   pricing key listed at a nonzero price, such as a per-request fee.

@@ -18,6 +18,9 @@ These refuse the host or model they concern, which appends nothing:
 - a resolution that no longer applies;
 - a price or override kind this script does not model, or a response
   shape it does not recognise;
+- a host seen for the first time while the fetch falls inside one of its
+  schedule's windows: the listed top-level price is that window's, not a
+  default, and the next fetch outside every window starts the row;
 - a tracked model with no endpoints, or none in the region.
 
 Every other move is still written, then the script exits nonzero naming
@@ -37,7 +40,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from itertools import combinations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable
@@ -201,7 +204,10 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
     A scheduled host's top-level price is the window active at `at`, not a
     stable default. So inside a window the row's own default, `kept`, stays
     the default, and a price a window does not name is that default's. Only
-    a fetch outside every window reads the default from the listing."""
+    a fetch outside every window reads the default from the listing. A host
+    with no row yet is refused inside a window: the listing offers no
+    default to keep, and starting the row with the window's price would
+    misprice every outside-window record."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
@@ -216,7 +222,12 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
     # What tells two of one host's endpoints apart when the price does not.
     identity = json.dumps([endpoint.get(k) for k in _IDENTITY])
     rates, schedule = _rates(price, where), _schedule(price, where)
-    if schedule and kept is not None and _in_a_window(schedule, at):
+    if schedule and _in_a_window(schedule, at):
+        if kept is None:
+            raise RefreshError(
+                f"{where}: first seen inside one of its windows: the listed "
+                "top-level price is the active window's, not a default; the "
+                "next fetch outside every window starts the row")
         rates = kept
         schedule = _schedule({**_as_listed(kept), "overrides": price["overrides"]}, where)
     return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)))
@@ -388,10 +399,29 @@ def _discount_note(discount: Decimal) -> str:
     return f"{format((discount * 100).normalize(), 'f')}% off"
 
 
-def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str) -> list[Move]:
+def _alternates(history: list[dict], rates: dict, at: datetime, where: str
+                ) -> str | None:
+    """An earlier entry (never the newest) whose rates the listing repeats
+    within the last 7 days: an alternating price, reported for a human
+    rather than appended (SV-RATE-REFRESH). A schedule on either side
+    exempts a row, so only unscheduled histories reach this. The lookback
+    is measured against the detection time `at`, never wall clock."""
+    cutoff = at - timedelta(days=7)
+    for entry in history[:-1]:
+        if ({f: entry[f] for f in RATE_FIELDS} != rates or entry["from"] is None):
+            continue
+        # pylint: disable-next=protected-access
+        if pricing._instant(entry["from"], where) > cutoff:
+            return entry["from"]
+    return None
+
+
+def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
+            at: datetime, notices: list[str]) -> list[Move]:
     """Append each moved price (a rate or the schedule, compared as a
     whole) to its row, and start a row for each new host, in place; the
-    moves made."""
+    moves made, with an alternating price's notice appended to `notices`
+    instead of an entry to the row (SV-RATE-REFRESH)."""
     moves = []
     for host, listing in rows.items():
         history = hosts.get(host)
@@ -402,6 +432,15 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str) -> li
         newest = history[-1]
         if ({f: newest[f] for f in RATE_FIELDS} == listing.rates
                 and newest.get("schedule") == listing.schedule):
+            continue
+        where = f"{model} via {host}"
+        if (listing.schedule is None and newest.get("schedule") is None
+                and (match := _alternates(history, listing.rates, at, where))):
+            notices.append(
+                f"alternating price: {where}: the listed rates equal the entry "
+                f"from {match}: check for an unpublished time-of-day price; a "
+                "genuine return to those rates is recorded by hand-appending "
+                "an entry, which the next run then compares against")
             continue
         history.append(_entry(stamp, listing))
         moves.append(Move(model, host, newest, listing))
@@ -484,7 +523,7 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
             continue
         result.refusals += refused.values()
         result.notices += notices
-        moves = _append(model, hosts, rows, stamp)
+        moves = _append(model, hosts, rows, stamp, at, result.notices)
         result.moves += moves
         result.notices += [f"non-uniform schedule: Token Breakdown split is approximate "
                            f"for {model} via {m.host}" for m in moves if not _scales_alike(m.new)]
