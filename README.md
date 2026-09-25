@@ -199,6 +199,13 @@ stored records, to force a full reparse).
   surface — browser title, meta description, logo text, sign-in page,
   export-PNG filename. Unset, they reproduce the claudit strings exactly;
   a codexmeter deploy sets `APP_NAME=codexmeter` and nothing else changes.
+- `EXPORT_PYTHON` names the interpreter the export-PNG subprocess runs
+  under (default `/usr/bin/python3`). The plot script imports matplotlib
+  and psycopg, and matplotlib ships in `requirements-dev.txt` — not
+  `backend/requirements.txt` — so a stock quickstart venv cannot render
+  exports. Point it at a Python with both installed; if the interpreter
+  is missing one, `/api/export` answers `503` naming `EXPORT_PYTHON`
+  instead of an opaque 500.
 - The rest of the environment (`DATABASE_URL_VIZ`, `R2_ENDPOINT`, auth and
   admin keys) is documented inline in [`backend/.env.example`](backend/.env.example).
 

@@ -28,6 +28,12 @@ _EXPORT_SCRIPT = str(Path(__file__).resolve().parents[1] / "scripts/plots/ccusag
 _EXPORT_TIMEOUT_S = 120
 _export_lock = asyncio.Semaphore(1)
 
+# A plot child that dies with this in its stderr is almost always the
+# EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
+# not backend/requirements.txt) or psycopg — an environment problem, not a
+# render failure, so it earns a 503 that names the fix (issue #115).
+_MISSING_MODULE_RE = re.compile(r"ModuleNotFoundError")
+
 
 def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]:
     """Construct the argv for the plot subprocess. The child inherits
@@ -55,7 +61,9 @@ def export_filename(rng: str, project: str | None) -> str:
 
 async def _render_export(argv: list[str], out_path: str) -> None:
     """Run the plot subprocess, bounded by _EXPORT_TIMEOUT_S. Raises
-    HTTPException(503) on timeout, HTTPException(500) on non-zero exit."""
+    HTTPException(503) on timeout or when the interpreter died of a missing
+    module (an EXPORT_PYTHON environment problem), HTTPException(500) on
+    any other non-zero exit."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
@@ -68,8 +76,18 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         await proc.wait()
         raise HTTPException(503, "export render timed out") from None
     if proc.returncode != 0:
-        tail = (stderr or b"").decode("utf-8", "replace")[-500:]
+        text = (stderr or b"").decode("utf-8", "replace")
+        tail = text[-500:]
         print(f"[export] render failed (rc={proc.returncode}): {tail}", file=sys.stderr)
+        if _MISSING_MODULE_RE.search(text):
+            raise HTTPException(
+                503,
+                f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
+                "is missing a Python module (ModuleNotFoundError) — point "
+                "EXPORT_PYTHON at an interpreter with backend/requirements.txt "
+                "and requirements-dev.txt installed (matplotlib and psycopg "
+                "must both be importable)",
+            )
         raise HTTPException(500, "export render failed")
 
 
