@@ -83,8 +83,10 @@ def _reset_response_cache():
 
 
 def pytest_sessionstart(session):
-    # Leftovers of runs that were killed before their finalizer ran.
+    # Lease first, so no other run's sweep can take this run's databases;
+    # then clear leftovers of runs killed before their finalizer ran.
     try:
+        scratch_db.hold_run_lease()
         scratch_db.sweep_stale_databases()
     except psycopg.OperationalError:
         pass  # no reachable server: this run touches no database either

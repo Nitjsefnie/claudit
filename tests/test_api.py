@@ -143,7 +143,7 @@ def _build_api_client(mp, label: str):
     scratch_db.drop_database(test_db)
 
 
-# Module-scoped: this setup (dropdb, createdb, schema, copy the R2 tree,
+# Module-scoped: this setup (a fresh database, schema, copy the R2 tree,
 # a full ingest incl. recompute_canonical + rebuild_rollup) ran per test
 # and was ~2-5s of pure `setup` on every one of ~40 read-only tests —
 # the whole reason the suite took 170s. Tests that WRITE must not share

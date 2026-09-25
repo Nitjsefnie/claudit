@@ -86,7 +86,7 @@ jobs:
           cache: pip
 
       - name: Install postgresql-client
-        # smoke.py shells out to createdb/dropdb/psql, and the client major
+        # smoke.py shells out to psql, and the client major
         # must match the service.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'

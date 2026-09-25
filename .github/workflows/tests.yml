@@ -53,9 +53,9 @@ jobs:
 
     services:
       postgres:
-        # The suite does not use a single fixed database: fixtures run
-        # `createdb`/`dropdb` per module, so the role needs CREATEDB — the
-        # stock `postgres` superuser has it.
+        # The suite does not use a single fixed database: fixtures create
+        # and drop run-named ones (tests/scratch_db.py), so the role needs
+        # CREATEDB — the stock `postgres` superuser has it.
         image: postgres:16
         env:
           POSTGRES_USER: postgres
@@ -72,7 +72,7 @@ jobs:
     env:
       # Fixtures build DSNs as `postgresql:///<db>` with no host, so libpq
       # resolves the connection from these. The same vars drive the
-      # createdb/dropdb/psql calls the fixtures shell out to.
+      # psql calls the fixtures shell out to.
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: postgres
@@ -92,7 +92,7 @@ jobs:
           cache: pip
 
       - name: Install postgresql-client
-        # Fixtures shell out to createdb/dropdb/psql; the runner image has
+        # Fixtures shell out to psql; the runner image has
         # a server but the client binaries must match the service major.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
