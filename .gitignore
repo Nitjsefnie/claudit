@@ -20,6 +20,7 @@
 !/.eslintrc.json
 !.gitattributes
 !/.gitignore
+!/.gitleaks.toml
 !/.pylintrc
 !/AGENTS.md
 !/CLAUDE.md

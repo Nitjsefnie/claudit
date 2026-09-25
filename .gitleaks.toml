@@ -1,0 +1,12 @@
+# claudit's gitleaks configuration (issue #130).
+#
+# The default ruleset plus nothing else: the full-history scan that
+# shipped this workflow came back clean under the defaults, so there is
+# nothing to allowlist. If a future scan flags a documentation-reserved
+# value (a fixture UUID, an example key), add a scoped allowlist entry
+# here — scoped to the specific rule, with a comment saying what the
+# value is and why no real secret equals it. Never allowlist a real
+# credential; report it and rotate instead.
+
+[extend]
+useDefault = true
