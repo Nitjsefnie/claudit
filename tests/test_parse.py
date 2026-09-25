@@ -985,3 +985,27 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     # No provider: DEFAULT (Opus 4.7 list, 5 / 0.50 / 25), as before.
     assert bare["cost_usd"] == pytest.approx(
         round((1000 * 5.00 + 2000 * 0.50 + 300 * 25.00) / 1e6, 6))
+
+
+def test_provider_merges_across_streaming_chunks_first_non_null_wins():
+    """One streamed reply is written as several assistant lines sharing a
+    requestId, and the serving host is named on whichever chunk carries
+    message.provider — often not the first. The merged record keeps the
+    FIRST non-null provider: a later chunk fills an empty one, and an
+    absent one never wipes it — while usage still max-merges as before."""
+    out = parse.parse_file(
+        "k/sess-pm/sess-pm.jsonl", _read("provider_merge.jsonl")
+    )
+    assert len(out["records"]) == 2
+    carried, kept = out["records"]
+    assert carried["request_id"] == "req-1"
+    assert kept["request_id"] == "req-2"
+    # req-1's provider arrives on the SECOND chunk and must still be kept.
+    assert carried["provider"] == "Novita"
+    # req-2's trailing provider-less chunk must not wipe its provider.
+    assert kept["provider"] == "Novita"
+    # usage max-merged as before, and one record per requestId.
+    assert carried["output_tokens"] == 200      # max(50, 200)
+    assert carried["fresh_tokens"] == 1000
+    assert kept["output_tokens"] == 300         # max(100, 300)
+    assert kept["fresh_tokens"] == 1000
