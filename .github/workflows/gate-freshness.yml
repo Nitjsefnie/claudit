@@ -20,7 +20,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  # contents: read pays for the checkout; pull-requests: read is what
+  # the open-PR list read needs; actions: read is what the per-head
+  # workflow-run lists need. Without its grant either read 403s and
+  # the run dies before writing the summary.
   contents: read
+  pull-requests: read
+  actions: read
 
 concurrency:
   group: gate-freshness
@@ -31,7 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      # Same grant as the workflow block above, spelled on the job too:
+      # the script's two API reads need pull-requests and actions.
       contents: read
+      pull-requests: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
