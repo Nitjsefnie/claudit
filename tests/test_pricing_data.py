@@ -81,25 +81,27 @@ def _in_force(history: list[dict], stamp: str | None) -> dict:
     return {f: current[f] for f in RATE_FIELDS}
 
 
+def _around(cutovers) -> list[str]:
+    return [_stamp(cut + timedelta(seconds=d)) for cut in cutovers for d in (-1, 0, 1)]
+
+
 def _cases(doc: dict) -> list[tuple[str, str | None, str | None]]:
-    """Every row at list price and one second either side of, and exactly
-    at, every cutover any row in the file carries."""
-    cutovers = sorted({
-        _at(entry["from"])
-        for _, _, history in _histories(doc)
-        for entry in history if entry["from"]
-    })
-    stamps: list[str | None] = [None]
-    for cut in cutovers:
-        stamps += [_stamp(cut - timedelta(seconds=1)), _stamp(cut),
-                   _stamp(cut + timedelta(seconds=1))]
+    """Every row at list price, and one second either side of, and exactly
+    at, each of its own cutovers and every model row's. Its own, not every
+    row's: the refresh appends cutovers every hour, and rows × all cutovers
+    would grow without bound with them."""
+    shared = {_at(e["from"]) for history in doc["models"].values()
+              for e in history if e["from"]}
     return [(model, stamp, host)
-            for model, host, _ in _histories(doc) for stamp in stamps]
+            for model, host, history in _histories(doc)
+            for stamp in [None, *_around(sorted(
+                shared | {_at(e["from"]) for e in history if e["from"]}))]]
 
 
 def _node_raw(script: str):
+    # The program goes on stdin: inlined cases outgrow one argv string.
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        ["node", "-"], input=script, capture_output=True, text=True, timeout=60,
         # Return code checked by hand on the next line.
         check=False,
     )
@@ -128,20 +130,57 @@ def test_the_file_has_every_cutover_the_backend_prices_by():
     assert pricing.PROVIDER_RATES_FETCHED == _at(doc["provider_rates_fetched"])
 
 
-def test_the_backend_prices_every_row_as_the_file_says():
-    doc = _doc()
+def _moved() -> dict:
+    """The file as the refresh leaves it after a busy hour: a host first
+    seen at CUT, a later move on it, and a move on a seeded row."""
+    doc = _with_newcomer()
+    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"].append(
+        {"from": "2032-06-01T12:00:00Z", "create_1h": 0.4, "create_5m": 0.4,
+         "fresh": 0.4, "output": 1.8, "read": 0.1})
+    novita = doc["providers"]["z-ai/glm-5-3-flash"]["Novita"]
+    novita.append({**novita[-1], "from": "2032-01-01T00:00:00Z", "read": 0.5})
+    return doc
+
+
+# The committed file, and the same file after the refresh has committed:
+# a data-coupled assertion must hold for both, or the first bot commit
+# fails its own suite.
+DOCUMENTS = [pytest.param(None, id="committed"), pytest.param(_moved, id="moved")]
+
+
+def _install(monkeypatch, factory) -> dict:
+    doc = _doc() if factory is None else factory()
+    for name, value in pricing.load_tables(doc).items():
+        monkeypatch.setattr(pricing, name, value)
+    return doc
+
+
+@pytest.mark.parametrize("factory", DOCUMENTS)
+def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
+    doc = _install(monkeypatch, factory)
     histories = {(m, h): history for m, h, history in _histories(doc)}
     for model, stamp, host in _cases(doc):
         got = pricing.resolve(model, _when(stamp), host)
         label = f"{model} via {host} @ {stamp}"
+        begins = histories[model, host][0]["from"]
+        if stamp is not None and begins is not None and _at(stamp) < _at(begins):
+            # A host first seen by a refresh: before its row begins, the
+            # record prices by the model alone.
+            assert got == pricing.resolve(model, _when(stamp)), label
+            continue
         assert got.kind == "exact", label
         assert got.rates == _in_force(histories[model, host], stamp), label
 
 
 @needs_node
-def test_both_sides_resolve_every_row_the_file_defines_identically():
-    cases = _cases(_doc())
-    got_all = _node(PARSER_JS, f"""
+@pytest.mark.parametrize("factory", DOCUMENTS)
+def test_both_sides_resolve_every_row_the_file_defines_identically(
+        monkeypatch, tmp_path, factory):
+    doc = _install(monkeypatch, factory)
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    cases = _cases(doc)
+    got_all = _node(tmp_path / "parser.js", f"""
       const cases = {json.dumps(cases)};
       console.log(JSON.stringify(cases.map(([m, ts, p]) =>
         window.resolveModelRate(m, ts, p))));
