@@ -1,12 +1,41 @@
 # claudit's gitleaks configuration (issue #130).
 #
-# The default ruleset plus nothing else: the full-history scan that
-# shipped this workflow came back clean under the defaults, so there is
-# nothing to allowlist. If a future scan flags a documentation-reserved
-# value (a fixture UUID, an example key), add a scoped allowlist entry
-# here — scoped to the specific rule, with a comment saying what the
-# value is and why no real secret equals it. Never allowlist a real
-# credential; report it and rotate instead.
+# The default ruleset plus scoped allowlist entries as needed: the
+# full-history scan that shipped this workflow (issue #130) came back
+# clean under the defaults, so for a while there was nothing to
+# allowlist. If a future scan flags a documentation-reserved value (a
+# fixture UUID, an example key), add a scoped allowlist entry here —
+# scoped to the specific rule, with a comment saying what the value is
+# and why no real secret equals it. Never allowlist a real credential;
+# report it and rotate instead.
 
 [extend]
 useDefault = true
+
+# Issue #222: the mythos own-row identity assert in tests/test_pricing.py.
+# The flagged text is a PRICING-ROW MODEL ID compared to itself —
+# pricing.resolve("claude-mythos-5-1").key == "claude-mythos-5-1" pins that
+# the id resolves to its own rate-table row (added with issue #219). It is
+# a model id, not a credential: it names a published model family, and
+# generic-api-key flags only its own assert line — the id is also quoted
+# by this test's neighbouring asserts (lines 43, 45 and 47), but line 46
+# is the only one the rule matches. No secret is shaped like it.
+#
+# Scoped to the generic-api-key rule and to this exact expression, matched
+# against the whole line (regexTarget = "line"). A `paths` entry is NOT
+# combined with the regex — gitleaks 8.30.1 treats each allowlist condition
+# as independent, so pairing the path with the regex would excuse EVERY
+# finding in that file (proven against the binary before settling here).
+# The path scoping lives in the expression instead: it exists only in
+# tests/test_pricing.py. One residual, stated plainly: gitleaks emits one
+# finding per line and this entry excuses the whole flagged line, so a
+# real secret appended to that same line would share the finding and be
+# excused too — no allowlist variant avoids that. It is accepted as
+# tool-intrinsic here: the excused line is an assert in a test file, the
+# scan stays red for every other shape, and provider push protection
+# still covers recognised key shapes.
+[[allowlists]]
+description = "issue #222: the mythos own-row identity assert (a pricing model id compared to itself)"
+ruleID = "generic-api-key"
+regexTarget = "line"
+regexes = ['assert pricing\.resolve\("claude-mythos-5-1"\)\.key == "claude-mythos-5-1"']
