@@ -27,7 +27,7 @@ from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
 from backend.prompt_gate import _is_prompt_text
-from backend.parse_common import _dispatch_prompt_shape, iter_lines
+from backend.parse_common import (_dispatch_prompt_shape, _to_dt, iter_lines)
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
@@ -190,15 +190,6 @@ def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
     return 0, 0
 
 
-def _to_dt(s: str | None):
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
 # Tools whose arguments name a file they WRITE. Their targets invalidate
 # a pending re-read: reading a file again after changing it is not a
 # duplicate read, it is the only way to see the new bytes.
@@ -351,6 +342,9 @@ class _LineWalk:
         self.seen_request: dict[str, dict] = {}
         self.records_in_order: list[dict] = []
         self.user_text_lines: list[int] = []
+        # Per-prompt timestamps (issue #214), index-aligned with
+        # user_text_lines: a range's prompt total counts per own ts.
+        self.user_text_ts: list[str | None] = []
         self.rate_limit_hits: list[dict] = []
         self.tool_uses: list[dict] = []
         self.seen_tool_ids: set[str] = set()
@@ -403,7 +397,10 @@ class _LineWalk:
                 self.last_user_ts = None
             return
         self.user_text_lines.append(line_num)
+        # Same gate as the line above, so prompt_count and prompt_ts
+        # stay index-aligned (issue #214).
         ts_dt = _to_dt(ts_str)
+        self.user_text_ts.append(ts_dt.isoformat() if ts_dt is not None else None)
         if ts_dt is not None and mutate_anchor:
             self.last_user_ts = ts_dt
 
@@ -882,6 +879,9 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         # Substantive user prompts (instrumentation and interrupt markers
         # excluded), whether or not a usage-bearing reply followed.
         "prompt_count": len(walk.user_text_lines),
+        # Per-prompt ts, stored on files (issue #214); ingest-side only —
+        # the browser parser has no range concept and needs no counterpart.
+        "prompt_ts": walk.user_text_ts,
         # Every model that answered in this file, BEFORE ingest purges
         # suppressed ones: the only trace that a session changed lanes.
         "models": sorted({r["model"] for r in records}),

@@ -429,6 +429,14 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
         # User turns recorded, whether or not a usage-bearing reply
         # followed — claudit's files.prompt_count for a lane transcript.
         "prompt_count": len(st.turns),
+        # Each one's own begin timestamp, index-aligned with prompt_count
+        # — stored on files so /api/dashboard counts a range's prompts
+        # per own timestamp (issue #214). Ingest-side only: the browser
+        # parser has no range concept and needs no counterpart.
+        "prompt_ts": [
+            t["begin_ts"].isoformat() if t["begin_ts"] else None
+            for t in st.turns
+        ],
         "rate_limit_hits": st.rate_limit_hits,
         "tool_uses": st.tool_uses,
         "agent_role": st.agent_role,

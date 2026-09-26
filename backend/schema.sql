@@ -58,6 +58,14 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
 -- join resolves -- or whose parsed role stands. NULL for every other
 -- file.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS teammate_name TEXT;
+-- 2026-09-26: each counted prompt's own timestamp (isoformat string, or
+-- JSON null when the line carried none), index-aligned with prompt_count.
+-- /api/dashboard counts a range's prompts per own timestamp instead of
+-- whole files' totals (issue #214): a file modified inside the range can
+-- carry prompts sent before it. Stored at parse time; a NULL/unstamped
+-- element counts in every range (its being out of range is unprovable).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS
+  prompt_ts JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS files_project_idx ON files (project_id);
 CREATE INDEX IF NOT EXISTS files_session_idx ON files (session_id);

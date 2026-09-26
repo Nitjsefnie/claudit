@@ -272,39 +272,39 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
 
     file_counts_row = ph.execute(
         "file_counts", c, f"""
-        -- The two EXISTS predicates were correlated subqueries
-        -- evaluated once per file row (four of them, ~9.2k files).
-        -- Resolve each to a set once and LEFT JOIN instead.
-        WITH files_with_records AS (
-          SELECT file_key FROM records GROUP BY file_key
-        ),
-        sessions_with_main AS (
-          SELECT session_id FROM files WHERE is_main GROUP BY session_id
-        )
+        -- Correlated subqueries resolve to sets once; LEFT JOIN instead.
+        WITH files_with_records AS (SELECT file_key FROM records GROUP BY file_key),
+        sessions_with_main AS (SELECT session_id FROM files WHERE is_main GROUP BY session_id)
         SELECT
-          COUNT(*) FILTER (
-            WHERE f.is_main AND fr.file_key IS NOT NULL
-          ) AS main_w_usage,
-          COUNT(*) FILTER (
-            WHERE f.is_main AND fr.file_key IS NULL
-          ) AS main_empty,
+          COUNT(*) FILTER (WHERE f.is_main AND fr.file_key IS NOT NULL) AS main_w_usage,
+          COUNT(*) FILTER (WHERE f.is_main AND fr.file_key IS NULL) AS main_empty,
           COUNT(*) FILTER (WHERE NOT f.is_main) AS subagent_files,
-          COUNT(DISTINCT f.session_id) FILTER (
-            WHERE sm.session_id IS NULL AND fr.file_key IS NOT NULL
-          ) AS subagent_only_sessions,
-          -- Prompts: substantive user text msgs (instrumentation +
-          -- interrupts excluded). Turns: ctx_turns boundaries that
-          -- produced a usage-bearing assistant reply. Both summed
-          -- across every file in scope (main + subagent) so sub-agent
-          -- prompts/turns roll up alongside their parents.
-          COALESCE(SUM(f.prompt_count), 0) AS total_prompts,
-          COALESCE(SUM(f.turn_count),   0) AS total_turns
+          COUNT(DISTINCT f.session_id) FILTER (WHERE sm.session_id IS NULL
+                                               AND fr.file_key IS NOT NULL) AS subagent_only_sessions,
+          -- Prompts and turns are counted PER OWN TIMESTAMP across every
+          -- file in scope (main + subagent), not as whole files' totals:
+          -- a file modified inside the range can carry prompts sent
+          -- before it (issue #214). An element whose own ts is missing
+          -- or unparseable cannot be proven out of range, so it counts
+          -- (all-range totals stay exactly the old SUMs). The cast is
+          -- guarded like rate_limit_hits' below (pg_input_is_valid in a
+          -- CASE); the in-range tests bind FIRST (before since+project).
+          COALESCE(SUM((SELECT COUNT(*) FILTER (
+              WHERE CASE WHEN pg_input_is_valid(p, 'timestamptz') IS NOT TRUE
+                               THEN TRUE
+                         ELSE p::timestamptz >= %s END)
+            FROM jsonb_array_elements_text(f.prompt_ts) AS p)), 0) AS total_prompts,
+          COALESCE(SUM((SELECT COUNT(*) FILTER (
+              WHERE CASE WHEN pg_input_is_valid(t->>'ts', 'timestamptz') IS NOT TRUE
+                               THEN TRUE
+                         ELSE (t->>'ts')::timestamptz >= %s END)
+            FROM jsonb_array_elements(f.ctx_turns) AS t)), 0) AS total_turns
         FROM files f
         LEFT JOIN files_with_records fr ON fr.file_key = f.file_key
         LEFT JOIN sessions_with_main   sm ON sm.session_id = f.session_id
         WHERE f.r2_last_modified >= %s {src["proj_filter"]}
         """,
-        list(src["file_args"]),
+        [src["file_args"][0]] * 2 + list(src["file_args"]),
     ).fetchone()
 
     # The rollup already carries per-(session, hour, model) sums, so the
