@@ -26,7 +26,7 @@ import pytest
 from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
-PRICING_JSON = ROOT / "src" / "pricing.json"
+PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -289,8 +289,8 @@ def test_a_moved_price_prices_by_time_in_the_backend(moved_run, monkeypatch):
         monkeypatch.setattr(pricing, name, value)
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
-    assert pricing.rate_for(model, cut - timedelta(seconds=1), "OpenInference") == old
-    assert pricing.rate_for(model, cut, "OpenInference") == moved
+    assert pricing.rate_for(model, cut - timedelta(seconds=1), "OpenInference") == old  # sv-test-data: allow (derived: expected values read from the run's own seeded document)
+    assert pricing.rate_for(model, cut, "OpenInference") == moved  # sv-test-data: allow (derived: expected values read from the run's own seeded document)
 
 
 @needs_node

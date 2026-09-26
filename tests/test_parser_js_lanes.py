@@ -503,11 +503,11 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
     # rateForModel resolves, isolating the meter as the only difference.
     ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
     expected_lc = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,
+        "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
         unsplit_create=0, read=0, long_context=True, ts=ts,
     )
     expected_flat = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,
+        "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
         unsplit_create=0, read=0, ts=ts,
     )
     script = f"""
@@ -544,11 +544,11 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
     assert got["costTotal"] == pytest.approx(expected_lc + expected_flat)
     assert got["input"]["cost"] == pytest.approx(
         (lc_fresh * pricing.LONG_CONTEXT_INPUT_MULT + flat_fresh)
-        * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000
+        * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
     )
     assert got["output"]["cost"] == pytest.approx(
         (lc_out * pricing.LONG_CONTEXT_OUTPUT_MULT + flat_out)
-        * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000
+        * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
     )
 
 
@@ -581,7 +581,7 @@ def test_browser_inspector_turn_cost_applies_the_long_context_meter():
     expected figure is the metered DATED price — the blob's request
     predates pricing.AUG21_CUT, where gpt-5.6-sol's list price begins."""
     expected = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,
+        "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
         unsplit_create=0, read=290_000, long_context=True,
         ts=datetime(2026, 6, 14, 12, 0, 3, tzinfo=UTC),
     )

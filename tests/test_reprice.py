@@ -428,7 +428,7 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
     model whose card carries no meter — keeps its stored NULL and prices
     flat above the same threshold."""
     metered = round(pricing.compute_cost(
-        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
+        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
         unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
     flat = round(pricing.compute_cost(
         _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
@@ -475,7 +475,7 @@ def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
     flag, cost, version = row
     assert flag is False
     assert float(cost) == round(pricing.compute_cost(
-        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
+        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
         unsplit_create=0, read=0, ts=_SEED_TS, long_context=False,
         provider="OpenRouter"), 6)
     assert version == constants.PRICING_VERSION

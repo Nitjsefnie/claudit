@@ -984,7 +984,7 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     # Priced at the record's own time: the host's row, and the bare model
     # lane alone — exactly as before the provider table existed.
     tokens: dict[str, Any] = {"fresh": 1000, "eph5": 0, "eph1h": 0, "unsplit_create": 0, "read": 2000, "output": 300}
-    assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], provider="Novita", ts=novita["ts"], **tokens), 6))
+    assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], provider="Novita", ts=novita["ts"], **tokens), 6))  # sv-test-data: allow (derived: expected priced from the same loaded tables as the record)
     assert bare["cost_usd"] == pytest.approx(round(pricing.compute_cost(bare["model"], ts=bare["ts"], **tokens), 6))
 
 
