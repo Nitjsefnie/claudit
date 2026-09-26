@@ -58,6 +58,7 @@ def test_single_turn_emits_one_record_one_turn():
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=100, output=200, eph5=0, eph1h=0, unsplit_create=0, read=0,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
     assert r["text_chars"] == len("hello world")
@@ -104,6 +105,7 @@ def test_cache_creation_and_read_are_flat_rate_billed():
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -120,6 +122,7 @@ def test_pre_cutoff_timestamp_labels_k2_6():
     expected_cost = pricing.compute_cost(
         "kimi-k2-6",
         fresh=1000, output=1000, eph5=0, eph1h=0, unsplit_create=0, read=1000,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -153,6 +156,7 @@ def test_post_k3_cutoff_cost_uses_k3_rates():
     expected_cost = pricing.compute_cost(
         "kimi-k3",
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -260,6 +264,7 @@ def test_kimi_code_post_k3_cutoff_kimi_for_coding_stays_k2_7_code():
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -340,6 +345,7 @@ def test_kimi_code_usage_record_drives_record_and_turn():
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -365,6 +371,7 @@ def test_kimi_code_ambiguous_wire_id_falls_through_to_the_date():
     expected_cost = pricing.compute_cost(
         "kimi-k2-7-code",
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -386,6 +393,7 @@ def test_kimi_code_pre_cutoff_ambiguous_wire_id_resolves_to_k2_6():
     expected_cost = pricing.compute_cost(
         "kimi-k2-6",
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
+        ts=r["ts"],
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
 
@@ -480,9 +488,11 @@ def test_kimi_code_k3_record_is_priced_at_k3_rates():
     )
     r = out["records"][0]
     k3 = pricing.compute_cost("kimi-k3", fresh=1000, output=200,
-                              eph5=0, eph1h=0, unsplit_create=50, read=100)
+                              eph5=0, eph1h=0, unsplit_create=50, read=100,
+                              ts=r["ts"])
     k26 = pricing.compute_cost("kimi-k2-6", fresh=1000, output=200,
-                               eph5=0, eph1h=0, unsplit_create=50, read=100)
+                               eph5=0, eph1h=0, unsplit_create=50, read=100,
+                               ts=r["ts"])
     assert r["cost_usd"] == pytest.approx(k3, rel=1e-9)
     assert r["cost_usd"] != pytest.approx(k26, rel=1e-9), "billed at DEFAULT_RATES"
 

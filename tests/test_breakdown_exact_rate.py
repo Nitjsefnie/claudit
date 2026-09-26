@@ -260,8 +260,13 @@ def _dashboard_body_fixture():
     mp = pytest.MonkeyPatch()
     test_db = scratch_db.create_database("breakdown_rate")
     tmp = tempfile.mkdtemp(prefix="sv-breakdown-")
-    start = (datetime.now(UTC) - timedelta(hours=2)).replace(
-        minute=0, second=0, microsecond=0)
+    # A fixed past instant, not now-relative: the perturbed-data leg (and
+    # any real refresh) appends rate cutovers stamped at run time, and a
+    # cutover between the records' timestamps and the day bucket's
+    # re-pricing instant would break stored/re-derived parity for reasons
+    # the fixture neither controls nor tests. Records and bucket both sit
+    # before every cutover an append can create.
+    start = _TS.replace(minute=0, second=0, microsecond=0)
     sess = Path(tmp) / "r2" / "claude" / "projBD" / "sess-bd"
     sess.mkdir(parents=True)
     (sess / "sess-bd.jsonl").write_text(_transcript(start), encoding="utf-8")

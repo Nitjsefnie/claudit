@@ -603,7 +603,7 @@ def test_the_long_context_meter_is_off_by_default_for_kimi_records():
             rec["model"],
             fresh=rec["fresh_tokens"], output=rec["output_tokens"],
             eph5=0, eph1h=0, unsplit_create=rec["cache_creation_tokens"],
-            read=rec["cache_read_tokens"],
+            read=rec["cache_read_tokens"], ts=rec["ts"],
         )
         assert rec["cost_usd"] == pytest.approx(round(expected, 6), rel=1e-9)
 
