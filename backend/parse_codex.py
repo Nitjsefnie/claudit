@@ -152,10 +152,6 @@ class _CodexState(_ParseState):
     # Last rate-limit condition booked, so a condition spanning hundreds of
     # token_count events books one hit rather than hundreds.
     last_rl_kind: str | None = None
-    # True once any token_count has named a ChatGPT plan. Sticky: a later
-    # payload that omits rate_limits does not turn a subscription rollout
-    # back into an API one.
-    subscription: bool = False
     # This thread's session id, from session_meta. A fork REUSES its
     # parent's, which is what makes it the right half of a record's
     # cross-file identity — see _codex_record_uuid.
@@ -379,25 +375,18 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
     # Subset of output, not an addend — carried, never added to cost.
     reasoning = max(0, delta["reasoning_output_tokens"])
 
-    # Trap 5: the long-context meter is an API-billing tier, not a property
-    # of the request. Codex on a ChatGPT plan spends credits off one
-    # short-context rate card that has no long-context column at all, so a
-    # subscription rollout is billed flat however large its prompt gets.
-    # plan_type rides rate_limits on every one of the 27,029 token_count
-    # payloads in the local corpus, all of them "pro" — a rollout that names
-    # no plan is the pay-as-you-go shape, where the meter is real.
-    if (payload.get("rate_limits") or {}).get("plan_type"):
-        st.subscription = True
-
     # Trap 4: the payload names no model; the surrounding turn_context does.
+    # The long-context meter is a property of the model's rate card, not of
+    # the plan that served the request — every record is billed as if it
+    # were an API call (issue #194), so a subscription rollout above the
+    # threshold bills the meter exactly as an API-key one does.
     _append_usage_record(
         st, line_num, ts,
         _codex_record_uuid(st, cumulative, line_num),
         _codex_model(st.model or st.sole_model),
         (fresh, create, read, output),
         reasoning=reasoning,
-        long_context=(not st.subscription
-                      and total_in > pricing.LONG_CONTEXT_THRESHOLD),
+        long_context=(total_in > pricing.LONG_CONTEXT_THRESHOLD),
     )
 
 
