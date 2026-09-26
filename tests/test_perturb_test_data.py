@@ -224,6 +224,20 @@ def test_a_second_run_appends_a_further_entry_without_corrupting(tmp_path):
     assert 'MARKER_READER_VERSION = "3"' in lines
 
 
+def test_a_tree_with_no_rate_rows_is_refused(tmp_path):
+    """A zero-row perturbation would pass the leg constants-only — a
+    partial-vacuous pass that proves nothing about the rate half."""
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    pricing_path.write_text(json.dumps({
+        "models": {}, "providers": {},
+        "provider_rates_fetched": "2026-06-01T00:00:00Z",
+    }), encoding="utf-8")
+    constants_path.write_text('PARSER_VERSION = "81"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="no rate rows"):
+        perturb_module.perturb_pricing(pricing_path, now=NOW)
+
+
 def test_the_script_answers_help(capsys):
     with pytest.raises(SystemExit) as exit_info:
         perturb_module.main(["--help"])

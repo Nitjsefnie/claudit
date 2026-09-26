@@ -853,7 +853,16 @@ rate rows in `src/pricing.json`, the committed `PARSER_VERSION` /
 models the refresh maintains (SV-RATE-REFRESH). A test asserts against
 synthetic data it controls, or against values derived from the current
 ones at run time (`str(int(constants.PRICING_VERSION) + 1)`), so the
-suite stays green whatever the committed value has moved to.
+suite stays green whatever the committed value has moved to. One more
+shape is legitimate: a literal rate vector pinned at a FIXED PAST
+instant inside a dated window that has already closed — SV-RATE-DATA
+makes closed windows immutable, so the pin is refresh- and
+perturbation-invariant by construction, and it is the only way
+end-exclusivity and promotion boundaries get tested against known
+vectors. Stamping the test's reference instant before every appended
+cutover (a fixed past `from`, strictly before the seeded data) is what
+keeps such a pin valid; `tests/test_provider_pricing.py`'s SEEDED
+comment is the exemplar.
 
 Enforcement is mechanical, two halves. `tests/test_no_pinned_version_literals.py`
 scans `tests/` for a literal assigned to one of the three constants;
