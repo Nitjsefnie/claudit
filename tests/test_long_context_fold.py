@@ -94,8 +94,10 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
     m = body["per_model"][0]
     assert m["model"] == "gpt-5.6-sol"
     assert body["session_total"]["cost_total"] > 0
+    # Three valued buckets + the total, each rounded to 4 decimals:
+    # they can disagree by up to 6 * 5e-5 = 3e-4 whatever the rates are.
     assert m["cost_total"] == pytest.approx(
-        sum(m["cost_buckets"].values()), abs=1e-4
+        sum(m["cost_buckets"].values()), abs=3e-4
     )
     # The record's ts (2026-06-14) sits inside sol's pre-Aug21 dated
     # window; the fold resolves the same rates for the epoch, so the
