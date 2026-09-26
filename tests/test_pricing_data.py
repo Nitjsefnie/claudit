@@ -61,14 +61,8 @@ def _histories(doc: dict):
 
 
 def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
-    """The rates the file itself says apply at `stamp`: the newest entry
-    whose `from` is not after it, or the newest entry when no stamp; within
-    it, the first schedule window the UTC weekday and HHMM fall in. A
-    free-shaped id (:free suffix, stealth/ prefix) prices by SHAPE — the
-    zero outranks whatever row carries it — so the derivation says so
-    instead of reading a row the resolver never reaches."""
-    if pricing._is_free(model,  # pylint: disable=protected-access
-                        pricing._normalise(model)):
+    """Rates in force at `stamp`; a free-shaped id prices by shape."""
+    if pricing._is_free(model, pricing._normalise(model)):  # pylint: disable=protected-access
         return dict(pricing.FREE_RATES)
     when = _when(stamp)
     current = history[0]
@@ -175,8 +169,7 @@ def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
             assert got == pricing.resolve(model, _when(stamp)), label
             continue
         assert got.kind == "exact", label
-        assert got.rates == _in_force(model, histories[model, host],
-                                      stamp), label
+        assert got.rates == _in_force(model, histories[model, host], stamp), label
 
 
 @needs_node
