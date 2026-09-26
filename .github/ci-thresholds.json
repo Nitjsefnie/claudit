@@ -13,7 +13,7 @@
     "backend/ingest.py": 942,
     "backend/ingest_rollups.py": 609,
     "backend/parse.py": 920,
-    "backend/parse_codex.py": 729,
+    "backend/parse_codex.py": 718,
     "backend/parse_kimi.py": 592,
     "backend/pricing.py": 564,
     "scripts/ci/refresh_provider_rates.py": 539,
