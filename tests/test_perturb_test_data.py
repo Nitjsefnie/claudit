@@ -164,6 +164,13 @@ def test_the_schedule_is_untouched(tmp_path):
     assert "schedule" not in appended
 
 
+def test_the_fetch_stamp_and_openrouter_section_are_untouched(tmp_path):
+    doc, perturbed, _text, _path = _run(tmp_path)
+    assert (perturbed["provider_rates_fetched"]
+            == doc["provider_rates_fetched"])
+    assert perturbed["openrouter"] == doc["openrouter"]
+
+
 def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
     _doc, perturbed, _text, _path = _run(tmp_path)
     tables = pricing.load_tables(perturbed)
