@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-26T09:54:09Z",
+  "provider_rates_fetched": "2026-09-26T10:54:24Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -656,6 +656,15 @@
           "note": "25% off",
           "output": 0.9,
           "read": 0.0045
+        },
+        {
+          "create_1h": 0.18,
+          "create_5m": 0.18,
+          "fresh": 0.18,
+          "from": "2026-09-26T10:54:24Z",
+          "note": "40% off",
+          "output": 0.72,
+          "read": 0.0036
         }
       ],
       "InferenceNet": [
@@ -1939,6 +1948,15 @@
           "note": "7.84% off",
           "output": 0.64512,
           "read": 0.036864
+        },
+        {
+          "create_1h": 0.16236,
+          "create_5m": 0.16236,
+          "fresh": 0.16236,
+          "from": "2026-09-26T10:54:24Z",
+          "note": "18.82% off",
+          "output": 0.56826,
+          "read": 0.032472
         }
       ],
       "Near AI": [
