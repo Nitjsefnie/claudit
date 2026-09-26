@@ -25,21 +25,27 @@ def test_fable_5_suffixes_fold_to_its_own_row():
 
 def test_fable_5_1_and_mythos_5_1_price_identically():
     """Mythos 5.1 is the Fable 5.1 row under an alias, and the bracket
-    suffix folds to the same row."""
+    suffix folds to the same row. Fable 5.1 prices cache hits at 0.025x
+    base input — the ratio is the row's own, so it survives any scaling."""
     f51 = pricing.rate_for("claude-fable-5-1")
+    assert f51["read"] == f51["fresh"] * 0.025
     assert pricing.rate_for("claude-mythos-5-1") == f51
     assert pricing.rate_for("claude-fable-5-1[1m]") == f51
     assert pricing.resolve("claude-fable-5-1").kind == "exact"
 
 
 def test_opus_5_5_resolves_exact_distinct_from_opus_5():
+    """Opus 5.5 prices cache hits at 0.05x base input, and never falls
+    through to Opus 5's row."""
     o55 = pricing.rate_for("claude-opus-5-5")
     assert set(o55) == set(pricing.RATE_FIELDS)
+    assert o55["read"] == o55["fresh"] * 0.05
     assert pricing.resolve("claude-opus-5-5").kind == "exact"
     assert pricing.rate_for("claude-opus-5-5[1m]") == o55
     assert pricing.rate_for("anthropic.claude-opus-5-5") == o55
     # must not fall through to Opus 5's row
-    assert o55 != pricing.rate_for("claude-opus-5")
+    assert o55 != pricing.rate_for("claude-opus-5"), (
+        "the test distinguishes the rows only while they differ")
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5():
