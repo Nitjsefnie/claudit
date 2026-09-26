@@ -844,3 +844,22 @@ and enforced in `tests.yml` — not by hand-set numbers in a workflow.
   trigger (including `version-guard.yml`) ignores
   `.github/ci-thresholds.json`. When adding a gate workflow, carry the
   exemption over.
+
+## Tests never pin repository-managed data (SV-TEST-DATA)
+
+A test NEVER depends on data the repository changes by design — the
+rate rows in `src/pricing.json`, the committed `PARSER_VERSION` /
+`PRICING_VERSION` / `MARKER_READER_VERSION`, or the set of hosts and
+models the refresh maintains (SV-RATE-REFRESH). A test asserts against
+synthetic data it controls, or against values derived from the current
+ones at run time (`str(int(constants.PRICING_VERSION) + 1)`), so the
+suite stays green whatever the committed value has moved to.
+
+Enforcement is mechanical, two halves. `tests/test_no_pinned_version_literals.py`
+scans `tests/` for a literal assigned to one of the three constants;
+an inline `# sv-test-data: allow` comment with a reason excuses a
+site, and a marker whose site is gone fails the guard as rot. The
+second half is the perturbed-data CI leg: the suite runs against a
+tree whose rate rows are doubled and whose version constants are
+bumped (`scripts/ci/perturb_test_data.py`), so a hidden dependency
+fails as a test failure, never as a broken refresh.

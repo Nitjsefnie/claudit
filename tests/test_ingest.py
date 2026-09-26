@@ -531,7 +531,7 @@ def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
     semantics with nothing to detect the drift.
     """
     ingest.run_ingest(trigger="manual")
-    monkeypatch.setenv("PARSER_VERSION", "999")
+    monkeypatch.setenv("PARSER_VERSION", "999")  # sv-test-data: allow (negative test: the env value is ignored input, not test data)
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 0
 
