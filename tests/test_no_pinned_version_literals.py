@@ -291,7 +291,7 @@ def test_multiline_marker_on_an_inner_line_is_rot():
 
 def test_the_tests_tree_holds_no_unmarked_site_and_no_rotted_marker():
     problems = []
-    for path in sorted((REPO_ROOT / "tests").glob("*.py")):
+    for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
         for message in check(path.read_text(encoding="utf-8")):
             problems.append(f"{path.name}:{message}")
     assert not problems

@@ -55,8 +55,15 @@ def perturb_pricing(path: Path, now: datetime | None = None) -> int:
     """
     doc = json.loads(path.read_text(encoding="utf-8"))
     stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    all_rows = list(_rows(doc))
+    if not all_rows:
+        # A zero-row perturbation would let the leg pass constants-only,
+        # pricing nothing — a partial-vacuous pass that proves nothing
+        # about the rate half.
+        raise ValueError(f"{path}: no rate rows under models/providers; "
+                         "perturbing nothing would price nothing")
     rows = 0
-    for entries in _rows(doc):
+    for entries in all_rows:
         previous = entries[-1]
         entries.append({
             "from": _stamp_after(previous.get("from"), stamp),
