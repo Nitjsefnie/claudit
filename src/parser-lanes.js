@@ -536,7 +536,6 @@ function parseLaneCodex(blob, opts) {
     // Attributes the token_count records that precede the first
     // turn_context.
     soleModel: declared.size === 1 ? [...declared][0] : null,
-    subscription: false,  // sticky: any plan_type on a token_count payload
     sessionId: null,      // this thread's id, from session_meta
     lastRlKind: null,     // last rate-limit condition booked
   };
@@ -655,17 +654,16 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
   const output = Math.max(0, delta.output_tokens);
   const reasoning = Math.max(0, delta.reasoning_output_tokens);
 
-  // Trap 5: the long-context meter is an API-billing tier, not a property
-  // of the request. A ChatGPT-plan rollout bills flat whatever the prompt.
-  const rl = laneIsPlainObject(payload.rate_limits) ? payload.rate_limits : {};
-  if (rl.plan_type) st.subscription = true;
-
+  // The long-context meter is a property of the model's rate card, not of
+  // the plan that served the request — every record is billed as if it
+  // were an API call (issue #194), so a subscription rollout above the
+  // threshold bills the meter exactly as an API-key one does.
   const record = laneUsageMeta(
     lineNum, tsIso,
     st.sessionId ? `${st.sessionId}:${cumulative.total_tokens}` : `${fileKey}:${lineNum}`,
     laneCodexModel(st.model || st.soleModel),
     fresh, create, read, output,
-    !st.subscription && totalIn > window.LONG_CONTEXT_THRESHOLD,
+    totalIn > window.LONG_CONTEXT_THRESHOLD,
   );
   record.thinking_tokens = reasoning;
   meta.push(record);
