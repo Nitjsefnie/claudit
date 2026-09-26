@@ -94,7 +94,7 @@ VERSION = _read_version()
 # the set of columns parse_file() emits. A rate change in src/pricing.json
 # reprices stored records instead of reparsing them: bump PRICING_VERSION
 # below for that.
-PARSER_VERSION = "82"
+PARSER_VERSION = "83"
 
 # The rate-data semantics version, stored per record: the ONLY switch
 # that forces a REPRICE, and a reprice never refetches R2 — the reprice

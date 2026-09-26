@@ -909,7 +909,7 @@ TOOL_USE_KEYS = {
 def test_parse_file_returns_the_same_shape_it_does_for_a_kimi_wire():
     out = _parse("rollout_model_switch.jsonl")
     assert set(out) == {"records", "ctx_turns", "turn_count",
-                        "prompt_count", "models", "rate_limit_hits",
+                        "prompt_count", "prompt_ts", "models", "rate_limit_hits",
                         "tool_uses", "agent_type", "agent_type_in_band"}
     for rec in out["records"]:
         assert set(rec) == RECORD_KEYS
@@ -945,8 +945,8 @@ def test_an_empty_file_parses_to_an_empty_result():
     # reports the claude parse's own default agent_type.
     out = parse.parse_file("codex/empty.jsonl", b"")
     assert out == {"records": [], "ctx_turns": [], "turn_count": 0,
-                   "prompt_count": 0, "models": [], "rate_limit_hits": [],
-                   "tool_uses": [], "agent_type": parse.DEFAULT_AGENT_TYPE, "agent_type_in_band": False}
+                   "prompt_count": 0, "prompt_ts": [], "models": [],
+                   "rate_limit_hits": [], "tool_uses": [], "agent_type": parse.DEFAULT_AGENT_TYPE, "agent_type_in_band": False}
 
 
 # --------------------------------------------------------------------------

@@ -84,6 +84,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               ctx_turns,
               turn_count,
               prompt_count,
+              prompt_ts,
               rate_limit_hits,
               agent_type,
               models,
@@ -101,6 +102,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               %(ctx_turns)s::jsonb,
               %(turn_count)s,
               %(prompt_count)s,
+              %(prompt_ts)s::jsonb,
               %(rate_limit_hits)s::jsonb,
               %(agent_type)s,
               %(models)s,
@@ -117,6 +119,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               ctx_turns = EXCLUDED.ctx_turns,
               turn_count = EXCLUDED.turn_count,
               prompt_count = EXCLUDED.prompt_count,
+              prompt_ts = EXCLUDED.prompt_ts,
               rate_limit_hits = EXCLUDED.rate_limit_hits,
               agent_type = EXCLUDED.agent_type,
               models = EXCLUDED.models,
@@ -135,6 +138,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 "ctx_turns": json.dumps(parsed["ctx_turns"], default=str),
                 "turn_count": parsed["turn_count"],
                 "prompt_count": parsed["prompt_count"],
+                "prompt_ts": json.dumps(
+                    parsed.get("prompt_ts", []), default=str
+                ),
                 "rate_limit_hits": json.dumps(
                     parsed.get("rate_limit_hits", []), default=str
                 ),
