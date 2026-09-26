@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse
+from backend.prompt_gate import _is_prompt_text
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
@@ -60,11 +61,26 @@ def test_prompt_count_excludes_unknown_xml_tags_by_default():
 
 def test_prompt_count_counts_xml_only_when_it_opens():
     """Only the OPENING matters (issue #213): a tag mid-text is the
-    person's own words around harness vocabulary, and a leading closing
-    tag would be too — the text counts as a prompt."""
+    person's own words around harness vocabulary, a leading CLOSING tag
+    is not an opening tag, and a URL in angle brackets fails the tag
+    shape (the // is outside the tag-name alphabet) — all three texts
+    count as prompts and anchor their replies."""
     out = parse.parse_file("k/sess-m/sess-m.jsonl", _read("prompt_xml_midtext.jsonl"))
-    assert out["prompt_count"] == 1
-    assert out["records"][0]["reply_latency_s"] == pytest.approx(1.0)
+    assert out["prompt_count"] == 3
+    lats = [r["reply_latency_s"] for r in out["records"]]
+    assert lats[0] == pytest.approx(1.0)
+    assert lats[1] == pytest.approx(1.0)
+    assert lats[2] == pytest.approx(1.0)
+
+
+def test_is_prompt_text_direct_shapes():
+    """The gate's defensive edges, directly (issue #213): empty and
+    whitespace-only text is not a prompt; the keep-list wrapper around a
+    human paste is; a wrapped notification is not."""
+    assert _is_prompt_text("") is False
+    assert _is_prompt_text("   ") is False
+    assert _is_prompt_text('<pasted_content id="3">x</pasted_content>') is True
+    assert _is_prompt_text("<task-notification>x</task-notification>") is False
 
 
 def test_codex_turns_ignore_injected_user_xml():

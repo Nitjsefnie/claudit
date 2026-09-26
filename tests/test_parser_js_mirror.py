@@ -382,7 +382,7 @@ PROMPT_GATE_FIXTURES = {
     "prompt_xml_injection.jsonl": ([1, 6], [3, 5, 7]),
     "prompt_pasted_content_keeps.jsonl": ([1, 2], []),
     "prompt_unknown_xml_tag.jsonl": ([3], [1, 2]),
-    "prompt_xml_midtext.jsonl": ([1], []),
+    "prompt_xml_midtext.jsonl": ([1, 3, 5], []),
 }
 
 
