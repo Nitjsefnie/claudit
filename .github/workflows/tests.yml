@@ -117,7 +117,7 @@ jobs:
 
       - name: Install dependencies
         # backend/requirements.txt already pins pytest, pytest-asyncio and
-        # httpx; requirements-test.txt adds only the coverage toolchain, so
+        # httpx2; requirements-test.txt adds only the coverage toolchain, so
         # neither pin exists in two places.
         run: |
           python -m pip install --upgrade pip
@@ -391,7 +391,7 @@ jobs:
 
       - name: Install dependencies
         # backend/requirements.txt already pins pytest, pytest-asyncio and
-        # httpx; requirements-test.txt adds only the coverage toolchain, so
+        # httpx2; requirements-test.txt adds only the coverage toolchain, so
         # neither pin exists in two places. One command, not a multi-line
         # block: the default pwsh shell on windows-latest propagates only
         # the last line's exit code, and pip's wheels cover all three
