@@ -122,10 +122,13 @@ def _legs_ran(repository, run_id, run):
     missing conclusion and a line that cannot be parsed are no evidence
     of execution, and a failed read answers None, which over-runs.
     """
+    # `--paginate` makes the read complete whatever the run's job count
+    # (the default first page is 30), and `per_page=100` batches it at the
+    # API's per-page maximum so completeness costs fewer requests.
     lines = _read(run, [
-        'gh', 'api', '-H', 'Cache-Control: no-cache',
-        f'repos/{repository}/actions/runs/{run_id}/jobs', '--jq',
-        _JOBS_JQ])
+        'gh', 'api', '--paginate', '-H', 'Cache-Control: no-cache',
+        f'repos/{repository}/actions/runs/{run_id}/jobs?per_page=100',
+        '--jq', _JOBS_JQ])
     if lines is None:
         return None
     ran = False

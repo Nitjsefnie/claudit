@@ -171,7 +171,7 @@ def test_push_event_diffs_against_the_previous_master_sha():
         url = _url(argv)
         if WORKFLOW_RUNS_URL in url:
             return f"{'a' * 40} completed success 21\n"
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return "classify success\naggregate success\ntests success\n"
         return "src/app.jsx\n"
 
@@ -215,7 +215,7 @@ def test_truncated_file_list_over_runs():
             url = _url(argv)
             if WORKFLOW_RUNS_URL in url:
                 return f"{'a' * 40} completed success 22\n"
-            if url.endswith("/jobs"):
+            if "/jobs" in url:
                 return "classify success\naggregate success\ntests success\n"
             return "\n".join(f"p{i}.md" for i in range(n))
         return run
