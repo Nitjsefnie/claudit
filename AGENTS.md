@@ -471,20 +471,10 @@ The eleven that only make sense on GitHub:
 | `pr-gate.yml` | Does a non-draft PR's description follow `.github/PULL_REQUEST_TEMPLATE.md`, and does it reference an issue its author is assigned? A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once corrected. Never checks out or executes pull-request code; the body arrives through the API. | `pull_request_target` (opened/edited/reopened/ready_for_review) with the zizmor suppression at that line — a fork's `pull_request` token is read-only, so its comment and close would silently do nothing. Skips Bot authors. |
 | `secrets.yml` | Does the tree or the full history carry a credential? gitleaks — a digest-pinned binary, never a floating one — sweeps the tree and `git log -p` under the default ruleset; findings report commit + path + rule, never the matched string (`--redact`), because the log is public. The daily cron is the gate for commits no workflow saw: a push carrying `[skip ci]`, or one that predates the workflow, is scanned the next morning rather than never. | daily cron + push to `master` + PR + `workflow_dispatch`. |
 
-**Coverage and file size are self-raising ratchets**, each checked by a
-step of its own in `tests.yml` so "tests failed" / "coverage dropped" /
-"file grew" stay distinguishable. Both live as committed data in
-`.github/ci-thresholds.json`: the coverage floor sits a fixed 1.5 points
-under the recorded measured value, and on a `master` push CI raises the
-floor automatically once a run measures more than the 1.5-point
-hysteresis above the recorded measured. The floor is never lowered by
-hand. File size replaces pylint's flat 1000-line limit with a per-file
-ceiling (`module_size_baseline`: production 500 / test 700 lines, with
-entries seeded for files already over); CI tightens an entry as its file
-shrinks and drops it once the file is back under the ceiling, but
-entries are never added or raised by hand — growth is fixed by moving
-code into a new module. The data file is ignored by ci-gate's push
-trigger, so the bot's ratchet commit never re-triggers CI.
+**Coverage and file size are self-raising ratchets** governed by
+committed data in `.github/ci-thresholds.json` and enforced in
+`tests.yml` — the floor, ratchet and never-lowered rules live in
+SV-CI-RATCHETS (`.claude/rules/claudit-doctrine.md`).
 
 **Release = edit `VERSION`.** One semver line at the repo root, no
 leading `v`. Between releases the tree carries the next version with a
@@ -564,25 +554,51 @@ block. Never "fix" it by loosening the leading `*`.
   guards are source-level on purpose: node cannot parse JSX and nothing
   here renders React, so a panel can pass the whole suite and still draw
   a black rectangle — which is exactly what shipped.
-- **Context intake is stored per call, and stays psql-only.**
-  `tool_uses` carries `result_chars` (result size, images included),
-  `read_targets` / `write_targets` (TEXT[]), `read_kind`
-  (`whole`/`slice`) and `is_reread`. Bash targets are recovered from
-  command TEXT (`backend/bash_reads.py`) because Bash is ~79% of the
-  read surface. No endpoint, no panel, no rollup — SV-CONTEXT-INTAKE.
-  Measured corpus-wide, duplicate non-image whole reads are 0.47% of
-  all result bytes, which is why a panel would chart an outlier rather
-  than a habit. Query it: `SELECT sum(result_chars) FROM tool_uses
-  WHERE is_reread;`
-- **A token type may be a SUBSET.** `thinking_tokens` is part of `output_tokens` (the API reports it under `usage.output_tokens_details`), so it gets its own panel and its own `usage_rollup` column but is never summed into a total or priced — see SV-SUBSET-TOKENS. Everything else in `TOKEN_TYPE_FIELDS` partitions the billed tokens exactly once.
-- **Cost is always TTL-split**. `cache_creation` decomposes into `ephemeral_5m` (× 1.25 base) + `ephemeral_1h` (× 2 base). Tokens with no `ephemeral_*` split are charged at the 1h rate — 1h is the main-session norm (98.7% of their writes), and 5m is the subagent exception (SV-COST-SPLIT). Single-rate `cache_create` cost is banned.
-- **Cross-file uuid dedup is resolved at INGEST** into `records.is_canonical` (SV-CANONICAL-FLAG); read paths filter that boolean and must not reintroduce `DISTINCT ON (uuid)`. Per-file `requestId` max-merge also happens at ingest. The same pass sets `tool_uses.is_canonical` on `tool_use_id`, because a compaction sidecar (`agent-acompact-*`) replays the main file's tool calls; every rollup and live read over `tool_uses` filters it.
+- **Context intake is stored per call, and stays psql-only** — no
+  endpoint, no panel, no rollup (SV-CONTEXT-INTAKE).
+- **A token type may be a SUBSET** — `thinking_tokens` is part of
+  `output_tokens` and is never summed into a total or priced
+  (SV-SUBSET-TOKENS); everything else in `TOKEN_TYPE_FIELDS` partitions
+  the billed tokens exactly once.
+- **Cost is always TTL-split** — `cache_creation` decomposes into
+  `ephemeral_5m` (× 1.25 base) + `ephemeral_1h` (× 2 base); tokens with
+  no `ephemeral_*` split are charged at the 1h rate; single-rate
+  `cache_create` cost is banned (SV-COST-SPLIT).
+- **Cross-file uuid dedup is resolved at INGEST** into
+  `records.is_canonical`; read paths filter that boolean and must not
+  reintroduce `DISTINCT ON (uuid)` (SV-CANONICAL-FLAG).
 - **`records` carries `stop_reason`, `effort` and `thinking_tokens`** alongside the token columns. `stop_reason` comes only from a reply's closing line, so NULL marks a reply whose closing usage never arrived and whose `output_tokens` is the 1-3 opening placeholder; `text_chars / 4` is the honest estimate for those. `cli_version`, `turn_flags` (events in the window before the request: `stop_hook_block`, `interrupt`, `compact`, `api_error`, `model_switch`, `effort_switch`, `advisor_switch`, `version_switch`, `tools_delta`, `image_result`, `slash_command`, `user_prompt`, `date_change`, `user_rejected`, `cwd_switch`, `away_summary`, `resume`, `cwd_rebuild`, and the `prompt_snapshot` diffs `tools_change`, `system_change`, `prompt_rerender`, which are backfilled onto the request BEFORE the snapshot line — see `backend/turn_flags.py`) and `turn_tool_results` exist so a prompt-cache miss can be attributed with a GROUP BY instead of a re-read of the raw file.
-- **Foreign-model records are purged at ingest**, not filtered at read time — `suppressed_models` holds `ILIKE` patterns and `ingest.purge_suppressed()` deletes matching `records` and their `tool_uses` before the canonical pass (SV-SUPPRESSED-MODELS). The table ships empty; populate it per deploy. `files.models` keeps every model the file contained, recorded before the purge, so a session that switched lanes can still be identified and excluded from an analysis.
-- **Aggregates are precomputed at ingest** into `usage_rollup` (grain: session × hour × model × provider × is_main × long_context), `tool_rollup` (hour × project × model × tool), `tool_error_rollup` (hour × project × model × tool × error_kind), `dispatch_rollup` (hour × project × agent_type × agent_model), `dispatch_brief_rollup` (hour × project × agent_type × brief_ref, carrying a summed prompt length alongside the count), `ctx_cost_rollup` and `agent_rollup` (both carrying `total_tokens` beside `cost_usd`, so the tokens variant of each panel needs no second pass) and `latency_rollup` — see SV-ROLLUP. The first two hold pure sums/counts/min/max and are summed up to the display bucket; they are valid only for buckets ≥ 1h, so the 24h view takes a live path.
+- **Foreign-model records are purged at ingest**, not filtered at
+  read time; the `suppressed_models` table ships empty — populate per
+  deploy (SV-SUPPRESSED-MODELS).
+- **Aggregates are precomputed at ingest** into `usage_rollup` (grain:
+  session × hour × model × provider × is_main × long_context),
+  `tool_rollup` (hour × project × model × tool), `tool_error_rollup`
+  (hour × project × model × tool × error_kind), `dispatch_rollup`
+  (hour × project × agent_type × agent_model), `dispatch_brief_rollup`
+  (hour × project × agent_type × brief_ref, carrying a summed prompt
+  length alongside the count), `ctx_cost_rollup` and `agent_rollup`
+  (both carrying `total_tokens` beside `cost_usd`) and `latency_rollup`
+  — see SV-ROLLUP. The first two hold pure sums/counts/min/max, summed
+  to the display bucket; valid only for buckets ≥ 1h, so the 24h view
+  takes a live path.
 - **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
-- **Parsing is self-contained.** Never invoke or vendor a parser from outside the repo (SV-READ-ONLY-CANONICAL). `backend/parse.py` and `src/parser.js` implement SV-PARSER-SPEC; when they drift, fix it here against the spec and the parser fixtures.
+- **Parsing is self-contained.** Never invoke or vendor a parser from
+  outside the repo (SV-READ-ONLY-CANONICAL); when `backend/parse.py`
+  and `src/parser.js` drift, fix it here against the spec and the
+  parser fixtures (SV-PARSER-SPEC).
 - **Tests use fixtures, not real R2.** The R2 client supports `R2_ENDPOINT=file:///path/to/mirror/` for offline dev.
-- **Version invalidation:** Bump `PARSER_VERSION` in `backend/constants.py` when parser semantics change — every file reparses on next ingest — and `PRICING_VERSION` when anything a reprice recomputes changes — a `src/pricing.json` rate, or a stored-flag rule like the Codex long-context meter — because the pass recomputes `cost_usd` AND `records.long_context` from each record's stored columns, no reparse (SV-REPRICE). Never an env var: a change and its bump must ship together.
-- **Several buckets, several formats, one deploy.** `R2_BUCKET` may name several buckets joined by `+`; every stored file key is `<bucket>/<object-key>` and the bucket comes from the stored key, never the request. `parse_file()` sniffs the format (Claude, Codex rollout, kimi-code, legacy Kimi) and dispatches; the lane parsers and `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC). A Codex record above the 272k threshold bills the whole record on the long-context meter, persisted on `records.long_context` and applied by every per-component cost re-derivation (SV-DATED-RATES).
-- **Backend is the only load path:** the drag-drop fallback was removed (SV-NO-LOCAL-UPLOAD). `src/parser.js` stays — it parses backend-fetched transcripts and prices them from `src/pricing.json`.
+- **Version invalidation:** bump `PARSER_VERSION` in
+  `backend/constants.py` when parser semantics change (every file
+  reparses on next ingest) and `PRICING_VERSION` when anything a
+  reprice recomputes changes — a rate or a stored-flag rule like the
+  long-context meter (SV-PARSER-VERSION, SV-REPRICE). Never an env
+  var: a change and its bump must ship together.
+- **Several buckets, several formats, one deploy:** `R2_BUCKET` may
+  name several buckets joined by `+`; every stored file key is
+  `<bucket>/<object-key>` and the bucket comes from the stored key,
+  never the request (SV-FILES-RECORDS); the lane parsers and
+  `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC); the Codex
+  long-context meter rides every per-component cost re-derivation
+  (SV-DATED-RATES).
+- **Backend is the only load path** (SV-NO-LOCAL-UPLOAD).
