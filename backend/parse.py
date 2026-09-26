@@ -11,13 +11,12 @@ _LineWalk collects per-file state; helpers project records and ctx_turns.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
 
 from orjson import JSONDecodeError, loads
 
 from backend import pricing
-from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER,
-                               MAX_PLAUSIBLE_CTX)
+from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
                                  ERROR_KIND_REJECTED,  # pylint: disable=unused-import
                                  ERROR_KIND_TOOL_ERROR, ERROR_TEXT_MAX,
@@ -27,7 +26,8 @@ from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
 from backend.prompt_gate import _is_prompt_text
-from backend.parse_common import (_dispatch_prompt_shape, _to_dt, iter_lines)
+from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
+                                  _to_dt, iter_lines)
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
@@ -396,9 +396,15 @@ class _LineWalk:
             if mutate_anchor:
                 self.last_user_ts = None
             return
-        self.user_text_lines.append(line_num)
-        # Same gate as the line above, so prompt_count and prompt_ts
+        # Same gate as the append inside, so prompt_count and prompt_ts
         # stay index-aligned (issue #214).
+        self._count_prompt(line_num, ts_str, mutate_anchor)
+
+    def _count_prompt(self, line_num: int, ts_str: str,
+                      mutate_anchor: bool) -> None:
+        """Book ONE prompt: the count line, the #214 timestamp and the
+        reply-latency anchor land together, once per record."""
+        self.user_text_lines.append(line_num)
         ts_dt = _to_dt(ts_str)
         self.user_text_ts.append(ts_dt.isoformat() if ts_dt is not None else None)
         if ts_dt is not None and mutate_anchor:
@@ -458,36 +464,50 @@ class _LineWalk:
                 content, line_num, ts_str, mutate_anchor=mutate_anchor
             )
         elif isinstance(content, list):
-            for blk in content:
-                self._handle_user_block(blk, line_num, ts_str, mutate_anchor)
+            self._handle_user_blocks(content, line_num, ts_str, mutate_anchor)
 
-    def _handle_user_block(self, blk, line_num: int, ts_str: str,
-                           mutate_anchor: bool) -> None:
-        if not isinstance(blk, dict):
+    def _handle_user_blocks(self, blocks, line_num: int, ts_str: str,
+                            mutate_anchor: bool) -> None:
+        """List-content records: tool-result bookkeeping per block, then
+        ONE prompt decision per record (issue #215). A record counts
+        once when any top-level block is human — a text block passing
+        the #213 gate, or an image block. An image inside a tool_result
+        is result payload, never a prompt. An interrupt marker still
+        clears the latency anchor without counting the record."""
+        saw_human = False
+        for blk in blocks:
+            if not isinstance(blk, dict):
+                continue
+            btype = blk.get("type")
+            if btype == "tool_result":
+                self._note_tool_result(blk)
+            elif btype == "text":
+                text = blk.get("text", "") or ""
+                if (isinstance(text, str) and text.strip()
+                        and _is_prompt_text(text)):
+                    if text.lstrip().startswith(INTERRUPT_MARKER):
+                        if mutate_anchor:
+                            self.last_user_ts = None
+                    else:
+                        saw_human = True
+            elif btype == "image":
+                saw_human = True
+        if saw_human:
+            self._count_prompt(line_num, ts_str, mutate_anchor)
+
+    def _note_tool_result(self, blk) -> None:
+        """Book one tool_result block: settle the call's error flag,
+        result size and (for failures) the error text."""
+        tu_id = blk.get("tool_use_id")
+        if not tu_id:
             return
-        btype = blk.get("type")
-        if btype == "tool_result":
-            # Tool results live here. Each block carries
-            # tool_use_id (referencing the assistant's
-            # tool_use.id) and an optional is_error flag.
-            tu_id = blk.get("tool_use_id")
-            if not tu_id:
-                return
-            is_err = bool(blk.get("is_error", False))
-            self.tool_result_is_error[str(tu_id)] = is_err
-            self.tool_result_chars[str(tu_id)] = _result_size(
-                blk.get("content")
+        is_err = bool(blk.get("is_error", False))
+        self.tool_result_is_error[str(tu_id)] = is_err
+        self.tool_result_chars[str(tu_id)] = _result_size(blk.get("content"))
+        if is_err:  # whole; _resolve_tool_errors truncates it
+            self.tool_result_text[str(tu_id)] = _pg_text(
+                _flatten_result_text(blk.get("content")).strip()
             )
-            if is_err:  # whole; _resolve_tool_errors truncates it
-                self.tool_result_text[str(tu_id)] = _pg_text(
-                    _flatten_result_text(blk.get("content")).strip()
-                )
-        elif btype == "text":
-            text = blk.get("text", "") or ""
-            if isinstance(text, str) and text.strip():
-                self.handle_user_text(
-                    text, line_num, ts_str, mutate_anchor=mutate_anchor
-                )
 
     def handle_assistant_line(self, obj: dict, msg: dict,
                               line_num: int) -> None:
@@ -745,56 +765,6 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "cost_usd": round(cost, 6),
         "ctx_input": _usage_ctx_input(u),
     }
-
-
-def _build_ctx_turns(records: list, user_text_lines: list) -> list:
-    """Build ctx_turns by user-text boundary (SV-PARSER-SPEC)."""
-    boundary_lines = sorted(user_text_lines)
-    aware_min = datetime.min.replace(tzinfo=timezone.utc)
-    sorted_recs = sorted(
-        records,
-        key=lambda r: (
-            r["ts"] is not None,
-            r["ts"] if r["ts"] is not None else aware_min,
-            r["line_num"],
-        ),
-    )
-
-    turn_records: list[dict] = []
-    last_usage: dict | None = None
-    bi = 0
-    for rec in sorted_recs:
-        while bi < len(boundary_lines) and boundary_lines[bi] <= rec["line_num"]:
-            if last_usage is not None:
-                turn_records.append(last_usage)
-                last_usage = None
-            bi += 1
-        last_usage = rec
-    if last_usage is not None:
-        turn_records.append(last_usage)
-
-    # Drop turns with 0 input (refusals/interrupts; they corrupt deltas)
-    # and turns above any real context window (cumulative counters
-    # written by other harnesses; they destroy the trace's y-axis).
-    turn_records = [
-        t for t in turn_records
-        if 0 < t["ctx_input"] <= MAX_PLAUSIBLE_CTX
-    ]
-
-    ctx_turns: list[dict] = []
-    prev_input = 0
-    for idx, t in enumerate(turn_records, 1):
-        ctx_input = t["ctx_input"]
-        ctx_turns.append({
-            "idx": idx,
-            "ts": t["ts"].isoformat() if t["ts"] else "",
-            "line": t["line_num"],
-            "input": ctx_input,
-            "output": t["output_tokens"],
-            "delta": ctx_input - prev_input,
-        })
-        prev_input = ctx_input
-    return ctx_turns
 
 
 def resolve_agent_type(walk: _LineWalk) -> str:

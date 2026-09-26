@@ -19,9 +19,10 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend import pricing
+from backend.constants import MAX_PLAUSIBLE_CTX
 from backend.tool_errors import (ERROR_TEXT_MAX, _pg_text,
                                  classify_lane_error)
 
@@ -406,6 +407,56 @@ def _ctx_turns_from_turns(turns: list[dict], records: list[dict]) -> list[dict]:
             "line": last_line,
             "input": ctx_input,
             "output": rec["output_tokens"],
+            "delta": ctx_input - prev_input,
+        })
+        prev_input = ctx_input
+    return ctx_turns
+
+
+def _build_ctx_turns(records: list, user_text_lines: list) -> list:
+    """Build ctx_turns by user-text boundary (SV-PARSER-SPEC)."""
+    boundary_lines = sorted(user_text_lines)
+    aware_min = datetime.min.replace(tzinfo=timezone.utc)
+    sorted_recs = sorted(
+        records,
+        key=lambda r: (
+            r["ts"] is not None,
+            r["ts"] if r["ts"] is not None else aware_min,
+            r["line_num"],
+        ),
+    )
+
+    turn_records: list[dict] = []
+    last_usage: dict | None = None
+    bi = 0
+    for rec in sorted_recs:
+        while bi < len(boundary_lines) and boundary_lines[bi] <= rec["line_num"]:
+            if last_usage is not None:
+                turn_records.append(last_usage)
+                last_usage = None
+            bi += 1
+        last_usage = rec
+    if last_usage is not None:
+        turn_records.append(last_usage)
+
+    # Drop turns with 0 input (refusals/interrupts; they corrupt deltas)
+    # and turns above any real context window (cumulative counters
+    # written by other harnesses; they destroy the trace's y-axis).
+    turn_records = [
+        t for t in turn_records
+        if 0 < t["ctx_input"] <= MAX_PLAUSIBLE_CTX
+    ]
+
+    ctx_turns: list[dict] = []
+    prev_input = 0
+    for idx, t in enumerate(turn_records, 1):
+        ctx_input = t["ctx_input"]
+        ctx_turns.append({
+            "idx": idx,
+            "ts": t["ts"].isoformat() if t["ts"] else "",
+            "line": t["line_num"],
+            "input": ctx_input,
+            "output": t["output_tokens"],
             "delta": ctx_input - prev_input,
         })
         prev_input = ctx_input
