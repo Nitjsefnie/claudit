@@ -1,36 +1,33 @@
-name: test data
+name: test data explore
 
-# The perturbed-data gate leg (issue #199): the second half of
-# SV-TEST-DATA's enforcement. ci-gate calls this workflow as a leg; it
-# perturbs the tree's test data (scripts/ci/perturb_test_data.py: every
-# rate row scaled three ways — doubled, ×0.37, and by a per-row
-# irregular factor in [0.61, 1.47); a zero rate becomes one — and the
-# three version constants bumped) and runs the FULL suite against the
-# perturbed tree — no coverage, no ratchet; the verdict is pass/fail of
-# the suite on data the repository changes by design. A test that pins
-# repository-managed data fails here as a test failure, on this tree,
-# before it can fail a refresh bot's run.
+# The daily explorer for the perturbed-data leg (issue #226): the gate
+# leg runs three FIXED seeds so its verdict is deterministic, and the
+# fixed three sample one corner of the seed domain; this run draws
+# three wall-clock seeds a day and runs the same full suite per seed.
+# It is NOT a gate leg — ci-gate.yml is untouched — so a red explorer
+# means "look at this seed", never "block the push". The stamps are
+# decoupled from the seed (issue #227), so any drawn seed is safe
+# against the closed-window pins.
 
 on:
-  # Trigger ownership stays with ci-gate.yml: no push or pull_request
-  # trigger of its own — workflow_call is the leg's entry;
-  # workflow_dispatch keeps a direct run possible.
-  workflow_call:
+  schedule:
+    # Daily, off the hour: the top of the hour is when every cron on
+    # GitHub fires at once and jobs queue.
+    - cron: '47 6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Push and pull_request runs arrive as ci-gate legs under the caller's
-  # event, matching ci-gate's own group; direct dispatch runs queue on
-  # their ref likewise.
-  group: test-data-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A dispatched run queues behind the day's scheduled one rather than
+  # interleaving with it in the log; neither writes anything back.
+  group: test-data-explore
+  cancel-in-progress: false
 
 jobs:
-  perturbed-suite:
-    name: perturbed suite
+  perturbed-suite-explore:
+    name: perturbed suite (explorer)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -39,8 +36,8 @@ jobs:
 
     services:
       postgres:
-        # The suite does not use a single fixed database: fixtures create
-        # and drop run-named ones (tests/scratch_db.py), so the role needs
+        # Same service the gate leg uses: fixtures create and drop
+        # run-named databases (tests/scratch_db.py), so the role needs
         # CREATEDB — the stock `postgres` superuser has it.
         image: postgres:16
         env:
@@ -75,7 +72,9 @@ jobs:
 
       # The pip cache restores on every event but is saved only from a push
       # of master (issue #126): no setup-python step owns the cache, and the
-      # save sits directly after the dependency install, below.
+      # save sits directly after the dependency install, below. This
+      # workflow is never a push, so it restores-only; the gated save keeps
+      # the shape every dependency-installing workflow shares.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -102,8 +101,9 @@ jobs:
           pip install -r backend/requirements.txt -r requirements-test.txt
 
       # Saved here, not in a post-job step: the install above populated the
-      # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # cache, and this workflow keeps every event but a push of master
+      # from writing cross-run state (issue #126) — which, on a
+      # schedule/dispatch-only workflow, is every run of it.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -122,24 +122,24 @@ jobs:
           done
           echo "postgres never became ready"; exit 1
 
-      - name: Perturb and test, per fixed seed
-        # The perturbation is the leg's point: this tree is what a
-        # refresh bot's commit produces (rates moved, version constants
-        # bumped), so the suite runs against data the repository
-        # changes by design. Working-tree only — a fresh checkout runs
-        # it, so nothing here reverts anything. The seeds are FIXED
-        # (issue #226): a wall-clock seed made the leg's verdict random
-        # — the same tree passing or failing with the day it ran on.
-        # Three absolute seeds — a historical one, a huge one, a
-        # mid-range one — each run the full suite, and the loop's first
-        # failure fails the step. The stamps are decoupled from the
-        # seed (issue #227), so any seed is safe. The clean-tree
-        # restore precedes every perturb, so no seed ever perturbs a
-        # perturbed tree.
+      - name: Perturb and test, per wall-clock seed
+        # Three seeds per run, drawn straight off the clock. Every seed
+        # runs even after one fails; each failing seed is appended to
+        # the run summary by name, and the step goes red at the end so
+        # the run is seen. The clean-tree restore precedes every
+        # perturb, so no seed ever perturbs a perturbed tree.
         run: |
-          for SEED in 42 1234567890 1720000000; do
+          fail=0
+          for _ in 1 2 3; do
+            SEED="$(date +%s)"
             echo "::notice::perturbed-suite seed=$SEED"
             git checkout -- src/pricing.json backend/constants.py
-            python scripts/ci/perturb_test_data.py --seed "$SEED"
-            python -m pytest tests/ -q --tb=short -ra
+            if python scripts/ci/perturb_test_data.py --seed "$SEED" \
+               && python -m pytest tests/ -q --tb=short -ra; then
+              echo "seed=$SEED ok" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "seed=$SEED failed" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+            fi
           done
+          exit "$fail"
