@@ -23,7 +23,7 @@ LANE_MODELS = (
 def test_lane_model_resolves_exact_at_its_list_rate(model):
     r = pricing.resolve(model)
     assert r.kind == "exact"
-    assert r.rates is pricing.MODEL_RATES[r.key]
+    assert r.rates is pricing.MODEL_RATES[r.key or model]
     # D4: one write rate, whatever TTL the record does or does not declare.
     assert r.rates["create_5m"] == r.rates["create_1h"]
 
