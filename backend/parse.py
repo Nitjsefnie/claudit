@@ -26,22 +26,12 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
 from backend import bash_reads
+from backend.prompt_gate import _is_prompt_text
 from backend.parse_common import _dispatch_prompt_shape, iter_lines
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.target_paths import target_key
 
 
-_INSTRUMENTATION_USER_PREFIXES = (
-    "<bash-input>",
-    "<bash-stdout>",
-    "<bash-stderr>",
-    "<local-command-caveat>",
-    "<local-command-stdout>",
-    "<local-command-stderr>",
-    "<command-name>",
-    "<command-message>",
-    "<command-args>",
-)
 # A `type:"assistant"` record with isApiErrorMessage=True and
 # error="rate_limit" IS an account-cap hit unless its text matches one
 # of these. Matching the exceptions (a deny-list) rather than the
@@ -405,9 +395,9 @@ class _LineWalk:
         """
         if not text.strip():
             return
-        stripped = text.lstrip()
-        if any(stripped.startswith(p) for p in _INSTRUMENTATION_USER_PREFIXES):
+        if not _is_prompt_text(text):
             return
+        stripped = text.lstrip()
         if stripped.startswith(INTERRUPT_MARKER):
             if mutate_anchor:
                 self.last_user_ts = None
