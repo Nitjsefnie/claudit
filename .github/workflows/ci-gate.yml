@@ -31,7 +31,7 @@ name: ci gate
 # so the next push re-verifies whatever a cancelled run left
 # unverified instead of hiding it behind a docs-only classification.
 #
-# TRIGGER OWNERSHIP. The nine gate workflows below are called as
+# TRIGGER OWNERSHIP. The ten gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
 # daily, codeql weekly) and `workflow_dispatch`, and they carry no
 # `push` or `pull_request` trigger any more — this file owns that
@@ -120,6 +120,15 @@ jobs:
       contents: write
       pull-requests: write
 
+  test-data:
+    # The perturbed-data leg (issue #199): the full suite against a tree
+    # whose rate rows and version constants a refresh-style perturbation
+    # has moved — SV-TEST-DATA's second enforcement half. The verdict is
+    # the perturbed suite's pass/fail; no coverage, no ratchet.
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/test-data.yml
+
   lint:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
@@ -167,7 +176,7 @@ jobs:
       contents: read
 
   aggregate:
-    needs: [classify, tests, lint, types, eslint, smoke, audit,
+    needs: [classify, tests, test-data, lint, types, eslint, smoke, audit,
             actionlint, speed, codeql]
     if: ${{ always() }}
     runs-on: ubuntu-latest

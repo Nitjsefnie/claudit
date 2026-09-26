@@ -39,8 +39,8 @@ import sys
 # Every leg the workflow must report through, classifier included.
 # tests/test_workflow_ci_gate.py pins this tuple against the workflow's
 # needs list, so the two cannot drift apart.
-EXPECTED_LEGS = ('classify', 'tests', 'lint', 'types', 'eslint', 'smoke',
-                 'audit', 'actionlint', 'speed', 'codeql')
+EXPECTED_LEGS = ('classify', 'tests', 'test-data', 'lint', 'types', 'eslint',
+                 'smoke', 'audit', 'actionlint', 'speed', 'codeql')
 
 PASSED = 'passed'
 FAILED = 'failed'
