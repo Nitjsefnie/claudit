@@ -25,7 +25,11 @@ name: ci gate
 # DELIBERATE cancel of a still-current run leaves that run's aggregate
 # cancelled, which a required-check ruleset treats as never-green — the
 # same stance release.yml takes toward a cancelled check on the SHA it
-# is about to tag.
+# is about to tag. A cancelled run's CODE is not forgotten instead: a
+# master push classifies over the range since the last master commit
+# whose gate legs actually executed (scripts/ci/classify_changes.py),
+# so the next push re-verifies whatever a cancelled run left
+# unverified instead of hiding it behind a docs-only classification.
 #
 # TRIGGER OWNERSHIP. The nine gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
@@ -69,9 +73,13 @@ jobs:
     timeout-minutes: 15
     permissions:
       # contents: read pays for the checkout; pull-requests: read is
-      # what the pulls/<n>/files read needs on a pull-request event.
+      # what the pulls/<n>/files read needs on a pull-request event;
+      # actions: read is what the workflow-runs and run-jobs reads need
+      # on a push, where the classifier walks back to the newest master
+      # commit whose gate legs executed (issue #208).
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
       reason: ${{ steps.classify.outputs.reason }}

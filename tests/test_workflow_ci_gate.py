@@ -101,6 +101,16 @@ def test_classify_job_outputs_docs_only():
     assert "docs_only" in outputs
 
 
+def test_classify_job_reads_actions_for_the_verified_base_walk():
+    # Issue #208: on a push the classifier walks the ci-gate workflow
+    # runs and run-jobs endpoints for the newest master commit whose
+    # legs executed. Without `actions: read` every such read 403s and
+    # every push over-runs to full legs, silently disabling docs-only
+    # narrowing on master.
+    permissions = _ci_gate()["jobs"]["classify"].get("permissions") or {}
+    assert permissions.get("actions") == "read"
+
+
 def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     # The ratchet bot's master commit (only .github/ci-thresholds.json)
     # must not start the suite — the guarantee the gate workflows used to
