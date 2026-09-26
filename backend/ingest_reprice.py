@@ -8,12 +8,13 @@ counts as stale), and persist-time stamping (backend/ingest_persist.py)
 keeps freshly written rows non-stale.
 
 The pass recomputes RATE-DERIVED STORED STATE keyed off pricing_version
-staleness. cost_usd today; issue #194 will make records.long_context a
-pure function of stored columns, and that flag rides the SAME selection
-— a rate-derived flag recomputed beside cost. The per-row update is
-therefore assembled in one place (_record_updates), and the UPDATE's
-SET list is generated from _SET_COLUMNS, so a flag column joins the
-batch without reworking the batching, the keyset or the guard.
+staleness: cost_usd AND records.long_context (a rate-derived flag,
+issue #194). For the meter's models the flag is a pure function of
+stored columns, and it rides the SAME selection as the cost. The
+per-row update is therefore assembled in one place (_record_updates),
+and the UPDATE's SET list is generated from _SET_COLUMNS, so a flag
+column joins the batch without reworking the batching, the keyset or
+the guard.
 
 Batching: REPRICE_BATCH rows per transaction, keyset-paginated on
 (file_key, line_num), one commit per batch — a failure's blast radius is
@@ -58,7 +59,7 @@ REPRICE_BATCH = 20_000
 # The columns a repriced row's SET list carries. Identifiers only — the
 # SQL text is assembled from these once at import; values always travel
 # as %s/%(name)s parameters.
-_SET_COLUMNS: tuple[str, ...] = ("cost_usd", "pricing_version")
+_SET_COLUMNS: tuple[str, ...] = ("cost_usd", "long_context", "pricing_version")
 
 _SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
@@ -118,14 +119,23 @@ def _record_updates(row: _StaleRow) -> dict:
     """The columns one record's reprice writes, from its stored values —
     THE one assembly point.
 
-    cost_usd today (issue #193). When #194 teaches the pass to recompute
-    a rate-derived flag (records.long_context as a pure function of
-    stored columns), the flag's column and value join here and ride the
-    same batch: the SET list is generated from _SET_COLUMNS, so neither
-    the batching, the keyset nor the guard changes.
+    cost_usd and the long-context flag together (issue #194): for the
+    meter's models the flag is a pure function of stored columns —
+    fresh + cache_creation + cache_read against the threshold — and
+    rides the same selection, batch, keyset and guard as the cost. A row
+    of a model whose card carries no meter, and a row naming a provider
+    host (which prices by that host's card, not this one), keeps its
+    stored flag untouched: a Claude record's NULL stays NULL and a Kimi
+    record's FALSE stays FALSE.
     """
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
+    if row.model in pricing.LONG_CONTEXT_MODELS and not row.provider:
+        long_context = (row.fresh_tokens + row.cache_creation_tokens
+                        + row.cache_read_tokens
+                        > pricing.LONG_CONTEXT_THRESHOLD)
+    else:
+        long_context = row.long_context
     cost = pricing.compute_cost(
         row.model,
         fresh=row.fresh_tokens,
@@ -135,11 +145,12 @@ def _record_updates(row: _StaleRow) -> dict:
         unsplit_create=unsplit_create,
         read=row.cache_read_tokens,
         ts=row.ts,
-        long_context=bool(row.long_context),
+        long_context=bool(long_context),
         provider=row.provider,
     )
     return {
         "cost_usd": round(cost, 6),
+        "long_context": long_context,
         "pricing_version": constants.PRICING_VERSION,
     }
 

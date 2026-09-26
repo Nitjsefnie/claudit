@@ -143,10 +143,11 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      (cwd_rebuild). Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
--- 2026-09-22: the Codex long-context meter, per record. A pay-as-you-go
--- Codex request whose prompt exceeded the 272k threshold bills the WHOLE
--- request at 2x input side / 1.5x output (pricing.LONG_CONTEXT_*), so a
--- per-component cost re-derived from the stored tokens at the flat rate
+-- 2026-09-22: the Codex long-context meter, per record. A Codex request
+-- whose prompt exceeded the 272k threshold bills the WHOLE request at 2x
+-- input side / 1.5x output (pricing.LONG_CONTEXT_*), whatever plan served
+-- it — every record is billed as if it were an API call (issue #194) — so
+-- a per-component cost re-derived from the stored tokens at the flat rate
 -- disagrees with the stored cost_usd unless the fold knows the flag.
 -- NULL on everything that is not a lane record (Claude never bills this
 -- way); readers COALESCE to FALSE.

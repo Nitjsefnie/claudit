@@ -101,7 +101,7 @@ PARSER_VERSION = "81"
 # pass (issue #193) recomputes each stale row's cost_usd from its own
 # stored token columns. PARSER_VERSION bumps only for parser-semantics
 # changes from now on.
-PRICING_VERSION = "1"
+PRICING_VERSION = "2"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
