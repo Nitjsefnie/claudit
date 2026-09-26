@@ -89,6 +89,24 @@ def test_aggregate_legs_match_the_modules_expected_legs():
     assert module.EXPECTED_LEGS == ("classify", *LEG_IDS)
 
 
+def test_ci_gate_jobs_are_exactly_the_non_leg_jobs_plus_the_legs():
+    # Lockstep pin for the verified-base walk (issue #208): the
+    # classifier's NON_LEG_JOBS and this file's LEG_IDS must together
+    # name every ci-gate job, so a leg added to the workflow moves all
+    # three lists in one commit or this test goes red — a job the walk
+    # mistakes for the classifier or the aggregate would otherwise read
+    # as "no leg ran".
+    spec = importlib.util.spec_from_file_location(
+        "classify_changes_shape",
+        ROOT / "scripts" / "ci" / "classify_changes.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["classify_changes_shape"] = module
+    spec.loader.exec_module(module)
+    assert (set(_ci_gate()["jobs"])
+            == set(module.NON_LEG_JOBS) | set(LEG_IDS))
+
+
 def test_every_leg_is_conditioned_on_the_docs_only_output():
     doc = _ci_gate()
     for leg in LEG_IDS:
