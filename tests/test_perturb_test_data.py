@@ -314,6 +314,28 @@ def test_a_future_newest_from_advances_by_one_second(tmp_path):
         assert entry["from"] == expected
 
 
+def test_a_microsecond_now_moves_off_the_predecessors_second(tmp_path):
+    """`now` carrying microseconds against a row whose newest `from` is
+    exactly that whole second: the candidate is compared at second
+    precision — the precision the stamp itself carries — so the first
+    appended stamp is the predecessor's second + 1s, not the same
+    second, which the loader would refuse."""
+    pricing_path, _constants_path, doc = _seed_tree(tmp_path)
+    now = NOW + timedelta(seconds=0.4)
+    doc["models"]["acme/acme-9"][-1]["from"] = now.strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    pricing_path.write_text(
+        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    perturb_module.perturb_pricing(pricing_path, now=now)
+    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    appended = perturbed["models"]["acme/acme-9"][-3:]
+    predecessor_second = now.replace(microsecond=0)
+    for offset, entry in enumerate(appended, start=1):
+        expected = (predecessor_second + timedelta(seconds=offset)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        assert entry["from"] == expected
+
+
 def test_a_second_run_appends_further_entries_without_corrupting(tmp_path):
     doc, perturbed, constants_path = _run_twice(tmp_path)
     for key, entries in doc["models"].items():
