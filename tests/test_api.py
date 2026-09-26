@@ -621,10 +621,10 @@ def _app_with_rl_data_fixture(monkeypatch):
 
 
 def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
-    """total_prompts sums files.prompt_count; total_turns sums files.turn_count.
-    Mini r2 has one real user prompt (sess-A) and five usage-bearing files
-    (sess-A, sess-B, sess-C main, sess-C agent, sess-D), each producing
-    a single ctx_turn entry."""
+    """total_prompts/total_turns count per own timestamp, in range only;
+    over an all-covering range that equals the old whole-file SUMs. Mini
+    r2 has one real user prompt (sess-A) and five usage-bearing files
+    (sess-A, sess-B, sess-C main, sess-C agent, sess-D), one ctx_turn."""
     body = app_with_data.get("/api/dashboard?range=3650d").json()
     assert body["total_prompts"] == 1
     assert body["total_turns"] == 5
