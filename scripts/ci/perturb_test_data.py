@@ -39,7 +39,8 @@ PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 VERSION_NAMES = ("PARSER_VERSION", "PRICING_VERSION", "MARKER_READER_VERSION")
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-NOTE = "sv-test-data perturbation: rates doubled"
+NOTE = ("sv-test-data perturbation: rates doubled, "
+        "a zero rate becomes one")
 
 
 def perturb_pricing(path: Path, now: datetime | None = None) -> int:

@@ -152,21 +152,15 @@ def check(source: str) -> list[str]:
     """
     sites = detect(source)
     site_lines = {site.line for site in sites}
+    marker_lines = _marker_lines(source)
     problems = [f"line {site.line}: assigns a literal to {site.name} "
                 f"({site.shape}); add '# sv-test-data: allow' with a reason, "
                 "or derive the value from the current constant"
-                for site in sites
-                if not MARKER.search(_line(source, site.line))]
+                for site in sites if site.line not in marker_lines]
     problems += [f"line {line}: sv-test-data marker on a line with no pinned "
                  "version literal (marker rot)"
-                 for line in sorted(_marker_lines(source) - site_lines)]
+                 for line in sorted(marker_lines - site_lines)]
     return problems
-
-
-def _line(source: str, lineno: int) -> str:
-    """The one-based line's text, empty if out of range."""
-    lines = source.splitlines()
-    return lines[lineno - 1] if 0 < lineno <= len(lines) else ""
 
 
 def test_setattr_positional_literal_is_flagged():
@@ -264,6 +258,15 @@ def test_marker_text_inside_a_string_is_not_a_marker():
     source = ("CODE = \"monkeypatch.setenv('PARSER_VERSION', '9')  "
               "# sv-test-data: allow (sample)\"\n"
               "monkeypatch.setenv('PARSER_VERSION', '9')\n")
+    problems = check(source)
+    assert len(problems) == 1
+    assert "line 2" in problems[0]
+
+
+def test_marker_text_inside_the_value_cannot_self_excuse():
+    """Marker text inside a value literal is not a comment on its line."""
+    source = ("monkeypatch.setattr(constants, 'PARSER_VERSION',\n"
+              "    'x  # sv-test-data: allow (self)')\n")
     problems = check(source)
     assert len(problems) == 1
     assert "line 2" in problems[0]
