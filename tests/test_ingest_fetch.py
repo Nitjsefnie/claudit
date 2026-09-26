@@ -366,7 +366,12 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
     """
     # A previous run stored the key so the vanish leaves a stale row.
     ingest.run_ingest(trigger="manual")
-    monkeypatch.setattr(constants, "PARSER_VERSION", "vanish-test")
+    # A changed parser_version makes the stored files stale; derived from
+    # the committed constant so the bump target can never collide with it
+    # (issue #198).
+    monkeypatch.setattr(
+        constants, "PARSER_VERSION",
+        str(int(constants.PARSER_VERSION) + 1))
     counts, slept = _patch_fetch(
         monkeypatch, _FLAKY_KEY, fail_times=99, exc=exc_factory(_FLAKY_KEY)
     )
