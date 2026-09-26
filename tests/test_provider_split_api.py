@@ -138,16 +138,27 @@ def test_cache_splits_per_model_by_provider_and_keeps_the_totals(client):
     body = c.get("/api/cache?range=30d").json()
     split = {(e["model"], e["provider"]): e for e in body["per_model_provider"]}
     for p, m, cost, _ in _expected(start):
-        assert split[(m, p)]["cost_total"] == pytest.approx(cost, abs=1e-4)
-        assert sum(split[(m, p)]["cost_buckets"].values()) == \
-            pytest.approx(split[(m, p)]["cost_total"], abs=1e-4)
+        # The fold rounds each total to 4 places, and `cost` is the same
+        # 6-place stored value it sums, so re-derive the rounding.
+        assert split[(m, p)]["cost_total"] == pytest.approx(
+            round(cost, 4), abs=1e-6)
+        # Five buckets + the total, each rounded to 4 places: they can
+        # disagree by up to 6 * 5e-5 = 3e-4 whatever the rates are.
+        assert abs(sum(split[(m, p)]["cost_buckets"].values())
+                   - split[(m, p)]["cost_total"]) <= 3e-4
     per_model = {e["model"]: e for e in body["per_model"]}
     assert "provider" not in per_model[V41]
     assert per_model[V41]["turns"] == 3
-    # Each entry rounds to 4 places, so compare against the stored costs
-    # rather than a sum of already-rounded split entries.
+    # A per-model entry sums its rows' stored costs and rounds once, so
+    # re-derive that rounding against the stored 6-place values.
+    v41_total = sum(cost for _, m, cost, _ in _expected(start) if m == V41)
     assert per_model[V41]["cost_total"] == pytest.approx(
-        sum(cost for _, m, cost, _ in _expected(start) if m == V41),
-        abs=1e-4)
+        round(v41_total, 4), abs=1e-6)
+    # session_total sums the per-model entries' ALREADY-ROUNDED totals
+    # and rounds again (backend/api_cache._session_total), so re-derive
+    # the two-step fold: round per model first, then sum and round.
+    by_model = {}
+    for _, m, cost, _ in _expected(start):
+        by_model[m] = by_model.get(m, 0.0) + cost
     assert body["session_total"]["cost_total"] == pytest.approx(
-        sum(cost for _, _, cost, _ in _expected(start)), abs=1e-4)
+        round(sum(round(v, 4) for v in by_model.values()), 4), abs=1e-6)
