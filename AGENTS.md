@@ -66,6 +66,12 @@ backend/          — FastAPI application
                     names (sidecar_agent_role), whether it marks a named
                     teammate, and the teammate_name recorded for the
                     ingest-time join. Nothing here parses a transcript.
+  prompt_gate.py  — The XML-open deny-by-default prompt gate (issue
+                    #213, split out of parse.py): a user text that opens
+                    with a tag is harness-injected data unless the tag
+                    is on the pasted_content keep-list; shared by
+                    handle_user_text, so denied texts count no prompt,
+                    anchor no latency and split no ctx turn.
   parse_codex.py  — Codex rollout parser (ported from codexmeter):
                     cumulative-token differencing, cross-file request
                     identity for uuid dedup, per-record long-context

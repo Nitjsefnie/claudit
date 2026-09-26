@@ -27,16 +27,19 @@ def test_prompt_count_excludes_xml_wrapped_injections():
     prompts (issue #213): they count neither toward prompt_count nor as
     ctx-turn boundaries, and they never re-anchor the latency window —
     the second reply measures from the real prompt two lines above it,
-    not from the reminder sitting directly before it. The middle reply
-    has no anchored prompt at all (the notification before it did not
-    anchor), so its latency is NULL."""
+    not from the reminder sitting directly before it. The replies with no
+    anchored prompt at all (only injections before them) have NULL
+    latency, including the reply after the U+001C-prefixed notification:
+    Python lstrip strips the C0 separators, so the backend denies it, and
+    the JS strip carries the same explicit ranges (SV-PARSER-SPEC)."""
     out = parse.parse_file("k/sess-x/sess-x.jsonl", _read("prompt_xml_injection.jsonl"))
     assert out["prompt_count"] == 2
     assert len(out["ctx_turns"]) == 2
     lats = [r["reply_latency_s"] for r in out["records"]]
     assert lats[0] == pytest.approx(1.0)
     assert lats[1] is None
-    assert lats[2] == pytest.approx(2.0)
+    assert lats[2] is None
+    assert lats[3] == pytest.approx(2.0)
 
 
 def test_prompt_count_keeps_pasted_content():
