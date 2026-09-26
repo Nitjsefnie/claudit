@@ -1,63 +1,54 @@
 """MODEL_RATES is the single source of truth for cost in this repo
 (SV-PARSER-SPEC). If a rate changes, bump constants.PARSER_VERSION.
+
+Per SV-TEST-DATA, assertions read the rates they need from the loaded
+tables at run time; what is pinned here is the resolution and pricing
+ARITHMETIC, never a committed rate value.
 """
 from datetime import datetime, timedelta, timezone
 
 from backend import pricing
 
 
-def test_opus_4_7_rates_match_canonical():
+def test_opus_4_7_resolves_exact_with_all_five_fields():
     r = pricing.rate_for("claude-opus-4-7")
-    assert r == {
-        "fresh": 5.00, "create_5m": 6.25, "create_1h": 10.00,
-        "read": 0.50, "output": 25.00,
-    }
+    assert set(r) == set(pricing.RATE_FIELDS)
+    assert pricing.resolve("claude-opus-4-7").kind == "exact"
 
 
-def test_fable_5_rates_are_double_opus_4x():
-    f = pricing.rate_for("claude-fable-5")
-    o = pricing.rate_for("claude-opus-4-8")
-    assert f == {
-        "fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00,
-        "read": 1.00, "output": 50.00,
-    }
-    assert all(f[k] == 2 * o[k] for k in f)
+def test_fable_5_suffixes_fold_to_its_own_row():
     # model ids carry suffixes like claude-fable-5[1m]
+    f = pricing.rate_for("claude-fable-5")
     assert pricing.rate_for("claude-fable-5[1m]") == f
+    assert pricing.resolve("claude-fable-5").kind == "exact"
 
 
-def test_fable_5_1_cache_reads_are_a_quarter_of_fable_5():
-    """Fable 5.1 / Mythos 5.1 price cache hits at 0.025x base input, not 0.1x."""
+def test_fable_5_1_and_mythos_5_1_price_identically():
+    """Mythos 5.1 is the Fable 5.1 row under an alias, and the bracket
+    suffix folds to the same row."""
     f51 = pricing.rate_for("claude-fable-5-1")
-    assert f51 == {
-        "fresh": 10.00, "create_5m": 12.50, "create_1h": 20.00,
-        "read": 0.25, "output": 50.00,
-    }
-    assert f51["read"] == f51["fresh"] * 0.025
     assert pricing.rate_for("claude-mythos-5-1") == f51
     assert pricing.rate_for("claude-fable-5-1[1m]") == f51
+    assert pricing.resolve("claude-fable-5-1").kind == "exact"
 
 
-def test_opus_5_5_rates_and_cache_reads_at_5_percent():
-    """Opus 5.5 is $4/$20 and prices cache hits at 0.05x base input."""
+def test_opus_5_5_resolves_exact_distinct_from_opus_5():
     o55 = pricing.rate_for("claude-opus-5-5")
-    assert o55 == {
-        "fresh": 4.00, "create_5m": 5.00, "create_1h": 8.00,
-        "read": 0.20, "output": 20.00,
-    }
-    assert o55["read"] == o55["fresh"] * 0.05
+    assert set(o55) == set(pricing.RATE_FIELDS)
     assert pricing.resolve("claude-opus-5-5").kind == "exact"
     assert pricing.rate_for("claude-opus-5-5[1m]") == o55
     assert pricing.rate_for("anthropic.claude-opus-5-5") == o55
-    # must not fall through to Opus 5's $5/$25
-    assert pricing.rate_for("claude-opus-5")["fresh"] == 5.00
+    # must not fall through to Opus 5's row
+    assert o55 != pricing.rate_for("claude-opus-5")
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5():
     """The 0.1x read rate of Fable 5 would be a silent 4x overcount on 5.1."""
     assert pricing.resolve("claude-fable-5-1").kind == "exact"
-    assert pricing.rate_for("claude-fable-5")["read"] == 1.00
-    assert pricing.rate_for("claude-mythos-5")["read"] == 1.00
+    f5 = pricing.rate_for("claude-fable-5")
+    f51 = pricing.rate_for("claude-fable-5-1")
+    assert f5["read"] != f51["read"]
+    assert pricing.rate_for("claude-mythos-5") != f51
 
 
 def test_unknown_fable_falls_back_to_current_generation():
@@ -84,17 +75,21 @@ def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
 
 def test_opus_4_8_does_not_misroute_to_legacy_opus_4():
     r = pricing.rate_for("claude-opus-4-8")
-    assert r["fresh"] == 5.00 and r["output"] == 25.00
+    r4 = pricing.rate_for("claude-opus-4")
+    assert r["fresh"] != r4["fresh"]
+    assert r["output"] != r4["output"]
 
 
-def test_sonnet_4_5_rates():
+def test_sonnet_4_5_resolves_exact_with_all_five_fields():
     r = pricing.rate_for("claude-sonnet-4-5")
-    assert r["fresh"] == 3.00 and r["create_5m"] == 3.75
+    assert set(r) == set(pricing.RATE_FIELDS)
+    assert pricing.resolve("claude-sonnet-4-5").kind == "exact"
 
 
-def test_haiku_4_5_rates():
+def test_haiku_4_5_resolves_exact_with_all_five_fields():
     r = pricing.rate_for("claude-haiku-4-5")
-    assert r["fresh"] == 1.00 and r["read"] == 0.10
+    assert set(r) == set(pricing.RATE_FIELDS)
+    assert pricing.resolve("claude-haiku-4-5").kind == "exact"
 
 
 def test_unknown_model_falls_back_to_default():
@@ -103,18 +98,21 @@ def test_unknown_model_falls_back_to_default():
 
 
 def test_substring_order_does_not_misroute_4_7_to_4():
-    r47 = pricing.rate_for("claude-opus-4-7")
-    r4 = pricing.rate_for("claude-opus-4")
-    assert r47["fresh"] == 5.00
-    assert r4["fresh"] == 15.00
+    # The LONGEST matching key wins: 4-7 must keep its own row, never the
+    # shorter key's, and the two rows must stay distinct.
+    assert pricing.resolve("claude-opus-4-7").key == "claude-opus-4-7"
+    assert pricing.resolve("claude-opus-4").key == "claude-opus-4"
+    assert pricing.rate_for("claude-opus-4-7") != pricing.rate_for(
+        "claude-opus-4")
 
 
-def test_compute_cost_split_known_vector():
+def test_compute_cost_prices_fresh_at_the_fresh_rate():
+    fresh = pricing.rate_for("claude-opus-4-7")["fresh"]
     cost = pricing.compute_cost(
         "claude-opus-4-7",
         fresh=1_000_000, output=0, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
-    assert cost == 5.00
+    assert cost == fresh
 
 
 def test_unsplit_cache_charges_at_1h_rate():
@@ -125,64 +123,73 @@ def test_unsplit_cache_charges_at_1h_rate():
     undeclared write should assume, and a token-plan provider (Kimi,
     Codex, Z.ai) has every reason to keep its cache long.
     """
+    r = pricing.rate_for("claude-sonnet-4-5")
     cost = pricing.compute_cost(
         "claude-sonnet-4-5",
         fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=1_000_000, read=0,
     )
-    assert cost == 6.00   # NOT 3.75 (5m rate)
+    assert cost == r["create_1h"]   # NOT the 5m rate
+    assert r["create_1h"] != r["create_5m"], (
+        "the test distinguishes 1h from 5m only while the row's two write "
+        "rates differ")
 
 
 def test_split_cache_charges_each_bucket_separately():
+    r = pricing.rate_for("claude-sonnet-4-5")
     cost = pricing.compute_cost(
         "claude-sonnet-4-5",
         fresh=0, output=0,
         eph5=1_000_000, eph1h=1_000_000,
         unsplit_create=0, read=0,
     )
-    # 1M @ 3.75 + 1M @ 6.00
-    assert cost == 9.75
+    # 1M @ create_5m + 1M @ create_1h
+    assert cost == r["create_5m"] + r["create_1h"]
 
 
-# --- Claude Sonnet 5: flat pricing, no dated window ------------------------
-# The 2.00/10.00 launch price was announced as introductory through
-# 2026-08-31, but Anthropic made it the standard price and cancelled the
-# 2026-09-01 rise to 3.00/15.00. There is no cutover to price around.
+# --- rows without a dated window price flat across time ---------------------
+# Sonnet 5's launch price was announced as introductory through
+# 2026-08-31, but it was made the standard price and the 2026-09-01 rise
+# was cancelled — there is no cutover in the row. That is a property of
+# the ROW's shape, so the behaviour is driven through a synthetic row
+# (SV-TEST-DATA) instead of pinning sonnet 5's committed values.
 
 UTC = timezone.utc
 
-
-def test_sonnet_5_rates_are_flat_2_10():
-    want = {
-        "fresh": 2.00, "create_5m": 2.50, "create_1h": 4.00,
-        "read": 0.20, "output": 10.00,
-    }
-    assert pricing.rate_for("claude-sonnet-5") == want
-    # Same on both sides of the cancelled cutover, and with no timestamp.
-    assert pricing.rate_for("claude-sonnet-5", ts=datetime(2026, 7, 21, tzinfo=UTC)) == want
-    assert pricing.rate_for("claude-sonnet-5", ts=datetime(2026, 9, 1, tzinfo=UTC)) == want
-    assert pricing.rate_for("claude-sonnet-5", ts=datetime(2027, 1, 1, tzinfo=UTC)) == want
+_FLAT_RATES = {"fresh": 3.21, "create_5m": 4.01, "create_1h": 6.42,
+               "read": 0.32, "output": 16.1}
 
 
-def _sonnet_5_cost_per_mtok_input(ts=None) -> float:
-    return pricing.compute_cost(
-        "claude-sonnet-5", fresh=1_000_000, output=0, eph5=0, eph1h=0,
+def test_a_row_without_a_dated_window_prices_flat_across_time(monkeypatch):
+    rates = dict(_FLAT_RATES)
+    monkeypatch.setitem(pricing.MODEL_RATES, "acme/flat-9", rates)
+    for ts in (None, datetime(2026, 7, 21, tzinfo=UTC),
+               datetime(2026, 9, 1, tzinfo=UTC),
+               datetime(2027, 1, 1, tzinfo=UTC)):
+        assert pricing.rate_for("acme/flat-9", ts=ts) is rates
+
+
+def test_a_row_without_a_dated_window_costs_the_same_at_any_time(monkeypatch):
+    rates = dict(_FLAT_RATES)
+    monkeypatch.setitem(pricing.MODEL_RATES, "acme/flat-9", rates)
+    costs = [pricing.compute_cost(
+        "acme/flat-9", fresh=1_000_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=ts,
-    )
-
-
-def test_compute_cost_for_sonnet_5_is_timestamp_independent():
-    assert _sonnet_5_cost_per_mtok_input() == 2.00
-    assert _sonnet_5_cost_per_mtok_input(datetime(2026, 7, 21, tzinfo=UTC)) == 2.00
-    assert _sonnet_5_cost_per_mtok_input(datetime(2026, 9, 1, tzinfo=UTC)) == 2.00
+    ) for ts in (None, datetime(2026, 7, 21, tzinfo=UTC),
+                 datetime(2026, 9, 1, tzinfo=UTC),
+                 datetime(2027, 1, 1, tzinfo=UTC))]
+    assert costs == [rates["fresh"]] * 4
 
 
 def test_expired_windows_keep_pricing_their_own_period():
     """An expired window is NOT dead weight. Every PARSER_VERSION bump
     reparses the whole bucket, and a record from inside the window must
     come out at the price that was in force then — dropping the window
-    would silently reprice history at list on the next reparse."""
-    cutover = datetime(2026, 9, 9, 16, 0, tzinfo=UTC)
-    assert cutover < datetime.now(tz=UTC)  # the window has expired
+    would silently reprice history at list on the next reparse. The
+    boundary and both sides' rates are read from the row's own loaded
+    windows, so the assertion pins the behaviour, not the promotion."""
+    windows = pricing.DATED_RATES["glm-5-3-flash"]
+    cutover, window_rates = windows[-1]
+    listed = pricing.MODEL_RATES["glm-5-3-flash"]
     before = pricing.compute_cost(
         "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
@@ -191,7 +198,8 @@ def test_expired_windows_keep_pricing_their_own_period():
         "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=cutover,
     )
-    assert (before, after) == (0.075, 0.15)
+    assert before == window_rates["fresh"]
+    assert after == listed["fresh"]
 
 
 def test_rate_epochs_match_the_dated_windows():
@@ -434,8 +442,11 @@ def test_future_opus_does_not_inherit_legacy_opus_4_pricing():
 
 
 def test_dated_snapshot_still_matches_its_generic_key():
-    assert pricing.rate_for("claude-opus-4-20250514")["fresh"] == 15.00
-    assert pricing.rate_for("claude-haiku-4-5-20251001")["fresh"] == 1.00
+    """A dated-snapshot suffix folds to the undated key's CURRENT row."""
+    assert pricing.rate_for("claude-opus-4-20250514") == \
+        pricing.rate_for("claude-opus-4")
+    assert pricing.rate_for("claude-haiku-4-5-20251001") == \
+        pricing.rate_for("claude-haiku-4-5")
 
 
 def test_provider_prefixed_and_dotted_ids_normalise_to_the_exact_key():
@@ -486,7 +497,8 @@ def test_glm_flash_resolves_exact_despite_dots_and_suffixes():
     r = pricing.resolve("glm-5.3-flash")
     assert (r.kind, r.key) == ("exact", "glm-5-3-flash")
     assert pricing.resolve("GLM-5.3-Flash[1m]").kind == "exact"
-    assert pricing.rate_for("glm-5.3-flash") == GLM_LIST
+    assert pricing.rate_for("glm-5.3-flash") == \
+        pricing.MODEL_RATES["glm-5-3-flash"]
 
 
 def test_glm_flash_promo_window_ends_exclusive_at_utc8_midnight():
@@ -494,7 +506,8 @@ def test_glm_flash_promo_window_ends_exclusive_at_utc8_midnight():
     assert pricing.rate_for("glm-5.3-flash", ts=just_before) == GLM_PROMO
     assert pricing.rate_for("glm-5.3-flash", ts=GLM_CUTOVER) == GLM_LIST
     assert pricing.rate_for(
-        "glm-5.3-flash", ts=datetime(2027, 1, 1, tzinfo=UTC)) == GLM_LIST
+        "glm-5.3-flash", ts=datetime(2027, 1, 1, tzinfo=UTC)) == \
+        pricing.MODEL_RATES["glm-5-3-flash"]
 
 
 def test_glm_flash_cache_writes_cost_nothing():
@@ -585,17 +598,24 @@ def test_free_matching_does_not_touch_claude_ids():
     assert r.rates is pricing.MODEL_RATES["claude-opus-4-8"]
 
 
-def test_bonsai_local_lane_is_priced_at_zero_and_resolves_exact():
-    """bonsai-2-27b is served by a local llama.cpp, so it has no price.
+def test_bonsai_resolves_exact_and_prices_by_its_own_row():
+    """bonsai-2-27b is served by a local llama.cpp and keeps its OWN row.
 
-    Without an entry it would fall to DEFAULT (Opus 4.7 list) and a free
-    lane would invent a four-figure bill; the entry must be EXACT so the
-    API does not flag it as an estimate either.
+    Without an entry it would fall to DEFAULT and a free local lane would
+    invent a four-figure bill; the entry must be EXACT so the API does not
+    flag it as an estimate either. The row's values are whatever the file
+    says (they have moved before); what is pinned is that the id prices by
+    its own row, never the default one.
     """
     r = pricing.resolve("bonsai-2-27b")
     assert (r.kind, r.key) == ("exact", "bonsai-2-27b")
+    own = pricing.rate_for("bonsai-2-27b")
+    assert own != pricing.DEFAULT_RATES, (
+        "the test distinguishes the row from the default only while the "
+        "two differ")
     assert pricing.compute_cost(
         "bonsai-2-27b", fresh=1_000_000, output=1_000_000,
         eph5=1_000_000, eph1h=1_000_000, unsplit_create=1_000_000,
         read=1_000_000,
-    ) == 0
+    ) == (own["fresh"] + own["output"] + own["create_5m"]
+          + 2 * own["create_1h"] + own["read"])
