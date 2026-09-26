@@ -151,6 +151,12 @@ window.parseTranscript = function parseTranscript(text, opts) {
       return;
     }
     if (!Array.isArray(content)) return;
+    // ONE user_message per record (issue #215): any gate-passing text
+    // block or image block makes the record one prompt, mirroring
+    // backend parse.py's per-record count. An image inside a
+    // tool_result below is result payload and never joins the detail.
+    const texts = [];
+    let sawImage = false;
     for (const c of content) {
       if (c.type === 'tool_result') {
         let resultText = '';
@@ -172,12 +178,16 @@ window.parseTranscript = function parseTranscript(text, opts) {
           refs,
         });
       } else if (c.type === 'text') {
-        if (shouldPushUserText(c.text)) {
-          events.push({ line: lineNum, type: 'user_message', ts, detail: c.text });
-        }
+        if (shouldPushUserText(c.text)) texts.push(c.text);
       } else if (c.type === 'image') {
-        events.push({ line: lineNum, type: 'user_message', ts, detail: '[image attachment]' });
+        sawImage = true;
       }
+    }
+    if (texts.length || sawImage) {
+      const detail = texts
+        .concat(sawImage ? ['[image attachment]'] : [])
+        .join('\n\n');
+      events.push({ line: lineNum, type: 'user_message', ts, detail });
     }
   }
 
