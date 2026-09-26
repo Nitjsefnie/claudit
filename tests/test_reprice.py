@@ -415,10 +415,11 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
     """Issue #194: for the meter's models the long-context flag is a pure
     function of stored columns — fresh + cache_creation + cache_read
     against the threshold — so the pass re-derives it beside the cost. A
-    stale gpt-5.6-sol row whose stored tally (280k fresh) sits above the
-    272k threshold flips to TRUE with its metered cost; a claude row
-    seeded alongside — a model whose card carries no meter — keeps its
-    stored NULL and prices flat above the same threshold."""
+    stale gpt-5.6-sol row whose tally sits above the 272k threshold flips
+    from its stored FALSE — what the old subscription-exempt rule wrote —
+    to TRUE with its metered cost; a claude row seeded alongside — a
+    model whose card carries no meter — keeps its stored NULL and prices
+    flat above the same threshold."""
     metered = round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
@@ -426,7 +427,8 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
         _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
     with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000)
+        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
+                        long_context=False)
         _seed_meter_row(c, 2, model=_SEED_MODEL, fresh_tokens=280_000)
         c.commit()
 

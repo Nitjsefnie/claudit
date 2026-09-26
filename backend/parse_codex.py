@@ -374,8 +374,8 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
     output = max(0, delta["output_tokens"])
     # Subset of output, not an addend — carried, never added to cost.
     reasoning = max(0, delta["reasoning_output_tokens"])
-
     # Trap 4: the payload names no model; the surrounding turn_context does.
+
     # The long-context meter is a property of the model's rate card, not of
     # the plan that served the request — every record is billed as if it
     # were an API call (issue #194), so a subscription rollout above the

@@ -98,9 +98,10 @@ PARSER_VERSION = "81"
 
 # The rate-data semantics version, stored per record: the ONLY switch
 # that forces a REPRICE, and a reprice never refetches R2 — the reprice
-# pass (issue #193) recomputes each stale row's cost_usd from its own
-# stored token columns. PARSER_VERSION bumps only for parser-semantics
-# changes from now on.
+# pass (issue #193) recomputes each stale row's cost_usd AND long_context
+# (issue #194) from its own stored columns, so a stored-flag rule change
+# is a trigger with no rate change at all. PARSER_VERSION bumps only for
+# parser-semantics changes from now on.
 PRICING_VERSION = "2"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
