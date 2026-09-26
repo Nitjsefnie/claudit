@@ -41,7 +41,8 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
     assert r.rates == {"fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
                        "read": 0.0057, "output": 1.14}
     assert _cost(V41, "Novita", SEEDED, fresh=1_000_000, output=1_000_000,
-                 read=1_000_000) == pytest.approx(0.285 + 1.14 + 0.0057)
+                 read=1_000_000) == pytest.approx(
+                     0.285 + 1.14 + 0.0057, rel=1e-12)
 
 
 def test_two_providers_of_one_model_price_differently():
@@ -60,7 +61,8 @@ def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
             assert rates["create_5m"] == rates["fresh"]
             assert rates["create_1h"] == rates["fresh"]
     assert _cost(V41, "Novita", SEEDED, eph5=1_000_000, eph1h=1_000_000,
-                 unsplit_create=1_000_000) == pytest.approx(3 * 0.285)
+                 unsplit_create=1_000_000) == pytest.approx(
+                     3 * 0.285, rel=1e-12)
 
 
 def test_the_provider_table_is_keyed_on_the_normalised_model_id():
@@ -97,11 +99,12 @@ def test_the_same_model_with_no_provider_prices_exactly_as_before():
     assert r.rates is pricing.DEFAULT_RATES
     default = pricing.DEFAULT_RATES
     want = default["fresh"] + default["output"]
-    # approx: the same rates on both sides; the M-token scaling can cost
-    # each term a last-bit rounding, never a real difference.
-    assert _cost(V41, fresh=1_000_000, output=1_000_000) == pytest.approx(want)
+    # rel=1e-12: the same rates on both sides; the per-million scaling
+    # can cost each term a last-bit rounding, never a real difference.
+    assert _cost(V41, fresh=1_000_000, output=1_000_000) == \
+        pytest.approx(want, rel=1e-12)
     assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == \
-        pytest.approx(want)
+        pytest.approx(want, rel=1e-12)
 
 
 def test_the_zai_subscription_glm_is_not_repriced():
@@ -114,10 +117,10 @@ def test_the_zai_subscription_glm_is_not_repriced():
     cutover, promo = windows[0]
     tokens = {"fresh": 1_000_000, "output": 1_000_000, "read": 1_000_000}
     assert _cost("glm-5.3-flash", **tokens) == pytest.approx(
-        listed["fresh"] + listed["output"] + listed["read"])
+        listed["fresh"] + listed["output"] + listed["read"], rel=1e-12)
     assert _cost("glm-5.3-flash", ts=cutover - timedelta(seconds=1),
                  **tokens) == pytest.approx(
-        promo["fresh"] + promo["output"] + promo["read"])
+        promo["fresh"] + promo["output"] + promo["read"], rel=1e-12)
     # An OpenRouter host's GLM row never reaches the bare model id.
     assert _cost("glm-5.3-flash", "Novita", **tokens) == \
         _cost("glm-5.3-flash", **tokens)
@@ -214,14 +217,15 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
     in_window = _cost(V41, "Novita", ts=datetime(2026, 9, 19, tzinfo=UTC),
                       fresh=1_000_000)
     past = _cost(V41, "Novita", ts=cutover, fresh=1_000_000)
-    assert (in_window, past) == (pytest.approx(before["fresh"]),
-                                 pytest.approx(after["fresh"]))
+    assert (in_window, past) == (pytest.approx(before["fresh"], rel=1e-12),
+                                 pytest.approx(after["fresh"], rel=1e-12))
     rows = [_row(V41, "Novita", 0, fresh=1_000_000, cost=in_window),
             _row(V41, "Novita", 1, fresh=1_000_000, cost=past)]
     for m in fold_per_model(rows) + fold_per_model_provider(rows):
-        # cost_total and the buckets each round to 4 decimals; the sum
-        # carries 5e-5 of rounding per rounded quantity it touches.
-        assert m["cost_total"] == pytest.approx(in_window + past, abs=5e-5)
+        # cost_total is rounded to 4 decimals against an unrounded sum
+        # (abs=1e-4 for the midpoint-margin reason below); the buckets
+        # each round too, hence the sum's wider abs.
+        assert m["cost_total"] == pytest.approx(in_window + past, abs=1e-4)
         assert sum(m["cost_buckets"].values()) == pytest.approx(
             m["cost_total"], abs=1e-4)
 
@@ -269,8 +273,11 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     per_model = out[0]
     assert per_model["model"] == SYNTH_MODEL
     assert per_model["turns"] == 3
+    # abs=1e-4: cost_total is rounded to 4 decimals against an unrounded
+    # sum — 5e-5 of rounding, and perturbed values can sit exactly on a
+    # 4-decimal midpoint where float representation tips past the bound.
     assert per_model["cost_total"] == pytest.approx(
-        via_a + via_b + direct, abs=5e-5)
+        via_a + via_b + direct, abs=1e-4)
     assert sum(per_model["cost_buckets"].values()) == \
         pytest.approx(per_model["cost_total"], abs=2e-4)
     # The NULL-provider row is still a DEFAULT-rate estimate.
@@ -281,7 +288,8 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     for provider, want in ((HOST_A, via_a), (HOST_B, via_b), (None, direct)):
         e = split[provider]
         assert e["model"] == SYNTH_MODEL
-        assert e["cost_total"] == pytest.approx(want, abs=5e-5)
+        # abs=1e-4, same midpoint-margin reason as the model-total half.
+        assert e["cost_total"] == pytest.approx(want, abs=1e-4)
         assert sum(e["cost_buckets"].values()) == pytest.approx(want, abs=2e-4)
     assert split[HOST_A]["estimated_rate"] is False
     assert split[None]["estimated_rate"] is True
