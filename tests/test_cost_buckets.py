@@ -36,7 +36,9 @@ def test_buckets_sum_to_total_within_a_single_epoch():
     out = fold_per_model(rows)
     assert len(out) == 1
     m = out[0]
-    assert m["cost_total"] == pytest.approx(stored, abs=5e-5)
+    # cost_total is the fold's own rounding of this stored cost to 4
+    # decimals, so re-derive it rather than budget the rounding.
+    assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
 
@@ -55,12 +57,15 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
     m = out[0]
     assert m["fresh"] == 2_000_000
     assert m["turns"] == 2
-    # fold_per_model rounds cost_total and each bucket to 4 decimals, so
-    # every reconciliation against an unrounded figure carries the
-    # rounding: 5e-5 per rounded quantity the assert touches.
-    assert m["cost_total"] == pytest.approx(total, abs=5e-5)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(total, abs=1e-4)
-    assert m["cost_buckets"]["fresh"] == pytest.approx(total, abs=5e-5)
+    # fold_per_model rounds cost_total and each bucket to 4 decimals.
+    # The total is the fold's own sum of these stored costs, so the
+    # assertion re-derives its rounding; the buckets are re-derived from
+    # the same rates and sum to the unrounded total, so once each rounds
+    # they can sit up to 5 * 5e-5 = 2.5e-4 from it, whatever the rates.
+    assert m["cost_total"] == pytest.approx(round(total, 4), abs=1e-6)
+    assert abs(sum(m["cost_buckets"].values()) - total) <= 2.5e-4
+    assert m["cost_buckets"]["fresh"] == pytest.approx(
+        round(total, 4), abs=1e-6)
 
 
 def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_rate):
@@ -149,7 +154,7 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
     rows = [_row(w.model, 0, cc=1_000_000, cost=stored)]
     m = fold_per_model(rows)[0]
     assert m["cost_buckets"]["create_1h"] == pytest.approx(
-        w.before["create_1h"], abs=5e-5)
+        round(w.before["create_1h"], 4), abs=1e-6)
     assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
@@ -181,18 +186,17 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
         _row(w.model, 0, fresh=300_000, output=2_000,
              cost=stored, long_context=True),
     ])[0]
-    assert m["cost_total"] == pytest.approx(stored, abs=5e-5)
-    # Two valued buckets (fresh + output), each rounded to 4 decimals
-    # independently: their sum can sit 5e-5 off the rounded total per
-    # bucket, hence the abs.
-    assert sum(m["cost_buckets"].values()) == pytest.approx(
-        m["cost_total"], abs=1e-4)
+    assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
+    # Valued buckets + the total, each rounded to 4 decimals
+    # independently: the safe-for-any-data bound on their disagreement
+    # is 6 * 5e-5 = 3e-4.
+    assert abs(sum(m["cost_buckets"].values()) - m["cost_total"]) <= 3e-4
     assert m["cost_buckets"]["fresh"] == pytest.approx(
-        300_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
-        abs=5e-5)
+        round(300_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000, 4),
+        abs=1e-6)
     assert m["cost_buckets"]["output"] == pytest.approx(
-        2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000,
-        abs=5e-5)
+        round(2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000, 4),
+        abs=1e-6)
 
 
 def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
@@ -221,10 +225,13 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
     m = out[0]
     assert m["turns"] == 2
     assert m["fresh"] == 400_000
-    assert m["cost_total"] == pytest.approx(stored_lc + stored_flat, abs=5e-5)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
+    assert m["cost_total"] == pytest.approx(
+        round(stored_lc + stored_flat, 4), abs=1e-6)
+    # Five rounded buckets against the rounded total: the safe-for-any-
+    # data bound on their disagreement is 6 * 5e-5 = 3e-4.
+    assert abs(sum(m["cost_buckets"].values()) - m["cost_total"]) <= 3e-4
     assert m["cost_buckets"]["fresh"] == pytest.approx(
-        stored_lc + stored_flat, abs=5e-5)
+        round(stored_lc + stored_flat, 4), abs=1e-6)
 
 
 # api_common._fold rounds cost_total and every bucket to 4 decimal

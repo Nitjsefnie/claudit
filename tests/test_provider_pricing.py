@@ -222,12 +222,14 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
     rows = [_row(V41, "Novita", 0, fresh=1_000_000, cost=in_window),
             _row(V41, "Novita", 1, fresh=1_000_000, cost=past)]
     for m in fold_per_model(rows) + fold_per_model_provider(rows):
-        # cost_total is rounded to 4 decimals against an unrounded sum
-        # (abs=1e-4 for the midpoint-margin reason below); the buckets
-        # each round too, hence the sum's wider abs.
-        assert m["cost_total"] == pytest.approx(in_window + past, abs=1e-4)
+        # The fold sums these two stored costs and rounds to 4 decimals,
+        # so re-derive that rounding; the five buckets each round too,
+        # and five of them against the rounded total can disagree with
+        # it by up to 6 * 5e-5 = 3e-4 whatever the rates are.
+        assert m["cost_total"] == pytest.approx(
+            round(in_window + past, 4), abs=1e-6)
         assert sum(m["cost_buckets"].values()) == pytest.approx(
-            m["cost_total"], abs=1e-4)
+            m["cost_total"], abs=3e-4)
 
 
 # --- the split fold -------------------------------------------------------------
@@ -278,8 +280,10 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     # 4-decimal midpoint where float representation tips past the bound.
     assert per_model["cost_total"] == pytest.approx(
         via_a + via_b + direct, abs=1e-4)
+    # Five buckets + the total, each rounded to 4 decimals: they can
+    # disagree by up to 6 * 5e-5 = 3e-4 whatever the rates are.
     assert sum(per_model["cost_buckets"].values()) == \
-        pytest.approx(per_model["cost_total"], abs=2e-4)
+        pytest.approx(per_model["cost_total"], abs=3e-4)
     # The NULL-provider row is still a DEFAULT-rate estimate.
     assert per_model["estimated_rate"] is True
 
@@ -290,7 +294,9 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
         assert e["model"] == SYNTH_MODEL
         # abs=1e-4, same midpoint-margin reason as the model-total half.
         assert e["cost_total"] == pytest.approx(want, abs=1e-4)
-        assert sum(e["cost_buckets"].values()) == pytest.approx(want, abs=2e-4)
+        # Five rounded buckets against the unrounded sum they decompose:
+        # up to 5 * 5e-5 = 2.5e-4, and 3e-4 covers it with margin.
+        assert sum(e["cost_buckets"].values()) == pytest.approx(want, abs=3e-4)
     assert split[HOST_A]["estimated_rate"] is False
     assert split[None]["estimated_rate"] is True
 
@@ -383,6 +389,12 @@ def test_fold_of_null_provider_rows_is_unchanged(monkeypatch):
     out = fold_per_model([_row(model, None, last, 2_000_000, 500_000, stored)])
     assert len(out) == 1
     m = out[0]
-    assert m["cost_buckets"]["fresh"] == pytest.approx(2 * rates["fresh"])
-    assert m["cost_buckets"]["output"] == pytest.approx(0.5 * rates["output"])
+    # One rounded bucket quantity each: 5e-5 of 4-decimal rounding, and
+    # abs=1e-4 is twice that. A re-derived round(want, 4) would not do:
+    # these expressions are value-shaped, not the fold's own accumulation,
+    # so a midpoint straddle could tip its rounding the other way.
+    assert m["cost_buckets"]["fresh"] == pytest.approx(
+        2 * rates["fresh"], abs=1e-4)
+    assert m["cost_buckets"]["output"] == pytest.approx(
+        0.5 * rates["output"], abs=1e-4)
     assert m["estimated_rate"] is False
