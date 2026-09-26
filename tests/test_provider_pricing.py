@@ -188,11 +188,11 @@ def _synthetic_provider_window_fixture(monkeypatch):
 
 def test_a_provider_window_applies_before_its_cutover(synthetic_provider_window):
     cutover, before, after = synthetic_provider_window
-    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Novita") == before  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert pricing.rate_for(V41, cutover, "Novita") == after  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert pricing.rate_for(V41, None, "Novita") == after, "no ts => list"  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert (pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Morph") ==  # sv-test-data: allow (closed-window pin at SEEDED)
-            pricing.rate_for(V41, None, "Morph"))  # sv-test-data: allow (closed-window pin at SEEDED)
+    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Novita") == before  # sv-test-data: allow (derived: expected is the fixture's own synthetic window rates)
+    assert pricing.rate_for(V41, cutover, "Novita") == after  # sv-test-data: allow (derived: identity against the list rates the fixture returns)
+    assert pricing.rate_for(V41, None, "Novita") == after, "no ts => list"  # sv-test-data: allow (derived: identity against the list rates the fixture returns)
+    assert (pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Morph") ==  # sv-test-data: allow (derived: same-tables identity; Morph carries no window)
+            pricing.rate_for(V41, None, "Morph"))  # sv-test-data: allow (derived: same-tables identity; Morph carries no window)
 
 
 def test_live_rate_epochs_include_provider_windows():

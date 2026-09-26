@@ -182,7 +182,11 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
              cost=stored, long_context=True),
     ])[0]
     assert m["cost_total"] == pytest.approx(stored, abs=5e-5)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
+    # Two valued buckets (fresh + output), each rounded to 4 decimals
+    # independently: their sum can sit 5e-5 off the rounded total per
+    # bucket, hence the abs.
+    assert sum(m["cost_buckets"].values()) == pytest.approx(
+        m["cost_total"], abs=1e-4)
     assert m["cost_buckets"]["fresh"] == pytest.approx(
         300_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
         abs=5e-5)
