@@ -459,9 +459,11 @@ def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
     assert ingest_reprice.reprice_stale() == 1
 
     with db.viz_conn() as c:
-        flag, cost, version = c.execute(
+        row = c.execute(
             "SELECT long_context, cost_usd, pricing_version FROM records "
             "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None, "the seeded provider row must exist"
+    flag, cost, version = row
     assert flag is False
     assert float(cost) == round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
@@ -610,9 +612,7 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     # two 300k rollouts clear the REAL threshold either way, and the
     # claude rows re-derive nothing (their models carry no meter).
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
-
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
+    assert ingest.run_ingest(trigger="manual")["error"] is None
 
     with db.viz_conn() as c:
         total, long_marked = _pair(
@@ -664,9 +664,9 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
         "assertion proves nothing")
 
     with db.viz_conn() as c:
-        flag_rows = c.execute(
+        assert c.execute(
             "SELECT long_context, COUNT(*) FROM records "
-            "WHERE file_key LIKE 'claude/sessions/%' GROUP BY 1").fetchall()
-    assert flag_rows == [(True, 3)], (
-        "the reprice re-derives the codex rows' flag in both plan shapes "
-        "(issue #194): every codex record stores long_context IS TRUE")
+            "WHERE file_key LIKE 'claude/sessions/%' GROUP BY 1"
+        ).fetchall() == [(True, 3)], (
+            "the reprice re-derives the codex rows' flag in both plan "
+            "shapes (issue #194): every codex record stores TRUE")

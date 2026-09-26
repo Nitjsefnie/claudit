@@ -154,5 +154,5 @@ def test_long_context_models_match_the_parser_map():
     parse_codex._CODEX_MODEL_MAP emits: the reprice pass re-derives
     records.long_context from stored columns only for the models whose
     published rate card carries the meter (issue #194)."""
-    assert ({label for _, label in parse_codex._CODEX_MODEL_MAP}
+    assert ({label for _, label in parse_codex._CODEX_MODEL_MAP}  # pylint: disable=protected-access
             == pricing.LONG_CONTEXT_MODELS)
