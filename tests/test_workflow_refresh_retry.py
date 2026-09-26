@@ -253,6 +253,7 @@ def _run_push_step(scratch: Path,
         env=_env(scratch, extra_env),
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -267,6 +268,7 @@ def _refresh_once(scratch: Path,
         env=_env(scratch, extra_env),
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
