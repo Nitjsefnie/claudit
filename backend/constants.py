@@ -102,7 +102,7 @@ PARSER_VERSION = "81"
 # (issue #194) from its own stored columns, so a stored-flag rule change
 # is a trigger with no rate change at all. PARSER_VERSION bumps only for
 # parser-semantics changes from now on.
-PRICING_VERSION = "5"
+PRICING_VERSION = "6"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
