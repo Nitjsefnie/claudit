@@ -156,7 +156,7 @@ def _verified_base(repository, run):
         return None
     for line in lines:
         fields = line.split()
-        if len(fields) != 4 or not _hex40(fields[0]) or not fields[3]:
+        if len(fields) != 4 or not _hex40(fields[0]):
             return None
         head_sha, status, conclusion, run_id = fields
         if not run_id.isascii() or not run_id.isdigit():
