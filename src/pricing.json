@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-26T19:54:05Z",
+  "provider_rates_fetched": "2026-09-26T20:58:20Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -836,6 +836,14 @@
           "from": "2026-09-26T19:54:05Z",
           "output": 0.4,
           "read": 0.008
+        },
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": "2026-09-26T20:58:20Z",
+          "output": 0.4,
+          "read": 0.005
         }
       ],
       "Sail Research": [
