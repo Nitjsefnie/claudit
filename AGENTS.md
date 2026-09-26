@@ -1,12 +1,16 @@
 # claudit
 
-@README.md
+Human-facing overview: [`README.md`](README.md). Process, setup detail
+and the CI workflow catalogue: [`CONTRIBUTING.md`](CONTRIBUTING.md). The
+invariants live as numbered SV-* rules in
+[`.claude/rules/claudit-doctrine.md`](.claude/rules/claudit-doctrine.md);
+this brief points at them instead of restating them.
 
 ## Project overview
 
-**claudit** (Claude Code Usage Dashboard) is a self-hosted web application that visualises Claude Code session JSONL transcripts. It ingests transcripts from Cloudflare R2 (or a local `file://` mirror), parses them into Postgres, and serves dashboards and raw transcripts to a React frontend rendered via in-browser Babel (no npm/build step).
+**claudit** (Claude Code Usage Dashboard) is a self-hosted web application that visualises AI coding-session JSONL transcripts (Claude Code, Codex, Kimi). It ingests transcripts from Cloudflare R2 (or a local `file://` mirror), parses them into Postgres, and serves dashboards and raw transcripts to a React frontend rendered via in-browser Babel (no npm/build step). It exposes statistics only — no session-quality analysis, coaching or "auditor"; that scope rule is deliberate (see [Scope](README.md#scope)).
 
-The dashboard panels include: Session Burn Rate, Cost by Model, Tokens by Model, Token Breakdown, Thinking Output, Prompt-Cache TTL Split, Per-Session Context Growth, Response Sizes, Tool Usage Ratio, Reply Latency, Tool Error Rate, Activity Heatmap, Cost by Context Size, Tokens by Context Size, Cost/Tokens by Agent Type, and Lines Added/Deleted (per-call churn from tool call arguments, stored on `tool_uses`) — Edit/Write plus the Bash shapes whose line counts are readable straight off the command text.
+The dashboard panel set — Session Burn Rate, Cost/Tokens by Model, Token Breakdown, Thinking Output, Prompt-Cache TTL Split, Per-Session Context Growth, Response Sizes, Tool Usage Ratio, Tool Error Rate, Reply Latency, Activity Heatmap, Cost/Tokens by Context Size, Cost/Tokens by Agent Type, and Lines Added/Deleted — is described panel-by-panel in README.md. Lines Added/Deleted is per-call churn from tool call arguments, stored on `tool_uses`: Edit/Write plus the Bash shapes whose line counts are readable straight off the command text.
 
 ## Technology stack
 
@@ -18,6 +22,9 @@ The dashboard panels include: Session Burn Rate, Cost by Model, Tokens by Model,
 - **Serialization**: orjson for fast JSON parsing
 - **Testing**: pytest, pytest-asyncio, httpx (for TestClient)
 - **Deployment**: systemd service (see `examples/claudit.service`)
+
+
+The frontend loads React, ReactDOM and Babel from unpkg.com via pinned, SRI-hashed tags in `public/index.html` — unreachable, the page renders blank (no fallback UI); detail in README (Client-side internet requirement).
 
 ## Project structure
 
@@ -247,187 +254,155 @@ examples/         — Sample systemd service file (claudit.service).
 
 ## Build and test commands
 
-### Setup
+Setup and environment detail live in CONTRIBUTING.md; the short form:
 
 ```bash
-# 1. Create the app database and apply schema
 createdb claudit
-psql claudit -f backend/schema.sql
+psql claudit -f backend/schema.sql        # idempotent; also auto-applies at every startup
 
-# 2. Configure environment
-cp backend/.env.example .env
-# Edit .env to set real DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
-
-# 3. Create virtualenv and install dependencies
-python3 -m venv .venv
-source .venv/bin/activate
+cp backend/.env.example .env              # edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
+python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
-```
 
-### Run the server
-
-```bash
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-The first request may block while the startup ingest runs (~30 s on a warm DB, several minutes for a cold cache against a large bucket). `/health` reflects ingest state via the `ingest_runs` table.
-
-For local dev without R2 credentials, point `R2_ENDPOINT` at a filesystem mirror (e.g. `R2_ENDPOINT=file:///path/to/mirror/`) — the R2 client falls back to walking the directory tree.
-
-### Run tests
-
-```bash
-# Full suite (requires local PostgreSQL for test DB creation)
-python3 -m pytest tests/ -q
-
-# Individual modules
-python3 -m pytest tests/test_parse.py -v
-python3 -m pytest tests/test_api.py -v
-python3 -m pytest tests/test_ingest.py -v
-```
-
-Tests use fixture-driven data, not real R2. `conftest.py` forces `R2_ENDPOINT=file:///tmp/sv-test-r2/` and sets `COOKIE_SECURE=0` so TestClient cookies work over plain HTTP.
-
-### Manual operations
+The first request may block while the startup ingest runs (~30 s on a
+warm DB, minutes for a cold cache against a large bucket); `/health`
+reflects ingest state via the `ingest_runs` table. For local dev
+without R2 credentials, point `R2_ENDPOINT` at a filesystem mirror —
+`fixtures/r2_mini/` works in seconds.
 
 ```bash
-# Force an out-of-band ingest run. Admin POSTs are origin-checked, so
-# the request must carry a same-origin Origin header. The run itself is
-# served on a worker thread (off the event loop), so the service keeps
-# answering while the ingest proceeds.
+# Force an out-of-band ingest run. Admin POSTs are origin-checked, and
+# the run is served off the event loop, so the service keeps answering.
+# The request must carry a same-origin Origin header.
 curl -X POST http://127.0.0.1:8000/admin/ingest \
   -H "X-Admin-Token: $ADMIN_TOKEN" \
   -H "Origin: http://127.0.0.1:8000"
-
-# Restarting the service also kicks a fresh ingest (a startup ingest
-# runs on every boot of backend/app.py — equivalent to the curl above
-# for any case where the admin token isn't handy or the service was
-# already going to be restarted for another reason).
-systemctl restart claudit
-
-# Re-apply schema migrations (idempotent)
-psql claudit -f backend/schema.sql
 ```
 
-## Code style guidelines
+Restarting the service also kicks a fresh ingest. Service workflow:
+`systemctl restart claudit`, `systemctl status claudit`,
+`journalctl -u claudit -f`.
 
-- **Python**: `from __future__ import annotations` at the top of every `.py` file; type hints used throughout; no ORM — raw SQL via psycopg3.
-- **JavaScript/JSX**: ES2020-ish, React functional components with hooks; globals attached to `window.` for cross-module sharing (e.g. `window.parseTranscript`, `window.rateForModel`).
-- **SQL**: Parameterised queries only (`%s` placeholders); never interpolate user input into query strings. Cross-file uuid dedup is resolved at INGEST into `records.is_canonical` (SV-CANONICAL-FLAG); read paths filter that boolean and must not reintroduce `DISTINCT ON (uuid)`.
-- **Naming**: `snake_case` for Python; `camelCase` for JS/JSX; SQL tables are singular nouns.
-- **Error handling**: Parser silently skips malformed JSON lines (`orjson.JSONDecodeError` → `continue`). Ingest catches broad exceptions, logs to `ingest_runs.error`, and never crashes the scheduler.
+## Code style
 
-## Testing instructions
+House style is authoritative in CONTRIBUTING.md: `from __future__
+import annotations` and type hints throughout; raw parameterised
+(`%s`) psycopg3 SQL, never interpolated, no ORM; ES2020-ish React
+functional components with `window.` globals; `snake_case` /
+`camelCase` / singular SQL table names; lint configs are `.pylintrc`,
+`setup.cfg`, `pyrightconfig.json`, `.eslintrc.json` with style opinions
+deliberately off. Parser-specific: malformed JSON lines are skipped
+silently (`orjson.JSONDecodeError` → `continue`); ingest catches broad
+exceptions, logs to `ingest_runs.error`, and never crashes the
+scheduler.
 
-- **Parser tests** (`test_parse.py`) are fixture-driven. Add a JSONL fixture to `fixtures/parser/` before changing parser behaviour, and map the test name 1:1 to the feature.
-- **API tests** (`test_api.py`) spin up a fresh temporary DB + mini R2 mirror per fixture. They bypass auth by mounting only the `api.router` into a clean FastAPI app.
-- **Ingest tests** (`test_ingest.py`) validate etag-based reparse triggers, orphan deletion, `turn_count` consistency, and cross-file uuid write-time retention (every row is kept; the winner is flagged `is_canonical`).
-- **Auth tests** (`test_auth.py`) verify PBKDF2 round-trips and constant-time comparison against garbage inputs.
-- Keep fixture files small: `fixtures/parser/*.jsonl` under 1 KB each; `fixtures/r2_mini/` under a few KB. Larger samples stay out of the repo, in a local mirror you point `R2_ENDPOINT` at (not committed).
+## Testing
+
+Parser tests (`tests/test_parse.py`) are fixture-driven: add a JSONL
+fixture to `fixtures/parser/` BEFORE changing parser behaviour, and map
+the test name 1:1 to the feature. Keep fixtures small
+(SV-FIXTURE-SIZE). API tests (`tests/test_api.py`) spin up a fresh
+temporary DB + mini R2 mirror per fixture and bypass auth by mounting
+only `api.router`. Ingest tests validate etag triggers, orphan
+deletion, `turn_count` consistency and cross-file uuid retention.
+Auth tests verify PBKDF2 round-trips and constant-time comparison
+against garbage inputs. Larger samples stay out of the repository —
+point `R2_ENDPOINT` at a local mirror outside the tree.
 
 ## Security considerations
 
-- **Auth**: PBKDF2-SHA256 password hashes with per-user hex salts. A stored hash is either a bare hex digest — the legacy shape, always verified at 200,000 iterations — or a versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that carries its own count; new writes use the versioned format at 600,000 iterations. A legacy bare-hex hash verifies unchanged, so hashes written by an external user-management process keep working. Session cookies are HMAC-signed, `HttpOnly`, `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`, 7-day TTL.
-- **Login**: every credential failure — unknown id, no configured password, wrong password — answers the same generic 401 with an identical body, and every failure costs about one PBKDF2 run at the write count (600,000): the real verification where it can run, a dummy remainder run on top where it cannot or would run cheaper (a legacy 200,000-iteration hash, a malformed one), so an account id cannot be enumerated by response or timing — with one documented residual: a stored hash versioned above the target count still costs longer. The rate limiter keys 5 failures per IP+user pair per 5-minute window (one user's failures never lock a different user behind the same egress IP), prunes expired entries per key on access, and sweeps fully expired keys once the table grows past a cap, so it never grows without bound.
-- **Guest mode**: `user_id=0` sessions are signed with a per-process secret regenerated at startup; cookies invalidate on restart. Guests are blocked from `/api/projects`, `/api/sessions*`, and `?project=` filter params.
-- **Server-side logout (issue #108)**: each real user's session secret and a per-user `generation` counter live in the app's own `user_session` table. A session token carries the generation it was minted at, and verification requires it to still be current — so `GET /logout`, before clearing the cookie, bumps that user's generation and every token that user holds (in any browser) stops verifying, not just the cookie the response clears. Guests have no row and no generation: they keep dying on restart via the process-local secret.
-- **No auth-DB writes (issue #94)**: user session secrets live in claudit's own `user_session` table; the application only ever READS the shared auth DB (`users.config`, for the password hash). Leftover `web_session_secret` values in the shared table are inert, and cleaning them up is the auth-DB owner's business.
-- **Admin**: `POST /admin/ingest` requires `X-Admin-Token` header, checked via constant-time `hmac.compare_digest`.
-- **Same-origin**: every mutating route (anything not GET/HEAD/OPTIONS) — including `/login` and `/login/guest` — enforces an origin/referer check: the `Origin` (or `Referer`) header's host must match the request's `Host` header, and a request with no `Host` header is refused. Browsers always send `Origin` on POST, so this only affects command-line/scripted clients, which must send a matching header. `GET /logout` is exempt as a safe method and leans on the cookie's `SameSite=strict` instead, which keeps a cross-site logout request from carrying the cookie at all.
-- **R2 file-mode path traversal**: `_safe_join` in `backend/r2.py` uses `os.path.realpath` to refuse keys that escape the bucket root (defence for sidecar `?path=../../../etc/passwd` attacks).
-- **SQL injection**: All DB access uses parameterised psycopg3 queries.
-- **No local upload path at all**: there is no drag-drop target, no `FileReader`, and no upload endpoint. The backend only reads JSONLs from R2 (or its local mirror). Session transcripts are fetched from `/api/sessions/{id}/transcript` and parsed in the browser.
+- **Auth**: PBKDF2-SHA256 with per-user hex salts. A stored hash is
+  either a bare hex digest (legacy shape, always verified at 200,000
+  iterations) or a versioned string
+  `pbkdf2_sha256$<iterations>$<salt>$<hash>` carrying its own count;
+  new writes use the versioned format at 600,000 iterations. The
+  `web_password_salt` key must stay populated either way — the verifier
+  gates on its presence — so an external user-management process can
+  issue credentials. Session cookies are HMAC-signed, `HttpOnly`,
+  `Secure` (configurable via `COOKIE_SECURE`), `SameSite=strict`,
+  7-day TTL.
+- **Login**: every credential failure — unknown id, no configured
+  password, wrong password — answers the same generic 401 with an
+  identical body, and every failure costs about one PBKDF2 run at the
+  write count (the real verification where it can run, a dummy
+  remainder run on top where it cannot or would run cheaper), so an
+  account id cannot be enumerated by response or timing. One documented
+  residual: a stored hash versioned above the target count still costs
+  longer. The rate limiter keys 5 failures per IP+user pair per
+  5-minute window, prunes expired entries per key on access, and sweeps
+  fully expired keys past a cap.
+- **Guest mode**: `user_id=0` sessions are signed with a per-process
+  secret regenerated at startup; cookies invalidate on restart. Guests
+  are blocked from `/api/projects`, `/api/sessions*`, and `?project=`
+  filter params.
+- **Server-side logout (issue #108)**: each real user's session secret
+  and a per-user `generation` counter live in the app's own
+  `user_session` table; a token carries the generation it was minted at
+  and must still match. `GET /logout` bumps the generation, so every
+  token that user holds (in any browser) stops verifying.
+- **No auth-DB writes (issue #94)**: the application only ever READS
+  the shared auth DB (`users.config`); session secrets live in
+  claudit's own `user_session` table.
+- **Admin**: `POST /admin/ingest` requires `X-Admin-Token`, checked via
+  constant-time `hmac.compare_digest`.
+- **Same-origin**: every mutating route (anything not
+  GET/HEAD/OPTIONS) — including `/login` and `/login/guest` — enforces
+  an origin/referer check (Origin or Referer host must match Host; a
+  request with no Host header is refused). `GET /logout` is exempt as a
+  safe method and leans on `SameSite=strict`.
+- **R2 file-mode path traversal**: `_safe_join` in `backend/r2.py`
+  uses `os.path.realpath` to refuse keys escaping the bucket root.
+- **No local upload path at all**: no drag-drop target, no
+  `FileReader`, no upload endpoint (SV-NO-LOCAL-UPLOAD). The backend
+  only reads JSONLs from R2; transcripts are fetched from
+  `/api/sessions/{id}/transcript` and parsed in the browser.
 
 ## Deployment process
 
-Intended to run under systemd behind a reverse proxy. Key settings from `examples/claudit.service`:
-
-- `--timeout-graceful-shutdown 5` so SSE connections drain quickly.
-- `TimeoutStopSec=10` for fast restarts.
-- `Restart=always` with `RestartSec=5`.
-- `After=network.target postgresql.service`.
-
-A restart during an ingest aborts the run cooperatively within the stop timeout: the aborted run's `ingest_runs` row says it was aborted, and the next successful run rebuilds all derived state and converges.
-
-```bash
-# Typical systemd workflow
-systemctl restart claudit
-systemctl status claudit
-journalctl -u claudit -f
-```
-
-Schema migrations are **applied automatically at startup**: `db.apply_schema()` runs `backend/schema.sql` before `schema_check()` on every boot, so a deploy cannot outrun its database (issue #43). Re-applying by hand stays harmless and is still how you create a fresh DB. Bump `PARSER_VERSION` in `backend/constants.py` whenever parser semantics change — every file reparses on the next ingest — and bump `PRICING_VERSION` when a rate change — or a change to a stored flag the reprice recomputes — reprices stored records (SV-REPRICE: a reprice recomputes `cost_usd` AND `records.long_context` from each record's stored columns, with no reparse and no R2 fetch). Both are code constants so a bump travels in the same commit as the change that needs it.
+Intended to run under systemd behind a reverse proxy
+([`examples/claudit.service`](examples/claudit.service)):
+`--timeout-graceful-shutdown 5`, `TimeoutStopSec=10`, `Restart=always`
+with `RestartSec=5`, `After=network.target postgresql.service`. A
+restart during an ingest aborts the run cooperatively (its
+`ingest_runs` row says "aborted"); the next successful run rebuilds all
+derived state and converges. Schema migrations apply automatically at
+every startup (SV-SCHEMA-AUTOAPPLY), so a restart is enough after
+editing `backend/schema.sql` — applying it by hand stays safe and is
+how you create a fresh DB. Version bumps travel in the same commit as
+the change they invalidate (SV-PARSER-VERSION): `PARSER_VERSION` for
+parse semantics, `PRICING_VERSION` when anything a reprice recomputes
+changes (SV-REPRICE). `backend/constants.VERSION` reads the tree
+`VERSION` and `/health` reports it.
 
 ## CI — batch your pushes
 
-**`ci-gate.yml` owns the push/PR trigger surface.** It starts on every
-push to `master` and every pull request against it — a pull request's
-commits are checked ONCE, on the merge ref, never once per event. It
-first classifies the changed paths (`scripts/ci/classify_changes.py`):
-a **documentation-only change** (`*.md`, `PRESENTATION.txt`,
-`examples/`, `.claude/`, `LICENSE`, `NOTICE`, `.gitignore` — the exact
-set the gate workflows' old `paths-ignore` deny-lists carried, re-homed
-as classifier patterns; still a deny-list on purpose, so a new code
-directory can't silently stop being tested) skips the expensive legs by
-classification rather than by `paths-ignore`, so every check still
-reports — a docs-only run never produces MISSING checks. Any other
-change runs all of them: every gate workflow, called as a reusable
-workflow, with one `aggregate` job folding the results into a single
-verdict, **`ci gate / aggregate`** — the check name a future ruleset
-requires. A leg skipped by the docs-only narrowing passes the
-aggregate; any other non-success (failure, cancellation, a missing
-leg) fails it and is named in the verdict. The workflow's concurrency
-group cancels a run superseded by a newer push whole, aggregate
-included, so a stale red aggregate never reports; a deliberate cancel
-stays cancelled, which a required-check ruleset reads as never-green.
-Postgres 16 service container; fixtures `createdb`/`dropdb` per
-module, so `PGHOST`/`PGUSER`/`PGPASSWORD` drive both libpq and the
-shelled-out `psql`.
-
-**The tests workflow runs the suite twice over a matrix and a job.** The
-`pytest` job keeps the FULL suite with its coverage ratchet on Linux +
-Postgres 16, exactly where it was. A second job, `pytest-portable`, runs
-the same suite minus every database test — `-m "not db"` — matrixed over
-ubuntu/macos/windows × Python 3.13/3.14, the platforms and Pythons a
-Postgres service container cannot reach; it has no services, no `psql`,
-and no coverage steps. The db/portable split is MECHANICAL, not a
-hand-kept list: `tests/conftest.py` marks every test whose fixture
-closure reaches a fixture registered in `tests/db_marker.py`'s
-`DB_FIXTURES`, the tests that reach a server without any DB fixture
-carry `@pytest.mark.db` explicitly, and `tests/test_db_marker.py`
-re-derives both from source and fails on drift — so an unmarked database
-test fails the marker's own meta-test before it can fail the portable
-cells on a missing server.
-
-On a pull request the `pytest` job also computes an informational
-**patch-coverage readout** (`scripts/ci/diff_coverage.py`): which of the
-lines the branch added the suite executed, written to the run summary and
-posted as one self-updating PR comment — never a gate, never a required
-check, and a comment that fails to post does not redden the run. Every
-runnable job in every workflow declares `timeout-minutes` (issue #98) —
-a reusable-call job cannot carry the key, so its callee's own jobs
-declare it — and a hung step loses its runner in minutes rather than at
-GitHub's 360-minute default.
-
 **Push a batch of commits once, not one at a time.** Pushing N related
 commits individually starts N CI runs; the intermediate ones tell you
-nothing, burn runner minutes, and the only result that matters is the
-tip. Commit as granularly as you like locally — then push once when the
-group is done. (`cancel-in-progress` limits the damage by cancelling
-superseded runs whole — pull requests and master pushes alike — but the
-right fix is not generating them.)
+nothing, and the only result that matters is the tip. Commit as
+granularly as you like locally — then push once when the group is done
+(`cancel-in-progress` cancels superseded runs whole, but the right fix
+is not generating them).
 
-**A branch without a PR is checked by dispatch.** A branch push no longer
-fires CI — only a `master` one does — so to check a working branch,
-dispatch the gate on it: `gh workflow run ci-gate.yml --ref <branch>`
-(ci-gate carries `workflow_dispatch` for exactly this).
+**A branch without a PR is checked by dispatch:**
+`gh workflow run ci-gate.yml --ref <branch>`.
 
-**There are SEVENTEEN workflows, not one.** `ci-gate.yml` is the one
-people must remember now — a green `ci gate / aggregate` is the
-repository's single verdict — and a green pytest says nothing about the
-other sixteen. Six run
-locally — run them before pushing, because CI is the backstop, not the
-first check:
+**There are seventeen workflows; `ci-gate.yml` owns the push/PR
+surface** and folds the nine gate legs into one verdict, **`ci gate /
+aggregate`**. A documentation-only change (`*.md`, `PRESENTATION.txt`,
+`examples/`, `.claude/`, licences) skips the expensive legs by
+classification, so a docs-only PR's legs report `skipping` and the
+aggregate still passes. What each workflow does: the table in
+CONTRIBUTING.md and the workflow files themselves; two behaviours with
+no other doc carrier: `speed.yml` skips green while no release exists
+(master pushes and dispatches only — a PR always has a merge base), and
+`refresh-pricing.yml` deliberately keeps its no-cache setup despite the
+pip-cache rule every other workflow follows.
+
+These run locally — run them before pushing, because CI is the
+backstop, not the first check:
 
 ```bash
 python3 -m pytest tests/ -q --cov=backend          # tests.yml (+ coverage)
@@ -442,118 +417,61 @@ actionlint .github/workflows/*.yml && \
   zizmor .github/workflows/                        # actionlint.yml
 ```
 
-**Run them in an environment with the PINNED deps installed**, not
-whatever your interpreter happens to have. `pyright` resolves third-party
-types from the installed packages, so a stale local psycopg makes it
-disagree with CI — which is exactly how a psycopg 3.3 typing change got
-through a locally-green `pyright` and turned `types` red on the push:
+**Run them in an environment with the PINNED deps installed**
+(`pip install -r backend/requirements.txt -r requirements-dev.txt -r
+requirements-test.txt`), not whatever your interpreter happens to
+have — `pyright` resolves third-party types from the installed
+packages. Use `-co --exclude-standard`, not a bare `git ls-files`: a
+brand-new module is untracked until you stage it, and pylint will
+report a clean run over every file except the one you just wrote.
 
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt
-# or point pyright at an existing one:
-pyright --pythonpath /path/to/venv/bin/python
-```
+**Releases are cut by editing the root `VERSION` file** (one semver
+line, no leading `v`). Between releases the tree carries the next
+version with a `-dev` suffix; a release drops the suffix —
+`release.yml` waits for every other check, then tags — and `VERSION` is
+bumped to the next `-dev` immediately after (nothing bumps it
+automatically; patch-vs-minor is a judgement about what changed).
+`version-guard.yml` refuses a tree `VERSION` naming an
+already-published release.
 
-The eleven that only make sense on GitHub:
+**Actions are hash-pinned**, with the version in a trailing comment —
+never "tidy" one back to `@v4`. Every workflow sets `permissions:`
+explicitly; `zizmor` enforces that and `persist-credentials: false`,
+and a zizmor suppression belongs at the offending line with a
+justification, never as a raised `--min-severity`.
 
-| Workflow | Question it answers | Trigger |
-| --- | --- | --- |
-| `ci-gate.yml` | Did this push or pull request pass every gate? Classifies the changed paths, runs the nine gate workflows as reusable legs unless the change is docs-only, and folds everything into one verdict: `ci gate / aggregate` — the single check name a ruleset requires. A superseded run is cancelled whole; a deliberate cancel reads never-green. | push to `master` + PR + `workflow_dispatch`, with one `paths-ignore`: the ratchet bot's `.github/ci-thresholds.json` commit must not start the suite. |
-| `gate-freshness.yml` | Which open PR heads would a required `ci gate / aggregate` strand? Lists heads whose latest ci-gate run predates the workflow's first commit, or that have none — the set that must rebase or rerun when the ruleset lands. | `workflow_dispatch` only; posts the list to the run summary. |
-| `codeql.yml` | Is there a security defect in the Python or JS? Results go to the Security tab, never the build. | a ci-gate leg + weekly cron. The cron is NOT redundant: a query published today would otherwise only ever run against files touched after it shipped. Under the leg the checkout takes the merge ref — the same commit `analyze` files SARIF against — so alerts land on the tree actually analysed. |
-| `audit.yml` | Are the frozen pins still free of advisories? Resolves the full transitive tree, which is the point — nothing here pins `starlette`. | a ci-gate leg + **daily** cron. The cron is the important half: this answer changes with no commit to hang it on. |
-| `speed.yml` | Did the tests that exist in both this commit and its baseline get >30% slower? The baseline is the last release on a master push, the branch's merge base on a pull request. | a ci-gate leg. Runs BOTH builds on the same runner, interleaved in pairs after a discarded warm-up round; the verdict is the median of the paired ratios. Skips green while no release exists (master pushes and dispatches only — a PR always has a merge base). A fork PR waits for a reviewer's approval in the `fork-speed-benchmark` environment before its code runs. |
-| `release.yml` | — | push to `master` touching `VERSION`. Waits for every other check on that SHA, then tags `v<VERSION>`. A dev version (`X.Y.Z-dev`) skips every step — nothing is tagged. |
-| `version-guard.yml` | Does the tree `VERSION` name a version that has already shipped? Fails a master push or PR whose `VERSION` matches an existing `v<VERSION>` tag — under the dev-suffix discipline this only ever fires on a missed bump. The hourly pricing bot's commits (author AND file shape: only `src/pricing.json` + `backend/constants.py`) are exempt; PRs get no carve-out. | push to `master` + PR, deliberately no path filter: the tag set changes when a release lands, independently of any push. |
-| `refresh-pricing.yml` | — (a data job, not a gate) Re-fetches OpenRouter's per-provider prices, appends every moved or new rate effective from the detection time, bumps `PRICING_VERSION`, and commits to `master` as `github-actions[bot]` after the suite passes on the new data (SV-RATE-REFRESH). A refused host blocks only itself: every other move is still committed, then the run goes red, naming the host to read by hand. | hourly cron + `workflow_dispatch`, `master` only. Its push starts no other workflow. |
-| `claim.yml` | Can a contributor without write access take an issue? `/claim` on an open, unassigned issue assigns the commenter; `/unclaim` and `/release` remove only the commenter's own assignment. Runs no repository code — talks to the API only. | `issue_comment` (created), prefiltered to a command-bearing comment on an open non-PR issue from a non-Bot; the action re-checks all of it exactly. |
-| `pr-gate.yml` | Does a non-draft PR's description follow `.github/PULL_REQUEST_TEMPLATE.md`, and does it reference an issue its author is assigned? A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once corrected. Never checks out or executes pull-request code; the body arrives through the API. | `pull_request_target` (opened/edited/reopened/ready_for_review) with the zizmor suppression at that line — a fork's `pull_request` token is read-only, so its comment and close would silently do nothing. Skips Bot authors. |
-| `secrets.yml` | Does the tree or the full history carry a credential? gitleaks — a digest-pinned binary, never a floating one — sweeps the tree and `git log -p` under the default ruleset; findings report commit + path + rule, never the matched string (`--redact`), because the log is public. The daily cron is the gate for commits no workflow saw: a push carrying `[skip ci]`, or one that predates the workflow, is scanned the next morning rather than never. | daily cron + push to `master` + PR + `workflow_dispatch`. |
+**`.gitignore` is deny-by-default**: `*` first, then each shipped path
+named back. A new file of an unlisted type is invisible to git and will
+NOT appear in `git status` — `git check-ignore -v <path>` names the
+rule hiding it, and the fix is a name-back rule in the file's own
+directory block. Never "fix" it by loosening the leading `*`.
 
 **Coverage and file size are self-raising ratchets** governed by
 committed data in `.github/ci-thresholds.json` and enforced in
 `tests.yml` — the floor, ratchet and never-lowered rules live in
 SV-CI-RATCHETS (`.claude/rules/claudit-doctrine.md`).
 
-**Release = edit `VERSION`.** One semver line at the repo root, no
-leading `v`. Between releases the tree carries the next version with a
-`-dev` suffix (`0.4.0-dev`); a release drops the suffix, and `VERSION`
-is bumped to the next `-dev` immediately after a release lands — the
-tree version never names an already-published release, which
-`version-guard.yml` enforces on every master push and PR (the hourly
-pricing bot's own commits are exempt). `release.yml` reacts to a dropped
-suffix and skips a dev version entirely; nothing bumps it automatically,
-because deciding patch-vs-minor is a judgement about what changed.
-`backend/constants.VERSION` reads it and `/health` reports it.
-
-**`-co --exclude-standard`, not a bare `git ls-files`.** CI lints the
-committed tree, so the workflow's own `git ls-files '*.py'` is right
-*there*. Locally it is a trap: a brand-new module is untracked until
-you stage it, `git ls-files` never lists it, and pylint reports a
-clean run over every file except the one you just wrote. `-c`
-(cached) plus `-o` (other) covers both, and `--exclude-standard`
-keeps `.gitignore`d files out.
-
-Toolchain and pinned versions: `requirements-dev.txt` (lint/type) and
-`requirements-test.txt` (coverage). Configs are `.pylintrc`, `setup.cfg`,
-`pyrightconfig.json`, `.eslintrc.json` — style opinions (line length) are
-deliberately off, so what pylint does flag is a real finding, not
-formatting taste.
-
-**Actions are hash-pinned**, with the version in a trailing comment. Do
-not "tidy" one back to `@v4`: a tag is a moving pointer, and these jobs
-hold a repository token. Dependabot keeps the hashes current. Every
-workflow also sets `permissions:` explicitly and passes
-`persist-credentials: false` to checkout — `zizmor` enforces all three,
-and a suppression belongs at the offending line with a justification (see
-`eslint.yml`), never as a raised `--min-severity`.
-
-**Pip caches restore anywhere and save only from master pushes.** No
-setup-python step carries `cache: pip`: its post-job save runs after the
-tree under test is checked out, so a pull request's untrusted code would
-write the cross-run cache a later master run restores and installs from.
-Each Python job instead carries an explicit `actions/cache/restore`
-(ungated) and an `actions/cache/save` immediately after that job's
-dependency install, gated
-`github.event_name == 'push' && github.ref == 'refs/heads/master'`.
-`refresh-pricing.yml` keeps its deliberate no-cache setup. The shape is
-pinned by `tests/test_workflow_pip_cache.py` (issue #126).
-
-**`.gitignore` is deny-by-default**: `*` first, then each shipped path
-named back. A new file of an unlisted type is invisible to git and will
-NOT appear in `git status` — `git check-ignore -v <path>` names the rule
-hiding it, and the fix is a name-back rule in the file's own directory
-block. Never "fix" it by loosening the leading `*`.
-
 ## Development conventions
 
 - **Read what already exists before adding a panel, and base your style
   on it.** Find the closest existing panel and copy its treatment rather
-  than inventing one. This is not a tidiness rule — the existing panels
-  encode solutions to problems that are not obvious until you have
-  already shipped the bug. Cost by Context is bars plus a cumulative
-  line, which `TimeSeriesPanel`'s **Cost (USD)**
-  (`src/dashboard-charts.jsx:404-423`) already is; skipping that read
-  cost four rounds of fixes for problems it had solved:
+  than inventing one — the existing panels encode solutions to problems
+  that are not obvious until you have already shipped the bug. Cost by
+  Context is bars plus a cumulative line, which `TimeSeriesPanel`'s
+  **Cost (USD)** (`src/dashboard-charts.jsx:404-423`) already is:
   - bars are a dim FIELD (`fillOpacity` 0.3, 0.85 on hover), not a
-    bright one — a bright field leaves no room for a line over it, and
-    no line colour can win: bright enough to read on the bars is
-    invisible on the dark surface, and the reverse. Measured at 1.07:1
-    contrast, i.e. the same luminance;
+    bright one — a bright field leaves no room for a line over it;
   - the cumulative line is the SAME hue as the bars, made legible by a
     white halo (`stroke="#fff" strokeOpacity="0.15" strokeWidth="4"`)
-    drawn under it — not by a second colour, which also has to survive
-    a CVD check it will probably fail;
+    drawn under it, not by a second colour;
   - hover lives on the container (the tooltip's `offsetParent`) and is
     guarded to the plot area, so the tip never shows over the header;
   - the two axes are named by rotated captions, not a legend.
 
-  `tests/test_panel_wiring.py` pins these against the reference, so a
-  copy that drifts fails rather than merely looking different. Its
-  guards are source-level on purpose: node cannot parse JSX and nothing
-  here renders React, so a panel can pass the whole suite and still draw
-  a black rectangle — which is exactly what shipped.
+  `tests/test_panel_wiring.py` pins these against the reference; its
+  guards are source-level on purpose — node cannot parse JSX and
+  nothing here renders React, so a panel can pass the whole suite and
+  still draw a black rectangle.
 - **Context intake is stored per call, and stays psql-only** — no
   endpoint, no panel, no rollup (SV-CONTEXT-INTAKE).
 - **A token type may be a SUBSET** — `thinking_tokens` is part of
