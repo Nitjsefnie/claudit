@@ -440,11 +440,11 @@ def test_cache_write_tokens_are_billed_on_their_own_meter():
     assert rates["create_1h"] == pytest.approx(rates["fresh"] * 1.25)
     assert rates["create_1h"] > rates["fresh"] > rates["read"]
     write_only = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=0, output=0,
+        "gpt-5.6-sol", fresh=0, output=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=1_000_000, read=0)
     assert write_only == pytest.approx(rates["create_1h"], rel=1e-9)
     # The ratio holds in the retired window too, at 1.25 x the old 5.00.
-    old = pricing.rate_for("gpt-5.6-sol", pricing.AUG21_CUT - timedelta(1))
+    old = pricing.rate_for("gpt-5.6-sol", pricing.AUG21_CUT - timedelta(1))  # sv-test-data: allow (closed-window pin at AUG21_CUT - 1d; ratio from the same loaded tables)
     assert old["create_1h"] == pytest.approx(old["fresh"] * 1.25)
 
 
@@ -577,17 +577,17 @@ def test_the_long_context_meter_doubles_input_and_multiplies_output_by_1_5():
     whose largest measured request is 243,093 — so it is asserted on the
     rate function directly rather than on a fixture."""
     base = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=1_000_000, output=0,
+        "gpt-5.6-sol", fresh=1_000_000, output=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0)
     long_in = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=1_000_000, output=0,
+        "gpt-5.6-sol", fresh=1_000_000, output=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0, long_context=True)
     assert long_in == pytest.approx(base * 2.0, rel=1e-9)
     base_out = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=0, output=1_000_000,
+        "gpt-5.6-sol", fresh=0, output=1_000_000,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0)
     long_out = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=0, output=1_000_000,
+        "gpt-5.6-sol", fresh=0, output=1_000_000,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0, long_context=True)
     assert long_out == pytest.approx(base_out * 1.5, rel=1e-9)
 

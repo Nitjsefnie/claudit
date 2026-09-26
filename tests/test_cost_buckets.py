@@ -25,11 +25,18 @@ def _row(model, epoch, fresh=0, cc=0, cr=0, output=0, eph5=0, eph1h=0,
 
 
 def test_buckets_sum_to_total_within_a_single_epoch():
-    rows = [_row("claude-opus-4-8", 0, fresh=1_000_000, cost=5.00)]
+    # The stored total is what the tables price the tokens at, at the
+    # fold's own representative instant, so both sides move together.
+    ts = epoch_ts(0)
+    stored = pricing.compute_cost(
+        "claude-opus-4-8", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: stored read from the same tables the fold prices at)
+        unsplit_create=0, read=0, ts=ts,
+    )
+    rows = [_row("claude-opus-4-8", 0, fresh=1_000_000, cost=stored)]
     out = fold_per_model(rows)
     assert len(out) == 1
     m = out[0]
-    assert m["cost_total"] == pytest.approx(5.00)
+    assert m["cost_total"] == pytest.approx(stored, abs=5e-5)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
 
@@ -48,9 +55,12 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
     m = out[0]
     assert m["fresh"] == 2_000_000
     assert m["turns"] == 2
-    assert m["cost_total"] == pytest.approx(total)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(total)
-    assert m["cost_buckets"]["fresh"] == pytest.approx(total)
+    # fold_per_model rounds cost_total and each bucket to 4 decimals, so
+    # every reconciliation against an unrounded figure carries the
+    # rounding: 5e-5 per rounded quantity the assert touches.
+    assert m["cost_total"] == pytest.approx(total, abs=5e-5)
+    assert sum(m["cost_buckets"].values()) == pytest.approx(total, abs=1e-4)
+    assert m["cost_buckets"]["fresh"] == pytest.approx(total, abs=5e-5)
 
 
 def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_rate):
@@ -120,86 +130,97 @@ def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
     assert [row[0] for row in got] == [want for _, want in probes]
 
 
-def test_an_undeclared_ttl_lands_in_the_1h_bucket():
+def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
     """/api/cache decomposes the stored cost into per-component buckets.
     A write with no declared TTL is stored at the 1h rate (pricing.
     compute_cost), so the fold must put it in the 1h bucket — in the 5m
     bucket the parts would no longer sum to the stored total."""
     # The row's stored cost prices at the epoch's own representative
     # instant — the same one the fold re-derives at — so stored and
-    # re-derived agree whatever the table's history holds.
+    # re-derived agree whatever the table's history holds. Driven on the
+    # fixture's synthetic window (SV-TEST-DATA): the expected bucket is
+    # the window's own create_1h rate, so no live row can move it.
+    w = synthetic_dated_rate
     ts = epoch_ts(0)
     stored = pricing.compute_cost(
-        "claude-sonnet-4-5", fresh=0, output=0, eph5=0, eph1h=0,
+        w.model, fresh=0, output=0, eph5=0, eph1h=0,
         unsplit_create=1_000_000, read=0, ts=ts,
     )
-    rows = [_row("claude-sonnet-4-5", 0, cc=1_000_000, cost=stored)]
+    rows = [_row(w.model, 0, cc=1_000_000, cost=stored)]
     m = fold_per_model(rows)[0]
-    expected = pricing.rate_for("claude-sonnet-4-5", ts)["create_1h"]
-    assert m["cost_buckets"]["create_1h"] == pytest.approx(expected)
+    assert m["cost_buckets"]["create_1h"] == pytest.approx(
+        w.before["create_1h"], abs=5e-5)
     assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
 
-def test_long_context_buckets_reconcile_with_the_stored_total():
+def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_rate):
     """A Codex record above the 272k threshold is STORED at
     2x input side / 1.5x output (pricing.compute_cost's long_context). A
     fold row that forgets the flag prices the same tokens at the flat
-    rate and its buckets stop summing to cost_total — the exact drift
+    rate and its buckets stop summing to the stored total — the exact drift
     SV-DATED-RATES bans. The flag is part of the aggregate row, alongside
     the rate epoch; the record's ts pins the epoch's rates on both sides
-    so only the meter can move the numbers."""
+    so only the meter can move the numbers. Driven on the fixture's
+    synthetic window: the meter is meter-agnostic, and the expected
+    buckets read the window's own rates, so no live row can move them."""
+    w = synthetic_dated_rate
     ts = epoch_ts(0)
-    rates = pricing.rate_for("gpt-5-6-sol", ts)
+    rates = w.before
     stored = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=300_000, output=2_000, eph5=0, eph1h=0,
+        w.model, fresh=300_000, output=2_000, eph5=0, eph1h=0,
         unsplit_create=0, read=0, long_context=True, ts=ts,
     )
     flat = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=300_000, output=2_000, eph5=0, eph1h=0,
+        w.model, fresh=300_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=ts,
     )
     assert stored > flat, "the meter must actually move the total here"
 
     m = fold_per_model([
-        _row("gpt-5-6-sol", 0, fresh=300_000, output=2_000,
+        _row(w.model, 0, fresh=300_000, output=2_000,
              cost=stored, long_context=True),
     ])[0]
-    assert m["cost_total"] == pytest.approx(stored)
+    assert m["cost_total"] == pytest.approx(stored, abs=5e-5)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
     assert m["cost_buckets"]["fresh"] == pytest.approx(
-        300_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000
-    )
+        300_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
+        abs=5e-5)
     assert m["cost_buckets"]["output"] == pytest.approx(
-        2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000
-    )
+        2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000,
+        abs=5e-5)
 
 
-def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry():
+def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
+        synthetic_dated_rate):
     """The flag splits the AGGREGATE row, never the model entry: both
     rows' tokens and turns land on the same model, priced each by its
-    own meter."""
+    own meter. Driven on the fixture's synthetic window (SV-TEST-DATA):
+    the meter is meter-agnostic, and both stored sides price the
+    fixture's own rates, so no live row can move either number."""
+    w = synthetic_dated_rate
     ts = epoch_ts(0)
     stored_lc = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=300_000, output=0, eph5=0, eph1h=0,
+        w.model, fresh=300_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, long_context=True, ts=ts,
     )
     stored_flat = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=100_000, output=0, eph5=0, eph1h=0,
+        w.model, fresh=100_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=ts,
     )
     out = fold_per_model([
-        _row("gpt-5-6-sol", 0, fresh=300_000, cost=stored_lc,
+        _row(w.model, 0, fresh=300_000, cost=stored_lc,
              long_context=True),
-        _row("gpt-5-6-sol", 0, fresh=100_000, cost=stored_flat),
+        _row(w.model, 0, fresh=100_000, cost=stored_flat),
     ])
     assert len(out) == 1
     m = out[0]
     assert m["turns"] == 2
     assert m["fresh"] == 400_000
-    assert m["cost_total"] == pytest.approx(stored_lc + stored_flat)
+    assert m["cost_total"] == pytest.approx(stored_lc + stored_flat, abs=5e-5)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
-    assert m["cost_buckets"]["fresh"] == pytest.approx(stored_lc + stored_flat)
+    assert m["cost_buckets"]["fresh"] == pytest.approx(
+        stored_lc + stored_flat, abs=5e-5)
 
 
 # api_common._fold rounds cost_total and every bucket to 4 decimal
@@ -236,7 +257,7 @@ def _install_scheduled_row(monkeypatch, schedule):
     synthetic row makes the verdict independent of which rates the file
     holds; schedules live on provider rows, so the synthetic row is one.
     """
-    doc = json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))
+    doc = json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))  # sv-test-data: allow (loads the live document only to inject the synthetic provider row; no live value reaches a verdict)
     doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
         {"from": None, **LIST_RATES, "schedule": schedule},
     ]}

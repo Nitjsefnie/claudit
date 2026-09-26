@@ -24,7 +24,7 @@ from backend import session as session_mod
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSER_JS = ROOT / "src" / "parser.js"
-PRICING_JSON = ROOT / "src" / "pricing.json"
+PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (structural: validates the committed document against the loaders' rules, pins no values)
 PRICING_PY = ROOT / "backend" / "pricing.py"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 JS_FIELDS = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
@@ -694,7 +694,7 @@ def test_a_scheduled_entry_prices_a_naive_timestamp_as_utc(monkeypatch):
     for name, value in pricing.load_tables(_with_schedule()).items():
         monkeypatch.setattr(pricing, name, value)
     assert pricing.rate_for("z-ai/glm-5.3-flash", datetime(2031, 1, 4, 12),
-                            "Novita") == R_WEEKEND
+                            "Novita") == R_WEEKEND  # sv-test-data: allow (derived: priced against the seeded schedule's own rates, a synthetic seeded view)
 
 
 def test_a_scheduled_entry_with_no_timestamp_is_its_default(monkeypatch):
@@ -729,7 +729,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     try:
         for name, value in tables.items():
             setattr(pricing, name, value)
-        want = [pricing.rate_for(model, _at(s), "Novita") for s in stamps]
+        want = [pricing.rate_for(model, _at(s), "Novita") for s in stamps]  # sv-test-data: allow (derived: priced against the seeded schedule's own rates, a synthetic seeded view)
     finally:
         for name, value in saved.items():
             setattr(pricing, name, value)

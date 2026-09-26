@@ -56,7 +56,7 @@ def test_single_turn_emits_one_record_one_turn():
     assert r["output_tokens"] == 200
     assert r["ctx_input"] == 100
     expected_cost = pricing.compute_cost(
-        "kimi-k2-7-code", ts=r["ts"],
+        "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=100, output=200, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -102,7 +102,7 @@ def test_cache_creation_and_read_are_flat_rate_billed():
     assert r["cache_read_tokens"] == 200
     assert r["output_tokens"] == 50
     expected_cost = pricing.compute_cost(
-        "kimi-k2-7-code", ts=r["ts"],
+        "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -118,7 +118,7 @@ def test_pre_cutoff_timestamp_labels_k2_6():
     r = out["records"][0]
     assert r["model"] == "kimi-k2-6"
     expected_cost = pricing.compute_cost(
-        "kimi-k2-6", ts=r["ts"],
+        "kimi-k2-6", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=1000, eph5=0, eph1h=0, unsplit_create=0, read=1000,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -151,7 +151,7 @@ def test_post_k3_cutoff_cost_uses_k3_rates():
     r = out["records"][0]
     assert r["model"] == "kimi-k3"
     expected_cost = pricing.compute_cost(
-        "kimi-k3", ts=r["ts"],
+        "kimi-k3", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -258,7 +258,7 @@ def test_kimi_code_post_k3_cutoff_kimi_for_coding_stays_k2_7_code():
     r = out["records"][0]
     assert r["model"] == "kimi-k2-7-code"
     expected_cost = pricing.compute_cost(
-        "kimi-k2-7-code", ts=r["ts"],
+        "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -338,7 +338,7 @@ def test_kimi_code_usage_record_drives_record_and_turn():
     # at +5 s is not where the reply began).
     assert r["reply_latency_s"] == pytest.approx(2.0, rel=1e-9)
     expected_cost = pricing.compute_cost(
-        "kimi-k2-7-code", ts=r["ts"],
+        "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -363,7 +363,7 @@ def test_kimi_code_ambiguous_wire_id_falls_through_to_the_date():
     r = out["records"][0]
     assert r["model"] == "kimi-k2-7-code"
     expected_cost = pricing.compute_cost(
-        "kimi-k2-7-code", ts=r["ts"],
+        "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -384,7 +384,7 @@ def test_kimi_code_pre_cutoff_ambiguous_wire_id_resolves_to_k2_6():
     r = out["records"][0]
     assert r["model"] == "kimi-k2-6"
     expected_cost = pricing.compute_cost(
-        "kimi-k2-6", ts=r["ts"],
+        "kimi-k2-6", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
     assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
@@ -479,9 +479,9 @@ def test_kimi_code_k3_record_is_priced_at_k3_rates():
         _kc_blob([(parse_kimi.K3_CUTOFF_EPOCH - 3600, "kimi-code/k3")]),
     )
     r = out["records"][0]
-    k3 = pricing.compute_cost("kimi-k3", fresh=1000, output=200, ts=r["ts"],
+    k3 = pricing.compute_cost("kimi-k3", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
                               eph5=0, eph1h=0, unsplit_create=50, read=100)
-    k26 = pricing.compute_cost("kimi-k2-6", fresh=1000, output=200, ts=r["ts"],
+    k26 = pricing.compute_cost("kimi-k2-6", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
                                eph5=0, eph1h=0, unsplit_create=50, read=100)
     assert r["cost_usd"] == pytest.approx(k3, rel=1e-9)
     assert r["cost_usd"] != pytest.approx(k26, rel=1e-9), "billed at DEFAULT_RATES"

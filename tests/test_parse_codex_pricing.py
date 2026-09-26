@@ -92,7 +92,7 @@ def test_a_subscription_record_bills_the_long_context_meter():
     assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
     assert rec["long_context"] is True
     metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,
+        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0,
         long_context=True, ts=_to_dt("2026-08-24T12:00:00.000Z"),
     )
@@ -112,7 +112,7 @@ def test_a_rollout_with_no_plan_still_gets_the_long_context_meter():
     rec = out["records"][0]
     assert rec["long_context"] is True
     metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,
+        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0,
         long_context=True, ts=_to_dt("2026-08-24T12:00:00.000Z"),
     )
@@ -133,12 +133,12 @@ def test_the_long_context_verdict_is_per_record():
 
     below, above = out["records"]
     flat = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=100_000, output=1_000,
+        "gpt-5.6-sol", fresh=100_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0,
         ts=_to_dt("2026-08-24T12:00:00.000Z"),
     )
     metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,
+        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0,
         long_context=True, ts=_to_dt("2026-08-24T12:05:00.000Z"),
     )

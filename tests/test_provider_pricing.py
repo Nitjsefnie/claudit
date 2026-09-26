@@ -36,7 +36,7 @@ def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
 def test_a_record_with_a_provider_is_priced_from_the_provider_table():
     # OpenRouter's Novita endpoint for deepseek-v4.1-flash, 2026-09-24:
     # $0.285 in / $1.14 out / $0.0057 cache read per 1M.
-    r = pricing.resolve(V41, SEEDED, provider="Novita")
+    r = pricing.resolve(V41, SEEDED, provider="Novita")  # sv-test-data: allow (closed-window pin at SEEDED)
     assert r.kind == "exact"
     assert r.rates == {"fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
                        "read": 0.0057, "output": 1.14}
@@ -45,8 +45,8 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
 
 
 def test_two_providers_of_one_model_price_differently():
-    morph = pricing.rate_for(V41, SEEDED, provider="Morph")
-    novita = pricing.rate_for(V41, SEEDED, provider="Novita")
+    morph = pricing.rate_for(V41, SEEDED, provider="Morph")  # sv-test-data: allow (closed-window pin at SEEDED)
+    novita = pricing.rate_for(V41, SEEDED, provider="Novita")  # sv-test-data: allow (closed-window pin at SEEDED)
     assert (morph["fresh"], morph["output"]) == (0.075, 0.3)
     assert morph != novita
 
@@ -66,21 +66,21 @@ def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
 def test_the_provider_table_is_keyed_on_the_normalised_model_id():
     for model, _provider in pricing.PROVIDER_RATES:
         assert model == model.lower() and "." not in model
-    assert pricing.rate_for("DeepSeek/DeepSeek-V4.1-Flash", provider="Novita") == \
-        pricing.rate_for(V41, provider="Novita")
+    assert (pricing.rate_for("DeepSeek/DeepSeek-V4.1-Flash", provider="Novita") ==  # sv-test-data: allow (derived: normalisation identity between the same loaded rows)
+            pricing.rate_for(V41, provider="Novita"))  # sv-test-data: allow (derived: normalisation identity between the same loaded rows)
 
 
 def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
     # BaseTen lists deepseek-v4.1-flash at two cache-read prices: 0.03 US
     # in-region, 0.007 global. The account's keys allow only the global
     # data region, so the global price applies.
-    assert pricing.rate_for(V41, SEEDED, provider="BaseTen")["read"] == 0.007
+    assert pricing.rate_for(V41, SEEDED, provider="BaseTen")["read"] == 0.007  # sv-test-data: allow (closed-window pin at SEEDED)
 
 
 def test_modal_glm_carries_its_one_remaining_endpoint():
     # Modal's fp8 glm-5.3-flash endpoint (0.45/1.50) was withdrawn; only the
     # nvfp4 endpoint at list price remains.
-    assert pricing.rate_for("z-ai/glm-5.3-flash", SEEDED, provider="Modal") == {
+    assert pricing.rate_for("z-ai/glm-5.3-flash", SEEDED, provider="Modal") == {  # sv-test-data: allow (closed-window pin at SEEDED)
         "fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
         "read": 0.03, "output": 0.5}
 
@@ -97,8 +97,11 @@ def test_the_same_model_with_no_provider_prices_exactly_as_before():
     assert r.rates is pricing.DEFAULT_RATES
     default = pricing.DEFAULT_RATES
     want = default["fresh"] + default["output"]
-    assert _cost(V41, fresh=1_000_000, output=1_000_000) == want
-    assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == want
+    # approx: the same rates on both sides; the M-token scaling can cost
+    # each term a last-bit rounding, never a real difference.
+    assert _cost(V41, fresh=1_000_000, output=1_000_000) == pytest.approx(want)
+    assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == \
+        pytest.approx(want)
 
 
 def test_the_zai_subscription_glm_is_not_repriced():
@@ -142,9 +145,9 @@ def test_stealth_stays_free_with_or_without_a_provider():
 
 
 def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug():
-    slug = pricing.resolve("deepseek/deepseek-v4-flash-0731", SEEDED, provider="Cohere")
+    slug = pricing.resolve("deepseek/deepseek-v4-flash-0731", SEEDED, provider="Cohere")  # sv-test-data: allow (closed-window pin at SEEDED)
     perma = pricing.resolve("deepseek/deepseek-v4-flash-20260731", SEEDED,
-                            provider="Cohere")
+                            provider="Cohere")  # sv-test-data: allow (closed-window pin at SEEDED)
     assert slug.rates == perma.rates == {
         "fresh": 0.14, "create_5m": 0.14, "create_1h": 0.14,
         "read": 0.07, "output": 0.28}
@@ -156,9 +159,9 @@ def test_the_permaslug_never_takes_the_undated_models_rate():
     # snapshot at 0.4092/1.2276. A dated suffix read as "same model" would
     # bill the permaslug at the undated row.
     assert pricing.rate_for("deepseek/deepseek-v4-flash", SEEDED,
-                            provider="Novita")["fresh"] == 0.14
+                            provider="Novita")["fresh"] == 0.14  # sv-test-data: allow (closed-window pin at SEEDED)
     assert pricing.rate_for("deepseek/deepseek-v4-flash-20260731", SEEDED,
-                            provider="Novita")["fresh"] == 0.4092
+                            provider="Novita")["fresh"] == 0.4092  # sv-test-data: allow (closed-window pin at SEEDED)
 
 
 # --- SV-DATED-RATES holds for provider rows ----------------------------------
@@ -185,11 +188,11 @@ def _synthetic_provider_window_fixture(monkeypatch):
 
 def test_a_provider_window_applies_before_its_cutover(synthetic_provider_window):
     cutover, before, after = synthetic_provider_window
-    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Novita") == before
-    assert pricing.rate_for(V41, cutover, "Novita") == after
-    assert pricing.rate_for(V41, None, "Novita") == after, "no ts => list"
-    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Morph") == \
-        pricing.rate_for(V41, None, "Morph")
+    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Novita") == before  # sv-test-data: allow (closed-window pin at SEEDED)
+    assert pricing.rate_for(V41, cutover, "Novita") == after  # sv-test-data: allow (closed-window pin at SEEDED)
+    assert pricing.rate_for(V41, None, "Novita") == after, "no ts => list"  # sv-test-data: allow (closed-window pin at SEEDED)
+    assert (pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Morph") ==  # sv-test-data: allow (closed-window pin at SEEDED)
+            pricing.rate_for(V41, None, "Morph"))  # sv-test-data: allow (closed-window pin at SEEDED)
 
 
 def test_live_rate_epochs_include_provider_windows():
@@ -216,8 +219,11 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
     rows = [_row(V41, "Novita", 0, fresh=1_000_000, cost=in_window),
             _row(V41, "Novita", 1, fresh=1_000_000, cost=past)]
     for m in fold_per_model(rows) + fold_per_model_provider(rows):
-        assert m["cost_total"] == pytest.approx(in_window + past)
-        assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
+        # cost_total and the buckets each round to 4 decimals; the sum
+        # carries 5e-5 of rounding per rounded quantity it touches.
+        assert m["cost_total"] == pytest.approx(in_window + past, abs=5e-5)
+        assert sum(m["cost_buckets"].values()) == pytest.approx(
+            m["cost_total"], abs=1e-4)
 
 
 # --- the split fold -------------------------------------------------------------
@@ -263,9 +269,10 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     per_model = out[0]
     assert per_model["model"] == SYNTH_MODEL
     assert per_model["turns"] == 3
-    assert per_model["cost_total"] == pytest.approx(via_a + via_b + direct)
+    assert per_model["cost_total"] == pytest.approx(
+        via_a + via_b + direct, abs=5e-5)
     assert sum(per_model["cost_buckets"].values()) == \
-        pytest.approx(per_model["cost_total"])
+        pytest.approx(per_model["cost_total"], abs=2e-4)
     # The NULL-provider row is still a DEFAULT-rate estimate.
     assert per_model["estimated_rate"] is True
 
@@ -274,8 +281,8 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     for provider, want in ((HOST_A, via_a), (HOST_B, via_b), (None, direct)):
         e = split[provider]
         assert e["model"] == SYNTH_MODEL
-        assert e["cost_total"] == pytest.approx(want)
-        assert sum(e["cost_buckets"].values()) == pytest.approx(want)
+        assert e["cost_total"] == pytest.approx(want, abs=5e-5)
+        assert sum(e["cost_buckets"].values()) == pytest.approx(want, abs=2e-4)
     assert split[HOST_A]["estimated_rate"] is False
     assert split[None]["estimated_rate"] is True
 

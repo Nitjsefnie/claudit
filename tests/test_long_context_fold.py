@@ -100,7 +100,7 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
     # The record's ts (2026-06-14) sits inside sol's pre-Aug21 dated
     # window; the fold resolves the same rates for the epoch, so the
     # expected figures read them at that ts too.
-    rates = pricing.rate_for("gpt-5.6-sol", _BLOB_TS)
+    rates = pricing.rate_for("gpt-5.6-sol", _BLOB_TS)  # sv-test-data: allow (derived: expected priced from the same window rates at the record's own ts)
     assert m["cost_buckets"]["fresh"] == pytest.approx(
         10_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
         abs=1e-4,
