@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-06-23T11:00:00Z","uuid":"u1","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>injected context blob</system-reminder>"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2U="}}]}}
+{"type":"assistant","timestamp":"2026-06-23T11:00:10Z","uuid":"a1","requestId":"req-1","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"seen"}],"usage":{"input_tokens":70,"output_tokens":8,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
