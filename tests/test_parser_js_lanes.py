@@ -42,6 +42,7 @@ pytestmark = pytest.mark.skipif(
 # ported fixtures the backend Codex/Kimi parsers are tested against.
 LANE_FIXTURES = [
     FIX_PARSER / "codex_min.jsonl",
+    FIX_PARSER / "codex_user_xml.jsonl",
     *sorted(FIX_CODEX.glob("*.jsonl")),
     *sorted(FIX_PARSER.glob("kimi_*.jsonl")),
 ]
