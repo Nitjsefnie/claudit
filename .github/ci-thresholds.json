@@ -15,7 +15,7 @@
     "backend/parse.py": 920,
     "backend/parse_codex.py": 718,
     "backend/parse_kimi.py": 592,
-    "backend/pricing.py": 564,
+    "backend/pricing.py": 561,
     "scripts/ci/refresh_provider_rates.py": 539,
     "scripts/plots/ccusage_plot_render.py": 704,
     "tests/test_api.py": 1042,
