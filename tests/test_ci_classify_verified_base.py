@@ -63,6 +63,37 @@ def _runs_page(*lines):
     return "\n".join(lines) + "\n"
 
 
+def test_jobs_read_sees_every_job_of_a_run():
+    # Issue #210. The legs-executed decision read a run's jobs with no
+    # `per_page` and no pagination, so it saw only the API's default
+    # first page (30 jobs); on a longer run an all-skipped later page
+    # would hide a leg that executed and misread that run as a verified
+    # docs-only base. The read must be complete (`--paginate`, the same
+    # shape the pull-request files read pins) and batched at the API's
+    # per-page maximum (`per_page=100`) so completeness costs fewer
+    # requests.
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return _runs_page(f"{INTERVENING_SHA} completed success 90")
+        if "/jobs" in url:
+            return GREEN_JOBS
+        return ""  # the compare comes back empty and over-runs
+
+    assert classify.changed_paths(
+        {"name": "push", "repository": "o/r",
+         "before": INTERVENING_SHA, "sha": PUSH_SHA},
+        run,
+    ) is None
+    argv = next(call for call in calls if "/jobs" in _url(call))
+    assert "--paginate" in argv  # every job of the run, not a first page
+    assert _url(argv) == "repos/o/r/actions/runs/90/jobs?per_page=100"
+    assert argv[argv.index("-H") + 1] == "Cache-Control: no-cache"
+
+
 def test_push_classifies_since_the_last_run_whose_legs_executed():
     # Issue #208. A code push had its ci-gate run cancelled by the next
     # push; the following docs-only push then classified only its own
@@ -81,7 +112,7 @@ def test_push_classifies_since_the_last_run_whose_legs_executed():
                 f"{INTERVENING_SHA} completed cancelled 30",
                 f"{BASE_SHA} completed success 29",
             )
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return GREEN_JOBS if url.split("/")[-2] == "29" else ""
         return "AGENTS.md\n.github/workflows/tests.yml\n"
 
@@ -110,7 +141,7 @@ def test_push_walks_past_a_docs_only_run_whose_legs_all_skipped():
                 f"{INTERVENING_SHA} completed success 32",
                 f"{BASE_SHA} completed success 29",
             )
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return (DOCS_ONLY_JOBS if url.split("/")[-2] == "32"
                     else GREEN_JOBS)
         return "docs/guide.md\n"
@@ -143,7 +174,7 @@ def test_push_skips_runs_that_are_not_completed_without_a_jobs_read():
                 f"{INTERVENING_SHA} in_progress - 34",
                 f"{BASE_SHA} completed success 33",
             )
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             jobs_calls.append(url)
             assert url.split("/")[-2] == "33"
             return GREEN_JOBS
@@ -169,7 +200,7 @@ def test_push_walks_past_a_run_whose_jobs_name_no_leg():
                 f"{INTERVENING_SHA} completed success 50",
                 f"{BASE_SHA} completed success 49",
             )
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return "classify success\naggregate success\n"
         raise AssertionError("no compare should be reached")
 
@@ -229,7 +260,7 @@ def test_push_api_failure_anywhere_over_runs():
         url = _url(argv)
         if WORKFLOW_RUNS_URL in url:
             return _runs_page(f"{INTERVENING_SHA} completed success 61")
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return GREEN_JOBS
         raise OSError("gh failed")
 
@@ -244,7 +275,7 @@ def test_push_whose_base_equals_its_own_sha_over_runs():
         url = _url(argv)
         if WORKFLOW_RUNS_URL in url:
             return _runs_page(f"{PUSH_SHA} completed success 70")
-        if url.endswith("/jobs"):
+        if "/jobs" in url:
             return GREEN_JOBS
         return ""
 
