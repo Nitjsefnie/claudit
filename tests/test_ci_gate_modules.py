@@ -150,11 +150,29 @@ def test_pr_event_with_an_unusable_number_over_runs():
         assert paths is None
 
 
+# The runs-list URL segment the classifier reads on a push (issue #208);
+# the walk itself has its own module, test_ci_classify_verified_base.py.
+WORKFLOW_RUNS_URL = "actions/workflows/ci-gate.yml/runs"
+
+
+def _url(argv):
+    """The single repos/… URL of a stubbed gh api call."""
+    return next(arg for arg in argv if arg.startswith("repos/"))
+
+
 def test_push_event_diffs_against_the_previous_master_sha():
+    # Normal behavior preserved: the newest completed master run before
+    # this push executed its legs over `before` itself, so the verified
+    # base IS `before` and the classified range is the push's own.
     calls = []
 
     def run(argv):
         calls.append(argv)
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return f"{'a' * 40} completed success 21\n"
+        if url.endswith("/jobs"):
+            return "classify success\naggregate success\ntests success\n"
         return "src/app.jsx\n"
 
     paths = classify.changed_paths(
@@ -163,7 +181,10 @@ def test_push_event_diffs_against_the_previous_master_sha():
         run,
     )
     assert paths == ["src/app.jsx"]
-    assert f"repos/o/r/compare/{'a' * 40}...{'b' * 40}" in calls[0]
+    assert f"repos/o/r/compare/{'a' * 40}...{'b' * 40}" in calls[-1]
+    runs_url = next(arg for arg in calls[0] if WORKFLOW_RUNS_URL in arg)
+    assert "branch=master" in runs_url
+    assert calls[0][calls[0].index("-H") + 1] == "Cache-Control: no-cache"
 
 
 def test_push_event_with_a_new_branch_over_runs():
@@ -191,6 +212,11 @@ def test_truncated_file_list_over_runs():
     # code.
     def many(n):
         def run(argv):
+            url = _url(argv)
+            if WORKFLOW_RUNS_URL in url:
+                return f"{'a' * 40} completed success 22\n"
+            if url.endswith("/jobs"):
+                return "classify success\naggregate success\ntests success\n"
             return "\n".join(f"p{i}.md" for i in range(n))
         return run
 
