@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-25T23:54:28Z",
+  "provider_rates_fetched": "2026-09-26T02:53:33Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -716,6 +716,15 @@
           "note": "20% off",
           "output": 0.48,
           "read": 0.0024
+        },
+        {
+          "create_1h": 0.079185,
+          "create_5m": 0.079185,
+          "fresh": 0.079185,
+          "from": "2026-09-26T02:53:33Z",
+          "note": "47.21% off",
+          "output": 0.31674,
+          "read": 0.0015837
         }
       ],
       "NextBit": [
@@ -754,6 +763,14 @@
           "fresh": 0.1,
           "from": null,
           "output": 0.5,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-26T02:53:33Z",
+          "output": 0.4,
           "read": 0.01
         }
       ],
@@ -1363,6 +1380,14 @@
           "from": "2026-09-25T22:53:43Z",
           "output": 0.2712,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.039,
+          "create_5m": 0.039,
+          "fresh": 0.039,
+          "from": "2026-09-26T02:53:33Z",
+          "output": 0.2712,
+          "read": 0.03
         }
       ],
       "Makora": [
@@ -1525,6 +1550,14 @@
           "from": "2026-09-25T22:53:43Z",
           "output": 0.32,
           "read": 0.016
+        },
+        {
+          "create_1h": 0.021,
+          "create_5m": 0.021,
+          "fresh": 0.021,
+          "from": "2026-09-26T02:53:33Z",
+          "output": 0.32,
+          "read": 0.016
         }
       ],
       "Sail Research": [
@@ -1551,6 +1584,14 @@
           "from": "2026-09-25T21:54:26Z",
           "output": 0.42,
           "read": 0.012
+        },
+        {
+          "create_1h": 0.0215,
+          "create_5m": 0.0215,
+          "fresh": 0.0215,
+          "from": "2026-09-26T02:53:33Z",
+          "output": 0.3,
+          "read": 0.014
         }
       ],
       "SiliconFlow": [
@@ -1928,6 +1969,14 @@
           "from": "2026-09-25T06:53:31Z",
           "output": 0.5,
           "read": 0.015
+        },
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": "2026-09-26T02:53:33Z",
+          "output": 0.5,
+          "read": 0.02
         }
       ],
       "Parasail": [
@@ -1975,6 +2024,14 @@
           "create_5m": 0.045,
           "fresh": 0.045,
           "from": "2026-09-25T22:53:43Z",
+          "output": 0.5,
+          "read": 0.015
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-26T02:53:33Z",
           "output": 0.5,
           "read": 0.015
         }
