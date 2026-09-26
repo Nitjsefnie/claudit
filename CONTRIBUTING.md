@@ -103,10 +103,10 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **seventeen** workflows. `ci-gate.yml` owns the push/PR
+CI runs **eighteen** workflows. `ci-gate.yml` owns the push/PR
 surface: it starts on every push to `master` and every pull request
 against it (a pull request's commits are checked once, with no review
-gate first), classifies the changed paths, runs the nine gate
+gate first), classifies the changed paths, runs the ten gate
 workflows as reusable legs, and folds them into one verdict —
 **`ci gate / aggregate`**. A documentation-only change (`*.md`,
 `PRESENTATION.txt`, `examples/`, `.claude/`, licences) narrows the
@@ -163,7 +163,8 @@ The rest need GitHub and run on their own:
 
 | Workflow | What it does |
 | --- | --- |
-| `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip the expensive legs; every check still reports), runs the nine gate workflows as reusable legs, and folds them into one `ci gate / aggregate` verdict. A superseded run is cancelled whole; a deliberate cancel reads never-green. |
+| `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip the expensive legs; every check still reports), runs the ten gate workflows as reusable legs, and folds them into one `ci gate / aggregate` verdict. A superseded run is cancelled whole; a deliberate cancel reads never-green. |
+| `test-data` | Would a refresh-shaped change — moved rates, bumped version constants — break the suite? Perturbs the tree exactly that way (`scripts/ci/perturb_test_data.py`) and runs the full suite against it on a Postgres 16 service; no coverage, no ratchet — the verdict is the perturbed suite's pass/fail. A ci-gate leg, skipped on docs-only changes. The second half of SV-TEST-DATA's enforcement. |
 | `gate-freshness` | Dispatch-only report naming the open PR heads that must rebase or rerun once `ci gate / aggregate` becomes a required check — heads whose latest ci-gate run predates the workflow, or that have none. |
 | `codeql` | Security analysis for Python and JS; findings go to the Security tab, not the build. Also runs weekly as a standalone cron, because new queries only ever see code that changed after they shipped. |
 | `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Also runs daily as a standalone cron — an advisory lands without a commit here to hang it on. |
