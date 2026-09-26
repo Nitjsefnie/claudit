@@ -379,7 +379,7 @@ def test_the_parsed_provider_without_a_key_is_null():
 
 # fixture name -> (lines that ARE prompts, lines that are injections)
 PROMPT_GATE_FIXTURES = {
-    "prompt_xml_injection.jsonl": ([1, 6], [3, 5, 7]),
+    "prompt_xml_injection.jsonl": ([1, 8], [3, 5, 6, 9]),
     "prompt_pasted_content_keeps.jsonl": ([1, 2], []),
     "prompt_unknown_xml_tag.jsonl": ([3], [1, 2]),
     "prompt_xml_midtext.jsonl": ([1, 3, 5], []),

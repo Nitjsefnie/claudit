@@ -50,7 +50,11 @@ const PROMPT_HUMAN_TAGS = new Set(['pasted_content']);
 const INTERRUPT_MARKER = '[Request interrupted by user';
 
 function isPromptText(text) {
-  const stripped = String(text ?? '').replace(/^\s+/, '');
+  // The explicit \x1c-\x1f and \x85 ranges exist for Python lstrip parity:
+  // str.lstrip() also strips the C0 file/group/record/unit separators and
+  // NEL, which JS \s does not — without them a control-char-prefixed
+  // injection is denied by the backend but counted here.
+  const stripped = String(text ?? '').replace(/^[\s\x1c-\x1f\x85]+/, '');
   if (!stripped) return false;
   const m = PROMPT_DATA_TAG_RE.exec(stripped);
   if (!m) return true;
