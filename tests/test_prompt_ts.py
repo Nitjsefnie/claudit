@@ -5,11 +5,14 @@
 # (SV-CI-RATCHETS: growth is fixed by moving code into a new module).
 """files.prompt_ts — per-prompt timestamps, in-range dashboard counting."""
 import json
+import os
 import shutil
 import tempfile
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -141,3 +144,35 @@ def test_dashboard_counts_prompts_and_turns_by_own_timestamp(
         "/api/dashboard?range=3650d&fresh=1").json()
     assert body_all["total_prompts"] == 4  # == the old SUM(prompt_count)
     assert body_all["total_turns"] == 3    # == the old SUM(turn_count)
+
+
+def test_dashboard_counts_junk_prompt_ts_as_unprovable(
+        app_with_prompt_range_data):
+    """A prompt_ts element that is a JUNK string fails pg_input_is_valid,
+    so its being out of range is unprovable and it COUNTS (ruling P1),
+    while a genuinely older stamped element in the same array stays out.
+    The parser never writes junk, so this seeds a files row directly."""
+    now = datetime.now(timezone.utc)
+    junk_ts = [
+        "not-a-timestamp",
+        now.isoformat(),                                # in range
+        (now - timedelta(days=45)).isoformat(),         # provably out
+    ]
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+            conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version, prompt_count, prompt_ts) VALUES "
+            "('claude/projA/sess-RJ/sess-RJ.jsonl', 'projA', 'sess-RJ', "
+            "TRUE, 'junk-etag', 10, now(), now(), 'test', 3, %s::jsonb)",
+            (json.dumps(junk_ts),),
+        )
+        conn.commit()
+
+    body = app_with_prompt_range_data.get(
+        "/api/dashboard?range=30d&fresh=1").json()
+    # RA 2 (in-range + unstamped) + RB 1 + RJ 2 (junk + in-range; the
+    # 45-day-old element is the only provably-out-of-range one).
+    assert body["total_prompts"] == 5
+    assert body["total_turns"] == 2  # RJ carries no ctx_turns
