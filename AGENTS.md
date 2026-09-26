@@ -16,7 +16,7 @@ The dashboard panels include: Session Burn Rate, Cost by Model, Tokens by Model,
 - **Object storage**: Cloudflare R2 via S3-compatible API, or local filesystem mirror (`file://`)
 - **Scheduling**: APScheduler (BackgroundScheduler) for hourly ingest
 - **Serialization**: orjson for fast JSON parsing
-- **Testing**: pytest, pytest-asyncio, httpx (for TestClient)
+- **Testing**: pytest, pytest-asyncio, httpx2 (for TestClient)
 - **Deployment**: systemd service (see `examples/claudit.service`)
 
 ## Project structure
