@@ -34,21 +34,23 @@ def test_buckets_sum_to_total_within_a_single_epoch():
 
 
 def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
-    # 1M input tokens in the promotional window ($9.00) and 1M after it
-    # ($2.00). Stored cost_total is authoritative at $11.00 total.
+    # 1M input tokens in the promotional window and 1M after it, each
+    # stored at that span's own fresh rate; the stored cost_total is
+    # authoritative and the buckets must reconcile to it.
     w = synthetic_dated_rate
     rows = [
-        _row(w.model, 0, fresh=1_000_000, cost=9.00),
-        _row(w.model, 1, fresh=1_000_000, cost=2.00),
+        _row(w.model, 0, fresh=1_000_000, cost=w.before["fresh"]),
+        _row(w.model, 1, fresh=1_000_000, cost=w.after["fresh"]),
     ]
+    total = w.before["fresh"] + w.after["fresh"]
     out = fold_per_model(rows)
     assert len(out) == 1, "epochs must fold into one row per model"
     m = out[0]
     assert m["fresh"] == 2_000_000
     assert m["turns"] == 2
-    assert m["cost_total"] == pytest.approx(11.00)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(11.00)
-    assert m["cost_buckets"]["fresh"] == pytest.approx(11.00)
+    assert m["cost_total"] == pytest.approx(total)
+    assert sum(m["cost_buckets"].values()) == pytest.approx(total)
+    assert m["cost_buckets"]["fresh"] == pytest.approx(total)
 
 
 def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_rate):
@@ -123,13 +125,18 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket():
     A write with no declared TTL is stored at the 1h rate (pricing.
     compute_cost), so the fold must put it in the 1h bucket — in the 5m
     bucket the parts would no longer sum to the stored total."""
+    # The row's stored cost prices at the epoch's own representative
+    # instant — the same one the fold re-derives at — so stored and
+    # re-derived agree whatever the table's history holds.
+    ts = epoch_ts(0)
     stored = pricing.compute_cost(
         "claude-sonnet-4-5", fresh=0, output=0, eph5=0, eph1h=0,
-        unsplit_create=1_000_000, read=0,
+        unsplit_create=1_000_000, read=0, ts=ts,
     )
     rows = [_row("claude-sonnet-4-5", 0, cc=1_000_000, cost=stored)]
     m = fold_per_model(rows)[0]
-    assert m["cost_buckets"]["create_1h"] == pytest.approx(6.00)
+    expected = pricing.rate_for("claude-sonnet-4-5", ts)["create_1h"]
+    assert m["cost_buckets"]["create_1h"] == pytest.approx(expected)
     assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 

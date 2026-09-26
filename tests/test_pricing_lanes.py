@@ -1,4 +1,9 @@
-"""Codex and Kimi models priced by claudit's table (D4, D5, D6)."""
+"""Codex and Kimi models priced by claudit's table (D4, D5, D6).
+
+Per SV-TEST-DATA the assertions read each row's rates from the loaded
+tables at run time; what is pinned is exact resolution and the pricing
+ARITHMETIC, never a committed rate value.
+"""
 from datetime import datetime
 from typing import Any
 
@@ -6,59 +11,56 @@ import pytest
 
 from backend import pricing
 
-# (fresh, cache write, cached read, output), USD per 1M tokens.
-LIST = {
-    "kimi-k3":        (3.00, 0.00, 0.30, 15.00),
-    "kimi-k2-7-code": (0.95, 0.00, 0.19, 4.00),
-    "kimi-k2-6":      (0.95, 0.00, 0.16, 4.00),
-    "gpt-6-astra":    (10.00, 12.50, 1.00, 50.00),
-    "gpt-6-sol":      (2.00, 2.50, 0.20, 10.00),
-    "gpt-6-luna":     (0.10, 0.125, 0.01, 0.50),
-    "gpt-5.6-sol":    (4.00, 5.00, 0.40, 20.00),
-    "gpt-5.6-terra":  (2.00, 2.50, 0.20, 12.00),
-    "gpt-5.6-luna":   (0.20, 0.25, 0.02, 1.20),
-}
+# The lane ids this repo serves; the rates live in the table.
+LANE_MODELS = (
+    "kimi-k3", "kimi-k2-7-code", "kimi-k2-6",
+    "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+)
 
 
-@pytest.mark.parametrize("model", sorted(LIST))
+@pytest.mark.parametrize("model", LANE_MODELS)
 def test_lane_model_resolves_exact_at_its_list_rate(model):
-    fresh, create, read, output = LIST[model]
     r = pricing.resolve(model)
     assert r.kind == "exact"
-    assert r.rates["fresh"] == fresh
-    assert r.rates["read"] == read
-    assert r.rates["output"] == output
+    assert r.rates is pricing.MODEL_RATES[r.key]
     # D4: one write rate, whatever TTL the record does or does not declare.
-    assert r.rates["create_5m"] == r.rates["create_1h"] == create
+    assert r.rates["create_5m"] == r.rates["create_1h"]
 
 
 def test_flat_create_prices_identically_under_any_declared_ttl():
+    create = pricing.MODEL_RATES["gpt-6-sol"]["create_5m"]
     kw: dict[str, Any] = {"fresh": 0, "output": 0, "read": 0}
     as_5m = pricing.compute_cost("gpt-6-sol", eph5=1_000_000, eph1h=0, unsplit_create=0, **kw)
     as_1h = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=1_000_000, unsplit_create=0, **kw)
     undeclared = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=0, unsplit_create=1_000_000, **kw)
-    assert as_5m == as_1h == undeclared == pytest.approx(2.50)
+    assert as_5m == as_1h == undeclared == pytest.approx(create)
 
 
 def test_long_context_doubles_input_side_and_raises_output_by_half():
+    rates = pricing.MODEL_RATES["gpt-6-sol"]
     kw: dict[str, Any] = {"fresh": 1_000_000, "output": 1_000_000, "eph5": 0,
                           "eph1h": 0, "unsplit_create": 1_000_000, "read": 1_000_000}
     base = pricing.compute_cost("gpt-6-sol", **kw)
     long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)
-    assert base == pytest.approx(2.00 + 10.00 + 2.50 + 0.20)
-    assert long == pytest.approx(2 * (2.00 + 2.50 + 0.20) + 1.5 * 10.00)
+    assert base == pytest.approx(rates["fresh"] + rates["output"]
+                                 + rates["create_1h"] + rates["read"])
+    assert long == pytest.approx(
+        2 * (rates["fresh"] + rates["create_1h"] + rates["read"])
+        + 1.5 * rates["output"])
 
 
 def test_long_context_multiplier_applies_to_5m_cache_writes():
     """The long-context meter multiplies the whole input side, the 5m
     cache-write bucket included: eph5 prices at create_5m x 2x, not at
     the unsplit create_1h rate."""
+    create_5m = pricing.MODEL_RATES["gpt-6-sol"]["create_5m"]
     kw: dict[str, Any] = {"fresh": 0, "output": 0, "eph5": 1_000_000,
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
     base = pricing.compute_cost("gpt-6-sol", **kw)
     long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)
-    assert base == pytest.approx(2.50)
-    assert long == pytest.approx(2 * 2.50)
+    assert base == pytest.approx(create_5m)
+    assert long == pytest.approx(2 * create_5m)
 
 
 def test_long_context_defaults_off_for_every_existing_caller():
