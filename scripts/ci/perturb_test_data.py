@@ -181,7 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     rows = perturb_pricing(args.pricing)
     bump_constants(args.constants)
-    print(f"perturbed {rows} rate rows and bumped "
+    print(f"perturbed {rows} rate rows (3 entries per row: ×2.0, ×0.37, "
+          "seeded per-row irregular) and bumped "
           f"{len(VERSION_NAMES)} version constants")
     return 0
 

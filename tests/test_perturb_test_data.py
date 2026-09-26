@@ -371,3 +371,19 @@ def test_the_script_answers_help(capsys):
     out = capsys.readouterr().out
     assert "perturb" in out
     assert "×2.0" in out and "×0.37" in out
+
+
+def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
+    """main()'s printed line states what the run applied — three appended
+    entries per row, naming the factors (×2.0, ×0.37, and the seeded
+    per-row irregular) — so a CI-leg log shows the perturbation without
+    reading the tree."""
+    pricing_path, constants_path, _doc = _seed_tree(tmp_path)
+    exit_code = perturb_module.main(["--pricing", str(pricing_path),
+                                     "--constants", str(constants_path)])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "3 entries per row" in out
+    assert "×2.0" in out
+    assert "×0.37" in out
+    assert "irregular" in out
