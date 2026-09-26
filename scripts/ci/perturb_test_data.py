@@ -7,11 +7,17 @@ gains THREE appended entries per run — the newest entry's five rates
 scaled by ×2.0, by ×0.37, and by a per-row irregular factor in
 [0.61, 1.47) derived from (run seed, row key). A zero rate becomes one
 under every factor, so every field differs. The rows are processed in a
-seeded-shuffled order (the run seed is `int(now.timestamp())`, the same
-seed the factors derive from), and appended entries take their `from`
-stamps from a global counter one second apart, incremented per appended
-entry, so per-row stamps stay strictly increasing while cross-row
-interleaving is shuffled. The three version constants in
+seeded-shuffled order and the irregular factor derives from
+(run seed, row key); the run seed is `int(now.timestamp())`, or the
+`--seed N` value. The seed drives the factors and the shuffle ONLY —
+never a `from` stamp (issue #227): the appended entries take their
+stamps from a global counter one second apart, based at the document's
+newest real rate stamp, so every appended stamp is after every real one
+whatever the seed — any seed is valid, which is what keeps the six
+closed-window pins in tests/test_provider_pricing.py pricing their
+pristine windows under every seed the leg can name. When NO entry in
+the document carries a `from`, there is nothing older to protect and
+the run instant is the base instead. The three version constants in
 backend/constants.py move up one. A test that pins repository-managed
 data then fails as a test failure on this tree, never as a broken
 refresh. The CI leg calls this script before pytest; the guard test
@@ -25,7 +31,8 @@ file before anything is written. Schedules, the openrouter section and
 provider_rates_fetched are untouched; a second run appends a further
 three entries per row and moves the constants again.
 
-    python3 scripts/ci/perturb_test_data.py [--pricing PATH] [--constants PATH]
+    python3 scripts/ci/perturb_test_data.py [--seed N] [--pricing PATH]
+        [--constants PATH]
 """
 from __future__ import annotations
 
@@ -52,25 +59,36 @@ NOTE_SUFFIX = " (a zero rate becomes one)"
 FIXED_FACTORS = ("2.0", "0.37")
 
 
-def perturb_pricing(path: Path, now: datetime | None = None) -> int:
-    """Append three scaled entries to every rate row; return the row count.
+def perturb_pricing(path: Path,
+                    seed: int | None = None) -> tuple[int, int, str]:
+    """Append three scaled entries to every rate row; report the run.
 
     Each of the three scales the row's previous newest entry: by ×2.0,
     by ×0.37, and by a per-row irregular factor in [0.61, 1.47) derived
     from (run seed, row key). A zero rate becomes one under every
-    factor, so every field differs whatever the row prices. The run
-    seed is `int(now.timestamp())`: it drives both the seeded-shuffled
-    row order and the irregular factors, so the same `now` reproduces
-    the run byte for byte. Appended entries take their `from` from a
-    global counter one second apart — never at or before the row's
-    previous stamp, and one second past a newest stamp that is somehow
-    already in the future — so per-row stamps stay strictly increasing
-    while cross-row interleaving is shuffled. The document is validated
-    through the backend's own loader before it is written.
+    factor, so every field differs whatever the row prices.
+
+    The seed drives the factors and the row order ONLY — never a `from`
+    stamp (issue #227). The appended stamps come from a global counter
+    one second apart, based at the document's newest real rate stamp:
+    it starts one second past that stamp and advances one second per
+    appended entry, so every appended stamp is after every real one
+    whatever the seed — per-row stamps stay strictly increasing, and a
+    closed window keeps answering at every instant it answered before,
+    which is what the six closed-window pins in
+    tests/test_provider_pricing.py price. When NO entry carries a
+    `from`, there is nothing older to protect and the run instant is
+    the base instead. `_stamp_after`'s clamp stays as a belt for a real
+    stamp newer than the counter (a refresh landing mid-run); its
+    semantics are unchanged. The same (document, seed) reproduces the
+    run byte for byte. The document is validated through the backend's
+    own loader before it is written.
+
+    Returns (row count, seed, stamp base) for the run report.
     """
     doc = json.loads(path.read_text(encoding="utf-8"))
-    stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    seed = int(stamp.timestamp())
+    if seed is None:
+        seed = int(datetime.now(timezone.utc).timestamp())
     all_rows = _rows(doc)
     if not all_rows:
         # A zero-row perturbation would let the leg pass constants-only,
@@ -78,15 +96,18 @@ def perturb_pricing(path: Path, now: datetime | None = None) -> int:
         # about the rate half.
         raise ValueError(f"{path}: no rate rows under models/providers; "
                          "perturbing nothing would price nothing")
-    counter = stamp
+    base = _newest_stamp(all_rows)
+    if base is None:
+        base = datetime.now(timezone.utc).replace(microsecond=0)
+    counter = base + timedelta(seconds=1)
     for row_key, entries in _shuffled(all_rows, seed):
-        base = entries[-1]
-        previous_from = base.get("from")
+        newest = entries[-1]
+        previous_from = newest.get("from")
         for factor_text in (*FIXED_FACTORS, _irregular_factor(seed, row_key)):
-            entry_from = _stamp_after(previous_from, counter)
+            entry_from = _stamp_after(previous_from, candidate=counter)
             entries.append({
                 "from": entry_from,
-                **{field: _scaled(base[field], float(factor_text))
+                **{field: _scaled(newest[field], float(factor_text))
                    for field in pricing.RATE_FIELDS},
                 "note": f"{NOTE_PREFIX}{factor_text}{NOTE_SUFFIX}",
             })
@@ -95,7 +116,21 @@ def perturb_pricing(path: Path, now: datetime | None = None) -> int:
     pricing.load_tables(doc)
     path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return len(all_rows)
+    return len(all_rows), seed, base.strftime(STAMP_FORMAT)
+
+
+def _newest_stamp(rows: list[tuple[str, list]]) -> datetime | None:
+    """The document's newest real `from`, parsed, over every entry of
+    every row; None when no entry carries one."""
+    stamps = [_parse_stamp(entry["from"])
+              for _key, entries in rows for entry in entries
+              if entry.get("from") is not None]
+    return max(stamps) if stamps else None
+
+
+def _parse_stamp(text: str) -> datetime:
+    """A `from` stamp as a UTC instant."""
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
 def _rows(doc: dict) -> list[tuple[str, list]]:
@@ -118,7 +153,7 @@ def _irregular_factor(seed: int, row_key: str) -> str:
     """A per-row factor in [0.61, 1.47), six decimals, never exactly 1.0.
 
     Deterministic in (seed, row key), so different runs of the same
-    `now` — and the same row across runs — reproduce it exactly. A
+    seed — and the same row across runs — reproduce it exactly. A
     factor of exactly 1.0 would change nothing, so it is excluded.
     """
     digest = hashlib.blake2b(f"{seed}:{row_key}".encode("utf-8"),
@@ -136,14 +171,15 @@ def _scaled(rate, factor: float):
 
 def _stamp_after(previous: str | None, candidate: datetime) -> str:
     """An appended entry's `from`: the counter value, never at or before
-    the row's predecessor. The candidate is compared at second
-    precision — the precision the stamp itself carries — so a
-    microsecond-carrying `now` never spells the predecessor's own
+    the row's predecessor — the belt for a real stamp newer than the
+    counter, unchanged by the decoupling. The candidate is compared at
+    second precision — the precision the stamp itself carries — so a
+    microsecond-carrying counter never spells the predecessor's own
     second."""
     stamp = candidate.strftime(STAMP_FORMAT)
     if previous is not None:
-        earlier = datetime.fromisoformat(previous.replace("Z", "+00:00"))
-        truncated = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        earlier = _parse_stamp(previous)
+        truncated = _parse_stamp(stamp)
         if earlier >= truncated:
             return (earlier + timedelta(seconds=1)).strftime(STAMP_FORMAT)
     return stamp
@@ -171,7 +207,15 @@ def main(argv: list[str] | None = None) -> int:
                     "a per-row irregular factor in [0.61, 1.47) (a zero rate "
                     "becomes one under every factor) — and bump the three "
                     "version constants, so the suite runs against data the "
-                    "repository changed by design.")
+                    "repository changed by design. The seed drives the row "
+                    "order and the irregular factors only; the appended "
+                    "`from` stamps derive from the document's own newest "
+                    "real stamp, so any seed is valid (issue #227).")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="the run seed, an absolute epoch-seconds int: "
+                             "drives the row shuffle and the per-row "
+                             "irregular factor, never a `from` stamp "
+                             "(default: the wall clock)")
     parser.add_argument("--pricing", type=Path, default=PRICING_JSON,
                         help="path to the pricing document "
                              "(default: src/pricing.json)")
@@ -179,11 +223,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="path to the constants module "
                              "(default: backend/constants.py)")
     args = parser.parse_args(argv)
-    rows = perturb_pricing(args.pricing)
+    rows, seed, base_text = perturb_pricing(args.pricing, seed=args.seed)
     bump_constants(args.constants)
     print(f"perturbed {rows} rate rows (3 entries per row: ×2.0, ×0.37, "
-          "seeded per-row irregular) and bumped "
-          f"{len(VERSION_NAMES)} version constants")
+          f"seeded per-row irregular), seed={seed}, stamp base={base_text}, "
+          f"and bumped {len(VERSION_NAMES)} version constants")
     return 0
 
 

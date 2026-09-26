@@ -14,6 +14,7 @@ import importlib.util
 import json
 import math
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -89,7 +90,7 @@ def _seed_tree(tmp_path: Path) -> tuple[Path, Path, dict]:
 def _run(tmp_path: Path) -> tuple[dict, dict, str, Path]:
     """Seed, run the perturbation once, read the tree back."""
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
-    perturb_module.perturb_pricing(pricing_path, now=NOW)
+    perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
     perturb_module.bump_constants(constants_path)
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     text = pricing_path.read_text(encoding="utf-8")
@@ -100,7 +101,7 @@ def _run_twice(tmp_path: Path) -> tuple[dict, dict, Path]:
     """Seed, run the perturbation twice, read the tree back."""
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     for _ in range(2):
-        perturb_module.perturb_pricing(pricing_path, now=NOW)
+        perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
         perturb_module.bump_constants(constants_path)
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     return doc, perturbed, constants_path
@@ -232,7 +233,7 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     pricing_path.write_text(
         json.dumps(seed_doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
-    perturb_module.perturb_pricing(pricing_path, now=NOW)
+    perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     keys = sorted(seed_doc["models"])
     by_stamp = sorted(
@@ -243,15 +244,16 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     assert sorted(by_stamp) == keys
 
 
-def test_the_same_now_is_byte_identical_on_a_fresh_run(tmp_path):
-    """Two fresh trees perturbed with the same `now` come out identical —
-    the seed, the shuffle and every factor derive from `now` alone."""
+def test_the_same_seed_is_byte_identical_on_a_fresh_run(tmp_path):
+    """Two fresh trees perturbed with the same seed come out identical —
+    the shuffle, every factor and every appended stamp derive from
+    (document, seed) alone."""
     texts = []
     for name in ("one", "two"):
         tree = tmp_path / name
         tree.mkdir()
         pricing_path, _constants_path, _doc = _seed_tree(tree)
-        perturb_module.perturb_pricing(pricing_path, now=NOW)
+        perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
         texts.append(pricing_path.read_text(encoding="utf-8"))
     assert texts[0] == texts[1]
 
@@ -298,42 +300,164 @@ def test_the_constants_file_bumps_exactly_plus_one(tmp_path):
     assert len(lines) == 5
 
 
-def test_a_future_newest_from_advances_by_one_second(tmp_path):
+def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
+    """A row whose newest real stamp is newer than everything else —
+    including the seed instant — still bounds its own appended stamps:
+    the counter is based at the document's newest real stamp, which is
+    that row's own."""
     pricing_path, _constants_path, doc = _seed_tree(tmp_path)
     future = NOW + timedelta(days=30)
     doc["models"]["acme/acme-9"][-1]["from"] = future.strftime(
         "%Y-%m-%dT%H:%M:%SZ")
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    perturb_module.perturb_pricing(pricing_path, now=NOW)
+    perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
-    appended = perturbed["models"]["acme/acme-9"][-3:]
-    for offset, entry in enumerate(appended, start=1):
-        expected = (future + timedelta(seconds=offset)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ")
-        assert entry["from"] == expected
+    stamps = [datetime.fromisoformat(entry["from"].replace("Z", "+00:00"))
+              for entry in perturbed["models"]["acme/acme-9"][-3:]]
+    for stamp in stamps:
+        assert stamp > future
+    assert stamps == sorted(stamps)
 
 
-def test_a_microsecond_now_moves_off_the_predecessors_second(tmp_path):
-    """`now` carrying microseconds against a row whose newest `from` is
-    exactly that whole second: the candidate is compared at second
-    precision — the precision the stamp itself carries — so the first
-    appended stamp is the predecessor's second + 1s, not the same
-    second, which the loader would refuse."""
-    pricing_path, _constants_path, doc = _seed_tree(tmp_path)
-    now = NOW + timedelta(seconds=0.4)
-    doc["models"]["acme/acme-9"][-1]["from"] = now.strftime(
-        "%Y-%m-%dT%H:%M:%SZ")
-    pricing_path.write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    perturb_module.perturb_pricing(pricing_path, now=now)
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
-    appended = perturbed["models"]["acme/acme-9"][-3:]
-    predecessor_second = now.replace(microsecond=0)
-    for offset, entry in enumerate(appended, start=1):
-        expected = (predecessor_second + timedelta(seconds=offset)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ")
-        assert entry["from"] == expected
+def test_the_stamp_belt_clamps_a_candidate_at_or_before_the_predecessor():
+    """`_stamp_after`'s clamp, unchanged by the decoupling: a candidate
+    whose second is at or before the row's predecessor's — the counter
+    trailing a real stamp newer than it, a refresh landing mid-run —
+    spells the predecessor's second + 1s. The comparison is second
+    precision, the precision the stamp itself carries, so a
+    microsecond-carrying candidate never spells the predecessor's own
+    second."""
+    predecessor = "2026-10-01T12:00:00Z"
+    clamp = "2026-10-01T12:00:01Z"
+    belt = perturb_module._stamp_after  # pylint: disable=protected-access
+    microsecond_carrying = datetime(
+        2026, 10, 1, 12, 0, 0, 400000, tzinfo=timezone.utc)
+    assert belt(predecessor, microsecond_carrying) == clamp
+    assert belt(predecessor, datetime(1970, 1, 1, tzinfo=timezone.utc)) == clamp
+    # No predecessor: the candidate passes through at second precision.
+    assert belt(None, microsecond_carrying) == "2026-10-01T12:00:00Z"
+
+
+def test_the_stamp_belt_passes_a_later_candidate_through():
+    """A candidate strictly after the row's predecessor spells the
+    counter value itself."""
+    # pylint: disable-next=protected-access
+    belt = perturb_module._stamp_after
+    assert belt("2026-10-01T12:00:00Z",
+                datetime(2026, 10, 1, 12, 0, 5, tzinfo=timezone.utc)) == \
+        "2026-10-01T12:00:05Z"
+
+
+def _real_pricing_text() -> str:
+    """The committed document's text, to perturb on a tmp copy.
+
+    A function-local bind: the SV-TEST-DATA guard's path-bind shape
+    flags only module-level binds of the committed path."""
+    return (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")
+
+
+def _rows_of(doc: dict) -> list[tuple[str, list]]:
+    """Every rate row as (row key, entry list): models first, then hosts."""
+    rows = list(doc["models"].items())
+    for model, hosts in doc["providers"].items():
+        rows.extend((f"{model} via {host}", entries)
+                    for host, entries in hosts.items())
+    return rows
+
+
+def _newest_real_stamp(entries: list) -> datetime | None:
+    """The newest non-null `from` in one row, or None when it has none."""
+    stamps = [datetime.fromisoformat(entry["from"].replace("Z", "+00:00"))
+              for entry in entries if entry.get("from") is not None]
+    return max(stamps) if stamps else None
+
+
+_TABLE_NAMES = ("MODEL_RATES", "DATED_RATES", "PROVIDER_RATES",
+                "PROVIDER_DATED_RATES", "PROVIDER_STARTS",
+                "PROVIDER_SCHEDULES", "RATE_EPOCHS")
+
+
+def _rate_under(doc: dict, model: str, ts: datetime,
+                provider: str) -> dict:
+    """`rate_for` as the perturbed document answers it: its tables loaded
+    and swapped in for the module's, the pristine globals restored after
+    so no other test ever sees them."""
+    tables = pricing.load_tables(doc)
+    saved = {name: getattr(pricing, name) for name in _TABLE_NAMES}
+    for name in _TABLE_NAMES:
+        setattr(pricing, name, tables[name])
+    try:
+        return pricing.rate_for(model, ts, provider)
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+
+
+# The (model, provider) pairs of the six SEEDED closed-window pins in
+# tests/test_provider_pricing.py (SEEDED below is that module's own
+# instant, when the provider table was seeded), mirrored because those
+# pins are inline assertions, not importable data. No rate is pinned as
+# a literal here: both sides of every comparison are derived at run
+# time, the pristine side from the tree's own tables (SV-TEST-DATA).
+SEEDED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=timezone.utc)
+PINNED_ROWS = (
+    # test_a_record_with_a_provider_is_priced_from_the_provider_table,
+    # test_two_providers_of_one_model_price_differently
+    ("deepseek/deepseek-v4.1-flash", "Novita"),
+    ("deepseek/deepseek-v4.1-flash", "Morph"),
+    # test_baseten_bills_the_global_endpoint_the_keys_can_reach
+    ("deepseek/deepseek-v4.1-flash", "BaseTen"),
+    # test_modal_glm_carries_its_one_remaining_endpoint
+    ("z-ai/glm-5.3-flash", "Modal"),
+    # test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug
+    ("deepseek/deepseek-v4-flash-0731", "Cohere"),
+    ("deepseek/deepseek-v4-flash-20260731", "Cohere"),
+    # test_the_permaslug_never_takes_the_undated_models_rate
+    ("deepseek/deepseek-v4-flash", "Novita"),
+    ("deepseek/deepseek-v4-flash-20260731", "Novita"),
+)
+
+
+def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
+    """ANY seed is valid (issue #227): the run seed drives the factors and
+    the shuffle, never a `from` stamp. The appended stamps derive from
+    the document's own newest real stamp, so even a seed far older than
+    the data — 42, the historical case that clamped the appended entries
+    into closed windows — leaves every appended entry after its row's
+    newest real stamp, and the six closed-window pins of
+    tests/test_provider_pricing.py keep reading their pristine rates at
+    SEEDED."""
+    pristine = json.loads(_real_pricing_text())
+    document_max = max(stamp for stamp, in
+                       [(stamp,) for stamp in
+                        (_newest_real_stamp(entries)
+                         for _key, entries in _rows_of(pristine))
+                        if stamp is not None])
+    for seed in (42, int(time.time())):
+        tree = tmp_path / str(seed)
+        tree.mkdir()
+        pricing_path = tree / "pricing.json"
+        pricing_path.write_text(_real_pricing_text(), encoding="utf-8")
+        perturb_module.perturb_pricing(pricing_path, seed=seed)
+        perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+
+        for (key, real_entries), (_key, entries) in zip(
+                _rows_of(pristine), _rows_of(perturbed), strict=True):
+            assert len(entries) == len(real_entries) + 3
+            floor = (_newest_real_stamp(real_entries) or document_max)
+            for entry in entries[-3:]:
+                appended = datetime.fromisoformat(
+                    entry["from"].replace("Z", "+00:00"))
+                assert appended > floor, (seed, key, entry["from"], floor)
+
+        for model, provider in PINNED_ROWS:
+            resolution = pricing.resolve(model, SEEDED, provider)
+            assert (resolution.key, provider) in pricing.PROVIDER_RATES, \
+                (model, provider)
+            pristine_rates = pricing.rate_for(model, SEEDED, provider)
+            assert _rate_under(perturbed, model, SEEDED, provider) == \
+                pristine_rates, (seed, model, provider)
 
 
 def test_a_second_run_appends_further_entries_without_corrupting(tmp_path):
@@ -361,7 +485,7 @@ def test_a_tree_with_no_rate_rows_is_refused(tmp_path):
     }), encoding="utf-8")
     constants_path.write_text('PARSER_VERSION = "81"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="no rate rows"):
-        perturb_module.perturb_pricing(pricing_path, now=NOW)
+        perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
 
 
 def test_the_script_answers_help(capsys):
@@ -371,19 +495,25 @@ def test_the_script_answers_help(capsys):
     out = capsys.readouterr().out
     assert "perturb" in out
     assert "×2.0" in out and "×0.37" in out
+    assert "--seed" in out
 
 
 def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
     """main()'s printed line states what the run applied — three appended
     entries per row, naming the factors (×2.0, ×0.37, and the seeded
-    per-row irregular) — so a CI-leg log shows the perturbation without
-    reading the tree."""
+    per-row irregular), the seed, and the stamp base — so a CI-leg log
+    shows the perturbation, and names the seed a rerun can reproduce,
+    without reading the tree."""
     pricing_path, constants_path, _doc = _seed_tree(tmp_path)
     exit_code = perturb_module.main(["--pricing", str(pricing_path),
-                                     "--constants", str(constants_path)])
+                                     "--constants", str(constants_path),
+                                     "--seed", "42"])
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "3 entries per row" in out
     assert "×2.0" in out
     assert "×0.37" in out
     assert "irregular" in out
+    assert "seed=42" in out
+    # The seed document's newest real stamp (acme/acme-9's second entry).
+    assert "stamp base=2026-06-01T00:00:00Z" in out
