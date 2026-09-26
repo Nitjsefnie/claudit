@@ -1,12 +1,13 @@
 """The Codex long-context meter survives every re-derivation.
 
-A pay-as-you-go Codex record above the 272k threshold is stored at 2x
-input side / 1.5x output. Any endpoint that rebuilds per-component cost
-from the stored tokens must apply the same multipliers or its breakdown
-stops summing to the stored cost_usd (SV-DATED-RATES). records.long_context
-persists the decision; these tests pin the flag end to end: parse →
-ingest → /api/cache (the fold) and → /api/dashboard (the hourly grain the
-browser breakdown prices from).
+A Codex record above the 272k threshold is stored at 2x input side /
+1.5x output, whatever plan served the rollout (issue #194). Any endpoint
+that rebuilds per-component cost from the stored tokens must apply the
+same multipliers or its breakdown stops summing to the stored cost_usd
+(SV-DATED-RATES). records.long_context persists the decision; these
+tests pin the flag end to end: parse → ingest → /api/cache (the fold)
+and → /api/dashboard (the hourly grain the browser breakdown prices
+from).
 """
 from __future__ import annotations
 
@@ -21,8 +22,9 @@ from backend import api, db, ingest, pricing
 from tests import scratch_db
 
 
-# 300k prompt / 2k output, pay-as-you-go (no rate_limits.plan_type): the
-# record lands over the threshold with the meter armed.
+# 300k prompt / 2k output, no rate_limits (the API shape): the record
+# lands over the threshold with the meter armed — which is every plan's
+# shape now (issue #194).
 _USAGE = {
     "input_tokens": 300_000, "cached_input_tokens": 290_000,
     "cache_write_input_tokens": 0, "output_tokens": 2_000,

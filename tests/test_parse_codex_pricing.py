@@ -2,9 +2,9 @@
 
 The GPT-5.6 family repriced twice — Terra and Luna on 2026-07-30, Sol on
 2026-08-21 — so a corpus that spans either instant cannot be priced off one
-table. The other half of the same story is the long-context meter, which is
-an API-billing tier that a ChatGPT-plan rollout is never charged: its
-subscription rate card has one short-context column and no long-context one.
+table. The other half of the same story is the long-context meter, which
+bills every record above the 272k threshold whatever plan served the
+rollout (issue #194).
 
 Both are asserted on rollouts built here rather than on the fixtures under
 fixtures/codex, which are dated 2026-06-14 and would have to be re-dated —
@@ -13,7 +13,7 @@ and thereby re-purposed — to straddle a boundary.
 import json
 import pytest
 
-from backend import parse, pricing
+from backend import parse, parse_codex, pricing
 from backend.parse_common import _to_dt
 
 
@@ -77,10 +77,11 @@ def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp():
     assert float(after["cost_usd"]) == pytest.approx(0.42, rel=1e-9)
 
 
-def test_a_subscription_record_is_never_billed_on_the_long_context_meter():
-    """Codex on a ChatGPT plan bills credits off one short-context rate
-    card — it has no long-context column at all. Applying the API meter to
-    a subscription rollout inflates its priciest requests by 2x input.
+def test_a_subscription_record_bills_the_long_context_meter():
+    """Every record is billed as if it were an API call, whatever plan
+    served it (issue #194): the meter is a property of the model's rate
+    card, and dropping it for a subscription rollout underbills the
+    rollout's priciest requests by 2x input.
     """
     blob = _codex_usage_lines(snapshots=[
         ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
@@ -89,25 +90,7 @@ def test_a_subscription_record_is_never_billed_on_the_long_context_meter():
 
     rec = out["records"][0]
     assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
-    flat = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,
-        eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:00:00.000Z"),
-    )
-    assert float(rec["cost_usd"]) == pytest.approx(round(flat, 6), rel=1e-9)
-
-
-def test_a_rollout_with_no_plan_still_gets_the_long_context_meter():
-    """The meter is real on the pay-as-you-go API; only the subscription is
-    exempt. A rollout that declares no plan is the API shape, and dropping
-    the meter for it would underbill by half on input.
-    """
-    blob = _codex_usage_lines(plan=None, snapshots=[
-        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
-    ])
-    out = parse.parse_file("codex/api_long.jsonl", blob)
-
-    rec = out["records"][0]
+    assert rec["long_context"] is True
     metered = pricing.compute_cost(
         "gpt-5.6-sol", fresh=300_000, output=1_000,
         eph5=0, eph1h=0, unsplit_create=0, read=0,
@@ -116,22 +99,60 @@ def test_a_rollout_with_no_plan_still_gets_the_long_context_meter():
     assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
 
 
-def test_the_subscription_verdict_is_sticky_across_the_file():
-    """rate_limits rides every token_count in the corpus, but a payload
-    that omits it must not flip a known subscription back onto the meter.
+def test_a_rollout_with_no_plan_still_gets_the_long_context_meter():
+    """The plan never mattered to the meter (issue #194): a rollout that
+    declares no plan is the API shape, and it bills the same meter a
+    subscription rollout does.
+    """
+    blob = _codex_usage_lines(plan=None, snapshots=[
+        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
+    ])
+    out = parse.parse_file("codex/api_long.jsonl", blob)
+
+    rec = out["records"][0]
+    assert rec["long_context"] is True
+    metered = pricing.compute_cost(
+        "gpt-5.6-sol", fresh=300_000, output=1_000,
+        eph5=0, eph1h=0, unsplit_create=0, read=0,
+        long_context=True, ts=_to_dt("2026-08-24T12:00:00.000Z"),
+    )
+    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
+
+
+def test_the_long_context_verdict_is_per_record():
+    """The flag is decided per record, never carried across the file: one
+    plan="pro" rollout whose first request sits below the threshold bills
+    flat, and its second request above it bills the meter — in the same
+    file, under the same plan.
     """
     blob = _codex_usage_lines(snapshots=[
         ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
-    ])
-    tail = _codex_usage_lines(plan=None, snapshots=[
         ("2026-08-24T12:05:00.000Z", 1_300_000, 11_000, 300_000, 1_000),
-    ]).split(b"\n", 1)[1]
-    out = parse.parse_file("codex/sticky.jsonl", blob + tail)
+    ])
+    out = parse.parse_file("codex/per_record.jsonl", blob)
 
-    rec = out["records"][-1]
+    below, above = out["records"]
     flat = pricing.compute_cost(
+        "gpt-5.6-sol", fresh=100_000, output=1_000,
+        eph5=0, eph1h=0, unsplit_create=0, read=0,
+        ts=_to_dt("2026-08-24T12:00:00.000Z"),
+    )
+    metered = pricing.compute_cost(
         "gpt-5.6-sol", fresh=300_000, output=1_000,
         eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:05:00.000Z"),
+        long_context=True, ts=_to_dt("2026-08-24T12:05:00.000Z"),
     )
-    assert float(rec["cost_usd"]) == pytest.approx(round(flat, 6), rel=1e-9)
+    assert below["long_context"] is False
+    assert float(below["cost_usd"]) == pytest.approx(round(flat, 6), rel=1e-9)
+    assert above["long_context"] is True
+    assert float(above["cost_usd"]) == pytest.approx(
+        round(metered, 6), rel=1e-9)
+
+
+def test_long_context_models_match_the_parser_map():
+    """pricing.LONG_CONTEXT_MODELS must name exactly the labels
+    parse_codex._CODEX_MODEL_MAP emits: the reprice pass re-derives
+    records.long_context from stored columns only for the models whose
+    published rate card carries the meter (issue #194)."""
+    assert ({label for _, label in parse_codex._CODEX_MODEL_MAP}
+            == pricing.LONG_CONTEXT_MODELS)

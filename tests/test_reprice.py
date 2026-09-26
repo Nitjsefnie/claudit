@@ -20,6 +20,7 @@ are tested here:
 """
 from __future__ import annotations
 
+import json
 import logging
 import lzma
 import shutil
@@ -132,15 +133,8 @@ def test_pricing_version_column_is_nullable_migration(fresh_db, mini_r2_env):
         "pre-migration rows must read NULL, not be backfilled")
 
 
-def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
-          cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
-          provider: str | None = None) -> None:
-    """One record row under seeded project+file parents, with a fixed
-    token tally (_SEED_TOKENS) a test prices through compute_cost.
-
-    cost_usd is a sentinel far from any computed value, so "untouched"
-    is observable.
-    """
+def _seed_parents(c, file_key: str) -> None:
+    """The project+file rows every seeded record needs (idempotent)."""
     c.execute(
         "INSERT INTO projects (project_id, display_name, first_seen_at, "
         "last_seen_at) VALUES (%s, %s, %s, %s) "
@@ -155,6 +149,18 @@ def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
         (file_key, "reprice-test", "sess-seed", "seed-etag", 12,
          _SEED_TS, _SEED_TS, constants.PARSER_VERSION),
     )
+
+
+def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
+          cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
+          provider: str | None = None) -> None:
+    """One record row under seeded project+file parents, with a fixed
+    token tally (_SEED_TOKENS) a test prices through compute_cost.
+
+    cost_usd is a sentinel far from any computed value, so "untouched"
+    is observable.
+    """
+    _seed_parents(c, file_key)
     fresh, create, read, output, eph5, eph1h = _SEED_TOKENS
     c.execute(
         "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
@@ -163,6 +169,25 @@ def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (file_key, line_num, ts, model, fresh, create, read,
          output, eph5, eph1h, cost_usd, provider, pricing_version),
+    )
+
+
+def _seed_meter_row(c, line_num: int, *, model: str, fresh_tokens: int,
+                    provider: str | None = None,
+                    long_context: bool | None = None) -> None:
+    """One stale record row whose tally the test chooses, inserted
+    DIRECTLY: the fixed-tally _seed can carry no meter-sized tally and
+    names no long_context. The INSERT names the long_context column, so
+    a seeded flag is really in the row before the pass runs."""
+    _seed_parents(c, _FILE_KEY)
+    c.execute(
+        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
+        "cache_creation_tokens, cache_read_tokens, output_tokens, "
+        "eph5_tokens, eph1h_tokens, cost_usd, provider, long_context, "
+        "pricing_version) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (_FILE_KEY, line_num, _SEED_TS, model, fresh_tokens,
+         0, 0, 0, 0, 0, 0.5, provider, long_context, None),
     )
 
 
@@ -386,6 +411,65 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
         provider=prov.host), 6)
 
 
+def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
+    """Issue #194: for the meter's models the long-context flag is a pure
+    function of stored columns — fresh + cache_creation + cache_read
+    against the threshold — so the pass re-derives it beside the cost. A
+    stale gpt-5.6-sol row whose stored tally (280k fresh) sits above the
+    272k threshold flips to TRUE with its metered cost; a claude row
+    seeded alongside — a model whose card carries no meter — keeps its
+    stored NULL and prices flat above the same threshold."""
+    metered = round(pricing.compute_cost(
+        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
+    flat = round(pricing.compute_cost(
+        _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+    with db.viz_conn() as c:
+        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000)
+        _seed_meter_row(c, 2, model=_SEED_MODEL, fresh_tokens=280_000)
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 2
+
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT line_num, long_context, cost_usd, pricing_version "
+            "FROM records WHERE file_key = %s ORDER BY line_num",
+            (_FILE_KEY,)).fetchall()
+    codex, claude = rows
+    assert codex[0] == 1 and claude[0] == 2
+    assert codex[1] is True
+    assert float(codex[2]) == metered
+    assert codex[3] == constants.PRICING_VERSION
+    assert claude[1] is None, "a no-meter model's stored flag is untouched"
+    assert float(claude[2]) == flat
+
+
+def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
+    """A row naming a provider host prices by that host's card, not the
+    meter model's, so its stored long_context is left exactly as parse
+    stored it: FALSE stays FALSE even though the model is one of the
+    meter's and the tally sits above the threshold."""
+    with db.viz_conn() as c:
+        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
+                        provider="OpenRouter", long_context=False)
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 1
+
+    with db.viz_conn() as c:
+        flag, cost, version = c.execute(
+            "SELECT long_context, cost_usd, pricing_version FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert flag is False
+    assert float(cost) == round(pricing.compute_cost(
+        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False,
+        provider="OpenRouter"), 6)
+    assert version == constants.PRICING_VERSION
+
+
 def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     """The phases tuple resolves its names through ingest's globals at
     call time, so stubbing every phase on `ingest` records the order the
@@ -413,25 +497,64 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
         "purge_suppressed", "reprice_stale", "recompute_canonical"]
 
 
-def _proof_mirror(tmp_path) -> tuple[Path, bytes]:
-    """The mini mirror plus one codex lane file, copied into tmp_path;
-    returns (bucket, codex_blob)."""
+def _lane_blob(session_id: str, *, plan_type: str | None) -> bytes:
+    """One codex rollout: a gpt-5.6-sol request at 300k fresh / 1k output,
+    above the REAL 272k threshold, so the reprice's re-derivation must
+    agree with the reparse in both plan shapes — under the test's
+    threshold=1 patch and without it alike."""
+    usage = {
+        "input_tokens": 300_000, "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0, "output_tokens": 1_000,
+        "reasoning_output_tokens": 0, "total_tokens": 301_000,
+    }
+    lines = [
+        {"timestamp": "2026-09-01T12:00:00.000Z", "type": "session_meta",
+         "payload": {"session_id": session_id}},
+        {"timestamp": "2026-09-01T12:00:01.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-sol"}},
+        {"timestamp": "2026-09-01T12:00:02.000Z", "type": "event_msg",
+         "payload": {"type": "token_count",
+                     "info": {"total_token_usage": usage,
+                              "last_token_usage": usage},
+                     # plan_type rides rate_limits on every token_count of
+                     # a subscription rollout; the API shape names none.
+                     **({"rate_limits": {"plan_type": plan_type}}
+                        if plan_type else {})}},
+    ]
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+
+
+def _proof_mirror(tmp_path) -> tuple[Path, dict[str, bytes]]:
+    """The mini mirror plus three codex lane files, copied into
+    tmp_path; returns (bucket, {stored file_key: plain blob}) for the
+    lane files (whose stored keys keep the .xz suffix the tree omits)."""
     bucket = tmp_path / "r2" / "claude"
     shutil.copytree(_REPO_ROOT / "fixtures/r2_mini/claude", bucket)
     codex_blob = (_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()
-    lane = bucket / "sessions" / "8805b8ac99ad" / "01a0-uuid"
-    lane.mkdir(parents=True)
-    (lane / "wire.jsonl.xz").write_bytes(lzma.compress(codex_blob))
-    return bucket, codex_blob
+    lane_blobs = {
+        "sessions/8805b8ac99ad/01a0-uuid/wire.jsonl.xz": codex_blob,
+        # The same tally twice, once per plan shape: "pro" on every
+        # token_count (the subscription rollout) and no rate_limits at
+        # all (the API shape).
+        "sessions/8805b8ac99ad/01b1-sub/wire.jsonl.xz": _lane_blob(
+            "00000000-0000-4000-8000-0000000000b1", plan_type="pro"),
+        "sessions/8805b8ac99ad/01c2-api/wire.jsonl.xz": _lane_blob(
+            "00000000-0000-4000-8000-0000000000c2", plan_type=None),
+    }
+    for rel, blob in lane_blobs.items():
+        path = bucket / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(lzma.compress(blob))
+    return bucket, {f"claude/{rel}": blob for rel, blob in lane_blobs.items()}
 
 
-def _proof_blobs(bucket: Path, codex_blob: bytes) -> dict:
+def _proof_blobs(bucket: Path, lane_blobs: dict[str, bytes]) -> dict:
     """{file_key: plain blob bytes} for every mirrored transcript."""
     blobs = {f"claude/{p.relative_to(bucket).as_posix()}": p.read_bytes()
              for p in sorted(bucket.rglob("*.jsonl"))}
-    # The stored key keeps the .xz suffix; only the bytes r2 fetches
+    # The stored keys keep the .xz suffix; only the bytes r2 fetches
     # are decompressed.
-    blobs["claude/sessions/8805b8ac99ad/01a0-uuid/wire.jsonl.xz"] = codex_blob
+    blobs.update(lane_blobs)
     return blobs
 
 
@@ -462,26 +585,30 @@ def _stored_rows() -> list:
 
 def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     """THE PROOF (issue #193): reprice == full reparse. Ingest the mini
-    mirror plus a codex lane file, MUTATE the loaded rate tables, bump
+    mirror plus codex lane files, MUTATE the loaded rate tables, bump
     PRICING_VERSION, run the reprice — then every stored cost_usd must
     equal what parse_file yields for the same fixture bytes under the
     same mutated tables.
 
     Shapes exercised here: exact-key rows (claude-opus-4-7,
     gpt-6-astra), a dated window (claude-sonnet-4-5, end 2099 so it
-    covers every fixture timestamp) and the long-context meter (the
-    codex record, threshold patched to 1 so it parses
-    long_context=TRUE — reprice reads the STORED flag, so parity holds
-    through the column, not a re-derivation). The provider-row and
-    weekly-schedule shapes have no fixture-backed record; the seeded
-    tests price them through the same compute_cost call the parse path
-    makes — parity by construction, and still a check on the pass's
-    column mapping.
+    covers every fixture timestamp) and the long-context meter: three
+    codex lane files — the small fixture plus two 300k-fresh rollouts,
+    one per plan shape ("pro" on every token_count, and no rate_limits)
+    — whose flag parity now includes the reprice's re-derivation (issue
+    #194). The threshold patch to 1 stays only so the small fixture
+    parses TRUE; the two meter-shaped files sit above the REAL 272k, so
+    the reprice (re-derivation) and the reparse agree for both plan
+    shapes. The provider-row and weekly-schedule shapes have no
+    fixture-backed record; the seeded tests price them through the same
+    compute_cost call the parse path makes — parity by construction,
+    and still a check on the pass's column mapping.
     """
-    bucket, codex_blob = _proof_mirror(tmp_path)
+    bucket, lane_blobs = _proof_mirror(tmp_path)
     monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
-    # Threshold 1: the codex fixture parses long_context=TRUE, the flag
-    # is stored, and the reprice reads the same stored column.
+    # Threshold 1: the small codex fixture parses long_context=TRUE; the
+    # two 300k rollouts clear the REAL threshold either way, and the
+    # claude rows re-derive nothing (their models carry no meter).
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
 
     result = ingest.run_ingest(trigger="manual")
@@ -493,10 +620,10 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
                "FROM records")
     assert total > 0
     assert 0 < long_marked < total, (
-        "the codex record must store long_context and the claude ones "
+        "the codex records must store long_context and the claude ones "
         "must not, or the long-context shape is not exercised")
 
-    blobs = _proof_blobs(bucket, codex_blob)
+    blobs = _proof_blobs(bucket, lane_blobs)
 
     # Mutate the loaded tables the fixtures price under: two exact keys
     # and a dated window covering every fixture timestamp (end 2099).
@@ -512,7 +639,11 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     })
     before = _stored_costs()
 
-    monkeypatch.setattr(constants, "PRICING_VERSION", "2")
+    # One past the tree's own version, so the mirror ingest (which stamps
+    # the tree's real PRICING_VERSION) leaves every row stale whatever
+    # the tree carries.
+    next_version = str(int(constants.PRICING_VERSION) + 1)
+    monkeypatch.setattr(constants, "PRICING_VERSION", next_version)
     assert ingest.reprice_stale() == total
 
     expected = _reparse_costs(blobs)
@@ -523,7 +654,7 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     # the loop's local count under pylint's gate for a test this size.
     moved = 0
     for row in rows:
-        assert row[3] == "2", "a repriced row carries the new version"
+        assert row[3] == next_version, "a repriced row carries the new version"
         assert (row[0], row[1]) in expected
         assert float(row[2]) == pytest.approx(
             expected[(row[0], row[1])], abs=1e-9)
@@ -531,3 +662,11 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     assert moved > 0, (
         "the mutated rates must actually move costs, or the parity "
         "assertion proves nothing")
+
+    with db.viz_conn() as c:
+        flag_rows = c.execute(
+            "SELECT long_context, COUNT(*) FROM records "
+            "WHERE file_key LIKE 'claude/sessions/%' GROUP BY 1").fetchall()
+    assert flag_rows == [(True, 3)], (
+        "the reprice re-derives the codex rows' flag in both plan shapes "
+        "(issue #194): every codex record stores long_context IS TRUE")
