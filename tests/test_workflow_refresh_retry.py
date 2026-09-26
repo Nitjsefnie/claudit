@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,16 @@ FAKE_SWITCHES = (
     "FAKE_QUIET_ON",
     "FAKE_QUIET_EVERY",
     "FAKE_PYTEST_FAIL",
+)
+
+# The simulation execs a POSIX-bash shebang shim from PATH to drive a GitHub
+# Actions ubuntu run block — the block itself only ever runs on
+# ubuntu-latest, and Windows cannot exec the shim (WinError 193).
+ubuntu_run_block = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="the simulation drives a GitHub Actions ubuntu run block through "
+           "POSIX bash and PATH shims; the block only ever runs on "
+           "ubuntu-latest",
 )
 
 
@@ -294,6 +305,7 @@ def _last_rc(scratch: Path) -> str:
     return lines[-1]
 
 
+@ubuntu_run_block
 def test_retry_recomputes_on_the_fetched_master_and_lands_a_fast_forward(
         scratch: Path):
     base_sha = _sha(scratch / "origin", "--short", "HEAD")
@@ -321,6 +333,7 @@ def test_retry_recomputes_on_the_fetched_master_and_lands_a_fast_forward(
     assert _last_rc(scratch) == "rc=0"
 
 
+@ubuntu_run_block
 def test_retry_exhaustion_goes_red_and_lands_nothing(scratch: Path):
     peer = scratch / "peer"
     _refresh_once(scratch, {"FAKE_PEER_EVERY": "1"})
@@ -334,6 +347,7 @@ def test_retry_exhaustion_goes_red_and_lands_nothing(scratch: Path):
     assert len(_state_lines(scratch, "python.log")) == 2
 
 
+@ubuntu_run_block
 def test_retry_when_master_already_carries_the_move(scratch: Path):
     _refresh_once(scratch, {"FAKE_PEER_ON": "1"})
     peer_sha = _sha(scratch / "peer", "HEAD")
@@ -348,6 +362,7 @@ def test_retry_when_master_already_carries_the_move(scratch: Path):
     assert _state_lines(scratch, "count") == ["2"]
 
 
+@ubuntu_run_block
 def test_suite_failure_on_the_recomputed_tree_goes_red(scratch: Path):
     _refresh_once(scratch, {"FAKE_PEER_ON": "1"})
     peer_sha = _sha(scratch / "peer", "HEAD")
