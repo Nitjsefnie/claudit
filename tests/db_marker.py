@@ -42,6 +42,8 @@ import pytest
 #                        creates the scratch DB
 #   app_with_fresh_data  ditto, the function-scoped variant
 #   app_with_rl_data     test_api; creates its own scratch DB in-body
+#   app_with_prompt_range_data  test_prompt_ts; creates its own scratch
+#                        DB in-body (issue #214 fixture)
 #   dashboard_body       test_breakdown_exact_rate; creates its own
 #                        scratch DB in-body
 #   client               test_provider_split_api; creates its own
@@ -58,6 +60,7 @@ DB_FIXTURES = frozenset({
     "app_with_data",
     "app_with_fresh_data",
     "app_with_rl_data",
+    "app_with_prompt_range_data",
     "dashboard_body",
     "client",
     "_viz_ready",
