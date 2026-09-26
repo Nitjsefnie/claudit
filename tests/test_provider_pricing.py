@@ -89,24 +89,32 @@ def test_modal_glm_carries_its_one_remaining_endpoint():
 
 
 def test_the_same_model_with_no_provider_prices_exactly_as_before():
-    # Pinned figures from before the provider table: deepseek-v4.1-flash
-    # has no MODEL_RATES row, so it falls to DEFAULT (Opus 4.7 list,
-    # 5/25) and is flagged estimated.
+    # Deepseek-v4.1-flash has no MODEL_RATES row, so it falls to the
+    # DEFAULT row and is flagged estimated. The default row's values are
+    # whatever the table says today; the pin is the lane's behaviour.
     r = pricing.resolve(V41)
     assert r.kind == "default"
     assert r.rates is pricing.DEFAULT_RATES
-    assert _cost(V41, fresh=1_000_000, output=1_000_000) == 30.00
-    assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == 30.00
+    default = pricing.DEFAULT_RATES
+    want = default["fresh"] + default["output"]
+    assert _cost(V41, fresh=1_000_000, output=1_000_000) == want
+    assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == want
 
 
 def test_the_zai_subscription_glm_is_not_repriced():
-    # The z.ai official lane records glm-5.3-flash with no provider. Its
-    # list price and its launch promotion are unchanged.
+    # The z.ai official lane records glm-5.3-flash with no provider: its
+    # own row's list price at the record's time — never an OpenRouter
+    # host's rate. The promotion's boundary comes from the row's loaded
+    # window, so the assertion moves with the file.
+    listed = pricing.MODEL_RATES["glm-5-3-flash"]
+    windows = pricing.DATED_RATES["glm-5-3-flash"]
+    cutover, promo = windows[0]
     tokens = {"fresh": 1_000_000, "output": 1_000_000, "read": 1_000_000}
-    assert _cost("glm-5.3-flash", **tokens) == pytest.approx(0.15 + 0.50 + 0.03)
-    promo = datetime(2026, 9, 1, tzinfo=UTC)
-    assert _cost("glm-5.3-flash", ts=promo, **tokens) == \
-        pytest.approx(0.075 + 0.25 + 0.015)
+    assert _cost("glm-5.3-flash", **tokens) == pytest.approx(
+        listed["fresh"] + listed["output"] + listed["read"])
+    assert _cost("glm-5.3-flash", ts=cutover - timedelta(seconds=1),
+                 **tokens) == pytest.approx(
+        promo["fresh"] + promo["output"] + promo["read"])
     # An OpenRouter host's GLM row never reaches the bare model id.
     assert _cost("glm-5.3-flash", "Novita", **tokens) == \
         _cost("glm-5.3-flash", **tokens)
