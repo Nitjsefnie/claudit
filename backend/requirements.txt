@@ -3,8 +3,9 @@
 # opens the bumps, which is what keeps "pinned" from meaning "abandoned".
 #
 # starlette is NOT pinned here on purpose — it arrives underneath fastapi,
-# and pinning it separately is how the two end up in conflict. fastapi
-# 0.141.1 resolves starlette 1.6.0.
+# and pinning it separately is how the two end up in conflict. Its version
+# is whatever pip resolves under fastapi's `starlette>=0.46.0` floor, so it
+# moves with time; nothing here records a snapshot of it.
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 psycopg[pool,binary]==3.3.6
