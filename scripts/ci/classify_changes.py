@@ -171,15 +171,29 @@ def _verified_base(repository, run):
     return None
 
 
-def changed_paths(event, run):
-    """The paths this run changed, or None when they cannot be read.
+def _push_paths(repository, event, run):
+    """The push event's changed paths, or None when they cannot be read.
 
-    On a push the range starts at the verified base (see
-    `_verified_base`), not at `before`: the newest master commit whose
-    gate legs executed. A push whose predecessor run was cancelled by
-    this very push then classifies over the cancelled run's code
-    instead of reading it as verified.
+    The range starts at the verified base (see `_verified_base`), not
+    at `before`: the newest master commit whose gate legs executed. A
+    push whose predecessor run was cancelled by this very push then
+    classifies over the cancelled run's code instead of reading it as
+    verified.
     """
+    before, sha = event.get('before'), event.get('sha')
+    if not (_hex40(before) and _hex40(sha)) or before == '0' * 40:
+        return None
+    base = _verified_base(repository, run)
+    if base is None:
+        return None
+    return _read(run, [
+        'gh', 'api', '-H', 'Cache-Control: no-cache',
+        f'repos/{repository}/compare/{base}...{sha}', '--jq',
+        '.files[].filename'], cap=COMPARE_FILES_CAP)
+
+
+def changed_paths(event, run):
+    """The paths this run changed, or None when they cannot be read."""
     repository = event.get('repository')
     if not repository:
         return None
@@ -194,16 +208,7 @@ def changed_paths(event, run):
             f'repos/{repository}/pulls/{number}/files', '--jq',
             '.[].filename'], cap=PULL_REQUEST_FILES_CAP)
     if name == 'push':
-        before, sha = event.get('before'), event.get('sha')
-        if not (_hex40(before) and _hex40(sha)) or before == '0' * 40:
-            return None
-        base = _verified_base(repository, run)
-        if base is None:
-            return None
-        return _read(run, [
-            'gh', 'api', '-H', 'Cache-Control: no-cache',
-            f'repos/{repository}/compare/{base}...{sha}', '--jq',
-            '.files[].filename'], cap=COMPARE_FILES_CAP)
+        return _push_paths(repository, event, run)
     return None
 
 
