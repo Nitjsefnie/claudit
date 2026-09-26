@@ -12,7 +12,7 @@
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 942,
     "backend/ingest_rollups.py": 609,
-    "backend/parse.py": 910,
+    "backend/parse.py": 880,
     "backend/parse_codex.py": 718,
     "backend/parse_kimi.py": 592,
     "backend/pricing.py": 561,

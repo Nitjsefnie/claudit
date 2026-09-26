@@ -85,7 +85,9 @@ backend/          — FastAPI application
                     harness-generic error_kind classification, and
                     _dispatch_prompt_shape (a dispatch prompt's length
                     and brief reference, shared by the Claude path and
-                    Kimi's Agent calls).
+                    Kimi's Agent calls); also the Claude path's
+                    user-text-boundary ctx builder (_build_ctx_turns),
+                    beside the lanes' own (_ctx_turns_from_turns).
   parse_lanes.py  — Format sniffing (sniff_format) and the lane→claudit
                     row adapter (to_claudit): lane row shapes project
                     onto claudit's records/tool_uses columns, legacy
