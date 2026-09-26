@@ -1,0 +1,5 @@
+{"timestamp":"2026-09-10T08:44:15Z","type":"session_meta","payload":{"session_id":"00000000-0000-0000-0000-0000000000c1"}}
+{"timestamp":"2026-09-10T08:44:16Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-09-10T08:44:17Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>env</environment_context>"}]}}
+{"timestamp":"2026-09-10T08:44:18Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>instr</user_instructions>"}]}}
+{"timestamp":"2026-09-10T08:44:20Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":50,"total_tokens":1100},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":50,"total_tokens":1100}}}}

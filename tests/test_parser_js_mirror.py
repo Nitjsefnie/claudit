@@ -370,3 +370,70 @@ def test_the_parsed_provider_non_string_values_are_null(raw):
 
 def test_the_parsed_provider_without_a_key_is_null():
     assert _parsed_provider() == [None]
+
+
+# --------------------------------------------------------------------------
+# Prompt gate (issue #213, SV-PARSER-SPEC): XML-wrapped harness injections
+# are not prompts, in the backend AND the browser.
+# --------------------------------------------------------------------------
+
+# fixture name -> (lines that ARE prompts, lines that are injections)
+PROMPT_GATE_FIXTURES = {
+    "prompt_xml_injection.jsonl": ([1, 6], [3, 5, 7]),
+    "prompt_pasted_content_keeps.jsonl": ([1, 2], []),
+    "prompt_unknown_xml_tag.jsonl": ([3], [1, 2]),
+    "prompt_xml_midtext.jsonl": ([1], []),
+}
+
+
+def test_parser_js_prompt_gate_matches_backend():
+    """The browser drops the same user texts the backend denies: on each
+    fixture the user_message lines are exactly the backend's prompt lines
+    (so no injection line emits a user_message event and the real prompts
+    still emit), and computeSessionStats' userMsgs equals the backend
+    prompt_count. Also pins the interrupt-marker exclusion the backend
+    already had (R3) on interrupt_list_content.jsonl, whose marker rides
+    a list-content text block — the browser never pushed it as a prompt
+    before this gate existed, so parity needed it too. One node run over
+    every fixture, batched for speed."""
+    for prompt_lines, injection_lines in PROMPT_GATE_FIXTURES.values():
+        assert not set(prompt_lines) & set(injection_lines)
+    names = [*PROMPT_GATE_FIXTURES, "interrupt_list_content.jsonl"]
+    texts = {name: (ROOT / "fixtures" / "parser" / name).read_text(
+        encoding="utf-8") for name in names}
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      const fixtures = {json.dumps(texts)};
+      const out = {{}};
+      for (const [name, text] of Object.entries(fixtures)) {{
+        const {{ events, meta }} = window.parseTranscript(text);
+        out[name] = {{
+          userMsgs: window.computeSessionStats(events, meta).userMsgs,
+          lines: events.filter(e => e.type === 'user_message')
+                       .map(e => e.line),
+        }};
+      }}
+      console.log(JSON.stringify(out));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        # Return code checked by hand on the next line.
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    for name, (prompt_lines, _injection_lines) in PROMPT_GATE_FIXTURES.items():
+        backend = parse.parse_file(
+            f"k/s/{name}",
+            (ROOT / "fixtures" / "parser" / name).read_bytes(),
+        )["prompt_count"]
+        assert got[name]["userMsgs"] == backend, name
+        assert got[name]["lines"] == prompt_lines, name
+    interrupt = parse.parse_file(
+        "k/s/interrupt_list_content.jsonl",
+        (ROOT / "fixtures" / "parser" / "interrupt_list_content.jsonl").read_bytes(),
+    )
+    assert got["interrupt_list_content.jsonl"]["userMsgs"] == (
+        interrupt["prompt_count"])
+    assert got["interrupt_list_content.jsonl"]["lines"] == [1]
