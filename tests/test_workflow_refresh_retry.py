@@ -19,6 +19,7 @@ the race itself.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -92,6 +93,9 @@ def test_the_push_never_forces():
     for step in _steps():
         run = step.get("run") or ""
         assert "--force" not in run, step.get("name")
+        for line in run.splitlines():
+            if "git push" in line:
+                assert not re.search(r"(?:^|\s)-f(?:\s|$)", line), step.get("name")
 
 
 def test_refusal_gate_covers_the_retried_refresh():
@@ -346,8 +350,7 @@ def test_suite_failure_on_the_recomputed_tree_goes_red(scratch: Path):
     _refresh_once(scratch, {"FAKE_PEER_ON": "1"})
     peer_sha = _sha(scratch / "peer", "HEAD")
 
-    proc = _run_push_step(
-        scratch, {"FAKE_PEER_ON": "1", "FAKE_PYTEST_FAIL": "1"})
+    proc = _run_push_step(scratch, {"FAKE_PYTEST_FAIL": "1"})
 
     assert proc.returncode != 0
     assert _sha(scratch / "remote.git", "master") == peer_sha

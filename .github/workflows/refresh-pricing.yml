@@ -229,7 +229,8 @@ jobs:
         # so a refusal found there turns the run red too.
         if: steps.fetch.outputs.rc != '0' || steps.push.outputs.rc == '1'
         env:
-          RC: ${{ steps.fetch.outputs.rc }}
+          FETCH_RC: ${{ steps.fetch.outputs.rc }}
+          RETRY_RC: ${{ steps.push.outputs.rc }}
         run: |
-          echo "refresh_provider_rates exited $RC; the summary names each refused host."
+          echo "refresh_provider_rates exited $FETCH_RC on the first fetch and $RETRY_RC on the retried recompute; the summary names each refused host."
           exit 1
