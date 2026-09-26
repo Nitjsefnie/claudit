@@ -202,16 +202,46 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry():
     assert m["cost_buckets"]["fresh"] == pytest.approx(stored_lc + stored_flat)
 
 
-def _schedule_novita(monkeypatch, schedule):
-    """Give GLM's Novita row a weekly schedule, through the real loader."""
+# api_common._fold rounds cost_total and every bucket to 4 decimal
+# places. A rounded bucket sits within 0.5 * 10**-4 of its true value,
+# and the five buckets — scaled to sum to the stored total before
+# rounding — within 5 * 5e-5 = 2.5e-4 of it. The bound derives from the
+# fold's own rounding, never from the rates the file happens to hold.
+_FOLD_DP = 4
+_PER_BUCKET_TOL = 0.5 * 10 ** -_FOLD_DP
+_SUM_TOL = len(pricing.RATE_FIELDS) * _PER_BUCKET_TOL
+
+# The made-up row the scheduled-fold tests price against (the
+# tests/conftest.py fixtures' convention: rates deliberately unlike any
+# real price, so a test asserting against them can never be mistaken for
+# a pricing fact). Installed in memory through the real loader — the
+# file is never written — so a refresh's moved prices and the perturbed
+# leg's doubled rows reach none of the test's numbers (SV-TEST-DATA).
+_SYNTHETIC_MODEL = "acme/acme-9"
+_SYNTHETIC_HOST = "HostCo"
+LIST_RATES = {"fresh": 2.60, "create_5m": 3.25, "create_1h": 5.20,
+              "read": 0.26, "output": 13.00}
+# Exactly half of the list rates — by construction, not by coincidence
+# with a live entry — so the uniform-scaling param's split stays exact
+# whatever the file holds. Halving is exact in binary floating point.
+HALF = {field: value / 2 for field, value in LIST_RATES.items()}
+
+
+def _install_scheduled_row(monkeypatch, schedule):
+    """Give a made-up provider row a weekly schedule, through the real loader.
+
+    Priced against the live Novita entry, the verdict moved with every
+    refresh: the 2026-09-26T04:54:05Z Novita move turned the default
+    1e-6 relative tolerance red on the perturbed leg (issue #218). A
+    synthetic row makes the verdict independent of which rates the file
+    holds; schedules live on provider rows, so the synthetic row is one.
+    """
     doc = json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))
-    doc["providers"]["z-ai/glm-5-3-flash"]["Novita"][-1]["schedule"] = schedule
+    doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
+        {"from": None, **LIST_RATES, "schedule": schedule},
+    ]}
     for name, value in pricing.load_tables(doc).items():
         monkeypatch.setattr(pricing, name, value)
-
-
-HALF = {"fresh": 0.066, "create_5m": 0.066, "create_1h": 0.066,
-        "read": 0.0132, "output": 0.22}
 
 
 @pytest.mark.parametrize("schedule", [
@@ -224,9 +254,9 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
     re-derives at one representative time. A scheduled row's buckets take
     their split from those rates and are scaled to the row's stored total:
     the total is always exact, and the split is exact whenever every window
-    scales all five rates alike."""
-    _schedule_novita(monkeypatch, schedule)
-    model, host = "z-ai/glm-5.3-flash", "Novita"
+    scales all five rates alike — HALF is LIST_RATES / 2 by construction."""
+    _install_scheduled_row(monkeypatch, schedule)
+    model, host = _SYNTHETIC_MODEL, _SYNTHETIC_HOST
     peak = datetime(2031, 1, 6, 9, tzinfo=UTC)
     off_peak = datetime(2031, 1, 6, 20, tzinfo=UTC)
     tokens = {"fresh": 1_000_000, "output": 500_000, "read": 2_000_000}
@@ -237,19 +267,21 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
     row = (model, host, len(pricing.RATE_EPOCHS), False, 2, 2 * tokens["fresh"], 0,
            2 * tokens["read"], 2 * tokens["output"], 0, 0, stored)
     got = fold_per_model([row])[0]["cost_buckets"]
-    assert sum(got.values()) == pytest.approx(stored)
+    assert sum(got.values()) == pytest.approx(stored, abs=_SUM_TOL)
     if schedule[0]["rates"] == HALF:
         want = {f: sum(pricing.rate_for(model, ts, host)[r] * tokens[t] / 1e6
                        for ts in (peak, off_peak))
                 for f, r, t in (("fresh", "fresh", "fresh"), ("read", "read", "read"),
                                 ("output", "output", "output"))}
         for field, value in want.items():
-            assert got[field] == pytest.approx(value)
+            assert got[field] == pytest.approx(value, abs=_PER_BUCKET_TOL)
 
 
 def test_a_schedule_adds_no_rate_epoch(monkeypatch):
     """Time-of-day windows repeat every week; they are not epochs, and the
-    epoch list is exactly what it was without them."""
+    epoch list is exactly what it was without them. The row is synthetic
+    (_install_scheduled_row): it begins at no instant and carries no dated
+    window, so it adds no boundary of its own either."""
     before = list(pricing.RATE_EPOCHS)
-    _schedule_novita(monkeypatch, [{"days": ["saturday"], "rates": HALF}])
+    _install_scheduled_row(monkeypatch, [{"days": ["saturday"], "rates": HALF}])
     assert pricing.RATE_EPOCHS == before
