@@ -864,11 +864,17 @@ cutover (a fixed past `from`, strictly before the seeded data) is what
 keeps such a pin valid; `tests/test_provider_pricing.py`'s SEEDED
 comment is the exemplar.
 
-Enforcement is mechanical, two halves. `tests/test_no_pinned_version_literals.py`
-scans `tests/` for a literal assigned to one of the three constants;
-an inline `# sv-test-data: allow` comment with a reason excuses a
-site, and a marker whose site is gone fails the guard as rot. The
-second half is the perturbed-data CI leg: the suite runs against a
-tree whose rate rows are doubled and whose version constants are
-bumped (`scripts/ci/perturb_test_data.py`), so a hidden dependency
-fails as a test failure, never as a broken refresh.
+Enforcement is mechanical, two halves. The perturbed-data CI leg runs
+the suite against a tree whose rate rows each gain three appended
+entries per run — ×2, ×0.37, and a per-row irregular factor, in
+seeded-shuffled row order — and whose version constants are bumped
+(`scripts/ci/perturb_test_data.py`), so a hidden dependency fails as a
+test failure, never as a broken refresh. The guard half,
+`tests/test_no_pinned_version_literals.py`, scans `tests/` for a
+literal assigned to one of the three constants, and for the live-row
+shapes: a read of the committed pricing document
+(`pricing.PRICING_JSON`), a module-level bind of the `pricing.json`
+path, and a `rate_for` / `resolve` / `compute_cost` call naming a live
+model or host. An inline `# sv-test-data: allow` comment with a reason
+excuses a site, and a marker whose site is gone fails the guard as
+rot.
