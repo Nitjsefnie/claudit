@@ -43,6 +43,7 @@ def test_fable_5_1_and_mythos_5_1_price_identically():
     m51 = pricing.rate_for("claude-mythos-5-1")  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     assert m51["read"] == pytest.approx(m51["fresh"] * 0.025)
     assert pricing.resolve("claude-mythos-5-1").kind == "exact"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
+    assert pricing.resolve("claude-mythos-5-1").key == "claude-mythos-5-1"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     assert pricing.rate_for("claude-mythos-5-1[1m]") == m51  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
 
 
