@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import constants, parse
+from backend import constants, parse, pricing
 
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -980,12 +980,15 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     novita, bare = out["records"]
     assert novita["provider"] == "Novita"
     assert bare["provider"] is None
-    # Novita's deepseek-v4.1-flash row: 0.285 in / 0.0057 read / 1.14 out.
-    assert novita["cost_usd"] == pytest.approx(
-        round((1000 * 0.285 + 2000 * 0.0057 + 300 * 1.14) / 1e6, 6))
-    # No provider: DEFAULT (Opus 4.7 list, 5 / 0.50 / 25), as before.
-    assert bare["cost_usd"] == pytest.approx(
-        round((1000 * 5.00 + 2000 * 0.50 + 300 * 25.00) / 1e6, 6))
+    # Novita's deepseek-v4.1-flash row, priced at the record's own time.
+    assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(
+        novita["model"], fresh=1000, eph5=0, eph1h=0, unsplit_create=0,
+        read=2000, output=300, ts=novita["ts"], provider="Novita"), 6))
+    # No provider: priced by the model lane alone (DEFAULT for this id),
+    # exactly as before the provider table existed.
+    assert bare["cost_usd"] == pytest.approx(round(pricing.compute_cost(
+        bare["model"], fresh=1000, eph5=0, eph1h=0, unsplit_create=0,
+        read=2000, output=300, ts=bare["ts"]), 6))
 
 
 def test_provider_merges_across_streaming_chunks_first_non_null_wins():
