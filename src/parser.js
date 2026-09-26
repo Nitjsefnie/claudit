@@ -35,6 +35,33 @@ function usageCtxInput(u) {
 }
 window.usageCtxInput = usageCtxInput;
 
+// A user text that OPENS with an XML tag is harness-injected data, not a
+// prompt (issue #213) — deny-by-default, so an unknown future harness tag
+// is excluded without a parser change; only wrappers around human text
+// are kept (<pasted_content> wraps a human paste, which IS a prompt).
+// Mirrors backend/parse.py:_is_prompt_text (SV-PARSER-SPEC). A text
+// failing the gate is not pushed as a user_message event at all, so the
+// userMsgs stat, the ctx-turn boundaries in context-growth-view.jsx and
+// the prompt lists in app.jsx all skip it the way backend prompt_count
+// does. The interrupt marker mirrors backend/constants.INTERRUPT_MARKER,
+// which the backend also denies before a text can anchor or count.
+const PROMPT_DATA_TAG_RE = /^<([A-Za-z][A-Za-z0-9._:-]*)(?:\s[^<>]*)?>/;
+const PROMPT_HUMAN_TAGS = new Set(['pasted_content']);
+const INTERRUPT_MARKER = '[Request interrupted by user';
+
+function isPromptText(text) {
+  const stripped = String(text ?? '').replace(/^\s+/, '');
+  if (!stripped) return false;
+  const m = PROMPT_DATA_TAG_RE.exec(stripped);
+  if (!m) return true;
+  return PROMPT_HUMAN_TAGS.has(m[1]);
+}
+
+function shouldPushUserText(text) {
+  const s = String(text ?? '');
+  return isPromptText(s) && !s.trim().startsWith(INTERRUPT_MARKER);
+}
+
 window.parseTranscript = function parseTranscript(text, opts) {
   // A lane format is parsed by parser-lanes.js (loaded before this file).
   // Without parser-lanes.js — a bare require of parser.js in tests — the
@@ -114,6 +141,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
 
   function pushUserContent(content, toolUseResult, lineNum, ts) {
     if (typeof content === 'string') {
+      if (!shouldPushUserText(content)) return;
       const refs = detectRefs(content);
       events.push({ line: lineNum, type: 'user_message', ts, detail: content, refs });
       return;
@@ -140,7 +168,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
           refs,
         });
       } else if (c.type === 'text') {
-        events.push({ line: lineNum, type: 'user_message', ts, detail: c.text });
+        if (shouldPushUserText(c.text)) {
+          events.push({ line: lineNum, type: 'user_message', ts, detail: c.text });
+        }
       } else if (c.type === 'image') {
         events.push({ line: lineNum, type: 'user_message', ts, detail: '[image attachment]' });
       }
