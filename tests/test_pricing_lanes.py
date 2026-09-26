@@ -34,7 +34,9 @@ def test_flat_create_prices_identically_under_any_declared_ttl():
     as_5m = pricing.compute_cost("gpt-6-sol", eph5=1_000_000, eph1h=0, unsplit_create=0, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     as_1h = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=1_000_000, unsplit_create=0, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     undeclared = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=0, unsplit_create=1_000_000, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert as_5m == as_1h == undeclared == pytest.approx(create)
+    # rel=1e-12: the same row's rate on every side; the per-million
+    # scaling can cost each term a last-bit rounding, never a real one.
+    assert as_5m == as_1h == undeclared == pytest.approx(create, rel=1e-12)
 
 
 def test_long_context_doubles_input_side_and_raises_output_by_half():
@@ -44,10 +46,11 @@ def test_long_context_doubles_input_side_and_raises_output_by_half():
     base = pricing.compute_cost("gpt-6-sol", **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     assert base == pytest.approx(rates["fresh"] + rates["output"]
-                                 + rates["create_1h"] + rates["read"])
+                                 + rates["create_1h"] + rates["read"],
+                                 rel=1e-12)
     assert long == pytest.approx(
         2 * (rates["fresh"] + rates["create_1h"] + rates["read"])
-        + 1.5 * rates["output"])
+        + 1.5 * rates["output"], rel=1e-12)
 
 
 def test_long_context_multiplier_applies_to_5m_cache_writes():
@@ -59,8 +62,8 @@ def test_long_context_multiplier_applies_to_5m_cache_writes():
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
     base = pricing.compute_cost("gpt-6-sol", **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert base == pytest.approx(create_5m)
-    assert long == pytest.approx(2 * create_5m)
+    assert base == pytest.approx(create_5m, rel=1e-12)
+    assert long == pytest.approx(2 * create_5m, rel=1e-12)
 
 
 def test_long_context_defaults_off_for_every_existing_caller():

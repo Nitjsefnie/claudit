@@ -35,13 +35,13 @@ def test_fable_5_1_and_mythos_5_1_price_identically():
     committed seeding holds, and
     test_fable_5_1_does_not_misroute_to_fable_5 guards the misroute."""
     f51 = pricing.rate_for("claude-fable-5-1")  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    # approx: the ratio is exact in reals, and a scaled row keeps it —
+    # rel=1e-12: the ratio is exact in reals and a scaled row keeps it;
     # float arithmetic on scaled values differs only in its last bits.
-    assert f51["read"] == pytest.approx(f51["fresh"] * 0.025)
+    assert f51["read"] == pytest.approx(f51["fresh"] * 0.025, rel=1e-12)
     assert pricing.resolve("claude-fable-5-1").kind == "exact"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     assert pricing.rate_for("claude-fable-5-1[1m]") == f51  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     m51 = pricing.rate_for("claude-mythos-5-1")  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    assert m51["read"] == pytest.approx(m51["fresh"] * 0.025)
+    assert m51["read"] == pytest.approx(m51["fresh"] * 0.025, rel=1e-12)
     assert pricing.resolve("claude-mythos-5-1").kind == "exact"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     assert pricing.resolve("claude-mythos-5-1").key == "claude-mythos-5-1"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
     assert pricing.rate_for("claude-mythos-5-1[1m]") == m51  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
@@ -53,7 +53,7 @@ def test_opus_5_5_resolves_exact_distinct_from_opus_5():
     o55 = pricing.rate_for("claude-opus-5-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     assert set(o55) == set(pricing.RATE_FIELDS)
     # approx: exact in reals at any common scaling of the row.
-    assert o55["read"] == pytest.approx(o55["fresh"] * 0.05)
+    assert o55["read"] == pytest.approx(o55["fresh"] * 0.05, rel=1e-12)
     assert pricing.resolve("claude-opus-5-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     assert pricing.rate_for("claude-opus-5-5[1m]") == o55  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
     assert pricing.rate_for("anthropic.claude-opus-5-5") == o55  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
@@ -132,9 +132,9 @@ def test_compute_cost_prices_fresh_at_the_fresh_rate():
         "claude-opus-4-7",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         fresh=1_000_000, output=0, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
-    # approx: the same rate on both sides; the M-token scaling can cost
-    # the sum a last-bit rounding, never a real difference.
-    assert cost == pytest.approx(fresh)
+    # rel=1e-12: the same rate on both sides; the per-million scaling
+    # can cost the term one last-bit rounding, never a real difference.
+    assert cost == pytest.approx(fresh, rel=1e-12)
 
 
 def test_unsplit_cache_charges_at_1h_rate():
@@ -150,7 +150,9 @@ def test_unsplit_cache_charges_at_1h_rate():
         "claude-sonnet-4-5",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=1_000_000, read=0,
     )
-    assert cost == r["create_1h"]   # NOT the 5m rate
+    # rel=1e-12: the same rate on both sides; compute_cost's per-million
+    # scaling can cost the term one last-bit rounding, never a real one.
+    assert cost == pytest.approx(r["create_1h"], rel=1e-12)   # NOT the 5m rate
     assert r["create_1h"] != r["create_5m"], (
         "the test distinguishes 1h from 5m only while the row's two write "
         "rates differ")
@@ -164,8 +166,11 @@ def test_split_cache_charges_each_bucket_separately():
         eph5=1_000_000, eph1h=1_000_000,
         unsplit_create=0, read=0,
     )
-    # 1M @ create_5m + 1M @ create_1h
-    assert cost == r["create_5m"] + r["create_1h"]
+    # 1M @ create_5m + 1M @ create_1h (rel=1e-12: same rates on both
+    # sides; the per-million scaling can cost each term a last-bit
+    # rounding, never a real one)
+    assert cost == pytest.approx(
+        r["create_5m"] + r["create_1h"], rel=1e-12)
 
 
 # --- rows without a dated window price flat across time ---------------------
@@ -220,8 +225,10 @@ def test_expired_windows_keep_pricing_their_own_period():
         "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         unsplit_create=0, read=0, ts=cutover,
     )
-    assert before == window_rates["fresh"]
-    assert after == listed["fresh"]
+    # rel=1e-12: the same window's rates on both sides; the per-million
+    # scaling can cost the term one last-bit rounding, never a real one.
+    assert before == pytest.approx(window_rates["fresh"], rel=1e-12)
+    assert after == pytest.approx(listed["fresh"], rel=1e-12)
 
 
 def test_rate_epochs_match_the_dated_windows():
