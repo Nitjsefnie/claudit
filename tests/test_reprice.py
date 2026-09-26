@@ -252,8 +252,12 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
     current one was priced by a newer build, and an older binary must
     not clobber it. The row is skipped, the keyset advances past it,
     and the skip is logged."""
+    # NEWER than the binary's own, derived from the committed constant so
+    # the guard's semantics hold whatever the real value has reached
+    # (issue #198).
+    newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
-        for line_num, version in ((1, None), (2, "0"), (3, "999")):
+        for line_num, version in ((1, None), (2, "0"), (3, newer)):
             _seed(c, _FILE_KEY, line_num, pricing_version=version)
         c.commit()
 
@@ -263,7 +267,7 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
     with db.viz_conn() as c:
         rows = _rows(c)
     assert [row[2] for row in rows] == [
-        constants.PRICING_VERSION, constants.PRICING_VERSION, "999"]
+        constants.PRICING_VERSION, constants.PRICING_VERSION, newer]
     assert float(rows[2][1]) == 0.5, "the newer row keeps its sentinel"
     assert "skipped 1 record" in caplog.text
 
@@ -306,10 +310,13 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     boundary (line 4, the last row of the second batch of two) on
     purpose."""
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
+    # NEWER than the binary's own, derived (issue #198) — same reasoning
+    # as the guard test above.
+    newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
         for line_num in range(1, 8):
             _seed(c, _FILE_KEY, line_num,
-                  pricing_version="999" if line_num == 4 else None)
+                  pricing_version=newer if line_num == 4 else None)
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 6
@@ -318,7 +325,7 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
         rows = _rows(c)
     assert [row[2] for row in rows] == [
         constants.PRICING_VERSION, constants.PRICING_VERSION,
-        constants.PRICING_VERSION, "999", constants.PRICING_VERSION,
+        constants.PRICING_VERSION, newer, constants.PRICING_VERSION,
         constants.PRICING_VERSION, constants.PRICING_VERSION]
     assert float(rows[3][1]) == 0.5, "the skipped row keeps its sentinel"
 
@@ -641,9 +648,11 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     })
     before = _stored_costs()
 
-    # One past the tree's own version, so the mirror ingest (which stamps
-    # the tree's real PRICING_VERSION) leaves every row stale whatever
-    # the tree carries.
+    # One past the tree's own version (derived, issue #198): the refresh
+    # workflow bumps PRICING_VERSION itself, so a literal bump target can
+    # collide with the working tree and turn the patch into a no-op — and
+    # the mirror ingest stamps the tree's real value, so every row is
+    # stale whatever the tree carries.
     next_version = str(int(constants.PRICING_VERSION) + 1)
     monkeypatch.setattr(constants, "PRICING_VERSION", next_version)
     assert ingest.reprice_stale() == total

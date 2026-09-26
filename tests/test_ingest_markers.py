@@ -196,7 +196,11 @@ def test_a_reader_version_change_refetches_every_marker(
     """A row read under another marker reader version is stale whatever
     its etag, so changing how markers are read refetches each once."""
     ingest.run_ingest(trigger="manual")
-    monkeypatch.setattr(constants, "MARKER_READER_VERSION", "test-bump")
+    # Any changed reader version refetches; derived from the committed
+    # constant so the bump target can never collide with it (issue #198).
+    monkeypatch.setattr(
+        constants, "MARKER_READER_VERSION",
+        str(int(constants.MARKER_READER_VERSION) + 1))
 
     marker_gets.clear()
     ingest.run_ingest(trigger="manual")
