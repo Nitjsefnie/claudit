@@ -389,8 +389,8 @@ is not generating them).
 **A branch without a PR is checked by dispatch:**
 `gh workflow run ci-gate.yml --ref <branch>`.
 
-**There are seventeen workflows; `ci-gate.yml` owns the push/PR
-surface** and folds the nine gate legs into one verdict, **`ci gate /
+**There are eighteen workflows; `ci-gate.yml` owns the push/PR
+surface** and folds the ten gate legs into one verdict, **`ci gate /
 aggregate`**. A documentation-only change (`*.md`, `PRESENTATION.txt`,
 `examples/`, `.claude/`, licences) skips the expensive legs by
 classification, so a docs-only PR's legs report `skipping` and the

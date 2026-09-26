@@ -9,7 +9,7 @@ check still reports. The invariants pinned here:
   `workflow_call`;
 - the aggregate job runs with `if: always()` and needs every leg, so it
   reports even when legs fail, skip or never start;
-- trigger ownership really moved: the nine callees no longer carry
+- trigger ownership really moved: the ten callees no longer carry
   `push`/`pull_request`, and ci-gate's push trigger keeps the ratchet
   bot's paths-ignore so its commit never starts the suite;
 - the aggregate's expected-leg list and the workflow's needs list cannot
@@ -34,10 +34,10 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GATE = WORKFLOWS / "ci-gate.yml"
 GATE_FRESHNESS = WORKFLOWS / "gate-freshness.yml"
 
-# The nine gate workflows ci-gate calls, plus the classifier job.
+# The ten gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
-    "tests.yml", "lint.yml", "types.yml", "eslint.yml", "smoke.yml",
-    "audit.yml", "actionlint.yml", "speed.yml", "codeql.yml",
+    "tests.yml", "test-data.yml", "lint.yml", "types.yml", "eslint.yml",
+    "smoke.yml", "audit.yml", "actionlint.yml", "speed.yml", "codeql.yml",
 )
 LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
 

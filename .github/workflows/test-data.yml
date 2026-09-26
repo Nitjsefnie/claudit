@@ -1,0 +1,132 @@
+name: test data
+
+# The perturbed-data gate leg (issue #199): the second half of
+# SV-TEST-DATA's enforcement. ci-gate calls this workflow as a leg; it
+# perturbs the tree's test data (scripts/ci/perturb_test_data.py: every
+# rate row doubled, the three version constants bumped) and runs the
+# FULL suite against the perturbed tree — no coverage, no ratchet; the
+# verdict is pass/fail of the suite on data the repository changes by
+# design. A test that pins repository-managed data fails here as a test
+# failure, on this tree, before it can fail a refresh bot's run.
+
+on:
+  # Trigger ownership stays with ci-gate.yml: no push or pull_request
+  # trigger of its own — workflow_call is the leg's entry;
+  # workflow_dispatch keeps a direct run possible.
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Push and pull_request runs arrive as ci-gate legs under the caller's
+  # event, matching ci-gate's own group; direct dispatch runs queue on
+  # their ref likewise.
+  group: test-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  perturbed-suite:
+    name: perturbed suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        # The suite does not use a single fixed database: fixtures create
+        # and drop run-named ones (tests/scratch_db.py), so the role needs
+        # CREATEDB — the stock `postgres` superuser has it.
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Fixtures build DSNs as `postgresql:///<db>` with no host, so libpq
+      # resolves the connection from these. The same vars drive the
+      # psql calls the fixtures shell out to.
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # The pip cache restores on every event but is saved only from a push
+      # of master (issue #126): no setup-python step owns the cache, and the
+      # save sits directly after the dependency install, below.
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-3.13-
+
+      - name: Install postgresql-client
+        # Fixtures shell out to psql; the runner image has
+        # a server but the client binaries must match the service major.
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+
+      # Saved here, not in a post-job step: the install above populated the
+      # cache, and the gate keeps every event but a push of master from
+      # writing cross-run state (issue #126).
+      - name: Save the pip cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+
+      - name: Wait for postgres
+        run: |
+          for _ in $(seq 1 30); do
+            pg_isready -q && exit 0
+            sleep 1
+          done
+          echo "postgres never became ready"; exit 1
+
+      - name: Perturb the test data
+        # The perturbation is the leg's point: this tree is what a
+        # refresh bot's commit produces (rates moved, version constants
+        # bumped), so the suite runs against data the repository
+        # changes by design. Working-tree only — a fresh checkout runs
+        # it, so nothing here reverts anything.
+        run: python scripts/ci/perturb_test_data.py
+
+      - name: Run the suite on the perturbed tree
+        run: python -m pytest tests/ -q --tb=short -ra
