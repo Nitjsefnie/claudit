@@ -3,10 +3,11 @@ name: test data
 # The perturbed-data gate leg (issue #199): the second half of
 # SV-TEST-DATA's enforcement. ci-gate calls this workflow as a leg; it
 # perturbs the tree's test data (scripts/ci/perturb_test_data.py: every
-# rate row doubled — a zero rate becomes one — and the three version
-# constants bumped) and runs the FULL suite against the perturbed
-# tree — no coverage, no ratchet; the verdict is pass/fail of the
-# suite on data the repository changes by design. A test that pins
+# rate row scaled three ways — doubled, ×0.37, and by a per-row
+# irregular factor in [0.61, 1.47); a zero rate becomes one — and the
+# three version constants bumped) and runs the FULL suite against the
+# perturbed tree — no coverage, no ratchet; the verdict is pass/fail of
+# the suite on data the repository changes by design. A test that pins
 # repository-managed data fails here as a test failure, on this tree,
 # before it can fail a refresh bot's run.
 
