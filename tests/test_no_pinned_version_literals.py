@@ -521,11 +521,31 @@ def test_module_level_doc_path_bind_is_flagged():
         ("PRICING_JSON", "path-bind", "pricing.json")]
 
 
+def test_module_level_ann_assign_path_bind_is_flagged():
+    source = "P: Path = ROOT / 'src' / 'pricing.json'\n"
+    result = detect(source)
+    assert [(site.name, site.shape, site.value) for site in result] == [
+        ("P", "path-bind", "pricing.json")]
+
+
 def test_function_local_doc_path_bind_is_not_flagged():
     source = ("def make(tmp):\n"
               "    p = tmp / 'src' / 'pricing.json'\n"
               "    return p\n")
     assert detect(source) == []
+
+
+def test_path_bind_problem_names_its_fragment():
+    problems = check("PRICING_JSON = ROOT / 'src' / 'pricing.json'\n")
+    assert len(problems) == 1
+    assert "pricing-json path bind" in problems[0]
+
+
+def test_live_call_problem_names_its_fragment():
+    problems = check("rate_for('acme/acme-9')\n",
+                     wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
+    assert len(problems) == 1
+    assert "live model or host in a pricing call" in problems[0]
 
 
 def test_marker_excuses_a_live_row_site():

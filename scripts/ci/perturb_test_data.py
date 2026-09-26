@@ -136,12 +136,17 @@ def _scaled(rate, factor: float):
 
 def _stamp_after(previous: str | None, candidate: datetime) -> str:
     """An appended entry's `from`: the counter value, never at or before
-    the row's predecessor."""
+    the row's predecessor. The candidate is compared at second
+    precision — the precision the stamp itself carries — so a
+    microsecond-carrying `now` never spells the predecessor's own
+    second."""
+    stamp = candidate.strftime(STAMP_FORMAT)
     if previous is not None:
         earlier = datetime.fromisoformat(previous.replace("Z", "+00:00"))
-        if earlier >= candidate:
+        truncated = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if earlier >= truncated:
             return (earlier + timedelta(seconds=1)).strftime(STAMP_FORMAT)
-    return candidate.strftime(STAMP_FORMAT)
+    return stamp
 
 
 def bump_constants(path: Path) -> None:
