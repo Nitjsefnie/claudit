@@ -756,9 +756,10 @@ clobber semantics it cannot reproduce). The pass runs in
 and a reparse stamps the current version at persist, so freshly parsed
 rows never reprice. No endpoint, panel or rollup reads
 `pricing_version` — the pass changes what the stored numbers SAY, not
-who serves them. `cost_usd` is the recomputed state today; a
-rate-derived flag (the Codex long-context meter,
-`records.long_context`) can ride the same staleness switch (see #194).
+who serves them. `cost_usd` and the Codex long-context meter
+(`records.long_context`, issue #194) are both the recomputed state; the
+flag is re-derived from the same stored columns the cost reads, and
+rides the same staleness switch.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
