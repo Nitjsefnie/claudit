@@ -11,6 +11,7 @@ Cost is precomputed per record using pricing.MODEL_RATES so the read
 path doesn't need to JOIN against rates.
 """
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -980,10 +981,9 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     novita, bare = out["records"]
     assert novita["provider"] == "Novita"
     assert bare["provider"] is None
-    # Both rows priced at the record's own time: Novita's deepseek row for
-    # the provider record, the model lane alone (DEFAULT for this id) for
-    # the bare one — exactly as before the provider table existed.
-    tokens = {"fresh": 1000, "eph5": 0, "eph1h": 0, "unsplit_create": 0, "read": 2000, "output": 300}
+    # Priced at the record's own time: the host's row, and the bare model
+    # lane alone — exactly as before the provider table existed.
+    tokens: dict[str, Any] = {"fresh": 1000, "eph5": 0, "eph1h": 0, "unsplit_create": 0, "read": 2000, "output": 300}
     assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], provider="Novita", ts=novita["ts"], **tokens), 6))
     assert bare["cost_usd"] == pytest.approx(round(pricing.compute_cost(bare["model"], ts=bare["ts"], **tokens), 6))
 
