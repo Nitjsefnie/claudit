@@ -135,7 +135,7 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket():
 
 
 def test_long_context_buckets_reconcile_with_the_stored_total():
-    """A pay-as-you-go Codex record above the 272k threshold is STORED at
+    """A Codex record above the 272k threshold is STORED at
     2x input side / 1.5x output (pricing.compute_cost's long_context). A
     fold row that forgets the flag prices the same tokens at the flat
     rate and its buckets stop summing to cost_total — the exact drift

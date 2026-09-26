@@ -294,8 +294,9 @@ def _node_long_context(plan_type: str | None) -> dict:
 @pytest.mark.parametrize("plan_type", [None, "pro"])
 def test_browser_costs_a_long_context_request_exactly_like_the_backend(plan_type):
     """A >272k-token Codex request bills the whole record on the long-context
-    meter — unless the rollout is a ChatGPT-plan subscription, which has no
-    such tier. The browser must mirror both branches of the rule."""
+    meter, whatever plan served the rollout (issue #194). The meter bills
+    every plan, so the browser must mirror the backend for both the
+    subscription rollout and the one declaring no plan."""
     blob = _long_context_blob(plan_type)
     backend = parse.parse_file("codex/long_context.jsonl", blob)["records"]
     assert len(backend) == 1
@@ -304,7 +305,7 @@ def test_browser_costs_a_long_context_request_exactly_like_the_backend(plan_type
             + rec["cache_read_tokens"]) > pricing.LONG_CONTEXT_THRESHOLD
 
     got = _node_long_context(plan_type)
-    assert got["long_context"] is (plan_type is None)
+    assert got["long_context"] is True
     assert got["total_in"] == (rec["fresh_tokens"] + rec["cache_creation_tokens"]
                                + rec["cache_read_tokens"])
     assert got["cost"] == pytest.approx(rec["cost_usd"], rel=1e-5)
