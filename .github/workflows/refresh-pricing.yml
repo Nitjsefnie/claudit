@@ -157,25 +157,77 @@ jobs:
         if: steps.moved.outputs.moved == 'true'
         run: python -m pytest tests/ -q --tb=short -ra
 
-      - name: Commit and push
+      - name: Commit and push, retrying when master moved
         if: steps.moved.outputs.moved == 'true'
+        id: push
         # The message is the script's own report under a subject naming the
-        # counts. If master moved since checkout the push is refused and the
-        # next run starts again from the new master.
+        # counts. Master can move between this run's checkout and its push —
+        # a PR merged in that window refused run 36271055836's push, and the
+        # move waited for the next hourly run (#224) — so a refused push is
+        # retried, not abandoned: fetch the new master, RESET to it, re-run
+        # the fetch-and-append script against the fetched tree (the bump and
+        # the appended entries are recomputed there, never a textual rebase
+        # of the first tree — SV-RATE-REFRESH), re-run the suite, push again.
+        # At most three pushes; exhausted, the run goes red and lands
+        # nothing. Every push is HEAD:master from a commit whose parent is a
+        # fetched master tip, so each push is a plain fast-forward — the
+        # master ruleset forbids force. The push remote is a test seam: the
+        # default is the tokenized GitHub URL, and the workflow never sets
+        # it.
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
+          echo "rc=0" >> "$GITHUB_OUTPUT"
+          remote="${PUSH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${REPO}}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/pricing.json backend/constants.py
           git commit -F "$RUNNER_TEMP/commit-msg.txt"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" HEAD:master
+          attempts=3
+          if git push "$remote" HEAD:master; then
+            exit 0
+          fi
+          for attempt in $(seq 2 "$attempts"); do
+            echo "::notice::push refused; recomputing on the fetched master (attempt $attempt of $attempts)"
+            git fetch "$remote" master
+            git reset --hard FETCH_HEAD
+            rc=0
+            python3 scripts/ci/refresh_provider_rates.py \
+              --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
+              > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?
+            echo "rc=$rc" >> "$GITHUB_OUTPUT"
+            cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
+            {
+              echo
+              echo "### Attempt $attempt of $attempts: master moved before the push; recomputed on the fetched master"
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if git diff --quiet -- src/pricing.json backend/constants.py; then
+              # The fetched master already carries everything this run
+              # detected: nothing of ours is left to land, and HEAD already
+              # is the fetched master.
+              exit 0
+            fi
+            python -m pytest tests/ -q --tb=short -ra
+            git add src/pricing.json backend/constants.py
+            git commit -F "$RUNNER_TEMP/commit-msg.txt"
+            if git push "$remote" HEAD:master; then
+              exit 0
+            fi
+          done
+          echo "the push exhausted its $attempts attempts; master kept moving under the run" >&2
+          exit 1
 
       - name: Fail on a refusal
         # After the commit: the moves that could be made are on master, and
-        # the red run is the signal that a host needs a human decision.
-        if: steps.fetch.outputs.rc != '0'
+        # the red run is the signal that a host needs a human decision. The
+        # retried recomputation records its own script rc on the push step,
+        # so a refusal found there turns the run red too.
+        if: steps.fetch.outputs.rc != '0' || steps.push.outputs.rc == '1'
         env:
           RC: ${{ steps.fetch.outputs.rc }}
         run: |
