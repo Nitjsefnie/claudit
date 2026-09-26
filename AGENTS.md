@@ -598,7 +598,8 @@ block. Never "fix" it by loosening the leading `*`.
   name several buckets joined by `+`; every stored file key is
   `<bucket>/<object-key>` and the bucket comes from the stored key,
   never the request (SV-FILES-RECORDS); the lane parsers and
-  `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC); the Codex
-  long-context meter rides every per-component cost re-derivation
-  (SV-DATED-RATES).
+  `src/parser-lanes.js` are in lockstep (SV-PARSER-SPEC); a Codex
+  record above the 272k threshold bills the whole record on the
+  long-context meter, persisted on `records.long_context` and applied
+  by every per-component cost re-derivation (SV-DATED-RATES).
 - **Backend is the only load path** (SV-NO-LOCAL-UPLOAD).

@@ -730,9 +730,11 @@ reads, and rides the same staleness switch.
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
 `APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` are config, and config is
-hostile input. `backend/branding.py` injects them into three different
-escaping contexts, each with its own function — use the right one and
-never hand-concatenate a brand value into a page:
+hostile input. Brand values are injected through three different
+escaping contexts, each with its own function (html + script payload in
+`backend/branding.py`, the export-filename slug in
+`backend/api_export.py`) — use the right one and never
+hand-concatenate a brand value into a page:
 
 - HTML text/attribute contexts (title, meta, logo, sign-in page): the
   html-escape path. `<title>` and `<meta>` are replaced before the
