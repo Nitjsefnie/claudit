@@ -20,6 +20,12 @@ whose own id equals its matched target is never moved and never deleted
 (the pass drops emptied source project rows, and files FK-cascade on
 project delete).
 
+Marker-backed lane reconciliation uses `resolve_chain` to find the
+fixed-point destination before moving files. It repeats the same
+first-match lookup, stopping at an unmatched id or before revisiting an
+id; the eight-hop cap bounds pathological or cyclic chains. The fold
+pass above remains one hop per ingest pass.
+
 Deleting a row stops folding new files. Already-folded rows stay at the
 target only until another identity pass re-keys them: a reparse derives
 the raw id from the object key, while marker-backed lane files
@@ -53,6 +59,26 @@ def resolve(c: psycopg.Connection, project_id: str) -> str:
         """,
         (project_id,)).fetchone()
     return row[0] if row else project_id
+
+
+def resolve_chain(c: psycopg.Connection, project_id: str) -> str:
+    """Resolve successive first-match aliases to a lane marker's fixed point.
+
+    Each hop uses the same case-sensitive LIKE and lexicographic
+    first-match rule as `resolve`. Stop when no pattern matches or when
+    the next id was already visited, returning the last unseen id.
+    Acyclic chains stop at their fixed point earlier; the eight-hop cap
+    bounds pathological or cyclic chains.
+    """
+    seen = {project_id}
+    current = project_id
+    for _ in range(8):
+        target = resolve(c, current)
+        if target == current or target in seen:
+            return current
+        seen.add(target)
+        current = target
+    return current
 
 
 def folded_pairs(c: psycopg.Connection) -> dict[str, str]:

@@ -77,6 +77,21 @@ def _alias(pattern: str, target: str) -> None:
         c.commit()
 
 
+def _seed_current_lane_file(lane_r2_env: dict[str, str],
+                            project_id: str) -> None:
+    """Seed the marker wire at an existing id with its current R2 identity."""
+    wire = next(obj for obj in r2.list_keys()
+                if obj.key == lane_r2_env["wire_key"])
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, project_id, [lane_r2_env["wire_key"]])
+        cur.execute(
+            "UPDATE files SET r2_etag = %s, r2_size_bytes = %s, "
+            "parser_version = %s WHERE file_key = %s",
+            (wire.etag, wire.size, constants.PARSER_VERSION,
+             lane_r2_env["wire_key"]))
+        c.commit()
+
+
 @pytest.fixture(name="lane_r2_env")
 def _lane_r2_env_fixture(tmp_path, monkeypatch) -> dict[str, str]:
     """One real marker-backed lane wire in a local R2 mirror."""
@@ -370,6 +385,70 @@ def test_deleting_lane_alias_returns_files_to_marker_slug(
 
     assert result["error"] is None
     assert _owners() == {lane_r2_env["slug"]: 1}
+
+
+def test_marker_lane_alias_chain_stays_at_its_fixed_point(
+        fresh_db, lane_r2_env):
+    """Marker reconciliation resolves all alias hops on every ingest."""
+    target_a = "lane-project-a"
+    target_b = "lane-project-b"
+    display_name = "Lanework's main checkout"
+    _alias(lane_r2_env["slug"], target_a)
+    _alias(target_a, target_b)
+    _seed_current_lane_file(lane_r2_env, target_a)
+
+    first = ingest.run_ingest(trigger="manual")
+    assert first["error"] is None
+    assert first["reparsed"] == 0
+    assert _owners() == {target_b: 1}
+
+    with db.viz_conn() as c:
+        c.execute(
+            "UPDATE projects SET display_name = %s WHERE project_id = %s",
+            (display_name, target_b))
+        c.commit()
+
+    second = ingest.run_ingest(trigger="manual")
+    assert second["error"] is None
+    assert second["reparsed"] == 0
+    _assert_lane_project_is_folded(
+        target_b, lane_r2_env["slug"], display_name)
+    assert target_a not in _owners()
+
+
+def test_marker_lane_alias_chain_after_inner_alias_deletion(
+        fresh_db, lane_r2_env):
+    """Deleting A -> B leaves the marker chain's fixed point at A."""
+    target_a = "lane-project-a"
+    target_b = "lane-project-b"
+    _alias(lane_r2_env["slug"], target_a)
+    _alias(target_a, target_b)
+    _seed_current_lane_file(lane_r2_env, target_b)
+
+    first = ingest.run_ingest(trigger="manual")
+    assert first["error"] is None
+    assert first["reparsed"] == 0
+    assert _owners() == {target_b: 1}
+
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM project_aliases WHERE pattern = %s",
+                  (target_a,))
+        c.commit()
+    second = ingest.run_ingest(trigger="manual")
+
+    assert second["error"] is None
+    assert second["reparsed"] == 0
+    assert _owners() == {target_a: 1}
+
+
+def test_resolve_chain_stops_before_revisiting_an_id(fresh_db):
+    """A cycle returns its last unseen id deterministically."""
+    _alias("a", "b")
+    _alias("b", "a")
+
+    with db.viz_conn() as c:
+        assert project_aliases.resolve_chain(c, "a") == "b"
+        assert project_aliases.resolve_chain(c, "a") == "b"
 
 
 def test_marker_recovery_moves_hash_files_directly_to_alias_target(

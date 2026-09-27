@@ -102,8 +102,9 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
     moved files' real first/last seen), move every sessions/<hash>/ row,
     then drop the old id's project row unless other files still
     reference it (a split hash keeps its other side). The destination is
-    the marker slug resolved once through project_aliases, so an active
-    alias does not churn files through the bare slug. A marker-failed run
+    the marker slug resolved through the alias chain to its fixed point:
+    repeat the first-match lookup until no pattern matches, stop before
+    a revisited id, and cap the walk at eight hops. A marker-failed run
     re-keys nothing - it has no project_paths entry. Returns the number
     of files moved.
     """
@@ -116,7 +117,7 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
             # unequal to it — which is what triggers the rekey below.
             slug = key_layout.canonical_project_id(
                 key_layout.project_slug(marker_path))
-            target_id = project_aliases.resolve(c, slug)
+            target_id = project_aliases.resolve_chain(c, slug)
             stored_id = stored_lane.get(lane_hash)
             if stored_id is None or stored_id == target_id:
                 continue
