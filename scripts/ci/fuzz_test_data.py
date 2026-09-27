@@ -382,12 +382,9 @@ def _snapshot_collection_root(source: Path, dest: Path) -> None:
         for name in files:
             src = here / name
             dst = dest / src.relative_to(source)
-            if src.is_symlink():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                os.symlink(os.readlink(src), dst)
-            elif not src.is_file():
+            if src.is_symlink() or not src.is_file():
                 raise SystemExit(_shard_refusal(src))
-            elif not dst.exists():
+            if not dst.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dst)
 
