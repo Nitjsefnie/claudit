@@ -156,7 +156,7 @@ def test_push_walks_past_a_docs_only_run_whose_legs_all_skipped():
     assert compares == [
         ["gh", "api", "-H", "Cache-Control: no-cache",
          f"repos/o/r/compare/{BASE_SHA}...{PUSH_SHA}", "--jq",
-         ".files[].filename"],
+         ".files[] | .filename, (.previous_filename // empty)"],
     ]
 
 
