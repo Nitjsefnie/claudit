@@ -340,6 +340,36 @@ def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_
     assert pids_wide.index("projOldCost") < pids_wide.index("projRecentCost")
 
 
+def test_projects_hides_a_project_whose_files_carry_zero_usage_records(
+        app_with_fresh_data):
+    """The all-time-token inner JOIN drops a project whose files parsed to
+    ZERO usage records — the state a folded-away worktree's source project
+    would otherwise present in the picker (issue #272). A project with
+    usage, at any cost, stays listed. Uses range=3650d: a cache key no
+    other /api/projects test claims."""
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+            conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO projects (project_id, display_name, first_seen_at, "
+            "last_seen_at) VALUES ('projNoRecords', 'projNoRecords', "
+            "now(), now())")
+        cur.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES "
+            "('claude/projNoRecords/sess-E/sess-E.jsonl', 'projNoRecords', "
+            "'sess-E', TRUE, 'e', 1, now(), now(), 't')")
+        conn.commit()
+
+    r = app_with_fresh_data.get("/api/projects?range=3650d")
+    assert r.status_code == 200
+    by_id = {p["project_id"] for p in r.json()["projects"]}
+    assert "projNoRecords" not in by_id, (
+        "a project with files but zero usage records must be absent — "
+        "its picker row would carry no tokens and no cost")
+    assert "projA" in by_id, "a project with usage stays listed"
+
+
 def test_cache_per_model_shape(app_with_data):
     r = app_with_data.get("/api/cache?range=3650d")
     assert r.status_code == 200
