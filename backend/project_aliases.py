@@ -29,8 +29,9 @@ pass above remains one hop per ingest pass.
 Deleting a row stops folding new files. Already-folded rows stay at the
 target only until another identity pass re-keys them: a reparse derives
 the raw id from the object key, while marker-backed lane files
-re-converge to fold(marker slug) on the next ingest (to the marker slug
-after deletion).
+re-converge to the marker slug resolved through the alias chain to its fixed
+point on the next ingest (to the marker slug after deletion; the walk stops at
+an unmatched id or before a revisited id, capped at eight hops).
 """
 from __future__ import annotations
 
@@ -124,9 +125,11 @@ def rekey_folded_projects() -> int:
     deleting one stops folding NEW files. Already-folded rows stay at
     the target only until another identity pass re-keys them: a reparse
     derives the raw id from the object key, while marker-backed lane
-    files re-converge to fold(marker slug) on the next ingest (to the
-    marker slug after deletion). Repeated passes converge one alias hop at a time
-    without duplicating or losing files while the alias set is acyclic
+    files re-converge to the marker slug resolved through the alias chain
+    to its fixed point on the next ingest (to the marker slug after deletion;
+    the walk stops at an unmatched id or before a revisited id, capped at
+    eight hops). Repeated passes converge one alias hop at a time without
+    duplicating or losing files while the alias set is acyclic
     on the ids it matches. A cyclic alias set is an operator error:
     folded ids advance around the cycle on successive ingests, so fix
     the table. A pass that changes nothing moves 0. Needs no reparse,
