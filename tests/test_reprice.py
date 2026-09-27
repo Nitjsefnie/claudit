@@ -525,6 +525,3 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     assert set(order) == set(phases), "every phase ran exactly once"
     assert order[:4] == ["purge_suppressed", "reprice_stale",
                          "rekey_folded_projects", "recompute_canonical"]
-
-
-
