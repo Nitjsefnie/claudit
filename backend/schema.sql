@@ -679,6 +679,40 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
   added_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 2026-09-27 (issue #272): user-managed project grouping. One row per
+-- alias: a project-id PATTERN (SQL LIKE, case-sensitive -- POSIX project
+-- slugs are case-sensitive; the Windows ones are already case-folded by
+-- key_layout.canonical_project_id) and the TARGET project id whose row
+-- the matched project's files fold onto. `%` and `_` are wildcards;
+-- there is no ESCAPE clause (same as suppressed_models). Ships EMPTY on
+-- purpose -- per-deploy data, like suppressed_models. Populate per
+-- deploy:
+--
+--   INSERT INTO project_aliases (pattern, project_id, note)
+--        VALUES ('-tmp-daedalus-%', '-root-daedalus-public', 'worktrees');
+--
+-- Enforced by project_aliases.rekey_folded_projects(), which runs in the
+-- derived-state rebuild after the reprice phase and before the canonical
+-- pass on every ingest. Each stored project id is resolved EXACTLY ONCE
+-- against the current alias list -- FIRST match wins, in lexicographic
+-- `pattern` order (the PRIMARY KEY makes the order deterministic and
+-- each row addressable for edit/delete) -- and NO CHAINING: a target
+-- that itself matches another pattern is not re-resolved. A project
+-- whose own id equals its matched target is never moved and never
+-- deleted (the pass deletes emptied source project rows, and files
+-- FK-cascade on project delete). Adding or editing a row re-keys stored
+-- rows on the next ingest -- idempotent, no reparse, no R2 fetch, NO
+-- PARSER_VERSION bump. Deleting a row stops folding NEW files only;
+-- already-folded rows KEEP the target id (the raw id is not retained,
+-- so an unfold is not possible). No version coupling: only stored
+-- identity moves -- token columns and costs are untouched.
+CREATE TABLE IF NOT EXISTS project_aliases (
+  pattern     TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL,
+  note        TEXT,
+  added_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- One row per lane project marker (sessions/<project>/project.json) the
 -- last listing showed and a GET read: its bucket-qualified key, the etag
 -- that GET saw, and the directory path it named (NULL for a marker that
