@@ -65,6 +65,7 @@ DB_FIXTURES = frozenset({
     "client",
     "_viz_ready",
     "auth_env",
+    "projects_client",
 })
 
 
