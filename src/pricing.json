@@ -407,7 +407,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-27T05:53:55Z",
+  "provider_rates_fetched": "2026-09-27T06:54:12Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -624,6 +624,14 @@
           "fresh": 0.15,
           "from": "2026-09-25T16:53:37Z",
           "output": 0.6,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-27T06:54:12Z",
+          "output": 0.4,
           "read": 0.005
         }
       ],
@@ -1984,6 +1992,15 @@
           "from": "2026-09-25T05:54:04Z",
           "output": 0.5,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.135,
+          "create_5m": 0.135,
+          "fresh": 0.135,
+          "from": "2026-09-27T06:54:12Z",
+          "note": "10% off",
+          "output": 0.45,
+          "read": 0.027
         }
       ],
       "Modal": [
