@@ -419,13 +419,16 @@ def test_turn_flags_user_prompt_pasted_content():
     out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_pasted_content.jsonl"))
     assert out["records"][0]["turn_flags"] == ["user_prompt"]
 
+
 def test_turn_flags_user_prompt_image_only():
     out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_image_only.jsonl"))
     assert out["records"][0]["turn_flags"] == ["user_prompt"]
 
+
 def test_turn_flags_user_prompt_excludes_is_meta_text():
     out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_excludes_is_meta_text.jsonl"))
     assert out["records"][0]["turn_flags"] == []
+
 
 def test_prompt_snapshot_flags_land_on_the_request_they_describe():
     """Snapshots backfill the request they describe; preamble and baseline
