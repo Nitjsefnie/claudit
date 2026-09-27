@@ -178,6 +178,19 @@ FastAPI  →  /api/dashboard, /api/cache,
 React + in-browser Babel  →  /  (served by FastAPI)
 ```
 
+An operator can fold worktree/scratch project ids into their repository's
+project for the project picker with data, not code: insert a row into
+`project_aliases`, and the next ingest re-keys stored files and rebuilds
+the rollups under the target id.
+
+```sql
+INSERT INTO project_aliases(pattern, project_id, note)
+VALUES ('-tmp-daedalus-%', '-root-daedalus-public', 'worktrees of /root/daedalus-public');
+```
+
+Deleting a row stops folding new files; rows already folded keep the target
+id.
+
 `backend/parse.py` implements the parse spec (SV-PARSER-SPEC in
 `.claude/rules/claudit-doctrine.md`, pinned by `fixtures/parser/`),
 including Phase 1 within-file `requestId` max-merge, sniffs each blob's
@@ -329,24 +342,24 @@ psql claudit -f backend/schema.sql
 
 The database is derived from the bucket except for deployment-specific
 state, so a fresh database reproduces byte-identical totals only when the
-operator-owned suppression list is restored. `suppressed_models` is
-populated per deployment and ships empty; its suppression patterns are
-not stored in the bucket. Without it, previously purged records return
-during ingest, are counted and priced, and change the totals. Back it up
-with:
+operator-owned `suppressed_models` and `project_aliases` tables are
+restored. Both are populated per deployment and ship empty; neither is
+stored in the bucket. Without `suppressed_models`, previously purged
+records return during ingest, are counted and priced, and change the
+totals. Back up both tables with:
 
 ```bash
-pg_dump --table=suppressed_models --data-only "$DATABASE_URL_VIZ" > suppressed_models.sql
+pg_dump --table=suppressed_models --table=project_aliases --data-only "$DATABASE_URL_VIZ" > deployment_state.sql
 ```
 
 If a database is lost or damaged beyond repair, recreate it with
 `createdb` and start the service once so the schema auto-applies. Then
-stop the service, restore the saved table after the schema exists, and
-restart the service to kick an ingest with the suppression patterns in
+stop the service, restore the saved tables after the schema exists, and
+restart the service to kick an ingest with both per-deployment tables in
 place:
 
 ```bash
-psql "$DATABASE_URL_VIZ" --file=suppressed_models.sql
+psql "$DATABASE_URL_VIZ" --file=deployment_state.sql
 ```
 
 The `user_session` table is also not derived from the bucket; it holds
