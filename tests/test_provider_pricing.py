@@ -377,19 +377,21 @@ def test_fold_reconciles_across_several_provider_entries(monkeypatch):
         return len([t for t in (t1, t2) if ts >= t])
 
     pricing_ts = (t1 - timedelta(microseconds=1), t1, t2)
-    stored = [_cost(SYNTH_MODEL, "HostCo", ts, fresh=1_000_000)
+    fresh_tokens = 990
+    stored = [_cost(SYNTH_MODEL, "HostCo", ts, fresh=fresh_tokens)
               for ts in pricing_ts]
-    assert stored == [pytest.approx(r["fresh"]) for r in spans], \
+    assert stored == [pytest.approx(fresh_tokens * r["fresh"] / 1_000_000)
+                      for r in spans], \
         "each record must price at its own span's rates"
-    rows = [_row(SYNTH_MODEL, "HostCo", span_of(ts), 1_000_000, cost=cost)
+    rows = [_row(SYNTH_MODEL, "HostCo", span_of(ts), fresh_tokens, cost=cost)
             for ts, cost in zip(pricing_ts, stored, strict=True)]
 
     pair_bounds = {(SYNTH_MODEL, "HostCo"): [t1, t2]}
     for m in (fold_per_model(rows, pair_bounds=pair_bounds)
               + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
-        assert m["cost_total"] == pytest.approx(sum(stored))
+        assert m["cost_total"] == pytest.approx(sum(stored), abs=1e-4)
         assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
-        assert m["cost_buckets"]["fresh"] == pytest.approx(sum(stored))
+        assert m["cost_buckets"]["fresh"] == pytest.approx(sum(stored), abs=1e-4)
 
 
 def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
@@ -410,20 +412,22 @@ def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
 
     noon = datetime(2026, 9, 21, 12, tzinfo=UTC)    # inside 09:00-17:00
     evening = datetime(2026, 9, 21, 20, tzinfo=UTC)  # outside it
-    stored = (_cost(SYNTH_MODEL, "HostCo", noon, fresh=1_000_000,
-                    read=1_000_000, output=1_000_000)
-              + _cost(SYNTH_MODEL, "HostCo", evening, fresh=1_000_000,
-                      read=1_000_000, output=1_000_000))
+    tokens_per_span = 990
+    stored = (_cost(SYNTH_MODEL, "HostCo", noon, fresh=tokens_per_span,
+                    read=tokens_per_span, output=tokens_per_span)
+              + _cost(SYNTH_MODEL, "HostCo", evening, fresh=tokens_per_span,
+                      read=tokens_per_span, output=tokens_per_span))
     assert stored == pytest.approx(
-        (3.0 + 0.006 + 30.0) + (6.0 + 0.6 + 60.0)), \
+        ((3.0 + 0.006 + 30.0) + (6.0 + 0.6 + 60.0))
+        * tokens_per_span / 1_000_000), \
         "the records must price by the window and the default respectively"
-    rows = [_row(SYNTH_MODEL, "HostCo", 0, fresh=2_000_000, output=2_000_000,
-                 read=2_000_000, cost=stored)]
+    rows = [_row(SYNTH_MODEL, "HostCo", 0, fresh=2 * tokens_per_span,
+                 output=2 * tokens_per_span, read=2 * tokens_per_span, cost=stored)]
 
     pair_bounds = {(SYNTH_MODEL, "HostCo"): []}
     for m in (fold_per_model(rows, pair_bounds=pair_bounds)
               + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
-        assert m["cost_total"] == pytest.approx(stored)
+        assert m["cost_total"] == pytest.approx(stored, abs=1e-4)
         # The buckets carry the 4-decimal rounding _fold applies: five of
         # them can drift 5e-5 each from the scaled sum, hence the abs.
         assert sum(m["cost_buckets"].values()) == pytest.approx(

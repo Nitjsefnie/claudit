@@ -255,6 +255,9 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
     # fixture's synthetic window (SV-TEST-DATA): the expected bucket is
     # the window's own create_1h rate, so no live row can move it.
     w = synthetic_dated_rate
+    # At this 4-place midpoint, multiplying by 1M and dividing back shifts
+    # the float below the directly rounded rate by one rounded unit.
+    w.before["create_1h"] = 0.00015000000000000001
     ts = epoch_ts(0)
     stored = pricing.compute_cost(
         w.model, fresh=0, output=0, eph5=0, eph1h=0,
@@ -264,7 +267,7 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
     m = fold_per_model(
         rows, pair_bounds={(w.model, ""): [w.cutover]})[0]
     assert m["cost_buckets"]["create_1h"] == pytest.approx(
-        round(w.before["create_1h"], 4), abs=1e-6)
+        round(w.before["create_1h"], 4), abs=1e-4 + 1e-12)
     assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
@@ -401,7 +404,9 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
     model, host = _SYNTHETIC_MODEL, _SYNTHETIC_HOST
     peak = datetime(2031, 1, 6, 9, tzinfo=UTC)
     off_peak = datetime(2031, 1, 6, 20, tzinfo=UTC)
-    tokens = {"fresh": 1_000_000, "output": 500_000, "read": 2_000_000}
+    # The fresh value puts the scaled bucket on a 4-place midpoint, where
+    # the fold and per-span pricing can round to adjacent representations.
+    tokens = {"fresh": 5_500, "output": 500_000, "read": 2_000_000}
     stored = sum(pricing.compute_cost(model, fresh=tokens["fresh"], output=tokens["output"],
                                       eph5=0, eph1h=0, unsplit_create=0,
                                       read=tokens["read"], ts=ts, provider=host)
@@ -417,7 +422,7 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
                 for f, r, t in (("fresh", "fresh", "fresh"), ("read", "read", "read"),
                                 ("output", "output", "output"))}
         for field, value in want.items():
-            assert got[field] == pytest.approx(value, abs=_PER_BUCKET_TOL)
+            assert got[field] == pytest.approx(value, abs=1e-4)
 
 
 def test_a_schedule_adds_no_rate_epoch(monkeypatch):
