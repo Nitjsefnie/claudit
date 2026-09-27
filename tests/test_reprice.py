@@ -501,9 +501,9 @@ def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
 def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     """The phases tuple resolves its names through ingest's globals at
     call time, so stubbing every phase on `ingest` records the order the
-    rebuild runs them in. Reprice is a records mutation, so it must land
-    after suppression, after the alias fold re-keys stored project
-    identity, and before the canonical pass and every rollup."""
+    rebuild runs them in. Reprice is a records mutation, so it runs after
+    suppression and before the alias fold, canonical pass and every
+    rollup."""
     order = []
 
     def stub(name):
