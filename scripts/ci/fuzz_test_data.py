@@ -29,20 +29,27 @@ Per iteration:
      keys touched and the pytest tail, and the run exits 1. Every
      iteration green prints one summary line and exits 0.
 
+The run refuses to START when src/pricing.json carries local changes:
+the per-iteration restore is `git checkout --`, which would silently
+discard them. The file's baseline is recorded at start and restored in
+a `finally` — after any failure artifact is saved — so the tree is
+left exactly as it was found, green or failing.
+
     python3 scripts/ci/fuzz_test_data.py [--iterations N] [--seed N]
         [--jobs J]
 
 With --jobs J > 1 the SAME iterations run in J child processes, each
-in its own `git clone` of the tree under a temp dir: iteration i is
-served by shard i % J, and every child derives its per-iteration
+in its own disposable copy of the tree under a temp dir: iteration i
+is served by shard i % J, and every child derives its per-iteration
 randomness from (base seed, GLOBAL iteration number), so a sharded run
 covers exactly the iterations — the same draws — the sequential run
-would, merged in iteration order. A shard clone sits at HEAD, so
-sharded results describe a committed tree; the parent copies its own
-script into each clone, so the children run the parent's exact code
-even when it carries uncommitted changes. The run's temp dir goes away
-when the run does; the failing documents are saved OUTSIDE it, in the
-artifact directory.
+would, merged in iteration order. A shard's copy is a snapshot of the
+WORKING tree — committed and uncommitted content alike — turned into
+its own git repository whose snapshot commit is the restore's
+baseline; a HEAD-only clone would silently drop uncommitted tests or
+code edits from every shard and could report a false green over stale
+code. The run's temp dir goes away when the run does; the failing
+documents are saved OUTSIDE it, in the artifact directory.
 """
 from __future__ import annotations
 
@@ -146,10 +153,33 @@ def iteration_rng(base_seed: int, iteration: int) -> random.Random:
 def restore_baseline(repo_root: Path) -> None:
     """`git checkout -- src/pricing.json`: whatever the previous
     iteration appended is gone; the tracked document is the baseline."""
-    subprocess.run(
-        ["git", "-C", str(repo_root), "checkout", "--",
+    _git(repo_root, "checkout", "--", PRICING_REL.as_posix())
+
+
+def _git(target: Path, *args: str) -> None:
+    """One git command in `target`, failing loudly on a nonzero exit."""
+    subprocess.run(["git", "-C", str(target), *args], check=True,
+                   capture_output=True, text=True)
+
+
+def _require_clean_pricing(repo_root: Path) -> None:
+    """Refuse to start over a pricing document that carries local
+    changes: the per-iteration restore is `git checkout --`, which
+    would silently discard them, and the run's own rewrites would sit
+    on top of edits the operator might mistake for the baseline."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "status", "--porcelain", "--",
          PRICING_REL.as_posix()],
-        check=True, capture_output=True, text=True)
+        capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise SystemExit(
+            f"fuzz: refusing to run: {repo_root} is not a usable git "
+            f"checkout ({proc.stderr.strip()})")
+    if proc.stdout.strip():
+        raise SystemExit(
+            "fuzz: refusing to run: src/pricing.json carries local "
+            "changes; commit or restore them first — the harness "
+            "restores and rewrites that file every iteration")
 
 
 def run_suite(repo_root: Path) -> tuple[int, str]:
@@ -251,9 +281,7 @@ def _run_sharded(repo_root: Path, base_seed: int, total: int, jobs: int,
             if not count:
                 continue
             shard_dir = Path(tmp) / f"shard-{first}"
-            _clone_tree(repo_root, shard_dir)
-            shutil.copyfile(
-                script, shard_dir / "scripts" / "ci" / script.name)
+            _snapshot_tree(repo_root, shard_dir)
             result_file = shard_dir / "shard-result.json"
             child = subprocess.Popen(  # pylint: disable=consider-using-with
                 [sys.executable,
@@ -290,12 +318,23 @@ def _collect_shards(
     return results
 
 
-def _clone_tree(source: Path, dest: Path) -> None:
-    """A checkout of the tree at HEAD in `dest`: a local clone, whose
-    objects are hardlinks, so a shard costs little and carries a real
-    .git for the per-iteration restore."""
-    subprocess.run(["git", "clone", "--quiet", str(source), str(dest)],
-                   check=True, capture_output=True, text=True)
+def _snapshot_tree(source: Path, dest: Path) -> None:
+    """A disposable git checkout of the tree AS IT IS — committed and
+    uncommitted content alike — so a shard runs exactly what the
+    sequential run would: a HEAD-only clone would silently drop
+    uncommitted tests or code edits from every shard and could report
+    a false green over stale code. The copy becomes its own git
+    repository whose snapshot commit is the per-iteration restore's
+    baseline."""
+    shutil.copytree(
+        source, dest,
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc",
+                                      ".pytest_cache"))
+    _git(dest, "init", "-q")
+    _git(dest, "add", "-A")
+    _git(dest, "-c", "user.name=fuzz test", "-c",
+         "user.email=fuzz@localhost", "commit", "-q", "-m",
+         "fuzz shard baseline")
 
 
 def _print_failure(result: dict) -> None:
@@ -346,10 +385,10 @@ def main(argv: list[str] | None = None,
                              "(default: the wall clock)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="shard the iterations across J child "
-                             "processes, each in its own clone of the "
-                             "tree under a temp dir; results merge in "
-                             "iteration order (default: 1, sequential "
-                             "in this tree)")
+                             "processes, each in its own snapshot of "
+                             "the working tree under a temp dir; "
+                             "results merge in iteration order "
+                             "(default: 1, sequential in this tree)")
     parser.add_argument("--artifact-dir", type=Path, default=Path.cwd(),
                         help="where fuzz-fail-<i>.json lands "
                              "(default: the current directory)")
@@ -370,25 +409,30 @@ def main(argv: list[str] | None = None,
             else int(datetime.now(timezone.utc).timestamp()))
     artifact_dir = args.artifact_dir.resolve()
     root = repo_root if repo_root is not None else REPO_ROOT
-    if args.jobs == 1:
-        results = fuzz_run(root, seed, args.iterations, artifact_dir,
-                           first=args.iteration_first,
-                           step=args.iteration_step)
-    else:
-        results = _run_sharded(root, seed, args.iterations, args.jobs,
-                               artifact_dir)
-    if args.result_file is not None:
-        args.result_file.write_text(
-            json.dumps({"seed": seed, "results": results}, indent=2) + "\n",
-            encoding="utf-8")
-    if not all(result["ok"] for result in results):
-        if args.jobs > 1:
-            for result in results:
-                if not result["ok"]:
-                    _print_failure(result)
-        return 1
-    _print_summary(seed, results)
-    return 0
+    _require_clean_pricing(root)
+    baseline = (root / PRICING_REL).read_bytes()
+    try:
+        if args.jobs == 1:
+            results = fuzz_run(root, seed, args.iterations, artifact_dir,
+                               first=args.iteration_first,
+                               step=args.iteration_step)
+        else:
+            results = _run_sharded(root, seed, args.iterations, args.jobs,
+                                   artifact_dir)
+        if args.result_file is not None:
+            args.result_file.write_text(
+                json.dumps({"seed": seed, "results": results}, indent=2)
+                + "\n", encoding="utf-8")
+        if not all(result["ok"] for result in results):
+            if args.jobs > 1:
+                for result in results:
+                    if not result["ok"]:
+                        _print_failure(result)
+            return 1
+        _print_summary(seed, results)
+        return 0
+    finally:
+        (root / PRICING_REL).write_bytes(baseline)
 
 
 if __name__ == "__main__":
