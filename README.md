@@ -185,7 +185,7 @@ the rollups under the target id.
 
 ```sql
 INSERT INTO project_aliases(pattern, project_id, note)
-VALUES ('-tmp-daedalus-%', '-root-daedalus-public', 'worktrees of /root/daedalus-public');
+VALUES ('-tmp-daedalus-%', '-root-daedalus-public', 'worktrees');
 ```
 
 Deleting a row stops folding new files; rows already folded keep the target
