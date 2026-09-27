@@ -1,0 +1,2 @@
+{"type":"user","isMeta":true,"message":{"role":"user","content":"plain text"}}
+{"type":"assistant","requestId":"r1","message":{"role":"assistant","model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":2}}}

@@ -1,14 +1,9 @@
 # Fixture-driven parser tests live here 1:1 per testing convention; the module size is governed by the size baseline (scripts/ci/size_baseline.py), not pylint's flat module limit.
 """parse.py — per-file extraction.
 
-Each parse_file call returns:
-  - records: one entry per assistant_usage AFTER within-file requestId
-    max-merge. Cross-file uuid dedup happens at query time, not here.
-  - ctx_turns: per-turn (idx, ts, line, input, output, delta) array
-    (SV-PARSER-SPEC).
-
-Cost is precomputed per record using pricing.MODEL_RATES so the read
-path doesn't need to JOIN against rates.
+Returns requestId max-merged records and per-turn ctx_turns.
+Cross-file uuid dedup happens at query time; costs come from
+pricing.MODEL_RATES.
 """
 from pathlib import Path
 from typing import Any
@@ -905,12 +900,8 @@ def test_tool_use_id_kept_on_tool_uses():
 
 
 def test_turn_flags_attach_window_events_to_next_request():
-    """Events between two requests land on the NEXT request: a blocking
-    Stop hook, a date rollover and a typed prompt; then tool results
-    (with an image), a /model command, and the version/effort deltas
-    detected against the previous request. A request with an empty
-    window carries nothing, and a user line of tool results alone is
-    not a prompt."""
+    """Window events attach to the next request; tool-result-only user lines
+    and empty windows add no prompt flags."""
     out = parse.parse_file("k/sess-tf/sess-tf.jsonl", _read("turn_flags.jsonl"))
     first, second, third = out["records"]
     assert first["turn_flags"] == ["date_change", "stop_hook_block", "user_prompt"]
@@ -924,13 +915,24 @@ def test_turn_flags_attach_window_events_to_next_request():
     assert third["turn_tool_results"] == 0
 
 
+def test_turn_flags_user_prompt_pasted_content():
+    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_pasted_content.jsonl"))
+    assert out["records"][0]["turn_flags"] == ["user_prompt"]
+
+
+def test_turn_flags_user_prompt_image_only():
+    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_image_only.jsonl"))
+    assert out["records"][0]["turn_flags"] == ["user_prompt"]
+
+
+def test_turn_flags_user_prompt_excludes_is_meta_text():
+    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_excludes_is_meta_text.jsonl"))
+    assert out["records"][0]["turn_flags"] == []
+
+
 def test_prompt_snapshot_flags_land_on_the_request_they_describe():
-    """A prompt_snapshot attachment is written AFTER the response it
-    describes, so its flags are backfilled onto the previous record, not
-    folded forward. The preamble snapshot without a tool list is ignored,
-    and the first snapshot with tools is only the baseline, so r1 carries
-    just the process start (resume) and the typed prompt; r2 gets
-    tools_change from the snapshot that follows it."""
+    """Snapshots backfill the request they describe; preamble and baseline
+    snapshots add no flags, while later changes land on that request."""
     out = parse.parse_file("k/sess-ps/sess-ps.jsonl", _read("prompt_snapshot.jsonl"))
     first, second = out["records"]
     assert first["turn_flags"] == ["resume", "user_prompt"]
@@ -941,10 +943,8 @@ def test_prompt_snapshot_flags_land_on_the_request_they_describe():
 
 
 def test_prompt_rerender_and_system_change_backfill_with_resume():
-    """The snapshot after r2 changes only the system prompt (system_change);
-    r2 also opened a turn on a cwd that moved since r1 (cwd_rebuild,
-    alongside the plain cwd_switch). A session_context before r3 marks a
-    resume, and its identical snapshot is a prompt_rerender."""
+    """System changes backfill, and identical snapshots mark rerenders.
+    Resume and cwd changes join the flags on their corresponding requests."""
     out = parse.parse_file("k/sess-pr/sess-pr.jsonl", _read("prompt_rerender.jsonl"))
     first, second, third = out["records"]
     assert first["turn_flags"] == ["user_prompt"]
