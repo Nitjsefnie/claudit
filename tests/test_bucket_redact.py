@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, app as app_mod, cache, db, ingest, r2
+from backend import api, app as app_mod, cache, db, ingest, ingest_runs, r2
 from tests import scratch_db
 
 
@@ -202,21 +202,29 @@ def test_redact_strips_bucket_names_and_mirror_root(monkeypatch, tmp_path):
     assert "<mirror>" in out and "<bucket>" in out
 
 
-def test_failure_summary_publicises_keys(monkeypatch):
-    """failure_summary feeds ingest_runs.error, which the public /health
-    serves: its keys are presentation, so they go through public_key."""
+def test_failure_summary_is_count_only(monkeypatch):
+    """The /health error phrase reports a count without naming projects."""
     monkeypatch.setenv("R2_BUCKET", "alpha+beta")
-    out = ingest.failure_summary(
+    summary = getattr(ingest_runs, "failure_summary", None)
+    assert callable(summary), "failure_summary belongs in ingest_runs"
+    out = summary(
         [("alpha/projS/sessS/sessS.jsonl", "RuntimeError: dropped")])
-    assert out == "1 object failed after retries: projS/sessS/sessS.jsonl"
+    assert out == "1 object failed after retries"
 
 
-def test_health_per_object_failure_serves_public_keys(
+def test_failed_public_keys_strips_configured_bucket(monkeypatch):
+    """Authenticated triage keeps the object key but drops the bucket."""
+    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    public_keys = getattr(ingest_runs, "failed_public_keys", None)
+    assert callable(public_keys), "failed_public_keys belongs in ingest_runs"
+    assert public_keys([
+        ("alpha/projS/sessS/sessS.jsonl", "RuntimeError: dropped"),
+    ]) == ["projS/sessS/sessS.jsonl"]
+
+
+def test_health_per_object_failure_serves_count_only(
         redact_app, tmp_path, monkeypatch):
-    """A partial run is ROUTINE. Its ingest_runs.error names the failed
-    objects, and /health serves that field unauthenticated — so the keys
-    must come out in their public form and the failure text must not
-    name a bucket."""
+    """A partial run's public /health error must not name failed objects."""
     real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
 
     def flaky(key: str) -> bytes:
@@ -240,13 +248,44 @@ def test_health_per_object_failure_serves_public_keys(
     body = TestClient(a).get("/health").text
     assert "alpha/" not in body, "bucket-qualified failure key leaked"
     assert "beta/" not in body, "bucket name in failure text leaked"
-    assert "projS/sessS/sessS.jsonl" in body, "public key kept for triage"
+    assert "1 object failed after retries" in body
+    assert "projS" not in body and "sessS" not in body
+
+
+def test_health_truncates_legacy_failure_summary(redact_app):
+    """The /health net removes keys from rows written by older builds."""
+    with db.viz_conn() as c:
+        c.execute(
+            "UPDATE ingest_runs SET error=%s WHERE id=("
+            "SELECT MAX(id) FROM ingest_runs)",
+            ("1 object failed after retries: projS/sessS/sessS.jsonl",),
+        )
+        c.commit()
+
+    body = redact_app.get("/health").text
+    assert "1 object failed after retries" in body
+    assert "projS" not in body and "sessS" not in body
+
+
+def test_health_truncates_multiline_legacy_failure_summary(redact_app):
+    """The /health net consumes key lines after an old count summary."""
+    with db.viz_conn() as c:
+        c.execute(
+            "UPDATE ingest_runs SET error=%s WHERE id=("
+            "SELECT MAX(id) FROM ingest_runs)",
+            ("1 object failed after retries:\nprojS/sessS/sessS.jsonl",),
+        )
+        c.commit()
+
+    body = redact_app.get("/health").text
+    assert "1 object failed after retries" in body
+    assert "projS" not in body and "sessS" not in body
 
 
 def test_health_fatal_never_names_a_bucket(redact_app, monkeypatch):
     """A whole-run fatal (mirror FileNotFoundError, S3 error) names the
-    bucket in its message. The stored fatal text is redacted of every
-    configured bucket name; the full exception stays in the logs."""
+    bucket in its message. Stored text keeps only its type, while the full
+    exception stays in the logs."""
     def broken(prefix: str = ""):
         raise FileNotFoundError(
             "no mirror directory for bucket 'beta'; listing refused")
