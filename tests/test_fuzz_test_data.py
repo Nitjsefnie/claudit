@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -274,6 +275,11 @@ def _git(repo: Path, *args: str) -> None:
                    capture_output=True, text=True)
 
 
+def _git_commit(repo: Path, message: str) -> None:
+    _git(repo, "-c", "user.name=fuzz test", "-c",
+         "user.email=fuzz@localhost", "commit", "-q", "-m", message)
+
+
 @pytest.fixture(name="git_repo")
 def _git_repo_fixture(tmp_path: Path) -> Path:
     """A disposable git checkout shaped like the tree: src/pricing.json
@@ -288,8 +294,7 @@ def _git_repo_fixture(tmp_path: Path) -> Path:
     (repo / "tests" / "test_placeholder.py").write_text("", encoding="utf-8")
     _git(repo, "init", "-q")
     _git(repo, "add", "-A")
-    _git(repo, "-c", "user.name=fuzz test", "-c",
-         "user.email=fuzz@localhost", "commit", "-q", "-m", "baseline")
+    _git_commit(repo, "baseline")
     return repo
 
 
@@ -359,8 +364,7 @@ def test_a_shard_snapshot_carries_uncommitted_work(git_repo, tmp_path):
     probe = git_repo / "tests" / "test_probe.py"
     probe.write_text("def test_committed(): ...\n", encoding="utf-8")
     _git(git_repo, "add", "-A")
-    _git(git_repo, "-c", "user.name=fuzz test", "-c",
-         "user.email=fuzz@localhost", "commit", "-q", "-m", "probe")
+    _git_commit(git_repo, "probe")
     probe.write_text("def test_uncommitted(): ...\n", encoding="utf-8")
     fresh = git_repo / "tests" / "test_new.py"
     fresh.write_text("def test_new(): ...\n", encoding="utf-8")
@@ -371,6 +375,36 @@ def test_a_shard_snapshot_carries_uncommitted_work(git_repo, tmp_path):
     assert "def test_uncommitted" in (shard / "tests" / "test_probe.py"
                                       ).read_text(encoding="utf-8")
     assert (shard / "tests" / "test_new.py").exists()
+    status = subprocess.run(["git", "-C", str(shard), "status",
+                             "--porcelain"], capture_output=True, text=True,
+                            check=True)
+    assert status.stdout == ""
+
+
+def test_an_ignored_fifo_does_not_break_the_snapshot(git_repo, tmp_path):
+    """The snapshot carries exactly the files git knows about — tracked
+    plus untracked, unignored — never walking ignored runtime paths, so
+    a NONCOPYABLE artifact under an ignored directory (a live Unix
+    socket in a real checkout; a fifo here, same shape) cannot break
+    the copy and cannot reach a shard. Untracked, unignored files still
+    reach it, and the snapshot repository starts out clean."""
+    (git_repo / ".gitignore").write_text("runtime/\n", encoding="utf-8")
+    runtime = git_repo / "runtime"
+    runtime.mkdir()
+    os.mkfifo(runtime / "live.sock")
+    (runtime / "notes.txt").write_text("runtime scratch\n",
+                                       encoding="utf-8")
+    reachable = git_repo / "scratch.txt"
+    reachable.write_text("reaches the shard\n", encoding="utf-8")
+    _git(git_repo, "add", "-A")  # the .gitignore keeps runtime/ out
+    _git_commit(git_repo, "gitignore")
+
+    shard = tmp_path / "shard"
+    # pylint: disable-next=protected-access
+    fuzz_module._snapshot_tree(git_repo, shard)
+    assert not (shard / "runtime").exists()
+    assert (shard / "scratch.txt").read_text(encoding="utf-8") == \
+        "reaches the shard\n"
     status = subprocess.run(["git", "-C", str(shard), "status",
                              "--porcelain"], capture_output=True, text=True,
                             check=True)
