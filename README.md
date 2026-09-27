@@ -327,12 +327,31 @@ psql claudit -f backend/schema.sql
 
 ### Rebuilding from the bucket
 
-The database is derived state: everything in it is parsed out of the
-bucket on every ingest, so a fresh database re-ingests to byte-identical
-totals. If a database is lost or damaged beyond repair, recovery is
-`createdb` plus a service restart — the schema auto-applies at startup
-and the ingest run repopulates every table. No backup of the database
-itself is needed beyond the bucket it is built from.
+The database is derived from the bucket except for deployment-specific
+state, so a fresh database reproduces byte-identical totals only when the
+operator-owned suppression list is restored. `suppressed_models` is
+populated per deployment and ships empty; its suppression patterns are
+not stored in the bucket. Without it, previously purged records return
+during ingest, are counted and priced, and change the totals. Back it up
+with:
+
+```bash
+pg_dump --table=suppressed_models --data-only "$DATABASE_URL_VIZ" > suppressed_models.sql
+```
+
+If a database is lost or damaged beyond repair, recreate it with
+`createdb` and start the service once so the schema auto-applies. Then
+stop the service, restore the saved table after the schema exists, and
+restart the service to kick an ingest with the suppression patterns in
+place:
+
+```bash
+psql "$DATABASE_URL_VIZ" --file=suppressed_models.sql
+```
+
+The `user_session` table is also not derived from the bucket; it holds
+per-user session secrets and logout generation counters. If it is lost,
+every user must sign in again.
 
 ## Auth
 
