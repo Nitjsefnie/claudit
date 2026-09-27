@@ -521,6 +521,90 @@ def test_purge_suppressed_is_idempotent(fresh_db, mini_r2_env):
     assert ingest.purge_suppressed() == 0
 
 
+# ---------------------------------------------------------------------------
+# Project aliases (issue #272): the fold pass runs in the derived-state
+# rebuild, so stored identity is folded before any rollup reads it.
+# ---------------------------------------------------------------------------
+
+
+def _alias(pattern: str, target: str) -> None:
+    """Add one project alias, the way an operator would."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO project_aliases (pattern, project_id, note) "
+                  "VALUES (%s, %s, 'test')", (pattern, target))
+        c.commit()
+
+
+def _file_owners() -> dict[str, int]:
+    """File count per stored project id."""
+    with db.viz_conn() as c:
+        return dict(c.execute(
+            "SELECT project_id, COUNT(*) FROM files GROUP BY 1").fetchall())
+
+
+def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
+    """A file persisted under its raw key-layout id plus an alias row:
+    the SAME run's rebuild folds it — every file lands on the target id,
+    the emptied source project row is gone, and usage_rollup (rebuilt
+    after the fold) carries the target id only."""
+    _alias("projA%", "projB")
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    with db.viz_conn() as c:
+        src_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
+                              "WHERE project_id = 'projA'")
+        tgt_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
+                              "WHERE project_id = 'projB'")
+        rolled = dict(c.execute(
+            "SELECT project_id, COUNT(*) FROM usage_rollup GROUP BY 1"
+        ).fetchall())
+    assert _file_owners() == {"projB": 5}, (
+        "every file in the mirror lands on the target id")
+    assert src_rows == 0, "the emptied source project row is gone"
+    assert tgt_rows == 1, "the target project row exists"
+    assert set(rolled) == {"projB"} and sum(rolled.values()) > 0, (
+        "usage_rollup was rebuilt after the fold and carries the target id")
+
+
+def test_alias_added_after_first_ingest_folds_without_a_reparse(
+        fresh_db, mini_r2_env):
+    """An alias row added AFTER the files landed takes effect on the next
+    ingest with no new files: no reparse, no R2 fetch, parser_version
+    untouched — the pass re-keys stored identity only."""
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        stored = {r[0] for r in c.execute(
+            "SELECT DISTINCT parser_version FROM files").fetchall()}
+    assert stored == {constants.PARSER_VERSION}
+
+    _alias("projA%", "projB")
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert result["reparsed"] == 0
+    assert result["inserted"] == 0
+    with db.viz_conn() as c:
+        stored = {r[0] for r in c.execute(
+            "SELECT DISTINCT parser_version FROM files").fetchall()}
+    assert stored == {constants.PARSER_VERSION}, (
+        "folding is not a reparse: the stored parser_version is unchanged")
+    assert _file_owners() == {"projB": 5}
+
+
+def test_alias_row_deleted_already_folded_rows_keep_the_target(
+        fresh_db, mini_r2_env):
+    """Deleting the alias stops folding NEW files only: already-folded
+    rows keep the target id — the raw id is not retained, so an unfold
+    is not possible."""
+    _alias("projA%", "projB")
+    assert ingest.run_ingest(trigger="manual")["error"] is None
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM project_aliases")
+        c.commit()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    assert _file_owners() == {"projB": 5}
+
+
 def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
                                                 monkeypatch):
     """PARSER_VERSION is code-owned: setting the old env var must NOT
