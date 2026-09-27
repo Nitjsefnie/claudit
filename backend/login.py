@@ -14,9 +14,13 @@ still costs longer. Rate limiting: 5 failures per IP+user pair per
 different user behind the same egress IP; entries are pruned per key
 on access and, once the table grows past _LOGIN_MAX_KEYS, every fully
 expired key is swept, so it never grows without bound.
+An aggregate limit also admits at most 20 failures per IP per 5-minute
+window, so rotating user ids cannot evade the pair limit; its entries
+use the same prune-on-access and over-cap sweep behavior.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import time
@@ -39,6 +43,14 @@ _LOGIN_WINDOW_SECONDS = 300
 # whose window has fully expired is dropped on the next access, so the
 # dict cannot be grown without bound by a remote peer.
 _LOGIN_MAX_KEYS = 4096
+
+_LOGIN_IP_FAILURES: dict[str, list[float]] = {}
+# Above the per-pair cap so the pair limit remains binding for one id,
+# while id rotation is limited to 20 failures from one IP per 5 minutes.
+_LOGIN_MAX_IP_FAILURES = 20
+# Sweep trigger for tracked client IPs, matching the pair limiter's
+# prune-on-access and over-cap sweep behavior.
+_LOGIN_MAX_IP_KEYS = 4096
 
 # One answer for every credential failure — identical status and body
 # for unknown id, no web password and wrong password (issue #109).
@@ -92,11 +104,52 @@ def _record_login_failure(ip: str, uid: int) -> None:
         _sweep_expired_keys(now)
 
 
+def _prune_ip_key(ip: str, now: float) -> list[float]:
+    """Drop one IP's expired timestamps; delete the key once empty."""
+    attempts = [
+        t for t in _LOGIN_IP_FAILURES.get(ip, [])
+        if now - t < _LOGIN_WINDOW_SECONDS
+    ]
+    if attempts:
+        _LOGIN_IP_FAILURES[ip] = attempts
+    else:
+        _LOGIN_IP_FAILURES.pop(ip, None)
+    return attempts
+
+
+def _sweep_expired_ip_keys(now: float) -> None:
+    """Drop every expired IP key after the table grows past its cap."""
+    expired = [
+        ip for ip, attempts in _LOGIN_IP_FAILURES.items()
+        if not any(now - t < _LOGIN_WINDOW_SECONDS for t in attempts)
+    ]
+    for ip in expired:
+        del _LOGIN_IP_FAILURES[ip]
+
+
+def _check_login_ip_rate_limit(ip: str) -> bool:
+    now = time.time()
+    attempts = _prune_ip_key(ip, now)
+    if len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
+        _sweep_expired_ip_keys(now)
+    return len(attempts) >= _LOGIN_MAX_IP_FAILURES
+
+
+def _record_login_ip_failure(ip: str) -> None:
+    now = time.time()
+    attempts = _prune_ip_key(ip, now)
+    attempts.append(now)
+    _LOGIN_IP_FAILURES[ip] = attempts
+    if len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
+        _sweep_expired_ip_keys(now)
+
+
 def reset_login_rate_limits() -> None:
     """Clear the process-global failure dict. Tests need this between
     cases that POST from the same TestClient host; production never
     calls it."""
     _LOGIN_FAILURES.clear()
+    _LOGIN_IP_FAILURES.clear()
 
 
 _LOGIN_HTML = """<!DOCTYPE html>
@@ -170,7 +223,9 @@ async def login_post(
         return Response(
             "Invalid user ID", status_code=400, media_type="text/plain"
         )
-    if _check_login_rate_limit(ip, uid):
+    pair_limited = _check_login_rate_limit(ip, uid)
+    ip_limited = _check_login_ip_rate_limit(ip)
+    if pair_limited or ip_limited:
         return Response(
             "Too many login attempts. Try again later.",
             status_code=429, media_type="text/plain",
@@ -181,20 +236,28 @@ async def login_post(
         # the CPU the real verification would cost — and give the same
         # generic answer a wrong password gets, so neither response
         # shape nor timing separates the two (#109).
-        auth.normalize_verification_timing(password, 0)
+        await asyncio.to_thread(
+            auth.normalize_verification_timing, password, 0
+        )
         _record_login_failure(ip, uid)
+        _record_login_ip_failure(ip)
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
-    if not auth.verify_web_password(config, password):
+    if not await asyncio.to_thread(
+        auth.verify_web_password, config, password
+    ):
         # Top up whatever the real verification spent (its own count
         # for a versioned hash, the legacy count for bare hex, zero
         # for a malformed hash that ran no PBKDF2 at all) so a failure
         # costs ≈ the target whatever shape the stored hash is (#109).
-        auth.normalize_verification_timing(
-            password, auth.stored_verification_iterations(config)
+        await asyncio.to_thread(
+            auth.normalize_verification_timing,
+            password,
+            auth.stored_verification_iterations(config),
         )
         _record_login_failure(ip, uid)
+        _record_login_ip_failure(ip)
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
