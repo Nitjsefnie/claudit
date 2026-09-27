@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -268,19 +269,146 @@ def test_a_document_with_no_rate_rows_is_refused(monkeypatch, tmp_path):
         fuzz_module.fuzz_iteration(repo, 0, 7, tmp_path)
 
 
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True,
+                   capture_output=True, text=True)
+
+
+@pytest.fixture(name="git_repo")
+def _git_repo_fixture(tmp_path: Path) -> Path:
+    """A disposable git checkout shaped like the tree: src/pricing.json
+    committed, the tree clean. The refusal, cleanup and shard tests run
+    against it with the REAL per-iteration restore and clean-check."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "src" / "pricing.json").write_text(
+        json.dumps(_seed_doc(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
+    (repo / "tests" / "test_placeholder.py").write_text("", encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "user.name=fuzz test", "-c",
+         "user.email=fuzz@localhost", "commit", "-q", "-m", "baseline")
+    return repo
+
+
+def test_a_dirty_pricing_document_refuses_the_run(
+        monkeypatch, git_repo, tmp_path):
+    """The run refuses to start over a pricing document that carries
+    local changes: the per-iteration restore is `git checkout --`,
+    which would silently discard them. Nothing runs, nothing moves."""
+    pricing_path = git_repo / "src" / "pricing.json"
+    dirty = pricing_path.read_text(encoding="utf-8") + "\n<!-- edit -->\n"
+    pricing_path.write_text(dirty, encoding="utf-8")
+
+    def boom(_root):
+        raise AssertionError("the suite must not run over a dirty baseline")
+
+    monkeypatch.setattr(fuzz_module, "run_suite", boom)
+    with pytest.raises(SystemExit) as exit_info:
+        fuzz_module.main(["--iterations", "1", "--seed", "7",
+                          "--artifact-dir", str(tmp_path)],
+                         repo_root=git_repo)
+    assert exit_info.value.code != 0
+    assert "local changes" in str(exit_info.value.code)
+    assert pricing_path.read_text(encoding="utf-8") == dirty
+
+
+def test_the_tree_is_restored_after_a_failing_run(
+        monkeypatch, git_repo, tmp_path):
+    """A failing run leaves the tree exactly as it was found: the
+    failure artifact is saved first, the baseline is restored in a
+    `finally` after it."""
+    pricing_path = git_repo / "src" / "pricing.json"
+    baseline = pricing_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(
+        fuzz_module, "run_suite",
+        lambda _root: (1, "FAILED tests/test_x.py::test_y\n"))
+    exit_code = fuzz_module.main(
+        ["--iterations", "1", "--seed", "7",
+         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
+    assert exit_code == 1
+    artifact = tmp_path / "fuzz-fail-0.json"
+    assert artifact.exists()
+    assert artifact.read_text(encoding="utf-8") != baseline
+    assert pricing_path.read_text(encoding="utf-8") == baseline
+
+
+def test_the_tree_is_restored_after_a_green_run(
+        monkeypatch, git_repo, tmp_path):
+    """A green run also leaves the tree as it was found — the last
+    iteration's perturbed document does not outlive the run."""
+    pricing_path = git_repo / "src" / "pricing.json"
+    baseline = pricing_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(fuzz_module, "run_suite",
+                        lambda _root: (0, "suite ok"))
+    exit_code = fuzz_module.main(
+        ["--iterations", "2", "--seed", "7",
+         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
+    assert exit_code == 0
+    assert pricing_path.read_text(encoding="utf-8") == baseline
+
+
+def test_a_shard_snapshot_carries_uncommitted_work(git_repo, tmp_path):
+    """Each shard runs from a snapshot of the WORKING tree — committed
+    and uncommitted content alike — as its own git repository: a
+    HEAD-only clone would silently drop uncommitted tests or code
+    edits from every shard and could report a false green over stale
+    code."""
+    probe = git_repo / "tests" / "test_probe.py"
+    probe.write_text("def test_committed(): ...\n", encoding="utf-8")
+    _git(git_repo, "add", "-A")
+    _git(git_repo, "-c", "user.name=fuzz test", "-c",
+         "user.email=fuzz@localhost", "commit", "-q", "-m", "probe")
+    probe.write_text("def test_uncommitted(): ...\n", encoding="utf-8")
+    fresh = git_repo / "tests" / "test_new.py"
+    fresh.write_text("def test_new(): ...\n", encoding="utf-8")
+
+    shard = tmp_path / "shard"
+    # pylint: disable-next=protected-access
+    fuzz_module._snapshot_tree(git_repo, shard)
+    assert "def test_uncommitted" in (shard / "tests" / "test_probe.py"
+                                      ).read_text(encoding="utf-8")
+    assert (shard / "tests" / "test_new.py").exists()
+    status = subprocess.run(["git", "-C", str(shard), "status",
+                             "--porcelain"], capture_output=True, text=True,
+                            check=True)
+    assert status.stdout == ""
+
+
 def test_the_schedule_of_a_touched_provider_row_is_untouched(
         monkeypatch, tmp_path):
     """Appending to a scheduled provider row appends a PLAIN entry: the
-    row's existing entries — its schedule among them — are untouched."""
-    result, perturbed, original, _pristine = _run_one(
-        monkeypatch, tmp_path, base_seed=11, iteration=2)
-    for key in result["keys"]:
-        if key not in perturbed["providers"]:
-            continue
-        original_entries = _rows_of(original)[key]
-        got = _rows_of(perturbed)[key]
-        assert got[:-1] == original_entries
-        assert "schedule" not in got[-1]
+    row's existing entries — its schedule among them — are untouched,
+    and the appended entry carries no schedule of its own. The touched
+    provider rows are identified from the ORIGINAL document, and the
+    seed is chosen so at least one IS touched: the assertions cannot
+    silently run zero times."""
+    original = _seed_doc()
+    provider_keys = {f"{model} via {host}"
+                     for model, hosts in original["providers"].items()
+                     for host in hosts}
+    # The subset is a pure function of (seed, iteration), so a seed
+    # touching the provider row can be searched without running.
+    # pylint: disable-next=protected-access
+    rows = fuzz_module._rows(original)
+    seed = next(
+        candidate for candidate in range(40)
+        if provider_keys
+        & {key for key, _entries in fuzz_module._choose_rows(  # pylint: disable=protected-access
+            rows, fuzz_module.iteration_rng(candidate, 0))})
+    result, perturbed, _original, _pristine = _run_one(
+        monkeypatch, tmp_path, base_seed=seed, iteration=0)
+    touched = provider_keys & set(result["keys"])
+    assert touched
+    for key in touched:
+        model, host = key.split(" via ", 1)
+        assert perturbed["providers"][model][host][:-1] == \
+            original["providers"][model][host]
+        appended = perturbed["providers"][model][host][-1]
+        assert "schedule" not in appended
+        assert set(appended) == {"from", "note", *RATE_FIELDS}
 
 
 def test_arguments_are_validated():
@@ -301,23 +429,25 @@ def test_help_names_the_flags(capsys):
 
 
 def test_sequential_main_runs_iterations_and_prints_a_summary(
-        monkeypatch, tmp_path, capsys):
-    repo, pricing_path, pristine = _seed_tree(tmp_path)
+        monkeypatch, git_repo, tmp_path, capsys):
     suite_calls, restore_calls = [], []
 
     def fake_suite(_root):
         suite_calls.append(_root)
         return 0, "suite ok"
 
-    def fake_restore(_root):
-        pricing_path.write_text(pristine, encoding="utf-8")
-        restore_calls.append(_root)
+    def counting_restore(root):
+        real_restore(root)
+        restore_calls.append(root)
 
-    monkeypatch.setattr(fuzz_module, "restore_baseline", fake_restore)
+    real_restore = fuzz_module.restore_baseline
+    monkeypatch.setattr(fuzz_module, "restore_baseline", counting_restore)
+
+    monkeypatch.setattr(fuzz_module, "restore_baseline", counting_restore)
     monkeypatch.setattr(fuzz_module, "run_suite", fake_suite)
     exit_code = fuzz_module.main(
         ["--iterations", "3", "--seed", "7",
-         "--artifact-dir", str(tmp_path)], repo_root=repo)
+         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
     assert exit_code == 0
     assert len(suite_calls) == 3
     assert len(restore_calls) == 3
@@ -325,37 +455,34 @@ def test_sequential_main_runs_iterations_and_prints_a_summary(
     assert "fuzz OK: 3 iterations green" in out
     assert "seed=7" in out
     assert "rows touched per iteration" in out
-    # The tree holds the last iteration's perturbed document: every
-    # touched row gained one entry over the pristine state.
+    # The tree is left as it was found: the final `finally` restores the
+    # baseline the run recorded at start.
+    pricing_path = git_repo / "src" / "pricing.json"
     doc = json.loads(pricing_path.read_text(encoding="utf-8"))
-    original_rows = _rows_of(_seed_doc())
-    appended = [key for key, entries in _rows_of(doc).items()
-                if len(entries) == len(original_rows[key]) + 1]
-    assert appended
+    assert doc == _seed_doc()
 
 
 def test_a_failing_suite_saves_the_artifact_prints_and_exits_nonzero(
-        monkeypatch, tmp_path, capsys):
+        monkeypatch, git_repo, tmp_path, capsys):
     failing = ("=============================== FAILURES =============\n"
                "FAILED tests/test_example.py::test_pinned - "
                "assert 9.0697 != 9.0698\n"
                "1 failed, 2408 passed in 4.2s\n")
-    repo, pricing_path, pristine = _seed_tree(tmp_path)
     suite_calls = []
-    monkeypatch.setattr(fuzz_module, "restore_baseline",
-                        _fake_restore(pristine, pricing_path))
     monkeypatch.setattr(
         fuzz_module, "run_suite",
         lambda _root: (suite_calls.append(_root), (1, failing))[1])
     exit_code = fuzz_module.main(
         ["--iterations", "3", "--seed", "7",
-         "--artifact-dir", str(tmp_path)], repo_root=repo)
+         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
     assert exit_code == 1
     # The run stopped at the first failing suite.
     assert len(suite_calls) == 1
     artifact = tmp_path / "fuzz-fail-0.json"
     assert artifact.exists()
-    assert artifact.read_text(encoding="utf-8") == \
+    pricing_path = git_repo / "src" / "pricing.json"
+    # The artifact carries the PERTURBED document, the tree the baseline.
+    assert artifact.read_text(encoding="utf-8") != \
         pricing_path.read_text(encoding="utf-8")
     out = capsys.readouterr().out
     assert "iteration 0" in out
@@ -364,8 +491,9 @@ def test_a_failing_suite_saves_the_artifact_prints_and_exits_nonzero(
     assert "FAILED tests/test_example.py::test_pinned" in out
     # The report names every row the failing iteration touched.
     touched = json.loads(artifact.read_text(encoding="utf-8"))
-    pristine_doc = json.loads(pristine)
-    for key in result_keys(touched, pristine_doc):
+    baseline_doc = json.loads(
+        pricing_path.read_text(encoding="utf-8"))
+    for key in result_keys(touched, baseline_doc):
         assert key in out
 
 
