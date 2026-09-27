@@ -399,15 +399,47 @@
       "deepseek/deepseek-v4-flash-0731": {
         "id": "deepseek/deepseek-v4-flash-0731"
       },
+      "deepseek/deepseek-v4-pro": {
+        "id": "deepseek/deepseek-v4-pro"
+      },
+      "deepseek/deepseek-v4-pro-0813": {
+        "id": "deepseek/deepseek-v4-pro-0813"
+      },
       "stealth/space-bunny-alpha": {
         "id": "stealth/space-bunny-alpha"
+      },
+      "xiaomi/mimo-v2-6-flash": {
+        "id": "xiaomi/mimo-v2.6-flash"
+      },
+      "xiaomi/mimo-v2-6-pro": {
+        "id": "xiaomi/mimo-v2.6-pro"
+      },
+      "xiaomi/mimo-v2-6-pro-ultraspeed": {
+        "id": "xiaomi/mimo-v2.6-pro-ultraspeed"
+      },
+      "z-ai/glm-5-3": {
+        "id": "z-ai/glm-5.3",
+        "resolve": {
+          "Alibaba": {
+            "tag": "alibaba",
+            "why": "Alibaba lists glm-5.3 under two tags: the base alibaba endpoint at the model's list price and a dearer alibaba/fast throughput tier. Pinned to alibaba: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          },
+          "BaseTen": {
+            "tag": "baseten/fp4",
+            "why": "BaseTen lists glm-5.3 under baseten/fp4 at the model's list price beside a dearer baseten/fast throughput tier. Pinned to baseten/fp4: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          },
+          "Mistral": {
+            "tag": "mistral/zdr",
+            "why": "Mistral lists glm-5.3 under mistral/zdr and mistral/nvfp4, and nvfp4 itself lists at two prices. Pinned to the single mistral/zdr endpoint at the model's list price: a tag pin must name one tag, and nvfp4 alone would leave the host ambiguous."
+          }
+        }
       },
       "z-ai/glm-5-3-flash": {
         "id": "z-ai/glm-5.3-flash"
       }
     }
   },
-  "provider_rates_fetched": "2026-09-27T12:53:53Z",
+  "provider_rates_fetched": "2026-09-27T15:22:17Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1796,6 +1828,488 @@
         }
       ]
     },
+    "deepseek/deepseek-v4-pro": {
+      "Alibaba": [
+        {
+          "create_1h": 1.416,
+          "create_5m": 1.416,
+          "fresh": 1.416,
+          "from": null,
+          "output": 2.832,
+          "read": 0.118
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 1.68,
+          "create_5m": 1.68,
+          "fresh": 1.68,
+          "from": null,
+          "output": 3.38,
+          "read": 0.13
+        }
+      ],
+      "Baidu": [
+        {
+          "create_1h": 0.34645,
+          "create_5m": 0.34645,
+          "fresh": 0.34645,
+          "from": null,
+          "note": "79.5% off",
+          "output": 0.6929,
+          "read": 0.0287
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 1.15,
+          "create_5m": 1.15,
+          "fresh": 1.15,
+          "from": null,
+          "output": 2.55,
+          "read": 0.2
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 1.3,
+          "create_5m": 1.3,
+          "fresh": 1.3,
+          "from": null,
+          "output": 2.6,
+          "read": 0.1
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 1.044,
+          "create_5m": 1.044,
+          "fresh": 1.044,
+          "from": null,
+          "output": 2.088,
+          "read": 0.2088
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.957,
+          "create_5m": 0.957,
+          "fresh": 0.957,
+          "from": null,
+          "note": "45% off",
+          "output": 1.914,
+          "read": 0.07975
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 1.74,
+          "create_5m": 1.74,
+          "fresh": 1.74,
+          "from": null,
+          "output": 3.48,
+          "read": 0.145
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 1.6,
+          "create_5m": 1.6,
+          "fresh": 1.6,
+          "from": null,
+          "output": 3.2,
+          "read": 0.135
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 1.74,
+          "create_5m": 1.74,
+          "fresh": 1.74,
+          "from": null,
+          "output": 3.48,
+          "read": 0.1
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 1.50162,
+          "create_5m": 1.50162,
+          "fresh": 1.50162,
+          "from": null,
+          "output": 3.135,
+          "read": 0.135
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.348,
+          "create_5m": 0.348,
+          "fresh": 0.348,
+          "from": null,
+          "note": "80% off",
+          "output": 0.696,
+          "read": 0.029
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 1.65,
+          "create_5m": 1.65,
+          "fresh": 1.65,
+          "from": null,
+          "output": 3.301,
+          "read": 0.33
+        }
+      ]
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "Alibaba": [
+        {
+          "create_1h": 1.122,
+          "create_5m": 1.122,
+          "fresh": 1.122,
+          "from": null,
+          "output": 3.366,
+          "read": 0.1122,
+          "schedule": [
+            {
+              "end": 1400,
+              "rates": {
+                "create_1h": 1.122,
+                "create_5m": 1.122,
+                "fresh": 1.122,
+                "output": 3.366,
+                "read": 0.1122
+              },
+              "start": 0
+            },
+            {
+              "end": 0,
+              "rates": {
+                "create_1h": 0.5808,
+                "create_5m": 0.5808,
+                "fresh": 0.5808,
+                "output": 1.7424,
+                "read": 0.05808
+              },
+              "start": 1400
+            }
+          ]
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.132
+        }
+      ],
+      "Baidu": [
+        {
+          "create_1h": 0.2442,
+          "create_5m": 0.2442,
+          "fresh": 0.2442,
+          "from": null,
+          "note": "81.5% off",
+          "output": 0.7326,
+          "read": 0.00777
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "CoreWeave": [
+        {
+          "create_1h": 1.31,
+          "create_5m": 1.31,
+          "fresh": 1.31,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 1.3,
+          "create_5m": 1.3,
+          "fresh": 1.3,
+          "from": null,
+          "output": 2.6,
+          "read": 0.1
+        }
+      ],
+      "DeepSeek": [
+        {
+          "create_1h": 0.66,
+          "create_5m": 0.66,
+          "fresh": 0.66,
+          "from": null,
+          "output": 1.98,
+          "read": 0.022,
+          "schedule": [
+            {
+              "days": [
+                "saturday",
+                "sunday"
+              ],
+              "rates": {
+                "create_1h": 0.66,
+                "create_5m": 0.66,
+                "fresh": 0.66,
+                "output": 1.98,
+                "read": 0.022
+              }
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 100,
+              "rates": {
+                "create_1h": 0.66,
+                "create_5m": 0.66,
+                "fresh": 0.66,
+                "output": 1.98,
+                "read": 0.022
+              },
+              "start": 0
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 400,
+              "rates": {
+                "create_1h": 1.32,
+                "create_5m": 1.32,
+                "fresh": 1.32,
+                "output": 3.96,
+                "read": 0.044
+              },
+              "start": 100
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 600,
+              "rates": {
+                "create_1h": 0.66,
+                "create_5m": 0.66,
+                "fresh": 0.66,
+                "output": 1.98,
+                "read": 0.022
+              },
+              "start": 400
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 1000,
+              "rates": {
+                "create_1h": 1.32,
+                "create_5m": 1.32,
+                "fresh": 1.32,
+                "output": 3.96,
+                "read": 0.044
+              },
+              "start": 600
+            },
+            {
+              "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+              ],
+              "end": 0,
+              "rates": {
+                "create_1h": 0.66,
+                "create_5m": 0.66,
+                "fresh": 0.66,
+                "output": 1.98,
+                "read": 0.022
+              },
+              "start": 1000
+            }
+          ]
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "Fireworks": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 1.056,
+          "create_5m": 1.056,
+          "fresh": 1.056,
+          "from": null,
+          "note": "20% off",
+          "output": 3.168,
+          "read": 0.0352
+        }
+      ],
+      "Ionstream": [
+        {
+          "create_1h": 0.2528,
+          "create_5m": 0.2528,
+          "fresh": 0.2528,
+          "from": null,
+          "note": "36% off",
+          "output": 1.9584,
+          "read": 0.08832
+        }
+      ],
+      "NextBit": [
+        {
+          "create_1h": 1.056,
+          "create_5m": 1.056,
+          "fresh": 1.056,
+          "from": null,
+          "output": 3.168,
+          "read": 0.035
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.99,
+          "create_5m": 0.99,
+          "fresh": 0.99,
+          "from": null,
+          "note": "25% off",
+          "output": 2.97,
+          "read": 0.033
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "Phala": [
+        {
+          "create_1h": 0.957,
+          "create_5m": 0.957,
+          "fresh": 0.957,
+          "from": null,
+          "note": "34% off",
+          "output": 2.8776,
+          "read": 0.099
+        }
+      ],
+      "Sail Research": [
+        {
+          "create_1h": 0.4,
+          "create_5m": 0.4,
+          "fresh": 0.4,
+          "from": null,
+          "output": 4.3,
+          "read": 0.033
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
+      "StreamLake": [
+        {
+          "create_1h": 0.264,
+          "create_5m": 0.264,
+          "fresh": 0.264,
+          "from": null,
+          "note": "80% off",
+          "output": 0.792,
+          "read": 0.0088
+        }
+      ],
+      "Together": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": null,
+          "output": 3.96,
+          "read": 0.13
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 1.65,
+          "create_5m": 1.65,
+          "fresh": 1.65,
+          "from": null,
+          "output": 4.95,
+          "read": 0.165
+        }
+      ],
+      "Wafer": [
+        {
+          "create_1h": 0.24502,
+          "create_5m": 0.24502,
+          "fresh": 0.24502,
+          "from": null,
+          "output": 3.5,
+          "read": 0.24452
+        }
+      ]
+    },
     "stealth/space-bunny-alpha": {
       "Stealth": [
         {
@@ -1805,6 +2319,406 @@
           "from": null,
           "output": 0.0,
           "read": 0.0
+        }
+      ]
+    },
+    "xiaomi/mimo-v2-6-flash": {
+      "DeepInfra": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.0028
+        }
+      ],
+      "Xiaomi": [
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": null,
+          "output": 0.28,
+          "read": 0.0028
+        }
+      ]
+    },
+    "xiaomi/mimo-v2-6-pro": {
+      "DeepInfra": [
+        {
+          "create_1h": 0.435,
+          "create_5m": 0.435,
+          "fresh": 0.435,
+          "from": null,
+          "output": 0.87,
+          "read": 0.0036
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.435,
+          "create_5m": 0.435,
+          "fresh": 0.435,
+          "from": null,
+          "output": 0.87,
+          "read": 0.004
+        }
+      ],
+      "Xiaomi": [
+        {
+          "create_1h": 0.435,
+          "create_5m": 0.435,
+          "fresh": 0.435,
+          "from": null,
+          "output": 0.87,
+          "read": 0.0036
+        }
+      ]
+    },
+    "xiaomi/mimo-v2-6-pro-ultraspeed": {
+      "Xiaomi": [
+        {
+          "create_1h": 4.35,
+          "create_5m": 4.35,
+          "fresh": 4.35,
+          "from": null,
+          "output": 8.7,
+          "read": 0.036
+        }
+      ]
+    },
+    "z-ai/glm-5-3": {
+      "AkashML": [
+        {
+          "create_1h": 1.3,
+          "create_5m": 1.3,
+          "fresh": 1.3,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Alibaba": [
+        {
+          "create_1h": 1.19,
+          "create_5m": 1.19,
+          "fresh": 1.19,
+          "from": null,
+          "output": 3.74,
+          "read": 0.238
+        }
+      ],
+      "AtlasCloud": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Baidu": [
+        {
+          "create_1h": 0.378,
+          "create_5m": 0.378,
+          "fresh": 0.378,
+          "from": null,
+          "note": "73% off",
+          "output": 1.188,
+          "read": 0.0702
+        }
+      ],
+      "BaseTen": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.14
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Crusoe": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Decart": [
+        {
+          "create_1h": 1.19,
+          "create_5m": 1.19,
+          "fresh": 1.19,
+          "from": null,
+          "note": "15% off",
+          "output": 3.74,
+          "read": 0.1955
+        }
+      ],
+      "DeepInfra": [
+        {
+          "create_1h": 0.5625,
+          "create_5m": 0.5625,
+          "fresh": 0.5625,
+          "from": null,
+          "note": "37.5% off",
+          "output": 2.5,
+          "read": 0.125
+        }
+      ],
+      "DigitalOcean": [
+        {
+          "create_1h": 0.91,
+          "create_5m": 0.91,
+          "fresh": 0.91,
+          "from": null,
+          "output": 2.86,
+          "read": 0.169
+        }
+      ],
+      "Fireworks": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Friendli": [
+        {
+          "create_1h": 1.26,
+          "create_5m": 1.26,
+          "fresh": 1.26,
+          "from": null,
+          "note": "10% off",
+          "output": 3.96,
+          "read": 0.234
+        }
+      ],
+      "GMICloud": [
+        {
+          "create_1h": 0.98,
+          "create_5m": 0.98,
+          "fresh": 0.98,
+          "from": null,
+          "note": "30% off",
+          "output": 3.08,
+          "read": 0.182
+        }
+      ],
+      "Inceptron": [
+        {
+          "create_1h": 0.3426,
+          "create_5m": 0.3426,
+          "fresh": 0.3426,
+          "from": null,
+          "output": 1.9404,
+          "read": 0.0744
+        }
+      ],
+      "InferenceNet": [
+        {
+          "create_1h": 0.684,
+          "create_5m": 0.684,
+          "fresh": 0.684,
+          "from": null,
+          "note": "23.999999999999988% off",
+          "output": 2.28,
+          "read": 0.114
+        }
+      ],
+      "Io Net": [
+        {
+          "create_1h": 0.5005,
+          "create_5m": 0.5005,
+          "fresh": 0.5005,
+          "from": null,
+          "note": "35% off",
+          "output": 1.898,
+          "read": 0.091
+        }
+      ],
+      "Makora": [
+        {
+          "create_1h": 1.05,
+          "create_5m": 1.05,
+          "fresh": 1.05,
+          "from": null,
+          "output": 4.2,
+          "read": 0.19
+        }
+      ],
+      "Mistral": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.14
+        }
+      ],
+      "Modal": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Morph": [
+        {
+          "create_1h": 0.362236,
+          "create_5m": 0.362236,
+          "fresh": 0.362236,
+          "from": null,
+          "note": "69.56% off",
+          "output": 1.138456,
+          "read": 0.0595102
+        }
+      ],
+      "Novita": [
+        {
+          "create_1h": 0.7826,
+          "create_5m": 0.7826,
+          "fresh": 0.7826,
+          "from": null,
+          "note": "44.1% off",
+          "output": 2.4596,
+          "read": 0.14534
+        }
+      ],
+      "Parasail": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Phala": [
+        {
+          "create_1h": 0.98,
+          "create_5m": 0.98,
+          "fresh": 0.98,
+          "from": null,
+          "note": "30% off",
+          "output": 3.08,
+          "read": 0.182
+        }
+      ],
+      "PrimeIntellect": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Reka": [
+        {
+          "create_1h": 0.3032,
+          "create_5m": 0.3032,
+          "fresh": 0.3032,
+          "from": null,
+          "output": 2.574,
+          "read": 0.0595102
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.55,
+          "create_5m": 0.55,
+          "fresh": 0.55,
+          "from": null,
+          "output": 1.7,
+          "read": 0.1
+        }
+      ],
+      "Sail Research": [
+        {
+          "create_1h": 0.77,
+          "create_5m": 0.77,
+          "fresh": 0.77,
+          "from": null,
+          "output": 4.0,
+          "read": 0.19
+        }
+      ],
+      "SiliconFlow": [
+        {
+          "create_1h": 1.12,
+          "create_5m": 1.12,
+          "fresh": 1.12,
+          "from": null,
+          "note": "20% off",
+          "output": 3.52,
+          "read": 0.208
+        }
+      ],
+      "Together": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Venice": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "note": "20% off",
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Wafer": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ],
+      "Z.AI": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
         }
       ]
     },
