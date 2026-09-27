@@ -23,7 +23,6 @@ from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSER_JS = ROOT / "src" / "parser.js"
-PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (structural: validates the committed document against the loaders' rules, pins no values)
 PRICING_PY = ROOT / "backend" / "pricing.py"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 JS_FIELDS = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
@@ -34,8 +33,12 @@ needs_node = pytest.mark.skipif(
 )
 
 
+def _pricing_json() -> Path:
+    return ROOT / "src" / "pricing.json"
+
+
 def _doc() -> dict:
-    return json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+    return json.loads(_pricing_json().read_text(encoding="utf-8"))
 
 
 def _at(stamp: str) -> datetime:
@@ -257,7 +260,7 @@ def test_the_file_is_in_canonical_layout():
     """Sorted keys, two-space indent, one field per line: the layout
     json.dumps(doc, indent=2, sort_keys=True) writes, so an automated
     refresh rewrites the file byte-for-byte except for what moved."""
-    text = PRICING_JSON.read_text(encoding="utf-8")
+    text = _pricing_json().read_text(encoding="utf-8")
     assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
 
 
@@ -436,7 +439,7 @@ def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
     """Load the real parser.js as a page would: currentScript is
     /src/parser.js?v=1 on a page at /dashboard/deep/path."""
     dataset = {"pricing": pricing_attr} if pricing_attr else {}
-    body = PRICING_JSON.read_text(encoding="utf-8") if body is None else body
+    body = _pricing_json().read_text(encoding="utf-8") if body is None else body
     return _node_raw(f"""
       global.window = {{}};
       const requests = [];

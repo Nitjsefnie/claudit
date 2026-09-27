@@ -469,19 +469,28 @@ def test_kimi_code_k3_wire_string_wins_over_an_earlier_date():
     assert r["model"] == "kimi-k3"
 
 
-def test_kimi_code_k3_record_is_priced_at_k3_rates():
+def test_kimi_code_k3_record_is_priced_at_k3_rates(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Guards the rate_for substring trap directly: a raw "kimi-code/k3"
     reaching compute_cost would match no key and bill at DEFAULT_RATES
     (k2-6) — a ~3x undercount that no label assertion would catch.
     """
+    k3_rates = {"fresh": 7.0, "create_5m": 8.0, "create_1h": 9.0,
+                "read": 0.7, "output": 70.0}
+    k26_rates = {"fresh": 1.0, "create_5m": 2.0, "create_1h": 3.0,
+                 "read": 0.1, "output": 10.0}
+    rows = dict(pricing.MODEL_RATES)
+    rows.update({"kimi-k3": k3_rates, "kimi-k2-6": k26_rates})
+    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
     out = parse.parse_file(
         "sessions/projKC/sess-k3p/wire.jsonl",
         _kc_blob([(parse_kimi.K3_CUTOFF_EPOCH - 3600, "kimi-code/k3")]),
     )
     r = out["records"][0]
-    k3 = pricing.compute_cost("kimi-k3", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
+    k3 = pricing.compute_cost("kimi-k3", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (synthetic rows: K3's distinctive rate vector is patched into the test table)
                               eph5=0, eph1h=0, unsplit_create=50, read=100)
-    k26 = pricing.compute_cost("kimi-k2-6", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
+    k26 = pricing.compute_cost("kimi-k2-6", fresh=1000, output=200, ts=r["ts"],  # sv-test-data: allow (synthetic rows: K2.6's distinct patched vector proves K3 did not use the fallback)
                                eph5=0, eph1h=0, unsplit_create=50, read=100)
     assert r["cost_usd"] == pytest.approx(k3, rel=1e-9)
     assert r["cost_usd"] != pytest.approx(k26, rel=1e-9), "billed at DEFAULT_RATES"

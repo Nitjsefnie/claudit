@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import lzma
+import os
+import shutil
 from contextlib import closing
 
 import psycopg
 
-from backend import lane_projects
+from backend import cache, constants, db, ingest, lane_projects
 
 # Imported fixtures are discovered from their pytest fixture markers.
 from tests.test_ingest import (  # pylint: disable=unused-import
@@ -17,13 +20,6 @@ from tests.test_ingest import (  # pylint: disable=unused-import
     _plant,
     _scalar,
     _suppress,
-    cache,
-    constants,
-    db,
-    ingest,
-    lzma,
-    os,
-    shutil,
 )
 
 

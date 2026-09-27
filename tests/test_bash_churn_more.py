@@ -1,11 +1,12 @@
 """Tests moved from test_bash_churn.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
+import pytest
+
 from backend.bash_churn import replace_churn
 
 from tests.test_bash_churn import (
     bash_churn,
-    pytest,
     python_write_paths,
 )
 

@@ -1,7 +1,11 @@
 """Tests moved from test_parse_codex.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
-from backend import parse_codex
+import json
+
+import pytest
+
+from backend import parse, parse_codex, pricing
 from backend.parse_codex import _change_churn, _diff_churn
 
 from tests.test_parse_codex import (
@@ -13,10 +17,6 @@ from tests.test_parse_codex import (
     _parse,
     _uncached_headroom,
     _with_cache_write,
-    json,
-    parse,
-    pricing,
-    pytest,
 )
 
 
