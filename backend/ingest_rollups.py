@@ -24,44 +24,41 @@ log = logging.getLogger("claudit.ingest")
 
 
 def purge_suppressed() -> int:
-    """Delete `records` for models listed in `suppressed_models`.
+    """Delete `records` and `tool_uses` for suppressed models.
 
     Claude Code writes every session under one tree no matter which
-    endpoint served it, so resuming a session on the other lane
-    interleaves that provider's assistant entries into a transcript this
-    deploy's bucket already owns. Those rows are real usage but not ours,
-    and pricing them against our rate table invents a cost.
+    endpoint served it. A session resumed on another lane can interleave
+    that provider's assistant entries into a transcript this bucket owns.
+    Those rows are real usage, but not ours; pricing them against our rate
+    table invents cost. Suppression deletes rows rather than filtering at
+    read time, so every read path and rollup stays consistent without
+    duplicating predicates. Tool calls match their own model, because most
+    calls sit on a line with no record (Claude calls follow their requestId's
+    merged record; a lane call never shares a line with one). Only legacy
+    NULL-model calls match a suppressed record on the same line.
 
-    Suppression is a DELETE rather than a read-time filter because every
-    read path and every rollup already reads `records` as the truth; one
-    deletion keeps them all consistent without fifteen extra predicates
-    that a new endpoint could forget. `tool_uses` for the same lines go
-    too -- matched on the call's OWN model, since most calls sit on a line
-    with no record (a Claude tool_use usually follows its requestId's
-    merged record; a lane call never shares a line with one). The
-    same-line join is kept ONLY for rows stored before tool_uses.model
-    existed (model IS NULL until the next reparse); a call that carries a
-    model is judged by it alone.
-
-    Patterns are matched with ILIKE, so 'glm-%' covers a family and a bare
-    model id still matches exactly. Runs before the canonical pass on
-    EVERY ingest, not only when files changed, so adding a pattern takes
-    effect on the next run. Removing one brings the rows back only on a
-    reparse (bump PARSER_VERSION). Returns the number of records deleted.
+    Patterns use ILIKE: 'glm-%' covers a family and a bare model id matches
+    exactly. Runs before canonicalization on every ingest, so new patterns
+    take effect next run. Removing one restores rows only on reparse (bump
+    PARSER_VERSION). Returns total rows deleted from both tables, including
+    calls.
     """
     with db.viz_conn() as c:
         row = c.execute("SELECT EXISTS (SELECT 1 FROM suppressed_models)"
                         ).fetchone()
         if not row or not row[0]:
             return 0
-        c.execute(
+        deleted = 0
+        cur = c.execute(
             """
             DELETE FROM tool_uses tu
              WHERE EXISTS (SELECT 1 FROM suppressed_models s
                             WHERE tu.model ILIKE s.pattern)
+            RETURNING 1
             """
         )
-        c.execute(
+        deleted += len(cur.fetchall())
+        cur = c.execute(
             """
             DELETE FROM tool_uses tu
              USING records r
@@ -70,19 +67,22 @@ def purge_suppressed() -> int:
                AND tu.line_num = r.line_num
                AND EXISTS (SELECT 1 FROM suppressed_models s
                             WHERE r.model ILIKE s.pattern)
+            RETURNING 1
             """
         )
+        deleted += len(cur.fetchall())
         cur = c.execute(
             """
             DELETE FROM records r
              WHERE EXISTS (SELECT 1 FROM suppressed_models s
                             WHERE r.model ILIKE s.pattern)
+            RETURNING 1
             """
         )
-        deleted = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        deleted += len(cur.fetchall())
         c.commit()
     if deleted:
-        log.info("purge_suppressed: %d records dropped", deleted)
+        log.info("purge_suppressed: %d rows dropped", deleted)
     return deleted
 
 
