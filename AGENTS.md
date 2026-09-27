@@ -408,6 +408,12 @@ no other doc carrier: `speed.yml` skips green while no release exists
 (master pushes and dispatches only — a PR always has a merge base), and
 `refresh-pricing.yml` deliberately keeps its no-cache setup despite the
 pip-cache rule every other workflow follows.
+Both master-writing bots authenticate with the `MASTER_PUSH_DEPLOY_KEY`
+deploy key, the bypass actor for the coming required-check ruleset.
+Deploy-key pushes start workflow runs, unlike `GITHUB_TOKEN` pushes; the
+hourly pricing commit intentionally gets an aggregate verdict on master's
+tip, while the ratchet commit stays silent because ci-gate ignores
+`.github/ci-thresholds.json`.
 
 These run locally — run them before pushing, because CI is the
 backstop, not the first check:
