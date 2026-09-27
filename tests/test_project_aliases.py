@@ -102,7 +102,7 @@ def test_first_match_is_the_lexicographically_smallest_matching_pattern(
     with db.viz_conn() as c, c.cursor() as cur:
         _seed(cur, "-tmp-x-1", ["claude/-tmp-x-1/s1/f.jsonl"])
         c.commit()
-    _alias("-tmp-x-9%", "zzz-late")
+    _alias("-tmp-x-1%", "zzz-late")
     _alias("-tmp-x-%", "parent-first")
 
     assert _pairs() == {"-tmp-x-1": "parent-first"}
