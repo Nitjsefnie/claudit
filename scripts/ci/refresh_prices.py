@@ -6,7 +6,9 @@ output) and the entry schedule pricing.overrides becomes, plus the run's
 error type. A price or override kind not modelled here refuses its host:
 a pricing key outside PRICED listed at a nonzero price (a per-request
 fee, an image price), or an override kind outside _OVERRIDE_KEYS, is a
-RefreshError, which appends nothing (SV-RATE-REFRESH).
+RefreshError, which appends nothing (SV-RATE-REFRESH). The provider
+refresh also uses this module for endpoint tag/region normalisation and
+weekly schedule coverage checks for first-seen hosts.
 
 Cache writes take the listed write price when it is nonzero, the input
 rate otherwise; no listed cache-read price is 0. OpenRouter lists USD per
@@ -15,8 +17,9 @@ Decimal keeps "0.0000001275" exactly 0.1275.
 """
 from __future__ import annotations
 
+import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -29,6 +32,30 @@ from backend import pricing  # noqa: E402
 # price (a per-request fee, an image price) refuses its host.
 PRICED = ("prompt", "completion", "input_cache_read", "input_cache_write")
 _OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *PRICED})
+
+# An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
+# and data regions. A region is one of these codes, alone or qualified by an
+# area and a number (us, us-east, us-east-1), in any case.
+REGIONS = ("us", "eu", "uk", "ca", "au", "ap", "jp", "sg", "in", "br", "de", "fr",
+           "nl", "kr", "cn", "hk", "tw", "me", "sa", "za", "asia", "apac", "emea",
+           "latam")
+REGION_RE = re.compile(rf"(?:{'|'.join(REGIONS)})(?:-[a-z]+(?:-[0-9]+)?)?",
+                       re.IGNORECASE)
+QUANTIZATIONS = frozenset({"fp4", "fp6", "fp8", "fp16", "fp32", "bf16", "nvfp4",
+                           "mxfp4", "int4", "int8", "awq", "gptq"})
+
+
+def tag_region(tag: str) -> str | None:
+    """The data region an endpoint tag names, or None for a global one."""
+    for suffix in tag.split("/")[1:]:
+        if REGION_RE.fullmatch(suffix):
+            return suffix.lower()
+    return None
+
+
+def unknown_suffixes(tag: str) -> list[str]:
+    return [suffix for suffix in tag.split("/")[1:]
+            if not REGION_RE.fullmatch(suffix) and suffix.lower() not in QUANTIZATIONS]
 
 
 class RefreshError(Exception):
@@ -112,3 +139,17 @@ def entry_schedule(price: dict, where: str) -> list | None:
 def in_a_window(schedule: list, at: datetime) -> bool:
     # pylint: disable-next=protected-access
     return pricing._scheduled(pricing._schedule(schedule, "schedule"), at) is not None
+
+
+def covers_week(schedule: list) -> bool:
+    """Whether a weekly schedule leaves no instant of the week outside
+    every window, by the loaders' own matching: every (day, minute) of one
+    anchor week falls in a window. 10080 loader calls, a few ms."""
+    windows = pricing._schedule(schedule, "schedule")  # pylint: disable=protected-access
+    anchor = datetime(2026, 1, 5, tzinfo=timezone.utc)
+    for minute in range(7 * 24 * 60):
+        ts = anchor + timedelta(minutes=minute)
+        # pylint: disable-next=protected-access
+        if pricing._scheduled(windows, ts) is None:
+            return False
+    return True

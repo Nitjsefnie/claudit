@@ -668,10 +668,13 @@ keeps the same rules:
     when the fetch falls outside every window of the fetched schedule.
     Inside one, the row's stored default is kept and only the schedule
     is compared, so a schedule covering the whole week never moves its
-    default. A host seen for the first time inside a window is
-    REFUSED: the listed top-level price is the active window's, and
-    starting the row with it would misprice every outside-window
-    record; the next fetch outside every window starts the row.
+    default. A host seen for the first time inside a window is REFUSED
+    unless its schedule covers every instant of the week: then the entry
+    default can price no record, so the row starts with the listed top-level
+    price as its default and the run reports the seeding in a notice;
+    otherwise the listed top-level price is the active window's, and
+    starting the row with it would misprice every outside-window record,
+    so the next fetch outside every window starts the row.
   - **A price a window does not name** is the entry's default: the
     top-level price outside every window, the kept default inside one.
   - **An uneven schedule is reported.** An appended entry whose
