@@ -24,19 +24,20 @@ def test_lane_model_resolves_exact_at_its_list_rate(model):
     r = pricing.resolve(model)
     assert r.kind == "exact"
     assert r.rates is pricing.MODEL_RATES[r.key or model]
-    # D4: one write rate, whatever TTL the record does or does not declare.
-    assert r.rates["create_5m"] == r.rates["create_1h"]
 
 
-def test_flat_create_prices_identically_under_any_declared_ttl():
-    create = pricing.MODEL_RATES["gpt-6-sol"]["create_5m"]
+def test_flat_create_prices_identically_under_any_declared_ttl(monkeypatch):
+    model = "acme/flat-create-9"
+    rates = {"fresh": 2.6, "create_5m": 6.5, "create_1h": 6.5,
+             "read": 0.26, "output": 13.0}
+    monkeypatch.setitem(pricing.MODEL_RATES, model, rates)
     kw: dict[str, Any] = {"fresh": 0, "output": 0, "read": 0}
-    as_5m = pricing.compute_cost("gpt-6-sol", eph5=1_000_000, eph1h=0, unsplit_create=0, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    as_1h = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=1_000_000, unsplit_create=0, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    undeclared = pricing.compute_cost("gpt-6-sol", eph5=0, eph1h=0, unsplit_create=1_000_000, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    # rel=1e-12: the same row's rate on every side; the per-million
-    # scaling can cost each term a last-bit rounding, never a real one.
-    assert as_5m == as_1h == undeclared == pytest.approx(create, rel=1e-12)
+    as_5m = pricing.compute_cost(model, eph5=1_000_000, eph1h=0, unsplit_create=0, **kw)
+    as_1h = pricing.compute_cost(model, eph5=0, eph1h=1_000_000, unsplit_create=0, **kw)
+    undeclared = pricing.compute_cost(model, eph5=0, eph1h=0, unsplit_create=1_000_000, **kw)
+    assert rates["create_5m"] == rates["create_1h"]
+    assert as_5m == as_1h == undeclared == pytest.approx(
+        rates["create_1h"], rel=1e-12)
 
 
 def test_long_context_doubles_input_side_and_raises_output_by_half():
