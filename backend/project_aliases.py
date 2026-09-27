@@ -37,6 +37,24 @@ from backend import db
 log = logging.getLogger("claudit.ingest")
 
 
+def resolve(c: psycopg.Connection, project_id: str) -> str:
+    """Resolve one id through the first matching alias, or keep it.
+
+    Uses the same case-sensitive LIKE and lexicographic first-match rule
+    as the fold pass. This is one lookup only: aliases do not chain here.
+    """
+    row = c.execute(
+        """
+        SELECT a.project_id
+          FROM project_aliases a
+         WHERE %s LIKE a.pattern
+         ORDER BY a.pattern
+         LIMIT 1
+        """,
+        (project_id,)).fetchone()
+    return row[0] if row else project_id
+
+
 def folded_pairs(c: psycopg.Connection) -> dict[str, str]:
     """The moves this pass would make, resolved once per stored id.
 
