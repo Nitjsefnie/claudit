@@ -710,10 +710,12 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
 -- bump. Deleting a row stops folding NEW files. Already-folded rows
 -- stay at the target only until another identity pass re-keys them: a
 -- reparse derives the raw id from the object key, while marker-backed
--- lane files re-converge to the marker slug resolved through the alias
--- chain to its fixed point on the next ingest (after deletion, to the
--- marker slug; the walk stops at an unmatched id or before a revisited id,
--- capped at eight hops). No version coupling: only stored
+-- lane files re-converge on the next ingest to the marker slug's bounded
+-- alias-chain destination (after deletion, the chain resolves under the
+-- remaining aliases — with all alias rows gone, that is the marker
+-- slug); the walk stops at an unmatched id, before a revisited id, or
+-- at eight hops, so a stopped walk may return an id that still matches
+-- an alias. No version coupling: only stored
 -- identity moves -- token columns and costs are untouched.
 CREATE TABLE IF NOT EXISTS project_aliases (
   pattern     TEXT PRIMARY KEY,
