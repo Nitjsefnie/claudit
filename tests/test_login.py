@@ -41,14 +41,26 @@ def _post_login(client, user_id, password, follow_redirects=False):
     )
 
 
+def _clear_user_config_cache():
+    session_mod._USER_CONFIG_CACHE.clear()  # pylint: disable=protected-access
+
+
+def _signed_in_client(app):
+    client = TestClient(app)
+    assert _post_login(client, 12345, "hunter2").status_code == 303
+    return client
+
+
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():
     """The rate-limit dict is process-global; clear it around each test
     so limiter cases never leak failures into neighbouring cases on the
     same TestClient host."""
     login_mod.reset_login_rate_limits()
+    _clear_user_config_cache()
     yield
     login_mod.reset_login_rate_limits()
+    _clear_user_config_cache()
 
 
 @pytest.fixture(name="app")
@@ -69,18 +81,23 @@ def _app_fixture():
 def _fake_session_store_fixture(monkeypatch):
     """In-memory stand-in for claudit's user_session table, wired into
     the flow through the same two functions the real store backs."""
-    rows: dict[int, tuple[str, int]] = {}
+    rows: dict[int, tuple[str, int, str | None]] = {}
 
-    def _get_or_create(user_id):
-        return rows.setdefault(user_id, (secrets.token_urlsafe(32), 0))
+    def _get_or_create(user_id, cred_fp):
+        row = rows.get(user_id)
+        secret, generation = (
+            (secrets.token_urlsafe(32), 0) if row is None else row[:2]
+        )
+        rows[user_id] = (secret, generation, cred_fp)
+        return secret, generation
 
     def _load(user_id):
         return rows.get(user_id)
 
     def _bump(user_id):
         if user_id in rows:
-            secret, generation = rows[user_id]
-            rows[user_id] = (secret, generation + 1)
+            secret, generation, cred_fp = rows[user_id]
+            rows[user_id] = (secret, generation + 1, cred_fp)
 
     monkeypatch.setattr(
         session_mod, "get_or_create_session_row", _get_or_create)
@@ -142,18 +159,13 @@ def test_login_verification_runs_off_event_loop_thread(
     async def capture_event_loop_thread(request, call_next):
         event_loop_threads.append(threading.get_ident())
         return await call_next(request)
-
     real_verify = auth.verify_web_password
 
     def capture_verification_thread(config: dict, password: str) -> bool:
         verification_threads.append(threading.get_ident())
         return real_verify(config, password)
-
-    monkeypatch.setattr(
-        auth, "verify_web_password", capture_verification_thread
-    )
+    monkeypatch.setattr(auth, "verify_web_password", capture_verification_thread)
     r = _post_login(TestClient(app), 12345, "hunter2")
-
     assert r.status_code == 303
     assert len(event_loop_threads) == 1
     assert len(verification_threads) == 1
@@ -299,19 +311,12 @@ def test_wrong_password_against_legacy_hash_tops_up(
 def test_non_hex_legacy_salt_is_generic_and_normalizes_from_legacy_count(
     app, fake_user, monkeypatch
 ):
-    fake_user[558] = {
-        auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
-        auth.WEB_PASSWORD_SALT_KEY: "not-hex",
-    }
+    fake_user[558] = {auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
+                      auth.WEB_PASSWORD_SALT_KEY: "not-hex"}
     calls: list[int] = []
-    monkeypatch.setattr(
-        auth,
-        "normalize_verification_timing",
-        lambda password, spent: calls.append(spent),
-    )
-
+    monkeypatch.setattr(auth, "normalize_verification_timing",
+                        lambda password, spent: calls.append(spent))
     response = _post_login(TestClient(app), 558, "anything")
-
     assert response.status_code == 401
     assert response.text == "Invalid credentials."
     assert calls == [auth.PBKDF2_ITERATIONS]
@@ -479,7 +484,7 @@ def test_under_cap_no_sweep_runs():
 def test_ip_rate_limit_counts_rotating_user_ids():
     ip = "192.0.2.50"
     for uid in range(1, 6):
-        for _ in range(login_mod._LOGIN_MAX_FAILURES):
+        for _ in range(5):
             login_mod._record_login_failure(ip, uid)  # pylint: disable=protected-access
             login_mod._record_login_ip_failure(ip)  # pylint: disable=protected-access
 
@@ -513,9 +518,7 @@ def test_ip_limiter_sweeps_aged_keys_when_over_cap():
     assert len(failures["198.51.100.8"]) == 1
 
 
-def test_ip_limited_429_does_not_reach_auth_work(
-    app, fake_user, monkeypatch
-):
+def test_ip_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch):
     failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
     failures["testclient"] = [
         time_mod.time()
@@ -530,7 +533,6 @@ def test_ip_limited_429_does_not_reach_auth_work(
         "normalize_verification_timing",
         lambda password, spent: pytest.fail("429 must not normalize timing"),
     )
-
     r = _post_login(TestClient(app), 12345, "x")
 
     assert r.status_code == 429
@@ -633,6 +635,46 @@ def test_session_cookie_round_trip(app, fake_user, fake_session_store):
     r = client.get("/api/me")
     assert r.status_code == 200
     assert r.json() == {"user_id": 12345}
+
+
+def test_deleted_auth_user_invalidates_session(
+    app, fake_user, fake_session_store
+):
+    client = _signed_in_client(app)
+    del fake_user[12345]
+    _clear_user_config_cache()
+    assert client.get("/api/me").status_code == 401
+
+
+def test_recreated_auth_user_with_new_password_invalidates_session(
+    app, fake_user, fake_session_store
+):
+    client = _signed_in_client(app)
+    del fake_user[12345]
+    recreated = {}
+    auth.set_web_password(recreated, "different password")
+    fake_user[12345] = recreated
+    _clear_user_config_cache()
+    assert client.get("/api/me").status_code == 401
+
+
+def test_changed_auth_password_invalidates_session(
+    app, fake_user, fake_session_store
+):
+    client = _signed_in_client(app)
+    auth.set_web_password(fake_user[12345], "different password")
+    _clear_user_config_cache()
+    assert client.get("/api/me").status_code == 401
+
+
+def test_login_after_password_change_rebinds_session_immediately(
+    app, fake_user, fake_session_store
+):
+    client = _signed_in_client(app)
+    assert client.get("/api/me").status_code == 200
+    auth.set_web_password(fake_user[12345], "new password")
+    assert _post_login(client, 12345, "new password").status_code == 303
+    assert client.get("/api/me").status_code == 200
 
 
 @pytest.fixture(name="fresh_db")

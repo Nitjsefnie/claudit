@@ -20,6 +20,18 @@ from starlette.responses import Response
 from backend import db, session
 from tests import scratch_db
 
+_TEST_CONFIG = {
+    "web_password_hash": "stored-hash",
+    "web_password_salt": "stored-salt",
+}
+_TEST_CREDENTIAL_FP = (
+    "5f7c3688f3934ccacc7182694bb2e452089f3ab65cb831db3f04851798596baa"
+)
+
+
+def _clear_user_config_cache():
+    session._USER_CONFIG_CACHE.clear()  # pylint: disable=protected-access
+
 
 def test_token_roundtrip():
     secret = "super-secret-32-bytes" * 2
@@ -96,8 +108,8 @@ def test_parse_session_token_rejects_garbage():
 
 
 def test_non_ascii_session_signature_is_generic_unauthorized(monkeypatch):
-    rows = {41: ("known-secret", 0)}
-    monkeypatch.setattr(session, "load_session_row", lambda uid: rows.get(uid))
+    rows = {41: ("known-secret", 0, _TEST_CREDENTIAL_FP)}
+    monkeypatch.setattr(session, "load_session_row", rows.get)
     app = FastAPI()
     app.middleware("http")(session.auth_middleware)
 
@@ -152,32 +164,76 @@ def test_non_ascii_admin_token_is_unauthorized(monkeypatch):
 def _fresh_db_fixture(monkeypatch):
     """A fresh claudit DB with the startup schema applied — the real
     user_session table the store functions run against."""
+    _clear_user_config_cache()
+    monkeypatch.setattr(session, "load_user_config", lambda user_id: _TEST_CONFIG)
     yield from scratch_db.scratch_viz_database(monkeypatch, "session")
+    _clear_user_config_cache()
+
+
+def test_credential_fingerprint_hashes_hash_and_salt_with_a_separator():
+    assert (
+        session.credential_fingerprint(_TEST_CONFIG)
+        == _TEST_CREDENTIAL_FP
+    )
+    assert session.credential_fingerprint({
+        "web_password_hash": "other-hash",
+        "web_password_salt": "stored-salt",
+    }) != _TEST_CREDENTIAL_FP
+    assert session.credential_fingerprint({
+        "web_password_hash": "stored-hash",
+        "web_password_salt": "other-salt",
+    }) != _TEST_CREDENTIAL_FP
 
 
 def test_session_row_first_call_inserts(fresh_db):
-    secret, generation = session.get_or_create_session_row(12345)
+    secret, generation = session.get_or_create_session_row(
+        12345, _TEST_CREDENTIAL_FP
+    )
     assert generation == 0
     assert secret
-    assert session.load_session_row(12345) == (secret, 0)
+    assert session.load_session_row(12345) == (
+        secret, 0, _TEST_CREDENTIAL_FP
+    )
 
 
 def test_session_row_second_call_returns_same_row(fresh_db):
-    first = session.get_or_create_session_row(12345)
-    assert session.get_or_create_session_row(12345) == first
+    first = session.get_or_create_session_row(12345, _TEST_CREDENTIAL_FP)
+    assert session.get_or_create_session_row(
+        12345, _TEST_CREDENTIAL_FP
+    ) == first
 
 
-def test_session_row_conflict_keeps_the_existing_secret(fresh_db):
-    """The losing half of a concurrent first login must keep the
-    winner's row, not overwrite it: INSERT ... ON CONFLICT DO NOTHING
-    then SELECT, in one transaction."""
+def test_session_row_conflict_keeps_secret_and_binds_fingerprint(fresh_db):
+    """A conflict keeps the existing secret and generation while
+    binding the just-proven credential fingerprint."""
     with db.viz_conn() as c:
         c.execute(
             "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
             (555, "winner-secret"),
         )
         c.commit()
-    assert session.get_or_create_session_row(555) == ("winner-secret", 0)
+    assert session.get_or_create_session_row(
+        555, _TEST_CREDENTIAL_FP
+    ) == ("winner-secret", 0)
+    assert session.load_session_row(555) == (
+        "winner-secret", 0, _TEST_CREDENTIAL_FP
+    )
+
+
+def test_session_row_relogin_rebinds_fingerprint_without_resetting_state(
+    fresh_db,
+):
+    secret, generation = session.get_or_create_session_row(
+        77, _TEST_CREDENTIAL_FP
+    )
+    session.bump_session_generation(77)
+
+    assert session.get_or_create_session_row(77, "new-fingerprint") == (
+        secret, generation + 1
+    )
+    assert session.load_session_row(77) == (
+        secret, generation + 1, "new-fingerprint"
+    )
 
 
 def test_session_row_accepts_an_18_digit_user_id(fresh_db):
@@ -185,10 +241,12 @@ def test_session_row_accepts_an_18_digit_user_id(fresh_db):
     user_session row must hold one — an id above 2^31 must insert, load
     and round-trip instead of failing with integer-out-of-range."""
     secret, generation = session.get_or_create_session_row(
-        123456789012345678)
+        123456789012345678, _TEST_CREDENTIAL_FP)
     assert generation == 0
     assert secret
-    assert session.load_session_row(123456789012345678) == (secret, 0)
+    assert session.load_session_row(123456789012345678) == (
+        secret, 0, _TEST_CREDENTIAL_FP
+    )
 
 
 def test_resolve_rejects_real_user_without_a_session_row(fresh_db):
@@ -197,7 +255,9 @@ def test_resolve_rejects_real_user_without_a_session_row(fresh_db):
 
 
 def test_bump_invalidates_the_token_and_relogin_mints_a_new_one(fresh_db):
-    secret, generation = session.get_or_create_session_row(77)
+    secret, generation = session.get_or_create_session_row(
+        77, _TEST_CREDENTIAL_FP
+    )
     tok = session.make_session_token(77, secret, generation=generation)
     assert session.resolve_session_user_id(tok) == 77
 
@@ -206,10 +266,80 @@ def test_bump_invalidates_the_token_and_relogin_mints_a_new_one(fresh_db):
     assert session.resolve_session_user_id(tok) is None
     # A re-login after the bump keeps the secret and returns the new
     # generation, so the freshly minted token verifies again.
-    secret2, generation2 = session.get_or_create_session_row(77)
+    secret2, generation2 = session.get_or_create_session_row(
+        77, _TEST_CREDENTIAL_FP
+    )
     assert (secret2, generation2) == (secret, generation + 1)
     tok2 = session.make_session_token(77, secret2, generation=generation2)
     assert session.resolve_session_user_id(tok2) == 77
+
+
+def test_preexisting_session_row_without_fingerprint_is_invalid(
+    fresh_db, monkeypatch
+):
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
+            (808, "legacy-secret"),
+        )
+        c.commit()
+    monkeypatch.setattr(
+        session,
+        "load_user_config",
+        lambda user_id: pytest.fail("NULL fingerprint must reject first"),
+    )
+    token = session.make_session_token(808, "legacy-secret", generation=0)
+
+    assert session.resolve_session_user_id(token) is None
+
+
+def test_invalid_signature_does_not_load_auth_config(fresh_db, monkeypatch):
+    secret, generation = session.get_or_create_session_row(
+        809, _TEST_CREDENTIAL_FP
+    )
+    token = session.make_session_token(809, secret, generation=generation)
+    payload, _signature = token.rsplit(".", 1)
+    monkeypatch.setattr(
+        session,
+        "load_user_config",
+        lambda user_id: pytest.fail("invalid signature must reject first"),
+    )
+
+    assert session.resolve_session_user_id(f"{payload}.invalid") is None
+
+
+def test_session_resolution_caches_auth_config_for_sixty_seconds(
+    fresh_db, monkeypatch
+):
+    config = dict(_TEST_CONFIG)
+    calls: list[int] = []
+    now = [int(time.time())]
+    monkeypatch.setattr(session, "load_user_config", lambda uid: (
+        calls.append(uid) or config
+    ))
+    monkeypatch.setattr(session.time, "time", lambda: now[0])
+    _clear_user_config_cache()
+    secret, generation = session.get_or_create_session_row(
+        810, _TEST_CREDENTIAL_FP
+    )
+    token = session.make_session_token(810, secret, generation=generation)
+
+    assert session.resolve_session_user_id(token) == 810
+    assert session.resolve_session_user_id(token) == 810
+    assert calls == [810]
+
+    now[0] += 61
+    assert session.resolve_session_user_id(token) == 810
+    assert calls == [810, 810]
+
+
+def test_user_config_cache_stays_within_its_key_limit(monkeypatch):
+    _clear_user_config_cache()
+
+    for user_id in range(1025):
+        session.remember_user_config(user_id, _TEST_CONFIG)
+
+    assert len(session._USER_CONFIG_CACHE) <= 1024  # pylint: disable=protected-access
 
 
 def test_bump_of_user_without_row_is_a_noop(fresh_db):

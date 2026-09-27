@@ -350,11 +350,17 @@ point `R2_ENDPOINT` at a local mirror outside the tree.
   secret regenerated at startup; cookies invalidate on restart. Guests
   are blocked from `/api/projects`, `/api/sessions*`, and `?project=`
   filter params.
-- **Server-side logout (issue #108)**: each real user's session secret
-  and a per-user `generation` counter live in the app's own
-  `user_session` table; a token carries the generation it was minted at
-  and must still match. `GET /logout` bumps the generation, so every
-  token that user holds (in any browser) stops verifying.
+- **Server-side logout and credential-bound sessions (issues #108,
+  #237)**: each real user's session secret, `generation` counter and
+  nullable credential fingerprint live in the app's own `user_session`
+  table. A token's generation must still match, and resolution also
+  checks that the auth-DB user still exists and has the same stored
+  password hash and salt as at the last successful login. The current
+  auth credential is cached for at most 60 seconds, so deletion, a
+  password change or recreation with a different credential revokes
+  sessions within that window. Pre-existing rows without a fingerprint
+  are invalid until a successful login rebinds them. `GET /logout`
+  bumps the generation to invalidate every token that user holds.
 - **No auth-DB writes (issue #94)**: the application only ever READS
   the shared auth DB (`users.config`); session secrets live in
   claudit's own `user_session` table.

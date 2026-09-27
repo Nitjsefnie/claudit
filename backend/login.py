@@ -261,7 +261,9 @@ async def login_post(
         return Response(
             _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
         )
-    secret, generation = session_mod.get_or_create_session_row(uid)
+    cred_fp = session_mod.credential_fingerprint(config)
+    secret, generation = session_mod.get_or_create_session_row(uid, cred_fp)
+    session_mod.remember_user_config(uid, config)
     token = session_mod.make_session_token(uid, secret, generation=generation)
     response = RedirectResponse("/", status_code=303)
     session_mod.set_session_cookie(response, token)
