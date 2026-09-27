@@ -4,6 +4,8 @@ Per SV-TEST-DATA the assertions read each row's rates from the loaded
 tables at run time; what is pinned is exact resolution and the pricing
 ARITHMETIC, never a committed rate value.
 """
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
@@ -40,38 +42,56 @@ def test_flat_create_prices_identically_under_any_declared_ttl(monkeypatch):
         rates["create_1h"], rel=1e-12)
 
 
-def test_long_context_doubles_input_side_and_raises_output_by_half():
-    rates = pricing.MODEL_RATES["gpt-6-sol"]
-    kw: dict[str, Any] = {"fresh": 1_000_000, "output": 1_000_000, "eph5": 0,
-                          "eph1h": 0, "unsplit_create": 1_000_000, "read": 1_000_000}
-    base = pricing.compute_cost("gpt-6-sol", **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert base == pytest.approx(rates["fresh"] + rates["output"]
-                                 + rates["create_1h"] + rates["read"],
-                                 rel=1e-12)
+def test_long_context_doubles_input_side_and_raises_output_by_half(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    model = "gpt-6-sol"
+    rates = {"fresh": 2.0, "create_5m": 3.0, "create_1h": 4.0,
+             "read": 5.0, "output": 6.0}
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    kw: dict[str, Any] = {"fresh": 1, "output": 1, "eph5": 0,
+                          "eph1h": 1, "unsplit_create": 0, "read": 1}
+    base = pricing.compute_cost(model, **kw)
+    long = pricing.compute_cost(model, long_context=True, **kw)
+    scale = 1_000_000
+    assert base == pytest.approx(
+        (rates["fresh"] + rates["output"] + rates["create_1h"]
+         + rates["read"]) / scale, rel=1e-12)
     assert long == pytest.approx(
-        2 * (rates["fresh"] + rates["create_1h"] + rates["read"])
-        + 1.5 * rates["output"], rel=1e-12)
+        (2 * (rates["fresh"] + rates["create_1h"] + rates["read"])
+         + 1.5 * rates["output"]) / scale, rel=1e-12)
 
 
-def test_long_context_multiplier_applies_to_5m_cache_writes():
+def test_long_context_multiplier_applies_to_5m_cache_writes(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """The long-context meter multiplies the whole input side, the 5m
     cache-write bucket included: eph5 prices at create_5m x 2x, not at
     the unsplit create_1h rate."""
-    create_5m = pricing.MODEL_RATES["gpt-6-sol"]["create_5m"]
-    kw: dict[str, Any] = {"fresh": 0, "output": 0, "eph5": 1_000_000,
+    model = "gpt-6-sol"
+    rates = {"fresh": 2.0, "create_5m": 3.0, "create_1h": 4.0,
+             "read": 5.0, "output": 6.0}
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    create_5m = rates["create_5m"]
+    kw: dict[str, Any] = {"fresh": 0, "output": 0, "eph5": 1,
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
-    base = pricing.compute_cost("gpt-6-sol", **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    long = pricing.compute_cost("gpt-6-sol", long_context=True, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert base == pytest.approx(create_5m, rel=1e-12)
-    assert long == pytest.approx(2 * create_5m, rel=1e-12)
+    base = pricing.compute_cost(model, **kw)
+    long = pricing.compute_cost(model, long_context=True, **kw)
+    assert base == pytest.approx(create_5m / 1_000_000, rel=1e-12)
+    assert long == pytest.approx(2 * create_5m / 1_000_000, rel=1e-12)
 
 
-def test_long_context_defaults_off_for_every_existing_caller():
-    kw: dict[str, Any] = {"fresh": 1_000_000, "output": 0, "eph5": 0,
+def test_long_context_defaults_off_for_every_existing_caller(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    model = "claude-opus-5"
+    rates = {"fresh": 2.0, "create_5m": 3.0, "create_1h": 4.0,
+             "read": 5.0, "output": 6.0}
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    kw: dict[str, Any] = {"fresh": 1, "output": 0, "eph5": 0,
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
-    assert pricing.compute_cost("claude-opus-5", **kw) == pricing.compute_cost(  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        "claude-opus-5", long_context=False, **kw)  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.compute_cost(model, **kw) == pricing.compute_cost(
+        model, long_context=False, **kw)
 
 
 @pytest.mark.parametrize("model,before,rates", [
