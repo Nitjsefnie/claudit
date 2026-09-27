@@ -10,7 +10,26 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from backend import db
+from backend import db, r2
+
+
+def failure_summary(failed: list[tuple[str, str]]) -> str | None:
+    """Count failed objects for `ingest_runs.error`.
+
+    This text feeds the unauthenticated /health endpoint (issue #253), so
+    names must not cross that boundary. Failed keys stay in the
+    `_record_failure` log and the admin-only `failed_keys` summary.
+    """
+    if not failed:
+        return None
+    count = len(failed)
+    noun = "object" if count == 1 else "objects"
+    return f"{count} {noun} failed after retries"
+
+
+def failed_public_keys(failed: list[tuple[str, str]]) -> list[str]:
+    """Return bucket-stripped failed keys for authenticated triage."""
+    return [r2.public_key(key) or key for key, _ in failed]
 
 
 def _open_run(started: datetime, trigger: str) -> int:

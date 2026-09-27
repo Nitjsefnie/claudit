@@ -949,7 +949,7 @@ def test_a_failed_rebuild_still_closes_the_run(fresh_db, mini_r2_env,
 
     summary = ingest.run_ingest_locked("manual")
 
-    assert "rollup rebuild exploded" in summary["error"]
+    assert summary["error"] == "RuntimeError: details are in the server log"
     assert _last_run_finished_at() is not None, (
         "a failed rebuild must still close the run")
     assert not broadcasts, "a fatal run must not broadcast ingest_done"

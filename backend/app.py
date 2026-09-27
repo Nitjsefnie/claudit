@@ -150,6 +150,12 @@ def health() -> Response:
                 "FROM ingest_runs ORDER BY id DESC LIMIT 1"
             ).fetchone()
             if row:
+                error = r2.redact(row[7])
+                if error:
+                    # Net for rows stored by older builds; new rows are
+                    # count-only at the source.
+                    error = re.sub(
+                        r"(?s)^(\d+ objects? failed after retries):.*", r"\1", error)
                 last_ingest = {
                     "id": row[0],
                     "started_at": row[1].isoformat() if row[1] else None,
@@ -158,10 +164,7 @@ def health() -> Response:
                     "r2_listed": row[4],
                     "reparsed": row[5],
                     "newer": row[6],
-                    # /health is unauthenticated: the error text is a
-                    # presentation surface (ingest redacts at the source;
-                    # this net also covers rows stored by older builds).
-                    "error": r2.redact(row[7]),
+                    "error": error,
                 }
     except Exception:  # noqa: BLE001
         # Driver text can name hosts, databases, buckets — the public

@@ -4,20 +4,23 @@ and objects that vanish between the listing and their GET.
 Split out of test_ingest.py, whose fixtures it borrows, once that module
 crossed pylint's line budget.
 """
+from __future__ import annotations
+
 import lzma
 import threading
 from collections import Counter
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import constants, db, ingest
+from backend import api, app as app_mod, constants, db, events, ingest, ingest_runs
 
-# failure_summary serves the PUBLIC key form (the error column feeds the
-# public /health), so assertions on it strip the configured bucket.
+# failed_keys is the PUBLIC key form returned for authenticated triage.
 _FLAKY_PUBLIC_KEY = _FLAKY_KEY.split("/", 1)[1]
 
 
@@ -61,13 +64,25 @@ def test_one_failed_object_does_not_abort_the_run(
     """
     monkeypatch.setenv("INGEST_WORKERS", str(workers))
     counts, _ = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
+    recorded = []
+    event_names = []
+    real_broadcast = events.broadcast_threadsafe
+
+    def record_broadcast(event, data):
+        event_names.append(event)
+        recorded.append(dict(data))
+        real_broadcast(event, data)
+
+    monkeypatch.setattr(events, "broadcast_threadsafe", record_broadcast)
 
     result = ingest.run_ingest(trigger="manual")
 
     assert result["failed"] == 1
     assert result["inserted"] == 4, "the other four files must still persist"
-    assert result["error"] == (
-        f"1 object failed after retries: {_FLAKY_PUBLIC_KEY}")
+    assert result["failed_keys"] == [_FLAKY_PUBLIC_KEY]
+    assert result["error"] == "1 object failed after retries"
+    event_index = event_names.index("ingest_done")
+    assert "failed_keys" not in recorded[event_index]
     assert counts[_FLAKY_KEY] == ingest.FETCH_ATTEMPTS
     with db.viz_conn() as c:
         keys = [r[0] for r in c.execute(
@@ -221,9 +236,7 @@ def test_fetch_gives_up_after_three_attempts(
     assert counts[_FLAKY_KEY] == 3
     assert slept == [0.5, 1.0]
     assert result["failed"] == 1
-    assert "connection reset" not in (result["error"] or ""), \
-        "the summary names keys, not stack noise"
-    assert _FLAKY_PUBLIC_KEY in result["error"]
+    assert result["error"] == "1 object failed after retries"
 
 
 _CORRUPT_XZ_KEY = "claude/projC/sess-E/sess-E.jsonl.xz"
@@ -252,10 +265,7 @@ def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
 
     assert result["r2_listed"] == 6
     assert result["failed"] == 1
-    assert result["error"] == (
-        f"1 object failed after retries: "
-        f"{_CORRUPT_XZ_KEY.split('/', 1)[1]}"
-    )
+    assert result["error"] == "1 object failed after retries"
     assert result["inserted"] == 5, "the intact objects are still persisted"
     assert counts[_CORRUPT_XZ_KEY] == 1, "a corrupt object must not be re-fetched"
     assert not slept, "and must not sleep between attempts it does not make"
@@ -273,11 +283,13 @@ def test_a_programming_error_in_the_fetch_is_not_retried(
 
     Retrying a TypeError sleeps 1.5s per object and books it as a
     per-object failure — at 9,213 objects that is a silent multi-hour
-    "partial run" instead of one loud traceback.
+    "partial run" instead of a server-log traceback. The stored fatal
+    text stays static; the logged traceback retains the TypeError detail.
     """
     counts, slept = _patch_fetch(
         monkeypatch, _FLAKY_KEY, fail_times=99,
-        exc=TypeError("get_object() takes 1 positional argument but 2 were given"),
+        exc=TypeError(
+            f"unexpected object: {_FLAKY_PUBLIC_KEY}/x.jsonl"),
     )
 
     result = ingest.run_ingest(trigger="manual")
@@ -286,7 +298,18 @@ def test_a_programming_error_in_the_fetch_is_not_retried(
     assert not slept, "and must not sleep"
     assert result["failed"] == 0, "it is not a per-object failure"
     assert result["error"].startswith("FatalFetchError:"), result["error"]
-    assert "TypeError" in result["error"], "the type must survive into the run"
+    project, session = _FLAKY_PUBLIC_KEY.split("/")[:2]
+    assert project not in result["error"]
+    assert session not in result["error"]
+    a = FastAPI()
+    a.include_router(api.router)
+    a.get("/health")(app_mod.health)
+    body = TestClient(a).get("/health").text
+    assert project not in body
+    assert session not in body
+    assert result["error"] == (
+        "FatalFetchError: details are in the server log"), \
+        "the stored fatal text is static; detail lives in the server log"
     with db.viz_conn() as c:
         rollup = _scalar(c, "SELECT COUNT(*) FROM usage_rollup")
     assert rollup == 0, "a fatal run must not rebuild derived state"
@@ -324,16 +347,15 @@ def test_a_parse_failure_is_not_retried(fresh_db, mini_r2_env, monkeypatch):
     assert "ValueError" not in (result["error"] or "")
 
 
-def test_failure_summary_truncates_a_long_key_list():
-    """A 9,213-file run losing its connection must not write a novel into
-    ingest_runs.error."""
+def test_failure_summary_counts_every_failure():
+    """A count-only error includes failures beyond the former key limit."""
     failed = [(f"p/s{i}/s{i}.jsonl", "OSError: boom") for i in range(9)]
-    summary = ingest.failure_summary(failed)
+    summary_builder = getattr(ingest_runs, "failure_summary", None)
+    assert callable(summary_builder), "failure_summary belongs in ingest_runs"
+    summary = summary_builder(failed)
     assert summary is not None
-    assert summary.startswith("9 objects failed after retries: ")
-    assert summary.endswith(", ... (+4 more)")
-    assert summary.count(".jsonl") == ingest.FAILURE_KEYS_IN_SUMMARY
-    assert ingest.failure_summary([]) is None
+    assert summary == "9 objects failed after retries"
+    assert summary_builder([]) is None
 
 
 # ------------------------------------------- objects that vanish mid-run

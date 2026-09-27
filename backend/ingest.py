@@ -51,7 +51,11 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     recompute_canonical, resolve_teammate_agent_types,
 )
 from backend.project_aliases import rekey_folded_projects
-from backend.ingest_runs import _close_run, _open_run  # noqa: F401  (re-export)  # pylint: disable=unused-import
+# The run-row module owns the public-facing error formatter.
+# These imports preserve the existing `backend.ingest` call surface.
+from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _close_run, _open_run, failed_public_keys, failure_summary,
+)
 from backend.ingest_warm import WARM_RANGES, warm_common  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.ingest_progress import _set_progress, progress_snapshot  # noqa: F401  (re-export)  # pylint: disable=unused-import
 
@@ -154,10 +158,6 @@ class FatalFetchError(Exception):
 # from the tuple so the two can never disagree.
 FETCH_BACKOFF_S = (0.5, 1.0)
 FETCH_ATTEMPTS = len(FETCH_BACKOFF_S) + 1
-
-# How many failing keys the run's `error` summary names before it truncates.
-# The point is a diagnosable message, not a transcript of every key.
-FAILURE_KEYS_IN_SUMMARY = 5
 
 
 @contextmanager
@@ -672,9 +672,12 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     _set_progress(phase="listing", done=0, total=0,
                   run_id=run_id, started_at=started.isoformat())
     listed = inserted = reparsed = deleted = vanished = newer = changed = 0
-    # Per-object failures (key, message). Recorded in the run's `error`, but
-    # deliberately NOT used to gate anything: one dropped connection out of
-    # 9,213 files is a run with a retry pending, not a failed run.
+    # Per-object failures (qualified key, message). Counted in `error`,
+    # whose public /health surface cannot carry keys (issue #253).
+    # Retained for `_record_failure` logs and the authenticated
+    # `failed_keys` response field after SSE serialization. They do not
+    # gate the run: one dropped connection out of 9,213 files is still
+    # a retry pending, not a failed run.
     failed: list[tuple[str, str]] = []
     # A whole-run exception, which DOES gate the post-passes below.
     fatal = None
@@ -689,19 +692,21 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         log.warning("ingest (%s): aborted, shutdown requested", trigger)
         aborted = True
     except Exception as e:  # noqa: BLE001
-        # The full exception goes to the logs; the stored text (served by
-        # the public /health) is redacted of bucket names and the mirror
-        # root, which the message of a mirror FileNotFoundError or an S3
-        # error would otherwise carry.
+        # Full exception details go to the logs; only a static type-bearing
+        # message is stored and served by public /health, so a key embedded
+        # in exception text cannot cross the boundary (issue #253). The
+        # logged traceback retains the original message and cause chain.
         log.exception("ingest (%s): fatal, run aborted", trigger)
-        fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
+        fatal = f"{type(e).__name__}: details are in the server log"
 
     if newer:
         log.warning(
             "ingest (%s): skipped reparse of %d file(s) whose stored "
             "parser_version is newer than this binary's own", trigger, newer)
 
-    # `error` reports both kinds of trouble plus the abort; only these gate.
+    # `error` reports whole-run trouble plus abort and controls post-passes.
+    # Per-object trouble becomes a count because /health is public; key
+    # details remain in logs and the admin response.
     err: str | None
     if aborted:
         err = _ABORT_ERROR
@@ -734,7 +739,7 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         except Exception as e:  # noqa: BLE001
             log.exception(
                 "ingest (%s): fatal, derived-state rebuild failed", trigger)
-            fatal = r2.redact(f"{type(e).__name__}: {e}") or "run failed"
+            fatal = f"{type(e).__name__}: details are in the server log"
             err = fatal
 
     finished = datetime.now(timezone.utc)
@@ -771,6 +776,12 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         _set_progress(phase="warming")
         warm_common()
     _set_progress(phase="idle", done=0, total=0)
+    # Authenticated triage only (/admin/ingest response). The broadcast
+    # above serializes eagerly (json.dumps inside broadcast_threadsafe),
+    # so this field never reaches the guest-visible SSE payload (issue
+    # #253); ingest_runs.error is count-only at the source. Keep this
+    # assignment here to preserve that serialization boundary.
+    summary["failed_keys"] = failed_public_keys(failed)
     return summary
 
 
@@ -816,31 +827,17 @@ def _resolve(items: list, call, workers: int) -> list[tuple]:
 
 def _record_failure(failed: list[tuple[str, str]], key: str,
                     exc: BaseException) -> None:
-    """Book one object as failed and say so in the log."""
+    """Book one failed object and retain its qualified key for triage.
+
+    `_record_failure` logs the key for server-side investigation. The
+    failure list feeds the admin-only response field; `ingest_runs.error`
+    receives `failure_summary`'s count because /health is public.
+    """
     failed.append((key, f"{type(exc).__name__}: {exc}"))
     log.warning(
         "ingest: %s failed after %d attempt(s): %s: %s",
         key, FETCH_ATTEMPTS, type(exc).__name__, exc,
     )
-
-
-def failure_summary(failed: list[tuple[str, str]]) -> str | None:
-    """One line naming how many objects failed and which, or None.
-
-    Goes into ingest_runs.error so a partial run is visible in the admin
-    view, without pretending the whole run failed. The keys are
-    presentation here (the column feeds the public /health), so they go
-    out in their public form — the bucket segment never leaves the
-    server (SV-FILES-RECORDS); the log keeps the qualified keys.
-    """
-    if not failed:
-        return None
-    keys = [r2.public_key(key) or key for key, _ in failed]
-    shown = ", ".join(keys[:FAILURE_KEYS_IN_SUMMARY])
-    if len(keys) > FAILURE_KEYS_IN_SUMMARY:
-        shown += f", ... (+{len(keys) - FAILURE_KEYS_IN_SUMMARY} more)"
-    noun = "object" if len(keys) == 1 else "objects"
-    return f"{len(keys)} {noun} failed after retries: {shown}"
 
 
 def worker_count() -> int:
@@ -880,7 +877,9 @@ def _fetch_with_retry(key: str) -> bytes:
       per-object collector does not absorb it. A TypeError inside
       get_object would otherwise become a 9,213-object "partial run" that
       slept the better part of four hours through the same bug instead of
-      raising one loud traceback.
+      raising one loud traceback. The failed key and exception detail stay
+      in the server log, while public `ingest_runs.error` keeps only the
+      exception type (issue #253). The cause chain remains intact for logs.
     """
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         try:
@@ -898,7 +897,8 @@ def _fetch_with_retry(key: str) -> bytes:
             )
             time.sleep(FETCH_BACKOFF_S[attempt - 1])
         except Exception as e:  # noqa: BLE001
-            raise FatalFetchError(f"{key}: {type(e).__name__}: {e}") from e
+            log.error("ingest: fatal fetch failure on %s", key)
+            raise FatalFetchError(f"{type(e).__name__} while fetching an object; details are in the server log") from e
     raise AssertionError("unreachable")  # pragma: no cover
 
 
