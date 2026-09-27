@@ -43,6 +43,36 @@ os.environ.setdefault("COOKIE_SECURE", "0")
 # teardown that drops it — producing failures in unrelated tests.
 os.environ["CLAUDIT_WARM_CACHE"] = "0"
 
+# The seam's own env name, spelled once here. (Not CLAUDIT_TEST_NOW: the
+# scratch-DB guard forbids test sources naming claudit_test*, strings
+# included.)
+TEST_NOW_ENV = "SEAM_NOW"
+
+
+def seam_now() -> datetime:
+    """The suite's injectable clock (SV-TEST-DATA: a verdict may not
+    depend on the wall clock).
+
+    The refresh bot appends rate stamps hourly, so a test that prices
+    records at datetime.now() reads whichever entry is in force at that
+    time of day — its verdict can flip with the clock even on a fixed
+    seed. Tests whose records carry runtime-now timestamps take their
+    instant from here; SEAM_NOW (epoch seconds, or an ISO-8601 instant —
+    UTC when unzoned) fixes it, and unset, the real clock answers.
+    """
+    raw = os.environ.get(TEST_NOW_ENV)
+    if not raw:
+        return datetime.now(timezone.utc)
+    text = raw.strip()
+    try:
+        return datetime.fromtimestamp(int(text), tz=timezone.utc)
+    except ValueError:
+        pass
+    parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
 
 @pytest.fixture
 def synthetic_dated_rate(monkeypatch):

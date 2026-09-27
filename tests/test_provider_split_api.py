@@ -8,7 +8,7 @@ import os
 import shutil
 import tempfile
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import psycopg
@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, pricing
 from tests import scratch_db
+from tests.conftest import seam_now
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 V41 = "deepseek/deepseek-v4.1-flash"
@@ -61,7 +62,10 @@ def _client_fixture():
     mp = pytest.MonkeyPatch()
     test_db = scratch_db.create_database("provider_split")
     tmp = tempfile.mkdtemp(prefix="sv-provider-")
-    start = datetime.now(timezone.utc) - timedelta(hours=2)
+    # The records' ts is entry-sensitive under the perturbation: which
+    # rate entry is in force there moves with the bot's hourly stamps,
+    # so the instant comes from the seam, never the bare clock.
+    start = seam_now() - timedelta(hours=2)
     sess = Path(tmp) / "r2" / "claude" / "projOR" / "sess-or"
     sess.mkdir(parents=True)
     (sess / "sess-or.jsonl").write_text(_lines(start), encoding="utf-8")
@@ -138,27 +142,44 @@ def test_cache_splits_per_model_by_provider_and_keeps_the_totals(client):
     body = c.get("/api/cache?range=30d").json()
     split = {(e["model"], e["provider"]): e for e in body["per_model_provider"]}
     for p, m, cost, _ in _expected(start):
-        # The fold rounds each total to 4 places, and `cost` is the same
-        # 6-place stored value it sums, so re-derive the rounding.
+        # The fold rounds each total to 4 places; `cost` reaches the same
+        # value through a DIFFERENT pipeline (the DB's numeric SUM,
+        # converted and folded, against this side's own float), so the
+        # two roundings of one 6-place value can straddle a 4-decimal
+        # midpoint by one unit in the 4th place: |a - b| <= 2 * 5e-5
+        # = 1e-4 strict, and 1.5e-4 adds float margin.
         assert split[(m, p)]["cost_total"] == pytest.approx(
-            round(cost, 4), abs=1e-6)
-        # Five buckets + the total, each rounded to 4 places: they can
-        # disagree by up to 6 * 5e-5 = 3e-4 whatever the rates are.
+            round(cost, 4), abs=1.5e-4)
+        # Five buckets + the total: six values rounded on the same
+        # 4-decimal grid, each within half a unit (5e-5) of its true
+        # value, so the two sides sit at most 6 * 5e-5 = 3e-4 apart
+        # whatever the rates are.
         assert abs(sum(split[(m, p)]["cost_buckets"].values())
                    - split[(m, p)]["cost_total"]) <= 3e-4
     per_model = {e["model"]: e for e in body["per_model"]}
     assert "provider" not in per_model[V41]
     assert per_model[V41]["turns"] == 3
-    # A per-model entry sums its rows' stored costs and rounds once, so
-    # re-derive that rounding against the stored 6-place values.
+    # A per-model total is the fold's own accumulation — a naive `+=`
+    # chain over its rows' stored costs in the SQL's cost-DESC order —
+    # while this side re-derives with builtin sum() (compensated since
+    # CPython 3.12) over the same values in request order. Two
+    # independent summation paths: at a 4-decimal midpoint they round to
+    # OPPOSITE sides (the proven case: exact sum 0.014850 -> compensated
+    # 0.0149, naive 0.0148), so a straddle bound, not exactness:
+    # |round_a - round_b| <= 2 * 5e-5 = 1e-4 strict, + float margin.
     v41_total = sum(cost for _, m, cost, _ in _expected(start) if m == V41)
     assert per_model[V41]["cost_total"] == pytest.approx(
-        round(v41_total, 4), abs=1e-6)
+        round(v41_total, 4), abs=1.5e-4)
     # session_total sums the per-model entries' ALREADY-ROUNDED totals
-    # and rounds again (backend/api_cache._session_total), so re-derive
-    # the two-step fold: round per model first, then sum and round.
+    # and rounds again (backend/api_cache._session_total). Both folds
+    # are two-step, and the per-model totals themselves straddle by up
+    # to 1e-4 per model (above): with M models the strict bound is
+    # M * 1e-4 (first step) + 1e-4 (the final two-sided rounding)
+    # = (M + 1) * 1e-4, plus half a unit of margin.
     by_model = {}
     for _, m, cost, _ in _expected(start):
         by_model[m] = by_model.get(m, 0.0) + cost
+    session_tol = (len(by_model) + 1) * 1e-4 + 0.5e-4
     assert body["session_total"]["cost_total"] == pytest.approx(
-        round(sum(round(v, 4) for v in by_model.values()), 4), abs=1e-6)
+        round(sum(round(v, 4) for v in by_model.values()), 4),
+        abs=session_tol)
