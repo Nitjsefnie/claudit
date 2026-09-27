@@ -187,6 +187,7 @@ def test_wait_times_out_when_the_aggregate_conclusion_is_skipped():
                      _short_wait() | {"STUB_RUNS": runs})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
+    assert "Timed out" in proc.stderr
 
 
 def test_wait_times_out_when_the_aggregate_is_a_foreign_app():
@@ -259,6 +260,7 @@ def test_wait_times_out_when_only_release_prefixed_checks_exist():
                      _short_wait() | {"STUB_RUNS": runs})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
+    assert "Timed out" in proc.stderr
 
 
 def test_wait_projection_carries_the_app_slug():
