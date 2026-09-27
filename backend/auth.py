@@ -120,7 +120,9 @@ def verify_web_password(config: dict, password: str) -> bool:
             PBKDF2_ITERATIONS, stored_salt, stored_hash,
         )
     candidate = pbkdf2(password, salt_hex, iterations)
-    return hmac.compare_digest(candidate, expected)
+    return hmac.compare_digest(
+        candidate.encode("utf-8"), expected.encode("utf-8")
+    )
 
 
 def stored_verification_iterations(config: dict) -> int:

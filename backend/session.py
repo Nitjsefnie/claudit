@@ -99,7 +99,9 @@ def verify_session_token(
     expected = hmac.new(
         secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
     ).hexdigest()
-    if not hmac.compare_digest(expected, sig):
+    if not hmac.compare_digest(
+        expected.encode("utf-8"), sig.encode("utf-8")
+    ):
         return None
     if generation is not None and token_generation != generation:
         return None
@@ -219,7 +221,9 @@ def _admin_denied(request: Request) -> Response | None:
     """Admin-token + origin gate for /admin/*; None means allowed."""
     token = request.headers.get("x-admin-token", "")
     expected = os.environ.get("ADMIN_TOKEN", "")
-    if not expected or not hmac.compare_digest(token, expected):
+    if not expected or not hmac.compare_digest(
+        token.encode("utf-8"), expected.encode("utf-8")
+    ):
         return JSONResponse(
             {"ok": False, "error": "Unauthorized"}, status_code=401
         )

@@ -95,6 +95,57 @@ def test_parse_session_token_rejects_garbage():
     assert session.parse_session_token("1.2.nonce.notanint.sig") is None
 
 
+def test_non_ascii_session_signature_is_generic_unauthorized(monkeypatch):
+    rows = {41: ("known-secret", 0)}
+    monkeypatch.setattr(session, "load_session_row", lambda uid: rows.get(uid))
+    app = FastAPI()
+    app.middleware("http")(session.auth_middleware)
+
+    @app.get("/api/me")
+    async def _me():
+        return {"ok": True}
+
+    client = TestClient(app, raise_server_exceptions=False)
+    statuses = []
+    bodies = []
+    for uid in (41, 42):
+        token = f"{uid}.{int(time.time())}.nonce.0.é"
+        response = client.get(
+            "/api/me",
+            headers=[(b"cookie", f"session={token}".encode("latin-1"))],
+        )
+        statuses.append(response.status_code)
+        bodies.append(response.json())
+
+    assert statuses == [401, 401]
+    assert bodies == [
+        {"ok": False, "error": "Unauthorized"},
+        {"ok": False, "error": "Unauthorized"},
+    ]
+
+
+def test_non_ascii_admin_token_is_unauthorized(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "expected-admin-secret")
+    app = FastAPI()
+    app.middleware("http")(session.auth_middleware)
+
+    @app.post("/admin/ingest")
+    async def _ingest():
+        return {"ok": True}
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/admin/ingest",
+        headers=[
+            (b"origin", b"http://testserver"),
+            (b"x-admin-token", "é".encode("latin-1")),
+        ],
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"ok": False, "error": "Unauthorized"}
+
+
 # --------------------------------------------------------------- the store
 
 @pytest.fixture(name="fresh_db")

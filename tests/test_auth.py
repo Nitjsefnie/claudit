@@ -103,6 +103,15 @@ def test_verify_constant_time_against_garbage():
     assert not auth.verify_web_password(config, "anything")
 
 
+def test_non_ascii_stored_hash_is_rejected_without_exception():
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: "é",
+        auth.WEB_PASSWORD_SALT_KEY: "ff" * 16,
+    }
+
+    assert not auth.verify_web_password(config, "anything")
+
+
 def test_stored_verification_iterations_for_each_shape():
     """The count a stored config would verify at: legacy bare hex runs
     at the legacy count, a versioned string at the count it carries,
