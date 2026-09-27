@@ -411,6 +411,58 @@ def test_an_ignored_fifo_does_not_break_the_snapshot(git_repo, tmp_path):
     assert status.stdout == ""
 
 
+def test_a_nested_ignored_test_dir_reaches_the_shard(git_repo, tmp_path):
+    """A nested test directory this deny-by-default .gitignore shadows
+    is git-ignored yet pytest COLLECTS it, so the shard must carry it
+    from disk: a shard without it runs a smaller suite than the
+    sequential run and reports a false green."""
+    (git_repo / ".gitignore").write_text(
+        "*\n!.gitignore\n!/tests/\n/tests/*\n!/tests/*.py\n",
+        encoding="utf-8")
+    _git(git_repo, "add", "-A")
+    _git_commit(git_repo, "gitignore")
+    nested = git_repo / "tests" / "new_case" / "test_feature.py"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("def test_nested(): ...\n", encoding="utf-8")
+    # The precondition: git genuinely cannot see the nested test.
+    listed = subprocess.run(
+        ["git", "-C", str(git_repo), "ls-files", "-co",
+         "--exclude-standard", "tests/"],
+        capture_output=True, text=True, check=True).stdout.splitlines()
+    assert "tests/new_case/test_feature.py" not in listed
+
+    shard = tmp_path / "shard"
+    # pylint: disable-next=protected-access
+    fuzz_module._snapshot_tree(git_repo, shard)
+    got = shard / "tests" / "new_case" / "test_feature.py"
+    assert got.read_text(encoding="utf-8") == "def test_nested(): ...\n"
+
+
+def test_a_fifo_under_tests_refuses_sharding_but_not_sequential(
+        monkeypatch, git_repo, tmp_path):
+    """A non-regular file under tests/ cannot be snapshotted, so the
+    population guarantee would fail silently — the sharded run refuses
+    LOUDLY instead, naming the path. The sequential run never
+    snapshots, so it may still proceed."""
+    under_tests = git_repo / "tests" / "artifacts"
+    under_tests.mkdir(parents=True)
+    os.mkfifo(under_tests / "pipe")
+    monkeypatch.setattr(fuzz_module, "run_suite",
+                        lambda _root: (0, "suite ok"))
+
+    with pytest.raises(SystemExit) as exit_info:
+        fuzz_module.main(["--iterations", "1", "--jobs", "2", "--seed",
+                          "7", "--artifact-dir", str(tmp_path)],
+                         repo_root=git_repo)
+    assert "not a regular file" in str(exit_info.value.code)
+    assert "tests" in str(exit_info.value.code)
+
+    exit_code = fuzz_module.main(
+        ["--iterations", "1", "--jobs", "1", "--seed", "7",
+         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
+    assert exit_code == 0
+
+
 def test_the_schedule_of_a_touched_provider_row_is_untouched(
         monkeypatch, tmp_path):
     """Appending to a scheduled provider row appends a PLAIN entry: the
