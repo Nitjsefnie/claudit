@@ -295,10 +295,12 @@ no `ESCAPE` clause, because POSIX project slugs are case-sensitive. The
 first match wins in lexicographic `pattern` order (the PRIMARY KEY).
 Each pass resolves every stored id once against the pre-fold id set;
 aliases do not chain within a pass. A target that is itself matched
-advances one hop per pass, and repeated passes converge without
-duplicating or losing files. A pass with no matching source ids moves
-nothing. A project whose id equals its matched target is never moved or
-deleted.
+advances one hop per pass. Repeated passes converge without duplicating
+or losing files while the alias set is acyclic on the ids it matches.
+A cyclic alias set is an operator error: folded ids advance around the
+cycle on successive ingests; fix the table. A pass with no matching
+source ids moves nothing. A project whose id equals its matched target
+is never moved or deleted.
 
 The fold runs at ingest before rollups rebuild, so every rollup and read
 path — `/api/projects` included — sees only the target id. Adding or

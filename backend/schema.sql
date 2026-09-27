@@ -698,8 +698,11 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
 -- `pattern` order (the PRIMARY KEY makes the order deterministic and
 -- each row addressable for edit/delete) -- and aliases do not chain
 -- within that pass. A target that matches another alias can advance one
--- hop on a later pass; repeated passes converge without duplicating or
--- losing files, and a pass with no matching source ids moves nothing.
+-- hop on a later pass. Repeated passes converge without duplicating or
+-- losing files while the alias set is acyclic on the ids it matches. A
+-- cyclic alias set is an operator error: folded ids advance around the
+-- cycle on successive ingests; fix the table. A pass with no matching
+-- source ids moves nothing.
 -- A project whose own id equals its matched target is never moved and never
 -- deleted (the pass deletes emptied source project rows, and files
 -- FK-cascade on project delete). Adding or editing a row re-keys stored

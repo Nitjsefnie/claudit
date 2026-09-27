@@ -11,11 +11,14 @@ case-folded by key_layout.canonical_project_id. In each pass, a stored
 project id is resolved EXACTLY ONCE against the current alias list: the
 first pattern in lexicographic `pattern` order that matches it names the
 target, and aliases do not chain within that pass. A target that itself
-matches another alias can advance one hop on a later pass; repeated
-passes converge without duplicating or losing files, and a pass with no
-matching source ids moves nothing. A project whose own id equals its
-matched target is never moved and never deleted (the pass drops emptied
-source project rows, and files FK-cascade on project delete).
+matches another alias can advance one hop on a later pass. Repeated
+passes converge without duplicating or losing files while the alias set
+is acyclic on the ids it matches. A cyclic alias set is an operator
+error: folded ids advance around the cycle on successive ingests, so fix
+the table. A pass with no matching source ids moves nothing. A project
+whose own id equals its matched target is never moved and never deleted
+(the pass drops emptied source project rows, and files FK-cascade on
+project delete).
 """
 from __future__ import annotations
 
@@ -70,9 +73,12 @@ def rekey_folded_projects() -> int:
     Adding or editing a row re-keys stored rows on the next ingest;
     deleting one stops folding NEW files only — already-folded rows
     keep the target id, and the raw id is not retained, so an unfold is
-    not possible. Repeated passes converge one alias hop at a time; a
-    pass that changes nothing moves 0, with no files duplicated or
-    lost. Needs no reparse, no R2 fetch, and no PARSER_VERSION bump:
+    not possible. Repeated passes converge one alias hop at a time
+    without duplicating or losing files while the alias set is acyclic
+    on the ids it matches. A cyclic alias set is an operator error:
+    folded ids advance around the cycle on successive ingests, so fix
+    the table. A pass that changes nothing moves 0. Needs no reparse,
+    no R2 fetch, and no PARSER_VERSION bump:
     only stored identity moves; token columns and costs are untouched.
     Returns the number of project ids re-keyed.
     """
