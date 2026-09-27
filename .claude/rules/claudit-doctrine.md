@@ -304,9 +304,9 @@ is never moved or deleted.
 
 The fold runs at ingest before rollups rebuild, so every rollup and read
 path — `/api/projects` included — sees only the target id. Adding or
-editing a row re-keys stored rows on the next ingest; repeated passes
-converge without a reparse, R2 fetch or `PARSER_VERSION` bump. Deleting
-a row stops folding new files only: already-folded rows keep the target
+editing a row re-keys stored rows on the next ingest; the rekey needs
+no reparse, no R2 fetch and no `PARSER_VERSION` bump. Deleting a
+row stops folding new files only: already-folded rows keep the target
 id because the raw id is not retained. `/api/projects` keeps its
 existing inner-join behavior: a project whose files carry zero usage
 records is not listed (pinned by test).
