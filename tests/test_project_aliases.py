@@ -9,6 +9,8 @@ feature's tests live together here (SV-CI-RATCHETS).
 """
 from __future__ import annotations
 
+import json
+import lzma
 import os
 import shutil
 import tempfile
@@ -20,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, constants, db, ingest, project_aliases
+from backend import api, constants, db, ingest, lane_projects, project_aliases, r2
 from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +75,29 @@ def _alias(pattern: str, target: str) -> None:
             "VALUES (%s, %s, 'test')",
             (pattern, target))
         c.commit()
+
+
+@pytest.fixture(name="lane_r2_env")
+def _lane_r2_env_fixture(tmp_path, monkeypatch) -> dict[str, str]:
+    """One real marker-backed lane wire in a local R2 mirror."""
+    lane_hash = "8805b8ac99ad"
+    session_id = "01a0-uuid"
+    slug = "-home-me-lanework"
+    marker_path = "/home/me/lanework"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / lane_hash / session_id
+    lane.mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    (bucket / "sessions" / lane_hash / "project.json").write_text(
+        json.dumps({"path": marker_path}))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    return {
+        "hash": lane_hash,
+        "slug": slug,
+        "marker_path": marker_path,
+        "wire_key": f"claude/sessions/{lane_hash}/{session_id}/wire.jsonl.xz",
+    }
 
 
 def _pairs() -> dict[str, str]:
@@ -278,6 +303,91 @@ def test_alias_row_deleted_already_folded_rows_keep_the_target(
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
     assert _owners() == {"projB": 5}
+
+
+def _assert_lane_project_is_folded(target: str, slug: str,
+                                   display_name: str) -> None:
+    """Pin the lane file, target row, and absence of intermediate slug."""
+    with db.viz_conn() as c:
+        project_ids = [row[0] for row in c.execute(
+            "SELECT DISTINCT project_id FROM files").fetchall()]
+        target_rows = c.execute(
+            "SELECT display_name FROM projects WHERE project_id = %s",
+            (target,)).fetchall()
+        slug_files = _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = %s", (slug,))
+    assert project_ids == [target]
+    assert target_rows == [(display_name,)]
+    assert slug_files == 0
+
+
+def test_marker_lane_alias_stays_folded_and_keeps_target_display_name(
+        fresh_db, lane_r2_env):
+    """Repeated marker reconciliation must resolve the slug through its
+    alias before moving files, preserving the existing target row."""
+    target = "lanework-repository"
+    display_name = "Lanework repository (main checkout)"
+    _alias(lane_r2_env["slug"], target)
+
+    # Seed the target-owned lane file with the current R2 identity so both
+    # full ingest passes exercise identity reconciliation without reparse.
+    wire = next(obj for obj in r2.list_keys()
+                if obj.key == lane_r2_env["wire_key"])
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, target, [lane_r2_env["wire_key"]])
+        cur.execute(
+            "UPDATE files SET r2_etag = %s, r2_size_bytes = %s, "
+            "parser_version = %s WHERE file_key = %s",
+            (wire.etag, wire.size, constants.PARSER_VERSION,
+             lane_r2_env["wire_key"]))
+        cur.execute(
+            "UPDATE projects SET display_name = %s WHERE project_id = %s",
+            (display_name, target))
+        c.commit()
+
+    for _ in range(2):
+        result = ingest.run_ingest(trigger="manual")
+        assert result["error"] is None
+        assert result["reparsed"] == 0
+        _assert_lane_project_is_folded(target, lane_r2_env["slug"],
+                                        display_name)
+
+
+def test_deleting_lane_alias_returns_files_to_marker_slug(
+        fresh_db, lane_r2_env):
+    """After alias deletion, the next marker identity pass targets the
+    marker slug itself."""
+    target = "lanework-repository"
+    _alias(lane_r2_env["slug"], target)
+    assert ingest.run_ingest(trigger="manual")["error"] is None
+    assert _owners() == {target: 1}
+
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM project_aliases")
+        c.commit()
+    result = ingest.run_ingest(trigger="manual")
+
+    assert result["error"] is None
+    assert _owners() == {lane_r2_env["slug"]: 1}
+
+
+def test_marker_recovery_moves_hash_files_directly_to_alias_target(
+        fresh_db, lane_r2_env):
+    """A marker recovery run rekeys hash-stalled files straight to the
+    alias-resolved slug, without an intermediate bare-slug placement."""
+    target = "lanework-repository"
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, lane_r2_env["hash"], [lane_r2_env["wire_key"]])
+        c.commit()
+    _alias(lane_r2_env["slug"], target)
+
+    moved = lane_projects.rekey_stale_lane_projects(
+        {lane_r2_env["hash"]: lane_r2_env["marker_path"]},
+        {lane_r2_env["hash"]: lane_r2_env["hash"]})
+
+    assert moved == 1
+    assert _owners() == {target: 1}
+    assert lane_r2_env["slug"] not in _project_ids()
 
 
 # ---------------------------------------------------------------------------

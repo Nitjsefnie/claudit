@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from backend import db, key_layout, r2
+from backend import db, key_layout, project_aliases, r2
 
 log = logging.getLogger("claudit.ingest")
 
@@ -97,13 +97,15 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
     new bytes) would sit hash-keyed until each file's etag changed, and
     the first per-file reparse after that would list the directory under
     TWO project ids. Files are stored per key with a project_id column,
-    so the move is a direct UPDATE: upsert the slug project row first
+    so the move is a direct UPDATE: upsert the folded marker project row first
     (the FK needs it, carrying the marker path as display_name and the
     moved files' real first/last seen), move every sessions/<hash>/ row,
     then drop the old id's project row unless other files still
-    reference it (a split hash keeps its other side). A marker-failed
-    run re-keys nothing - it has no project_paths entry. Returns the
-    number of files moved.
+    reference it (a split hash keeps its other side). The destination is
+    the marker slug resolved once through project_aliases, so an active
+    alias does not churn files through the bare slug. A marker-failed run
+    re-keys nothing - it has no project_paths entry. Returns the number
+    of files moved.
     """
     moved = 0
     with db.viz_conn() as c, c.cursor() as cur:
@@ -114,8 +116,9 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
             # unequal to it — which is what triggers the rekey below.
             slug = key_layout.canonical_project_id(
                 key_layout.project_slug(marker_path))
+            target_id = project_aliases.resolve(c, slug)
             stored_id = stored_lane.get(lane_hash)
-            if stored_id is None or stored_id == slug:
+            if stored_id is None or stored_id == target_id:
                 continue
             pattern = _LIKE_FMT.format(lane_hash)
             cur.execute(
@@ -127,11 +130,11 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
                 HAVING COUNT(*) > 0
                 ON CONFLICT (project_id) DO NOTHING
                 """,
-                (slug, marker_path, pattern),
+                (target_id, marker_path, pattern),
             )
             cur.execute(
                 "UPDATE files SET project_id = %s WHERE file_key LIKE %s",
-                (slug, pattern),
+                (target_id, pattern),
             )
             moved += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
             cur.execute(
@@ -140,5 +143,6 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
                 (stored_id, stored_id),
             )
         c.commit()
-    log.info("ingest: re-keyed %d file(s) onto their slug project", moved)
+    log.info("ingest: re-keyed %d file(s) onto their folded marker project",
+             moved)
     return moved
