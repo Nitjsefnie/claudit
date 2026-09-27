@@ -70,10 +70,10 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(monkeypatch):
     assert m["fresh"] == 2_000_000
     assert m["turns"] == 2
     # SV-TEST-DATA rounded-compare rule: cost_total sums the same stored
-    # costs in the same order, so this rounding comparison stays exact.
-    assert m["cost_total"] == pytest.approx(round(total, 4), abs=1e-6)
-    # The five recomputed buckets round independently, so their sum may
-    # differ from the unrounded stored total by up to 2.5e-4.
+    # costs in the same order, so this rounded comparison is exact.
+    assert m["cost_total"] == round(total, 4)
+    # SV-TEST-DATA rounded-compare rule: the five recomputed buckets round
+    # independently, so their sum may differ by up to 2.5e-4.
     assert abs(sum(m["cost_buckets"].values()) - total) <= 2.5e-4
     # SV-TEST-DATA rounded-compare rule: token-price math and stored-total
     # summation differ; allow one 4-place unit plus float comparison noise.
