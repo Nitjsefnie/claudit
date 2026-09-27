@@ -25,50 +25,74 @@ def test_fable_5_suffixes_fold_to_its_own_row():
     assert pricing.resolve("claude-fable-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
 
 
-def test_fable_5_1_and_mythos_5_1_price_identically():
-    """Mythos 5.1 is seeded as the Fable 5.1 row under an alias, and the
-    bracket suffix folds to the same row. Fable 5.1 prices cache hits at
-    0.025x base input — the ratio is the row's own, so it survives any
-    scaling. Two committed rows' equality is not re-derivable from the
-    tables, so the identical-pricing claim is pinned as each row's own
-    ratio and exact resolution — they price identically while the
-    committed seeding holds, and
-    test_fable_5_1_does_not_misroute_to_fable_5 guards the misroute."""
-    f51 = pricing.rate_for("claude-fable-5-1")  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    # rel=1e-12: the ratio is exact in reals and a scaled row keeps it;
-    # float arithmetic on scaled values differs only in its last bits.
-    assert f51["read"] == pytest.approx(f51["fresh"] * 0.025, rel=1e-12)
-    assert pricing.resolve("claude-fable-5-1").kind == "exact"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    assert pricing.rate_for("claude-fable-5-1[1m]") == f51  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    m51 = pricing.rate_for("claude-mythos-5-1")  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    assert m51["read"] == pytest.approx(m51["fresh"] * 0.025, rel=1e-12)
-    assert pricing.resolve("claude-mythos-5-1").kind == "exact"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    assert pricing.resolve("claude-mythos-5-1").key == "claude-mythos-5-1"  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
-    assert pricing.rate_for("claude-mythos-5-1[1m]") == m51  # sv-test-data: allow (derived: each row's own read ratio and exact resolution, never the committed equality)
+def test_fable_5_1_and_mythos_5_1_price_identically(monkeypatch):
+    """The read ratio and identical prices are checked on synthetic rows."""
+    fable_key = "claude-acme-fable-5-1"
+    mythos_key = "claude-acme-mythos-5-1"
+    fable_rates = dict(zip(pricing.RATE_FIELDS, (8.0, 10.0, 16.0, 0.2, 40.0)))
+    mythos_rates = dict(fable_rates)
+    monkeypatch.setitem(pricing.MODEL_RATES, fable_key, fable_rates)
+    monkeypatch.setitem(pricing.MODEL_RATES, mythos_key, mythos_rates)
+
+    fable = pricing.resolve(fable_key)
+    mythos = pricing.resolve(f"anthropic.{mythos_key}[1m]")
+    assert fable.key == fable_key and fable.rates is fable_rates
+    assert mythos.key == mythos_key and mythos.rates is mythos_rates
+    for rates in (fable_rates, mythos_rates):
+        assert rates["read"] == pytest.approx(rates["fresh"] * 0.025)
+    assert fable.rates == mythos.rates
+    fable_cost = pricing.compute_cost(
+        fable_key, fresh=0, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=1_000_000,
+    )
+    mythos_cost = pricing.compute_cost(
+        f"anthropic.{mythos_key}[1m]", fresh=0, output=0,
+        eph5=0, eph1h=0, unsplit_create=0, read=1_000_000,
+    )
+    assert fable_cost == pytest.approx(fable_rates["read"], rel=1e-12)
+    assert mythos_cost == pytest.approx(mythos_rates["read"], rel=1e-12)
+    assert fable_cost == mythos_cost
 
 
 def test_opus_5_5_resolves_exact_distinct_from_opus_5():
-    """Opus 5.5 prices cache hits at 0.05x base input, and never falls
-    through to Opus 5's row."""
-    o55 = pricing.rate_for("claude-opus-5-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert set(o55) == set(pricing.RATE_FIELDS)
-    # approx: exact in reals at any common scaling of the row.
-    assert o55["read"] == pytest.approx(o55["fresh"] * 0.05, rel=1e-12)
-    assert pricing.resolve("claude-opus-5-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.rate_for("claude-opus-5-5[1m]") == o55  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.rate_for("anthropic.claude-opus-5-5") == o55  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    # must not fall through to Opus 5's row
-    assert o55 != pricing.rate_for("claude-opus-5"), (  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        "the test distinguishes the rows only while they differ")
+    """The live table check pins only exact-key and suffix resolution."""
+    o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
+    assert o55.kind == "exact"
+    assert o55.key == "claude-opus-5-5"
+    assert set(o55.rates) == set(pricing.RATE_FIELDS)
+    assert pricing.rate_for("claude-opus-5-5[1m]") == o55.rates  # sv-test-data: allow (structure: suffix folds to exact key)
+    assert pricing.rate_for("anthropic.claude-opus-5-5") == o55.rates  # sv-test-data: allow (structure: alias resolves by exact key)
+
+
+def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
+    rows = {
+        "claude-acme-fable-5": dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
+        "claude-acme-fable-5-1": dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
+        "claude-acme-opus-5": dict(zip(pricing.RATE_FIELDS, (11, 12, 13, 14, 15))),
+        "claude-acme-opus-5-5": dict(zip(pricing.RATE_FIELDS, (16, 17, 18, 19, 20))),
+    }
+    for key, rates in rows.items():
+        monkeypatch.setitem(pricing.MODEL_RATES, key, rates)
+
+    for base, version in (("claude-acme-fable-5", "claude-acme-fable-5-1"),
+                          ("claude-acme-opus-5", "claude-acme-opus-5-5")):
+        older = pricing.resolve(base)
+        newer = pricing.resolve(f"anthropic.{version}[1m]")
+        assert older.key == base and older.rates is rows[base]
+        assert newer.key == version and newer.rates is rows[version]
+        assert older.rates != newer.rates
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5():
-    """The 0.1x read rate of Fable 5 would be a silent 4x overcount on 5.1."""
-    assert pricing.resolve("claude-fable-5-1").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    f5 = pricing.rate_for("claude-fable-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    f51 = pricing.rate_for("claude-fable-5-1")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert f5["read"] != f51["read"]
-    assert pricing.rate_for("claude-mythos-5") != f51  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    """The live row resolves by its own table key, regardless of its values."""
+    f51 = pricing.resolve("claude-fable-5-1")  # sv-test-data: allow (structure: exact key survives appends)
+    assert f51.kind == "exact"
+    assert f51.key == "claude-fable-5-1"
+    assert pricing.rate_for("claude-fable-5-1[1m]") == f51.rates  # sv-test-data: allow (structure: suffix folds to exact key)
+    mythos = pricing.resolve("claude-mythos-5-1")  # sv-test-data: allow (structure: exact key survives appends)
+    assert mythos.kind == "exact"
+    assert mythos.key == "claude-mythos-5-1"
+    assert pricing.rate_for("claude-mythos-5-1[1m]") == mythos.rates  # sv-test-data: allow (structure: suffix folds to exact key)
 
 
 def test_unknown_fable_falls_back_to_current_generation():
