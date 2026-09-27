@@ -38,7 +38,8 @@ from typing import NamedTuple
 import psycopg
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
+from backend import (agent_sidecar, cache, constants, db, events, key_layout,
+                     lane_markers, lane_projects, parse, project_aliases, r2)
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
@@ -619,13 +620,16 @@ def _rebuild_derived_state() -> int:
     before the rollups; those rewrite their whole table every run.
     """
     # Order matters: suppression removes rows the canonical pass would
-    # otherwise rank, and the rollups read is_canonical and agent_type.
+    # otherwise rank, the alias fold re-keys stored project identity
+    # before anything derived reads it, and the rollups read is_canonical
+    # and agent_type.
     # The names resolve through this module's globals at call time, so a
     # test can monkeypatch any phase on `ingest` itself. The reprice
     # partial carries the shutdown check into reprice_stale's batches.
     reprice = partial(reprice_stale, should_stop=_check_shutdown)
     phases = (
         ("suppressed", purge_suppressed), ("reprice", reprice),
+        ("aliases", project_aliases.rekey_folded_projects),
         ("canonical", recompute_canonical), ("teammates", resolve_teammate_agent_types),
         ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
         ("tool_error_rollup", rebuild_tool_error_rollup), ("dispatch_rollup", rebuild_dispatch_rollup),
