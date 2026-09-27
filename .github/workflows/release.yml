@@ -130,25 +130,32 @@ jobs:
         # Polls this commit's check runs until they have all completed,
         # then requires every one of them to have passed.
         #
-        # Three details that are each a way this can be wrong:
+        # Four details that are each a way this can be wrong:
         #   - it excludes ITSELF, or it would wait on a job that is waiting
         #     on it;
         #   - it requires at least one other check to exist, so it cannot
         #     race ahead and tag before CI has even been scheduled;
         #   - `cancelled` counts as failure. A cancelled run means a newer
-        #     push superseded this SHA, which is not a commit to release.
+        #     push superseded this SHA, which is not a commit to release;
+        #   - a VERDICT must exist among them (issue #247): every leg green
+        #     is also what an all-skipped gate looks like, so the wait
+        #     proceeds only when the ci gate's own `aggregate` check —
+        #     completed, success, from the github-actions app — is among
+        #     the rows. No aggregate row, no release: it keeps polling and
+        #     exits 1 at the deadline.
         run: |
-          deadline=$(( SECONDS + 45 * 60 ))
+          # RELEASE_WAIT_SECONDS / RELEASE_WAIT_POLL_SECONDS let tests shorten the wait; defaults are production's (2700 s / 20 s).
+          deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             runs="$(gh api --paginate \
               -H "Cache-Control: no-cache" \
               "repos/$REPO/commits/$SHA/check-runs" \
               --jq '.check_runs[] | select(.name | startswith("release") | not)
-                    | "\(.status)\t\(.conclusion)\t\(.name)"')"
+                    | "\(.status)\t\(.conclusion // "-")\t\(.name)\t\(.app.slug // "-")"')"
 
             if [ -z "$runs" ]; then
               echo "no other check runs reported yet, waiting..."
-              sleep 20
+              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
               continue
             fi
 
@@ -156,7 +163,7 @@ jobs:
             if [ "$pending" -gt 0 ]; then
               echo "$pending check(s) still running:"
               echo "$runs" | grep -v '^completed' | awk '{print "    " $0}'
-              sleep 20
+              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
               continue
             fi
 
@@ -169,6 +176,21 @@ jobs:
               echo "$bad" | awk '{print "    " $0}' >&2
               exit 1
             fi
+
+            # Issue #247: the verdict is the proof the gates ran. All legs
+            # skipped reports the same all-green rows as all legs passed,
+            # so proceed only when `aggregate` — completed, success, from
+            # the github-actions app — is among them; anything less keeps
+            # polling.
+            if ! echo "$runs" | awk -F'\t' '
+                  $1 == "completed" && $2 == "success" &&
+                  $3 == "aggregate" && $4 == "github-actions" { found = 1; exit }
+                  END { exit !found }'; then
+              echo "no ci gate / aggregate verdict yet, waiting..."
+              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
+              continue
+            fi
+
             echo "Every check passed — proceeding."
             exit 0
           done
