@@ -213,7 +213,7 @@ jobs:
             echo "Every check passed — proceeding."
             exit 0
           done
-          echo "Timed out after 45 minutes waiting for checks on $SHA" >&2
+          echo "Timed out waiting for checks on $SHA" >&2
           exit 1
 
       - name: Create the release
