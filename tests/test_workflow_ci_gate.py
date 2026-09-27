@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GATE = WORKFLOWS / "ci-gate.yml"
 GATE_FRESHNESS = WORKFLOWS / "gate-freshness.yml"
+TESTS_WORKFLOW = WORKFLOWS / "tests.yml"
 
 # The ten gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
@@ -51,6 +52,18 @@ def _load(path):
 
 def _ci_gate():
     return _load(CI_GATE)
+
+
+def _tests_workflow():
+    return _load(TESTS_WORKFLOW)
+
+
+def _ratchet_step():
+    steps = _tests_workflow()["jobs"]["pytest"].get("steps") or []
+    matches = [step for step in steps if step.get("name") == "Commit the ratchet"]
+    assert len(matches) == 1, "expected exactly one ratchet commit step"
+    step, = matches
+    return step
 
 
 def test_every_reusable_call_points_at_an_existing_callable_workflow():
@@ -136,6 +149,61 @@ def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     push = (_ci_gate().get("on") or {}).get("push") or {}
     ignored = push.get("paths-ignore") or []
     assert ".github/ci-thresholds.json" in ignored, ignored
+
+
+def test_ratchet_push_uses_the_deploy_key_over_pinned_github_ssh():
+    raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
+    workflow = _tests_workflow()
+    step = _ratchet_step()
+    run = step["run"]
+
+    assert "x-access-token" not in raw
+    assert step["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+        "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    assert "GH_TOKEN" not in step["env"]
+    assert "PUSH_REMOTE" not in step["env"]
+    assert 'remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"' in run
+    assert 'git push "$remote"' in run
+    assert 'git fetch --quiet "$remote" master' in run
+    assert 'if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
+    assert "StrictHostKeyChecking=yes" in run
+    assert (
+        "github.com ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+        in run
+    )
+    assert (
+        "github.com ssh-rsa "
+        "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+        in run
+    )
+    assert "git config user.name 'github-actions[bot]'" in run
+    assert "git config user.email \\" in run
+    assert "41898282+github-actions[bot]@users.noreply.github.com" in run
+    assert (
+        "Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>" in run)
+    assert run.index("if [ -n") < run.index("git push")
+    assert run.index("if [ -n") < run.index("git fetch --quiet")
+    assert workflow["jobs"]["pytest"]["permissions"]["contents"] == "read"
+    assert workflow["jobs"]["pytest"]["permissions"]["pull-requests"] == "write"
+
+
+def test_tests_callee_receives_optional_deploy_key_with_read_only_contents():
+    doc = _ci_gate()
+    tests_call = doc["jobs"]["tests"]
+    assert tests_call["secrets"]["MASTER_PUSH_DEPLOY_KEY"] == (
+        "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    assert tests_call["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+    }
+
+    workflow_call = (_tests_workflow().get("on") or {}).get("workflow_call") or {}
+    secret = (workflow_call.get("secrets") or {}).get("MASTER_PUSH_DEPLOY_KEY")
+    assert secret == {
+        "required": "false",
+        "description": "write deploy key the ratchet push authenticates with",
+    }
 
 
 def test_ci_gate_triggers():
