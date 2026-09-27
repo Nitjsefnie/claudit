@@ -1,0 +1,425 @@
+"""SV-TEST-DATA's fuzz half: scripts/ci/fuzz_test_data.py under test.
+
+Light, by design: argument handling, entry-shape validity, and the
+determinism of a seeded iteration. No test here runs the real suite —
+`run_suite` is monkeypatched — and no test touches the tree's own
+src/pricing.json: every tree is synthetic, under tmp_path. The
+full-suite path is smoke-verified, not unit-tested.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import re
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from backend import pricing
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "ci" / "fuzz_test_data.py"
+
+RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
+           "read": 0.1, "output": 5.0}
+RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
+           "read": 0.2, "output": 10.0}
+RATE_FIELDS = pricing.RATE_FIELDS
+DOC_MAX_STAMP = "2026-06-01T00:00:00Z"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("fuzz_test_data", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["fuzz_test_data"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+fuzz_module = _load()
+
+
+def _seed_doc() -> dict:
+    """One two-entry dated model row, one null-only model row, one
+    dated provider row carrying a schedule."""
+    return {
+        "models": {
+            "acme/acme-9": [
+                {"from": None, **RATES_A},
+                {"from": DOC_MAX_STAMP, **RATES_B},
+            ],
+            "free/acme-0": [{"from": None, **RATES_A}],
+        },
+        "providers": {
+            "acme/acme-9": {
+                "HostCo": [{"from": "2026-01-01T00:00:00Z", **RATES_A,
+                            "schedule": [{"days": ["sunday"],
+                                          "start": 2200, "end": 200,
+                                          "rates": RATES_B}]}],
+            },
+        },
+        "provider_rates_fetched": DOC_MAX_STAMP,
+        "openrouter": {"data_region": "global", "models": {}},
+    }
+
+
+def _seed_tree(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A synthetic repo root whose src/pricing.json holds the seed doc."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    pricing_path = repo / "src" / "pricing.json"
+    pristine = json.dumps(_seed_doc(), indent=2, sort_keys=True) + "\n"
+    pricing_path.write_text(pristine, encoding="utf-8")
+    return repo, pricing_path, pristine
+
+
+def _fake_restore(pristine: str, pricing_path: Path):
+    """The restore step's stand-in: the pristine document again."""
+    def restore(_repo_root: Path) -> None:
+        pricing_path.write_text(pristine, encoding="utf-8")
+    return restore
+
+
+def _rows_of(doc: dict) -> dict[str, list]:
+    """Every rate row keyed as the fuzzer names it in its results."""
+    rows = dict(doc["models"])
+    for model, hosts in doc["providers"].items():
+        rows.update({f"{model} via {host}": entries
+                     for host, entries in hosts.items()})
+    return rows
+
+
+def _instant(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def _run_one(monkeypatch, tmp_path: Path, base_seed: int = 7,
+             iteration: int = 0, code: int = 0,
+             output: str = "suite ok") -> tuple[dict, dict, dict, str]:
+    """Seed a tree, run ONE fuzz iteration against it with the suite and
+    the restore step mocked, and return (result, perturbed, original,
+    pristine text)."""
+    repo, pricing_path, pristine = _seed_tree(tmp_path)
+    monkeypatch.setattr(fuzz_module, "restore_baseline",
+                        _fake_restore(pristine, pricing_path))
+    monkeypatch.setattr(fuzz_module, "run_suite",
+                        lambda _root: (code, output))
+    result = fuzz_module.fuzz_iteration(repo, iteration, base_seed, tmp_path)
+    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    return result, perturbed, _seed_doc(), pristine
+
+
+def test_the_appended_entry_has_five_fields_a_stamp_and_a_note(
+        monkeypatch, tmp_path):
+    result, perturbed, _original, _pristine = _run_one(monkeypatch, tmp_path)
+    assert result["ok"] is True
+    assert result["rows_touched"] == len(result["keys"])
+    for key in result["keys"]:
+        appended = _rows_of(perturbed)[key][-1]
+        assert set(appended) == {"from", "note", *RATE_FIELDS}
+        assert appended["note"] == fuzz_module.NOTE
+
+
+def test_every_field_value_comes_from_the_pool(monkeypatch, tmp_path):
+    result, perturbed, _original, _pristine = _run_one(monkeypatch, tmp_path)
+    for key in result["keys"]:
+        appended = _rows_of(perturbed)[key][-1]
+        for field in RATE_FIELDS:
+            assert appended[field] in fuzz_module.VALUE_POOL
+
+
+def test_the_fields_are_drawn_independently(monkeypatch, tmp_path):
+    """Ten seeded iterations against the same tree do not produce one
+    fixed five-field draw: the tuple of values varies, and no field is
+    glued to another's value across the scan."""
+    repo, pricing_path, pristine = _seed_tree(tmp_path)
+    monkeypatch.setattr(fuzz_module, "restore_baseline",
+                        _fake_restore(pristine, pricing_path))
+    monkeypatch.setattr(fuzz_module, "run_suite",
+                        lambda _root: (0, "suite ok"))
+    draws = []
+    for iteration in range(10):
+        fuzz_module.fuzz_iteration(repo, iteration, 7, tmp_path)
+        doc = json.loads(pricing_path.read_text(encoding="utf-8"))
+        # The row subset is random per (seed, iteration); scan every
+        # row's last entry and keep the ones this harness appended.
+        for entries in _rows_of(doc).values():
+            entry = entries[-1]
+            if entry.get("note") == fuzz_module.NOTE:
+                draws.append(tuple(entry[f] for f in RATE_FIELDS))
+    assert len(set(draws)) >= 8
+    # No two fields always move together: gluing the five draws into one
+    # would make two columns identical.
+    columns = list(zip(*draws, strict=True))
+    assert len(set(columns)) == len(columns)
+
+
+def test_the_stamp_is_one_second_after_the_row_floor(monkeypatch, tmp_path):
+    """The appended instant is the row's newest real instant + 1s; a
+    row whose only entry is null-from floors at the DOCUMENT's newest
+    real instant instead."""
+    result, perturbed, original, _pristine = _run_one(
+        monkeypatch, tmp_path, base_seed=7, iteration=3)
+    doc_max = _instant(DOC_MAX_STAMP)
+    for key in result["keys"]:
+        prior = _rows_of(original)[key][-1]
+        floor = (_instant(prior["from"]) if prior["from"] is not None
+                 else doc_max)
+        appended = _rows_of(perturbed)[key][-1]
+        assert _instant(appended["from"]) == floor + timedelta(seconds=1)
+
+
+def test_offset_spellings_carry_the_same_later_instant():
+    """A quarter of the appended stamps spell their instant with a
+    ±HH:MM offset (issue #264's normalisation): the text parses, and
+    the instant is the row floor + 1s — the SAME instant the Z spelling
+    would carry, never the offset-local wall time mislabeled."""
+    entries = [{"from": DOC_MAX_STAMP, **RATES_A}]
+    floor = _instant(DOC_MAX_STAMP)
+    offset_seen = 0
+    for iteration in range(60):
+        entry = fuzz_module._appended_entry(  # pylint: disable=protected-access
+            entries, floor, fuzz_module.iteration_rng(7, iteration))
+        text = entry["from"]
+        assert _instant(text) == floor + timedelta(seconds=1)
+        if not text.endswith("Z"):
+            assert re.fullmatch(r".*[+-][0-9]{2}:[0-9]{2}", text), text
+            offset_seen += 1
+    assert offset_seen > 0
+
+
+def test_an_offset_spelled_predecessor_bounds_the_appended_instant():
+    """(issue #264) The row floor is parsed from whatever spelling the
+    predecessor carries. When that spelling is an offset, the appended
+    stamp is normalised to UTC BEFORE the literal-Z format renders it:
+    strftime writes the datetime's own wall time, so a raw strftime
+    spells offset-local wall time as Z — hours early — and the loader
+    refuses the document."""
+    entries = [{"from": "2026-10-01T12:00:00-05:00", **RATES_A}]
+    floor = _instant(entries[0]["from"])  # the instant 17:00:00Z
+    for iteration in range(20):
+        entry = fuzz_module._appended_entry(  # pylint: disable=protected-access
+            entries, floor, fuzz_module.iteration_rng(9, iteration))
+        assert _instant(entry["from"]) == floor + timedelta(seconds=1)
+
+
+def test_an_offset_spelled_document_fuzzes_cleanly(monkeypatch, tmp_path):
+    """End to end: a document whose newest real stamp is spelled with a
+    ±HH:MM offset perturbs cleanly — every iteration validates through
+    the loader, which refuses a stamp at or before its predecessor."""
+    doc = _seed_doc()
+    doc["models"]["acme/acme-9"][-1]["from"] = "2026-10-01T12:00:00-05:00"
+    repo, pricing_path, _pristine = _seed_tree(tmp_path)
+    pristine = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    pricing_path.write_text(pristine, encoding="utf-8")
+    monkeypatch.setattr(fuzz_module, "restore_baseline",
+                        _fake_restore(pristine, pricing_path))
+    monkeypatch.setattr(fuzz_module, "run_suite",
+                        lambda _root: (0, "suite ok"))
+    for iteration in range(8):
+        result = fuzz_module.fuzz_iteration(repo, iteration, 7, tmp_path)
+        assert result["ok"] is True
+
+
+def test_a_nonempty_subset_is_touched_and_the_rest_is_untouched(
+        monkeypatch, tmp_path):
+    result, perturbed, original, _pristine = _run_one(monkeypatch, tmp_path)
+    original_rows = _rows_of(original)
+    assert 1 <= result["rows_touched"] <= len(original_rows)
+    for key, entries in _rows_of(perturbed).items():
+        if key in result["keys"]:
+            assert len(entries) == len(original_rows[key]) + 1
+            assert entries[:-1] == original_rows[key]
+        else:
+            assert entries == original_rows[key]
+
+
+def test_the_same_seed_reproduces_the_iteration_byte_for_byte(
+        monkeypatch, tmp_path):
+    """Same tree content, same (seed, iteration) → byte-identical
+    perturbed document: the row subset, the five pool draws and the
+    stamp spelling all derive from the iteration's generator."""
+    texts = []
+    for name in ("one", "two"):
+        tree = tmp_path / name
+        tree.mkdir()
+        repo, pricing_path, pristine = _seed_tree(tree)
+        monkeypatch.setattr(fuzz_module, "restore_baseline",
+                            _fake_restore(pristine, pricing_path))
+        monkeypatch.setattr(fuzz_module, "run_suite",
+                            lambda _root: (0, "suite ok"))
+        fuzz_module.fuzz_iteration(repo, 3, 42, tree)
+        texts.append(pricing_path.read_text(encoding="utf-8"))
+    assert texts[0] == texts[1]
+
+
+def test_a_document_with_no_rate_rows_is_refused(monkeypatch, tmp_path):
+    repo, pricing_path, _unused = _seed_tree(tmp_path)
+    empty = json.dumps({
+        "models": {}, "providers": {},
+        "provider_rates_fetched": DOC_MAX_STAMP,
+    })
+    monkeypatch.setattr(fuzz_module, "restore_baseline",
+                        _fake_restore(empty, pricing_path))
+    with pytest.raises(ValueError, match="no rate rows"):
+        fuzz_module.fuzz_iteration(repo, 0, 7, tmp_path)
+
+
+def test_the_schedule_of_a_touched_provider_row_is_untouched(
+        monkeypatch, tmp_path):
+    """Appending to a scheduled provider row appends a PLAIN entry: the
+    row's existing entries — its schedule among them — are untouched."""
+    result, perturbed, original, _pristine = _run_one(
+        monkeypatch, tmp_path, base_seed=11, iteration=2)
+    for key in result["keys"]:
+        if key not in perturbed["providers"]:
+            continue
+        original_entries = _rows_of(original)[key]
+        got = _rows_of(perturbed)[key]
+        assert got[:-1] == original_entries
+        assert "schedule" not in got[-1]
+
+
+def test_arguments_are_validated():
+    for argv in (["--iterations", "0"], ["--jobs", "0"], ["--no-such-flag"]):
+        with pytest.raises(SystemExit) as exit_info:
+            fuzz_module.main(argv)
+        assert exit_info.value.code == 2
+
+
+def test_help_names_the_flags(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        fuzz_module.main(["--help"])
+    assert exit_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--iterations" in out
+    assert "--seed" in out
+    assert "--jobs" in out
+
+
+def test_sequential_main_runs_iterations_and_prints_a_summary(
+        monkeypatch, tmp_path, capsys):
+    repo, pricing_path, pristine = _seed_tree(tmp_path)
+    suite_calls, restore_calls = [], []
+
+    def fake_suite(_root):
+        suite_calls.append(_root)
+        return 0, "suite ok"
+
+    def fake_restore(_root):
+        pricing_path.write_text(pristine, encoding="utf-8")
+        restore_calls.append(_root)
+
+    monkeypatch.setattr(fuzz_module, "restore_baseline", fake_restore)
+    monkeypatch.setattr(fuzz_module, "run_suite", fake_suite)
+    exit_code = fuzz_module.main(
+        ["--iterations", "3", "--seed", "7",
+         "--artifact-dir", str(tmp_path)], repo_root=repo)
+    assert exit_code == 0
+    assert len(suite_calls) == 3
+    assert len(restore_calls) == 3
+    out = capsys.readouterr().out
+    assert "fuzz OK: 3 iterations green" in out
+    assert "seed=7" in out
+    assert "rows touched per iteration" in out
+    # The tree holds the last iteration's perturbed document: every
+    # touched row gained one entry over the pristine state.
+    doc = json.loads(pricing_path.read_text(encoding="utf-8"))
+    original_rows = _rows_of(_seed_doc())
+    appended = [key for key, entries in _rows_of(doc).items()
+                if len(entries) == len(original_rows[key]) + 1]
+    assert appended
+
+
+def test_a_failing_suite_saves_the_artifact_prints_and_exits_nonzero(
+        monkeypatch, tmp_path, capsys):
+    failing = ("=============================== FAILURES =============\n"
+               "FAILED tests/test_example.py::test_pinned - "
+               "assert 9.0697 != 9.0698\n"
+               "1 failed, 2408 passed in 4.2s\n")
+    repo, pricing_path, pristine = _seed_tree(tmp_path)
+    suite_calls = []
+    monkeypatch.setattr(fuzz_module, "restore_baseline",
+                        _fake_restore(pristine, pricing_path))
+    monkeypatch.setattr(
+        fuzz_module, "run_suite",
+        lambda _root: (suite_calls.append(_root), (1, failing))[1])
+    exit_code = fuzz_module.main(
+        ["--iterations", "3", "--seed", "7",
+         "--artifact-dir", str(tmp_path)], repo_root=repo)
+    assert exit_code == 1
+    # The run stopped at the first failing suite.
+    assert len(suite_calls) == 1
+    artifact = tmp_path / "fuzz-fail-0.json"
+    assert artifact.exists()
+    assert artifact.read_text(encoding="utf-8") == \
+        pricing_path.read_text(encoding="utf-8")
+    out = capsys.readouterr().out
+    assert "iteration 0" in out
+    assert "seed 7" in out
+    assert "pytest tail" in out
+    assert "FAILED tests/test_example.py::test_pinned" in out
+    # The report names every row the failing iteration touched.
+    touched = json.loads(artifact.read_text(encoding="utf-8"))
+    pristine_doc = json.loads(pristine)
+    for key in result_keys(touched, pristine_doc):
+        assert key in out
+
+
+def result_keys(touched: dict, pristine_doc: dict) -> list[str]:
+    """The rows that gained an entry, read off the failing artifact."""
+    original_rows = _rows_of(pristine_doc)
+    return [key for key, entries in _rows_of(touched).items()
+            if len(entries) == len(original_rows[key]) + 1]
+
+
+def test_shards_partition_the_iterations_round_robin():
+    # pylint: disable-next=protected-access
+    shards = fuzz_module._shards(7, 3)
+    covered = [first + n * step
+               for first, step, count in shards
+               for n in range(count)]
+    assert sorted(covered) == list(range(7))
+    assert [(s[0], s[1], s[2]) for s in shards] == \
+        [(0, 3, 3), (1, 3, 2), (2, 3, 2)]
+    # More shards than iterations: the trailing shards run nothing,
+    # keeping their own first index.
+    # pylint: disable-next=protected-access
+    assert fuzz_module._shards(2, 5) == \
+        [(0, 5, 1), (1, 5, 1), (2, 5, 0), (3, 5, 0), (4, 5, 0)]
+
+
+class _FakeChild:
+    """A Popen stand-in: an exit code and nothing else."""
+
+    def __init__(self, code: int):
+        self._code = code
+
+    def wait(self) -> int:
+        return self._code
+
+
+def test_a_failing_shard_child_merges_instead_of_crashing(
+        monkeypatch, tmp_path):
+    """A shard child that ran to a failing suite exits 1 WITH its
+    result file; the parent merges those results and reports — only a
+    child that died WITHOUT one is a crash worth raising on."""
+    result_file = tmp_path / "shard-result.json"
+    result_file.write_text(json.dumps({
+        "seed": 7,
+        "results": [{"iteration": 1, "seed": 7, "ok": False,
+                     "rows_touched": 2, "keys": ["a", "b"], "output": "x"}],
+    }), encoding="utf-8")
+    # pylint: disable-next=protected-access
+    merged = fuzz_module._collect_shards(
+        [(tmp_path, result_file, _FakeChild(1))])
+    assert [r["iteration"] for r in merged] == [1]
+    assert merged[0]["ok"] is False
+    # A child that died without writing its file is still a crash.
+    missing = tmp_path / "absent.json"
+    with pytest.raises(RuntimeError, match="without a result file"):
+        # pylint: disable-next=protected-access
+        fuzz_module._collect_shards([(tmp_path, missing, _FakeChild(1))])
