@@ -4,6 +4,8 @@ PBKDF2_ITERATIONS (200,000) with a hex salt in web_password_salt, the
 format the upstream user-management process writes. New writes use
 the versioned string format, which carries its own count.
 """
+import pytest
+
 from backend import auth
 
 
@@ -108,6 +110,30 @@ def test_non_ascii_stored_hash_is_rejected_without_exception():
         auth.WEB_PASSWORD_HASH_KEY: "é",
         auth.WEB_PASSWORD_SALT_KEY: "ff" * 16,
     }
+
+    assert not auth.verify_web_password(config, "anything")
+
+
+def test_legacy_non_hex_salt_rejected_before_pbkdf2(monkeypatch):
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
+        auth.WEB_PASSWORD_SALT_KEY: "not-hex",
+    }
+    monkeypatch.setattr(
+        auth, "pbkdf2", lambda *args: pytest.fail("PBKDF2 must not run")
+    )
+
+    assert not auth.verify_web_password(config, "anything")
+
+
+def test_legacy_non_hex_hash_rejected_before_pbkdf2(monkeypatch):
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: "not-hex",
+        auth.WEB_PASSWORD_SALT_KEY: "ff" * 16,
+    }
+    monkeypatch.setattr(
+        auth, "pbkdf2", lambda *args: pytest.fail("PBKDF2 must not run")
+    )
 
     assert not auth.verify_web_password(config, "anything")
 
