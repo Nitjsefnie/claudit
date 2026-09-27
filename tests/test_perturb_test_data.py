@@ -6,7 +6,9 @@ three appended entries per run (×2.0, ×0.37, and a per-row irregular
 factor in [0.61, 1.47)) and the three version constants move up one —
 so a test that pins repository-managed data fails as a test failure.
 These tests drive the perturbation over a MINIMAL synthetic pricing.json
-in tmp_path (never the repo's real file) and a synthetic constants bumper.
+in tmp_path and a synthetic constants bumper; one pin test perturbs a
+tmp COPY of the committed document, which it only ever reads — the
+tree's own file is never mutated.
 """
 from __future__ import annotations
 
@@ -322,8 +324,9 @@ def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
 
 def test_the_stamp_belt_clamps_a_candidate_at_or_before_the_predecessor():
     """`_stamp_after`'s clamp, unchanged by the decoupling: a candidate
-    whose second is at or before the row's predecessor's — the counter
-    trailing a real stamp newer than it, a refresh landing mid-run —
+    whose second is at or before the row's predecessor's — a real stamp
+    newer than the counter, which perturb_pricing's
+    read-the-document-once structure rules out in-process —
     spells the predecessor's second + 1s. The comparison is second
     precision, the precision the stamp itself carries, so a
     microsecond-carrying candidate never spells the predecessor's own
@@ -373,6 +376,13 @@ def _newest_real_stamp(entries: list) -> datetime | None:
     return max(stamps) if stamps else None
 
 
+def _document_max_stamp(rows: list[tuple[str, list]]) -> datetime:
+    """The newest real stamp anywhere in the document (some row is dated)."""
+    return max(stamp for stamp in
+               (_newest_real_stamp(entries) for _key, entries in rows)
+               if stamp is not None)
+
+
 _TABLE_NAMES = ("MODEL_RATES", "DATED_RATES", "PROVIDER_RATES",
                 "PROVIDER_DATED_RATES", "PROVIDER_STARTS",
                 "PROVIDER_SCHEDULES", "RATE_EPOCHS")
@@ -392,6 +402,21 @@ def _rate_under(doc: dict, model: str, ts: datetime,
     finally:
         for name, value in saved.items():
             setattr(pricing, name, value)
+
+
+def _assert_pins_read_pristine(perturbed: dict) -> None:
+    """Each pinned (model, provider) pair resolves through the perturbed
+    document's tables to exactly what the pristine tables answer at
+    SEEDED, and still answers through the provider table: a host a
+    refresh withdrew must RED this mirror so it gets updated alongside
+    the pins it mirrors (SV-TEST-DATA)."""
+    for model, provider in PINNED_ROWS:
+        resolution = pricing.resolve(model, SEEDED, provider)
+        assert (resolution.key, provider) in pricing.PROVIDER_RATES, \
+            (model, provider)
+        pristine_rates = pricing.rate_for(model, SEEDED, provider)
+        assert _rate_under(perturbed, model, SEEDED, provider) == \
+            pristine_rates, (model, provider)
 
 
 # The (model, provider) pairs of the six SEEDED closed-window pins in
@@ -429,11 +454,7 @@ def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
     tests/test_provider_pricing.py keep reading their pristine rates at
     SEEDED."""
     pristine = json.loads(_real_pricing_text())
-    document_max = max(stamp for stamp, in
-                       [(stamp,) for stamp in
-                        (_newest_real_stamp(entries)
-                         for _key, entries in _rows_of(pristine))
-                        if stamp is not None])
+    document_max = _document_max_stamp(_rows_of(pristine))
     for seed in (42, int(time.time())):
         tree = tmp_path / str(seed)
         tree.mkdir()
@@ -451,13 +472,7 @@ def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
                     entry["from"].replace("Z", "+00:00"))
                 assert appended > floor, (seed, key, entry["from"], floor)
 
-        for model, provider in PINNED_ROWS:
-            resolution = pricing.resolve(model, SEEDED, provider)
-            assert (resolution.key, provider) in pricing.PROVIDER_RATES, \
-                (model, provider)
-            pristine_rates = pricing.rate_for(model, SEEDED, provider)
-            assert _rate_under(perturbed, model, SEEDED, provider) == \
-                pristine_rates, (seed, model, provider)
+        _assert_pins_read_pristine(perturbed)
 
 
 def test_a_second_run_appends_further_entries_without_corrupting(tmp_path):
