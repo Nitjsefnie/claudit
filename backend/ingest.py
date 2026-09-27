@@ -610,11 +610,13 @@ def _delete_orphan_projects() -> int:
     return deleted
 
 
-def _rebuild_derived_state() -> None:
+def _rebuild_derived_state() -> int:
     """Canonical flags and teammate roles, then the rollups that read them.
 
     Each phase is a bounded step, checked for shutdown between: an abort
     leaves the later rollups unbuilt; the next successful run rebuilds.
+    Returns the row count its record-mutating phases changed — the four
+    before the rollups; those rewrite their whole table every run.
     """
     # Order matters: suppression removes rows the canonical pass would
     # otherwise rank, and the rollups read is_canonical and agent_type.
@@ -630,10 +632,13 @@ def _rebuild_derived_state() -> None:
         ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup), ("latency_rollup", rebuild_latency_rollup),
         ("ctx_cost_rollup", rebuild_ctx_cost_rollup), ("agent_rollup", rebuild_agent_rollup),
     )
+    changed = 0
     for phase, rebuild in phases:
         _check_shutdown()
         _set_progress(phase=phase)
-        rebuild()
+        rows = rebuild() or 0
+        changed += rows if phase in ("suppressed", "reprice", "canonical", "teammates") else 0
+    return changed
 
 
 def _walk_and_persist(parser_version: str,
@@ -666,7 +671,7 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
 
     _set_progress(phase="listing", done=0, total=0,
                   run_id=run_id, started_at=started.isoformat())
-    listed = inserted = reparsed = deleted = vanished = newer = 0
+    listed = inserted = reparsed = deleted = vanished = newer = changed = 0
     # Per-object failures (key, message). Recorded in the run's `error`, but
     # deliberately NOT used to gate anything: one dropped connection out of
     # 9,213 files is a run with a retry pending, not a failed run.
@@ -719,7 +724,7 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     # run can start.
     if fatal is None and not aborted:
         try:
-            _rebuild_derived_state()
+            changed = _rebuild_derived_state()
         except IngestAborted:
             log.warning(
                 "ingest (%s): aborted during the derived-state rebuild",
@@ -752,18 +757,13 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         "error": err,
     }
 
-    # Data changed: mark the response cache stale, then notify connected
-    # SSE clients so the dashboard re-fetches without a page reload.
-    #
-    # This used to clear() the cache outright, which meant every ingest
-    # dropped every user onto the uncached path — 8s+ for the dashboard,
-    # and worse for /api/cache. invalidate() keeps the entries servable
-    # while marking them stale, so the refetch triggered by ingest_done
-    # returns the previous numbers instantly and the fresh ones land via
-    # the background refresh. Threadsafe: ingest may run in a scheduler
-    # thread. An aborted run skips this to match its skipped rebuild: it
-    # must not tell clients data changed.
-    if fatal is None and not aborted and (inserted or reparsed or deleted):
+    # Data changed: mark the response cache stale, then notify connected SSE
+    # clients so the dashboard re-fetches. invalidate(), not clear(): entries
+    # stay servable while stale (clear() dropped every reader onto the 8s+
+    # uncached path; the refetch refreshes them in the background). The gate
+    # adds the derived-state count (issue #256): a reprice- or purge-only run
+    # changes records without touching a file. Threadsafe; aborted runs skip.
+    if fatal is None and not aborted and any((inserted, reparsed, deleted, changed)):
         cache.response_cache.invalidate()
         events.broadcast_threadsafe("ingest_done", summary)
 
