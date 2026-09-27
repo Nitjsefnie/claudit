@@ -41,6 +41,7 @@ FAKE_SWITCHES = (
     "FAKE_QUIET_ON",
     "FAKE_QUIET_EVERY",
     "FAKE_PYTEST_FAIL",
+    "FAKE_CAPTURE_GIT_PUSH",
 )
 
 # The simulation execs a POSIX-bash shebang shim from PATH to drive a GitHub
@@ -251,11 +252,11 @@ def _ssh_agent_shim() -> str:
     # starting a real agent during the simulation.
     return r"""#!/usr/bin/env bash
 set -eu
+printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
 if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-agent called without the deploy key' >&2
   exit 1
 fi
-printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
 printf '%s\n' 'SSH_AUTH_SOCK=/tmp/fake-agent.sock; export SSH_AUTH_SOCK;' \
   'SSH_AGENT_PID=1; export SSH_AGENT_PID;'
 """
@@ -264,11 +265,11 @@ printf '%s\n' 'SSH_AUTH_SOCK=/tmp/fake-agent.sock; export SSH_AUTH_SOCK;' \
 def _ssh_add_shim() -> str:
     return r"""#!/usr/bin/env bash
 set -eu
+printf 'called\n' > "$FAKE_STATE/ssh-add-called"
 if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-add called without the deploy key' >&2
   exit 1
 fi
-printf 'called\n' > "$FAKE_STATE/ssh-add-called"
 """
 
 
@@ -401,6 +402,8 @@ def test_retry_recomputes_on_the_fetched_master_and_lands_a_fast_forward(
 
     bare = scratch / "remote.git"
     assert proc.returncode == 0, proc.stderr
+    assert _state_lines(scratch, "ssh-agent-called") == []
+    assert _state_lines(scratch, "ssh-add-called") == []
     assert _sha(bare, "master") == _sha(scratch / "origin", "HEAD")
     assert _sha(scratch / "origin", "HEAD^") == peer_full
     assert _git(scratch / "origin", "merge-base", "--is-ancestor",
