@@ -130,11 +130,14 @@ def test_alias_match_is_case_sensitive(fresh_db):
         "the lowercase id matches nothing and must stay put")
 
 
-def test_fold_does_not_chain_through_a_matching_target(fresh_db):
+def test_fold_converges_across_passes_without_chaining_within_a_pass(
+        fresh_db):
     """'keep-b' is both a target (of '-tmp-a-%') and itself aliased (by
-    'keep%'): only the rows stored under 'keep-b' BEFORE the pass move
-    on to 'final'. The rows folded onto it stop there — each stored
-    project id is resolved exactly once, against the pre-fold id set."""
+    'keep%'): only the row stored under 'keep-b' BEFORE pass one moves
+    on to 'final'. The rows folded onto it stop there for that pass; on
+    pass two, that target advances with its rows. Each pass resolves
+    ids once against its pre-fold id set, and repeated passes converge
+    without losing or duplicating files."""
     with db.viz_conn() as c, c.cursor() as cur:
         _seed(cur, "-tmp-a-1", ["claude/-tmp-a-1/s1/f.jsonl",
                                 "claude/-tmp-a-1/s2/f.jsonl"])
@@ -150,6 +153,17 @@ def test_fold_does_not_chain_through_a_matching_target(fresh_db):
     assert _project_ids() == {"final", "keep-b"}, (
         "'-tmp-a-1' is emptied and dropped; 'keep-b' now holds the "
         "folded rows, so its own project row survives")
+
+    pass_two = project_aliases.rekey_folded_projects()
+    owners_after_two = _owners()
+    assert pass_two == 1, "the single matched source project id advances"
+    assert owners_after_two == {"final": 3}, (
+        "the two files folded onto keep-b advance with keep-b's own file")
+    assert sum(owners_after_two.values()) == 3, "no files are lost or added"
+
+    pass_three = project_aliases.rekey_folded_projects()
+    assert pass_three == 0, "no stored id matches after convergence"
+    assert _owners() == owners_after_two
 
 
 def test_project_whose_id_is_its_own_target_is_skipped(fresh_db):
@@ -169,9 +183,8 @@ def test_project_whose_id_is_its_own_target_is_skipped(fresh_db):
     assert _project_ids() == {"-tmp-x-main"}
 
 
-def test_fold_is_idempotent_second_pass_moves_zero(fresh_db):
-    """The pass runs on every ingest, so the steady state is the common
-    one: the already-folded ids resolve to no move."""
+def test_fold_with_no_remaining_match_moves_zero(fresh_db):
+    """A pass with no stored id matching an alias has no work to do."""
     with db.viz_conn() as c, c.cursor() as cur:
         _seed(cur, "-tmp-x-1", ["claude/-tmp-x-1/s1/f.jsonl",
                                 "claude/-tmp-x-1/s2/f.jsonl"])

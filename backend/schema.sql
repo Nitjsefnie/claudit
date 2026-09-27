@@ -693,16 +693,18 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
 --
 -- Enforced by project_aliases.rekey_folded_projects(), which runs in the
 -- derived-state rebuild after the reprice phase and before the canonical
--- pass on every ingest. Each stored project id is resolved EXACTLY ONCE
+-- pass on every ingest. In each pass, a stored project id is resolved ONCE
 -- against the current alias list -- FIRST match wins, in lexicographic
 -- `pattern` order (the PRIMARY KEY makes the order deterministic and
--- each row addressable for edit/delete) -- and NO CHAINING: a target
--- that itself matches another pattern is not re-resolved. A project
--- whose own id equals its matched target is never moved and never
+-- each row addressable for edit/delete) -- and aliases do not chain
+-- within that pass. A target that matches another alias can advance one
+-- hop on a later pass; repeated passes converge without duplicating or
+-- losing files, and a pass with no matching source ids moves nothing.
+-- A project whose own id equals its matched target is never moved and never
 -- deleted (the pass deletes emptied source project rows, and files
 -- FK-cascade on project delete). Adding or editing a row re-keys stored
--- rows on the next ingest -- idempotent, no reparse, no R2 fetch, NO
--- PARSER_VERSION bump. Deleting a row stops folding NEW files only;
+-- rows on the next ingest -- no reparse, no R2 fetch, NO PARSER_VERSION
+-- bump. Deleting a row stops folding NEW files only;
 -- already-folded rows KEEP the target id (the raw id is not retained,
 -- so an unfold is not possible). No version coupling: only stored
 -- identity moves -- token columns and costs are untouched.
