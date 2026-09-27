@@ -21,10 +21,11 @@ whose own id equals its matched target is never moved and never deleted
 project delete).
 
 Marker-backed lane reconciliation uses `resolve_chain` to find the
-fixed-point destination before moving files. It repeats the same
-first-match lookup, stopping at an unmatched id or before revisiting an
-id; the eight-hop cap bounds pathological or cyclic chains. The fold
-pass above remains one hop per ingest pass.
+marker slug's bounded alias-chain destination before moving files: it
+repeats the same first-match lookup and stops at an unmatched id, before
+a revisited id, or at eight hops, so a stopped walk may return an id
+that still matches an alias. The fold pass above remains one hop per
+ingest pass.
 
 Deleting a row stops folding new files. Already-folded rows stay at the
 target only until another identity pass re-keys them: a reparse derives
@@ -125,10 +126,12 @@ def rekey_folded_projects() -> int:
     deleting one stops folding NEW files. Already-folded rows stay at
     the target only until another identity pass re-keys them: a reparse
     derives the raw id from the object key, while marker-backed lane
-    files re-converge to the marker slug resolved through the alias chain
-    to its fixed point on the next ingest (to the marker slug after deletion;
-    the walk stops at an unmatched id or before a revisited id, capped at
-    eight hops). Repeated passes converge one alias hop at a time without
+    files re-converge on the next ingest to the marker slug's bounded
+    alias-chain destination (after deletion, the chain resolves under the
+    remaining aliases — with all alias rows gone, that is the marker
+    slug); the walk stops at an unmatched id, before a revisited id, or
+    at eight hops, so a stopped walk may return an id that still matches
+    an alias. Repeated passes converge one alias hop at a time without
     duplicating or losing files while the alias set is acyclic
     on the ids it matches. A cyclic alias set is an operator error:
     folded ids advance around the cycle on successive ingests, so fix

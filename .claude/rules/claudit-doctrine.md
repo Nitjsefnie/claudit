@@ -309,9 +309,11 @@ no reparse, no R2 fetch and no `PARSER_VERSION` bump. Deleting a
 row stops folding new files. Already-folded rows stay at the target
 only until another identity pass re-keys them: a reparse derives the
 raw id from the object key, while marker-backed lane files re-converge
-to the marker slug resolved through the alias chain to its fixed point
-on the next ingest (to the marker slug after deletion; the walk stops
-at an unmatched id or before a revisited id, capped at eight hops).
+on the next ingest to the marker slug's bounded alias-chain destination
+(after deletion, the chain resolves under the remaining aliases — with
+all alias rows gone, that is the marker slug); the walk stops at an
+unmatched id, before a revisited id, or at eight hops, so a stopped walk
+may return an id that still matches an alias.
 `/api/projects` keeps its existing inner-join behavior: a
 project whose files carry zero usage records is not listed (pinned by
 test).
