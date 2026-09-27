@@ -106,19 +106,38 @@ jobs:
         # protected by a ruleset once created: they cannot be moved or
         # deleted, so a wrongly created tag permanently blocks that version
         # string, and refusing before create is the only remedy.
+        #
+        # BOTH PROBES FAIL CLOSED (issue #248), as version-guard.yml's do:
+        # a 404 is the only answer that proves absence; anything else
+        # (auth, rate limit, 5xx, network) must not read as "the version
+        # is free". The release probe goes through `gh api` rather than
+        # `gh release view` for the uniform `HTTP 404` error text — it is
+        # the same endpoint underneath.
         run: |
-          if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+          if tag_probe="$(gh api "repos/$REPO/git/ref/tags/$TAG" 2>&1)"; then
             echo "Tag $TAG already exists — VERSION was set to a" >&2
             echo "version that has already been tagged. Bump it" >&2
             echo "further; the tag itself cannot be deleted." >&2
             exit 1
+          elif echo "$tag_probe" | grep -q 'HTTP 404'; then
+            : # tag absent — the only trustworthy "not published" answer
+          else
+            echo "could not verify the tag probe for $TAG — failing closed" >&2
+            exit 1
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
+
+          if release_probe="$(gh api "repos/$REPO/releases/tags/$TAG" 2>&1)"; then
             echo "Release $TAG already exists — VERSION was set to a" >&2
             echo "version that has already shipped. Bump it further, or" >&2
             echo "delete that release if it was cut in error." >&2
             exit 1
+          elif echo "$release_probe" | grep -q 'HTTP 404'; then
+            : # release absent — same rule as the tag probe
+          else
+            echo "could not verify the release probe for $TAG — failing closed" >&2
+            exit 1
           fi
+
           echo "$TAG is free"
 
       - name: Wait for the other gates on this commit
