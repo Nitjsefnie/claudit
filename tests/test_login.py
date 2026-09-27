@@ -296,6 +296,27 @@ def test_wrong_password_against_legacy_hash_tops_up(
     assert calls == [auth.PBKDF2_ITERATIONS]
 
 
+def test_non_hex_legacy_salt_is_generic_and_normalizes_from_legacy_count(
+    app, fake_user, monkeypatch
+):
+    fake_user[558] = {
+        auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
+        auth.WEB_PASSWORD_SALT_KEY: "not-hex",
+    }
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda password, spent: calls.append(spent),
+    )
+
+    response = _post_login(TestClient(app), 558, "anything")
+
+    assert response.status_code == 401
+    assert response.text == "Invalid credentials."
+    assert calls == [auth.PBKDF2_ITERATIONS]
+
+
 def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
     """An unknown id has nothing to verify, so it normalizes from
     zero: the full dummy run at the target count."""

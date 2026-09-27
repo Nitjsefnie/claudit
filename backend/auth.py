@@ -116,6 +116,11 @@ def verify_web_password(config: dict, password: str) -> bool:
             return False
         iterations, salt_hex, expected = parsed
     else:
+        try:
+            bytes.fromhex(stored_salt)
+            bytes.fromhex(stored_hash)
+        except ValueError:
+            return False
         iterations, salt_hex, expected = (
             PBKDF2_ITERATIONS, stored_salt, stored_hash,
         )
