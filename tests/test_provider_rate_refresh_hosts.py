@@ -16,9 +16,10 @@ from decimal import Decimal
 import pytest
 
 from backend import pricing
+from tests.refresh_fixture_builders import _per_token
 from tests.test_provider_rate_refresh import (
     GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _endpoint,
-    _overrides, _per_token, _refused, refresh)
+    _overrides, _refused, refresh)
 
 # --- weekly schedules (pricing.overrides) ------------------------------------
 # DeepSeek and Alibaba list time-of-day prices; the seeded rows carry them

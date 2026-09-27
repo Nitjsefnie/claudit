@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
+from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides)
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
@@ -58,26 +59,6 @@ def _load():
 refresh = _load()
 
 
-def _per_token(rate: float) -> str:
-    """OpenRouter's spelling: USD per token, as a decimal string."""
-    return format(Decimal(repr(rate)).scaleb(-6).normalize(), "f")
-
-
-def _endpoint(host: str, rates: dict, discount: float = 0, tag: str = "") -> dict:
-    """One endpoint as the API returns it, extra fields included."""
-    return {
-        "name": f"{host} | fixture", "provider_name": host,
-        "tag": tag or host.lower(), "quantization": "fp8", "status": 0,
-        "context_length": 131072, "uptime_last_30m": 100,
-        "pricing": {
-            "prompt": _per_token(rates["fresh"]),
-            "completion": _per_token(rates["output"]),
-            "input_cache_read": _per_token(rates["read"]),
-            "discount": discount,
-        },
-    }
-
-
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
     rows first seen by a refresh dropped."""
@@ -90,38 +71,23 @@ def _seeded(doc: dict) -> dict:
     return doc
 
 
-def _overrides(schedule: list) -> list:
-    """An entry schedule as OpenRouter lists it (pricing.overrides)."""
-    out = []
-    for window in schedule:
-        override = {"prompt": _per_token(window["rates"]["fresh"]),
-                    "completion": _per_token(window["rates"]["output"]),
-                    "input_cache_read": _per_token(window["rates"]["read"])}
-        if "days" in window:
-            override["utc_days"] = window["days"]
-        if "start" in window:
-            override["utc_start"], override["utc_end"] = window["start"], window["end"]
-        out.append(override)
-    return out
-
-
-def _discount(entry: dict) -> float:
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)% off", entry.get("note", ""))
-    return float(m.group(1)) / 100 if m else 0
-
-
 def _payloads(doc: dict) -> dict:
     """Every tracked model's endpoints payload, reproducing the newest
-    entry of every provider row. BaseTen's deepseek-v4.1-flash lists its
-    two endpoints as OpenRouter does: the same tag, quantization and limits,
-    cache reads 0.007 and 0.03."""
+    entry of every provider row; a pinned host is listed under its pin's
+    tag, as it is live. BaseTen's deepseek-v4.1-flash lists its two
+    endpoints as OpenRouter does: same tag, quantization, cache 0.007/0.03."""
     out = {}
     for key, hosts in doc["providers"].items():
+        pinned = {host: pin["tag"] for host, pin in
+                  doc["openrouter"]["models"][key].get("resolve", {}).items()
+                  if pin.get("tag")}
         endpoints = [_endpoint(host, history[-1], _discount(history[-1]))
                      for host, history in hosts.items()]
         for endpoint, history in zip(endpoints, hosts.values()):
             if history[-1].get("schedule"):
                 endpoint["pricing"]["overrides"] = _overrides(history[-1]["schedule"])
+            if endpoint["provider_name"] in pinned:
+                endpoint["tag"] = pinned[endpoint["provider_name"]]
         if key == V41:
             for endpoint in endpoints:
                 if endpoint["provider_name"] == "BaseTen":
@@ -589,7 +555,10 @@ def test_a_named_data_region_takes_that_region(tmp_path, capsys):
     run = Run(tmp_path)
     run.edit(lambda doc: doc["openrouter"].update({"data_region": "us"}))
     for model in run.doc()["providers"]:
+        resolved = run.doc()["openrouter"]["models"][model].get("resolve", {})
         for endpoint in run.endpoints(model):
+            if endpoint["provider_name"] in resolved:
+                continue
             endpoint["tag"] = endpoint["tag"].split("/")[0] + "/us"
     global_novita = copy.deepcopy(run.endpoint(GLM, "Novita"))
     global_novita["tag"] = "novita"

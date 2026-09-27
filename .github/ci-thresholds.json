@@ -25,7 +25,7 @@
     "tests/test_parse_codex.py": 1000,
     "tests/test_parse_kimi.py": 765,
     "tests/test_pricing_data.py": 977,
-    "tests/test_provider_rate_refresh.py": 883
+    "tests/test_provider_rate_refresh.py": 852
   },
   "schema_version": 1
 }
