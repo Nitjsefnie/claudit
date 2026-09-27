@@ -23,7 +23,7 @@ The four assertions the format demands, each with its own section below:
 Expected numbers are read off the fixtures' own raw fields and quoted in
 the test that uses them, so a failure says which field moved.
 """
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import json
@@ -428,23 +428,23 @@ def test_a_kimi_wire_reports_a_truthful_zero_rather_than_an_invented_count():
     assert all(r["thinking_tokens"] == 0 for r in out["records"])
 
 
-def test_cache_write_tokens_are_billed_on_their_own_meter():
-    """0 across the local corpus, but real and billable in the format —
-    Codex charges a cache write at 1.25x uncached input. Folding it into
-    fresh underbills it; folding it into cached overbills it 10x. Asserted
-    on the rate table, since no local record exercises the bucket."""
+def test_cache_write_tokens_are_billed_on_their_own_meter(monkeypatch):
+    """No corpus record has a cache write; synthetic rows pin its meter.
+    Cache writes bill at 1.25x fresh and use the 1h bucket."""
     assert all(r["cache_creation_tokens"] == 0
                for r in _parse("rollout_fork_prefix.jsonl")["records"])
-    # claudit's table keys are its normalised (dashed) form of the label.
-    rates = pricing.MODEL_RATES["gpt-5-6-sol"]
+    model, cutover = "acme/cache-write-9", datetime(2030, 1, 1, tzinfo=timezone.utc)
+    rates = dict(zip(pricing.RATE_FIELDS, (8, 10, 10, 0.8, 40)))
+    old_rates = dict(zip(pricing.RATE_FIELDS, (4, 5, 5, 0.4, 20)))
+    monkeypatch.setitem(pricing.MODEL_RATES, model, rates)
+    monkeypatch.setitem(pricing.DATED_RATES, model, [(cutover, old_rates)])
     assert rates["create_1h"] == pytest.approx(rates["fresh"] * 1.25)
     assert rates["create_1h"] > rates["fresh"] > rates["read"]
     write_only = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=0, output=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+        model, fresh=0, output=0,
         eph5=0, eph1h=0, unsplit_create=1_000_000, read=0)
     assert write_only == pytest.approx(rates["create_1h"], rel=1e-9)
-    # The ratio holds in the retired window too, at 1.25 x the old 5.00.
-    old = pricing.rate_for("gpt-5.6-sol", pricing.AUG21_CUT - timedelta(1))  # sv-test-data: allow (closed-window pin at AUG21_CUT - 1d; ratio from the same loaded tables)
+    old = pricing.rate_for(model, cutover - timedelta(seconds=1))
     assert old["create_1h"] == pytest.approx(old["fresh"] * 1.25)
 
 

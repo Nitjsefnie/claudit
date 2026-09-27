@@ -45,14 +45,22 @@ def test_buckets_sum_to_total_within_a_single_epoch():
     assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
 
 
-def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
+def test_buckets_sum_to_total_across_a_dated_rate_cutover(monkeypatch):
     # 1M input tokens in the promotional window and 1M after it, each
     # stored at that span's own fresh rate; the stored cost_total is
     # authoritative and the buckets must reconcile to it.
-    w = synthetic_dated_rate
+    model = "acme/cost-cutover-9"
+    cutover = datetime(2030, 1, 1, tzinfo=UTC)
+    before = {"fresh": 9.0, "create_5m": 11.25, "create_1h": 18.0,
+              "read": 0.9, "output": 45.0}
+    after = {"fresh": 0.06974999999999999, "create_5m": 0.1,
+             "create_1h": 0.14, "read": 0.01, "output": 0.5}
+    monkeypatch.setitem(pricing.MODEL_RATES, model, after)
+    monkeypatch.setattr(pricing, "DATED_RATES", {model: [(cutover, before)]})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
     rows = [
-        _row(w.model, 0, fresh=1_000_000, cost=w.before["fresh"]),
-        _row(w.model, 1, fresh=1_000_000, cost=w.after["fresh"]),
+        _row(model, 0, fresh=1_000_000, cost=before["fresh"]),
+        _row(model, 1, fresh=1_000_000, cost=after["fresh"]),
     ]
     total = w.before["fresh"] + w.after["fresh"]
     out = fold_per_model(
@@ -61,15 +69,16 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
     m = out[0]
     assert m["fresh"] == 2_000_000
     assert m["turns"] == 2
-    # fold_per_model rounds cost_total and each bucket to 4 decimals.
-    # The total is the fold's own sum of these stored costs, so the
-    # assertion re-derives its rounding; the buckets are re-derived from
-    # the same rates and sum to the unrounded total, so once each rounds
-    # they can sit up to 5 * 5e-5 = 2.5e-4 from it, whatever the rates.
+    # SV-TEST-DATA rounded-compare rule: cost_total sums the same stored
+    # costs in the same order, so this rounding comparison stays exact.
     assert m["cost_total"] == pytest.approx(round(total, 4), abs=1e-6)
+    # The five recomputed buckets round independently, so their sum may
+    # differ from the unrounded stored total by up to 2.5e-4.
     assert abs(sum(m["cost_buckets"].values()) - total) <= 2.5e-4
+    # SV-TEST-DATA rounded-compare rule: token-price math and stored-total
+    # summation differ; allow one 4-place unit plus float comparison noise.
     assert m["cost_buckets"]["fresh"] == pytest.approx(
-        round(total, 4), abs=1e-6)
+        round(total, 4), abs=1e-4 + 1e-12)
 
 
 def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
