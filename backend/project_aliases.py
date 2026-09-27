@@ -7,13 +7,15 @@ pattern could name. The fix is DATA, not code: a per-deploy
 shipped EMPTY in schema.sql, applied at ingest so every stored row and
 rollup sees the target id. Matching is SQL LIKE, case-sensitive — POSIX
 project slugs are case-sensitive, and the Windows ones are already
-case-folded by key_layout.canonical_project_id. Each stored project id
-is resolved EXACTLY ONCE against the current alias list: the first
-pattern in lexicographic `pattern` order that matches it names the
-target, and no alias chains — a target that itself matches other
-patterns is not re-resolved. A project whose own id equals its matched
-target is never moved and never deleted (the pass drops emptied source
-project rows, and files FK-cascade on project delete).
+case-folded by key_layout.canonical_project_id. In each pass, a stored
+project id is resolved EXACTLY ONCE against the current alias list: the
+first pattern in lexicographic `pattern` order that matches it names the
+target, and aliases do not chain within that pass. A target that itself
+matches another alias can advance one hop on a later pass; repeated
+passes converge without duplicating or losing files, and a pass with no
+matching source ids moves nothing. A project whose own id equals its
+matched target is never moved and never deleted (the pass drops emptied
+source project rows, and files FK-cascade on project delete).
 """
 from __future__ import annotations
 
@@ -34,8 +36,8 @@ def folded_pairs(c: psycopg.Connection) -> dict[str, str]:
     order, that the id matches with a case-sensitive LIKE names the
     target. An id that matches no pattern, or whose matched target is
     the id itself, is absent from the map. Resolving the PRE-fold id
-    set in one query is what makes the pass chain-free and independent
-    of application order.
+    set in one query is what makes this pass chain-free and independent
+    of application order; a target can advance on a later pass.
     """
     rows = c.execute(
         """
@@ -68,10 +70,11 @@ def rekey_folded_projects() -> int:
     Adding or editing a row re-keys stored rows on the next ingest;
     deleting one stops folding NEW files only — already-folded rows
     keep the target id, and the raw id is not retained, so an unfold is
-    not possible. Idempotent: a second pass moves 0. Needs no reparse,
-    no R2 fetch, and no PARSER_VERSION bump: only stored identity
-    moves; token columns and costs are untouched. Returns the number of
-    project ids re-keyed.
+    not possible. Repeated passes converge one alias hop at a time; a
+    pass that changes nothing moves 0, with no files duplicated or
+    lost. Needs no reparse, no R2 fetch, and no PARSER_VERSION bump:
+    only stored identity moves; token columns and costs are untouched.
+    Returns the number of project ids re-keyed.
     """
     with db.viz_conn() as c:
         row = c.execute(
