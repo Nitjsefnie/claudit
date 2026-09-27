@@ -377,6 +377,8 @@ def test_fold_reconciles_across_several_provider_entries(monkeypatch):
         return len([t for t in (t1, t2) if ts >= t])
 
     pricing_ts = (t1 - timedelta(microseconds=1), t1, t2)
+    # 990 tokens/epoch leaves raw sum 0.01485 vs fold result 0.0149;
+    # the adjacent 4-place value broke the old default approx tolerance.
     fresh_tokens = 990
     stored = [_cost(SYNTH_MODEL, "HostCo", ts, fresh=fresh_tokens)
               for ts in pricing_ts]
@@ -412,6 +414,8 @@ def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
 
     noon = datetime(2026, 9, 21, 12, tzinfo=UTC)    # inside 09:00-17:00
     evening = datetime(2026, 9, 21, 20, tzinfo=UTC)  # outside it
+    # At 990 tokens/span the raw schedule sum 0.09860994 folds to 0.0986,
+    # which the old default approx tolerance rejected.
     tokens_per_span = 990
     stored = (_cost(SYNTH_MODEL, "HostCo", noon, fresh=tokens_per_span,
                     read=tokens_per_span, output=tokens_per_span)
