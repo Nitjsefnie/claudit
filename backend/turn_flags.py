@@ -36,6 +36,7 @@ import hashlib
 from orjson import OPT_SORT_KEYS, dumps
 
 from backend.constants import INTERRUPT_MARKER
+from backend.prompt_gate import _is_prompt_text
 
 FLAG_STOP_HOOK_BLOCK = "stop_hook_block"   # a Stop hook refused the stop
 FLAG_INTERRUPT = "interrupt"               # the user cut the reply off
@@ -172,6 +173,10 @@ class TurnWindow:
             btype = blk.get("type")
             if btype == "text":
                 self._observe_user_text(obj, str(blk.get("text") or ""))
+            elif btype == "image":
+                # One image block counts the record as a prompt (issue #215),
+                # so the next request carries user_prompt for it too (issue #254).
+                self.flags.add(FLAG_USER_PROMPT)
             elif btype == "tool_result":
                 self.tool_results += 1
                 inner = blk.get("content")
@@ -187,11 +192,9 @@ class TurnWindow:
             self.flags.add(FLAG_INTERRUPT)
         elif obj.get("isMeta") and stripped.startswith("Stop hook feedback"):
             self.flags.add(FLAG_STOP_HOOK_BLOCK)
-        elif not stripped.startswith("<") and not obj.get("isMeta"):
-            # Typed, queued or task-notification prompts; instrumentation
-            # (<bash-input>, <command-name>, <task-notification>...) is not
-            # a new turn in the user's sense. Same test parse.handle_user_text
-            # applies for prompt_count.
+        elif not obj.get("isMeta") and _is_prompt_text(text):
+            # The shared predicate from backend.prompt_gate covers pasted
+            # content. Images are handled in the block walk (issue #215).
             self.flags.add(FLAG_USER_PROMPT)
 
     def take(self, obj: dict) -> tuple[list[str], int, str | None]:
