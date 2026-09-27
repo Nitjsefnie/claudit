@@ -365,8 +365,8 @@ def test_marker_lane_alias_stays_folded_and_keeps_target_display_name(
         result = ingest.run_ingest(trigger="manual")
         assert result["error"] is None
         assert result["reparsed"] == 0
-        _assert_lane_project_is_folded(target, lane_r2_env["slug"],
-                                        display_name)
+        _assert_lane_project_is_folded(
+            target, lane_r2_env["slug"], display_name)
 
 
 def test_deleting_lane_alias_returns_files_to_marker_slug(
