@@ -5,8 +5,12 @@ Password hashes are looked up in the external auth DB by `user_id`
 web-session secret and a per-user generation counter live in claudit's
 OWN database, in the `user_session` table (backend/schema.sql) — issue
 #94 moved them out of the shared users table so claudit never writes to
-the auth DB. Guest tokens are signed with a process-local secret and
-have no row anywhere; they die on restart.
+the auth DB. The row also stores a fingerprint of the auth-DB password
+hash and salt. Resolution checks the current auth-DB credential through
+a 60-second cache, so deleted users and changed credentials are revoked
+within that window; rows from before the fingerprint migration are
+invalid until login rebinds them. Guest tokens are signed with a
+process-local secret and have no row anywhere; they die on restart.
 """
 from __future__ import annotations
 
@@ -31,6 +35,10 @@ SESSION_COOKIE_MAX_AGE = 7 * 24 * 3600
 # regenerated at startup, so guest cookies invalidate on restart.
 GUEST_USER_ID = 0
 _GUEST_SECRET = secrets.token_urlsafe(32)
+
+_USER_CONFIG_CACHE: dict[int, tuple[float, dict | None]] = {}
+_USER_CONFIG_CACHE_TTL_SECONDS = 60
+_USER_CONFIG_CACHE_MAX_KEYS = 1024
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -108,48 +116,47 @@ def verify_session_token(
     return user_id
 
 
-def get_or_create_session_row(user_id: int) -> tuple[str, int]:
+def get_or_create_session_row(
+    user_id: int, cred_fp: str
+) -> tuple[str, int]:
     """Return (secret, generation) for a real user, inserting a fresh
-    secret at generation 0 on the user's first login.
+    secret at generation 0 on the user's first login. A re-login binds
+    the newly proven credential fingerprint while preserving the
+    existing secret and generation.
 
     The row lives in claudit's own DB (user_session, backend/schema.sql)
-    — never in the shared auth DB (issue #94). Race-safe for two
-    concurrent first logins: INSERT ... ON CONFLICT DO NOTHING decides
-    the winner and the SELECT reads it back, both in one transaction, so
-    whichever login loses the race leaves with the winner's secret.
+    — never in the shared auth DB (issue #94).
     """
     with db.viz_conn() as c:
         row = c.execute(
-            "INSERT INTO user_session (user_id, secret) VALUES (%s, %s) "
-            "ON CONFLICT (user_id) DO NOTHING "
+            "INSERT INTO user_session (user_id, secret, cred_fp) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (user_id) DO UPDATE "
+            "SET cred_fp = EXCLUDED.cred_fp "
             "RETURNING secret, generation",
-            (user_id, secrets.token_urlsafe(32)),
+            (user_id, secrets.token_urlsafe(32), cred_fp),
         ).fetchone()
-        if row is None:
-            row = c.execute(
-                "SELECT secret, generation FROM user_session "
-                "WHERE user_id = %s",
-                (user_id,),
-            ).fetchone()
         c.commit()
     if row is None:
-        # The INSERT above either created the row or conflicted with one
-        # this transaction can already see; a None here has no path.
-        raise RuntimeError(f"user_session row for {user_id} vanished")
+        raise RuntimeError(f"user_session row for {user_id} was not returned")
     return str(row[0]), int(row[1])
 
 
-def load_session_row(user_id: int) -> tuple[str, int] | None:
-    """(secret, generation) for a real user from claudit's own DB; None
-    when the user has never logged in."""
+def load_session_row(
+    user_id: int,
+) -> tuple[str, int, str | None] | None:
+    """(secret, generation, credential fingerprint) from claudit's DB;
+    None when the user has never logged in."""
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT secret, generation FROM user_session WHERE user_id = %s",
+            "SELECT secret, generation, cred_fp FROM user_session "
+            "WHERE user_id = %s",
             (user_id,),
         ).fetchone()
     if row is None:
         return None
-    return str(row[0]), int(row[1])
+    cred_fp = str(row[2]) if row[2] is not None else None
+    return str(row[0]), int(row[1]), cred_fp
 
 
 def bump_session_generation(user_id: int) -> None:
@@ -176,6 +183,56 @@ def load_user_config(user_id: int) -> dict | None:
     return row[0] if row else None
 
 
+def credential_fingerprint(config: dict) -> str:
+    """Fingerprint the stored auth hash and salt without retaining them."""
+    stored_hash = config.get("web_password_hash", "")
+    stored_salt = config.get("web_password_salt", "")
+    material = f"{stored_hash}\x00{stored_salt}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _prune_user_config_cache(now: float) -> None:
+    """Drop expired entries above the cache cap, then evict oldest if
+    active entries alone still exceed it."""
+    if len(_USER_CONFIG_CACHE) <= _USER_CONFIG_CACHE_MAX_KEYS:
+        return
+    expired = [
+        user_id for user_id, (expires_at, _config) in _USER_CONFIG_CACHE.items()
+        if expires_at <= now
+    ]
+    for user_id in expired:
+        del _USER_CONFIG_CACHE[user_id]
+    while len(_USER_CONFIG_CACHE) > _USER_CONFIG_CACHE_MAX_KEYS:
+        oldest = min(
+            _USER_CONFIG_CACHE,
+            key=lambda user_id: _USER_CONFIG_CACHE[user_id][0],
+        )
+        del _USER_CONFIG_CACHE[oldest]
+
+
+def remember_user_config(user_id: int, config: dict | None) -> None:
+    """Cache a freshly loaded auth config for the current login binding."""
+    now = time.time()
+    cached_config = dict(config) if config is not None else None
+    _USER_CONFIG_CACHE[user_id] = (
+        now + _USER_CONFIG_CACHE_TTL_SECONDS, cached_config
+    )
+    _prune_user_config_cache(now)
+
+
+def _cached_user_config(user_id: int) -> dict | None:
+    now = time.time()
+    cached = _USER_CONFIG_CACHE.get(user_id)
+    if cached is not None:
+        expires_at, config = cached
+        if expires_at > now:
+            return config
+        del _USER_CONFIG_CACHE[user_id]
+    config = load_user_config(user_id)
+    remember_user_config(user_id, config)
+    return config
+
+
 def make_guest_session_token() -> str:
     return make_session_token(GUEST_USER_ID, _GUEST_SECRET)
 
@@ -192,8 +249,14 @@ def resolve_session_user_id(token: str) -> int | None:
     row = load_session_row(user_id)
     if row is None:
         return None
-    secret, generation = row
-    return verify_session_token(token, secret, generation)
+    secret, generation, cred_fp = row
+    verified_user_id = verify_session_token(token, secret, generation)
+    if verified_user_id is None or cred_fp is None:
+        return None
+    config = _cached_user_config(user_id)
+    if config is None or credential_fingerprint(config) != cred_fp:
+        return None
+    return verified_user_id
 
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

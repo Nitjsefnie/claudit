@@ -740,23 +740,24 @@ CREATE TABLE IF NOT EXISTS lane_markers (
   path            TEXT
 );
 
--- 2026-09-25 (issues #94, #108): each real user's web-session secret and
--- a per-user generation counter, in claudit's OWN database. Login inserts
--- the row on first login (session.get_or_create_session_row); logout
--- bumps the generation (session.bump_session_generation), which
--- invalidates every token that user holds, in any browser. The secret
--- used to live in the SHARED auth DB's users.config, which is what made
--- claudit write to a database documented read-only — it only ever reads
--- that DB now. Additive: a brand-new table breaks no older reader, so
--- this needs no PARSER_VERSION bump.
+-- 2026-09-25 (issues #94, #108, #237): each real user's web-session
+-- secret, generation counter and auth-credential fingerprint live in
+-- claudit's OWN database. Login inserts the row on first login and
+-- rebinds the fingerprint after proving the current credential; logout
+-- bumps the generation to invalidate every token that user holds. The
+-- shared auth DB remains read-only to claudit. The fingerprint is
+-- nullable for the additive migration; rows without one require a login
+-- before their existing tokens can resolve. No PARSER_VERSION bump.
 -- Issue #185: user_id is BIGINT because the auth DB's user ids are
 -- bigint (18 digits); an INTEGER here made every real login fail with
 -- integer-out-of-range.
 CREATE TABLE IF NOT EXISTS user_session (
   user_id    BIGINT PRIMARY KEY,
   secret     TEXT NOT NULL,
-  generation INTEGER NOT NULL DEFAULT 0
+  generation INTEGER NOT NULL DEFAULT 0,
+  cred_fp    TEXT
 );
+ALTER TABLE user_session ADD COLUMN IF NOT EXISTS cred_fp TEXT;
 -- The guarded, idempotent widening for a DB created while the column was
 -- still INTEGER: a no-op once the column is BIGINT (SV-SCHEMA-AUTOAPPLY's
 -- second allowed exception — a pure int->bigint widening is inert for an
