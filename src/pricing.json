@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-27T20:54:06Z",
+  "provider_rates_fetched": "2026-09-27T21:26:21Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1010,6 +1010,14 @@
           "from": "2026-09-27T18:39:01Z",
           "output": 0.6,
           "read": 0.0378
+        },
+        {
+          "create_1h": 0.03483,
+          "create_5m": 0.03483,
+          "fresh": 0.03483,
+          "from": "2026-09-27T21:26:21Z",
+          "output": 0.6,
+          "read": 0.03135
         }
       ]
     },
@@ -2355,6 +2363,14 @@
           "from": "2026-09-27T18:39:01Z",
           "output": 3.5,
           "read": 0.172
+        },
+        {
+          "create_1h": 0.24298,
+          "create_5m": 0.24298,
+          "fresh": 0.24298,
+          "from": "2026-09-27T21:26:21Z",
+          "output": 3.5,
+          "read": 0.172
         }
       ]
     },
@@ -2605,6 +2621,14 @@
           "from": "2026-09-27T19:54:08Z",
           "output": 1.3495,
           "read": 0.0798
+        },
+        {
+          "create_1h": 0.4671,
+          "create_5m": 0.4671,
+          "fresh": 0.4671,
+          "from": "2026-09-27T21:26:21Z",
+          "output": 1.3495,
+          "read": 0.0798
         }
       ],
       "InferenceNet": [
@@ -2668,6 +2692,14 @@
           "note": "69.56% off",
           "output": 1.138456,
           "read": 0.0595102
+        },
+        {
+          "create_1h": 0.3808,
+          "create_5m": 0.3808,
+          "fresh": 0.3808,
+          "from": "2026-09-27T21:26:21Z",
+          "output": 2.1692,
+          "read": 0.11339
         }
       ],
       "Novita": [
@@ -2804,6 +2836,14 @@
           "create_5m": 0.98,
           "fresh": 0.98,
           "from": "2026-09-27T18:39:01Z",
+          "output": 4.4,
+          "read": 0.26
+        },
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": "2026-09-27T21:26:21Z",
           "output": 4.4,
           "read": 0.26
         }
