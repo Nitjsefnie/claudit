@@ -262,25 +262,28 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
 
 
 def test_every_row_gains_a_per_field_entry(tmp_path):
-    """The fourth appended entry scales each of the five fields by its
-    OWN seeded factor — derived from (seed, row key, field), in
-    [0.61, 1.47), never exactly 1.0 — so a within-row ratio the data
-    once had (read == fresh * k, say) does not survive the run."""
+    """The fourth appended entry scales each field by its OWN seeded
+    factor — from (seed, row key, field), in [0.61, 1.47), never 1.0 —
+    so a within-row ratio the data once had does not survive. The five
+    factors of one row are DISTINCT: dropping `field` from the digest
+    preserves every ratio the entry exists to break."""
     doc, perturbed, _text, _path = _run(tmp_path)
     for (key, entries), (_key, original) in zip(
             _rows_of(perturbed), _rows_of(doc), strict=True):
         base = original[-1]
         assert len(entries) == len(original) + 5
         entry = entries[len(original) + 3]
-        assert entry["note"] == \
-            "sv-test-data perturbation: independent per-field factors"
+        assert entry["note"] == "sv-test-data perturbation: independent per-field factors"
+        factors = []
         for field in RATE_FIELDS:
             text = perturb_module._field_factor(  # pylint: disable=protected-access
                 int(NOW.timestamp()), key, field)
-            assert 0.61 <= float(text) < 1.47 and float(text) != 1.0
-            assert len(text.partition(".")[2]) == 6
+            assert 0.61 <= float(text) < 1.47 and float(text) != 1.0 \
+                and len(text.partition(".")[2]) == 6
+            factors.append(float(text))
             assert entry[field] == (
                 base[field] * float(text) if base[field] else 1.0)
+        assert len(set(factors)) == len(RATE_FIELDS)
 
 
 def test_every_row_gains_a_single_field_entry(tmp_path):
@@ -407,12 +410,41 @@ def test_the_fetch_stamp_and_openrouter_section_are_untouched(tmp_path):
 
 
 def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
-    _doc, perturbed, _text, _path = _run(tmp_path)
+    """The loaded tables carry the perturbation's COMPUTED values, not
+    an echo of the file's own last entry: for a known seed, the newest
+    rates and the two windows the last stamps close are derived here
+    from the seeded factors, then asserted against `load_tables`."""
+    seed = 42
+    pricing_path, _constants_path, doc = _seed_tree(tmp_path)
+    perturb_module.perturb_pricing(pricing_path, seed=seed)
+    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     tables = pricing.load_tables(perturbed)
-    for key in ("acme/acme-9", "free/acme-0"):
-        newest = perturbed["models"][key][-1]
-        assert tables["MODEL_RATES"][key] == {f: newest[f]
-                                              for f in RATE_FIELDS}
+    for key in doc["models"]:
+        base = doc["models"][key][-1]
+        moved = perturb_module._moved_field(seed, key)  # pylint: disable=protected-access
+        per_field = {
+            field: (base[field] * float(
+                perturb_module._field_factor(  # pylint: disable=protected-access
+                    seed, key, field))
+                    if base[field] else 1.0)
+            for field in RATE_FIELDS}
+        factor = float(
+            perturb_module._single_field_factor(  # pylint: disable=protected-access
+                seed, key, moved))
+        expected = {**per_field,
+                    moved: base[moved] * factor if base[moved] else 1.0}
+        assert tables["MODEL_RATES"][key] == expected, key
+        irregular = float(perturb_module._irregular_factor(seed, key))  # pylint: disable=protected-access
+        # The window the FINAL stamp closes holds the per-field entry;
+        # the one behind it, the seeded irregular whole-row entry.
+        windows = tables["DATED_RATES"][key]
+        assert windows[-1] == (datetime.fromisoformat(
+            perturbed["models"][key][-1]["from"].replace("Z", "+00:00")),
+            per_field)
+        assert windows[-2] == (datetime.fromisoformat(
+            perturbed["models"][key][-2]["from"].replace("Z", "+00:00")),
+            {field: base[field] * irregular if base[field] else 1.0
+             for field in RATE_FIELDS})
     assert len(tables["RATE_EPOCHS"]) > 0
 
 

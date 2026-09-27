@@ -1104,8 +1104,9 @@ keeps such a pin valid; `tests/test_provider_pricing.py`'s SEEDED
 comment is the exemplar.
 
 Enforcement is mechanical, two halves. The perturbed-data CI leg runs
-the suite against a tree whose rate rows each gain three appended
-entries per run — ×2, ×0.37, and a per-row irregular factor, in
+the suite against a tree whose rate rows each gain five appended
+entries per run — ×2, ×0.37, a per-row irregular factor, five
+independent per-field factors, and a single-field move, in
 seeded-shuffled row order — and whose version constants are bumped
 (`scripts/ci/perturb_test_data.py`), so a hidden dependency fails as a
 test failure, never as a broken refresh. The guard half,
