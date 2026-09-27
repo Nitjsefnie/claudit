@@ -342,8 +342,10 @@ point `R2_ENDPOINT` at a local mirror outside the tree.
   account id cannot be enumerated by response or timing. One documented
   residual: a stored hash versioned above the target count still costs
   longer. The rate limiter keys 5 failures per IP+user pair per
-  5-minute window, prunes expired entries per key on access, and sweeps
-  fully expired keys past a cap.
+  5-minute window and also limits the aggregate to 20 failures per IP
+  per 5-minute window, so rotating user ids cannot evade admission
+  control. Both limiters prune expired entries on access and sweep fully
+  expired keys past a cap.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process
   secret regenerated at startup; cookies invalidate on restart. Guests
   are blocked from `/api/projects`, `/api/sessions*`, and `?project=`

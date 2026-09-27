@@ -12,6 +12,7 @@ cookie even when the store is unavailable).
 """
 import copy
 import secrets
+import threading
 import time as time_mod
 
 import pytest
@@ -129,6 +130,34 @@ def test_successful_login_sets_cookie(app, fake_user, fake_session_store):
     assert r.status_code in (302, 303)
     assert session_mod.SESSION_COOKIE_NAME in r.cookies
     _assert_session_cookie_contract(r)
+
+
+def test_login_verification_runs_off_event_loop_thread(
+    app, fake_user, fake_session_store, monkeypatch
+):
+    event_loop_threads: list[int] = []
+    verification_threads: list[int] = []
+
+    @app.middleware("http")
+    async def capture_event_loop_thread(request, call_next):
+        event_loop_threads.append(threading.get_ident())
+        return await call_next(request)
+
+    real_verify = auth.verify_web_password
+
+    def capture_verification_thread(config: dict, password: str) -> bool:
+        verification_threads.append(threading.get_ident())
+        return real_verify(config, password)
+
+    monkeypatch.setattr(
+        auth, "verify_web_password", capture_verification_thread
+    )
+    r = _post_login(TestClient(app), 12345, "hunter2")
+
+    assert r.status_code == 303
+    assert len(event_loop_threads) == 1
+    assert len(verification_threads) == 1
+    assert verification_threads[0] != event_loop_threads[0]
 
 
 def test_guest_login_sets_same_cookie_contract(app):
@@ -424,6 +453,67 @@ def test_under_cap_no_sweep_runs():
     failures["198.51.100.7:2"] = [now - 10_000]
     login_mod._record_login_failure("198.51.100.7", 3)  # pylint: disable=protected-access
     assert failures["198.51.100.7:2"] == [now - 10_000]
+
+
+def test_ip_rate_limit_counts_rotating_user_ids():
+    ip = "192.0.2.50"
+    for uid in range(1, 6):
+        for _ in range(login_mod._LOGIN_MAX_FAILURES):
+            login_mod._record_login_failure(ip, uid)  # pylint: disable=protected-access
+            login_mod._record_login_ip_failure(ip)  # pylint: disable=protected-access
+
+    assert not login_mod._check_login_rate_limit(ip, 6)  # pylint: disable=protected-access
+    assert login_mod._check_login_ip_rate_limit(ip)  # pylint: disable=protected-access
+    assert not login_mod._check_login_rate_limit("192.0.2.51", 6)  # pylint: disable=protected-access
+    assert not login_mod._check_login_ip_rate_limit("192.0.2.51")  # pylint: disable=protected-access
+
+
+def test_ip_limiter_drops_empty_key_on_access():
+    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    failures["192.0.2.1"] = []
+
+    login_mod._check_login_ip_rate_limit("192.0.2.1")  # pylint: disable=protected-access
+
+    assert "192.0.2.1" not in failures
+
+
+def test_ip_limiter_sweeps_aged_keys_when_over_cap():
+    now = time_mod.time()
+    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    aged = now - login_mod._LOGIN_WINDOW_SECONDS - 1  # pylint: disable=protected-access
+    for i in range(login_mod._LOGIN_MAX_IP_KEYS + 1):  # pylint: disable=protected-access
+        failures[f"10.1.{i // 256}.{i % 256}"] = [aged]
+    failures["198.51.100.7"] = [now]
+
+    login_mod._record_login_ip_failure("198.51.100.8")  # pylint: disable=protected-access
+
+    assert not any(key.startswith("10.1.") for key in failures)
+    assert failures["198.51.100.7"] == [now]
+    assert len(failures["198.51.100.8"]) == 1
+
+
+def test_ip_limited_429_does_not_reach_auth_work(
+    app, fake_user, monkeypatch
+):
+    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    failures["testclient"] = [
+        time_mod.time()
+    ] * login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
+    monkeypatch.setattr(
+        session_mod,
+        "load_user_config",
+        lambda uid: pytest.fail("429 must not reach the auth DB"),
+    )
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda password, spent: pytest.fail("429 must not normalize timing"),
+    )
+
+    r = _post_login(TestClient(app), 12345, "x")
+
+    assert r.status_code == 429
+    assert r.text == "Too many login attempts. Try again later."
 
 
 def test_successful_login_does_not_write_the_auth_db(
