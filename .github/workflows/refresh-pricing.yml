@@ -15,10 +15,10 @@ name: refresh-pricing
 # unless it appends: the fetch stamp in the JSON moves only with the data,
 # so a quiet hour leaves the tree clean and commits nothing.
 #
-# THE SUITE RUNS BEFORE THE COMMIT, NOT AFTER. A push made with the job token
-# starts no other workflow, so tests.yml never sees the bot's commit; the
-# suite here is the only check it gets. A failing suite leaves the last good
-# data on master.
+# THE SUITE RUNS BEFORE THE COMMIT, NOT AFTER. The suite gates this push, so a
+# failing suite leaves the last good data on master. The deploy-key push
+# starts workflow runs, unlike a GITHUB_TOKEN push; ci-gate then gives this
+# commit a real aggregate verdict on master's tip.
 #
 # Only endpoints in the account's data region count; a region-tagged one
 # (`host/us`) is not one it is billed by. These designed signals refuse the
