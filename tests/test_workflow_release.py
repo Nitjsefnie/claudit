@@ -30,13 +30,22 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 RELEASE = WORKFLOWS / "release.yml"
+
+ubuntu_step_body = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="the tests execute release.yml ubuntu run blocks through POSIX bash, "
+           "which Windows cannot run; the steps only ever execute on "
+           "ubuntu-latest",
+)
 
 WAIT_STEP = "Wait for the other gates on this commit"
 REFUSAL_STEP = "Refuse to re-release an existing tag"
@@ -153,6 +162,7 @@ TAG_404 = "gh: HTTP 404: Not Found (https://api.github.com/repos/Nitjsefnie/clau
 RELEASE_404 = "gh: HTTP 404: Not Found (https://api.github.com/repos/Nitjsefnie/claudit/releases/tags/v9.9.9)"
 
 
+@ubuntu_step_body
 def test_wait_proceeds_when_aggregate_success_among_all_success():
     runs = "\n".join([
         _row("completed", "success", "tests"),
@@ -165,6 +175,7 @@ def test_wait_proceeds_when_aggregate_success_among_all_success():
     assert PROCEEDING in proc.stdout
 
 
+@ubuntu_step_body
 def test_wait_times_out_without_an_aggregate_verdict():
     # A master push whose gate never reported a verdict — the exact hole
     # of issue #247: everything green, no aggregate row at all.
@@ -176,6 +187,7 @@ def test_wait_times_out_without_an_aggregate_verdict():
     assert "Timed out" in proc.stderr
 
 
+@ubuntu_step_body
 def test_wait_times_out_when_the_aggregate_conclusion_is_skipped():
     # `skipped` sits inside the wait's allowed set — without the verdict
     # rule the wait proceeds over an aggregate that skipped.
@@ -190,6 +202,7 @@ def test_wait_times_out_when_the_aggregate_conclusion_is_skipped():
     assert "Timed out" in proc.stderr
 
 
+@ubuntu_step_body
 def test_wait_times_out_when_the_aggregate_is_a_foreign_app():
     # A check merely NAMED aggregate from another app proves nothing
     # about our gate; only the Actions app's own verdict counts.
@@ -204,6 +217,7 @@ def test_wait_times_out_when_the_aggregate_is_a_foreign_app():
     assert PROCEEDING not in proc.stdout
 
 
+@ubuntu_step_body
 def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
     # The first read shows the aggregate queued; a later read completes
     # it with success and the wait proceeds.
@@ -225,6 +239,7 @@ def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
     assert PROCEEDING in proc.stdout
 
 
+@ubuntu_step_body
 def test_wait_refuses_promptly_when_a_check_failed():
     # A failed non-aggregate check refuses on the first read — no wait.
     runs = "\n".join([
@@ -238,6 +253,7 @@ def test_wait_refuses_promptly_when_a_check_failed():
     assert PROCEEDING not in proc.stdout
 
 
+@ubuntu_step_body
 def test_wait_refuses_promptly_when_a_check_was_cancelled():
     # `cancelled` counts as failure: a cancelled run means a newer push
     # superseded this SHA, which is not a commit to release.
@@ -252,6 +268,7 @@ def test_wait_refuses_promptly_when_a_check_was_cancelled():
     assert PROCEEDING not in proc.stdout
 
 
+@ubuntu_step_body
 def test_wait_times_out_when_only_release_prefixed_checks_exist():
     # Its own release checks are excluded, so with only those present
     # there is nothing else to wait for — and nothing to proceed on.
@@ -270,6 +287,7 @@ def test_wait_projection_carries_the_app_slug():
     assert ".app.slug" in _step_run(WAIT_STEP)
 
 
+@ubuntu_step_body
 def test_refusal_proceeds_when_both_probes_answer_404(tmp_path):
     # The one shape that may proceed: both probes proved absent.
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
@@ -278,6 +296,7 @@ def test_refusal_proceeds_when_both_probes_answer_404(tmp_path):
     assert "v9.9.9 is free" in proc.stdout
 
 
+@ubuntu_step_body
 def test_refusal_refuses_when_the_tag_probe_succeeds(tmp_path):
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(0, '{"ref": "refs/tags/v9.9.9"}',
@@ -286,6 +305,7 @@ def test_refusal_refuses_when_the_tag_probe_succeeds(tmp_path):
     assert "Tag v9.9.9 already exists" in proc.stderr
 
 
+@ubuntu_step_body
 def test_refusal_refuses_when_the_release_probe_succeeds(tmp_path):
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(1, TAG_404, 0, '{"id": 12345}', tmp_path))
@@ -293,6 +313,7 @@ def test_refusal_refuses_when_the_release_probe_succeeds(tmp_path):
     assert "Release v9.9.9 already exists" in proc.stderr
 
 
+@ubuntu_step_body
 def test_refusal_fails_closed_when_the_tag_probe_answers_403(tmp_path):
     # A 403 says nothing about the tag's existence; proceeding on it
     # would green-light a version collision the step exists to catch.
@@ -302,6 +323,7 @@ def test_refusal_fails_closed_when_the_tag_probe_answers_403(tmp_path):
     assert "could not verify the tag probe for v9.9.9" in proc.stderr
 
 
+@ubuntu_step_body
 def test_refusal_fails_closed_when_the_tag_probe_answers_503(tmp_path):
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(1, "gh: HTTP 503: Service Unavailable",
@@ -310,6 +332,7 @@ def test_refusal_fails_closed_when_the_tag_probe_answers_503(tmp_path):
     assert "could not verify the tag probe for v9.9.9" in proc.stderr
 
 
+@ubuntu_step_body
 def test_refusal_fails_closed_when_the_tag_probe_hits_a_network_error(tmp_path):
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(1, 'gh: Get "https://api.github.com": '
@@ -319,6 +342,7 @@ def test_refusal_fails_closed_when_the_tag_probe_hits_a_network_error(tmp_path):
     assert "could not verify the tag probe for v9.9.9" in proc.stderr
 
 
+@ubuntu_step_body
 def test_refusal_fails_closed_when_the_release_probe_answers_403(tmp_path):
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(1, TAG_404, 1, "gh: HTTP 403: Forbidden",
