@@ -1,8 +1,19 @@
 """Tests moved from test_provider_rate_refresh.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
+import copy
+import json
+import re
+import shutil
+import subprocess
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+import pytest
+
+from backend import pricing
+
 from tests.test_provider_rate_refresh import (
-    Decimal,
     GLM,
     NOW,
     PARSER_JS,
@@ -18,19 +29,11 @@ from tests.test_provider_rate_refresh import (
     _pin_novita,
     _refused,
     _two_global_novitas,
-    copy,
-    datetime,
-    json,
     needs_node,
-    pricing,
-    pytest,
-    re,
-    refresh,
-    shutil,
-    subprocess,
-    timedelta,
-    timezone,
+    _load,
 )
+
+refresh = _load()
 
 
 def test_the_global_endpoint_is_taken_over_a_region_one(tmp_path, capsys):
@@ -67,6 +70,54 @@ def test_sail_research_takes_its_global_endpoint(tmp_path, capsys):
         _endpoint("Sail Research", us_region, tag="sail-research/us")]
     assert run(capsys)[0] == 0
     assert run.doc()["providers"][model]["Sail Research"][-1] == {"from": STAMP, **fp4}
+
+
+def test_baseten_selects_the_global_synthetic_endpoint_over_a_cheaper_region() -> None:
+    global_rates = {
+        "fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
+        "read": 0.125, "output": 1.0,
+    }
+    regional_rates = {
+        "fresh": 0.125, "create_5m": 0.125, "create_1h": 0.125,
+        "read": 0.0625, "output": 0.5,
+    }
+    payload = {"data": {"endpoints": [
+        _endpoint("BaseTen", global_rates, tag="baseten/fp8"),
+        _endpoint("BaseTen", regional_rates, tag="baseten/us"),
+    ]}}
+    selected, refused, _ = refresh.listed_rows(
+        "deepseek/acme-v4-1", payload, None,
+        {"BaseTen": {"select": "cheapest", "why": "synthetic region check"}},
+        {}, NOW,
+    )
+
+    assert refused == {}
+    assert selected["BaseTen"].tag == "baseten/fp8"
+    assert selected["BaseTen"].rates == global_rates
+
+
+def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
+    withdrawn_rates = {
+        "fresh": 0.45, "create_5m": 0.45, "create_1h": 0.45,
+        "read": 0.225, "output": 1.5,
+    }
+    surviving_rates = {
+        "fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
+        "read": 0.125, "output": 0.75,
+    }
+    payload = {"data": {"endpoints": [
+        _endpoint("Modal", withdrawn_rates, tag="modal/fp8"),
+        _endpoint("Modal", surviving_rates, tag="modal/nvfp4"),
+    ]}}
+    selected, refused, _ = refresh.listed_rows(
+        GLM, payload, None,
+        {"Modal": {"tag": "modal/nvfp4", "why": "synthetic survivor check"}},
+        {}, NOW,
+    )
+
+    assert refused == {}
+    assert selected["Modal"].tag == "modal/nvfp4"
+    assert selected["Modal"].rates == surviving_rates
 
 
 def test_a_host_listed_only_in_a_region_is_reported_vanished(tmp_path, capsys):

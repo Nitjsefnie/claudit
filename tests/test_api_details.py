@@ -2,31 +2,25 @@
 from __future__ import annotations
 
 import inspect
+import json
+import os
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
-from fastapi import Request
+import psycopg
+import pytest
+from fastapi import FastAPI, Request
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
-from backend import app as app_mod, cache
+from backend import api, app as app_mod, cache, db, ingest
 
 # Pytest discovers imported fixture functions by their fixture marker.
 from tests.test_api import (  # pylint: disable=unused-import
-    FastAPI,
-    TestClient,
     _app_with_data_fixture,
     _app_with_fresh_data_fixture,
     _app_with_rl_data_fixture,
     _insert_tz_probe_rows,
-    api,
-    closing,
-    datetime,
-    db,
-    ingest,
-    json,
-    os,
-    psycopg,
-    pytest,
-    timedelta,
-    timezone,
 )
 
 

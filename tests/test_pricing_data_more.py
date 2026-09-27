@@ -1,9 +1,16 @@
 """Tests moved from test_pricing_data.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
+import json
+import re
+import shutil
+from datetime import datetime, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
+from backend import pricing
 from backend import session as session_mod
 
 from tests.test_pricing_data import (
@@ -15,7 +22,6 @@ from tests.test_pricing_data import (
     NEWCOMER,
     ORIGIN,
     PARSER_JS,
-    PRICING_JSON,
     P_AFTER,
     P_BEFORE,
     P_CUT,
@@ -41,21 +47,14 @@ from tests.test_pricing_data import (
     _node_load,
     _provider_only_doc,
     _provider_string_rate,
+    _pricing_json,
     _stamp,
     _variant_node,
     _variant_row_doc,
     _when,
     _with_newcomer,
     _with_schedule,
-    copy,
-    datetime,
-    json,
     needs_node,
-    pricing,
-    pytest,
-    re,
-    shutil,
-    timedelta,
 )
 
 
@@ -134,7 +133,7 @@ def test_the_page_names_the_file_with_its_own_cache_bust():
     client.cookies.set(session_mod.SESSION_COOKIE_NAME,
                        session_mod.make_guest_session_token())
     page = client.get("/").text
-    version = int(PRICING_JSON.stat().st_mtime)
+    version = int(_pricing_json().stat().st_mtime)
     tag = re.search(r'<script src="/src/parser\.js[^"]*"[^>]*>', page)
     assert tag, page
     assert f'data-pricing="/src/pricing.json?v={version}"' in tag.group(0)
@@ -142,10 +141,17 @@ def test_the_page_names_the_file_with_its_own_cache_bust():
 
 @needs_node
 @pytest.mark.parametrize("stamp", EDGE_STAMPS)
-def test_both_sides_read_an_edge_spelling_as_the_same_instant(tmp_path, stamp):
-    doc = copy.deepcopy(_doc())
-    history = doc["models"]["glm-5-3-flash"]
-    history.append({**history[-1], "from": stamp})
+def test_both_sides_read_an_edge_spelling_as_the_same_instant(
+        tmp_path, stamp: str) -> None:
+    rates = {"fresh": 7.0, "create_5m": 8.0, "create_1h": 9.0,
+             "read": 0.7, "output": 70.0}
+    model = "acme/edge-9"
+    doc = {
+        "models": {model: [{"from": None, **rates},
+                           {"from": stamp, **rates}]},
+        "providers": {},
+        "provider_rates_fetched": "2030-01-01T00:00:00Z",
+    }
     want = int(_at(stamp).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000)
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]

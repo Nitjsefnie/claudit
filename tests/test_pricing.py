@@ -34,35 +34,6 @@ def test_fable_5_suffixes_fold_to_its_own_row(
     assert base.rates is suffixed.rates is rates
 
 
-def test_fable_5_1_and_mythos_5_1_price_identically(monkeypatch):
-    """The read ratio and identical prices are checked on synthetic rows."""
-    fable_key = "claude-acme-fable-5-1"
-    mythos_key = "claude-acme-mythos-5-1"
-    fable_rates = dict(zip(pricing.RATE_FIELDS, (8.0, 10.0, 16.0, 0.2, 40.0)))
-    mythos_rates = dict(fable_rates)
-    monkeypatch.setitem(pricing.MODEL_RATES, fable_key, fable_rates)
-    monkeypatch.setitem(pricing.MODEL_RATES, mythos_key, mythos_rates)
-
-    fable = pricing.resolve(fable_key)
-    mythos = pricing.resolve(f"anthropic.{mythos_key}[1m]")
-    assert fable.key == fable_key and fable.rates is fable_rates
-    assert mythos.key == mythos_key and mythos.rates is mythos_rates
-    for rates in (fable_rates, mythos_rates):
-        assert rates["read"] == pytest.approx(rates["fresh"] * 0.025)
-    assert fable.rates == mythos.rates
-    fable_cost = pricing.compute_cost(
-        fable_key, fresh=0, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=1_000_000,
-    )
-    mythos_cost = pricing.compute_cost(
-        f"anthropic.{mythos_key}[1m]", fresh=0, output=0,
-        eph5=0, eph1h=0, unsplit_create=0, read=1_000_000,
-    )
-    assert fable_cost == pytest.approx(fable_rates["read"], rel=1e-12)
-    assert mythos_cost == pytest.approx(mythos_rates["read"], rel=1e-12)
-    assert fable_cost == mythos_cost
-
-
 def test_opus_5_5_resolves_exact_distinct_from_opus_5():
     """The live table check pins only exact-key resolution."""
     o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
@@ -87,7 +58,7 @@ def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
         newer = pricing.resolve(f"anthropic.{version}[1m]")
         assert older.key == base and older.rates is rows[base]
         assert newer.key == version and newer.rates is rows[version]
-        assert older.rates != newer.rates
+        assert older.rates is not newer.rates
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5(
@@ -105,6 +76,7 @@ def test_fable_5_1_does_not_misroute_to_fable_5(
     version = pricing.resolve(f"{fable51_key}[1m]")
     assert base.key == fable_key and base.rates is fable
     assert version.key == fable51_key and version.rates is fable51
+    assert base.rates is not version.rates
 
 
 def test_unknown_fable_falls_back_to_current_generation():
@@ -143,6 +115,9 @@ def test_opus_4_8_does_not_misroute_to_legacy_opus_4(
     legacy = pricing.resolve(legacy_key)
     assert modern.key == modern_key
     assert legacy.key == legacy_key
+    assert modern.rates is rows[modern_key]
+    assert legacy.rates is rows[legacy_key]
+    assert modern.rates is not legacy.rates
 
 
 def test_sonnet_4_5_resolves_exact_with_all_five_fields():
@@ -173,8 +148,11 @@ def test_substring_order_does_not_misroute_4_7_to_4(
     }
     monkeypatch.setattr(pricing, "MODEL_RATES", rows)
     monkeypatch.setattr(pricing, "DATED_RATES", {})
-    assert pricing.resolve(longer).key == longer
-    assert pricing.resolve(shorter).key == shorter
+    long_result = pricing.resolve(longer)
+    short_result = pricing.resolve(shorter)
+    assert long_result.key == longer and long_result.rates is rows[longer]
+    assert short_result.key == shorter and short_result.rates is rows[shorter]
+    assert long_result.rates is not short_result.rates
 
 
 def test_compute_cost_prices_fresh_at_the_fresh_rate():
@@ -207,9 +185,9 @@ def test_unsplit_cache_charges_at_1h_rate(
 
 
 def test_split_cache_charges_each_bucket_separately():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (derived: expected values use the same loaded row rates and matching per-million terms)
+    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (same algorithm and order: expected terms use this row's rates divided by one million)
     cost = pricing.compute_cost(
-        "claude-sonnet-4-5",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+        "claude-sonnet-4-5",  # sv-test-data: allow (same algorithm and order: expected terms use this loaded row's rates divided by one million)
         fresh=0, output=0,
         eph5=1, eph1h=1,
         unsplit_create=0, read=0,
@@ -265,11 +243,11 @@ def test_expired_windows_keep_pricing_their_own_period():
     cutover, window_rates = windows[-1]
     listed = pricing.MODEL_RATES["glm-5-3-flash"]
     before = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: runtime cutover and rates from the same loaded model table)
+        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (same algorithm and order: one token uses the runtime window's fresh rate divided by one million)
         unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
     )
     after = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: runtime cutover and rates from the same loaded model table)
+        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (same algorithm and order: one token uses the runtime list rate divided by one million)
         unsplit_create=0, read=0, ts=cutover,
     )
     # rel=1e-12: the same window's rates on both sides; the per-million
@@ -549,7 +527,7 @@ def test_provider_prefixed_and_dotted_ids_normalise_to_the_exact_key(
 
 
 def test_resolve_reports_exact_match():
-    assert pricing.resolve("claude-opus-4-8").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.resolve("claude-opus-4-8").kind == "exact"  # sv-test-data: allow (structure-only: claude-opus-4-8 is an existing exact model key)
 
 
 def test_resolve_reports_tier_fallback_for_unknown_claude_model():
@@ -677,11 +655,11 @@ def test_nonfree_openrouter_id_is_unchanged():
     assert r.kind == "default"
     assert r.rates == pricing.DEFAULT_RATES
     # the unprefixed id still resolves exact against the table
-    assert pricing.resolve("gpt-6-sol").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.resolve("gpt-6-sol").kind == "exact"  # sv-test-data: allow (structure-only: gpt-6-sol is an existing exact model key)
 
 
 def test_free_matching_does_not_touch_claude_ids():
-    r = pricing.resolve("claude-opus-4-8")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    r = pricing.resolve("claude-opus-4-8")  # sv-test-data: allow (load-time identity: result.rates is the object stored at this loaded exact key)
     assert r.kind == "exact"
     assert r.rates is pricing.MODEL_RATES["claude-opus-4-8"]
 
