@@ -8,6 +8,10 @@ on:
   # run possible for a branch without a PR that only wants this
   # workflow's own verdict.
   workflow_call:
+    secrets:
+      MASTER_PUSH_DEPLOY_KEY:
+        required: false
+        description: write deploy key the ratchet push authenticates with
   workflow_dispatch:
 
 # Least privilege: every job here only reads the tree. Without an
@@ -33,14 +37,11 @@ jobs:
     timeout-minutes: 30
 
     permissions:
-      # Only this job may write, and only to push the ratchet commit that
-      # raises the coverage floor / tightens the size baseline on master
-      # (see the "Ratchet the thresholds" step), and — on a pull request
-      # only — to post the informational patch-coverage comment (issue
-      # #129). The workflow-level block above stays contents: read, so
-      # every other job remains read-only. ci-gate's calling job grants
-      # the same pair, or the callee would be capped below this.
-      contents: write
+      # The job reads contents for the suite and writes only the
+      # informational patch-coverage comment on a pull request (issue
+      # #129). The master ratchet push uses MASTER_PUSH_DEPLOY_KEY, not a
+      # write-scoped GITHUB_TOKEN.
+      contents: read
       pull-requests: write
 
     services:
@@ -80,11 +81,9 @@ jobs:
           # reason speed.yml fetches everything). The repo's history is
           # small; the fetch is seconds.
           fetch-depth: 0
-          # One step in this workflow pushes (the master-only ratchet
-          # commit), and its token is interpolated into the push URL from
-          # a step-scoped env — never into .git/config. persist-
-          # credentials: false is what keeps the checkout from leaving
-          # the job token behind for any later step to reuse.
+          # The master-only ratchet commit uses a step-scoped deploy key.
+          # persist-credentials: false keeps the job token out of
+          # .git/config for any later step to reuse.
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -192,12 +191,11 @@ jobs:
         # result it computed, even 0%.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
         env:
-          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           git fetch --no-tags \
-            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "https://github.com/${REPO}.git" \
             "refs/heads/${BASE_REF}"
           base="$(git merge-base HEAD FETCH_HEAD)"
           echo "Patch base: $(git log -1 --format='%h %s' "$base")"
@@ -312,26 +310,39 @@ jobs:
           fi
 
       - name: Commit the ratchet
-        # Runs only when the step above changed the data file. The
-        # workflow-level token stays out of .git/config (checkout uses
-        # persist-credentials: false), so the push URL below is the only
-        # place the token appears, scoped to this one step via env.
-        # Only the data file is committed, and a push to it never
-        # re-triggers CI: ci-gate's push trigger ignores the path
-        # (GITHUB_TOKEN pushes start no workflows either).
+        # Runs only when the step above changed the data file. This push
+        # authenticates with the MASTER_PUSH_DEPLOY_KEY deploy key, the
+        # bypass actor for the coming required-check ruleset. Deploy-key
+        # pushes start workflow runs (unlike GITHUB_TOKEN pushes), which is
+        # intended for the hourly pricing commit to get a real aggregate
+        # verdict on master's tip. This ratchet commit stays silent only
+        # because ci-gate's push trigger paths-ignores
+        # .github/ci-thresholds.json.
         if: ${{ !cancelled() && steps.ratchet.outputs.changed == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
         run: |
+          if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            eval "$(ssh-agent -s)" >/dev/null
+            ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+            mkdir -p ~/.ssh
+            # GitHub SSH host keys, published by GitHub's Meta endpoint:
+            # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+            printf '%s\n' \
+              'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+              'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+              >> ~/.ssh/known_hosts
+            export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          fi
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
           git config user.name 'github-actions[bot]'
           git config user.email \
             '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/ci-thresholds.json
           git commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten size baseline (automated)' \
             -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
-          if git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" \
-            HEAD:master; then
+          if git push "$remote" HEAD:master; then
             exit 0
           fi
           # A rejected push usually means master moved while this run was
@@ -339,8 +350,7 @@ jobs:
           # ordinary concurrent push. Distinguish it: if the remote still
           # points at this commit's parent, the race explanation is wrong
           # and the push failed for a real reason.
-          git fetch --quiet \
-            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" master
+          git fetch --quiet "$remote" master
           if [ "$(git rev-parse HEAD^)" = "$(git rev-parse FETCH_HEAD)" ]; then
             echo "the ratchet push was rejected while master stood still" >&2
             exit 1
