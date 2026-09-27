@@ -8,8 +8,9 @@ network.
 """
 from __future__ import annotations
 
+from tests.refresh_fixture_builders import _per_token
 from tests.test_provider_rate_refresh import (
-    GLM, RATE_FIELDS, STAMP, Run, _overrides, _per_token)
+    GLM, RATE_FIELDS, STAMP, Run, _overrides)
 
 
 # --- an alternating price -----------------------------------------------------
