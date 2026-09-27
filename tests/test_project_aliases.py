@@ -290,11 +290,12 @@ def test_alias_added_after_first_ingest_folds_without_a_reparse(
     assert _owners() == {"projB": 5}
 
 
-def test_alias_row_deleted_already_folded_rows_keep_the_target(
+def test_alias_row_deleted_no_reparse_no_lane_pass_keeps_existing_claude_rows_at_target(
         fresh_db, mini_r2_env):
-    """Deleting the alias stops folding NEW files only: already-folded
-    rows keep the target id — the raw id is not retained, so an unfold
-    is not possible."""
+    """With this unchanged Claude-layout mirror file, deletion alone
+    causes no reparse and no lane pass, so this ingest leaves its existing
+    folded row at the target. A later identity pass may re-key it; this
+    test does not promise that the target is permanent."""
     _alias("projA%", "projB")
     assert ingest.run_ingest(trigger="manual")["error"] is None
     with db.viz_conn() as c:
