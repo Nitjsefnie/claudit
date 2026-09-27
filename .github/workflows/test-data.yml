@@ -127,7 +127,7 @@ jobs:
         # refresh bot's commit produces (rates moved, version constants
         # bumped), so the suite runs against data the repository
         # changes by design. Working-tree only — a fresh checkout runs
-        # it, so nothing here reverts anything. The seeds are FIXED
+        # it. The seeds are FIXED
         # (issue #226): a wall-clock seed made the leg's verdict random
         # — the same tree passing or failing with the day it ran on.
         # Three absolute seeds — a historical one, a huge one, a

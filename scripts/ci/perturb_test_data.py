@@ -78,9 +78,10 @@ def perturb_pricing(path: Path,
     which is what the six closed-window pins in
     tests/test_provider_pricing.py price. When NO entry carries a
     `from`, there is nothing older to protect and the run instant is
-    the base instead. `_stamp_after`'s clamp stays as a belt for a real
-    stamp newer than the counter (a refresh landing mid-run); its
-    semantics are unchanged. The same (document, seed) reproduces the
+    the base instead. `_stamp_after`'s clamp stays as a retained belt,
+    its semantics unchanged: the document is read once here, so no
+    in-process stamp can be newer than the counter and the clamp
+    cannot fire on this path. The same (document, seed) reproduces the
     run byte for byte. The document is validated through the backend's
     own loader before it is written.
 
