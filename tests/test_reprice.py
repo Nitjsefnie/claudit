@@ -502,7 +502,8 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     """The phases tuple resolves its names through ingest's globals at
     call time, so stubbing every phase on `ingest` records the order the
     rebuild runs them in. Reprice is a records mutation, so it must land
-    after suppression and before the canonical pass and every rollup."""
+    after suppression, after the alias fold re-keys stored project
+    identity, and before the canonical pass and every rollup."""
     order = []
 
     def stub(name):
@@ -510,7 +511,8 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
         # should_stop, so every stub accepts (and ignores) arguments.
         return lambda *args, **kwargs: order.append(name)
 
-    phases = ("purge_suppressed", "reprice_stale", "recompute_canonical",
+    phases = ("purge_suppressed", "reprice_stale", "rekey_folded_projects",
+              "recompute_canonical",
               "resolve_teammate_agent_types", "rebuild_rollup",
               "rebuild_tool_rollup", "rebuild_tool_error_rollup",
               "rebuild_dispatch_rollup", "rebuild_dispatch_brief_rollup",
@@ -521,5 +523,8 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
     ingest._rebuild_derived_state()  # pylint: disable=protected-access
 
     assert set(order) == set(phases), "every phase ran exactly once"
-    assert order[:3] == [
-        "purge_suppressed", "reprice_stale", "recompute_canonical"]
+    assert order[:4] == ["purge_suppressed", "reprice_stale",
+                         "rekey_folded_projects", "recompute_canonical"]
+
+
+
