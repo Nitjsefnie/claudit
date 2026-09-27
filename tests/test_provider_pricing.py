@@ -82,10 +82,12 @@ def test_the_provider_table_is_keyed_on_the_normalised_model_id(
     assert pricing.rate_for(model, provider=host) is rates
 
 
-def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
-    # BaseTen lists deepseek-v4.1-flash at two cache-read prices: 0.03 US
-    # in-region, 0.007 global. The account's keys allow only the global
-    # data region, so the global price applies.
+def test_baseten_resolution_returns_its_loaded_provider_row():
+    """The resolver returns the BaseTen row selected into the loaded table.
+
+    Synthetic global-versus-region endpoint selection is covered by the
+    refresh tests, where both controlled tags and rate vectors are visible.
+    """
     normalized_model = V41.replace(".", "-")
     host = next(host for model, host in pricing.PROVIDER_RATES
                 if model == normalized_model and host.casefold() == "baseten")
@@ -94,9 +96,12 @@ def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
     assert result.rates is pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
-def test_modal_glm_carries_its_one_remaining_endpoint():
-    # Modal's fp8 glm-5.3-flash endpoint (0.45/1.50) was withdrawn; only the
-    # nvfp4 endpoint at list price remains.
+def test_modal_resolution_returns_its_loaded_provider_row():
+    """The resolver returns Modal's row after refresh selected the endpoint.
+
+    The synthetic refresh test exercises the withdrawn fp8 and surviving
+    nvfp4 tags directly.
+    """
     model = "z-ai/glm-5-3-flash"
     host = next(host for row_model, host in pricing.PROVIDER_RATES
                 if row_model == model and host.casefold() == "modal")

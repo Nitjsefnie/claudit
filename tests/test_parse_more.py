@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend import constants, pricing
+import pytest
+
+from backend import constants, parse, pricing
 
 from tests.test_parse import (
     _read,
-    parse,
-    pytest,
 )
 
 

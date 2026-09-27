@@ -1,6 +1,11 @@
 """Tests moved from test_parse_kimi.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+import pytest
+
+from backend import parse, parse_kimi
 from backend.parse_kimi import _line_count
 
 from tests.test_parse_kimi import (
@@ -11,11 +16,6 @@ from tests.test_parse_kimi import (
     _kc_blob,
     _kc_llm_error_blob,
     _read,
-    datetime,
-    parse,
-    parse_kimi,
-    pytest,
-    timezone,
 )
 
 
