@@ -404,8 +404,9 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
     model, host = _SYNTHETIC_MODEL, _SYNTHETIC_HOST
     peak = datetime(2031, 1, 6, 9, tzinfo=UTC)
     off_peak = datetime(2031, 1, 6, 20, tzinfo=UTC)
-    # The fresh value puts the scaled bucket on a 4-place midpoint, where
-    # the fold and per-span pricing can round to adjacent representations.
+    # At 5,500 fresh tokens the bucket is 0.0214 vs 0.02145 (delta
+    # 5.000000000000143e-05); it clears the old 5e-5 bound only because
+    # of binary-float representation.
     tokens = {"fresh": 5_500, "output": 500_000, "read": 2_000_000}
     stored = sum(pricing.compute_cost(model, fresh=tokens["fresh"], output=tokens["output"],
                                       eph5=0, eph1h=0, unsplit_create=0,
