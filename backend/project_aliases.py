@@ -29,10 +29,8 @@ ingest pass.
 
 Deleting a row stops folding new files. Already-folded rows stay at the
 target only until another identity pass re-keys them: a reparse derives
-the raw id from the object key, while marker-backed lane files
-re-converge to the marker slug resolved through the alias chain to its fixed
-point on the next ingest (to the marker slug after deletion; the walk stops at
-an unmatched id or before a revisited id, capped at eight hops).
+the raw id from the object key, while marker-backed lane files follow the
+reconciliation described above on the next ingest.
 """
 from __future__ import annotations
 
