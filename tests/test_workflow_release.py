@@ -117,7 +117,7 @@ COUNTING_STUB = (
 
 
 def _short_wait() -> dict[str, str]:
-    return {"RELEASE_WAIT_SECONDS": "2", "RELEASE_WAIT_POLL_SECONDS": "1"}
+    return {"RELEASE_WAIT_SECONDS": "10", "RELEASE_WAIT_POLL_SECONDS": "1"}
 
 
 # The refusal step calls gh twice — the tag probe, then the release
