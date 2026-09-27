@@ -283,6 +283,32 @@ at parse time and so surviving the purge: it is the only trace that a
 session switched lanes, and an analysis over `records` that must skip
 mixed-lane sessions joins it against `suppressed_models`.
 
+## Project aliases fold identity at ingest (SV-PROJECT-ALIASES)
+
+`project_aliases(pattern, project_id, note, added_at)` ships EMPTY in
+`schema.sql` and is populated per deploy like `suppressed_models`. Both
+`project_aliases` and `suppressed_models` are bucket-external state the
+operator must back up and restore across a rebuild.
+
+Patterns use case-sensitive SQL `LIKE`: `%` and `_` are wildcards, with
+no `ESCAPE` clause, because POSIX project slugs are case-sensitive. The
+first match wins in lexicographic `pattern` order (the PRIMARY KEY).
+Each pass resolves every stored id once against the pre-fold id set;
+aliases do not chain within a pass. A target that is itself matched
+advances one hop per pass, and repeated passes converge without
+duplicating or losing files. A pass with no matching source ids moves
+nothing. A project whose id equals its matched target is never moved or
+deleted.
+
+The fold runs at ingest before rollups rebuild, so every rollup and read
+path — `/api/projects` included — sees only the target id. Adding or
+editing a row re-keys stored rows on the next ingest; repeated passes
+converge without a reparse, R2 fetch or `PARSER_VERSION` bump. Deleting
+a row stops folding new files only: already-folded rows keep the target
+id because the raw id is not retained. `/api/projects` keeps its
+existing inner-join behavior: a project whose files carry zero usage
+records is not listed (pinned by test).
+
 ## A token type may be a SUBSET (SV-SUBSET-TOKENS)
 
 `records.thinking_tokens` is part of `output_tokens`, not a sixth

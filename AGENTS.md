@@ -112,6 +112,8 @@ backend/          — FastAPI application
                     mapping a marker-failed run falls back to, the
                     marker→stored→hash resolution the walk uses, and the
                     migration-stall rekey.
+  project_aliases.py — Per-deploy project-id aliases folded onto their
+                       target during ingest before rollups rebuild.
   branding.py     — APP_NAME/APP_TITLE/APP_DESCRIPTION → browser title,
                     meta, logo, sign-in page, export filename. Escapes
                     per context (HTML vs script payload) — see
