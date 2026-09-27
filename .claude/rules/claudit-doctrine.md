@@ -853,7 +853,11 @@ rate rows in `src/pricing.json`, the committed `PARSER_VERSION` /
 models the refresh maintains (SV-RATE-REFRESH). A test asserts against
 synthetic data it controls, or against values derived from the current
 ones at run time (`str(int(constants.PRICING_VERSION) + 1)`), so the
-suite stays green whatever the committed value has moved to. One more
+suite stays green whatever the committed value has moved to. An
+expectation compared after rounding is exact only when it is computed
+by the same algorithm over the same values in the same order as the
+code under test; otherwise the tolerance covers one unit in the
+rounded place (plus the accumulated rounding the code applies). One more
 shape is legitimate: a literal rate vector pinned at a FIXED PAST
 instant inside a dated window that has already closed — SV-RATE-DATA
 makes closed windows immutable, so the pin is refresh- and
