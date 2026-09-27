@@ -43,15 +43,18 @@ in its own disposable copy of the tree under a temp dir: iteration i
 is served by shard i % J, and every child derives its per-iteration
 randomness from (base seed, GLOBAL iteration number), so a sharded run
 covers exactly the iterations — the same draws — the sequential run
-would, merged in iteration order. A shard's copy is a snapshot of the
-files git knows about — tracked plus untracked, unignored — turned
-into its own git repository whose snapshot commit is the restore's
-baseline; a HEAD-only clone would silently drop uncommitted tests or
-code edits from every shard and could report a false green over stale
-code, and ignored runtime artifacts (a live socket, a pid file) can
-neither break the copy nor reach a shard. The run's temp dir goes away
-when the run does; the failing
-documents are saved OUTSIDE it, in the artifact directory.
+would, merged in iteration order. A shard's copy is the files git
+knows about — tracked plus untracked, unignored — UNION every regular
+file under tests/, the collection root: a nested test directory a
+deny-by-default .gitignore shadows is git-ignored yet pytest collects
+it, so a shard without it would run a smaller suite and report a false
+green. The union becomes its own git repository whose snapshot commit
+is the restore's baseline. Ignored runtime artifacts (a live socket, a
+pid file) can neither break the copy nor reach a shard, and a
+non-regular file UNDER tests/ refuses sharding loudly instead of
+failing the population guarantee silently. The run's temp dir goes
+away when the run does; the failing documents are saved OUTSIDE it, in
+the artifact directory.
 """
 from __future__ import annotations
 
@@ -75,6 +78,8 @@ PRICING_REL = Path("src") / "pricing.json"
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 NOTE = "sv-test-data fuzz: independent field draws"
 TAIL_LINES = 30
+# The only names pruned from the collection-root union: never tests.
+PRUNED_TEST_DIRS = frozenset({"__pycache__", ".pytest_cache"})
 DEFAULT_ITERATIONS = 200
 OFFSET_CHANCE = 0.25
 # Believable timezone offsets; (0, 0) is the +00:00 spelling, which
@@ -347,11 +352,50 @@ def _snapshot_tree(source: Path, dest: Path) -> None:
             os.symlink(os.readlink(src), dst)
         elif src.is_file():
             shutil.copyfile(src, dst)
+    _snapshot_collection_root(source, dest)
     _git(dest, "init", "-q")
     _git(dest, "add", "-A")
     _git(dest, "-c", "user.name=fuzz test", "-c",
          "user.email=fuzz@localhost", "commit", "-q", "-m",
          "fuzz shard baseline")
+
+
+def _snapshot_collection_root(source: Path, dest: Path) -> None:
+    """The collection-root union: every regular file under tests/ that
+    the git-known set may have missed is copied too — a NESTED test
+    directory is invisible to a deny-by-default .gitignore, so git
+    ignores it, yet pytest collects it; a shard without it would run a
+    smaller suite than the sequential run. Only __pycache__ and
+    .pytest_cache are pruned; any other non-regular entry under tests/
+    refuses the shard loudly: it cannot be snapshotted, so the
+    population guarantee would fail silently. Outside tests/ nothing
+    extra is walked."""
+    tests_root = source / "tests"
+    if not tests_root.is_dir():
+        return
+    for current, dirs, files in os.walk(tests_root):
+        here = Path(current)
+        dirs[:] = [d for d in dirs if d not in PRUNED_TEST_DIRS]
+        for d in dirs:
+            if (here / d).is_symlink():
+                raise SystemExit(_shard_refusal(here / d))
+        for name in files:
+            src = here / name
+            dst = dest / src.relative_to(source)
+            if src.is_symlink():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(os.readlink(src), dst)
+            elif not src.is_file():
+                raise SystemExit(_shard_refusal(src))
+            elif not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
+
+
+def _shard_refusal(path: Path) -> str:
+    return (f"fuzz: refusing to shard: {path} under tests/ is not a "
+            "regular file, so it cannot be snapshotted and the shard "
+            "would silently miss it; remove it or run without --jobs")
 
 
 def _print_failure(result: dict) -> None:
