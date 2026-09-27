@@ -58,12 +58,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write  # commits the data it fetches; nothing else is written
+      contents: read  # the master push authenticates with the deploy key
 
     services:
       postgres:
         # The suite's database, as in tests.yml, but pinned by digest: this job
-        # holds a write token, so the image it runs must be the one reviewed.
+        # receives a write deploy key in its push step, so the image it runs
+        # must be the one reviewed.
         # The service starts on every run, quiet ones included; a job cannot
         # start a service part-way.
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
@@ -171,15 +172,31 @@ jobs:
         # At most three pushes; exhausted, the run goes red and lands
         # nothing. Every push is HEAD:master from a commit whose parent is a
         # fetched master tip, so each push is a plain fast-forward — the
-        # master ruleset forbids force. The push remote is a test seam: the
-        # default is the tokenized GitHub URL, and the workflow never sets
-        # it.
+        # master ruleset forbids force. This push authenticates with the
+        # MASTER_PUSH_DEPLOY_KEY deploy key, the bypass actor for the coming
+        # required-check ruleset. Deploy-key pushes start workflow runs,
+        # unlike GITHUB_TOKEN pushes; that is intended so this hourly pricing
+        # commit carries a real aggregate verdict on master's tip. The push
+        # remote is a test seam: the default is the GitHub SSH URL, and the
+        # workflow never sets it.
         env:
-          GH_TOKEN: ${{ github.token }}
+          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
         run: |
           echo "rc=0" >> "$GITHUB_OUTPUT"
-          remote="${PUSH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${REPO}}"
+          if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            eval "$(ssh-agent -s)" >/dev/null
+            ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+            mkdir -p ~/.ssh
+            # GitHub SSH host keys, published by GitHub's Meta endpoint:
+            # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+            printf '%s\n' \
+              'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+              'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+              >> ~/.ssh/known_hosts
+            export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          fi
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/pricing.json backend/constants.py
