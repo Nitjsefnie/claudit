@@ -455,6 +455,36 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
     assert float(claude[2]) == flat
 
 
+def test_reprice_keeps_a_claude_rows_stored_null_flag(fresh_db):
+    """Issue #249: a CLAUDE-format record from a bare meter model stores
+    long_context NULL — the flag is lane-only
+    (parse_common._append_usage_record), so NULL is the parse-stored value
+    and the pass must keep it, pricing the tally flat. A bare model id
+    with no provider above the threshold is exactly the shape
+    re-derivation must not claim: a reparse of the same record stores
+    NULL and a flat cost."""
+    flat = round(pricing.compute_cost(
+        "gpt-6-sol", fresh=300_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+    with db.viz_conn() as c:
+        _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=300_000)
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 1
+
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT long_context, cost_usd, pricing_version FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None, "the seeded meter row must exist"
+    flag, cost, version = row
+    assert flag is None, (
+        "a Claude-format row's NULL flag is the parse-stored value, and a "
+        "reprice must not claim it for the meter")
+    assert float(cost) == flat
+    assert version == constants.PRICING_VERSION
+
+
 def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
     """A row naming a provider host prices by that host's card, not the
     meter model's, so its stored long_context is left exactly as parse
@@ -535,6 +565,31 @@ def _lane_blob(session_id: str, *, plan_type: str | None) -> bytes:
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
+def _claude_blob() -> bytes:
+    """One Claude-format transcript: a plain prompt, then one assistant
+    line from the bare long-context model id gpt-6-sol with no provider
+    and a 300k-fresh tally — above the REAL threshold, so the reprice's
+    non-derivation (issue #249) must keep what the parse stored (NULL
+    flag, flat cost), the same values a reparse stores."""
+    lines = [
+        {"type": "user", "timestamp": "2026-09-01T12:00:00.000Z",
+         "uuid": "u249", "sessionId": "iss249-sess",
+         "message": {"role": "user", "content": "hi"}},
+        {"type": "assistant", "timestamp": "2026-09-01T12:00:05.000Z",
+         "uuid": "a249", "requestId": "req-249",
+         "sessionId": "iss249-sess", "parentUuid": "u249",
+         "message": {"id": "msg_249", "type": "message", "role": "assistant",
+                     "model": "gpt-6-sol",
+                     "content": [{"type": "text", "text": "ok"}],
+                     "stop_reason": "end_turn",
+                     "usage": {"input_tokens": 300000,
+                               "cache_creation_input_tokens": 0,
+                               "cache_read_input_tokens": 0,
+                               "output_tokens": 72}}},
+    ]
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+
+
 def _proof_mirror(tmp_path) -> tuple[Path, dict[str, bytes]]:
     """The mini mirror plus three codex lane files, copied into
     tmp_path; returns (bucket, {stored file_key: plain blob}) for the
@@ -556,6 +611,12 @@ def _proof_mirror(tmp_path) -> tuple[Path, dict[str, bytes]]:
         path = bucket / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(lzma.compress(blob))
+    claude_rel = "issue249/iss249-sess/iss249-sess.jsonl"
+    claude_blob = _claude_blob()
+    claude_path = bucket / claude_rel
+    claude_path.parent.mkdir(parents=True, exist_ok=True)
+    claude_path.write_bytes(claude_blob)
+    lane_blobs[claude_rel] = claude_blob
     return bucket, {f"claude/{rel}": blob for rel, blob in lane_blobs.items()}
 
 
@@ -610,7 +671,11 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     #194). The threshold patch to 1 stays only so the small fixture
     parses TRUE; the two meter-shaped files sit above the REAL 272k, so
     the reprice (re-derivation) and the reparse agree for both plan
-    shapes. The provider-row and weekly-schedule shapes have no
+    shapes. A Claude-format file from the bare meter model gpt-6-sol
+    with no provider (issue #249): its record keeps long_context NULL
+    and a flat cost across the reprice, so reprice equals reparse for
+    the shape the pass used to flip. The provider-row and
+    weekly-schedule shapes have no
     fixture-backed record; the seeded tests price them through the same
     compute_cost call the parse path makes — parity by construction,
     and still a check on the pass's column mapping.
@@ -619,7 +684,8 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
     # Threshold 1: the small codex fixture parses long_context=TRUE; the
     # two 300k rollouts clear the REAL threshold either way, and the
-    # claude rows re-derive nothing (their models carry no meter).
+    # claude rows re-derive nothing (their models carry no meter, and
+    # the Claude-format row's stored flag is NULL — issue #249).
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
     assert ingest.run_ingest(trigger="manual")["error"] is None
 
@@ -681,3 +747,9 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
         ).fetchall() == [(True, 3)], (
             "the reprice re-derives the codex rows' flag in both plan "
             "shapes (issue #194): every codex record stores TRUE")
+        assert c.execute(
+            "SELECT COUNT(*) FROM records WHERE file_key LIKE "
+            "'claude/issue249/%' AND long_context IS NULL"
+        ).fetchall() == [(1,)], (
+            "the reprice keeps a Claude-format bare-meter-model record's NULL "
+            "flag (issue #249): a reparse stores NULL, so reprice must too")

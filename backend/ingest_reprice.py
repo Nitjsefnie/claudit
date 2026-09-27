@@ -122,15 +122,22 @@ def _record_updates(row: _StaleRow) -> dict:
     cost_usd and the long-context flag together (issue #194): for the
     meter's models the flag is a pure function of stored columns —
     fresh + cache_creation + cache_read against the threshold — and
-    rides the same selection, batch, keyset and guard as the cost. A row
-    of a model whose card carries no meter, and a row naming a provider
-    host (which prices by that host's card, not this one), keeps its
-    stored flag untouched: a Claude record's NULL stays NULL and a Kimi
+    rides the same selection, batch, keyset and guard as the cost. The
+    re-derivation is for LANE rows only (issue #249): the meter is
+    applied by parse_codex, never by the Claude path, so NULL is the
+    Claude format's parse-stored marker and a row whose flag is NULL
+    keeps it — pricing flat — whatever its model and tally; re-deriving
+    it there would diverge from what a reparse stores. A row of a model
+    whose card carries no meter, and a row naming a provider host (which
+    prices by that host's card, not this one), likewise keeps its stored
+    flag untouched: a Claude record's NULL stays NULL and a Kimi
     record's FALSE stays FALSE.
     """
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
-    if row.model in pricing.LONG_CONTEXT_MODELS and not row.provider:
+    if (row.long_context is not None
+            and row.model in pricing.LONG_CONTEXT_MODELS
+            and not row.provider):
         long_context = (row.fresh_tokens + row.cache_creation_tokens
                         + row.cache_read_tokens
                         > pricing.LONG_CONTEXT_THRESHOLD)
