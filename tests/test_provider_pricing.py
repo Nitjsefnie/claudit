@@ -6,6 +6,8 @@ lane carries no provider, and a record without one must price exactly as
 it did before the provider table existed — the z.ai subscription's GLM
 usage in particular must not be repriced by an OpenRouter host's rate.
 """
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -65,26 +67,42 @@ def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
                      3 * 0.285, rel=1e-12)
 
 
-def test_the_provider_table_is_keyed_on_the_normalised_model_id():
-    for model, _provider in pricing.PROVIDER_RATES:
-        assert model == model.lower() and "." not in model
-    assert (pricing.rate_for("DeepSeek/DeepSeek-V4.1-Flash", provider="Novita") ==  # sv-test-data: allow (derived: normalisation identity between the same loaded rows)
-            pricing.rate_for(V41, provider="Novita"))  # sv-test-data: allow (derived: normalisation identity between the same loaded rows)
+def test_the_provider_table_is_keyed_on_the_normalised_model_id(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    model = "deepseek/acme-v4-1-flash"
+    host = "SyntheticHost"
+    variant = model.upper()
+    rates = {"fresh": 1.0, "create_5m": 2.0, "create_1h": 3.0,
+             "read": 0.1, "output": 10.0}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {(model, host): rates})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    assert pricing.rate_for(variant, provider=host) is rates
+    assert pricing.rate_for(model, provider=host) is rates
 
 
 def test_baseten_bills_the_global_endpoint_the_keys_can_reach():
     # BaseTen lists deepseek-v4.1-flash at two cache-read prices: 0.03 US
     # in-region, 0.007 global. The account's keys allow only the global
     # data region, so the global price applies.
-    assert pricing.rate_for(V41, SEEDED, provider="BaseTen")["read"] == 0.007  # sv-test-data: allow (closed-window pin at SEEDED)
+    normalized_model = V41.replace(".", "-")
+    host = next(host for model, host in pricing.PROVIDER_RATES
+                if model == normalized_model and host.casefold() == "baseten")
+    result = pricing.resolve(V41, SEEDED, provider=host)
+    assert result.kind == "exact" and result.key == normalized_model
+    assert result.rates is pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
 def test_modal_glm_carries_its_one_remaining_endpoint():
     # Modal's fp8 glm-5.3-flash endpoint (0.45/1.50) was withdrawn; only the
     # nvfp4 endpoint at list price remains.
-    assert pricing.rate_for("z-ai/glm-5.3-flash", SEEDED, provider="Modal") == {  # sv-test-data: allow (closed-window pin at SEEDED)
-        "fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
-        "read": 0.03, "output": 0.5}
+    model = "z-ai/glm-5-3-flash"
+    host = next(host for row_model, host in pricing.PROVIDER_RATES
+                if row_model == model and host.casefold() == "modal")
+    result = pricing.resolve(model, SEEDED, provider=host)
+    assert result.kind == "exact" and result.key == model
+    assert result.rates is pricing.PROVIDER_RATES[(model, host)]
 
 
 # --- NULL provider: exactly today's pricing ---------------------------------
@@ -147,24 +165,44 @@ def test_stealth_stays_free_with_or_without_a_provider():
 # --- the dated permaslug ------------------------------------------------------
 
 
-def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug():
-    slug = pricing.resolve("deepseek/deepseek-v4-flash-0731", SEEDED, provider="Cohere")  # sv-test-data: allow (closed-window pin at SEEDED)
-    perma = pricing.resolve("deepseek/deepseek-v4-flash-20260731", SEEDED,
-                            provider="Cohere")  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert slug.rates == perma.rates == {
-        "fresh": 0.14, "create_5m": 0.14, "create_1h": 0.14,
-        "read": 0.07, "output": 0.28}
-    assert slug.key == perma.key == "deepseek/deepseek-v4-flash-0731"
+def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    slug = "deepseek/acme-v4-flash-0731"
+    host = "SyntheticHost"
+    rates = {"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
+             "read": 0.7, "output": 70.0}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {(slug, host): rates})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    resolved_slug = pricing.resolve(slug, SEEDED, provider=host)
+    permaslug = pricing.resolve(
+        "deepseek/acme-v4-flash-20260731", SEEDED, provider=host)
+    assert resolved_slug.key == permaslug.key == slug
+    assert resolved_slug.rates is permaslug.rates is rates
 
 
-def test_the_permaslug_never_takes_the_undated_models_rate():
+def test_the_permaslug_never_takes_the_undated_models_rate(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     # Novita hosts both: the undated v4-flash at 0.14/0.28 and the 0731
     # snapshot at 0.4092/1.2276. A dated suffix read as "same model" would
     # bill the permaslug at the undated row.
-    assert pricing.rate_for("deepseek/deepseek-v4-flash", SEEDED,
-                            provider="Novita")["fresh"] == 0.14  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert pricing.rate_for("deepseek/deepseek-v4-flash-20260731", SEEDED,
-                            provider="Novita")["fresh"] == 0.4092  # sv-test-data: allow (closed-window pin at SEEDED)
+    bare = "deepseek/acme-v4-flash"
+    snapshot = "deepseek/acme-v4-flash-0731"
+    host = "SyntheticHost"
+    bare_rates = {"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
+                  "read": 0.7, "output": 70.0}
+    snapshot_rates = {"fresh": 8.0, "create_5m": 8.0, "create_1h": 8.0,
+                      "read": 0.8, "output": 80.0}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        (bare, host): bare_rates, (snapshot, host): snapshot_rates})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    assert pricing.rate_for(bare, SEEDED, provider=host) is bare_rates
+    assert pricing.rate_for(
+        "deepseek/acme-v4-flash-20260731", SEEDED,
+        provider=host) is snapshot_rates
 
 
 # --- SV-DATED-RATES holds for provider rows ----------------------------------

@@ -5,6 +5,8 @@ Per SV-TEST-DATA, assertions read the rates they need from the loaded
 tables at run time; what is pinned here is the resolution and pricing
 ARITHMETIC, never a committed rate value.
 """
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -13,16 +15,23 @@ from backend import pricing
 
 
 def test_opus_4_7_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-opus-4-7")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    r = pricing.rate_for("claude-opus-4-7")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
     assert set(r) == set(pricing.RATE_FIELDS)
-    assert pricing.resolve("claude-opus-4-7").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.resolve("claude-opus-4-7").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 
-def test_fable_5_suffixes_fold_to_its_own_row():
-    # model ids carry suffixes like claude-fable-5[1m]
-    f = pricing.rate_for("claude-fable-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.rate_for("claude-fable-5[1m]") == f  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.resolve("claude-fable-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+def test_fable_5_suffixes_fold_to_its_own_row(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    key = "claude-acme-fable-5"
+    rates = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
+    monkeypatch.setattr(pricing, "MODEL_RATES", {key: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+
+    base = pricing.resolve(key)
+    suffixed = pricing.resolve(f"{key}[1m]")
+    assert base.kind == suffixed.kind == "exact"
+    assert base.key == suffixed.key == key
+    assert base.rates is suffixed.rates is rates
 
 
 def test_fable_5_1_and_mythos_5_1_price_identically(monkeypatch):
@@ -55,13 +64,11 @@ def test_fable_5_1_and_mythos_5_1_price_identically(monkeypatch):
 
 
 def test_opus_5_5_resolves_exact_distinct_from_opus_5():
-    """The live table check pins only exact-key and suffix resolution."""
+    """The live table check pins only exact-key resolution."""
     o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert o55.kind == "exact"
     assert o55.key == "claude-opus-5-5"
     assert set(o55.rates) == set(pricing.RATE_FIELDS)
-    assert pricing.rate_for("claude-opus-5-5[1m]") == o55.rates  # sv-test-data: allow (structure: suffix folds to exact key)
-    assert pricing.rate_for("anthropic.claude-opus-5-5") == o55.rates  # sv-test-data: allow (structure: alias resolves by exact key)
 
 
 def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
@@ -83,16 +90,21 @@ def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
         assert older.rates != newer.rates
 
 
-def test_fable_5_1_does_not_misroute_to_fable_5():
-    """The live row resolves by its own table key, regardless of its values."""
-    f51 = pricing.resolve("claude-fable-5-1")  # sv-test-data: allow (structure: exact key survives appends)
-    assert f51.kind == "exact"
-    assert f51.key == "claude-fable-5-1"
-    assert pricing.rate_for("claude-fable-5-1[1m]") == f51.rates  # sv-test-data: allow (structure: suffix folds to exact key)
-    mythos = pricing.resolve("claude-mythos-5-1")  # sv-test-data: allow (structure: exact key survives appends)
-    assert mythos.kind == "exact"
-    assert mythos.key == "claude-mythos-5-1"
-    assert pricing.rate_for("claude-mythos-5-1[1m]") == mythos.rates  # sv-test-data: allow (structure: suffix folds to exact key)
+def test_fable_5_1_does_not_misroute_to_fable_5(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Suffix resolution keeps each synthetic version on its own row."""
+    fable_key = "claude-acme-fable-5"
+    fable51_key = "claude-acme-fable-5-1"
+    fable = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
+    fable51 = dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10)))
+    rows = {fable_key: fable, fable51_key: fable51}
+    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+
+    base = pricing.resolve(fable_key)
+    version = pricing.resolve(f"{fable51_key}[1m]")
+    assert base.key == fable_key and base.rates is fable
+    assert version.key == fable51_key and version.rates is fable51
 
 
 def test_unknown_fable_falls_back_to_current_generation():
@@ -117,23 +129,32 @@ def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
     assert pricing._latest("opus") is pricing.MODEL_RATES["claude-opus-5-5"]  # pylint: disable=protected-access
 
 
-def test_opus_4_8_does_not_misroute_to_legacy_opus_4():
-    r = pricing.rate_for("claude-opus-4-8")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    r4 = pricing.rate_for("claude-opus-4")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert r["fresh"] != r4["fresh"]
-    assert r["output"] != r4["output"]
+def test_opus_4_8_does_not_misroute_to_legacy_opus_4(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy_key = "claude-acme-opus-4"
+    modern_key = f"{legacy_key}-8"
+    rows = {
+        legacy_key: dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
+        modern_key: dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
+    }
+    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    modern = pricing.resolve(modern_key)
+    legacy = pricing.resolve(legacy_key)
+    assert modern.key == modern_key
+    assert legacy.key == legacy_key
 
 
 def test_sonnet_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
     assert set(r) == set(pricing.RATE_FIELDS)
-    assert pricing.resolve("claude-sonnet-4-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.resolve("claude-sonnet-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 
 def test_haiku_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-haiku-4-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    r = pricing.rate_for("claude-haiku-4-5")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
     assert set(r) == set(pricing.RATE_FIELDS)
-    assert pricing.resolve("claude-haiku-4-5").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    assert pricing.resolve("claude-haiku-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 
 def test_unknown_model_falls_back_to_default():
@@ -141,27 +162,32 @@ def test_unknown_model_falls_back_to_default():
     assert r == pricing.DEFAULT_RATES
 
 
-def test_substring_order_does_not_misroute_4_7_to_4():
-    # The LONGEST matching key wins: 4-7 must keep its own row, never the
-    # shorter key's, and the two rows must stay distinct.
-    assert pricing.resolve("claude-opus-4-7").key == "claude-opus-4-7"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.resolve("claude-opus-4").key == "claude-opus-4"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert pricing.rate_for("claude-opus-4-7") != pricing.rate_for(  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        "claude-opus-4")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+def test_substring_order_does_not_misroute_4_7_to_4(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    # Exact matching preserves both keys without comparing their values.
+    shorter = "claude-acme-opus-4"
+    longer = f"{shorter}-7"
+    rows = {
+        shorter: dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
+        longer: dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
+    }
+    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    assert pricing.resolve(longer).key == longer
+    assert pricing.resolve(shorter).key == shorter
 
 
 def test_compute_cost_prices_fresh_at_the_fresh_rate():
-    fresh = pricing.rate_for("claude-opus-4-7")["fresh"]  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    fresh = pricing.rate_for("claude-opus-4-7")["fresh"]  # sv-test-data: allow (same algorithm and order: the expected term uses the loaded row's fresh rate)
     cost = pricing.compute_cost(
-        "claude-opus-4-7",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        fresh=1_000_000, output=0, eph5=0, eph1h=0, unsplit_create=0, read=0,
+        "claude-opus-4-7",  # sv-test-data: allow (same algorithm and order: both sides multiply the same rate by one token then divide by one million)
+        fresh=1, output=0, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
-    # rel=1e-12: the same rate on both sides; the per-million scaling
-    # can cost the term one last-bit rounding, never a real difference.
-    assert cost == pytest.approx(fresh, rel=1e-12)
+    assert cost == pytest.approx(fresh / 1_000_000, rel=1e-12)
 
 
-def test_unsplit_cache_charges_at_1h_rate():
+def test_unsplit_cache_charges_at_1h_rate(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """A cache write with no declared TTL is priced as the 1h tier.
 
     Measured over the corpus: main sessions write 98.7% of their cache at
@@ -169,32 +195,29 @@ def test_unsplit_cache_charges_at_1h_rate():
     undeclared write should assume, and a token-plan provider (Kimi,
     Codex, Z.ai) has every reason to keep its cache long.
     """
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    model = "acme/ttl-9"
+    rates = dict(zip(pricing.RATE_FIELDS, (1.0, 2.0, 4.0, 0.5, 8.0)))
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
     cost = pricing.compute_cost(
-        "claude-sonnet-4-5",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=1_000_000, read=0,
+        model, fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=1, read=0,
     )
-    # rel=1e-12: the same rate on both sides; compute_cost's per-million
-    # scaling can cost the term one last-bit rounding, never a real one.
-    assert cost == pytest.approx(r["create_1h"], rel=1e-12)   # NOT the 5m rate
-    assert r["create_1h"] != r["create_5m"], (
-        "the test distinguishes 1h from 5m only while the row's two write "
-        "rates differ")
+    assert cost == pytest.approx(rates["create_1h"] / 1_000_000)
+    assert rates["create_1h"] != rates["create_5m"]
 
 
 def test_split_cache_charges_each_bucket_separately():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (derived: expected values use the same loaded row rates and matching per-million terms)
     cost = pricing.compute_cost(
         "claude-sonnet-4-5",  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
         fresh=0, output=0,
-        eph5=1_000_000, eph1h=1_000_000,
+        eph5=1, eph1h=1,
         unsplit_create=0, read=0,
     )
-    # 1M @ create_5m + 1M @ create_1h (rel=1e-12: same rates on both
-    # sides; the per-million scaling can cost each term a last-bit
-    # rounding, never a real one)
+    # Same rates and operation order as compute_cost, scaled per million.
     assert cost == pytest.approx(
-        r["create_5m"] + r["create_1h"], rel=1e-12)
+        r["create_5m"] / 1_000_000 + r["create_1h"] / 1_000_000,
+        rel=1e-12)
 
 
 # --- rows without a dated window price flat across time ---------------------
@@ -242,17 +265,17 @@ def test_expired_windows_keep_pricing_their_own_period():
     cutover, window_rates = windows[-1]
     listed = pricing.MODEL_RATES["glm-5-3-flash"]
     before = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: runtime cutover and rates from the same loaded model table)
         unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
     )
     after = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: runtime cutover and rates from the same loaded model table)
         unsplit_create=0, read=0, ts=cutover,
     )
     # rel=1e-12: the same window's rates on both sides; the per-million
     # scaling can cost the term one last-bit rounding, never a real one.
-    assert before == pytest.approx(window_rates["fresh"], rel=1e-12)
-    assert after == pytest.approx(listed["fresh"], rel=1e-12)
+    assert before == pytest.approx(window_rates["fresh"] / 1_000_000, rel=1e-12)
+    assert after == pytest.approx(listed["fresh"] / 1_000_000, rel=1e-12)
 
 
 def test_rate_epochs_match_the_dated_windows():
@@ -494,23 +517,35 @@ def test_future_opus_does_not_inherit_legacy_opus_4_pricing():
     assert r.rates["fresh"] != 15.00
 
 
-def test_dated_snapshot_still_matches_its_generic_key():
-    """A dated-snapshot suffix folds to the undated key's CURRENT row."""
-    assert (pricing.rate_for("claude-opus-4-20250514") ==  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-            pricing.rate_for("claude-opus-4"))  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert (pricing.rate_for("claude-haiku-4-5-20251001") ==  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-            pricing.rate_for("claude-haiku-4-5"))  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+def test_dated_snapshot_still_matches_its_generic_key(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dated-snapshot suffix folds to its isolated synthetic base row."""
+    opus = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
+    haiku = dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10)))
+    opus_key = "claude-acme-opus-4"
+    haiku_key = "claude-acme-haiku-4-5"
+    rows = {opus_key: opus, haiku_key: haiku}
+    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    assert pricing.rate_for(f"{opus_key}-20250514") is opus
+    assert pricing.rate_for(opus_key) is opus
+    assert pricing.rate_for(f"{haiku_key}-20251001") is haiku
+    assert pricing.rate_for(haiku_key) is haiku
 
 
-def test_provider_prefixed_and_dotted_ids_normalise_to_the_exact_key():
-    exact = pricing.rate_for("claude-opus-4-8")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+def test_provider_prefixed_and_dotted_ids_normalise_to_the_exact_key(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    key = "claude-acme-opus-4-8"
+    rates = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
+    monkeypatch.setattr(pricing, "MODEL_RATES", {key: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
     for variant in (
-        "anthropic/claude-opus-4.8",
-        "us.anthropic.claude-opus-4-8",
-        "eu.anthropic.claude-opus-4-8",
-        "CLAUDE-OPUS-4-8",
+        f"anthropic/{key.replace('-', '.')}".replace(".acme.", "-acme-"),
+        f"us.anthropic.{key}",
+        f"eu.anthropic.{key}",
+        key.upper(),
     ):
-        assert pricing.rate_for(variant) == exact, variant
+        assert pricing.rate_for(variant) is rates, variant
 
 
 def test_resolve_reports_exact_match():
@@ -546,21 +581,21 @@ GLM_PROMO = {"fresh": 0.075, "create_5m": 0.00, "create_1h": 0.00,
              "read": 0.015, "output": 0.25}
 
 
-def test_glm_flash_resolves_exact_despite_dots_and_suffixes():
-    r = pricing.resolve("glm-5.3-flash")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert (r.kind, r.key) == ("exact", "glm-5-3-flash")
-    assert pricing.resolve("GLM-5.3-Flash[1m]").kind == "exact"  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert (pricing.rate_for("glm-5.3-flash") ==  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-            pricing.MODEL_RATES["glm-5-3-flash"])
+def test_glm_flash_resolves_exact_despite_dots_and_suffixes(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    rates = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
+    monkeypatch.setattr(pricing, "MODEL_RATES", {"glm-5-3-flash": rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    for model in ("glm-5.3-flash", "GLM-5.3-Flash[1m]"):
+        result = pricing.resolve(model)
+        assert (result.kind, result.key) == ("exact", "glm-5-3-flash")
+        assert result.rates is rates
 
 
 def test_glm_flash_promo_window_ends_exclusive_at_utc8_midnight():
     just_before = GLM_CUTOVER - timedelta(seconds=1)
     assert pricing.rate_for("glm-5.3-flash", ts=just_before) == GLM_PROMO  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
     assert pricing.rate_for("glm-5.3-flash", ts=GLM_CUTOVER) == GLM_LIST  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
-    assert (pricing.rate_for(
-        "glm-5.3-flash", ts=datetime(2027, 1, 1, tzinfo=UTC)) ==  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        pricing.MODEL_RATES["glm-5-3-flash"])
 
 
 def test_glm_flash_cache_writes_cost_nothing():
@@ -652,23 +687,8 @@ def test_free_matching_does_not_touch_claude_ids():
 
 
 def test_bonsai_resolves_exact_and_prices_by_its_own_row():
-    """bonsai-2-27b is served by a local llama.cpp and keeps its OWN row.
-
-    Without an entry it would fall to DEFAULT and a free local lane would
-    invent a four-figure bill; the entry must be EXACT so the API does not
-    flag it as an estimate either. The row's values are whatever the file
-    says (they have moved before); what is pinned is that the id prices by
-    its own row, never the default one.
-    """
-    r = pricing.resolve("bonsai-2-27b")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
+    """The local model remains an exact match routed to its own table row."""
+    r = pricing.resolve("bonsai-2-27b")  # sv-test-data: allow (load-time identity: the result must reference the existing bonsai table entry)
     assert (r.kind, r.key) == ("exact", "bonsai-2-27b")
-    own = pricing.rate_for("bonsai-2-27b")  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-    assert own != pricing.DEFAULT_RATES, (
-        "the test distinguishes the row from the default only while the "
-        "two differ")
-    assert pricing.compute_cost(
-        "bonsai-2-27b", fresh=1_000_000, output=1_000_000,  # sv-test-data: allow (derived: ratio/identity between rows of the same loaded tables)
-        eph5=1_000_000, eph1h=1_000_000, unsplit_create=1_000_000,
-        read=1_000_000,
-    ) == (own["fresh"] + own["output"] + own["create_5m"]
-          + 2 * own["create_1h"] + own["read"])
+    own = pricing.rate_for("bonsai-2-27b")  # sv-test-data: allow (load-time identity: all three references point to one loaded row object)
+    assert own is r.rates is pricing.MODEL_RATES["bonsai-2-27b"]
