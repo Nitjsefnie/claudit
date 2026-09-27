@@ -44,17 +44,20 @@ is served by shard i % J, and every child derives its per-iteration
 randomness from (base seed, GLOBAL iteration number), so a sharded run
 covers exactly the iterations — the same draws — the sequential run
 would, merged in iteration order. A shard's copy is a snapshot of the
-WORKING tree — committed and uncommitted content alike — turned into
-its own git repository whose snapshot commit is the restore's
+files git knows about — tracked plus untracked, unignored — turned
+into its own git repository whose snapshot commit is the restore's
 baseline; a HEAD-only clone would silently drop uncommitted tests or
 code edits from every shard and could report a false green over stale
-code. The run's temp dir goes away when the run does; the failing
+code, and ignored runtime artifacts (a live socket, a pid file) can
+neither break the copy nor reach a shard. The run's temp dir goes away
+when the run does; the failing
 documents are saved OUTSIDE it, in the artifact directory.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -319,17 +322,31 @@ def _collect_shards(
 
 
 def _snapshot_tree(source: Path, dest: Path) -> None:
-    """A disposable git checkout of the tree AS IT IS — committed and
-    uncommitted content alike — so a shard runs exactly what the
-    sequential run would: a HEAD-only clone would silently drop
-    uncommitted tests or code edits from every shard and could report
-    a false green over stale code. The copy becomes its own git
-    repository whose snapshot commit is the per-iteration restore's
-    baseline."""
-    shutil.copytree(
-        source, dest,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc",
-                                      ".pytest_cache"))
+    """A disposable git checkout of the tree AS GIT KNOWS IT — tracked
+    files plus untracked, unignored ones (`git ls-files -co
+    --exclude-standard`) — so a shard runs committed and uncommitted
+    work alike, exactly what the sequential run would: a HEAD-only
+    clone would silently drop uncommitted tests or code edits and
+    could report a false green over stale code. Only listed files are
+    copied, so ignored runtime artifacts — a live socket, a fifo, a
+    pid file — can neither break the copy nor reach a shard. The copy
+    becomes its own git repository whose snapshot commit is the
+    per-iteration restore's baseline."""
+    listing = subprocess.run(
+        ["git", "-C", str(source), "ls-files", "-z", "-co",
+         "--exclude-standard"],
+        check=True, capture_output=True, text=True).stdout
+    dest.mkdir(parents=True)
+    for name in listing.split("\x00"):
+        if not name:
+            continue
+        src = source / name
+        dst = dest / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_symlink():
+            os.symlink(os.readlink(src), dst)
+        elif src.is_file():
+            shutil.copyfile(src, dst)
     _git(dest, "init", "-q")
     _git(dest, "add", "-A")
     _git(dest, "-c", "user.name=fuzz test", "-c",
