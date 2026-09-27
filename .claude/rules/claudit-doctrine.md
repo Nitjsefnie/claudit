@@ -306,10 +306,13 @@ The fold runs at ingest before rollups rebuild, so every rollup and read
 path — `/api/projects` included — sees only the target id. Adding or
 editing a row re-keys stored rows on the next ingest; the rekey needs
 no reparse, no R2 fetch and no `PARSER_VERSION` bump. Deleting a
-row stops folding new files only: already-folded rows keep the target
-id because the raw id is not retained. `/api/projects` keeps its
-existing inner-join behavior: a project whose files carry zero usage
-records is not listed (pinned by test).
+row stops folding new files. Already-folded rows stay at the target
+only until another identity pass re-keys them: a reparse derives the
+raw id from the object key, while marker-backed lane files re-converge
+to `fold(marker slug)` on the next ingest (to the marker slug after
+deletion). `/api/projects` keeps its existing inner-join behavior: a
+project whose files carry zero usage records is not listed (pinned by
+test).
 
 ## A token type may be a SUBSET (SV-SUBSET-TOKENS)
 
