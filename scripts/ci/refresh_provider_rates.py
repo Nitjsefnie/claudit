@@ -12,6 +12,8 @@ Only endpoints in the account's data region count (tag_region). A host's
 weekly time-of-day prices (pricing.overrides) become its entry's schedule;
 its top-level price is the entry's default only when the fetch falls
 outside every window, since inside one it is that window's price.
+Tag/region normalisation and whole-week schedule coverage live in
+refresh_prices.py and are imported here.
 These refuse the host or model they concern, which appends nothing:
 - a host with two endpoints in that region at different prices and no
   resolution for it (a tag, or "cheapest" of otherwise identical twins);
@@ -19,8 +21,10 @@ These refuse the host or model they concern, which appends nothing:
 - a price or override kind this script does not model, or a response
   shape it does not recognise;
 - a host seen for the first time while the fetch falls inside one of its
-  schedule's windows: the listed top-level price is that window's, not a
-  default, and the next fetch outside every window starts the row;
+  schedule's windows, unless its schedule covers the whole week: then no
+  record is priced by the entry default and it starts as the listed top-level
+  price; otherwise that price is a window price and the next fetch outside
+  every window starts the row;
 - a tracked model with no endpoints, or none in the region.
 
 Every other move is still written, then the script exits nonzero naming
@@ -50,8 +54,9 @@ sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import refresh_alternation  # noqa: E402
-from refresh_prices import (PRICED, RefreshError, as_listed, entry_schedule,  # noqa: E402
-                            in_a_window, is_zero, rates_of)
+from refresh_prices import (PRICED, REGION_RE, RefreshError, as_listed, covers_week,  # noqa: E402
+                            entry_schedule, in_a_window, is_zero, rates_of, tag_region,
+                            unknown_suffixes)
 from backend import pricing  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
@@ -59,16 +64,6 @@ CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
 _PRICING_VERSION = re.compile(r'^PRICING_VERSION = "(\d+)"$', re.MULTILINE)
-# An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
-# and data regions. A region is one of these codes, alone or qualified by an
-# area and a number (us, us-east, us-east-1), in any case.
-_REGIONS = ("us", "eu", "uk", "ca", "au", "ap", "jp", "sg", "in", "br", "de", "fr",
-            "nl", "kr", "cn", "hk", "tw", "me", "sa", "za", "asia", "apac", "emea",
-            "latam")
-_REGION = re.compile(rf"(?:{'|'.join(_REGIONS)})(?:-[a-z]+(?:-[0-9]+)?)?",
-                     re.IGNORECASE)
-_QUANTIZATIONS = frozenset({"fp4", "fp6", "fp8", "fp16", "fp32", "bf16", "nvfp4",
-                            "mxfp4", "int4", "int8", "awq", "gptq"})
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
              "max_prompt_tokens")
 # Price order for "select": "cheapest": cache read, then input, then output.
@@ -122,14 +117,14 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
     stable default. So inside a window the row's own default, `kept`, stays
     the default, and a price a window does not name is that default's. Only
     a fetch outside every window reads the default from the listing. A host
-    with no row yet is refused inside a window: the listing offers no
-    default to keep, and starting the row with the window's price would
-    misprice every outside-window record. The trigger is per endpoint,
-    before the region filter: an out-of-region endpoint of a first-seen
-    host, one the account is never billed by, carrying a schedule and
-    fetched inside its window refuses the whole host; the direction is
-    conservative, no mispricing, and the next fetch outside every window
-    starts the row."""
+    with no row yet is refused inside a window unless its schedule covers
+    every instant of the week: then no record is priced by the entry default,
+    so that default starts as the listed top-level price. Otherwise starting
+    with a window's price would misprice every outside-window record. The
+    trigger is per endpoint, before the region filter: an out-of-region
+    endpoint of a first-seen host, one the account is never billed by,
+    carrying a schedule and fetched inside its window can refuse the whole
+    host."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
@@ -145,27 +140,15 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
     identity = json.dumps([endpoint.get(k) for k in _IDENTITY])
     rates, schedule = rates_of(price, where), entry_schedule(price, where)
     if schedule and in_a_window(schedule, at):
-        if kept is None:
+        if kept is None and not covers_week(schedule):
             raise RefreshError(
                 f"{where}: first seen inside one of its windows: the listed "
                 "top-level price is the active window's, not a default; the "
                 "next fetch outside every window starts the row")
-        rates = kept
-        schedule = entry_schedule({**as_listed(kept), "overrides": price["overrides"]}, where)
+        if kept is not None:
+            rates = kept
+            schedule = entry_schedule({**as_listed(kept), "overrides": price["overrides"]}, where)
     return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)))
-
-
-def tag_region(tag: str) -> str | None:
-    """The data region an endpoint tag names, or None for a global one."""
-    for suffix in tag.split("/")[1:]:
-        if _REGION.fullmatch(suffix):
-            return suffix.lower()
-    return None
-
-
-def _unknown_suffixes(tag: str) -> list[str]:
-    return [s for s in tag.split("/")[1:]
-            if not _REGION.fullmatch(s) and s.lower() not in _QUANTIZATIONS]
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
@@ -218,7 +201,13 @@ def _host_row(where: str, endpoints: list[tuple[int, object]], region: str | Non
     listed = [_listing(e, f"{where} (endpoint {i})", at, stored) for i, e in endpoints]
     chosen, notice = _host_price(where, listed, region, pin, stored)
     notices = [f"{where}: tag {tag!r} names neither a known region nor a quantization"
-               for tag in sorted({e.tag for e in listed if _unknown_suffixes(e.tag)})]
+               for tag in sorted({e.tag for e in listed if unknown_suffixes(e.tag)})]
+    if (chosen is not None and stored is None and chosen.schedule
+            and in_a_window(chosen.schedule, at)):
+        notices.append(
+            f"{where}: first seen inside one of its windows, whose schedule covers the "
+            "whole week: no record is ever priced by the entry default, so the default "
+            "starts as the listed top-level price")
     return chosen, notices + ([notice] if notice else [])
 
 
@@ -380,7 +369,7 @@ def data_region(config: object) -> str | None:
     region = config.get("data_region") if isinstance(config, dict) else None
     if region == "global":
         return None
-    if isinstance(region, str) and region == region.lower() and _REGION.fullmatch(region):
+    if isinstance(region, str) and region == region.lower() and REGION_RE.fullmatch(region):
         return region
     raise RefreshError(f"openrouter.data_region {region!r} is neither 'global' "
                        "nor a region code")
