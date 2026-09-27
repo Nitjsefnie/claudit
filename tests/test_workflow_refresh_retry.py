@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -116,14 +117,45 @@ def test_refusal_gate_covers_the_retried_refresh():
     assert gate == "steps.fetch.outputs.rc != '0' || steps.push.outputs.rc == '1'"
 
 
-def test_push_remote_seam_defaults_to_the_tokenized_url():
+def test_push_remote_seam_defaults_to_github_ssh():
     raw = WORKFLOW.read_text(encoding="utf-8")
     assert raw.count("PUSH_REMOTE") == 1
     assert (
-        'remote="${PUSH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${REPO}}"'
+        'remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"'
         in raw
     )
     assert "PUSH_REMOTE" not in (_step(PUSH_STEP_NAME).get("env") or {})
+
+
+def test_push_uses_the_deploy_key_and_pinned_github_host_keys():
+    workflow = _workflow()
+    step = _step(PUSH_STEP_NAME)
+    run = step["run"]
+
+    assert step["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+        "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    assert "GH_TOKEN" not in step["env"]
+    assert "if [ -n \"${MASTER_PUSH_DEPLOY_KEY:-}\" ]; then" in run
+    assert "StrictHostKeyChecking=yes" in run
+    assert (
+        "github.com ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+        in run
+    )
+    assert (
+        "github.com ssh-rsa "
+        "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+        in run
+    )
+    assert "git config user.name 'github-actions[bot]'" in run
+    assert (
+        "git config user.email '41898282+github-actions[bot]@users.noreply.github.com'"
+        in run
+    )
+    assert run.index("if [ -n") < run.index("git push")
+    assert run.index("if [ -n") < run.index("git fetch")
+    assert workflow["jobs"]["refresh"]["permissions"]["contents"] == "read"
+    assert "x-access-token" not in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_push_step_gates_on_something_moving():
@@ -200,6 +232,46 @@ fi
 """
 
 
+def _git_shim() -> str:
+    # The default-remote case must observe the real command argument but
+    # must not contact github.com. Other git operations still use Git.
+    return r"""#!/usr/bin/env bash
+set -eu
+if [ "${FAKE_CAPTURE_GIT_PUSH:-0}" -eq 1 ] && [ "${1:-}" = "push" ]; then
+  printf '%s\n' "$@" > "$FAKE_STATE/git-push-args"
+  printf '%s\n' "${GIT_SSH_COMMAND:-}" > "$FAKE_STATE/git-ssh-command"
+  exit 0
+fi
+exec "$REAL_GIT" "$@"
+"""
+
+
+def _ssh_agent_shim() -> str:
+    # Return harmless shell assignments for the workflow's eval, without
+    # starting a real agent during the simulation.
+    return r"""#!/usr/bin/env bash
+set -eu
+if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+  echo 'ssh-agent called without the deploy key' >&2
+  exit 1
+fi
+printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
+printf '%s\n' 'SSH_AUTH_SOCK=/tmp/fake-agent.sock; export SSH_AUTH_SOCK;' \
+  'SSH_AGENT_PID=1; export SSH_AGENT_PID;'
+"""
+
+
+def _ssh_add_shim() -> str:
+    return r"""#!/usr/bin/env bash
+set -eu
+if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+  echo 'ssh-add called without the deploy key' >&2
+  exit 1
+fi
+printf 'called\n' > "$FAKE_STATE/ssh-add-called"
+"""
+
+
 @pytest.fixture(name="scratch")
 def _scratch_fixture(tmp_path: Path) -> Path:
     base = tmp_path / "scratch"
@@ -230,14 +302,18 @@ def _scratch_fixture(tmp_path: Path) -> Path:
         _run(["git", "clone", "-q", str(bare), str(repo)])
         _configure_identity(repo)
     for shim, body in (("python3", _python3_shim()),
-                       ("python", _python_shim())):
+                       ("python", _python_shim()),
+                       ("git", _git_shim()),
+                       ("ssh-agent", _ssh_agent_shim()),
+                       ("ssh-add", _ssh_add_shim())):
         path = base / "bin" / shim
         path.write_text(body, encoding="utf-8")
         path.chmod(0o755)
     return base
 
 
-def _env(scratch: Path, extra: dict[str, str]) -> dict[str, str]:
+def _env(scratch: Path,
+         extra: dict[str, str | None]) -> dict[str, str]:
     env = os.environ.copy()
     for key in FAKE_SWITCHES:
         env.pop(key, None)
@@ -245,12 +321,20 @@ def _env(scratch: Path, extra: dict[str, str]) -> dict[str, str]:
     env["RUNNER_TEMP"] = str(scratch / "runner-temp")
     env["GITHUB_OUTPUT"] = str(scratch / "github-output.txt")
     env["GITHUB_STEP_SUMMARY"] = str(scratch / "github-summary.md")
-    env["GH_TOKEN"] = "test-token"
+    env.pop("MASTER_PUSH_DEPLOY_KEY", None)
+    env.pop("GIT_SSH_COMMAND", None)
+    env.pop("SSH_AUTH_SOCK", None)
+    env["REAL_GIT"] = shutil.which("git") or "git"
+    env["HOME"] = str(scratch / "home")
     env["REPO"] = "Nitjsefnie/claudit"
     env["PUSH_REMOTE"] = str(scratch / "remote.git")
     env["FAKE_STATE"] = str(scratch / "state")
     env["FAKE_PEER"] = str(scratch / "peer")
-    env.update(extra)
+    for key, value in extra.items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     return env
 
 
@@ -372,3 +456,26 @@ def test_suite_failure_on_the_recomputed_tree_goes_red(scratch: Path):
     assert proc.returncode != 0
     assert _sha(scratch / "remote.git", "master") == peer_sha
     assert len(_state_lines(scratch, "python.log")) == 1
+
+
+@ubuntu_run_block
+def test_default_push_remote_is_the_github_ssh_url(scratch: Path):
+    _refresh_once(scratch, {})
+
+    proc = _run_push_step(scratch, {
+        "MASTER_PUSH_DEPLOY_KEY": "test-private-key",
+        "PUSH_REMOTE": None,
+        "FAKE_CAPTURE_GIT_PUSH": "1",
+    })
+
+    assert proc.returncode == 0, proc.stderr
+    assert _state_lines(scratch, "git-push-args") == [
+        "push", "git@github.com:Nitjsefnie/claudit.git", "HEAD:master"]
+    assert _state_lines(scratch, "git-ssh-command") == [
+        "ssh -o StrictHostKeyChecking=yes"]
+    assert _state_lines(scratch, "ssh-agent-called") == ["called"]
+    assert _state_lines(scratch, "ssh-add-called") == ["called"]
+    known_hosts = (scratch / "home" / ".ssh" / "known_hosts").read_text(
+        encoding="utf-8")
+    assert "github.com ssh-ed25519 " in known_hosts
+    assert "github.com ssh-rsa " in known_hosts
