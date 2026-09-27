@@ -241,6 +241,134 @@ def test_unreadable_file_list_over_runs():
     ) is None
 
 
+# The exact jq strings the classifier must read the two file lists
+# through; the tests below assert them on the stubbed calls verbatim.
+PR_FILES_JQ = ".[] | .filename, (.previous_filename // empty)"
+COMPARE_FILES_JQ = ".files[] | .filename, (.previous_filename // empty)"
+
+
+def _apply_files_jq(jq, rows):
+    """The stdout a files-list jq yields for GitHub's `rows`.
+
+    Emulates the projections in play over both payload shapes — the
+    pulls files endpoint's ARRAY and the compare endpoint's `files`
+    object: `.filename` always, plus `.previous_filename` where the jq
+    names it and the row carries one (`// empty`). Any other selector
+    shape fails the stub rather than reading as a clean list.
+    """
+    if not jq.endswith(".filename") and "previous_filename" not in jq:
+        raise AssertionError(f"unexpected file-list jq: {jq!r}")
+    selected = rows["files"] if ".files[]" in jq else rows
+    lines = []
+    for row in selected:
+        lines.append(row["filename"])
+        if "previous_filename" in jq and "previous_filename" in row:
+            lines.append(row["previous_filename"])
+    return "".join(line + "\n" for line in lines)
+
+
+def test_pr_rename_row_yields_both_paths_and_classifies_full():
+    # Issue #245. GitHub reports a rename as ONE row: `filename` is the
+    # NEW path and the old path arrives as `previous_filename`. A
+    # selector that keeps only `.filename` reads backend/auth.py renamed
+    # to backend/auth.md as a docs-only change, skips every leg and
+    # reports a green aggregate over broken code; the old path must be
+    # projected alongside the new.
+    rows = [{"status": "renamed", "filename": "backend/auth.md",
+             "previous_filename": "backend/auth.py"}]
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        return _apply_files_jq(argv[argv.index("--jq") + 1], rows)
+
+    event = {"name": "pull_request", "repository": "o/r",
+             "pull_request": "17"}
+    assert classify.changed_paths(event, run) == [
+        "backend/auth.md", "backend/auth.py"]
+    assert calls[0][calls[0].index("--jq") + 1] == PR_FILES_JQ
+
+    docs_only, reason = classify.classify(event, run)
+    assert docs_only is False
+    assert "outside documentation" in reason
+
+
+def test_push_compare_rename_row_yields_both_paths():
+    # Issue #245 on the push path: the compare read projects the old
+    # path too, so a rename inside the verified-base range is not read
+    # as its new docs-only name alone.
+    rows = [{"status": "renamed", "filename": "backend/auth.md",
+             "previous_filename": "backend/auth.py"}]
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return f"{'a' * 40} completed success 21\n"
+        if "/jobs" in url:
+            return "classify success\naggregate success\ntests success\n"
+        return _apply_files_jq(argv[argv.index("--jq") + 1],
+                               {"files": rows})
+
+    paths = classify.changed_paths(
+        {"name": "push", "repository": "o/r",
+         "before": "a" * 40, "sha": "b" * 40},
+        run,
+    )
+    assert paths == ["backend/auth.md", "backend/auth.py"]
+    compare = next(call for call in calls if "/compare/" in _url(call))
+    assert compare[compare.index("--jq") + 1] == COMPARE_FILES_JQ
+
+
+def test_reverse_rename_yields_both_paths():
+    # A .md renamed INTO a code path carries the same exposure in
+    # reverse: the old docs path and the new code path both count.
+    rows = [{"status": "renamed", "filename": "backend/auth.py",
+             "previous_filename": "docs/a.md"}]
+
+    def run(argv):
+        return _apply_files_jq(argv[argv.index("--jq") + 1], rows)
+
+    assert classify.changed_paths(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        run,
+    ) == ["backend/auth.py", "docs/a.md"]
+
+
+def test_docs_only_rename_yields_both_paths_and_stays_docs_only():
+    # Both paths of a rename between two documentation paths are
+    # projected, and the change still classifies docs-only — the fix
+    # widens what is SEEN, never what counts as documentation.
+    rows = [{"status": "renamed", "filename": "docs/b.md",
+             "previous_filename": "docs/a.md"}]
+
+    def run(argv):
+        return _apply_files_jq(argv[argv.index("--jq") + 1], rows)
+
+    event = {"name": "pull_request", "repository": "o/r",
+             "pull_request": "17"}
+    assert classify.changed_paths(event, run) == [
+        "docs/b.md", "docs/a.md"]
+    docs_only, reason = classify.classify(event, run)
+    assert docs_only is True
+    assert "documentation-only" in reason
+
+
+def test_row_without_previous_filename_yields_one_path():
+    # Control: a row that names no previous path projects exactly its
+    # own filename, as before.
+    rows = [{"status": "added", "filename": "backend/new.py"}]
+
+    def run(argv):
+        return _apply_files_jq(argv[argv.index("--jq") + 1], rows)
+
+    assert classify.changed_paths(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        run,
+    ) == ["backend/new.py"]
+
+
 # ---------------------------------------------------------------------------
 # classify_changes: the classification
 # ---------------------------------------------------------------------------

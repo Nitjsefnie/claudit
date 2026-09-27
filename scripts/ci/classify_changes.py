@@ -189,10 +189,16 @@ def _push_paths(repository, event, run):
     base = _verified_base(repository, run)
     if base is None:
         return None
+    # A rename reports ONE row — filename is the new path, and the old
+    # path arrives as previous_filename; projecting only .filename read
+    # backend/auth.py -> backend/auth.md as a docs-only change. Both
+    # paths count, so a rename into or out of documentation runs the
+    # legs.
     return _read(run, [
         'gh', 'api', '-H', 'Cache-Control: no-cache',
         f'repos/{repository}/compare/{base}...{sha}', '--jq',
-        '.files[].filename'], cap=COMPARE_FILES_CAP)
+        '.files[] | .filename, (.previous_filename // empty)'],
+        cap=COMPARE_FILES_CAP)
 
 
 def changed_paths(event, run):
@@ -206,10 +212,13 @@ def changed_paths(event, run):
         if not (isinstance(number, str) and number.isascii()
                 and number.isdigit()):
             return None
+        # As on the push path: a rename's old path counts beside its new
+        # one (issue #245).
         return _read(run, [
             'gh', 'api', '--paginate', '-H', 'Cache-Control: no-cache',
             f'repos/{repository}/pulls/{number}/files', '--jq',
-            '.[].filename'], cap=PULL_REQUEST_FILES_CAP)
+            '.[] | .filename, (.previous_filename // empty)'],
+            cap=PULL_REQUEST_FILES_CAP)
     if name == 'push':
         return _push_paths(repository, event, run)
     return None
