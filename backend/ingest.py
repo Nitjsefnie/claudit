@@ -38,8 +38,7 @@ from typing import NamedTuple
 import psycopg
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import (agent_sidecar, cache, constants, db, events, key_layout,
-                     lane_markers, lane_projects, parse, project_aliases, r2)
+from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
@@ -51,11 +50,10 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     rebuild_tool_error_rollup, rebuild_tool_rollup,
     recompute_canonical, resolve_teammate_agent_types,
 )
-from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
-    _close_run, _open_run)
+from backend.project_aliases import rekey_folded_projects
+from backend.ingest_runs import _close_run, _open_run  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.ingest_warm import WARM_RANGES, warm_common  # noqa: F401  (re-export)  # pylint: disable=unused-import
-from backend.ingest_progress import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
-    _set_progress, progress_snapshot)
+from backend.ingest_progress import _set_progress, progress_snapshot  # noqa: F401  (re-export)  # pylint: disable=unused-import
 
 log = logging.getLogger("claudit.ingest")
 
@@ -620,16 +618,14 @@ def _rebuild_derived_state() -> int:
     before the rollups; those rewrite their whole table every run.
     """
     # Order matters: suppression removes rows the canonical pass would
-    # otherwise rank, the alias fold re-keys stored project identity
-    # before anything derived reads it, and the rollups read is_canonical
-    # and agent_type.
-    # The names resolve through this module's globals at call time, so a
-    # test can monkeypatch any phase on `ingest` itself. The reprice
-    # partial carries the shutdown check into reprice_stale's batches.
+    # otherwise rank, the alias fold re-keys identity first, and the
+    # rollups read is_canonical and agent_type. The names resolve through
+    # this module's globals at call time, so a test can monkeypatch any
+    # phase on `ingest` itself; the reprice partial carries should_stop.
     reprice = partial(reprice_stale, should_stop=_check_shutdown)
     phases = (
         ("suppressed", purge_suppressed), ("reprice", reprice),
-        ("aliases", project_aliases.rekey_folded_projects),
+        ("aliases", rekey_folded_projects),
         ("canonical", recompute_canonical), ("teammates", resolve_teammate_agent_types),
         ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
         ("tool_error_rollup", rebuild_tool_error_rollup), ("dispatch_rollup", rebuild_dispatch_rollup),
