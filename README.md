@@ -188,8 +188,9 @@ INSERT INTO project_aliases(pattern, project_id, note)
 VALUES ('-tmp-daedalus-%', '-root-daedalus-public', 'worktrees');
 ```
 
-Deleting a row stops folding new files; rows already folded keep the target
-id.
+Deleting a row stops folding new files; already-folded rows stay at the target
+only until a reparse restores their raw object-key id or the next marker-backed
+lane ingest moves them to the marker slug.
 
 `backend/parse.py` implements the parse spec (SV-PARSER-SPEC in
 `.claude/rules/claudit-doctrine.md`, pinned by `fixtures/parser/`),

@@ -707,9 +707,11 @@ CREATE TABLE IF NOT EXISTS suppressed_models (
 -- deleted (the pass deletes emptied source project rows, and files
 -- FK-cascade on project delete). Adding or editing a row re-keys stored
 -- rows on the next ingest -- no reparse, no R2 fetch, NO PARSER_VERSION
--- bump. Deleting a row stops folding NEW files only;
--- already-folded rows KEEP the target id (the raw id is not retained,
--- so an unfold is not possible). No version coupling: only stored
+-- bump. Deleting a row stops folding NEW files. Already-folded rows
+-- stay at the target only until another identity pass re-keys them: a
+-- reparse derives the raw id from the object key, while marker-backed
+-- lane files re-converge to fold(marker slug) on the next ingest (after
+-- deletion, to the marker slug). No version coupling: only stored
 -- identity moves -- token columns and costs are untouched.
 CREATE TABLE IF NOT EXISTS project_aliases (
   pattern     TEXT PRIMARY KEY,

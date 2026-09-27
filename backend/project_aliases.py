@@ -19,6 +19,12 @@ the table. A pass with no matching source ids moves nothing. A project
 whose own id equals its matched target is never moved and never deleted
 (the pass drops emptied source project rows, and files FK-cascade on
 project delete).
+
+Deleting a row stops folding new files. Already-folded rows stay at the
+target only until another identity pass re-keys them: a reparse derives
+the raw id from the object key, while marker-backed lane files
+re-converge to fold(marker slug) on the next ingest (to the marker slug
+after deletion).
 """
 from __future__ import annotations
 
@@ -71,9 +77,11 @@ def rekey_folded_projects() -> int:
     pass) from being dropped.
 
     Adding or editing a row re-keys stored rows on the next ingest;
-    deleting one stops folding NEW files only — already-folded rows
-    keep the target id, and the raw id is not retained, so an unfold is
-    not possible. Repeated passes converge one alias hop at a time
+    deleting one stops folding NEW files. Already-folded rows stay at
+    the target only until another identity pass re-keys them: a reparse
+    derives the raw id from the object key, while marker-backed lane
+    files re-converge to fold(marker slug) on the next ingest (to the
+    marker slug after deletion). Repeated passes converge one alias hop at a time
     without duplicating or losing files while the alias set is acyclic
     on the ids it matches. A cyclic alias set is an operator error:
     folded ids advance around the cycle on successive ingests, so fix
