@@ -207,10 +207,13 @@ def check_origin(request: Request) -> bool:
     host = request.headers.get("host", "")
     if not host:
         return False
-    if origin:
-        return urlparse(origin).netloc == host
-    if referer:
-        return urlparse(referer).netloc == host
+    try:
+        if origin:
+            return urlparse(origin).netloc == host
+        if referer:
+            return urlparse(referer).netloc == host
+    except ValueError:
+        return False
     return False
 
 

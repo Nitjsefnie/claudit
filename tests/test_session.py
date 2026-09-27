@@ -294,6 +294,48 @@ def test_check_origin_rejects_missing_host_header():
     assert not session.check_origin(req)
 
 
+def test_check_origin_rejects_malformed_ipv6_origin():
+    scope = {
+        "type": "http", "method": "POST",
+        "headers": [
+            (b"host", b"viz.example.com"),
+            (b"origin", b"http://[::1"),
+        ],
+        "path": "/login",
+    }
+    assert not session.check_origin(Request(scope))
+
+
+def test_check_origin_rejects_malformed_ipv6_referer():
+    scope = {
+        "type": "http", "method": "POST",
+        "headers": [
+            (b"host", b"viz.example.com"),
+            (b"referer", b"http://[ typo/x"),
+        ],
+        "path": "/login",
+    }
+    assert not session.check_origin(Request(scope))
+
+
+def test_malformed_ipv6_origin_login_is_forbidden():
+    app = FastAPI()
+    app.middleware("http")(session.auth_middleware)
+
+    @app.post("/login")
+    async def _login():
+        return {"ok": True}
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/login",
+        headers={"Origin": "http://[::1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+
+
 def test_guest_blocked_from_export():
     app = FastAPI()
     app.middleware("http")(session.auth_middleware)
