@@ -18,6 +18,7 @@ the race itself.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import os
 import re
 import shutil
@@ -270,6 +271,16 @@ if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-add called without the deploy key' >&2
   exit 1
 fi
+if [ "$#" -ne 1 ] || [ ! -r "$1" ]; then
+  echo 'ssh-add did not receive a readable key file' >&2
+  exit 1
+fi
+bytes=$(wc -c < "$1")
+if (( bytes <= 0 )); then
+  echo 'ssh-add received an empty key file' >&2
+  exit 1
+fi
+printf '%s\n' "$bytes" > "$FAKE_STATE/ssh-add-bytes"
 """
 
 
@@ -314,7 +325,7 @@ def _scratch_fixture(tmp_path: Path) -> Path:
 
 
 def _env(scratch: Path,
-         extra: dict[str, str | None]) -> dict[str, str]:
+         extra: Mapping[str, str | None]) -> dict[str, str]:
     env = os.environ.copy()
     for key in FAKE_SWITCHES:
         env.pop(key, None)
@@ -340,7 +351,8 @@ def _env(scratch: Path,
 
 
 def _run_push_step(scratch: Path,
-                   extra_env: dict[str, str]) -> subprocess.CompletedProcess:
+                   extra_env: Mapping[str, str | None]
+                   ) -> subprocess.CompletedProcess:
     script = scratch / "push-step.sh"
     script.write_text(_step(PUSH_STEP_NAME)["run"], encoding="utf-8")
     return subprocess.run(
@@ -354,7 +366,8 @@ def _run_push_step(scratch: Path,
 
 
 def _refresh_once(scratch: Path,
-                  extra_env: dict[str, str]) -> subprocess.CompletedProcess:
+                  extra_env: Mapping[str, str | None]
+                  ) -> subprocess.CompletedProcess:
     # Simulates the workflow's earlier "Fetch and append" step: mutates the
     # clone's tree, writes commit-msg, and lands the mid-run master move
     # when FAKE_PEER_ON=1.
@@ -478,6 +491,7 @@ def test_default_push_remote_is_the_github_ssh_url(scratch: Path):
         "ssh -o StrictHostKeyChecking=yes"]
     assert _state_lines(scratch, "ssh-agent-called") == ["called"]
     assert _state_lines(scratch, "ssh-add-called") == ["called"]
+    assert int(_state_lines(scratch, "ssh-add-bytes")[0]) > 0
     known_hosts = (scratch / "home" / ".ssh" / "known_hosts").read_text(
         encoding="utf-8")
     assert "github.com ssh-ed25519 " in known_hosts
