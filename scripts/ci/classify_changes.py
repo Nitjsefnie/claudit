@@ -19,14 +19,17 @@ failure that under-runs would skip gates over code; one that over-runs
 only wastes minutes.
 
 On a PUSH the changed set is read over the verified base rather than
-the push's own `before`: the newest ci-gate run on master that
-completed without cancellation and executed at least one leg marks the
+the push's own `before`: the newest ci-gate run on master whose
+conclusion is `success` and that executed at least one leg marks the
 last commit whose code the gate actually ran over. Classifying only
 the push's own before...sha let a docs-only push hide an unverified
 code push behind a green aggregate, when the code push's own run had
-been cancelled by the docs-only push seconds after it started. The
-base walk reads the workflow-runs and run-jobs endpoints, newest
-first; any failure over-runs to the full gate set.
+been cancelled by the docs-only push seconds after it started — and a
+run that concluded `failure` or `timed_out` verified nothing either,
+so a docs-only push on top of failed code would otherwise narrow over
+the very code that is failing. The base walk reads the workflow-runs
+and run-jobs endpoints, newest first; any failure over-runs to the
+full gate set.
 """
 from __future__ import annotations
 
@@ -142,14 +145,18 @@ def _legs_ran(repository, run_id, run):
 
 
 def _verified_base(repository, run):
-    """The newest master commit whose ci-gate legs actually executed.
+    """The newest master commit whose ci-gate run passed its legs.
 
     Walks the ci-gate runs on master newest-first (one page of
-    RUNS_PAGE_SIZE) for the first run that completed, was not
-    cancelled, and executed at least one leg; returns its head SHA, or
-    None — run the full gate set — when the runs cannot be read, no
-    entry qualifies, or any read fails. The run in progress for THIS
-    push is never completed, so it is skipped naturally.
+    RUNS_PAGE_SIZE) for the first run that concluded `success` and
+    executed at least one leg; returns its head SHA, or None — run the
+    full gate set — when the runs cannot be read, no entry qualifies,
+    or any read fails. A run that concluded `failure` or `timed_out`
+    is skipped the way a cancelled one is: its legs executed, so it is
+    evidence the code was exercised, not that it passed, and narrowing
+    over it would let a docs-only push go green above failing code.
+    The run in progress for THIS push is never completed, so it is
+    skipped naturally.
     """
     lines = _read(run, [
         'gh', 'api', '-H', 'Cache-Control: no-cache',
@@ -164,7 +171,7 @@ def _verified_base(repository, run):
         head_sha, status, conclusion, run_id = fields
         if not run_id.isascii() or not run_id.isdigit():
             return None
-        if status != 'completed' or conclusion == 'cancelled':
+        if status != 'completed' or conclusion != 'success':
             continue
         legs = _legs_ran(repository, run_id, run)
         if legs is None:

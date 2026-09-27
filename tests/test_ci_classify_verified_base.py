@@ -2,13 +2,14 @@
 
 ci-gate's classifier narrows a documentation-only push by reading the
 push's changed paths, and on master it reads them since the newest
-commit whose gate legs actually executed — not since the push's own
-`before`, which a cancelled predecessor run left unverified. The
+commit whose gate run passed — not since the push's own `before`,
+which a cancelled or failed predecessor run left unverified. The
 scenarios here arrange the runs list, the candidate runs' jobs and the
 compare read through a stubbed `run` callable keyed on argv, and pin
-the walk's contract: a completed, non-cancelled run at least one leg
-of which executed is the base; anything unreadable over-runs to the
-full gate set, never fewer legs.
+the walk's contract: a completed run whose conclusion is `success`
+with at least one leg executed is the base; a failed or timed-out run
+is skipped like a cancelled one (issue #246), and anything unreadable
+over-runs to the full gate set, never fewer legs.
 
 The classifier's pattern set and its pull-request reads live in
 test_ci_gate_modules.py, beside the aggregate fold.
@@ -158,6 +159,102 @@ def test_push_walks_past_a_docs_only_run_whose_legs_all_skipped():
          f"repos/o/r/compare/{BASE_SHA}...{PUSH_SHA}", "--jq",
          ".files[] | .filename, (.previous_filename // empty)"],
     ]
+
+
+def test_push_walks_past_a_failed_base_run():
+    # Issue #246. A run whose legs executed and FAILED verified nothing
+    # about the tree: it is evidence the code was exercised, not that it
+    # passed. A docs-only push on top of a failed code push must
+    # classify against the newest SUCCESSFUL legs-bearing run, or its
+    # aggregate goes green over failing code still in the tree — here
+    # the failed run's own delta (README.md) vs the code the failed run
+    # sits on, which only the green-base compare sees.
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return _runs_page(
+                f"{PUSH_SHA} in_progress - 36",
+                f"{INTERVENING_SHA} completed failure 30",
+                f"{BASE_SHA} completed success 29",
+            )
+        if "/jobs" in url:
+            # Run 30's legs executed — a failure is still evidence the
+            # code ran — so the conclusion alone disqualifies it.
+            return GREEN_JOBS
+        return ("backend/app.py\nREADME.md\n"
+                if f"/compare/{BASE_SHA}..." in url else "README.md\n")
+
+    docs_only, reason = classify.classify(
+        {"name": "push", "repository": "o/r",
+         "before": INTERVENING_SHA, "sha": PUSH_SHA},
+        run,
+    )
+    assert docs_only is False
+    assert "outside documentation" in reason
+    compare_url = _url(next(call for call in calls
+                            if "/compare/" in _url(call)))
+    assert compare_url == f"repos/o/r/compare/{BASE_SHA}...{PUSH_SHA}"
+
+
+def test_push_walks_past_a_timed_out_base_run():
+    # Issue #246: a timeout is a failed run for this purpose — its legs
+    # ran, so execution alone never made it a base, and its conclusion
+    # disqualifies it exactly as a failure does.
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return _runs_page(
+                f"{PUSH_SHA} in_progress - 37",
+                f"{INTERVENING_SHA} completed timed_out 31",
+                f"{BASE_SHA} completed success 29",
+            )
+        if "/jobs" in url:
+            return GREEN_JOBS
+        return ("backend/app.py\nREADME.md\n"
+                if f"/compare/{BASE_SHA}..." in url else "README.md\n")
+
+    docs_only, reason = classify.classify(
+        {"name": "push", "repository": "o/r",
+         "before": INTERVENING_SHA, "sha": PUSH_SHA},
+        run,
+    )
+    assert docs_only is False
+    assert "outside documentation" in reason
+    compare_url = _url(next(call for call in calls
+                            if "/compare/" in _url(call)))
+    assert compare_url == f"repos/o/r/compare/{BASE_SHA}...{PUSH_SHA}"
+
+
+def test_push_with_no_successful_run_over_runs():
+    # Issue #246: with no successful run anywhere, nothing on master is
+    # a verified base — a failed run does not become one by having
+    # executed its legs — so the walk over-runs to the full gate set
+    # instead of diffing against failing code.
+    events = {"name": "push", "repository": "o/r",
+              "before": INTERVENING_SHA, "sha": PUSH_SHA}
+
+    def run(argv):
+        url = _url(argv)
+        if WORKFLOW_RUNS_URL in url:
+            return _runs_page(
+                f"{PUSH_SHA} in_progress - 40",
+                f"{INTERVENING_SHA} completed failure 39",
+                f"{BASE_SHA} completed cancelled 38",
+            )
+        if "/jobs" in url:
+            return GREEN_JOBS
+        return "README.md\n"
+
+    assert classify.changed_paths(events, run) is None
+    docs_only, reason = classify.classify(events, run)
+    assert docs_only is False
+    assert "full gate set" in reason
 
 
 def test_push_skips_runs_that_are_not_completed_without_a_jobs_read():
