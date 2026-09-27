@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-27T19:54:08Z",
+  "provider_rates_fetched": "2026-09-27T20:54:06Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -774,6 +774,14 @@
           "note": "47.21% off",
           "output": 0.31674,
           "read": 0.0015837
+        },
+        {
+          "create_1h": 0.079185,
+          "create_5m": 0.079185,
+          "fresh": 0.079185,
+          "from": "2026-09-27T20:54:06Z",
+          "output": 0.42,
+          "read": 0.0021
         }
       ],
       "NextBit": [
