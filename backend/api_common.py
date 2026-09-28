@@ -9,6 +9,7 @@ serialiser.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -22,30 +23,30 @@ log = logging.getLogger("claudit.api")
 # --- dated-rate helpers ---------------------------------------------------
 # cost_total always comes from SUM(cost_usd) — the per-record cost computed
 # at ingest against that record's own timestamp. cost_buckets, by contrast,
-# is re-derived from summed tokens, so it must be aggregated per rate epoch
-# or it silently disagrees with the total it claims to decompose whenever a
-# range straddles a dated rate change. See backend/pricing.RATE_EPOCHS.
+# is re-derived from summed tokens, so each record must be grouped by the
+# boundaries of its own (model, provider) rate row. The global RATE_EPOCHS
+# array is used only when a pair is missing from the rollup boundary map.
 
 
 def rate_epoch_sql(ts_column: str) -> tuple[str, list]:
-    """Yield a rate-epoch index and params, mapping NULL timestamps to LIST.
+    """Yield a pair-specific rate epoch and a global fallback array.
 
-    Epoch -1 is the LIST-price epoch: ``epoch_ts(-1)`` is None, so
-    ``pricing.resolve(model, None, provider)`` uses the same rates persist
-    and reprice used for a NULL-ts record, keeping its buckets reconciled
-    with the stored total.
+    The per-model query LEFT JOINs pair boundaries as ``rate_bounds``.
+    Missing pairs use the global array. Epoch -1 is the LIST-price epoch:
+    ``epoch_ts(-1)`` is None, so ``pricing.resolve(model, None, provider)``
+    uses the same rates persist and reprice used for a NULL-ts record.
     """
-    cases = [
-        f"(CASE WHEN {ts_column} >= %s THEN 1 ELSE 0 END)"
-        for _ in pricing.RATE_EPOCHS
-    ]
-    expr = " + ".join(["0", *cases]) if cases else "0"
-    return (f"(CASE WHEN {ts_column} IS NULL THEN -1 ELSE {expr} END)",
-            list(pricing.RATE_EPOCHS))
+    return (
+        f"(CASE WHEN {ts_column} IS NULL THEN -1 "
+        f"WHEN rate_bounds.pair_model IS NOT NULL "
+        f"THEN width_bucket({ts_column}, rate_bounds.boundaries) "
+        f"ELSE width_bucket({ts_column}, %s::timestamptz[]) END)",
+        [pricing.RATE_EPOCHS],
+    )
 
 
 def epoch_ts(index: int) -> datetime | None:
-    """Return an epoch representative, or None for the LIST-price epoch."""
+    """Return a global-fallback representative, or None for LIST price."""
     if index < 0:
         return None
     if not pricing.RATE_EPOCHS:
@@ -53,6 +54,23 @@ def epoch_ts(index: int) -> datetime | None:
     if index <= 0:
         return pricing.RATE_EPOCHS[0] - timedelta(microseconds=1)
     return pricing.RATE_EPOCHS[min(index, len(pricing.RATE_EPOCHS)) - 1]
+
+
+def _pair_epoch_ts(index: int, model: str, provider: str | None,
+                   pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
+        -> datetime | None:
+    """Return the representative instant from the boundary array SQL used."""
+    if index < 0:
+        return None
+    key = (model, provider or "")
+    if key not in pair_bounds:
+        return epoch_ts(index)
+    boundaries = pair_bounds[key]
+    if not boundaries:
+        return epoch_ts(index)
+    if index == 0:
+        return boundaries[0] - timedelta(microseconds=1)
+    return boundaries[min(index, len(boundaries)) - 1]
 
 
 def _empty_model_entry(model: str) -> dict:
@@ -103,7 +121,9 @@ def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
 _FOLD_TOKENS = ("fresh", "cache_create", "cache_read", "output", "eph5", "eph1h")
 
 
-def _accumulate_model_row(acc: dict, row, by_provider: bool) -> None:
+def _accumulate_model_row(
+        acc: dict, row, by_provider: bool,
+        pair_bounds: Mapping[tuple[str, str], list[datetime]]) -> None:
     """Fold one (model, provider, rate_epoch, long_context, turns, fresh,
     cache_create, cache_read, output, eph5, eph1h, cost_total) row.
 
@@ -115,7 +135,9 @@ def _accumulate_model_row(acc: dict, row, by_provider: bool) -> None:
     tokens = dict(zip(_FOLD_TOKENS, (int(v or 0) for v in row[5:11])))
     model = model or "unknown"
     provider = provider or None
-    res = pricing.resolve(model, epoch_ts(int(epoch or 0)), provider)
+    res = pricing.resolve(
+        model, _pair_epoch_ts(int(epoch or 0), model, provider, pair_bounds),
+        provider)
     key = (model, provider) if by_provider else model
     if key not in acc:
         acc[key] = _empty_model_entry(model)
@@ -152,10 +174,11 @@ def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
             entry["_buckets"][field] += value * scale
 
 
-def _fold(rows, by_provider: bool) -> list[dict]:
+def _fold(rows, by_provider: bool,
+          pair_bounds: Mapping[tuple[str, str], list[datetime]]) -> list[dict]:
     acc: dict = {}
     for row in rows:
-        _accumulate_model_row(acc, row, by_provider)
+        _accumulate_model_row(acc, row, by_provider, pair_bounds)
 
     out = []
     for entry in acc.values():
@@ -171,20 +194,24 @@ def _fold(rows, by_provider: bool) -> list[dict]:
     return out
 
 
-def fold_per_model(rows) -> list[dict]:
+def fold_per_model(
+        rows, *, pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
+        -> list[dict]:
     """Fold (model, provider, rate_epoch, ...) rows into one entry per model.
 
     Token counts and cost_total sum across epochs and providers;
-    cost_buckets are priced per epoch and per provider so they always
-    reconcile with cost_total.
+    cost_buckets use each pair's boundary array so they reconcile with
+    cost_total.
     """
-    return _fold(rows, by_provider=False)
+    return _fold(rows, by_provider=False, pair_bounds=pair_bounds)
 
 
-def fold_per_model_provider(rows) -> list[dict]:
+def fold_per_model_provider(
+        rows, *, pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
+        -> list[dict]:
     """The same fold, one entry per (model, provider). `provider` is None
     for a record that named no serving host (every non-OpenRouter lane)."""
-    return _fold(rows, by_provider=True)
+    return _fold(rows, by_provider=True, pair_bounds=pair_bounds)
 
 
 # Activity-heatmap timezone. Bound as a SQL parameter (never interpolated);

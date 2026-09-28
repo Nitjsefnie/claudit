@@ -221,7 +221,9 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
                                  pytest.approx(after["fresh"], rel=1e-12))
     rows = [_row(V41, "Novita", 0, fresh=1_000_000, cost=in_window),
             _row(V41, "Novita", 1, fresh=1_000_000, cost=past)]
-    for m in fold_per_model(rows) + fold_per_model_provider(rows):
+    pair_bounds = {(V41, "Novita"): [cutover]}
+    for m in (fold_per_model(rows, pair_bounds=pair_bounds)
+              + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
         # The fold sums these two stored costs and rounds to 4 decimals,
         # so re-derive that rounding; the five buckets each round too,
         # and five of them against the rounded total can disagree with
@@ -270,7 +272,12 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
             _row(SYNTH_MODEL, HOST_B, 0, 1_000_000, 1_000_000, via_b),
             _row(SYNTH_MODEL, None, 0, 1_000_000, 1_000_000, direct)]
 
-    out = fold_per_model(rows)
+    pair_bounds = {
+        (SYNTH_MODEL, HOST_A): [],
+        (SYNTH_MODEL, HOST_B): [],
+        (SYNTH_MODEL, ""): [],
+    }
+    out = fold_per_model(rows, pair_bounds=pair_bounds)
     assert len(out) == 1
     per_model = out[0]
     assert per_model["model"] == SYNTH_MODEL
@@ -287,7 +294,8 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     # The NULL-provider row is still a DEFAULT-rate estimate.
     assert per_model["estimated_rate"] is True
 
-    split = {e["provider"]: e for e in fold_per_model_provider(rows)}
+    split = {e["provider"]: e for e in fold_per_model_provider(
+        rows, pair_bounds=pair_bounds)}
     assert set(split) == {HOST_A, HOST_B, None}
     for provider, want in ((HOST_A, via_a), (HOST_B, via_b), (None, direct)):
         e = split[provider]
@@ -333,7 +341,9 @@ def test_fold_reconciles_across_several_provider_entries(monkeypatch):
     rows = [_row(SYNTH_MODEL, "HostCo", span_of(ts), 1_000_000, cost=cost)
             for ts, cost in zip(pricing_ts, stored, strict=True)]
 
-    for m in fold_per_model(rows) + fold_per_model_provider(rows):
+    pair_bounds = {(SYNTH_MODEL, "HostCo"): [t1, t2]}
+    for m in (fold_per_model(rows, pair_bounds=pair_bounds)
+              + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
         assert m["cost_total"] == pytest.approx(sum(stored))
         assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
         assert m["cost_buckets"]["fresh"] == pytest.approx(sum(stored))
@@ -367,7 +377,9 @@ def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
     rows = [_row(SYNTH_MODEL, "HostCo", 0, fresh=2_000_000, output=2_000_000,
                  read=2_000_000, cost=stored)]
 
-    for m in fold_per_model(rows) + fold_per_model_provider(rows):
+    pair_bounds = {(SYNTH_MODEL, "HostCo"): []}
+    for m in (fold_per_model(rows, pair_bounds=pair_bounds)
+              + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
         assert m["cost_total"] == pytest.approx(stored)
         # The buckets carry the 4-decimal rounding _fold applies: five of
         # them can drift 5e-5 each from the scaled sum, hence the abs.
@@ -385,8 +397,9 @@ def test_fold_of_null_provider_rows_is_unchanged(monkeypatch):
              "read": 0.021, "output": 0.71}
     monkeypatch.setitem(pricing.MODEL_RATES, model, rates)
     stored = _cost(model, fresh=2_000_000, output=500_000)
-    last = len(pricing.RATE_EPOCHS)
-    out = fold_per_model([_row(model, None, last, 2_000_000, 500_000, stored)])
+    out = fold_per_model(
+        [_row(model, None, 0, 2_000_000, 500_000, stored)],
+        pair_bounds={(model, ""): []})
     assert len(out) == 1
     m = out[0]
     # One rounded bucket quantity each: 5e-5 of 4-decimal rounding, and

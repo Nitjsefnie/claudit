@@ -36,7 +36,7 @@ def test_buckets_sum_to_total_within_a_single_epoch():
         unsplit_create=0, read=0, ts=ts,
     )
     rows = [_row("claude-opus-4-8", 0, fresh=1_000_000, cost=stored)]
-    out = fold_per_model(rows)
+    out = fold_per_model(rows, pair_bounds={})
     assert len(out) == 1
     m = out[0]
     # cost_total is the fold's own rounding of this stored cost to 4
@@ -55,7 +55,8 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
         _row(w.model, 1, fresh=1_000_000, cost=w.after["fresh"]),
     ]
     total = w.before["fresh"] + w.after["fresh"]
-    out = fold_per_model(rows)
+    out = fold_per_model(
+        rows, pair_bounds={(w.model, ""): [w.cutover]})
     assert len(out) == 1, "epochs must fold into one row per model"
     m = out[0]
     assert m["fresh"] == 2_000_000
@@ -102,7 +103,8 @@ def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
     assert stored == provider_rates["fresh"]
     row = (model, host, -1, False, 1, 1_000_000, 0, 0, 0, 0, 0, stored)
 
-    folded = fold_per_model_provider([row])[0]
+    folded = fold_per_model_provider(
+        [row], pair_bounds={(model, host): []})[0]
     bucket_total = sum(folded["cost_buckets"].values())
     assert folded["cost_total"] == pytest.approx(stored)
     assert bucket_total == pytest.approx(stored)
@@ -121,11 +123,15 @@ def test_cache_range_includes_null_timestamp_in_list_epoch(monkeypatch):
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
     epoch_expr, epoch_params = rate_epoch_sql("ts")
     canon_src, canon_args = _cache_canon_source(None, None, since)
+    canon_src = canon_src.replace(
+        "FROM records", "FROM records LEFT JOIN rate_bounds ON FALSE", 1)
 
     with scratch_db.admin_connection() as conn:
         got = conn.execute(
             sql_text(
-                "WITH records(ts, is_canonical) AS (VALUES "
+                "WITH rate_bounds AS (SELECT NULL::text AS pair_model, "
+                "NULL::timestamptz[] AS boundaries WHERE FALSE), "
+                "records(ts, is_canonical) AS (VALUES "
                 "(NULL::timestamptz, TRUE), "
                 "('2030-12-31T00:00:00+00:00'::timestamptz, TRUE)) "
                 f"SELECT ({epoch_expr}) AS rate_epoch, COUNT(*) "
@@ -152,9 +158,12 @@ def test_epoch_sql_places_null_at_list_epoch(monkeypatch):
     probes = [None, boundary - tick, boundary + tick]
     with scratch_db.admin_connection() as conn:
         got = conn.execute(
-            sql_text(f"SELECT {expr} FROM unnest(%s::timestamptz[])"
-                     " AS v(ts)"),
-            [*params, probes],
+            sql_text(
+                "WITH rate_bounds AS (SELECT NULL::text AS pair_model, "
+                "NULL::timestamptz[] AS boundaries WHERE FALSE) "
+                f"SELECT {expr} FROM unnest(%s::timestamptz[]) AS v(ts) "
+                "LEFT JOIN rate_bounds ON FALSE"),
+            params + [probes],
         ).fetchall()
     assert [row[0] for row in got] == [-1, 0, 1]
 
@@ -166,54 +175,46 @@ def test_epoch_ts_negative_index_is_list_price_epoch(synthetic_dated_rate):
 
 def test_epoch_sql_expression_has_one_case_per_boundary(synthetic_dated_rate):
     expr, params = rate_epoch_sql("ts")
-    # Boundaries are BOUND, never interpolated into the SQL string.
-    assert params == [synthetic_dated_rate.cutover]
-    assert expr.count("CASE") == 2
+    # The only parameter is the global fallback array; pair boundaries are
+    # supplied by the query's typed text-array inputs.
+    assert expr.count("CASE") == 1
+    assert "width_bucket(ts, rate_bounds.boundaries)" in expr
+    assert "width_bucket(ts, %s::timestamptz[])" in expr
+    assert params == [pricing.RATE_EPOCHS]
 
 
-def test_epoch_sql_collapses_to_a_constant_when_no_rates_are_dated(monkeypatch):
-    # Patched empty table (the live table now carries the GLM-5.3-Flash
-    # promotion): non-NULL rows land in epoch 0 and NULL rows in the
-    # list-price epoch, with no parameters bound.
+def test_epoch_sql_uses_empty_global_fallback_when_no_rates_are_dated(
+        monkeypatch):
+    # With no global boundaries, a missing pair uses width_bucket over an
+    # empty typed array and lands in epoch 0.
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [])
     expr, params = rate_epoch_sql("ts")
-    assert expr == "(CASE WHEN ts IS NULL THEN -1 ELSE 0 END)"
-    assert not params
+    assert "width_bucket(ts, %s::timestamptz[])" in expr
+    assert params == [[]]
     assert epoch_ts(0) is None, "no epochs => price at list, not a window"
 
 
-def test_epoch_sql_binds_every_live_rate_boundary():
-    """Each boundary is bound as a parameter and gets a CASE; the NULL
-    wrapper adds one more CASE. Derived from the file, provider windows and row starts
-    included, because the scheduled refresh appends boundaries: a literal
-    list here would fail the first commit it makes."""
+def test_epoch_sql_binds_the_global_fallback_array():
+    """The fallback array is derived from all file and provider windows."""
     expr, params = rate_epoch_sql("ts")
-    assert params == sorted(
+    expected = sorted(
         {end for w in pricing.DATED_RATES.values() for end, _ in w}
         | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
         | set(pricing.PROVIDER_STARTS.values()))
-    assert expr.count("CASE") == len(params) + 1
-    # The model rows' own boundaries, which no refresh touches, are there.
-    assert {
-        datetime(2026, 7, 30, 18, 12, tzinfo=UTC),   # GPT-5.6 JUL30_CUT
-        datetime(2026, 8, 21, 19, 40, tzinfo=UTC),   # GPT-5.6 AUG21_CUT
-        datetime(2026, 9, 9, 16, 0, tzinfo=UTC),     # GLM promo cutover
-    } <= set(params)
+    assert params == [expected]
+    assert "width_bucket(ts, %s::timestamptz[])" in expr
 
 
 @pytest.mark.db
-def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
-    """Every appended rate entry adds an epoch (SV-RATE-REFRESH), so the
-    expression grows with the table. Correctness, not speed: with 200
-    boundaries, Postgres puts a timestamp one microsecond before, at and
-    after each boundary in the epoch this module says it is in, and the
-    lookup timestamp epoch_ts(i) of every epoch lands in epoch i."""
+def test_epoch_sql_places_every_timestamp_with_200_global_fallbacks(
+        monkeypatch):
+    """The global fallback array maps timestamp edges with width_bucket."""
     epochs = [datetime(2031, 1, 1, tzinfo=UTC) + timedelta(hours=7 * i)
               for i in range(200)]
     monkeypatch.setattr(pricing, "RATE_EPOCHS", epochs)
     expr, params = rate_epoch_sql("ts")
-    assert expr.count("CASE") == 201 and params == epochs
+    assert expr.count("CASE") == 1 and params == [epochs]
     tick = timedelta(microseconds=1)
     probes = [(None, -1)]
     probes += [
@@ -224,9 +225,13 @@ def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
     probes += [(epoch_ts(i), i) for i in range(201)]
     with scratch_db.admin_connection() as conn:
         got = conn.execute(
-            sql_text(f"SELECT {expr} FROM unnest(%s::timestamptz[]) WITH ORDINALITY"
-                     " AS v(ts, n) ORDER BY n"),
-            [*params, [ts for ts, _ in probes]]).fetchall()
+            sql_text(
+                "WITH rate_bounds AS (SELECT NULL::text AS pair_model, "
+                "NULL::timestamptz[] AS boundaries WHERE FALSE) "
+                f"SELECT {expr} FROM unnest(%s::timestamptz[]) "
+                "WITH ORDINALITY AS v(ts, n) "
+                "LEFT JOIN rate_bounds ON FALSE ORDER BY n"),
+            params + [[ts for ts, _ in probes]]).fetchall()
     assert [row[0] for row in got] == [want for _, want in probes]
 
 
@@ -247,7 +252,8 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
         unsplit_create=1_000_000, read=0, ts=ts,
     )
     rows = [_row(w.model, 0, cc=1_000_000, cost=stored)]
-    m = fold_per_model(rows)[0]
+    m = fold_per_model(
+        rows, pair_bounds={(w.model, ""): [w.cutover]})[0]
     assert m["cost_buckets"]["create_1h"] == pytest.approx(
         round(w.before["create_1h"], 4), abs=1e-6)
     assert m["cost_buckets"]["create_5m"] == pytest.approx(0.0)
@@ -280,7 +286,7 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
     m = fold_per_model([
         _row(w.model, 0, fresh=300_000, output=2_000,
              cost=stored, long_context=True),
-    ])[0]
+    ], pair_bounds={(w.model, ""): [w.cutover]})[0]
     assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
     # Valued buckets + the total, each rounded to 4 decimals
     # independently: the safe-for-any-data bound on their disagreement
@@ -315,7 +321,7 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
         _row(w.model, 0, fresh=300_000, cost=stored_lc,
              long_context=True),
         _row(w.model, 0, fresh=100_000, cost=stored_flat),
-    ])
+    ], pair_bounds={(w.model, ""): [w.cutover]})
     assert len(out) == 1
     m = out[0]
     assert m["turns"] == 2
@@ -391,9 +397,10 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
                                       eph5=0, eph1h=0, unsplit_create=0,
                                       read=tokens["read"], ts=ts, provider=host)
                  for ts in (peak, off_peak))
-    row = (model, host, len(pricing.RATE_EPOCHS), False, 2, 2 * tokens["fresh"], 0,
+    row = (model, host, 0, False, 2, 2 * tokens["fresh"], 0,
            2 * tokens["read"], 2 * tokens["output"], 0, 0, stored)
-    got = fold_per_model([row])[0]["cost_buckets"]
+    got = fold_per_model(
+        [row], pair_bounds={(model, host): []})[0]["cost_buckets"]
     assert sum(got.values()) == pytest.approx(stored, abs=_SUM_TOL)
     if schedule[0]["rates"] == HALF:
         want = {f: sum(pricing.rate_for(model, ts, host)[r] * tokens[t] / 1e6
