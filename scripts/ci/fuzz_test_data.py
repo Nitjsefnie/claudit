@@ -22,23 +22,36 @@ Run `python3 scripts/ci/fuzz_test_data.py [--iterations N] [--seed N]
 runs. Each temporary snapshot includes git-visible files and every regular
 file under `tests/`, including nested ignored tests, so each shard collects
 the same suite. Non-regular entries under `tests/` refuse sharding.
+
+An interrupted run unwinds through the cleanup path: SIGTERM, SIGINT or
+SIGHUP raises SystemExit(128 + signum), so the baseline restore and the
+snapshot-tree removal run, and every shard's whole process group is taken
+down before the tree goes (issue #331).
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
-import shutil
 import subprocess
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
-# pylint: disable=wrong-import-position
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# pylint: disable=wrong-import-position,unused-import
+import fuzz_sharding  # noqa: E402  (sibling import, not a package)
+from fuzz_sharding import (  # noqa: E402  (re-exported for the tests)
+    _collect_shards,
+    _git,
+    _run_sharded,
+    _shard_refusal,
+    _shards,
+    _snapshot_tree,
+    install_interrupt_handlers,
+)
 from backend import pricing  # noqa: E402
 
 PRICING_REL = Path("src") / "pricing.json"
@@ -130,12 +143,6 @@ def restore_baseline(repo_root: Path) -> None:
     """`git checkout -- src/pricing.json`: whatever the previous
     iteration appended is gone; the tracked document is the baseline."""
     _git(repo_root, "checkout", "--", PRICING_REL.as_posix())
-
-
-def _git(target: Path, *args: str) -> None:
-    """One git command in `target`, failing loudly on a nonzero exit."""
-    subprocess.run(["git", "-C", str(target), *args], check=True,
-                   capture_output=True, text=True)
 
 
 def _require_clean_pricing(repo_root: Path) -> None:
@@ -268,136 +275,6 @@ def _max_real_stamp(rows: list[tuple[str, list]]) -> datetime | None:
     return max(stamps) if stamps else None
 
 
-def _shards(total: int, jobs: int) -> list[tuple[int, int, int]]:
-    """(first, step, count) per shard, round-robin: shard j owns the
-    iterations j, j + jobs, ... The union over the shards is
-    range(total), each iteration exactly once; `count` is 0 for a
-    shard with more shards than iterations."""
-    return [(j, jobs, (total - j + jobs - 1) // jobs) for j in range(jobs)]
-
-
-def _run_sharded(repo_root: Path, base_seed: int, total: int, jobs: int,
-                 artifact_dir: Path) -> list[dict]:
-    """The iterations sharded across J children, each in its own clone
-    of the tree; results merged in iteration order."""
-    script = Path(__file__).resolve()
-    with tempfile.TemporaryDirectory(prefix="fuzz-test-data-") as tmp:
-        pending: list[tuple[Path, Path, subprocess.Popen]] = []
-        for first, step, count in _shards(total, jobs):
-            if not count:
-                continue
-            shard_dir = Path(tmp) / f"shard-{first}"
-            _snapshot_tree(repo_root, shard_dir)
-            result_file = shard_dir / "shard-result.json"
-            child = subprocess.Popen(  # pylint: disable=consider-using-with
-                [sys.executable,
-                 str(shard_dir / "scripts" / "ci" / script.name),
-                 "--iterations", str(count),
-                 "--iteration-first", str(first),
-                 "--iteration-step", str(step),
-                 "--seed", str(base_seed),
-                 "--artifact-dir", str(artifact_dir),
-                 "--result-file", str(result_file)],
-                cwd=str(shard_dir))
-            pending.append((shard_dir, result_file, child))
-        merged = _collect_shards(pending)
-    merged.sort(key=lambda result: result["iteration"])
-    return merged
-
-
-def _collect_shards(
-        pending: list[tuple[Path, Path, subprocess.Popen]]) -> list[dict]:
-    """Wait for every shard child and gather its results, failing
-    loudly on a child that died without writing its result file."""
-    completed = [(shard_dir, result_file, child, child.wait())
-                 for shard_dir, result_file, child in pending]
-    results: list[dict] = []
-    for shard_dir, result_file, _child, code in completed:
-        # Exit 1 is the child's documented "failing suite" exit, with
-        # its results written; only a child that died WITHOUT them is
-        # a crash worth raising on.
-        if code not in (0, 1) or not result_file.exists():
-            raise RuntimeError(
-                f"fuzz shard {shard_dir.name}: child exited {code} "
-                "without a result file")
-        shard = json.loads(result_file.read_text(encoding="utf-8"))
-        results.extend(shard["results"])
-    return results
-
-
-def _snapshot_tree(source: Path, dest: Path) -> None:
-    """A disposable git checkout of the tree AS GIT KNOWS IT — tracked
-    files plus untracked, unignored ones (`git ls-files -co
-    --exclude-standard`) — so a shard runs committed and uncommitted
-    work alike, exactly what the sequential run would: a HEAD-only
-    clone would silently drop uncommitted tests or code edits and
-    could report a false green over stale code. Only listed files are
-    copied, so ignored runtime artifacts — a live socket, a fifo, a
-    pid file — can neither break the copy nor reach a shard. The copy
-    becomes its own git repository whose snapshot commit is the
-    per-iteration restore's baseline."""
-    listing = subprocess.run(
-        ["git", "-C", str(source), "ls-files", "-z", "-co",
-         "--exclude-standard"],
-        check=True, capture_output=True, text=True).stdout
-    dest.mkdir(parents=True)
-    for name in listing.split("\x00"):
-        if not name:
-            continue
-        src = source / name
-        dst = dest / name
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_symlink():
-            os.symlink(os.readlink(src), dst)
-        elif src.is_file():
-            shutil.copyfile(src, dst)
-    _snapshot_collection_root(source, dest)
-    _git(dest, "init", "-q")
-    _git(dest, "add", "-A")
-    _git(dest, "-c", "user.name=fuzz test", "-c",
-         "user.email=fuzz@localhost", "commit", "-q", "-m",
-         "fuzz shard baseline")
-
-
-def _snapshot_collection_root(source: Path, dest: Path) -> None:
-    """The collection-root union: every regular file under tests/ that
-    the git-known set may have missed is copied too — a NESTED test
-    directory is invisible to a deny-by-default .gitignore, so git
-    ignores it, yet pytest collects it; a shard without it would run a
-    smaller suite than the sequential run. Only __pycache__ and
-    .pytest_cache are pruned; any other non-regular entry under tests/
-    refuses the shard loudly: it cannot be snapshotted, so the
-    population guarantee would fail silently. Outside tests/ nothing
-    extra is walked."""
-    tests_root = source / "tests"
-    if not tests_root.is_dir():
-        return
-    for current, dirs, files in os.walk(tests_root):
-        here = Path(current)
-        dirs[:] = [d for d in dirs if d not in PRUNED_TEST_DIRS]
-        for d in dirs:
-            if (here / d).is_symlink():
-                raise SystemExit(_shard_refusal(here / d, source))
-        for name in files:
-            src = here / name
-            dst = dest / src.relative_to(source)
-            if src.is_symlink() or not src.is_file():
-                raise SystemExit(_shard_refusal(src, source))
-            if not dst.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dst)
-
-
-def _shard_refusal(path: Path, repo_root: Path) -> str:
-    """Format the refused path as a repository-relative POSIX path."""
-    display_path = (path.relative_to(repo_root).as_posix()
-                    if path.is_relative_to(repo_root)
-                    else path.absolute().as_posix())
-    return (f"fuzz: refusing to shard: {display_path} is not a "
-            "regular file, so it cannot be snapshotted and the shard "
-            "would silently miss it; remove it or run without --jobs")
-
-
 def _print_failure(result: dict) -> None:
     """The failure report: iteration, seed and its derivation, the row
     keys touched, the artifact, and the pytest tail."""
@@ -472,6 +349,7 @@ def main(argv: list[str] | None = None,
     root = repo_root if repo_root is not None else REPO_ROOT
     _require_clean_pricing(root)
     baseline = (root / PRICING_REL).read_bytes()
+    restore_handlers = install_interrupt_handlers()
     try:
         if args.jobs == 1:
             results = fuzz_run(root, seed, args.iterations, artifact_dir,
@@ -493,6 +371,7 @@ def main(argv: list[str] | None = None,
         _print_summary(seed, results)
         return 0
     finally:
+        restore_handlers()
         (root / PRICING_REL).write_bytes(baseline)
 
 
