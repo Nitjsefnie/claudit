@@ -114,6 +114,26 @@ def test_non_ascii_stored_hash_is_rejected_without_exception():
     assert not auth.verify_web_password(config, "anything")
 
 
+@pytest.mark.parametrize(
+    ("stored_hash", "stored_salt"),
+    [
+        (123, "ff" * 16),
+        ("ab" * 32, 123),
+    ],
+    ids=("integer-hash", "integer-salt"),
+)
+def test_non_string_stored_credential_material_is_rejected(
+    stored_hash, stored_salt
+):
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: stored_hash,
+        auth.WEB_PASSWORD_SALT_KEY: stored_salt,
+    }
+
+    assert not auth.verify_web_password(config, "anything")
+    assert auth.stored_verification_iterations(config) == 0
+
+
 def test_legacy_non_hex_salt_rejected_before_pbkdf2(monkeypatch):
     config = {
         auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
