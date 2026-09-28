@@ -93,7 +93,11 @@ def _usage_ctx_input(u: dict) -> int:
     # want the peak, so take max-of-iteration-totals when >1 iters.
     # Single-iter (or absent) → fall back to top-level sum.
     iters = u.get("iterations") or []
-    if isinstance(iters, list) and len(iters) > 1:
+    if isinstance(iters, list):
+        iters = [it for it in iters if isinstance(it, dict)]
+    else:
+        iters = []
+    if len(iters) > 1:
         return max(
             (int(it.get("input_tokens", 0) or 0)
              + int(it.get("cache_creation_input_tokens", 0) or 0)
@@ -116,6 +120,12 @@ def _flatten_usage(usage: dict) -> dict:
     the sum across iterations reflects the true token spend.
     """
     iters = usage.get("iterations")
+    if not iters:
+        return usage
+    if not isinstance(iters, list):
+        return usage
+    iters = [iteration for iteration in iters
+             if isinstance(iteration, dict)]
     if not iters:
         return usage
     out = dict(usage)
@@ -274,6 +284,8 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
     if not name:
         return None
     args = blk.get("input") or {}
+    if not isinstance(args, dict):
+        args = {}
     if name == "Bash":
         command = BashCommand(str(args.get("command", "") or ""))
         added, deleted = command.churn()
@@ -427,7 +439,12 @@ class _LineWalk:
             and obj.get("error") == "rate_limit"
         ):
             return False
-        content_list = (obj.get("message") or {}).get("content") or []
+        message = obj.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        content_list = message.get("content") or []
+        if not isinstance(content_list, list):
+            content_list = []
         joined = " ".join(
             str(c.get("text", ""))
             for c in content_list
@@ -520,7 +537,7 @@ class _LineWalk:
         # assistant-side content block as "the assistant has started
         # responding", including records this table has no row for.
         reply_latency_s = self._consume_anchor(obj)
-        if not usage:
+        if not isinstance(usage, dict) or not usage:
             return
         usage = _flatten_usage(usage)
         # Skip synthetic stubs: Claude Code emits these after `/exit`
@@ -724,6 +741,8 @@ def _project_record(file_key: str, ev: dict) -> dict:
     read = int(u.get("cache_read_input_tokens", 0) or 0)
     output = int(u.get("output_tokens", 0) or 0)
     eph = u.get("cache_creation") or {}
+    if not isinstance(eph, dict):
+        eph = {}
     eph5 = int(eph.get("ephemeral_5m_input_tokens", 0) or 0)
     eph1h = int(eph.get("ephemeral_1h_input_tokens", 0) or 0)
     unsplit = max(0, create - eph5 - eph1h)
@@ -829,7 +848,9 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         if walk.handle_rate_limit(obj, line_num):
             continue
 
-        msg = obj.get("message") or {}
+        msg = obj.get("message")
+        if not isinstance(msg, dict):
+            msg = {}
         role = msg.get("role")
         if role == "user":
             walk.handle_user_line(obj, msg, line_num)

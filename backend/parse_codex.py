@@ -191,7 +191,10 @@ def _codex_declared_models(blob: bytes) -> set[str]:
         if obj.get("type") == "turn_context":
             name = payload.get("model")
         elif payload.get("type") == "thread_settings_applied":
-            name = (payload.get("thread_settings") or {}).get("model")
+            settings = payload.get("thread_settings")
+            if not isinstance(settings, dict):
+                settings = {}
+            name = settings.get("model")
         else:
             continue
         if name:
@@ -342,8 +345,12 @@ def _codex_record_uuid(st: _CodexState, cumulative: dict,
 def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
                        payload: dict) -> None:
     """Book ONE billing record per real request (traps 1-4)."""
-    info = payload.get("info") or {}
-    total = info.get("total_token_usage") or {}
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        info = {}
+    total = info.get("total_token_usage")
+    if not isinstance(total, dict):
+        total = {}
     if not total:
         return
     cumulative = {k: int(total.get(k) or 0) for k in _CODEX_USAGE_KEYS}
@@ -351,7 +358,9 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         # Trap 1. This file's inherited baseline is its first cumulative
         # snapshot minus the request that produced it, so the first delta is
         # that request alone and the parent's millions never enter a sum.
-        last = info.get("last_token_usage") or {}
+        last = info.get("last_token_usage")
+        if not isinstance(last, dict):
+            last = {}
         st.prev_usage = {k: cumulative[k] - int(last.get(k) or 0)
                          for k in _CODEX_USAGE_KEYS}
     delta = {k: cumulative[k] - st.prev_usage[k] for k in _CODEX_USAGE_KEYS}
@@ -402,7 +411,9 @@ def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
     with str(). A condition holds across many consecutive token_count events,
     so consecutive repeats collapse into one hit.
     """
-    rl = payload.get("rate_limits") or {}
+    rl = payload.get("rate_limits")
+    if not isinstance(rl, dict):
+        rl = {}
     kind = rl.get("rate_limit_reached_type")
     if not kind and not rl.get("spend_control_reached"):
         st.last_rl_kind = None
@@ -411,7 +422,9 @@ def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
     if key == st.last_rl_kind:
         return
     st.last_rl_kind = key
-    primary = rl.get("primary") or {}
+    primary = rl.get("primary")
+    if not isinstance(primary, dict):
+        primary = {}
     st.rate_limit_hits.append({
         "line": line_num,
         "ts": ts.isoformat() if ts is not None else "",
@@ -489,8 +502,10 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
         dispatch=_codex_dispatch_args(payload),
     )
     if "apply_patch" in apis:
-        turn_id = (payload.get("internal_chat_message_metadata_passthrough")
-                   or {}).get("turn_id")
+        metadata = payload.get("internal_chat_message_metadata_passthrough")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        turn_id = metadata.get("turn_id")
         st.patch_target = (len(st.tool_uses) - 1, turn_id)
 
 
@@ -602,7 +617,10 @@ def _codex_item_text(item: dict) -> str:
     discriminator rather than reading the field would silently return "".
     """
     parts = []
-    for chunk in (item.get("content") or []):
+    content = item.get("content") or []
+    if not isinstance(content, list):
+        return ""
+    for chunk in content:
         if isinstance(chunk, dict) and chunk.get("text"):
             parts.append(str(chunk["text"]))
     return "\n".join(parts)
@@ -633,7 +651,10 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
     elif ptype == "item_completed":
         _codex_item_completed(st, line_num, ts, payload)
     elif ptype == "thread_settings_applied":
-        model = (payload.get("thread_settings") or {}).get("model")
+        settings = payload.get("thread_settings")
+        if not isinstance(settings, dict):
+            settings = {}
+        model = settings.get("model")
         if model:
             st.model = str(model)
 

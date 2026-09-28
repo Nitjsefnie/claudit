@@ -298,7 +298,8 @@ window.parseTranscript = function parseTranscript(text, opts) {
       // for interrupted partial responses with all-zero usage and no
       // requestId. They clobber the `last_usage` walk in any per-turn
       // aggregation. Mirrors backend/parse.py.
-      if (usage && (m.model || '') !== '<synthetic>') {
+      if (usage && typeof usage === 'object' && !Array.isArray(usage)
+          && (m.model || '') !== '<synthetic>') {
         const reqId = obj.requestId || '';
         // No requestId (a Z.ai-served transcript): the lines of one API
         // message still share message.id. Mirrors backend/parse.py _merge_key.

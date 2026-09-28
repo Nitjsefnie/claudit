@@ -1,0 +1,7 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"turn.prompt","input":[{"type":"text","text":"before"}],"origin":{"kind":"user"},"time":1782740973442}
+{"type":"context.append_message","message":[{"role":"user"}],"time":1782740974000}
+{"type":"context.append_loop_event","event":[{"type":"content.part"}],"time":1782740975000}
+{"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"nested-kt1","name":"Read","args":{"path":"/x"}},"time":1782740976000}
+{"type":"turn.prompt","input":[{"type":"text","text":"after"}],"origin":{"kind":"user"},"time":1782740977000}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":2},"usageScope":"turn","time":1782740978000}

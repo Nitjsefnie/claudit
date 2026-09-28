@@ -384,7 +384,8 @@ function parseLaneKimiCode(blob, opts) {
         // The wire's parallel-call representation: one assistant message
         // carrying several toolCalls. Annotated so computeSessionStats'
         // parallel-batches count sees real data.
-        const msgToolCalls = Array.isArray(msg.toolCalls) ? msg.toolCalls : [];
+        const msgToolCalls = Array.isArray(msg.toolCalls)
+          ? msg.toolCalls.filter(laneIsPlainObject) : [];
         msgToolCalls.forEach((tc, tcIdx) => {
           const { name, args, id } = laneKcParseToolCall(tc);
           const ev = {
