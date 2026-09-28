@@ -1,4 +1,5 @@
 """Narrow decoded JSON values to the container shape a parser needs."""
+from __future__ import annotations
 
 
 def as_dict(value: object) -> dict:
