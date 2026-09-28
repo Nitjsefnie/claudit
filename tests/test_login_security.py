@@ -330,28 +330,133 @@ def test_concurrent_login_reservations_enforce_pair_and_ip_caps(
     assert seed_ip + admissions["total"] <= login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
 
 
-def test_pair_failure_dict_evicts_oldest_active_keys_at_cap():
-    failures = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
-    keys = []
-    for i in range(login_mod._LOGIN_MAX_KEYS + 2):  # pylint: disable=protected-access
-        ip = f"192.0.2.{i}"
-        uid = i + 1
-        keys.append(login_mod._failure_key(ip, uid))  # pylint: disable=protected-access
-        login_mod._record_login_failure(ip, uid)  # pylint: disable=protected-access
+def test_full_failure_dicts_keep_seen_history_and_reject_unseen_client(
+    monkeypatch,
+):  # pylint: disable=too-many-locals
+    pair_history = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+    ip_history = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    ip = "198.51.100.92"
+    uid = 71
+    pair_key = login_mod._failure_key(ip, uid)  # pylint: disable=protected-access
+    now = time.time()
+    pair_history[pair_key] = [now] * 4
+    for index in range(login_mod._LOGIN_MAX_KEYS - 1):  # pylint: disable=protected-access
+        other_ip = f"192.0.{index // 256}.{index % 256}"
+        other_uid = index + 1000
+        key = login_mod._failure_key(  # pylint: disable=protected-access
+            other_ip, other_uid
+        )
+        pair_history[key] = [now]
+    ip_history[ip] = [now] * 19
+    for index in range(login_mod._LOGIN_MAX_IP_KEYS - 1):  # pylint: disable=protected-access
+        ip_history[f"198.18.{index // 256}.{index % 256}"] = [now]
 
-    assert len(failures) <= login_mod._LOGIN_MAX_KEYS  # pylint: disable=protected-access
-    assert keys[-1] in failures
-    assert keys[0] not in failures
+    loads: list[int] = []
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: "stored-hash",
+        auth.WEB_PASSWORD_SALT_KEY: "stored-salt",
+    }
+    monkeypatch.setattr(
+        session_mod,
+        "load_user_config",
+        lambda user_id: loads.append(user_id) or config,
+    )
+    monkeypatch.setattr(auth, "verify_web_password", lambda *_args: False)
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing", lambda *_args: None
+    )
+
+    first = asyncio.run(login_mod.login_post(
+        _raw_login_request(ip), user_id=str(uid), password="wrong"
+    ))
+    second = asyncio.run(login_mod.login_post(
+        _raw_login_request(ip), user_id=str(uid), password="wrong"
+    ))
+    unseen = asyncio.run(login_mod.login_post(
+        _raw_login_request("203.0.113.250"),
+        user_id="72",
+        password="wrong",
+    ))
+
+    assert first.status_code == 401
+    assert len(pair_history[pair_key]) == 5
+    assert len(ip_history[ip]) == 20
+    assert second.status_code == 429
+    assert unseen.status_code == 429
+    assert loads == [uid]
+    assert len(pair_history) == login_mod._LOGIN_MAX_KEYS  # pylint: disable=protected-access
+    assert len(ip_history) == login_mod._LOGIN_MAX_IP_KEYS  # pylint: disable=protected-access
+    assert pair_key in pair_history
+    assert ip in ip_history
+    assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
 
 
-def test_ip_failure_dict_evicts_oldest_active_keys_at_cap():
-    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
-    ips = []
-    for i in range(login_mod._LOGIN_MAX_IP_KEYS + 2):  # pylint: disable=protected-access
-        ip = f"198.51.100.{i}"
-        ips.append(ip)
-        login_mod._record_login_ip_failure(ip)  # pylint: disable=protected-access
+def test_unseen_admissions_fail_closed_when_reservation_maps_are_full():
+    admitted: list[tuple[str, int]] = []
+    last_limited = False
+    try:
+        for index in range(login_mod._LOGIN_MAX_KEYS + 1):  # pylint: disable=protected-access
+            ip = f"198.18.{index // 256}.{index % 256}"
+            uid = index + 1
+            pair_limited = login_mod._check_login_rate_limit(  # pylint: disable=protected-access
+                ip, uid
+            )
+            ip_limited = login_mod._check_login_ip_rate_limit(  # pylint: disable=protected-access
+                ip
+            )
+            last_limited = pair_limited or ip_limited
+            if not last_limited:
+                login_mod._reserve_login_attempt(  # pylint: disable=protected-access
+                    ip, uid
+                )
+                admitted.append((ip, uid))
 
-    assert len(failures) <= login_mod._LOGIN_MAX_IP_KEYS  # pylint: disable=protected-access
-    assert ips[-1] in failures
-    assert ips[0] not in failures
+        assert len(admitted) == 4096
+        assert last_limited
+        assert len(login_mod._LOGIN_INFLIGHT) == 4096  # pylint: disable=protected-access
+        assert len(login_mod._LOGIN_IP_INFLIGHT) == 4096  # pylint: disable=protected-access
+    finally:
+        for ip, uid in admitted:
+            login_mod._release_login_attempt(  # pylint: disable=protected-access
+                ip, uid
+            )
+
+    assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
+
+
+def test_inflight_keys_reserve_failure_history_capacity():
+    now = time.time()
+    pair_history = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+    ip_history = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    for index in range(login_mod._LOGIN_MAX_KEYS - 1):  # pylint: disable=protected-access
+        ip = f"192.0.{index // 256}.{index % 256}"
+        pair_history[login_mod._failure_key(ip, index + 1)] = [now]  # pylint: disable=protected-access
+    for index in range(login_mod._LOGIN_MAX_IP_KEYS - 1):  # pylint: disable=protected-access
+        ip_history[f"198.18.{index // 256}.{index % 256}"] = [now]
+
+    first_ip, first_uid = "203.0.113.1", 8001
+    second_ip, second_uid = "203.0.113.2", 8002
+    admitted = False
+    try:
+        assert not login_mod._check_login_rate_limit(  # pylint: disable=protected-access
+            first_ip, first_uid
+        )
+        assert not login_mod._check_login_ip_rate_limit(first_ip)  # pylint: disable=protected-access
+        login_mod._reserve_login_attempt(first_ip, first_uid)  # pylint: disable=protected-access
+        admitted = True
+        second_pair_limited = login_mod._check_login_rate_limit(  # pylint: disable=protected-access
+            second_ip, second_uid
+        )
+        second_ip_limited = login_mod._check_login_ip_rate_limit(second_ip)  # pylint: disable=protected-access
+        login_mod._record_login_failure(first_ip, first_uid)  # pylint: disable=protected-access
+        login_mod._record_login_ip_failure(first_ip)  # pylint: disable=protected-access
+    finally:
+        if admitted:
+            login_mod._release_login_attempt(first_ip, first_uid)  # pylint: disable=protected-access
+
+    assert second_pair_limited
+    assert second_ip_limited
+    assert len(pair_history) == login_mod._LOGIN_MAX_KEYS  # pylint: disable=protected-access
+    assert len(ip_history) == login_mod._LOGIN_MAX_IP_KEYS  # pylint: disable=protected-access
