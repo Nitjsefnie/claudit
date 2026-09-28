@@ -59,14 +59,23 @@ def export_filename(rng: str, project: str | None) -> str:
     return f"{name}_{proj_slug}_{rng}.png"
 
 
-async def _reap(proc: asyncio.subprocess.Process) -> None:
+async def _reap(proc: asyncio.subprocess.Process) -> bool:
     """Kill a running child and wait until its process has been reaped."""
     if proc.returncode is None:
         try:
             proc.kill()
         except ProcessLookupError:
             pass
-    await proc.wait()
+    wait_task = asyncio.create_task(proc.wait())
+    cancelled = False
+    # Shield the one wait task so another request cancellation cannot leave the child unreaped.
+    while not wait_task.done():
+        try:
+            await asyncio.shield(wait_task)
+        except asyncio.CancelledError:
+            cancelled = True
+    wait_task.result()
+    return cancelled
 
 
 async def _render_export(argv: list[str], out_path: str) -> None:
@@ -83,7 +92,9 @@ async def _render_export(argv: list[str], out_path: str) -> None:
     try:
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXPORT_TIMEOUT_S)
     except asyncio.TimeoutError:
-        await _reap(proc)
+        cancelled = await _reap(proc)
+        if cancelled:
+            raise asyncio.CancelledError() from None
         raise HTTPException(503, "export render timed out") from None
     except BaseException:
         await _reap(proc)
