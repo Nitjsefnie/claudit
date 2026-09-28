@@ -568,15 +568,14 @@ def _oklch_over_hex(L: float, C: float, h_deg: float, alpha: float,
     """
     h = math.radians(h_deg)
     a, b = C * math.cos(h), C * math.sin(h)
-    l_ = L + 0.3963377774 * a + 0.2158037573 * b
-    m_ = L - 0.1055613458 * a - 0.0638541728 * b
-    s_ = L - 0.0894841775 * a - 1.2914855480 * b
-    l, m, s = l_ ** 3, m_ ** 3, s_ ** 3
-    rgb = (
-        +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
-    )
+    # oklch -> oklab -> cubed LMS -> linear sRGB, per the standard
+    # Bjorn Ottosson matrices.
+    lms = [(L + 0.3963377774 * a + 0.2158037573 * b) ** 3,
+           (L - 0.1055613458 * a - 0.0638541728 * b) ** 3,
+           (L - 0.0894841775 * a - 1.2914855480 * b) ** 3]
+    rgb = (4.0767416621 * lms[0] - 3.3077115913 * lms[1] + 0.2309699292 * lms[2],
+           -1.2684380046 * lms[0] + 2.6097574011 * lms[1] - 0.3413193965 * lms[2],
+           -0.0041960863 * lms[0] - 0.7034186147 * lms[1] + 1.7076147010 * lms[2])
 
     def enc(c):
         c = max(0.0, min(1.0, c))
@@ -588,6 +587,18 @@ def _oklch_over_hex(L: float, C: float, h_deg: float, alpha: float,
     return "#" + "".join(f"{v:02x}" for v in comp)
 
 
+def _selected_row_surface() -> str:
+    """The selected transcript row's composited surface: the --accent-soft
+    highlight over --bg, both read from app.css.
+    """
+    m = re.search(r"--accent-soft:\s*oklch\(\s*([\d.]+)\s+([\d.]+)\s+"
+                  r"([\d.]+)\s*/\s*([\d.]+)\s*\)", css_src())
+    assert m, "--accent-soft is no longer an oklch token; recompute the " \
+              "selected-row surface this guard composites"
+    L, C, h_deg, alpha = (float(g) for g in m.groups())
+    return _oklch_over_hex(L, C, h_deg, alpha, _hex_token("bg"))
+
+
 def test_selected_row_timestamp_meets_aa_on_the_highlight():
     """The Inspector timestamp paints --muted at 11.5px; over the
     selected row's --accent-soft highlight (composited over --bg that is
@@ -596,14 +607,8 @@ def test_selected_row_timestamp_meets_aa_on_the_highlight():
     row must compute >= 4.5:1 against the composited highlight, while
     the non-selected rows keep --muted over --bg (pinned elsewhere).
     """
-    css = css_src()
-    m = re.search(r"--accent-soft:\s*oklch\(\s*([\d.]+)\s+([\d.]+)\s+"
-                  r"([\d.]+)\s*/\s*([\d.]+)\s*\)", css)
-    assert m, "--accent-soft is no longer an oklch token; recompute the " \
-              "selected-row surface this guard composites"
-    L, C, h_deg, alpha = (float(g) for g in m.groups())
-    surface = _oklch_over_hex(L, C, h_deg, alpha, _hex_token("bg"))
-    rule = re.search(r"\.trow\.sel \.trow-time\s*\{([^}]*)\}", css)
+    surface = _selected_row_surface()
+    rule = re.search(r"\.trow\.sel \.trow-time\s*\{([^}]*)\}", css_src())
     if rule:
         color = re.search(r"color:\s*(?:var\(--([a-z0-9-]+)\)|"
                           r"(#[0-9a-fA-F]{6}))", rule.group(1))
