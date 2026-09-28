@@ -218,14 +218,17 @@ def _parse_range(s: str) -> timedelta:
     that compute `since = now - delta` end up at the unix epoch — i.e.
     every row in the DB, not an arbitrary 100-year window.
 
-    A non-integer count (`1e5d`) or one that overflows the caller's
-    `since = now - delta` (`999999999d` — timedelta accepts the day count,
-    the subtraction then runs past datetime.min) raises the same 400 the
-    unknown-suffix branch raises, naming the bad parameter, so a malformed
-    query value cannot escape any endpoint as a 500 (issue #112).
+    A non-integer count (`1e5d`), an empty value (`?range=`), or one that
+    overflows the caller's `since = now - delta` (`999999999d` — timedelta
+    accepts the day count, the subtraction then runs past datetime.min)
+    raises the same 400 the unknown-suffix branch raises, naming the bad
+    parameter, so a malformed query value cannot escape any endpoint as a
+    500 (issues #112, #262).
     """
     if s == "all":
         return datetime.now(timezone.utc) - _EPOCH
+    if not s:
+        raise HTTPException(400, f"bad range: {s!r}")
     unit, count = s[-1], s[:-1]
     if unit in ("d", "h"):
         try:
