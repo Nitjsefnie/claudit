@@ -493,7 +493,13 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
 
 
 def _delete_orphans(seen_keys: set[str]) -> int:
-    """Drop files rows whose R2 key is gone. CASCADE drops records."""
+    """Drop files rows whose R2 key is gone. CASCADE drops records.
+
+    Each deleted row's r2_etag is evicted from the transcript cache after
+    the delete commits (issue #269): the cached bytes are keyed by etag
+    (api_sessions), so a deleted transcript must not stay readable from
+    the cache.
+    """
     _set_progress(phase="orphans")
     with db.viz_conn() as c, c.cursor() as cur:
         scope = current_scope()
@@ -514,13 +520,22 @@ def _delete_orphans(seen_keys: set[str]) -> int:
             scope.check_latency_null()
         if seen_keys:
             cur.execute(
-                "DELETE FROM files WHERE file_key != ALL(%s) RETURNING 1",
+                "DELETE FROM files WHERE file_key != ALL(%s) "
+                "RETURNING file_key, r2_etag",
                 (list(seen_keys),),
             )
         else:
-            cur.execute("DELETE FROM files RETURNING 1")
-        deleted = len(cur.fetchall())
+            cur.execute("DELETE FROM files RETURNING file_key, r2_etag")
+        doomed_rows = cur.fetchall()
+        deleted = len(doomed_rows)
         c.commit()
+    for _file_key, etag in doomed_rows:
+        cache.transcript_cache.evict(etag)
+    evicted = len(doomed_rows)
+    if evicted:
+        log.info(
+            "ingest: evicted %d orphaned transcript(s) from the cache",
+            evicted)
     return deleted
 
 
