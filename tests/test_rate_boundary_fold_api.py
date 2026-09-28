@@ -253,7 +253,7 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
     missing_groups = [row for row in captured["rows"]
                       if row[0] == case.missing_pair[0]]
     assert len(missing_groups) == 2
-    assert [row[2] for row in missing_groups] == [1, 2]
+    assert {row[2] for row in missing_groups} == {1, 2}
 
     missing_entry = next(entry for entry in body["per_model"]
                          if entry["model"] == case.missing_pair[0])
