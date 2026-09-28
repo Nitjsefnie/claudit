@@ -437,16 +437,16 @@ def test_cache_session_total_estimated_rate_false_for_empty_per_model(app_with_d
     assert body["session_total"]["estimated_rate"] is False
 
 
-def test_transcript_streams(app_with_fresh_data):
-    r = app_with_fresh_data.get("/api/sessions/sess-A/transcript")
+def test_transcript_streams(app_with_data):
+    r = app_with_data.get("/api/sessions/sess-A/transcript")
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/x-ndjson"
     first = r.text.split("\n")[0]
     assert "type" in json.loads(first)
 
 
-def test_transcript_etag_header(app_with_fresh_data):
-    r = app_with_fresh_data.get("/api/sessions/sess-A/transcript")
+def test_transcript_etag_header(app_with_data):
+    r = app_with_data.get("/api/sessions/sess-A/transcript")
     assert "etag" in {k.lower() for k in r.headers.keys()}
 
 
