@@ -396,7 +396,8 @@ per IP+user pair per 5-minute window.
 Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
 guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
-restart).
+restart). Exporting or erasing one person's data is an operator
+procedure, documented in [`PRIVACY.md`](PRIVACY.md).
 
 ## Layout
 
