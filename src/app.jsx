@@ -2,7 +2,7 @@
 // Loads synthetic events for the dashboard preview; lets you drop a real
 // .jsonl on the Session view to inspect a single transcript.
 
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useId } = React;
 
 // Branding comes from the backend, which injects window.BRAND
 // {name, title, description} into index.html (from APP_NAME /
@@ -1364,6 +1364,7 @@ function SessionView({ tx }) {
   const [search, setSearch] = useState('');
   const [dense, setDense] = useState(false);
   const [view, setView] = useState('timeline'); // timeline | ctx
+  const viewId = useId();
 
 
   if (!tx) {
@@ -1392,6 +1393,26 @@ function SessionView({ tx }) {
   });
 
   const sel = visible[selected] || null;
+
+  // The transcript listbox's active option. Selection follows focus:
+  // ArrowUp/Down move it, Enter/Space re-assert it through the same
+  // setSelected call the row click uses, and clamping against the
+  // filtered row count keeps the selection recoverable when a search or
+  // filter shrinks the timeline under the current index.
+  const rowId = (idx) => `${viewId}-trow-${idx}`;
+  const activeIdx = Math.min(selected, visible.length - 1);
+  const onTimelineKeyDown = (ev) => {
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      setSelected(i => Math.min(visible.length - 1, i + 1));
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      setSelected(i => Math.max(0, i - 1));
+    } else if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      setSelected(activeIdx);
+    }
+  };
 
   return (
     <div className="session-view">
@@ -1423,9 +1444,14 @@ function SessionView({ tx }) {
               <button className={'fchip ' + (dense ? 'on' : '')} onClick={() => setDense(d => !d)}>dense</button>
             </div>
           </div>
-          <div className="timeline">
+          <div className="timeline"
+            role="listbox"
+            aria-label="Transcript timeline"
+            tabIndex={0}
+            aria-activedescendant={activeIdx >= 0 ? rowId(activeIdx) : undefined}
+            onKeyDown={onTimelineKeyDown}>
             {visible.map((e, idx) => (
-              <TimelineRow key={e.line + ':' + idx} e={e} dense={dense}
+              <TimelineRow key={e.line + ':' + idx} rowId={rowId(idx)} e={e} dense={dense}
                 selected={idx === selected} onClick={() => setSelected(idx)} />
             ))}
           </div>
@@ -1456,12 +1482,15 @@ function SessionHeader({ stats }) {
   );
 }
 
-function TimelineRow({ e, dense, selected, onClick }) {
+function TimelineRow({ e, dense, selected, onClick, rowId }) {
   const meta = window.TYPE_META[e.type] || { label: e.type, color: 'var(--fg)', glyph: '·' };
   const oneLine = window.eventOneLine(e).slice(0, 220);
   const toolColor = e.tool_name ? window.TOOL_COLORS[e.tool_name] : null;
   return (
-    <div className={'trow ' + (selected ? 'sel ' : '') + (dense ? 'dense ' : '') + (e.is_error ? 'err ' : '')}
+    <div id={rowId}
+      className={'trow ' + (selected ? 'sel ' : '') + (dense ? 'dense ' : '') + (e.is_error ? 'err ' : '')}
+      role="option"
+      aria-selected={selected}
       onClick={onClick}>
       <div className="trow-time mono">{window.shortTime(e.ts)}</div>
       <div className="trow-tag mono" style={{ color: meta.color, borderColor: meta.color + '40' }}>
