@@ -30,6 +30,9 @@ NESTED_FIXTURES = {
     "non_object_nested_kimi_legacy.jsonl": [3],
 }
 
+CODEX_JUNK_LINES = [2, 6, 7]
+KIMI_CODE_TOOL_CALL_JUNK_LINES = [8, 9]
+
 
 def _backend_prompt_lines(text: str, parsed: dict[str, Any]) -> list[int]:
     """Map stored prompt timestamps to their source record lines."""
@@ -197,8 +200,11 @@ def _node_parse(transcripts: dict[str, str]) -> dict[str, Any]:
                          .map(e => e.line),
             userMsgs: window.computeSessionStats(events, meta).userMsgs,
             usageCount: meta.filter(m => m.type === 'assistant_usage').length,
+            rateLimits: meta.filter(m => m.type === 'rate_limit')
+                            .map(m => m.line),
             parseErrors: events.filter(e => e.type === 'parse_error').length,
             parsedLines: events.concat(meta).map(e => e.line),
+            toolCalls: events.filter(e => e.type === 'tool_call').length,
             toolResults: events.filter(e => e.type === 'tool_result')
                              .map(e => e.detail),
           }};
@@ -256,6 +262,8 @@ def test_browser_nested_non_object_maps_match_backend_prompts():
         assert got[name]["userMsgs"] == parsed["prompt_count"], name
         assert got[name]["usageCount"] == len(parsed["records"]), name
         assert got[name]["parseErrors"] == 0, name
+        if name == "non_object_nested_kimi_code.jsonl":
+            assert got[name]["toolCalls"] == len(parsed["tool_uses"]), name
         assert not (set(got[name]["parsedLines"])
                     & set(NESTED_FIXTURES[name])), name
 
@@ -333,3 +341,148 @@ def test_browser_kimi_tool_result_content_matches_backend_filtering():
     assert backend["tool_uses"]
     assert backend["tool_uses"][0]["error_text"] == "fallback"
     assert got["toolResults"] == ["fallback", "fallback"]
+
+
+def test_backend_codex_nested_shape_guards_match_empty_lines():
+    name = "non_object_codex_item_content.jsonl"
+    text = (FIX / name).read_text(encoding="ascii")
+    actual = parse.parse_file(f"sessions/p/s/{name}", text.encode("ascii"))
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}", _without_lines(text, CODEX_JUNK_LINES)
+    )
+
+    assert expected["records"]
+    assert [row["line_num"] for row in expected["records"]] == [3, 5]
+    assert expected["prompt_count"] == 0
+    assert actual == expected
+
+
+def test_browser_codex_non_array_item_content_matches_backend():
+    name = "non_object_codex_item_content.jsonl"
+    text = (FIX / name).read_text(encoding="ascii")
+    variants = {}
+    for label, content in (("number", 123), ("boolean", True), ("object", {})):
+        lines = text.splitlines()
+        item_line = json.loads(lines[3])
+        item_line["payload"]["item"]["content"] = content
+        lines[3] = json.dumps(item_line, separators=(",", ":"))
+        variants[f"{name}:{label}"] = "\n".join(lines)
+    got = _node_parse(variants)
+
+    for variant, variant_text in variants.items():
+        parsed = parse.parse_file(
+            f"sessions/p/s/{name}", variant_text.encode("ascii")
+        )
+        expected = parse.parse_file(
+            f"sessions/p/s/{name}",
+            _without_lines(variant_text, CODEX_JUNK_LINES),
+        )
+        assert parsed == expected, variant
+        assert parsed["records"], variant
+        assert parsed["prompt_count"] == 0, variant
+        assert "error" not in got[variant], got[variant].get("stack", got[variant])
+        assert got[variant]["lines"] == [], variant
+        assert got[variant]["userMsgs"] == parsed["prompt_count"], variant
+        assert got[variant]["usageCount"] == len(parsed["records"]) > 0, variant
+        assert got[variant]["parseErrors"] == 0, variant
+
+
+def test_codex_non_object_rate_limit_primary_matches_empty_map():
+    name = "non_object_codex_item_content.jsonl"
+    lines = (FIX / name).read_text(encoding="ascii").splitlines()
+    record = json.loads(lines[2])
+    record["payload"]["rate_limits"] = {
+        "rate_limit_reached_type": "fixture_limit", "primary": 123,
+    }
+    lines[2] = json.dumps(record, separators=(",", ":"))
+    malformed_primary = "\n".join(lines)
+    empty_primary_record = json.loads(lines[2])
+    empty_primary_record["payload"]["rate_limits"].pop("primary")
+    lines[2] = json.dumps(empty_primary_record, separators=(",", ":"))
+    empty_primary = "\n".join(lines)
+
+    actual = parse.parse_file(
+        f"sessions/p/s/{name}", malformed_primary.encode("ascii")
+    )
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}", empty_primary.encode("ascii")
+    )
+    got = _node_parse({name: malformed_primary})[name]
+
+    assert actual["rate_limit_hits"]
+    assert actual == expected
+    assert "error" not in got, got.get("stack", got)
+    assert got["rateLimits"] == [hit["line"] for hit in actual["rate_limit_hits"]]
+
+
+def test_backend_kimi_code_tool_call_guards_match_empty_lines():
+    name = "non_object_nested_kimi_code.jsonl"
+    text = (FIX / name).read_text(encoding="ascii")
+    actual = parse.parse_file(f"sessions/p/s/{name}", text.encode("ascii"))
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}",
+        _without_lines(text, KIMI_CODE_TOOL_CALL_JUNK_LINES),
+    )
+
+    assert expected["records"]
+    assert expected["tool_uses"]
+    assert expected["prompt_count"] == 2
+    assert actual == expected
+
+
+def test_kimi_code_non_object_usage_matches_empty_usage():
+    name = "non_object_nested_kimi_code.jsonl"
+    lines = (FIX / name).read_text(encoding="ascii").splitlines()
+    record = json.loads(lines[6])
+    record["usage"] = 123
+    lines[6] = json.dumps(record, separators=(",", ":"))
+    malformed_usage = "\n".join(lines)
+    empty_usage_record = json.loads(lines[6])
+    empty_usage_record["usage"] = {}
+    lines[6] = json.dumps(empty_usage_record, separators=(",", ":"))
+    empty_usage = "\n".join(lines)
+
+    actual = parse.parse_file(
+        f"sessions/p/s/{name}", malformed_usage.encode("ascii")
+    )
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}", empty_usage.encode("ascii")
+    )
+    got = _node_parse({name: malformed_usage})[name]
+
+    assert actual["records"]
+    assert actual["prompt_count"] == 2
+    assert actual == expected
+    assert "error" not in got, got.get("stack", got)
+    assert got["lines"] == _backend_prompt_lines(malformed_usage, actual)
+    assert got["userMsgs"] == actual["prompt_count"]
+    assert got["usageCount"] == len(actual["records"]) > 0
+
+
+def test_claude_non_object_usage_matches_empty_usage():
+    name = "non_object_nested_claude.jsonl"
+    lines = (FIX / name).read_text(encoding="ascii").splitlines()
+    record = json.loads(lines[2])
+    record["message"]["usage"] = 123
+    lines[2] = json.dumps(record, separators=(",", ":"))
+    malformed_usage = "\n".join(lines)
+    empty_usage_record = json.loads(lines[2])
+    empty_usage_record["message"]["usage"] = {}
+    lines[2] = json.dumps(empty_usage_record, separators=(",", ":"))
+    empty_usage = "\n".join(lines)
+
+    actual = parse.parse_file(
+        f"sessions/p/s/{name}", malformed_usage.encode("ascii")
+    )
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}", empty_usage.encode("ascii")
+    )
+    got = _node_parse({name: malformed_usage})[name]
+
+    assert actual["records"]
+    assert actual["prompt_count"] == 2
+    assert actual == expected
+    assert "error" not in got, got.get("stack", got)
+    assert got["lines"] == _backend_prompt_lines(malformed_usage, actual)
+    assert got["userMsgs"] == actual["prompt_count"]
+    assert got["usageCount"] == len(actual["records"]) > 0

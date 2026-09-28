@@ -5,3 +5,5 @@
 {"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"nested-kt1","name":"Read","args":{"path":"/x"}},"time":1782740976000}
 {"type":"turn.prompt","input":[{"type":"text","text":"after"}],"origin":{"kind":"user"},"time":1782740977000}
 {"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":2},"usageScope":"turn","time":1782740978000}
+{"type":"context.append_message","message":{"role":"assistant","toolCalls":123},"time":1782740979000}
+{"type":"context.append_message","message":{"role":"assistant","toolCalls":[null,true]},"time":1782740980000}

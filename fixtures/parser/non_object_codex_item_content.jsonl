@@ -1,0 +1,7 @@
+{"timestamp":"2026-09-10","type":"session_meta","payload":{"session_id":"fixture-cd"}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":0,"output_tokens":0},"last_token_usage":true},"rate_limits":[]}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":2},"last_token_usage":{"input_tokens":10,"output_tokens":2}}}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":123}}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20,"output_tokens":4},"last_token_usage":{"input_tokens":10,"output_tokens":2}}}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"token_count","info":123}}
+{"timestamp":"2026-09-10","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":[]}}}

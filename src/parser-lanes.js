@@ -585,7 +585,8 @@ function parseLaneCodex(blob, opts) {
         const item = laneIsPlainObject(payload.item) ? payload.item : {};
         if (item.type === 'AgentMessage') {
           const parts = [];
-          for (const chunk of (item.content || [])) {
+          const content = Array.isArray(item.content) ? item.content : [];
+          for (const chunk of content) {
             if (laneIsPlainObject(chunk) && chunk.text) parts.push(String(chunk.text));
           }
           events.push({ line: lineNum, type: 'assistant_text', ts: tsIso, detail: parts.join('\n') });

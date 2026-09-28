@@ -65,6 +65,7 @@ from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _settle_lane_tool_result, _to_dt,
                                   _turn_boundary)
 from backend.tool_errors import ERROR_KIND_FAILED
+from backend.json_shape import as_dict, as_list
 
 # The single custom tool is `exec`, whose input is a JS program calling
 # tools.<api>({...}). The api is the useful tool name — `exec` alone would
@@ -185,15 +186,11 @@ def _codex_declared_models(blob: bytes) -> set[str]:
             continue
         if not isinstance(obj, dict):
             continue
-        payload = obj.get("payload")
-        if not isinstance(payload, dict):
-            continue
+        payload = as_dict(obj.get("payload"))
         if obj.get("type") == "turn_context":
             name = payload.get("model")
         elif payload.get("type") == "thread_settings_applied":
-            settings = payload.get("thread_settings")
-            if not isinstance(settings, dict):
-                settings = {}
+            settings = as_dict(payload.get("thread_settings"))
             name = settings.get("model")
         else:
             continue
@@ -345,12 +342,8 @@ def _codex_record_uuid(st: _CodexState, cumulative: dict,
 def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
                        payload: dict) -> None:
     """Book ONE billing record per real request (traps 1-4)."""
-    info = payload.get("info")
-    if not isinstance(info, dict):
-        info = {}
-    total = info.get("total_token_usage")
-    if not isinstance(total, dict):
-        total = {}
+    info = as_dict(payload.get("info"))
+    total = as_dict(info.get("total_token_usage"))
     if not total:
         return
     cumulative = {k: int(total.get(k) or 0) for k in _CODEX_USAGE_KEYS}
@@ -358,9 +351,7 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         # Trap 1. This file's inherited baseline is its first cumulative
         # snapshot minus the request that produced it, so the first delta is
         # that request alone and the parent's millions never enter a sum.
-        last = info.get("last_token_usage")
-        if not isinstance(last, dict):
-            last = {}
+        last = as_dict(info.get("last_token_usage"))
         st.prev_usage = {k: cumulative[k] - int(last.get(k) or 0)
                          for k in _CODEX_USAGE_KEYS}
     delta = {k: cumulative[k] - st.prev_usage[k] for k in _CODEX_USAGE_KEYS}
@@ -411,9 +402,7 @@ def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
     with str(). A condition holds across many consecutive token_count events,
     so consecutive repeats collapse into one hit.
     """
-    rl = payload.get("rate_limits")
-    if not isinstance(rl, dict):
-        rl = {}
+    rl = as_dict(payload.get("rate_limits"))
     kind = rl.get("rate_limit_reached_type")
     if not kind and not rl.get("spend_control_reached"):
         st.last_rl_kind = None
@@ -422,9 +411,7 @@ def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
     if key == st.last_rl_kind:
         return
     st.last_rl_kind = key
-    primary = rl.get("primary")
-    if not isinstance(primary, dict):
-        primary = {}
+    primary = as_dict(rl.get("primary"))
     st.rate_limit_hits.append({
         "line": line_num,
         "ts": ts.isoformat() if ts is not None else "",
@@ -502,9 +489,7 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
         dispatch=_codex_dispatch_args(payload),
     )
     if "apply_patch" in apis:
-        metadata = payload.get("internal_chat_message_metadata_passthrough")
-        if not isinstance(metadata, dict):
-            metadata = {}
+        metadata = as_dict(payload.get("internal_chat_message_metadata_passthrough"))
         turn_id = metadata.get("turn_id")
         st.patch_target = (len(st.tool_uses) - 1, turn_id)
 
@@ -593,9 +578,7 @@ def _codex_item_completed(st: _CodexState, line_num: int,
     CollabAgentToolCall have no counterpart in the old event_msg set and
     are not counted by either spelling.
     """
-    item = payload.get("item")
-    if not isinstance(item, dict):
-        return
+    item = as_dict(payload.get("item"))
     itype = item.get("type")
     if itype == "FileChange":
         # `status` replaces patch_apply_end's boolean `success`; the only
@@ -617,9 +600,7 @@ def _codex_item_text(item: dict) -> str:
     discriminator rather than reading the field would silently return "".
     """
     parts = []
-    content = item.get("content") or []
-    if not isinstance(content, list):
-        return ""
+    content = as_list(item.get("content") or [])
     for chunk in content:
         if isinstance(chunk, dict) and chunk.get("text"):
             parts.append(str(chunk["text"]))
@@ -651,9 +632,7 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
     elif ptype == "item_completed":
         _codex_item_completed(st, line_num, ts, payload)
     elif ptype == "thread_settings_applied":
-        settings = payload.get("thread_settings")
-        if not isinstance(settings, dict):
-            settings = {}
+        settings = as_dict(payload.get("thread_settings"))
         model = settings.get("model")
         if model:
             st.model = str(model)
@@ -726,9 +705,7 @@ def parse(file_key: str, blob: bytes) -> dict:
             continue
         if not isinstance(obj, dict):
             continue
-        payload = obj.get("payload")
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = as_dict(obj.get("payload"))
 
         ts_dt = _to_dt(obj.get("timestamp"))
         if ts_dt is not None and st.first_event_ts is None:
