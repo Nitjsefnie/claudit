@@ -195,7 +195,8 @@ def rekey_folded_projects() -> int:
             )
             relabeled = cur.rowcount
         c.commit()
-    log.info("rekey_folded_projects: %d project id(s) folded", len(moves))
+    if moves:
+        log.info("rekey_folded_projects: %d project id(s) folded", len(moves))
     if relabeled:
         log.info("rekey_folded_projects: %d alias target label(s) reset",
                  relabeled)
