@@ -23,7 +23,6 @@ same 4,096-key history and reservation bounds and fail-closed policy.
 """
 from __future__ import annotations
 
-import asyncio
 import html
 import logging
 import time
@@ -32,6 +31,7 @@ from fastapi import APIRouter, Form, Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from backend import auth, branding
+from backend.login_workers import WorkerReservation, run_reserved_worker
 from backend import session as session_mod
 
 
@@ -209,6 +209,60 @@ def _release_login_attempt(ip: str, uid: int) -> None:
         del _LOGIN_IP_INFLIGHT[ip]
 
 
+async def _normalize_login_failure(
+    reservation: WorkerReservation, password: str, spent: int
+) -> None:
+    """Attempt timing normalization but keep worker errors generic too."""
+    try:
+        await run_reserved_worker(
+            reservation, auth.normalize_verification_timing, password, spent
+        )
+    except Exception:
+        log.warning(
+            "login timing worker failed; returning generic credentials error",
+            exc_info=True,
+        )
+
+
+async def _verification_failure_spent(
+    reservation: WorkerReservation, config: dict, password: str
+) -> int | None:
+    """Return spent iterations on failure, or None when verification passed."""
+    try:
+        verified = await run_reserved_worker(
+            reservation, auth.verify_web_password, config, password
+        )
+        if verified:
+            return None
+        return auth.stored_verification_iterations(config)
+    except Exception:
+        log.warning(
+            "login verification worker failed; treating as invalid credentials",
+            exc_info=True,
+        )
+        return 0
+
+
+def _bind_verified_credentials(
+    user_id: int, verified_config: dict
+) -> str | None:
+    """Fresh-check, bind and cache credentials without an await between them."""
+    fresh_config = session_mod.load_user_config(user_id)
+    verified_fp = session_mod.credential_fingerprint(verified_config)
+    if (
+        fresh_config is None
+        or session_mod.credential_fingerprint(fresh_config) != verified_fp
+    ):
+        return None
+    secret, generation = session_mod.get_or_create_session_row(
+        user_id, verified_fp
+    )
+    session_mod.remember_user_config(user_id, fresh_config)
+    return session_mod.make_session_token(
+        user_id, secret, generation=generation
+    )
+
+
 def reset_login_rate_limits() -> None:
     """Clear the process-global failure dict. Tests need this between
     cases that POST from the same TestClient host; production never
@@ -300,6 +354,7 @@ async def login_post(
     # No await may intervene between both checks and reservation: this
     # event-loop turn atomically accounts for the admitted request.
     _reserve_login_attempt(ip, uid)
+    reservation = WorkerReservation(lambda: _release_login_attempt(ip, uid))
     try:
         config = session_mod.load_user_config(uid)
         if not config or not auth.has_web_password(config):
@@ -307,9 +362,7 @@ async def login_post(
             # the CPU the real verification would cost — and give the same
             # generic answer a wrong password gets, so neither response
             # shape nor timing separates the two (#109).
-            await asyncio.to_thread(
-                auth.normalize_verification_timing, password, 0
-            )
+            await _normalize_login_failure(reservation, password, 0)
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
             return Response(
@@ -317,18 +370,17 @@ async def login_post(
                 status_code=401,
                 media_type="text/plain",
             )
-        if not await asyncio.to_thread(
-            auth.verify_web_password, config, password
-        ):
+        failure_spent = await _verification_failure_spent(
+            reservation, config, password
+        )
+        if failure_spent is not None:
             # Top up whatever the real verification spent (its own count
             # for a versioned hash, the legacy count for valid bare hex,
             # zero for malformed versioned or corrupt legacy material
             # that ran no PBKDF2 at all) so a failure costs ≈ the target
             # whatever shape the stored hash is (#109).
-            await asyncio.to_thread(
-                auth.normalize_verification_timing,
-                password,
-                auth.stored_verification_iterations(config),
+            await _normalize_login_failure(
+                reservation, password, failure_spent
             )
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
@@ -339,21 +391,16 @@ async def login_post(
             )
 
         # Verification used the config captured before its worker-thread
-        # await. Re-read the auth DB and bind only if those exact credentials
-        # are still current. Keep this read, comparison, bind and cache update
-        # synchronous so another login cannot interleave and be overwritten.
-        fresh_config = session_mod.load_user_config(uid)
-        cred_fp = session_mod.credential_fingerprint(config)
-        if (
-            fresh_config is None
-            or session_mod.credential_fingerprint(fresh_config) != cred_fp
-        ):
+        # await. The helper performs the fresh read, comparison, bind and
+        # cache update synchronously so another login cannot interleave.
+        token = _bind_verified_credentials(uid, config)
+        if token is None:
             # The credential changed while verification ran. Treat the
             # stale proof as a wrong password: it already spent the real
             # verification count, so normalize from that count and record
             # the same pair and IP failures without binding or caching it.
-            await asyncio.to_thread(
-                auth.normalize_verification_timing,
+            await _normalize_login_failure(
+                reservation,
                 password,
                 auth.stored_verification_iterations(config),
             )
@@ -364,18 +411,11 @@ async def login_post(
                 status_code=401,
                 media_type="text/plain",
             )
-        secret, generation = session_mod.get_or_create_session_row(
-            uid, cred_fp
-        )
-        session_mod.remember_user_config(uid, fresh_config)
-        token = session_mod.make_session_token(
-            uid, secret, generation=generation
-        )
         response = RedirectResponse("/", status_code=303)
         session_mod.set_session_cookie(response, token)
         return response
     finally:
-        _release_login_attempt(ip, uid)
+        reservation.close()
 
 
 @router.get("/logout")

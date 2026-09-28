@@ -110,8 +110,9 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
     fake_user, fake_session_store, monkeypatch
 ):  # pylint: disable=too-many-locals
     """A paused old-password login cannot overwrite a newer credential bind."""
-    old_config = dict(fake_user[12345])
+    old_config = fake_user[12345]
     new_config: dict = {}
+    verified_configs: dict[str, dict] = {}
     auth.set_web_password(new_config, "new password")
     old_started = threading.Event()
     release_old = threading.Event()
@@ -119,6 +120,7 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
 
     def controlled_verify(config, password):
         if password == "old password":
+            verified_configs["old"] = config
             old_started.set()
             if not release_old.wait(timeout=5):
                 raise TimeoutError("old login barrier was not released")
@@ -159,6 +161,7 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
     assert old_response.status_code == 401
     assert old_response.body == b"Invalid credentials."
     assert "set-cookie" not in old_response.headers
+    assert verified_configs["old"] is old_config
     assert normalization_spent == [600_000]
     assert fake_session_store[12345][2] == session_mod.credential_fingerprint(
         new_config
@@ -460,3 +463,152 @@ def test_inflight_keys_reserve_failure_history_capacity():
     assert second_ip_limited
     assert len(pair_history) == login_mod._LOGIN_MAX_KEYS  # pylint: disable=protected-access
     assert len(ip_history) == login_mod._LOGIN_MAX_IP_KEYS  # pylint: disable=protected-access
+
+
+def test_cancelled_login_holds_reservations_until_workers_finish(
+    fake_user, fake_session_store, monkeypatch
+):  # pylint: disable=too-many-locals,too-many-statements
+    ip = "198.51.100.93"
+    uid = 12345
+    workers_started = threading.Event()
+    release_workers = threading.Event()
+    workers_idle = threading.Event()
+    workers_idle.set()
+    worker_lock = threading.Lock()
+    worker_state = {"started": 0, "active": 0}
+    pair_checks = 0
+    extra_checks_done = asyncio.Event()
+    original_check = login_mod._check_login_rate_limit  # pylint: disable=protected-access
+
+    def blocking_verification(_config, _password):
+        with worker_lock:
+            worker_state["started"] += 1
+            worker_state["active"] += 1
+            workers_idle.clear()
+            if worker_state["started"] == 5:
+                workers_started.set()
+        try:
+            if not release_workers.wait(timeout=10):
+                raise TimeoutError("verification barrier was not released")
+            return True
+        finally:
+            with worker_lock:
+                worker_state["active"] -= 1
+                if worker_state["active"] == 0:
+                    workers_idle.set()
+
+    def count_pair_checks(check_ip, check_uid):
+        nonlocal pair_checks
+        limited = original_check(check_ip, check_uid)
+        pair_checks += 1
+        if pair_checks == 10:
+            extra_checks_done.set()
+        return limited
+
+    monkeypatch.setattr(auth, "verify_web_password", blocking_verification)
+    monkeypatch.setattr(
+        login_mod, "_check_login_rate_limit", count_pair_checks
+    )
+
+    async def run_cancellation_race():
+        first_requests = [
+            asyncio.create_task(login_mod.login_post(
+                _raw_login_request(ip), user_id=str(uid), password="bad"
+            ))
+            for _ in range(5)
+        ]
+        extra_requests = []
+        all_requests = list(first_requests)
+        try:
+            assert await asyncio.to_thread(workers_started.wait, 5)
+            for task in first_requests:
+                task.cancel()
+            await asyncio.gather(*first_requests, return_exceptions=True)
+            pair_key = login_mod._failure_key(ip, uid)  # pylint: disable=protected-access
+            held_after_cancel = (
+                login_mod._LOGIN_INFLIGHT.get(pair_key, 0),  # pylint: disable=protected-access
+                login_mod._LOGIN_IP_INFLIGHT.get(ip, 0),  # pylint: disable=protected-access
+            )
+            extra_requests = [
+                asyncio.create_task(login_mod.login_post(
+                    _raw_login_request(ip),
+                    user_id=str(uid),
+                    password="bad",
+                ))
+                for _ in range(5)
+            ]
+            all_requests.extend(extra_requests)
+            await asyncio.wait_for(extra_checks_done.wait(), timeout=5)
+            with worker_lock:
+                started_before_release = worker_state["started"]
+            release_workers.set()
+            extra_responses = await asyncio.gather(*extra_requests)
+            assert await asyncio.to_thread(workers_idle.wait, 5)
+            await asyncio.sleep(0)
+            maps_after_workers = (
+                dict(login_mod._LOGIN_INFLIGHT),  # pylint: disable=protected-access
+                dict(login_mod._LOGIN_IP_INFLIGHT),  # pylint: disable=protected-access
+            )
+            later_response = await login_mod.login_post(
+                _raw_login_request(ip),
+                user_id=str(uid),
+                password="valid",
+            )
+            return (
+                held_after_cancel,
+                started_before_release,
+                extra_responses,
+                maps_after_workers,
+                later_response,
+            )
+        finally:
+            release_workers.set()
+            for task in all_requests:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*all_requests, return_exceptions=True)
+            await asyncio.to_thread(workers_idle.wait, 5)
+            await asyncio.sleep(0)
+
+    (
+        held_after_cancel,
+        started_before_release,
+        extra_responses,
+        maps_after_workers,
+        later_response,
+    ) = asyncio.run(run_cancellation_race())
+
+    assert held_after_cancel == (5, 5)
+    assert started_before_release == 5
+    assert [response.status_code for response in extra_responses] == [
+        429
+    ] * 5
+    assert maps_after_workers == ({}, {})
+    assert later_response.status_code == 303
+    assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
+
+
+def test_verification_worker_exception_returns_generic_failure_and_releases(
+    fake_user, monkeypatch
+):
+    def fail_verification(_config, _password):
+        raise RuntimeError("worker failed")
+
+    normalized: list[int] = []
+    monkeypatch.setattr(auth, "verify_web_password", fail_verification)
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda _password, spent: normalized.append(spent),
+    )
+
+    response = asyncio.run(login_mod.login_post(
+        _raw_login_request(), user_id="12345", password="bad"
+    ))
+
+    assert response.status_code == 401
+    assert response.body == b"Invalid credentials."
+    assert normalized == [0]
+    assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
