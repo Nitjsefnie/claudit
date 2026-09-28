@@ -39,3 +39,33 @@ description = "issue #222: the mythos own-row identity assert (a pricing model i
 ruleID = "generic-api-key"
 regexTarget = "line"
 regexes = ['assert pricing\.resolve\("claude-mythos-5-1"\)\.key == "claude-mythos-5-1"']
+
+# Issues #263/#319 (PR #319): the synthetic-row routing tests introduced with
+# the SV-TEST-DATA marker re-audit. Every flagged line is a PRICING-ROW MODEL
+# ID literal in a test — the same shape issue #222 excused: synthetic table
+# keys ("claude-acme-*", names chosen never to collide with a real model)
+# assigned to a local, or asserted to be the row an id resolves to. They are
+# published-family-shaped names, not credentials; no secret is shaped like
+# them. Same scoping as #222: ruleID generic-api-key only, regexTarget line,
+# no paths condition (gitleaks 8.30.1 treats allowlist conditions as
+# independent), and the same accepted residual — a real secret appended to
+# an excused line would share the finding. The four flagged lines live in
+# three commits of the branch's history, so each regex must cover the line
+# wherever it appears, not only at HEAD.
+[[allowlists]]
+description = "issues #263/#319: synthetic mythos routing-test row key (a model id literal, two commits)"
+ruleID = "generic-api-key"
+regexTarget = "line"
+regexes = ['mythos_key = "claude-acme-mythos-5-1"']
+
+[[allowlists]]
+description = "issues #263/#319: synthetic opus routing-test row key (a model id literal)"
+ruleID = "generic-api-key"
+regexTarget = "line"
+regexes = ['key = "claude-acme-opus-4-8"']
+
+[[allowlists]]
+description = "issues #263/#319: the pre-rename mythos own-row identity assert (a model id compared to itself)"
+ruleID = "generic-api-key"
+regexTarget = "line"
+regexes = ['assert mythos\.key == "claude-mythos-5-1"']
