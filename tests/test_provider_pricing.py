@@ -8,7 +8,9 @@ usage in particular must not be repriced by an OpenRouter host's rate.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +18,7 @@ from backend import pricing
 from backend.api_common import fold_per_model, fold_per_model_provider
 
 UTC = timezone.utc
+ROOT = Path(__file__).resolve().parents[1]
 
 V41 = "deepseek/deepseek-v4.1-flash"
 # The instant the provider table was seeded. The scheduled refresh appends
@@ -30,6 +33,16 @@ def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
     return pricing.compute_cost(
         model, fresh=fresh, output=output, eph5=eph5, eph1h=eph1h,
         unsplit_create=unsplit_create, read=read, ts=ts, provider=provider)
+
+
+def _assert_provider_resolution_returns_loaded_row(
+        model: str, normalized_model: str, host: str) -> None:
+    """Pin the seeded history window and the undated current provider row."""
+    result = pricing.resolve(model, SEEDED, provider=host)
+    assert result.kind == "exact" and result.key == normalized_model
+    assert result.rates is pricing.rate_for(model, SEEDED, provider=host)
+    assert pricing.rate_for(model, provider=host) is \
+        pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
 # --- provider rows price the record -----------------------------------------
@@ -91,9 +104,8 @@ def test_baseten_resolution_returns_its_loaded_provider_row():
     normalized_model = V41.replace(".", "-")
     host = next(host for model, host in pricing.PROVIDER_RATES
                 if model == normalized_model and host.casefold() == "baseten")
-    result = pricing.resolve(V41, SEEDED, provider=host)
-    assert result.kind == "exact" and result.key == normalized_model
-    assert result.rates is pricing.PROVIDER_RATES[(normalized_model, host)]
+    _assert_provider_resolution_returns_loaded_row(
+        V41, normalized_model, host)
 
 
 def test_modal_resolution_returns_its_loaded_provider_row():
@@ -105,9 +117,43 @@ def test_modal_resolution_returns_its_loaded_provider_row():
     model = "z-ai/glm-5-3-flash"
     host = next(host for row_model, host in pricing.PROVIDER_RATES
                 if row_model == model and host.casefold() == "modal")
-    result = pricing.resolve(model, SEEDED, provider=host)
-    assert result.kind == "exact" and result.key == model
-    assert result.rates is pricing.PROVIDER_RATES[(model, host)]
+    _assert_provider_resolution_returns_loaded_row(model, model, host)
+
+
+def test_provider_resolution_assertions_survive_later_dated_appends(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A later rate entry moves today's provider row into a dated window."""
+    document = json.loads(
+        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    base_model = V41.replace(".", "-")
+    base_host = next(host for host in document["providers"][base_model]
+                     if host.casefold() == "baseten")
+    modal_model = "z-ai/glm-5-3-flash"
+    modal_host = next(
+        host for host in document["providers"][modal_model]
+        if host.casefold() == "modal")
+
+    def append_later(entries: list[dict]) -> None:
+        stamps = [datetime.fromisoformat(entry["from"].replace(
+            "Z", "+00:00")) for entry in entries
+                  if entry["from"] is not None]
+        newest = max([SEEDED, *stamps])
+        instant = newest + timedelta(seconds=1)
+        values = {field: entries[-1][field] for field in pricing.RATE_FIELDS}
+        values["fresh"] += 0.01
+        entries.append({"from": instant.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        **values, "note": "test append"})
+
+    append_later(document["providers"][base_model][base_host])
+    append_later(document["providers"][modal_model][modal_host])
+    tables = pricing.load_tables(document)
+    for name, value in tables.items():
+        monkeypatch.setattr(pricing, name, value)
+
+    _assert_provider_resolution_returns_loaded_row(
+        V41, base_model, base_host)
+    _assert_provider_resolution_returns_loaded_row(
+        modal_model, modal_model, modal_host)
 
 
 # --- NULL provider: exactly today's pricing ---------------------------------

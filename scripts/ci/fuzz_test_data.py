@@ -1,60 +1,27 @@
 #!/usr/bin/env python3
-"""Fuzz SV-TEST-DATA: random VALID appends to src/pricing.json, then
-the full suite.
+"""Fuzz SV-TEST-DATA with valid pricing changes and the full suite.
 
-The perturbed-data CI leg (scripts/ci/perturb_test_data.py) runs three
-fixed perturbations; this harness is the open-ended half. Per
-iteration it restores the pristine document, appends to each row of a
-seeded random NONEMPTY subset of rate rows ONE valid appended entry —
-the five rate fields drawn INDEPENDENTLY from a pool mixing zero, one,
-ordinary magnitudes and repr-awkward floats — stamps it one second
-past the row's newest real instant, occasionally re-spelling that same
-LATER instant with a ±HH:MM offset (the normalisation issue #264
-fixed), writes the canonical layout, validates the document through
-the backend's own loader, and runs the FULL suite against the result.
-A test whose verdict is not append-invariant fails as a test failure
-here, with the failing document saved for a repro.
+Each iteration restores a clean baseline, appends five independently
+drawn non-negative fields to a seeded nonempty subset of rows, and stamps
+each entry one second after its row's newest instant. Offset spellings
+exercise issue #264; the written document uses canonical JSON layout.
+A seeded chance also adds one model or provider-host row under the
+reserved `zz-fuzz-local/<seeded-suffix>` namespace. Existing-row appends
+simulate the refresh bot. New rows stay in this namespace because a REAL
+model addition is a maintainer edit that updates tests in the same commit;
+SV-TEST-DATA's own invariant is against unannounced moves, a boundary this
+branch records deliberately. No real data or live test uses this namespace.
 
-Per iteration:
-  1. `git checkout -- src/pricing.json` — a clean baseline each time,
-     whatever the previous iteration appended.
-  2. Append one entry per touched row; the canonical layout
-     json.dumps(doc, indent=2, sort_keys=True) + "\\n" is written back.
-  3. Validate through `pricing.load_tables` before anything runs.
-  4. Run the full suite (python3 -m pytest tests/ -q --tb=short -ra).
-     The environment passes through to the pytest child unchanged —
-     the private-Postgres variables among them; nothing is hardcoded.
-  5. A failing suite saves src/pricing.json to fuzz-fail-<i>.json in
-     the artifact directory, prints the iteration, the seed, the row
-     keys touched and the pytest tail, and the run exits 1. Every
-     iteration green prints one summary line and exits 0.
+The backend loader validates each document before the full suite runs.
+Failures save the document as `fuzz-fail-<i>.json` and report the seed,
+changed row keys and pytest tail. The run refuses a dirty pricing file,
+then restores the original bytes after the run, green or failing.
 
-The run refuses to START when src/pricing.json carries local changes:
-the per-iteration restore is `git checkout --`, which would silently
-discard them. The file's baseline is recorded at start and restored in
-a `finally` — after any failure artifact is saved — so the tree is
-left exactly as it was found, green or failing.
-
-    python3 scripts/ci/fuzz_test_data.py [--iterations N] [--seed N]
-        [--jobs J]
-
-With --jobs J > 1 the SAME iterations run in J child processes, each
-in its own disposable copy of the tree under a temp dir: iteration i
-is served by shard i % J, and every child derives its per-iteration
-randomness from (base seed, GLOBAL iteration number), so a sharded run
-covers exactly the iterations — the same draws — the sequential run
-would, merged in iteration order. A shard's copy is the files git
-knows about — tracked plus untracked, unignored — UNION every regular
-file under tests/, the collection root: a nested test directory a
-deny-by-default .gitignore shadows is git-ignored yet pytest collects
-it, so a shard without it would run a smaller suite and report a false
-green. The union becomes its own git repository whose snapshot commit
-is the restore's baseline. Ignored runtime artifacts (a live socket, a
-pid file) can neither break the copy nor reach a shard, and a
-non-regular file UNDER tests/ refuses sharding loudly instead of
-failing the population guarantee silently. The run's temp dir goes
-away when the run does; the failing documents are saved OUTSIDE it, in
-the artifact directory.
+Run `python3 scripts/ci/fuzz_test_data.py [--iterations N] [--seed N]
+[--jobs J]`. Sharded runs use the same global iteration seeds as sequential
+runs. Each temporary snapshot includes git-visible files and every regular
+file under `tests/`, including nested ignored tests, so each shard collects
+the same suite. Non-regular entries under `tests/` refuse sharding.
 """
 from __future__ import annotations
 
@@ -85,6 +52,9 @@ OFFSET_CHANCE = 0.25
 # Believable timezone offsets; (0, 0) is the +00:00 spelling, which
 # exercises the same parse path as a named offset.
 OFFSET_POOL = ((5, 30), (-5, 0), (2, 0), (-8, 0), (10, 45), (0, 0))
+NEW_ROW_CHANCE = 0.25
+RESERVED_NAMESPACE = "zz-fuzz-local/"
+NEW_ROW_NOTE = "sv-test-data fuzz: reserved new row"
 # The five fields draw INDEPENDENTLY and uniformly from this pool:
 # zero, one, ordinary magnitudes, and the repr-awkward floats the #263
 # repros and the #232 tolerance sweep turn on. An entry may keep an
@@ -98,13 +68,7 @@ VALUE_POOL = (
 
 def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
                    artifact_dir: Path) -> dict:
-    """One iteration: restore, append, validate, run the suite.
-
-    Returns the iteration's result record: {iteration, seed, ok,
-    rows_touched, keys, output, artifact?}. `output` is carried only
-    for a failing suite — the report's tail — and `artifact` names the
-    saved failing document, present only when the suite failed.
-    """
+    """Restore, perturb, validate and run one iteration."""
     restore_baseline(repo_root)
     pricing_path = repo_root / PRICING_REL
     doc = json.loads(pricing_path.read_text(encoding="utf-8"))
@@ -117,15 +81,19 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
     touched = _choose_rows(rows, rng)
     for _key, entries in touched:
         entries.append(_appended_entry(entries, doc_max, rng))
+    new_row_key = _maybe_add_new_row(doc, doc_max, rng, base_seed, iteration)
     pricing.load_tables(doc)
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    code, output = run_suite(repo_root)
+    suite = run_suite(repo_root)
     result: dict = {"iteration": iteration, "seed": base_seed,
-                    "ok": code == 0, "rows_touched": len(touched),
+                    "ok": suite[0] == 0, "rows_touched": len(touched),
                     "keys": [key for key, _entries in touched],
-                    "output": output if code else ""}
-    if code != 0:
+                    "output": suite[1] if suite[0] else ""}
+    if new_row_key is not None:
+        result["keys"].append(new_row_key)
+    result["rows_touched"] = len(result["keys"])
+    if suite[0] != 0:
         result["artifact"] = str(
             artifact_dir / f"fuzz-fail-{iteration}.json")
         Path(result["artifact"]).write_text(
@@ -211,6 +179,36 @@ def _appended_entry(entries: list[dict], doc_max: datetime | None,
             **{field: rng.choice(VALUE_POOL)
                for field in pricing.RATE_FIELDS},
             "note": NOTE}
+
+
+def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
+                       rng: random.Random, base_seed: int,
+                       iteration: int) -> str | None:
+    """With a seeded chance, add one valid row in the reserved namespace."""
+    if rng.random() >= NEW_ROW_CHANCE:
+        return None
+
+    key = (f"{RESERVED_NAMESPACE}{base_seed}-{iteration}-"
+           f"{rng.getrandbits(64):016x}")
+    while (key in doc["models"] or key in doc["providers"]
+           or any(key in hosts for hosts in doc["providers"].values())):
+        key = (f"{RESERVED_NAMESPACE}{base_seed}-{iteration}-"
+               f"{rng.getrandbits(64):016x}")
+
+    is_host = rng.choice((False, True))
+    entry = {"from": None, "note": NEW_ROW_NOTE,
+             **{field: rng.choice(VALUE_POOL)
+                for field in pricing.RATE_FIELDS}}
+    if is_host and doc_max is not None and rng.random() < 0.5:
+        entry["from"] = (doc_max + timedelta(seconds=1)).astimezone(
+            timezone.utc).strftime(STAMP_FORMAT)
+    if not is_host:
+        doc["models"][key] = [entry]
+        return key
+
+    model = rng.choice(list(doc["providers"])) if doc["providers"] else key
+    doc["providers"].setdefault(model, {})[key] = [entry]
+    return f"{model} via {key}"
 
 
 def _spell(instant: datetime, rng: random.Random) -> str:
@@ -311,9 +309,10 @@ def _collect_shards(
         pending: list[tuple[Path, Path, subprocess.Popen]]) -> list[dict]:
     """Wait for every shard child and gather its results, failing
     loudly on a child that died without writing its result file."""
+    completed = [(shard_dir, result_file, child, child.wait())
+                 for shard_dir, result_file, child in pending]
     results: list[dict] = []
-    for shard_dir, result_file, child in pending:
-        code = child.wait()
+    for shard_dir, result_file, _child, code in completed:
         # Exit 1 is the child's documented "failing suite" exit, with
         # its results written; only a child that died WITHOUT them is
         # a crash worth raising on.
