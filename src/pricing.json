@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T22:53:44Z",
+  "provider_rates_fetched": "2026-09-28T23:53:29Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -884,6 +884,22 @@
           "create_5m": 0.225,
           "fresh": 0.225,
           "from": null,
+          "output": 0.9,
+          "read": 0.006
+        },
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": "2026-09-16T03:01:32Z",
+          "output": 0.9,
+          "read": 0
+        },
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": "2026-09-16T06:46:16Z",
           "output": 0.9,
           "read": 0.006
         }
@@ -1913,6 +1929,14 @@
           "from": "2026-09-28T22:31:21Z",
           "output": 0.6,
           "read": 0.009
+        },
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": "2026-09-28T23:11:30Z",
+          "output": 0.6,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -2364,6 +2388,14 @@
           "from": "2026-09-28T22:53:44Z",
           "output": 0.7,
           "read": 0.045
+        },
+        {
+          "create_1h": 0.0449,
+          "create_5m": 0.0449,
+          "fresh": 0.0449,
+          "from": "2026-09-28T23:36:06Z",
+          "output": 0.7,
+          "read": 0.0359
         }
       ]
     },
@@ -15536,6 +15568,14 @@
           "from": "2026-09-26T02:10:38Z",
           "output": 0.32,
           "read": 0.016
+        },
+        {
+          "create_1h": 0.018,
+          "create_5m": 0.018,
+          "fresh": 0.018,
+          "from": "2026-09-28T23:41:08Z",
+          "output": 0.32,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -22111,6 +22151,14 @@
           "note": "64.5% off",
           "output": 1.1999,
           "read": 0.0497
+        },
+        {
+          "create_1h": 1.69,
+          "create_5m": 1.69,
+          "fresh": 1.69,
+          "from": "2026-09-28T23:31:16Z",
+          "output": 3.38,
+          "read": 0.14
         }
       ],
       "Cloudflare": [
@@ -28885,6 +28933,15 @@
           "note": "55% off",
           "output": 1.566,
           "read": 0.06525
+        },
+        {
+          "create_1h": 0.95526,
+          "create_5m": 0.95526,
+          "fresh": 0.95526,
+          "from": "2026-09-28T23:36:04Z",
+          "note": "45.1% off",
+          "output": 1.91052,
+          "read": 0.079605
         }
       ],
       "Venice": [
@@ -30115,6 +30172,14 @@
           "note": "70.3% off",
           "output": 1.17612,
           "read": 0.012474
+        },
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": "2026-09-28T23:31:19Z",
+          "output": 3.96,
+          "read": 0.042
         }
       ],
       "Cloudflare": [
@@ -33318,6 +33383,14 @@
           "from": "2026-09-28T22:38:11Z",
           "output": 4.2,
           "read": 0.3143
+        },
+        {
+          "create_1h": 0.3915,
+          "create_5m": 0.3915,
+          "fresh": 0.3915,
+          "from": "2026-09-28T23:53:29Z",
+          "output": 4.2,
+          "read": 0.3132
         }
       ]
     },
@@ -33817,6 +33890,14 @@
           "note": "0.1% off",
           "output": 4.3956,
           "read": 0.25974
+        },
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": "2026-09-28T23:31:20Z",
+          "output": 4.4,
+          "read": 0.26
         }
       ],
       "BaseTen": [
@@ -35490,6 +35571,22 @@
           "note": "23.999999999999988% off",
           "output": 2.28,
           "read": 0.114
+        },
+        {
+          "create_1h": 0.9,
+          "create_5m": 0.9,
+          "fresh": 0.9,
+          "from": "2026-09-28T23:41:05Z",
+          "output": 3.0,
+          "read": 0.15
+        },
+        {
+          "create_1h": 0.684,
+          "create_5m": 0.684,
+          "fresh": 0.684,
+          "from": "2026-09-28T23:41:06Z",
+          "output": 2.5,
+          "read": 0.14
         }
       ],
       "Io Net": [
@@ -36675,6 +36772,14 @@
           "from": "2026-09-28T20:40:52Z",
           "output": 3.366,
           "read": 0.146625
+        },
+        {
+          "create_1h": 0.1785,
+          "create_5m": 0.1785,
+          "fresh": 0.1785,
+          "from": "2026-09-28T23:41:07Z",
+          "output": 1.628022,
+          "read": 0.05577615
         }
       ],
       "Novita": [
