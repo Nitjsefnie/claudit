@@ -68,13 +68,22 @@ async def _reap(proc: asyncio.subprocess.Process) -> bool:
             pass
     communicate_task = asyncio.create_task(proc.communicate())
     cancelled = False
-    # Shield the one communicate task so another cancellation cannot leave the child unreaped.
-    while not communicate_task.done():
-        try:
-            await asyncio.shield(communicate_task)
-        except asyncio.CancelledError:
-            cancelled = True
-    communicate_task.result()
+    try:
+        while not communicate_task.done():
+            try:
+                await asyncio.shield(communicate_task)
+            except asyncio.CancelledError:
+                cancelled = True
+        communicate_task.result()
+    except Exception as exc:
+        print(f"[export] failed to drain child pipes while reaping: {exc}", file=sys.stderr)
+        wait_task = asyncio.create_task(proc.wait())
+        while not wait_task.done():
+            try:
+                await asyncio.shield(wait_task)
+            except asyncio.CancelledError:
+                cancelled = True
+        wait_task.result()
     return cancelled
 
 
