@@ -252,3 +252,15 @@ def test_browser_kimi_tool_result_detail_skips_non_object_inner_values():
     assert got["userMsgs"] == backend["prompt_count"]
     assert got["usageCount"] == len(backend["records"])
     assert got["toolResults"] == [backend["tool_uses"][0]["error_text"]]
+
+
+def test_browser_kimi_tool_result_content_matches_backend_filtering():
+    name = "non_object_kimi_context_tool_result.jsonl"
+    text = (FIX / name).read_text(encoding="ascii")
+    got = _node_parse({name: text})[name]
+    backend = parse.parse_file(f"sessions/p/s/{name}", text.encode("ascii"))
+
+    assert "error" not in got, got.get("stack", got)
+    assert backend["tool_uses"]
+    assert backend["tool_uses"][0]["error_text"] == "fallback"
+    assert got["toolResults"] == ["fallback", "fallback"]
