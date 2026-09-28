@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T00:52:31Z",
+  "provider_rates_fetched": "2026-09-28T01:54:17Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2353,6 +2353,14 @@
           "note": "34% off",
           "output": 2.8776,
           "read": 0.099
+        },
+        {
+          "create_1h": 1.45,
+          "create_5m": 1.45,
+          "fresh": 1.45,
+          "from": "2026-09-28T01:54:17Z",
+          "output": 4.36,
+          "read": 0.15
         }
       ],
       "Sail Research": [
@@ -2728,6 +2736,14 @@
           "from": "2026-09-27T23:54:10Z",
           "output": 2.7392,
           "read": 0.0967
+        },
+        {
+          "create_1h": 0.5009,
+          "create_5m": 0.5009,
+          "fresh": 0.5009,
+          "from": "2026-09-28T01:54:17Z",
+          "output": 2.5612,
+          "read": 0.1407
         }
       ],
       "InferenceNet": [
@@ -2883,6 +2899,14 @@
           "from": "2026-09-27T22:53:46Z",
           "output": 2.574,
           "read": 0.06604
+        },
+        {
+          "create_1h": 0.683,
+          "create_5m": 0.683,
+          "fresh": 0.683,
+          "from": "2026-09-28T01:54:17Z",
+          "output": 2.574,
+          "read": 0.1521
         }
       ],
       "Relace": [
