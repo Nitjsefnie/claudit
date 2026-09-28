@@ -811,6 +811,8 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
             obj = loads(raw)
         except JSONDecodeError:
             continue
+        if not isinstance(obj, dict):
+            continue
 
         kind = obj.get("type", "")
         walk.window.observe(obj)

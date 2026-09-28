@@ -1,0 +1,9 @@
+{"type":"user","timestamp":"2026-09-21T10:00:00Z","uuid":"nobj-u1","message":{"role":"user","content":"first prompt"}}
+{"type":"assistant","timestamp":"2026-09-21T10:00:10Z","requestId":"nobj-r1","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"reply"},{"type":"tool_use","id":"nobj-t1","name":"Read","input":{"file_path":"/x"}}],"usage":{"input_tokens":100,"output_tokens":20}}}
+123
+"text"
+[1,2]
+null
+true
+{"type":"user","timestamp":"2026-09-21T10:01:00Z","uuid":"nobj-u2","message":{"role":"user","content":"second prompt"}}
+{"type":"assistant","timestamp":"2026-09-21T10:01:10Z","requestId":"nobj-r2","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"reply"}],"usage":{"input_tokens":120,"output_tokens":24}}}

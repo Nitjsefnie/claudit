@@ -318,7 +318,10 @@ function laneKcResultDetail(result) {
   if (!laneIsPlainObject(result)) return String(result || '');
   const output = result.output;
   if (Array.isArray(output)) {
-    return output.map(x => (laneIsPlainObject(x) ? (x.text || '') : String(x))).join('\n');
+    return output
+      .filter(x => typeof x === 'string' || laneIsPlainObject(x))
+      .map(x => (laneIsPlainObject(x) ? (x.text || '') : x))
+      .join('\n');
   }
   return String(output || '');
 }
