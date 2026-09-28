@@ -734,8 +734,8 @@ keeps the same rules:
 - A moved price is an entry APPENDED to the row, never an edit or a
   deletion. On a log-backed row (below) it is dated by the change
   point OpenRouter's own log records; on a sampled row it is dated at
-  the detection time, and a host seen for the first time gets a row
-  that begins then. A host no longer listed keeps its row untouched
+  the detection time, and a sampled host seen for the first time gets
+  a row that begins then (a log-backed one gets its whole log). A host no longer listed keeps its row untouched
   and is reported.
 - Normalisation: OpenRouter's USD per token becomes USD per million.
   The listed price already has any promotional discount applied; the
