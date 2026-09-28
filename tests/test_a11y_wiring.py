@@ -516,6 +516,10 @@ def test_inspector_keys_drive_the_click_selection_path():
         "the arrow move is not clamped against the last visible row -- "
         "the selection cannot traverse to every row, including the "
         "second of two identical entries")
+    assert "revealRow(" in handler, (
+        "the arrow moves no longer reveal the active row -- focus stays "
+        "on the container, so the browser does not scroll the active "
+        "option into view and the selection would move invisibly")
     assert "onClick={() => setSelected(idx)}" in src, (
         "the row click no longer routes through setSelected(idx); the "
         "key handler's path is no longer the click path")
