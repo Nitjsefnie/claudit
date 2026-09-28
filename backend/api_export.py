@@ -60,21 +60,21 @@ def export_filename(rng: str, project: str | None) -> str:
 
 
 async def _reap(proc: asyncio.subprocess.Process) -> bool:
-    """Kill a running child and wait until its process has been reaped."""
+    """Kill a running child, drain its pipes, and wait until it is reaped."""
     if proc.returncode is None:
         try:
             proc.kill()
         except ProcessLookupError:
             pass
-    wait_task = asyncio.create_task(proc.wait())
+    communicate_task = asyncio.create_task(proc.communicate())
     cancelled = False
-    # Shield the one wait task so another request cancellation cannot leave the child unreaped.
-    while not wait_task.done():
+    # Shield the one communicate task so another cancellation cannot leave the child unreaped.
+    while not communicate_task.done():
         try:
-            await asyncio.shield(wait_task)
+            await asyncio.shield(communicate_task)
         except asyncio.CancelledError:
             cancelled = True
-    wait_task.result()
+    communicate_task.result()
     return cancelled
 
 
@@ -82,8 +82,8 @@ async def _render_export(argv: list[str], out_path: str) -> None:
     """Run the plot subprocess, bounded by _EXPORT_TIMEOUT_S. Raises
     HTTPException(503) on timeout or when the interpreter died of a missing
     module (an EXPORT_PYTHON environment problem), HTTPException(500) on
-    any other non-zero exit. The child is killed and reaped on timeout,
-    cancellation, or another exception from the wait."""
+    any other non-zero exit. The child is killed and its pipes are drained on
+    timeout, cancellation, or another exception while communicating."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
