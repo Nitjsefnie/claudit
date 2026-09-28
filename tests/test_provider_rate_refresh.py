@@ -31,6 +31,7 @@ PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed templa
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
+FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 UTC = timezone.utc
 NOW = datetime(2031, 1, 1, tzinfo=UTC)
 STAMP = "2031-01-01T00:00:00Z"
@@ -61,12 +62,20 @@ refresh = _load()
 
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
-    rows first seen by a refresh dropped."""
+    rows first seen by a refresh or reserved for test-data fuzzing dropped."""
     doc = copy.deepcopy(doc)
-    doc["providers"] = {
-        model: {host: history[:1] for host, history in hosts.items()
-                if history[0]["from"] is None}
-        for model, hosts in doc["providers"].items()}
+    providers = {}
+    for model, hosts in doc["providers"].items():
+        if model.startswith(FUZZ_RESERVED_NAMESPACE):
+            continue
+        seeded_hosts = {
+            host: history[:1] for host, history in hosts.items()
+            if (history[0]["from"] is None
+                and not host.startswith(FUZZ_RESERVED_NAMESPACE))
+        }
+        if seeded_hosts:
+            providers[model] = seeded_hosts
+    doc["providers"] = providers
     doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
     return doc
 

@@ -21,6 +21,7 @@ UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[1]
 
 V41 = "deepseek/deepseek-v4.1-flash"
+FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 # The instant the provider table was seeded. The scheduled refresh appends
 # entries effective from later instants only, so the prices these tests
 # assert hold at this instant whatever it has committed since; a list
@@ -69,12 +70,16 @@ def test_two_providers_of_one_model_price_differently():
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
     # Every seeded row lists cache_write 0, so both create buckets carry
-    # the input rate rather than a free write.
+    # the input rate rather than a free write. Pin that seeded history
+    # window: later entries may independently change any of the five rates.
     for model, provider in pricing.PROVIDER_RATES:
-        if (model, provider) not in pricing.PROVIDER_STARTS:
-            rates = pricing.rate_for(model, SEEDED, provider)
-            assert rates["create_5m"] == rates["fresh"]
-            assert rates["create_1h"] == rates["fresh"]
+        if (model.startswith(FUZZ_RESERVED_NAMESPACE)
+                or provider.startswith(FUZZ_RESERVED_NAMESPACE)
+                or (model, provider) in pricing.PROVIDER_STARTS):
+            continue
+        rates = pricing.rate_for(model, SEEDED, provider)
+        assert rates["create_5m"] == rates["fresh"]
+        assert rates["create_1h"] == rates["fresh"]
     assert _cost(V41, "Novita", SEEDED, eph5=1_000_000, eph1h=1_000_000,
                  unsplit_create=1_000_000) == pytest.approx(
                      3 * 0.285, rel=1e-12)
@@ -138,7 +143,7 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
             "Z", "+00:00")) for entry in entries
                   if entry["from"] is not None]
         newest = max([SEEDED, *stamps])
-        instant = newest + timedelta(seconds=1)
+        instant = newest.astimezone(UTC) + timedelta(seconds=1)
         values = {field: entries[-1][field] for field in pricing.RATE_FIELDS}
         values["fresh"] += 0.01
         entries.append({"from": instant.strftime("%Y-%m-%dT%H:%M:%SZ"),
