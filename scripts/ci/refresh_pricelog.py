@@ -2,8 +2,8 @@
 """Read OpenRouter endpoint price histories for provider-rate refreshes.
 
 The log is used only when its endpoint can be joined unambiguously to one
-listed host endpoint. Invalid or ambiguous histories are left for the hourly
-refresh's detection-time sampler.
+listed host endpoint. Invalid, ambiguous, or pre-Unix-epoch histories are
+left for the hourly refresh's detection-time sampler.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
+from backend import pricing
 from refresh_prices import RefreshError, rates_of, tag_region
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -24,6 +25,7 @@ ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 _RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 _POINT_FIELDS = ("input", "output", "cacheRead", "cacheWrite", "discount")
 _REQUIRED_POINTS = frozenset({"input", "output"})
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 FetchModels = Callable[[], object]
 FetchLog = Callable[[str], object]
@@ -221,7 +223,8 @@ def entries_for_series(series: PriceSeries) -> list[dict] | None:
             end += 1
         current = _rates(state)
         if current is not None and current != previous_rates:
-            entry = {"from": second.strftime("%Y-%m-%dT%H:%M:%SZ"), **current}
+            stamp = f"{second.year:04d}{second.strftime('-%m-%dT%H:%M:%SZ')}"
+            entry = {"from": stamp, **current}
             note = _discount_note(state.get("discount"))
             if note:
                 entry["note"] = note
@@ -413,6 +416,15 @@ def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[st
     entries = _series_entries(chosen) if chosen else None
     if not isinstance(entries, list) or not entries:
         return HostLog(None, "selected endpoint has no usable history")
+    try:
+        pricing._history(  # pylint: disable=protected-access
+            entries, f"{host} listed-pricing log", may_begin=True
+        )
+    except ValueError as exc:
+        return HostLog(None, f"series has unusable pricing entries: {exc}")
+    if any(point.at < _UNIX_EPOCH
+           for points in chosen.fields.values() for point in points):
+        return HostLog(None, "series has unusable pricing entries: log instant predates 1970")
     return HostLog(entries, None)
 
 

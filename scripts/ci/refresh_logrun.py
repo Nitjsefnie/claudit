@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify hourly provider rows using validated OpenRouter log histories."""
+"""Classify log-backed rows and sample generated histories that cannot load."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -46,6 +46,10 @@ def _append_joined_rows(
             result.notices.append(
                 f"listed-pricing log disagrees with the listing for "
                 f"{model} via {host}; the host was sampled")
+        if reason and reason.startswith("series has unusable pricing entries:"):
+            result.notices.append(
+                f"listed-pricing entries are unusable for {model} via {host}; "
+                f"the host was sampled")
         result.sampled[host] = reason or "log does not identify one endpoint"
         result.sampled_rows[host] = listing
     return result
