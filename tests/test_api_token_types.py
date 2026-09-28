@@ -6,7 +6,10 @@ is declared, summed and suppressed by the same rules wherever it appears
 — except `thinking_tokens`, which is a SUBSET of output_tokens and must
 never be added to a total or priced.
 """
-from test_api import _app_with_data_fixture  # pylint: disable=unused-import
+from test_api import (  # pylint: disable=unused-import
+    _app_with_data_fixture,
+    _app_with_fresh_data_fixture,
+)
 
 from backend import api_dashboard, db, ingest
 
@@ -116,7 +119,9 @@ def test_dashboard_reports_thinking_tokens_as_a_non_additive_type(app_with_data)
     assert order.index("thinking_tokens") == order.index("output_tokens") + 1
 
 
-def test_thinking_tokens_are_suppressed_when_the_range_never_thought(app_with_data):
+def test_thinking_tokens_are_suppressed_when_the_range_never_thought(
+    app_with_fresh_data,
+):
     """Same zero-suppression as every other token type: a corpus with no
     extended thinking gets no panel rather than a flat zero line."""
     with db.viz_conn() as c:
@@ -126,7 +131,7 @@ def test_thinking_tokens_are_suppressed_when_the_range_never_thought(app_with_da
     # means rebuilding it, or the panel reads the stale pre-aggregate
     # (SV-ROLLUP).
     ingest.rebuild_rollup()
-    body = app_with_data.get("/api/dashboard?range=all&fresh=1").json()
+    body = app_with_fresh_data.get("/api/dashboard?range=all&fresh=1").json()
     assert "thinking_tokens" not in body["token_types"]
     for entry in body["hourly"]:
         assert "thinking_tokens" not in entry

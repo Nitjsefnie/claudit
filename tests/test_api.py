@@ -27,12 +27,12 @@ from tests import scratch_db
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load_plot_db_module():
-    """Import scripts/plots/ccusage_plot_db.py by path (not a package)."""
+def _load_plot_db_module(monkeypatch):
+    """Import plot module by path with helper modules isolated per test."""
     path = _REPO_ROOT / "scripts/plots/ccusage_plot_db.py"
-    # Its `from ccusage_plot_render import ...` resolves against the
-    # script's own directory (as when run standalone).
-    sys.path.insert(0, str(path.parent))
+    for name in ("ccusage_plot_render", "ccusage_plot_timeline"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location("ccusage_plot_db", path)
     assert spec is not None and spec.loader is not None, f"cannot load {path}"
     mod = importlib.util.module_from_spec(spec)
@@ -137,10 +137,10 @@ def test_export_other_child_failure_stays_500(app_with_data, tmp_path):
     assert str(excinfo.value.detail) == "export render failed"
 
 
-def test_plot_db_project_filter_subsets_events(app_with_data):
+def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch):
     """load_events(project=...) returns a strict subset of all-projects,
     and every returned event belongs to the requested project."""
-    mod = _load_plot_db_module()
+    mod = _load_plot_db_module(monkeypatch)
     # DB_URL is a module-level global rebound by main() in real use;
     # setattr because the module is loaded dynamically (importlib), so a
     # static checker cannot see the attribute.
@@ -437,16 +437,16 @@ def test_cache_session_total_estimated_rate_false_for_empty_per_model(app_with_d
     assert body["session_total"]["estimated_rate"] is False
 
 
-def test_transcript_streams(app_with_data):
-    r = app_with_data.get("/api/sessions/sess-A/transcript")
+def test_transcript_streams(app_with_fresh_data):
+    r = app_with_fresh_data.get("/api/sessions/sess-A/transcript")
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/x-ndjson"
     first = r.text.split("\n")[0]
     assert "type" in json.loads(first)
 
 
-def test_transcript_etag_header(app_with_data):
-    r = app_with_data.get("/api/sessions/sess-A/transcript")
+def test_transcript_etag_header(app_with_fresh_data):
+    r = app_with_fresh_data.get("/api/sessions/sess-A/transcript")
     assert "etag" in {k.lower() for k in r.headers.keys()}
 
 
