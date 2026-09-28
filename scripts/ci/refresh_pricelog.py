@@ -351,7 +351,7 @@ def _match_series_to_endpoints(
         if not candidates:
             return None, "latest log state disagrees with the listed price"
         if len(candidates) != 1:
-            return None, "series current rates do not identify exactly one endpoint"
+            return None, f"{len(candidates)} endpoints at one current price"
         endpoint_index = candidates[0]
         if endpoint_index in matched:
             return None, "more than one series matches the same endpoint"

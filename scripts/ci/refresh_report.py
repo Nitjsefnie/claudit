@@ -11,6 +11,35 @@ if TYPE_CHECKING:
     from refresh_provider_rates import Move, Result
 
 _RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
+_SAMPLE_REASONS = {
+    "cheapest resolution has no stable endpoint identity": "cheapest resolution",
+    "host endpoints use more than one tag prefix": "multiple provider tags",
+    "tag prefix is shared by another host": "provider tag shared",
+    "endpoint has a pricing schedule": "endpoint schedule",
+    "series has a schedule": "log series schedule",
+    "series count does not match endpoint count": "log series count mismatch",
+    "series current rates do not identify exactly one endpoint":
+        "multiple endpoints at one current price",
+    "more than one series matches the same endpoint":
+        "multiple log series match one endpoint",
+    "one or more endpoints have no matching series": "log is missing endpoint history",
+    "latest log state disagrees with the listed price": "log disagrees with listing",
+    "no series joined to the listed host": "no matching log series",
+    "series has null input or output, or no complete state": "log has incomplete rates",
+    "selected endpoint has no usable history": "no endpoint history",
+    "stored schedule changed outside the price log": "stored schedule differs from log",
+}
+
+
+def _sampled_host(host: str, reason: str) -> str:
+    if reason.startswith("listed-pricing log unavailable for "):
+        reason = "log unavailable"
+    elif reason.startswith("endpoint selection found "):
+        count = reason.removeprefix("endpoint selection found ").split(" ", 1)[0]
+        reason = "no endpoint selected" if count == "0" else f"{count} endpoints selected"
+    else:
+        reason = _SAMPLE_REASONS.get(reason, reason)
+    return f"{host} ({reason})"
 
 
 def _move_text(move: Move) -> str:
@@ -47,9 +76,10 @@ def report(stamp: str, result: Result, tracked: dict) -> str:
         section = [_move_text(move) for move in result.moves if move.model == model]
         section += [f"  vanished  {host} (row kept)"
                     for name, host in result.vanished if name == model]
-        sampled = sorted(result.sampled.get(model, {}))
+        sampled = sorted(result.sampled.get(model, {}).items())
         if sampled:
-            section.append(f"  sampled   {', '.join(sampled)}")
+            descriptions = [_sampled_host(host, reason) for host, reason in sampled]
+            section.append(f"  sampled   {', '.join(descriptions)}")
         if section:
             lines += ["", f"{model} ({source['id']})", *section]
     if result.refusals:
