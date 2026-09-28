@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T17:54:19Z",
+  "provider_rates_fetched": "2026-09-28T18:53:29Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1871,6 +1871,14 @@
           "from": "2026-09-28T15:11:00Z",
           "output": 0.6,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-28T18:20:52Z",
+          "output": 0.6,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -2232,6 +2240,22 @@
           "create_5m": 0.0847,
           "fresh": 0.0847,
           "from": "2026-09-28T17:00:46Z",
+          "output": 0.6,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0706,
+          "create_5m": 0.0706,
+          "fresh": 0.0706,
+          "from": "2026-09-28T18:10:58Z",
+          "output": 0.6,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0588,
+          "create_5m": 0.0588,
+          "fresh": 0.0588,
+          "from": "2026-09-28T18:40:54Z",
           "output": 0.6,
           "read": 0.045
         }
@@ -6352,6 +6376,33 @@
           "note": "52.2% off",
           "output": 0.13384,
           "read": 0.013384
+        },
+        {
+          "create_1h": 0.06538,
+          "create_5m": 0.06538,
+          "fresh": 0.06538,
+          "from": "2026-09-28T17:55:48Z",
+          "note": "53.3% off",
+          "output": 0.13076,
+          "read": 0.013076
+        },
+        {
+          "create_1h": 0.06384,
+          "create_5m": 0.06384,
+          "fresh": 0.06384,
+          "from": "2026-09-28T18:10:54Z",
+          "note": "54.4% off",
+          "output": 0.12768,
+          "read": 0.012768
+        },
+        {
+          "create_1h": 0.0623,
+          "create_5m": 0.0623,
+          "fresh": 0.0623,
+          "from": "2026-09-28T18:30:50Z",
+          "note": "55.5% off",
+          "output": 0.1246,
+          "read": 0.01246
         }
       ],
       "DeepInfra": [
@@ -11801,6 +11852,33 @@
           "note": "53.2% off",
           "output": 0.13104,
           "read": 0.013104
+        },
+        {
+          "create_1h": 0.06398,
+          "create_5m": 0.06398,
+          "fresh": 0.06398,
+          "from": "2026-09-28T18:00:50Z",
+          "note": "54.3% off",
+          "output": 0.12796,
+          "read": 0.012796
+        },
+        {
+          "create_1h": 0.06244,
+          "create_5m": 0.06244,
+          "fresh": 0.06244,
+          "from": "2026-09-28T18:20:50Z",
+          "note": "55.4% off",
+          "output": 0.12488,
+          "read": 0.012488
+        },
+        {
+          "create_1h": 0.0609,
+          "create_5m": 0.0609,
+          "fresh": 0.0609,
+          "from": "2026-09-28T18:35:41Z",
+          "note": "56.5% off",
+          "output": 0.1218,
+          "read": 0.01218
         }
       ],
       "Venice": [
@@ -11899,6 +11977,14 @@
           "from": "2026-09-28T17:05:52Z",
           "output": 0.6204,
           "read": 0.01316
+        },
+        {
+          "create_1h": 0.1584,
+          "create_5m": 0.1584,
+          "fresh": 0.1584,
+          "from": "2026-09-28T18:20:51Z",
+          "output": 0.4752,
+          "read": 0.01008
         }
       ],
       "Baidu": [
@@ -16416,6 +16502,22 @@
           "create_5m": 0.085,
           "fresh": 0.085,
           "from": "2026-09-28T17:45:45Z",
+          "output": 0.35,
+          "read": 0.0531
+        },
+        {
+          "create_1h": 0.0708,
+          "create_5m": 0.0708,
+          "fresh": 0.0708,
+          "from": "2026-09-28T18:10:56Z",
+          "output": 0.35,
+          "read": 0.0531
+        },
+        {
+          "create_1h": 0.059,
+          "create_5m": 0.059,
+          "fresh": 0.059,
+          "from": "2026-09-28T18:40:53Z",
           "output": 0.35,
           "read": 0.0531
         }
@@ -22885,6 +22987,14 @@
           "from": "2026-09-28T15:10:58Z",
           "output": 1.4,
           "read": 0.12
+        },
+        {
+          "create_1h": 0.35,
+          "create_5m": 0.35,
+          "fresh": 0.35,
+          "from": "2026-09-28T18:15:42Z",
+          "output": 3.5,
+          "read": 0.1
         }
       ],
       "SiliconFlow": [
@@ -30078,6 +30188,24 @@
           "note": "10% off",
           "output": 3.15,
           "read": 0.126
+        },
+        {
+          "create_1h": 0.9,
+          "create_5m": 0.9,
+          "fresh": 0.9,
+          "from": "2026-09-28T18:05:40Z",
+          "note": "10% off",
+          "output": 3.15,
+          "read": 0.099
+        },
+        {
+          "create_1h": 0.99,
+          "create_5m": 0.99,
+          "fresh": 0.99,
+          "from": "2026-09-28T18:10:55Z",
+          "note": "10% off",
+          "output": 3.15,
+          "read": 0.108
         }
       ],
       "Ionstream": [
@@ -37984,6 +38112,15 @@
           "note": "10% off",
           "output": 0.45,
           "read": 0.027
+        },
+        {
+          "create_1h": 0.138,
+          "create_5m": 0.138,
+          "fresh": 0.138,
+          "from": "2026-09-28T18:00:49Z",
+          "note": "8% off",
+          "output": 0.46,
+          "read": 0.0276
         }
       ],
       "Modal": [
