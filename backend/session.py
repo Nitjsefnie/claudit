@@ -120,9 +120,9 @@ def get_or_create_session_row(
     user_id: int, cred_fp: str
 ) -> tuple[str, int]:
     """Return (secret, generation) for a real user, inserting a fresh
-    secret at generation 0 on the user's first login. A re-login binds
-    the newly proven credential fingerprint while preserving the
-    existing secret and generation.
+    secret at generation 0 on the user's first login. Re-login with the
+    same fingerprint preserves the secret and generation; a changed or
+    previously NULL fingerprint rotates the secret and bumps generation.
 
     The row lives in claudit's own DB (user_session, backend/schema.sql)
     — never in the shared auth DB (issue #94).
@@ -132,7 +132,14 @@ def get_or_create_session_row(
             "INSERT INTO user_session (user_id, secret, cred_fp) "
             "VALUES (%s, %s, %s) "
             "ON CONFLICT (user_id) DO UPDATE "
-            "SET cred_fp = EXCLUDED.cred_fp "
+            "SET secret = CASE "
+            "WHEN user_session.cred_fp IS DISTINCT FROM EXCLUDED.cred_fp "
+            "THEN EXCLUDED.secret ELSE user_session.secret END, "
+            "generation = CASE "
+            "WHEN user_session.cred_fp IS DISTINCT FROM EXCLUDED.cred_fp "
+            "THEN user_session.generation + 1 "
+            "ELSE user_session.generation END, "
+            "cred_fp = EXCLUDED.cred_fp "
             "RETURNING secret, generation",
             (user_id, secrets.token_urlsafe(32), cred_fp),
         ).fetchone()
