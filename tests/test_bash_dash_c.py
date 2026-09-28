@@ -1,7 +1,9 @@
 """Regression tests for Python command recognition and inline-script lexing."""
 from __future__ import annotations
 
+import io
 import itertools
+import json
 import random
 import re
 import shlex
@@ -9,7 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from backend import bash_churn
+from backend import bash_churn, bash_dash_c
 
 
 # Pre-change reference: keep these definitions verbatim as the output oracle.
@@ -31,6 +33,45 @@ def _dash_c_sources(text: str) -> list[str]:
     return out
 
 
+def _oracle_token_span(text: str, position: int) -> int:
+    """Measure the first token span using shlex's real stream position."""
+    stream = io.StringIO(text)
+    stream.seek(position)
+    lexer = shlex.shlex(stream, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        lexer.get_token()
+    except ValueError:
+        pass
+    return stream.tell() - position
+
+
+def _budgeted_reference(text: str, budget: int) -> tuple[list[str], int]:
+    """Apply the span budget to the verbatim pre-change candidate oracle."""
+    scripts: list[str] = []
+    kept_span_chars = 0
+    for match in _PYTHON_DASH_C.finditer(text):
+        position = match.end()
+        stream = io.StringIO(text)
+        stream.seek(position)
+        lexer = shlex.shlex(stream, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            token = lexer.get_token()
+            span_chars = stream.tell() - position
+            while lexer.get_token() is not None:
+                pass
+        except ValueError:
+            continue
+        if token is None or kept_span_chars + span_chars > budget:
+            continue
+        scripts.append(token)
+        kept_span_chars += span_chars
+    return scripts, kept_span_chars
+
+
 _EXHAUSTIVE_TOKENS = (
     "python", "python3", "/", "(", ";", " ", "-c", "x",
 )
@@ -44,6 +85,7 @@ _INVALID_SUFFIX_INPUT_COUNT = 300
 _INVALID_PREFIX_TOKENS = tuple(
     token for token in _RANDOM_TOKENS
     if not any(char in token for char in "'\"\\"))
+_SCRIPT_SPAN_LIMIT = 1_000_000
 
 
 def _differential_inputs():
@@ -166,3 +208,126 @@ def test_quadratic_reproducers_finish_within_the_bounded_budget():
         assert completed.returncode == 0, f"{name} failed: {completed.stderr}"
         cpu_seconds = float(completed.stdout.strip())
         assert cpu_seconds < 5.0, f"{name} used {cpu_seconds:.3f}s CPU"
+
+
+def test_first_token_spans_match_shlex_stream_positions():
+    cases = (
+        ("python -c plain rest", len("python -c ")),
+        ("python -c 'two words' rest", len("python -c ")),
+        ("python -c escaped\\ word rest", len("python -c ")),
+        ("python -c '' rest", len("python -c ")),
+        ("python -c plain 'unclosed", len("python -c ")),
+        ("python\u3000-c\u3000value\u3000rest", len("python\u3000-c\u3000")),
+    )
+    for text, position in cases:
+        spans: dict[int, int] = {}
+        bash_dash_c._script_tokens(  # pylint: disable=protected-access
+            text, [position], spans=spans)
+        assert spans == {position: _oracle_token_span(text, position)}, text
+
+
+def test_over_budget_inputs_match_budgeted_prechange_oracle():
+    inputs = (
+        "python\u3000-c\u3000x\u3000" * 500,
+        ("python\u3000-c\u3000x\u3000" * 100) + ("''" * 10_000),
+    )
+    for text in inputs:
+        expected, kept_span_chars = _budgeted_reference(
+            text, _SCRIPT_SPAN_LIMIT)
+        assert kept_span_chars <= _SCRIPT_SPAN_LIMIT
+        assert bash_churn._dash_c_sources(text) == expected  # pylint: disable=protected-access
+
+
+def _timed_source_case(
+        name: str, text_expression: str, expected_count: int,
+        quote_tail_chars: int = 0):
+    program = (
+        "import json\n"
+        "from time import process_time\n"
+        "from backend.bash_churn import _dash_c_sources\n"
+        f"text = {text_expression}\n"
+        "started = process_time()\n"
+        "scripts = _dash_c_sources(text)\n"
+        "cpu = process_time() - started\n"
+        "script_chars = sum(map(len, scripts))\n"
+        f"span_chars = script_chars + len(scripts) * {quote_tail_chars}\n"
+        "print(json.dumps({'cpu': cpu, 'count': len(scripts), "
+        "'script_chars': script_chars, 'span_chars': span_chars}))\n"
+    )
+    _, completed = _run_timing_case(name, program)
+    if completed is None:
+        raise AssertionError(f"{name}: 120-second hang guard tripped")
+    assert completed.returncode == 0, f"{name} failed: {completed.stderr}"
+    measurement = json.loads(completed.stdout)
+    assert measurement["cpu"] < 5.0, (
+        f"{name} used {measurement['cpu']:.3f}s CPU")
+    assert measurement["span_chars"] <= _SCRIPT_SPAN_LIMIT, (
+        f"{name} kept {measurement['span_chars']} script-text characters")
+    assert measurement["script_chars"] <= _SCRIPT_SPAN_LIMIT, (
+        f"{name} produced {measurement['script_chars']} script characters")
+    assert measurement["count"] == expected_count
+    return measurement
+
+
+def test_unicode_separator_scripts_stay_within_span_budget():
+    # Four initial spans use 959,888 characters; a later 40,106-character
+    # span and the final 2-character span also fit, so six scripts are kept.
+    measurement = _timed_source_case(
+        "20,000 Unicode-separated Python commands",
+        "('python\\u3000-c\\u3000x\\u3000' * 20_000)",
+        expected_count=6)
+    assert measurement["span_chars"] == 999_996
+
+
+def test_empty_quote_tail_scripts_stay_within_span_budget():
+    measurement = _timed_source_case(
+        "Unicode-separated commands followed by empty quote pairs",
+        "('python\\u3000-c\\u3000x\\u3000' * 200) + (\"''\" * 40_000)",
+        expected_count=12,
+        quote_tail_chars=80_000)
+    assert measurement["span_chars"] == 987_888
+
+
+def test_parse_file_stores_bounded_unicode_command_churn_within_cpu_budget():
+    program = r'''
+import json
+from time import process_time
+
+from backend.bash_churn import bash_churn
+from backend.parse import parse_file
+
+command = 'python\u3000-c\u3000x\u3000' * 20_000
+record = {
+    'type': 'assistant',
+    'timestamp': '2026-09-28T00:00:00Z',
+    'cwd': '/work',
+    'requestId': 'issue301',
+    'message': {
+        'role': 'assistant',
+        'model': 'claude-sonnet-4-5',
+        'usage': {'input_tokens': 10, 'output_tokens': 5},
+        'content': [{
+            'type': 'tool_use',
+            'id': 'bash1',
+            'name': 'Bash',
+            'input': {'command': command},
+        }],
+    },
+}
+blob = (json.dumps(record) + '\n').encode()
+expected = bash_churn(command)
+started = process_time()
+parsed = parse_file('issue301.jsonl', blob)
+cpu = process_time() - started
+tool = parsed['tool_uses'][0]
+stored = (tool['lines_added'], tool['lines_deleted'])
+assert stored == expected, (stored, expected)
+print(json.dumps({'cpu': cpu, 'stored': stored}))
+'''
+    _, completed = _run_timing_case("parse_file stored churn", program)
+    if completed is None:
+        raise AssertionError("parse_file stored churn: 120-second hang guard tripped")
+    assert completed.returncode == 0, completed.stderr
+    measurement = json.loads(completed.stdout)
+    assert measurement["cpu"] < 5.0, (
+        f"parse_file used {measurement['cpu']:.3f}s CPU")

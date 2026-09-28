@@ -1,9 +1,7 @@
 """Recognize Python shell commands and decode their inline scripts."""
 from __future__ import annotations
 
-import io
 import re
-import shlex
 
 
 _PREFIX_DELIMITERS = "|;&("
@@ -12,6 +10,7 @@ _PYTHON_CANDIDATE = re.compile(r"python(?:3(?:\.\d+)?)?\s+-c\s")
 _PYTHON_STDIN = re.compile(
     r"(?<![^\s|;&(/])python(?:3(?:\.\d+)?)?\s+-(?:\s|$)")
 _SHLEX_SPECIAL = re.compile(r"[ \t\r\n'\"\\]")
+MAX_SCRIPT_SPAN_CHARS = 1_000_000  # Bounds script text taken from one command.
 
 # Suffix validity depends on the shlex state at each position. State order is
 # between words, word, single quote, double quote, escape-to-word, escape-to-double.
@@ -31,6 +30,19 @@ def _advance_shlex(
         raises[transition[0]], raises[transition[1]],
         raises[transition[2]], raises[transition[3]],
         raises[transition[4]], raises[transition[5]],
+    )
+
+
+def _advance_token_ends(
+        ends: tuple[int, ...], transition: tuple[int, ...],
+        whitespace_position: int | None = None,
+) -> tuple[int, ...]:
+    """Carry first-token end offsets through one state transition."""
+    return tuple(
+        whitespace_position + 1
+        if state == 1 and whitespace_position is not None
+        else ends[transition[state]]
+        for state in range(6)
     )
 
 
@@ -54,9 +66,68 @@ def _largest_valid_start(text: str, position: int) -> int | None:
     return run_start - 1 if run_start else 0
 
 
+def _first_token(text: str, position: int, span_chars: int) -> str | None:
+    """Avoid shlex.get_token's quadratic concatenation on long tokens."""
+    # Keep shlex state transitions explicit for review.
+    # pylint: disable=too-many-branches
+    token_chars: list[str] = []
+    state = 0
+    started = False
+    for index in range(position, position + span_chars):
+        char = text[index]
+        if state == 0:
+            if char in " \t\r\n":
+                continue
+            started = True
+            if char == "'":
+                state = 2
+            elif char == '"':
+                state = 3
+            elif char == "\\":
+                state = 4
+            else:
+                token_chars.append(char)
+                state = 1
+        elif state == 1:
+            if char in " \t\r\n":
+                break
+            if char == "'":
+                state = 2
+            elif char == '"':
+                state = 3
+            elif char == "\\":
+                state = 4
+            else:
+                token_chars.append(char)
+        elif state == 2:
+            if char == "'":
+                state = 1
+            else:
+                token_chars.append(char)
+        elif state == 3:
+            if char == '"':
+                state = 1
+            elif char == "\\":
+                state = 5
+            else:
+                token_chars.append(char)
+        elif state == 4:
+            token_chars.append(char)
+            state = 1
+        else:
+            if char not in ('"', "\\"):
+                token_chars.append("\\")
+            token_chars.append(char)
+            state = 3
+    return "".join(token_chars) if started else None
+
+
 def _script_tokens(
-        text: str, positions: list[int]) -> dict[int, str | None]:
-    """Check suffix validity backward, then lex one first token per valid suffix."""
+        text: str, positions: list[int], *,
+        spans: dict[int, int] | None = None) -> dict[int, str | None]:
+    """Check suffix validity and token spans backward, then lex within budget."""
+    # Keep the backward automaton and budget accounting in one linear pass.
+    # pylint: disable=too-many-branches,too-many-locals,too-many-statements
     if not positions:
         return {}
 
@@ -67,6 +138,8 @@ def _script_tokens(
     cursor = len(text)
     raises: tuple[bool, ...] = _SHLEX_END_RAISES
     valid: dict[int, bool] = {}
+    span_chars: dict[int, int] = {}
+    token_ends = (len(text),) * 6
     for position in reversed(positions):
         while special_index >= 0 and specials[special_index].start() >= position:
             special = specials[special_index]
@@ -74,34 +147,49 @@ def _script_tokens(
             special_position = special.start()
             if cursor > special_position + 1:
                 raises = _advance_shlex(raises, _SHLEX_ORDINARY)
+                token_ends = _advance_token_ends(token_ends, _SHLEX_ORDINARY)
             char = special.group()
             if char in " \t\r\n":
                 transition = _SHLEX_WHITESPACE
+                whitespace_position = special_position
             elif char == "'":
                 transition = _SHLEX_SINGLE_QUOTE
+                whitespace_position = None
             elif char == '"':
                 transition = _SHLEX_DOUBLE_QUOTE
+                whitespace_position = None
             else:
                 transition = _SHLEX_ESCAPE
+                whitespace_position = None
             raises = _advance_shlex(raises, transition)
+            token_ends = _advance_token_ends(
+                token_ends, transition, whitespace_position)
             cursor = special_position
 
         if cursor > position:
             raises = _advance_shlex(raises, _SHLEX_ORDINARY)
+            token_ends = _advance_token_ends(token_ends, _SHLEX_ORDINARY)
         valid[position] = not raises[0]
+        span_chars[position] = token_ends[0] - position
         cursor = position
 
-    stream = io.StringIO(text)
+    if spans is not None:
+        spans.update(span_chars)
+
     tokens: dict[int, str | None] = {}
+    kept_span_chars = 0
     for position in positions:
         if not valid[position]:
             tokens[position] = None
             continue
-        stream.seek(position)
-        lexer = shlex.shlex(stream, posix=True)
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens[position] = lexer.get_token()
+        candidate_span = span_chars[position]
+        if kept_span_chars + candidate_span > MAX_SCRIPT_SPAN_CHARS:
+            tokens[position] = None
+            continue
+        token = _first_token(text, position, candidate_span)
+        tokens[position] = token
+        if token is not None:
+            kept_span_chars += candidate_span
     return tokens
 
 
