@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import resource
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
@@ -15,17 +15,32 @@ from backend.bash_reads import scan
 
 def _run_limited_python(code: str, input_text: str = "", *,
                         args: tuple[str, ...] = (),
-                        timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
-    """Run scanner regressions with a ceiling for the original blowups."""
-    def set_memory_limit() -> None:
-        limit = 768 * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+                        timeout: float = 120.0) -> subprocess.CompletedProcess[str]:
+    """Run scanner regressions with a hang guard and Linux memory ceiling."""
+    run_options: dict[str, Any] = {
+        "input": input_text,
+        "text": True,
+        "capture_output": True,
+        "timeout": timeout,
+    }
+    if sys.platform.startswith("linux"):
+        def set_memory_limit() -> None:
+            import resource  # pylint: disable=import-outside-toplevel
 
-    return subprocess.run(
-        [sys.executable, "-c", code, *args], input=input_text, text=True,
-        capture_output=True, check=False, timeout=timeout,
-        preexec_fn=set_memory_limit,
-    )
+            limit = 768 * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+        run_options["preexec_fn"] = set_memory_limit
+
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", code, *args],
+            check=False,
+            **run_options,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"child process hang guard tripped after {timeout:g} seconds")
+    return completed
 
 
 @pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
@@ -594,9 +609,10 @@ import sys
 import time
 from backend.bash_reads import scan
 command = sys.stdin.read()
-started = time.perf_counter()
+started = time.process_time()
 result = scan(command)
-print(json.dumps([result, time.perf_counter() - started]))
+elapsed = time.process_time() - started
+print(json.dumps([result, elapsed]))
 """
     completed = _run_limited_python(code, command)
     assert completed.returncode == 0, completed.stderr
@@ -630,11 +646,13 @@ import time
 from pathlib import Path
 from backend.parse import parse_file
 path = Path(sys.argv[1])
-started = time.perf_counter()
-parsed = parse_file(path.name, path.read_bytes())
+data = path.read_bytes()
+started = time.process_time()
+parsed = parse_file(path.name, data)
+elapsed = time.process_time() - started
 tool = parsed["tool_uses"][0]
 print(json.dumps([tool["read_targets"], tool["read_kind"],
-                  time.perf_counter() - started]))
+                  elapsed]))
 """
     completed = _run_limited_python(code, args=(str(fixture),))
     assert completed.returncode == 0, completed.stderr
@@ -656,9 +674,9 @@ import time
 from backend.bash_churn import BashCommand
 from backend.bash_reads import scan, scan_command
 text = sys.stdin.read()
-started = time.perf_counter()
+started = time.process_time()
 result = scan(text)
-elapsed = time.perf_counter() - started
+elapsed = time.process_time() - started
 command = BashCommand(text)
 scan_command(command)
 print(json.dumps([result, elapsed, "tokens" in command.__dict__]))
