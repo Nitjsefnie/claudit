@@ -163,11 +163,17 @@ window.parseTranscript = function parseTranscript(text, opts) {
     const texts = [];
     let sawImage = false;
     for (const c of content) {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
       if (c.type === 'tool_result') {
         let resultText = '';
         const raw = c.content;
         if (Array.isArray(raw)) {
-          resultText = raw.map(x => (x && typeof x === 'object' ? (x.text || '') : String(x))).join('\n');
+          resultText = raw
+            .filter(x => typeof x === 'string'
+              || (x && typeof x === 'object' && !Array.isArray(x)
+                && x.type === 'text'))
+            .map(x => (typeof x === 'string' ? x : (x.text || '')))
+            .join('\n');
         } else {
           resultText = String(raw ?? '');
         }
@@ -199,6 +205,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
   function pushAssistantContent(content, lineNum, ts) {
     if (!Array.isArray(content)) return;
     for (const c of content) {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
       if (c.type === 'text') {
         events.push({ line: lineNum, type: 'assistant_text', ts, detail: c.text });
       } else if (c.type === 'tool_use') {
@@ -236,6 +243,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
       events.push({ line: i + 1, type: 'parse_error', ts: '', detail: 'Invalid JSON' });
       continue;
     }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
 
     // Cross-file dedup (directory / multi-load mode). Two files holding
     // the SAME API call — typically a session's main jsonl and one of its

@@ -17,6 +17,7 @@ import json
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import cast
 
 from orjson import JSONDecodeError, loads
 
@@ -291,6 +292,8 @@ def parse_legacy(file_key: str, blob: bytes) -> dict:
             obj = loads(raw)
         except JSONDecodeError:
             continue
+        if not isinstance(obj, dict):
+            continue
 
         ts_dt = _to_dt(obj.get("timestamp"))
         if ts_dt is not None and st.first_event_ts is None:
@@ -472,8 +475,8 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
     if et == "step.begin":
         _kc_step_begin(st, line_num, ts, ev.get("turnId"))
     elif et == "content.part":
-        part = ev.get("part") or {}
-        if part.get("type") == "text":
+        part = ev.get("part")
+        if isinstance(part, dict) and part.get("type") == "text":
             st.text_chars_since_turn += len(str(part.get("text", "")))
         _mark_assistant_event(st, ts)
     elif et == "tool.call":
@@ -579,6 +582,8 @@ def parse_kimi_code(file_key: str, blob: bytes) -> dict:
             obj = loads(raw)
         except JSONDecodeError:
             continue
+        if not isinstance(obj, dict):
+            continue
 
         typ = obj.get("type")
         if typ == "metadata":
@@ -586,7 +591,7 @@ def parse_kimi_code(file_key: str, blob: bytes) -> dict:
             continue
 
         ts_dt = _kc_event_ts(st, obj)
-        _kc_dispatch(st, typ, line_num, ts_dt, obj)
+        _kc_dispatch(st, cast(str, typ), line_num, ts_dt, obj)
 
     _attribute_tool_models(st)
     return _finish_parse(st, len(blob.splitlines()))

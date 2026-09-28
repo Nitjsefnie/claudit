@@ -1,0 +1,12 @@
+{"type":"metadata","protocol_version":"1.10"}
+{"timestamp":1784226326.5351517,"message":{"type":"TurnBegin","payload":{"user_input":"first"}}}
+{"timestamp":1784226326.5398679,"message":{"type":"ToolCall","payload":{"type":"function","id":"tc1","function":{"name":"Read","arguments":"{\"path\":\"/x\"}"}}}}
+{"timestamp":1784226326.5428803,"message":{"type":"StatusUpdate","payload":{"context_tokens":10,"token_usage":{"input_other":10,"output":2}}}}
+123
+"text"
+[1,2]
+null
+true
+{"timestamp":1784226327.5351517,"message":{"type":"TurnBegin","payload":{"user_input":"second"}}}
+{"timestamp":1784226327.5398679,"message":{"type":"ToolCall","payload":{"type":"function","id":"tc2","function":{"name":"Read","arguments":"{\"path\":\"/y\"}"}}}}
+{"timestamp":1784226327.5428803,"message":{"type":"StatusUpdate","payload":{"context_tokens":12,"token_usage":{"input_other":12,"output":3}}}}

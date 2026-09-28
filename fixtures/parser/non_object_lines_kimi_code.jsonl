@@ -1,0 +1,13 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"turn.prompt","input":[{"type":"text","text":"first"}],"origin":{"kind":"user"},"time":1782740973442}
+{"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"kc-t1","name":"Read","args":{"path":"/x"}},"time":1782740977270}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":2},"usageScope":"turn","time":1782740977271}
+123
+"text"
+[1,2]
+null
+true
+{"type":"context.append_loop_event","event":{"type":"content.part","part":"ignored"},"time":1782740978000}
+{"type":"turn.prompt","input":[{"type":"text","text":"second"}],"origin":{"kind":"user"},"time":1782740978271}
+{"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"kc-t2","name":"Read","args":{"path":"/y"}},"time":1782740979270}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":120,"output":3},"usageScope":"turn","time":1782740979271}

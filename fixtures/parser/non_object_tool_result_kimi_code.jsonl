@@ -1,0 +1,5 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"turn.prompt","input":[{"type":"text","text":"read"}],"origin":{"kind":"user"},"time":1782740973442}
+{"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"kr1","name":"Read","args":{"path":"/x"}},"time":1782740977270}
+{"type":"context.append_loop_event","event":{"type":"tool.result","toolCallId":"kr1","result":{"isError":true,"output":[null,{"type":"text","text":"tool failure"}]}},"time":1782740977271}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":2},"usageScope":"turn","time":1782740977272}
