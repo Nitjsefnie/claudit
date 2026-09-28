@@ -299,6 +299,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
       // requestId. They clobber the `last_usage` walk in any per-turn
       // aggregation. Mirrors backend/parse.py.
       if (usage && typeof usage === 'object' && !Array.isArray(usage)
+          && Object.keys(usage).length > 0
           && (m.model || '') !== '<synthetic>') {
         const reqId = obj.requestId || '';
         // No requestId (a Z.ai-served transcript): the lines of one API

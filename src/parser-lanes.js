@@ -277,7 +277,7 @@ function parseLaneLegacy(blob) {
     }
     if (msgType === 'StatusUpdate') {
       const tu = laneIsPlainObject(payload.token_usage) ? payload.token_usage : null;
-      if (!tu) continue;
+      if (!tu || Object.keys(tu).length === 0) continue;
       // Legacy transcripts carry no model string anywhere; dates decide.
       const model = laneModelFor(null, epochSec != null ? epochSec : firstEventTs);
       meta.push(laneUsageMeta(
