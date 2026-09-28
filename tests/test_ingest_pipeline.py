@@ -2,6 +2,9 @@
 the in-process pipeline over the mini mirror, and per-file persist
 failure isolation there."""
 
+import logging
+import re
+
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture,
     _mini_r2_env_fixture,
@@ -9,6 +12,8 @@ from test_ingest import (  # pylint: disable=unused-import
 from test_ingest import _FLAKY_KEY, _scalar, _snapshot
 
 from backend import db, ingest
+from backend.ingest_fetch import VanishedObject
+from backend import timing as _timing
 
 
 def test_parse_process_count_defaults_and_clamps(monkeypatch):
@@ -91,7 +96,7 @@ def test_process_pool_books_a_parse_failure_per_file(
     """
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    real_fetch = ingest._fetch_with_retry
+    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
 
     def flaky_fetch(key):
         if key.endswith(_FLAKY_KEY):
@@ -104,7 +109,7 @@ def test_process_pool_books_a_parse_failure_per_file(
     assert summary["failed"] == 1
     assert summary["error"] is not None
     with db.viz_conn() as c:
-        landed = c.execute("SELECT count(*) FROM files").fetchone()[0]
+        landed = _scalar(c, "SELECT count(*) FROM files")
     assert landed == 4, "the flaky file's peers did not land"
 
 
@@ -115,9 +120,7 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
     """
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    real_fetch = ingest._fetch_with_retry
-
-    from backend.ingest_fetch import VanishedObject
+    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
 
     def vanishing_fetch(key):
         if key.endswith(_FLAKY_KEY):
@@ -131,9 +134,9 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
     assert summary["failed"] == 0
     assert summary["vanished"] == 1
     with db.viz_conn() as c:
-        doomed = c.execute(
-            "SELECT count(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,)
-        ).fetchone()[0]
+        doomed = _scalar(
+            c,
+            "SELECT count(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,))
     assert doomed == 0, "the vanished key survived as a files row"
 
 
@@ -179,32 +182,28 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     """With CLAUDIT_TIMING on, the pool path's fetch_parse and persist
     marks stay disjoint and never exceed the run total.
     """
-    import logging as _logging
-
-    from backend import timing as _timing
-
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
-    with caplog.at_level(_logging.INFO, logger="claudit.ingest"):
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-timing")
     assert summary["error"] is None
     line = next(r.getMessage() for r in caplog.records
                 if r.name == "claudit.ingest"
                 and r.getMessage().startswith("TIMING ingest "))
-    import re as _re
 
     def _ms(field):
-        m = _re.search(rf"\b{field}=(\d+)ms", line)
+        m = re.search(rf"\b{field}=(\d+)ms", line)
+        assert m is not None, line
         return int(m.group(1))
 
     total, parse_ms, persist_ms = (
         _ms("total"), _ms("fetch_parse"), _ms("persist"))
     assert parse_ms >= 0 and persist_ms >= 0
     assert parse_ms + persist_ms <= total + 100, line
-    assert f"parse_processes=2" in line
-    assert f"persist_threads=2" in line
+    assert "parse_processes=2" in line
+    assert "persist_threads=2" in line
 
 
 def test_persist_thread_count_defaults_and_clamps(monkeypatch):
