@@ -23,7 +23,11 @@ expected_dotenv_path = Path.cwd() / ".env"
 load_dotenv = db.load_dotenv
 
 def load_test_dotenv(path=".env"):
-    if Path(path).resolve() != expected_dotenv_path.resolve():
+    requested_path = Path(path)
+    if (
+        not requested_path.is_absolute()
+        or requested_path.resolve() != expected_dotenv_path.resolve()
+    ):
         raise AssertionError("backend.app did not request repository-root .env")
     load_dotenv(dotenv_path)
 
