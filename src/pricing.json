@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T17:22:48Z",
+  "provider_rates_fetched": "2026-09-28T17:54:19Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -6334,6 +6334,24 @@
           "note": "50% off",
           "output": 0.14,
           "read": 0.014
+        },
+        {
+          "create_1h": 0.06846,
+          "create_5m": 0.06846,
+          "fresh": 0.06846,
+          "from": "2026-09-28T17:20:41Z",
+          "note": "51.1% off",
+          "output": 0.13692,
+          "read": 0.013692
+        },
+        {
+          "create_1h": 0.06692,
+          "create_5m": 0.06692,
+          "fresh": 0.06692,
+          "from": "2026-09-28T17:40:40Z",
+          "note": "52.2% off",
+          "output": 0.13384,
+          "read": 0.013384
         }
       ],
       "DeepInfra": [
@@ -11765,6 +11783,24 @@
           "note": "51% off",
           "output": 0.1372,
           "read": 0.01372
+        },
+        {
+          "create_1h": 0.06706,
+          "create_5m": 0.06706,
+          "fresh": 0.06706,
+          "from": "2026-09-28T17:26:07Z",
+          "note": "52.1% off",
+          "output": 0.13412,
+          "read": 0.013412
+        },
+        {
+          "create_1h": 0.06552,
+          "create_5m": 0.06552,
+          "fresh": 0.06552,
+          "from": "2026-09-28T17:45:42Z",
+          "note": "53.2% off",
+          "output": 0.13104,
+          "read": 0.013104
         }
       ],
       "Venice": [
@@ -16372,6 +16408,14 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": "2026-09-28T14:16:06Z",
+          "output": 0.35,
+          "read": 0.0531
+        },
+        {
+          "create_1h": 0.085,
+          "create_5m": 0.085,
+          "fresh": 0.085,
+          "from": "2026-09-28T17:45:45Z",
           "output": 0.35,
           "read": 0.0531
         }
@@ -30025,6 +30069,15 @@
           "from": "2026-09-28T12:07:00Z",
           "output": 3.5,
           "read": 0.14
+        },
+        {
+          "create_1h": 1.116,
+          "create_5m": 1.116,
+          "fresh": 1.116,
+          "from": "2026-09-28T17:26:03Z",
+          "note": "10% off",
+          "output": 3.15,
+          "read": 0.126
         }
       ],
       "Ionstream": [
@@ -33023,6 +33076,14 @@
           "from": "2026-08-29T10:41:16Z",
           "output": 4.4,
           "read": 0.26
+        },
+        {
+          "create_1h": 0.602,
+          "create_5m": 0.602,
+          "fresh": 0.602,
+          "from": "2026-09-28T17:50:50Z",
+          "output": 1.892,
+          "read": 0.1118
         }
       ],
       "Baidu": [
@@ -37375,6 +37436,14 @@
           "from": null,
           "output": 0.5,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.1155,
+          "create_5m": 0.1155,
+          "fresh": 0.1155,
+          "from": "2026-09-28T17:45:43Z",
+          "output": 0.385,
+          "read": 0.0231
         }
       ],
       "BaseTen": [
