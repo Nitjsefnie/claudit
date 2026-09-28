@@ -12,14 +12,14 @@ documented residual: a stored hash versioned above the target count
 still costs longer. Rate limiting: 5 failures per IP+user pair per
 5-minute window (issue #111), so one user's failures never lock a
 different user behind the same egress IP; entries are pruned per key
-on access and, once the table grows past _LOGIN_MAX_KEYS, every fully
-expired key is swept, then oldest active keys are evicted until the
-4,096-key bound holds, so a one-window flood cannot grow it without
-bound. A fresh failure reinserts its key at the newest position.
+on access. Each history table and its in-flight reservation table is
+bounded at 4,096 keys. Expired history keys are swept above the cap; at
+capacity, expired keys are swept first and unseen keys are refused if
+the table remains full. In-flight keys
+reserve history capacity, and active histories are never evicted.
 An aggregate limit also admits at most 20 failures per IP per 5-minute
-window, so rotating user ids cannot evade the pair limit; its entries
-use the same prune-on-access and 4,096-key bound: expired keys are
-swept first above the cap, then oldest active keys are evicted.
+window, so rotating user ids cannot evade the pair limit; it uses the
+same 4,096-key history and reservation bounds and fail-closed policy.
 """
 from __future__ import annotations
 
@@ -43,8 +43,8 @@ _LOGIN_FAILURES: dict[str, list[float]] = {}
 _LOGIN_INFLIGHT: dict[str, int] = {}
 _LOGIN_MAX_FAILURES = 5
 _LOGIN_WINDOW_SECONDS = 300
-# Hard bound for tracked (ip, user) pairs. Above it, expired keys are
-# swept first and oldest active keys are then evicted until within cap.
+# Hard bound for tracked (ip, user) pairs. At capacity, expired keys are
+# swept first and unseen keys are refused if the table remains full.
 _LOGIN_MAX_KEYS = 4096
 
 _LOGIN_IP_FAILURES: dict[str, list[float]] = {}
@@ -53,7 +53,7 @@ _LOGIN_IP_INFLIGHT: dict[str, int] = {}
 # while id rotation is limited to 20 failures from one IP per 5 minutes.
 _LOGIN_MAX_IP_FAILURES = 20
 # Hard bound for tracked client IPs, matching the pair limiter's
-# prune-on-access, expired-first sweep, and oldest-active eviction.
+# prune-on-access, expired-key sweep, and fail-closed admission policy.
 _LOGIN_MAX_IP_KEYS = 4096
 
 # One answer for every credential failure — identical status and body
@@ -79,28 +79,50 @@ def _prune_key(key: str, now: float) -> list[float]:
 
 
 def _sweep_expired_keys(now: float) -> None:
-    """Sweep expired keys, then evict oldest active keys to the hard cap.
-
-    Runs only above _LOGIN_MAX_KEYS, so the steady-state cost stays at
-    one key's prune.
-    """
+    """Remove expired pair histories without evicting live windows."""
     expired = [
         key for key, attempts in _LOGIN_FAILURES.items()
         if not any(now - t < _LOGIN_WINDOW_SECONDS for t in attempts)
     ]
     for key in expired:
         del _LOGIN_FAILURES[key]
-    while len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
-        del _LOGIN_FAILURES[next(iter(_LOGIN_FAILURES))]
+
+
+def _history_capacity_limited(
+    key: str,
+    histories: dict[str, list[float]],
+    inflight: dict[str, int],
+    max_keys: int,
+) -> bool:
+    """Refuse unseen keys when histories plus reserved slots fill."""
+    if key in histories or key in inflight:
+        return False
+    if len(histories) + len(inflight) < max_keys:
+        return False
+    reserved_history_slots = sum(
+        reserved_key not in histories for reserved_key in inflight
+    )
+    return len(histories) + reserved_history_slots >= max_keys
 
 
 def _check_login_rate_limit(ip: str, uid: int) -> bool:
     now = time.time()
     key = _failure_key(ip, uid)
     attempts = _prune_key(key, now)
-    if len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
+    if len(_LOGIN_FAILURES) >= _LOGIN_MAX_KEYS:
         _sweep_expired_keys(now)
-    return len(attempts) + _LOGIN_INFLIGHT.get(key, 0) >= _LOGIN_MAX_FAILURES
+    history_full = _history_capacity_limited(
+        key, _LOGIN_FAILURES, _LOGIN_INFLIGHT, _LOGIN_MAX_KEYS
+    )
+    reservations_full = (
+        len(_LOGIN_INFLIGHT) >= _LOGIN_MAX_KEYS
+        and key not in _LOGIN_INFLIGHT
+    )
+    return (
+        len(attempts) + _LOGIN_INFLIGHT.get(key, 0) >= _LOGIN_MAX_FAILURES
+        or history_full
+        or reservations_full
+    )
 
 
 def _record_login_failure(ip: str, uid: int) -> None:
@@ -108,7 +130,6 @@ def _record_login_failure(ip: str, uid: int) -> None:
     key = _failure_key(ip, uid)
     attempts = _prune_key(key, now)
     attempts.append(now)
-    _LOGIN_FAILURES.pop(key, None)
     _LOGIN_FAILURES[key] = attempts
     if len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
         _sweep_expired_keys(now)
@@ -128,25 +149,32 @@ def _prune_ip_key(ip: str, now: float) -> list[float]:
 
 
 def _sweep_expired_ip_keys(now: float) -> None:
-    """Sweep expired IPs, then evict oldest active keys to the hard cap."""
+    """Remove expired IP histories without evicting live windows."""
     expired = [
         ip for ip, attempts in _LOGIN_IP_FAILURES.items()
         if not any(now - t < _LOGIN_WINDOW_SECONDS for t in attempts)
     ]
     for ip in expired:
         del _LOGIN_IP_FAILURES[ip]
-    while len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
-        del _LOGIN_IP_FAILURES[next(iter(_LOGIN_IP_FAILURES))]
 
 
 def _check_login_ip_rate_limit(ip: str) -> bool:
     now = time.time()
     attempts = _prune_ip_key(ip, now)
-    if len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
+    if len(_LOGIN_IP_FAILURES) >= _LOGIN_MAX_IP_KEYS:
         _sweep_expired_ip_keys(now)
+    history_full = _history_capacity_limited(
+        ip, _LOGIN_IP_FAILURES, _LOGIN_IP_INFLIGHT, _LOGIN_MAX_IP_KEYS
+    )
+    reservations_full = (
+        len(_LOGIN_IP_INFLIGHT) >= _LOGIN_MAX_IP_KEYS
+        and ip not in _LOGIN_IP_INFLIGHT
+    )
     return (
         len(attempts) + _LOGIN_IP_INFLIGHT.get(ip, 0)
         >= _LOGIN_MAX_IP_FAILURES
+        or history_full
+        or reservations_full
     )
 
 
@@ -154,7 +182,6 @@ def _record_login_ip_failure(ip: str) -> None:
     now = time.time()
     attempts = _prune_ip_key(ip, now)
     attempts.append(now)
-    _LOGIN_IP_FAILURES.pop(ip, None)
     _LOGIN_IP_FAILURES[ip] = attempts
     if len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
         _sweep_expired_ip_keys(now)

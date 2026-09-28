@@ -344,9 +344,12 @@ point `R2_ENDPOINT` at a local mirror outside the tree.
   longer. The rate limiter keys 5 failures per IP+user pair per
   5-minute window and also limits the aggregate to 20 failures per IP
   per 5-minute window, so rotating user ids cannot evade admission
-  control. Both limiters prune expired entries on access. Above their
-  4,096-key caps, they sweep expired keys first, then evict oldest active
-  keys until within the cap if a one-window flood still exceeds it.
+  control. Both limiters prune expired entries on access. At or above
+  each 4,096-key history cap, expired keys are swept first; if the table
+  remains full, unseen keys are refused until an entry ages out. Pair
+  and IP in-flight reservation maps are also bounded at 4,096 keys, and
+  unseen reservations are refused when full. In-flight keys reserve
+  history capacity; live windows are never evicted.
 - **Guest mode**: `user_id=0` sessions are signed with a per-process
   secret regenerated at startup; cookies invalidate on restart. Guests
   are blocked from `/api/projects`, `/api/sessions*`, and `?project=`
