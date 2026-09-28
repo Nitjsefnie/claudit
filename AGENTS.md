@@ -41,6 +41,10 @@ backend/          — FastAPI application
                     sub-routers below
   api_common.py   — Shared endpoint helpers: dated-rate fold,
                     _parse_range/_bucket_seconds/_iso, HEATMAP_TZ
+  rate_boundaries.py — The instants a (model, provider) pair's rate can
+                    change, in pricing.resolve's own order; the cache
+                    fold groups each record by these, never the global
+                    RATE_EPOCHS list (SV-DATED-RATES).
   timing.py       — Dependency-free CLAUDIT_TIMING flag, logger setup and
                     Phases collector shared by API and ingest.
   api_dashboard.py — /api/dashboard (sources/queries/build split)
