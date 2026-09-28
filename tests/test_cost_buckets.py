@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
+from backend.api_cache import _cache_canon_source
 from backend.api_common import (
     epoch_ts, fold_per_model, fold_per_model_provider, rate_epoch_sql,
 )
@@ -81,8 +82,10 @@ def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
         "fresh": 8.25, "create_5m": 10.00, "create_1h": 16.50,
         "read": 0.825, "output": 41.25,
     }
-    provider_start = pricing.RATE_EPOCHS[0] + timedelta(seconds=1)
+    synthetic_boundary = datetime(2032, 1, 1, tzinfo=UTC)
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [synthetic_boundary])
     first_epoch_ts = epoch_ts(0)
+    provider_start = synthetic_boundary + timedelta(seconds=1)
     monkeypatch.setattr(pricing, "MODEL_RATES", {model: model_rates})
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {(model, host): provider_rates})
@@ -108,6 +111,30 @@ def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
     assert resolved.rates["fresh"] == provider_rates["fresh"]
     resolved_cost = 1_000_000 * resolved.rates["fresh"] / 1_000_000
     assert bucket_total == pytest.approx(resolved_cost)
+
+
+@pytest.mark.db
+def test_cache_range_includes_null_timestamp_in_list_epoch(monkeypatch):
+    """The cache source admits null-ts records, which fold in epoch -1."""
+    boundary = datetime(2031, 1, 1, tzinfo=UTC)
+    since = datetime(2030, 12, 1, tzinfo=UTC)
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
+    epoch_expr, epoch_params = rate_epoch_sql("ts")
+    canon_src, canon_args = _cache_canon_source(None, None, since)
+
+    with scratch_db.admin_connection() as conn:
+        got = conn.execute(
+            sql_text(
+                "WITH records(ts, is_canonical) AS (VALUES "
+                "(NULL::timestamptz, TRUE), "
+                "('2030-12-31T00:00:00+00:00'::timestamptz, TRUE)) "
+                f"SELECT ({epoch_expr}) AS rate_epoch, COUNT(*) "
+                f"{canon_src} GROUP BY rate_epoch ORDER BY rate_epoch"
+            ),
+            epoch_params + canon_args,
+        ).fetchall()
+
+    assert got == [(-1, 1), (0, 1)]
 
 
 def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_rate):

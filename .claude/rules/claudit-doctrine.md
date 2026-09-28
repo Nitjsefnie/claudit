@@ -540,6 +540,9 @@ each record's own `ts`; omitting `ts` yields LIST price (conservative
 The read-time fold honors the same rule: `rate_epoch_sql` maps a NULL ts
 to the list-price epoch -1, whose representative instant is None, so its
 buckets price at exactly what persist and reprice used.
+The cache view's range predicate admits a NULL-ts record in every range —
+there is no timestamp to filter by — so the record its stored cost describes
+is the record the fold decomposes.
 
 A window (a superseded history entry) is NEVER dropped once it has
 expired. Every `PRICING_VERSION` bump reprices every record from its
