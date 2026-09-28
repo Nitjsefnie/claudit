@@ -34,7 +34,7 @@ from __future__ import annotations
 import posixpath
 import re
 
-from backend.bash_churn import _NULL_SINKS, BashCommand
+from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
 from backend.bash_literals import ShellWord, destination_paths, literal_path, perl_paths, sed_parts
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
@@ -72,6 +72,11 @@ VALUE_FLAGS = frozenset({
 # command text, dropped otherwise.
 _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
+
+# Variable values can grow exponentially across chained assignments. Bound
+# each generated value and the sum generated while scanning one command.
+MAX_MATERIALIZED_EXPANSION_CHARS = MAX_COMMAND_CHARS
+MAX_SCAN_MATERIALIZED_EXPANSION_CHARS = 4 * MAX_COMMAND_CHARS
 
 # A token is a candidate path when it carries a short extension or a
 # separator. Bare words are rejected: `grep TODO notes.md` must not book
@@ -126,8 +131,8 @@ def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool =
     return bool("/" in token or (windows and "\\" in token) or _PATH_RE.search(token))
 
 
-def _strip_env_prefix(segment: list[str],
-                      env: dict[str, str | None]) -> list[str]:
+def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
+                      state: _Scan) -> list[str]:
     """Drop leading `VAR=value` assignments before the command word,
     recording each so a later `$VAR` in the same command resolves."""
     idx = 0
@@ -141,28 +146,77 @@ def _strip_env_prefix(segment: list[str],
             value.expansion = getattr(tok, "expansion", tok)[m.start(2):]
             # Assignment values do not undergo field splitting. Retain unknown
             # bindings explicitly so an unknown IFS still disables inference.
-            env[m.group(1)] = _expand(value, env)
+            env[m.group(1)] = _expand(value, env, state)
         idx += 1
     return segment[idx:]
 
 
-def _expand(token: str, env: dict[str, str | None]) -> str | None:
+def _expansion_size(token: str, env: dict[str, str | None],
+                    source: str) -> tuple[int | None, bool]:
+    """Measure a valid expansion without materializing its substituted value."""
+    expansion_length = 0
+    cursor = 0
+    has_reference = False
+    valid = True
+    for match in _VAR_REF.finditer(source):
+        literal = source[cursor:match.start()]
+        if any(char in literal for char in "$`*?["):
+            valid = False
+            break
+        expansion_length += len(literal)
+        value = env.get(match.group(1) or match.group(2) or "")
+        if getattr(token, "unquoted_expansion", False) and (
+                not value or "IFS" in env or any(c.isspace() for c in value)):
+            valid = False
+            break
+        if value is None or any(char in value for char in "`*?["):
+            valid = False
+            break
+        expansion_length += len(value)
+        has_reference = True
+        cursor = match.end()
+
+    if valid:
+        literal = source[cursor:]
+        if any(char in literal for char in "$`*?["):
+            valid = False
+        else:
+            expansion_length += len(literal)
+    return (expansion_length if valid else None), has_reference
+
+
+def _expand(token: str, env: dict[str, str | None],
+            state: _Scan) -> str | None:
     """`token` with every `$VAR` replaced from `env`, or None when any
     `$` survives — `$1`, `$(cmd)`, a variable this command did not
     assign: a path built at runtime."""
     if isinstance(token, ShellWord) and token.literal:
         return str(token)
+    if state.expansion_budget_exceeded:
+        return None
 
-    def _sub(m: re.Match[str]) -> str:
-        value = env.get(m.group(1) or m.group(2) or "")
-        if getattr(token, "unquoted_expansion", False) and (
-                not value or "IFS" in env or any(c.isspace() for c in value)):
-            # Refuse uncertain arity instead of guessing shell field splitting.
-            return m[0]
-        # Parameter expansion does not evaluate dollars from the value again.
-        return m[0] if value is None else value.replace("$", "\x00")
-    out = _VAR_REF.sub(_sub, getattr(token, "expansion", token))
-    return None if any(c in out for c in "$`*?[") else out.replace("\x00", "$")
+    source = getattr(token, "expansion", token)
+    expansion_length, has_reference = _expansion_size(token, env, source)
+    if expansion_length is None:
+        return None
+    materialized = has_reference or "\x00" in source
+    if materialized and (
+            expansion_length > MAX_MATERIALIZED_EXPANSION_CHARS
+            or not state.reserve_expansion(expansion_length)):
+        return None
+
+    if has_reference:
+        def _sub(match: re.Match[str]) -> str:
+            value = env.get(match.group(1) or match.group(2) or "")
+            if value is None:
+                return match[0]
+            # Parameter expansion does not evaluate dollars from the value again.
+            return value.replace("$", "\x00")
+
+        out = _VAR_REF.sub(_sub, source)
+    else:
+        out = source
+    return out.replace("\x00", "$")
 
 
 def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
@@ -240,12 +294,24 @@ class _Scan:
     def __init__(self, cwd: str) -> None:
         self.base: str | None = cwd or ""
         self.env: dict[str, str | None] = {}
+        self.expansion_chars = 0
+        self.expansion_budget_exceeded = False
         self.kind: str | None = None
         self.reads: list[str] = []
         self.writes: list[str] = []
 
+    def reserve_expansion(self, size: int) -> bool:
+        """Reserve characters for one accepted materialized expansion."""
+        if self.expansion_budget_exceeded:
+            return False
+        if self.expansion_chars + size > MAX_SCAN_MATERIALIZED_EXPANSION_CHARS:
+            self.expansion_budget_exceeded = True
+            return False
+        self.expansion_chars += size
+        return True
+
     def add(self, bucket: list[str], path: str) -> None:
-        expanded = _expand(path, self.env)
+        expanded = _expand(path, self.env, self)
         if not expanded or expanded in _NULL_SINKS:
             return
         resolved = _resolve(expanded, self.base)
@@ -253,7 +319,7 @@ class _Scan:
             bucket.append(resolved)
 
     def segment(self, raw_segment: list[str]) -> None:
-        segment = _strip_env_prefix(raw_segment, self.env)
+        segment = _strip_env_prefix(raw_segment, self.env, self)
         if not segment:
             return
         name = posixpath.basename(segment[0])
@@ -270,7 +336,7 @@ class _Scan:
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
             operands = [ShellWord(value, operator=getattr(arg, "operator", False))
-                        if (value := _expand(arg, self.env)) is not None else arg
+                        if (value := _expand(arg, self.env, self)) is not None else arg
                         for arg in operands]
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
@@ -280,7 +346,7 @@ class _Scan:
             # One unresolved/splittable operand can shift every option position.
             return
         if name == "cd" and operands:
-            target = _expand(operands[0], self.env)
+            target = _expand(operands[0], self.env, self)
             self.base = _resolve(target, self.base) if target is not None else None
             return
         if name in ("cp", "install", "mv", "perl"):
@@ -324,6 +390,8 @@ def scan(command: str, cwd: str = "") -> tuple[str | None, list[str],
 
 def scan_command(command: BashCommand, cwd: str = "") -> tuple[str | None, list[str], list[str]]:
     """Read/write access using the syntax already parsed for this Bash call."""
+    if not command.command or len(command.command) > MAX_COMMAND_CHARS:
+        return None, [], []
     state = _Scan(cwd)
     # Heredoc bodies are payload, not command line: a docstring that
     # mentions INDEX.md did not read it.
