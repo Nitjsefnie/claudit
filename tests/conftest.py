@@ -1,13 +1,12 @@
 # Ordering is load-bearing: the DATABASE_URL_VIZ setdefault below MUST run
-# before anything imports backend.app (directly, or transitively via
-# backend.api/db/etc.), because backend/app.py:20 calls
-# db.load_dotenv(".env") at import time, and .env pins DATABASE_URL_VIZ at
-# the live production `claudit` database. Since db.load_dotenv only ever
-# os.environ.setdefault()s (never overwrites), the first setdefault to run
-# for this key wins the race for the whole test process. backend.cache and
-# backend.pricing are safe to import above it: both are stdlib-only and
-# never touch the env; so is tests.scratch_db, which imports no backend
-# module at load.
+# before an import reaches backend.app (directly, or transitively via
+# backend.api/db/etc.). backend.app loads the repository-root .env after
+# importing backend.db and before its other backend modules; that .env pins
+# DATABASE_URL_VIZ at the live production `claudit` database. Since
+# db.load_dotenv only ever os.environ.setdefault()s (never overwrites), the
+# test value wins when it is set first. backend.cache and backend.pricing are
+# safe to import above it: both are stdlib-only and never touch the env; so is
+# tests.scratch_db, which imports no backend module at load.
 import os
 import sys
 from datetime import datetime, timezone
@@ -36,6 +35,10 @@ os.environ.setdefault("R2_ACCOUNT_ID", "")
 os.environ.setdefault("R2_ACCESS_KEY_ID", "")
 os.environ.setdefault("R2_SECRET_ACCESS_KEY", "")
 os.environ.setdefault("ADMIN_TOKEN", "test-admin")
+# Keep settings captured during app imports deterministic in the test suite.
+# Exported values still win because these are set with setdefault.
+os.environ.setdefault("EXPORT_PYTHON", "/usr/bin/python3")
+os.environ.setdefault("CLAUDIT_TIMING", "0")
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.
 os.environ.setdefault("COOKIE_SECURE", "0")
 # No background cache warming under test: a warm queued by run_ingest
