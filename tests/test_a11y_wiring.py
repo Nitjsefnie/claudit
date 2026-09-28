@@ -412,3 +412,109 @@ def test_sr_only_spans_exist_in_the_chart_files():
     assert sites >= 8, (
         f"only {sites} sr-only spans across the chart files -- the "
         f"guard would pass vacuously")
+
+
+# -- Inspector transcript keyboard selection (issue #251) --------------
+
+def _opening_tag(src: str, pos: int) -> str:
+    """The opening tag starting at src[pos], JSX-aware: it ends at the
+    first `>` outside {...} bindings and string literals (the same rule
+    _svg_tags applies to <svg>), so a key handler's `=>` cannot end the
+    tag early.
+    """
+    i = pos
+    depth = 0
+    quote = None
+    while i < len(src):
+        ch = src[i]
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == ">" and depth == 0:
+            break
+        i += 1
+    return src[pos:i + 1]
+
+
+def _timeline_container_tag() -> str:
+    src = APP.read_text(encoding="utf-8")
+    return _opening_tag(src, src.index('<div className="timeline"'))
+
+
+def test_inspector_timeline_is_a_reachable_listbox():
+    """The transcript timeline is a listbox a keyboard user can Tab to:
+    the container carries role="listbox", tabIndex={0}, an accessible
+    name, and aria-activedescendant naming the highlighted option so
+    focus stays on the container while readers announce the active row.
+    """
+    tag = _timeline_container_tag()
+    assert 'role="listbox"' in tag, (
+        'the timeline container carries no role="listbox" -- transcript '
+        "rows are not exposed as a selectable collection")
+    assert "tabIndex={0}" in tag, (
+        "the timeline listbox is not in the tab order -- a keyboard user "
+        "can never reach the transcript rows")
+    assert "aria-activedescendant={" in tag, (
+        "the timeline listbox names no active option; with focus on the "
+        "container, screen readers cannot announce the highlighted row")
+    assert 'aria-label="' in tag, (
+        "the timeline listbox carries no accessible name")
+
+
+def test_inspector_rows_render_as_listbox_options():
+    """Each TimelineRow is an option of the listbox: a document-wide
+    unique id (what aria-activedescendant names), role="option", and an
+    aria-selected binding so the highlighted row is announced as
+    selected.
+    """
+    src = APP.read_text(encoding="utf-8")
+    start = src.index("function TimelineRow(")
+    body = src[start:src.index("\n}", start)]
+    assert re.search(r"\bid=\{", body), (
+        "TimelineRow renders no id -- the listbox's aria-activedescendant "
+        "names nothing")
+    assert 'role="option"' in body, (
+        "TimelineRow carries no role=\"option\" -- rows are anonymous "
+        "divs to assistive technology")
+    assert "aria-selected={" in body, (
+        "TimelineRow binds no aria-selected -- readers cannot tell which "
+        "row is selected")
+
+
+def test_inspector_keys_drive_the_click_selection_path():
+    """Enter, Space, ArrowUp and ArrowDown on the listbox all move or
+    activate the selection through the SAME setSelected call the row
+    click handler uses, and ArrowDown's move is clamped against the last
+    visible row -- so the second of two verbatim-identical entries is
+    reachable (its map key is distinct through idx).
+    """
+    tag = _timeline_container_tag()
+    assert "onKeyDown={" in tag, (
+        "the timeline listbox binds no onKeyDown -- no key can reach the "
+        "transcript rows")
+    src = APP.read_text(encoding="utf-8")
+    handler_m = re.search(r"const onTimelineKeyDown = \(ev\) => \{(.*?)\n  \};",
+                          src, re.S)
+    assert handler_m, (
+        "the onTimelineKeyDown handler moved; relocate this guard with it")
+    handler = handler_m.group(1)
+    for key in ("'ArrowDown'", "'ArrowUp'", "'Enter'", "' '"):
+        assert key in handler, (
+            f"the timeline key handler never matches {key} -- that key "
+            f"does nothing on the transcript rows")
+    assert "setSelected" in handler, (
+        "the timeline key handler bypasses setSelected -- it does not "
+        "drive the same selection path the row click uses")
+    assert "visible.length - 1" in handler, (
+        "the arrow move is not clamped against the last visible row -- "
+        "the selection cannot traverse to every row, including the "
+        "second of two identical entries")
+    assert "onClick={() => setSelected(idx)}" in src, (
+        "the row click no longer routes through setSelected(idx); the "
+        "key handler's path is no longer the click path")
