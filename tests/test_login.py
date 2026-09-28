@@ -10,6 +10,7 @@ login touches nothing in the shared auth DB, and logout invalidates
 the signed-in user's sessions server-side (best-effort: it clears the
 cookie even when the store is unavailable).
 """
+import asyncio
 import copy
 import secrets
 import threading
@@ -541,6 +542,116 @@ def test_ip_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch):
 
     assert r.status_code == 429
     assert r.text == "Too many login attempts. Try again later."
+
+
+@pytest.mark.parametrize(
+    ("user_ids", "seed_pair", "seed_ip", "expected_admissions"),
+    [
+        ([12345] * 25, 2, 3, 3),
+        (list(range(200, 225)), 0, 3, 17),
+    ],
+)
+def test_concurrent_login_reservations_enforce_pair_and_ip_caps(
+    user_ids, seed_pair, seed_ip, expected_admissions, monkeypatch
+):
+    """In-flight verification reserves admission before its first await,
+    so a simultaneous burst cannot exceed either failure window."""
+    ip = "198.51.100.90"
+    now = time_mod.time()
+    if seed_pair:
+        login_mod._LOGIN_FAILURES[  # pylint: disable=protected-access
+            login_mod._failure_key(ip, user_ids[0])  # pylint: disable=protected-access
+        ] = [now] * seed_pair
+    if seed_ip:
+        login_mod._LOGIN_IP_FAILURES[ip] = [now] * seed_ip  # pylint: disable=protected-access
+
+    release_workers = threading.Event()
+    worker_lock = threading.Lock()
+    worker_state = {"started": 0}
+    admissions = {"total": 0, "by_user": {}}
+    config = {
+        auth.WEB_PASSWORD_HASH_KEY: "stored-hash",
+        auth.WEB_PASSWORD_SALT_KEY: "stored-salt",
+    }
+    def track_auth_load(uid):
+        admissions["total"] += 1
+        by_user = admissions["by_user"]
+        by_user[uid] = by_user.get(uid, 0) + 1
+        return config
+
+    monkeypatch.setattr(session_mod, "load_user_config", track_auth_load)
+    monkeypatch.setattr(
+        auth, "normalize_verification_timing", lambda password, spent: None
+    )
+
+    async def drive_burst():
+        all_checks_done = asyncio.Event()
+        pair_checks = 0
+        original_check = login_mod._check_login_rate_limit
+
+        def tracked_pair_check(check_ip, uid):
+            nonlocal pair_checks
+            limited = original_check(check_ip, uid)
+            pair_checks += 1
+            if pair_checks == len(user_ids):
+                all_checks_done.set()
+            return limited
+
+        def blocking_verification(_config, password):
+            with worker_lock:
+                worker_state["started"] += 1
+            if not release_workers.wait(timeout=10):
+                raise TimeoutError("login verification barrier was not released")
+            return False
+
+        monkeypatch.setattr(
+            login_mod, "_check_login_rate_limit", tracked_pair_check
+        )
+        monkeypatch.setattr(auth, "verify_web_password", blocking_verification)
+
+        def make_request():
+            return Request({
+                "type": "http",
+                "method": "POST",
+                "headers": [],
+                "client": (ip, 1234),
+            })
+
+        tasks = [
+            asyncio.create_task(login_mod.login_post(
+                make_request(), user_id=str(uid), password=str(uid)
+            ))
+            for uid in user_ids
+        ]
+        try:
+            await asyncio.wait_for(all_checks_done.wait(), timeout=5)
+            # Let the final checked request complete its no-await admission
+            # path and submit verification before opening the worker barrier.
+            await asyncio.sleep(0)
+        finally:
+            release_workers.set()
+        return await asyncio.gather(*tasks)
+
+    responses = asyncio.run(drive_burst())
+    assert admissions["total"] == expected_admissions
+    assert worker_state["started"] == expected_admissions
+    assert sum(response.status_code == 429 for response in responses) == (
+        len(user_ids) - expected_admissions
+    )
+    assert all(
+        response.status_code in (401, 429) for response in responses
+    )
+
+    for uid in set(user_ids):
+        pair_key = login_mod._failure_key(ip, uid)  # pylint: disable=protected-access
+        pair_recorded = len(login_mod._LOGIN_FAILURES.get(pair_key, []))  # pylint: disable=protected-access
+        assert pair_recorded <= login_mod._LOGIN_MAX_FAILURES  # pylint: disable=protected-access
+        prior = seed_pair if uid == user_ids[0] else 0
+        pair_peak = admissions["by_user"].get(uid, 0)
+        assert prior + pair_peak <= login_mod._LOGIN_MAX_FAILURES  # pylint: disable=protected-access
+    ip_recorded = len(login_mod._LOGIN_IP_FAILURES.get(ip, []))  # pylint: disable=protected-access
+    assert ip_recorded <= login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
+    assert seed_ip + admissions["total"] <= login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
 
 
 def test_successful_login_does_not_write_the_auth_db(
