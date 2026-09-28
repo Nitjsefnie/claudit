@@ -1,7 +1,6 @@
 # pylint: disable=too-many-lines
-# (over 1000 lines: one file because the export/auth/read panels share the
-# expensive module-scoped app_with_data fixture — splitting would either
-# duplicate the fresh-DB+ingest setup or force cross-module fixture imports.)
+# One file because export/auth/read tests share app_with_data; splitting
+# duplicates setup or requires cross-module fixture imports.
 import asyncio
 import importlib.util
 import inspect
@@ -27,10 +26,15 @@ from tests import scratch_db
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load_plot_db_module(monkeypatch):
+def _load_plot_db_module(monkeypatch, request):
     """Import plot module by path with helper modules isolated per test."""
     path = _REPO_ROOT / "scripts/plots/ccusage_plot_db.py"
-    for name in ("ccusage_plot_render", "ccusage_plot_timeline"):
+    helper_names = ("ccusage_plot_render", "ccusage_plot_timeline")
+    present_before = set(sys.modules).intersection(helper_names)
+    for name in helper_names:
+        if name not in present_before:
+            request.addfinalizer(
+                lambda name=name: sys.modules.pop(name, None))
         monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location("ccusage_plot_db", path)
@@ -137,13 +141,11 @@ def test_export_other_child_failure_stays_500(app_with_data, tmp_path):
     assert str(excinfo.value.detail) == "export render failed"
 
 
-def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch):
+def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch, request):
     """load_events(project=...) returns a strict subset of all-projects,
     and every returned event belongs to the requested project."""
-    mod = _load_plot_db_module(monkeypatch)
-    # DB_URL is a module-level global rebound by main() in real use;
-    # setattr because the module is loaded dynamically (importlib), so a
-    # static checker cannot see the attribute.
+    mod = _load_plot_db_module(monkeypatch, request)
+    # Dynamic import hides DB_URL from static checking; main() rebinds it.
     setattr(mod, "DB_URL", os.environ["DATABASE_URL_VIZ"])
 
     all_events = mod.load_events(None, None)
@@ -187,11 +189,8 @@ def _build_api_client(mp, label: str):
     scratch_db.drop_database(test_db)
 
 
-# Module-scoped: this setup (a fresh database, schema, copy the R2 tree,
-# a full ingest incl. recompute_canonical + rebuild_rollup) ran per test
-# and was ~2-5s of pure `setup` on every one of ~40 read-only tests —
-# the whole reason the suite took 170s. Tests that WRITE must not share
-# it; they take `app_with_fresh_data` below.
+# Module-scoped because fresh DB + ingest cost 2-5s per read-only test.
+# Tests that write use `app_with_fresh_data` below.
 @pytest.fixture(scope="module", name="app_with_data")
 def _app_with_data_fixture():
     mp = pytest.MonkeyPatch()          # monkeypatch itself is function-scoped
