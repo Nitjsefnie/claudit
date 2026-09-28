@@ -157,20 +157,6 @@ def _reset_response_cache():
     cache.response_cache.clear()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_transcript_cache(monkeypatch):
-    """Keep one test's transcript reads out of the process-wide LRU."""
-    original = cache.transcript_cache
-    monkeypatch.setattr(
-        cache,
-        "transcript_cache",
-        type(original)(
-            max_bytes=original.max_bytes,
-            idle_seconds=original.idle_seconds,
-        ),
-    )
-
-
 def pytest_collection_modifyitems(config, items):
     # The mechanical db/portable split (issue #27): every test whose
     # fixture closure reaches a registered DB fixture is marked `db`, so
