@@ -6,9 +6,13 @@ import json
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
+# The production scripts use sibling imports when run directly.
+# pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
 from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
 
@@ -16,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 import refresh_provider_rates as refresh  # noqa: E402
-import refresh_pricelog as pricelog  # noqa: E402
 
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
@@ -30,6 +33,7 @@ RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
           "read": 0.02, "output": 0.7}
 RATE_C = {"fresh": 0.4, "create_5m": 0.4, "create_1h": 0.4,
           "read": 0.03, "output": 0.9}
+
 
 def _point(at: str, value: float) -> dict:
     return {"at": at, "value": value}
@@ -60,7 +64,7 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
     }
 
 
-def _entry(at: str, rates: dict) -> dict:
+def _entry(at: str | None, rates: dict) -> dict:
     return {"from": at, **rates}
 
 
@@ -68,42 +72,74 @@ def _endpoint(host: str, rates: dict) -> dict:
     return fixture_endpoint(host, rates, tag="wafer/fp8")
 
 
+@dataclass
+class RefreshCase:
+    """Inputs for one synthetic hourly refresh run."""
+    history: list[tuple[str, dict]]
+    hosts: dict[str, list[dict]]
+    endpoint_rates: dict
+    now: datetime
+    log_fetch: Callable[[], object] | None
+    catalog: object
+    version: int
+
+
+class RefreshFetches:
+    """Network stubs used by every refresh test in this file."""
+    def __init__(self, payload: dict, log_payload: dict,
+                 log_fetch: Callable[[], object] | None, catalog: object) -> None:
+        self.payload = payload
+        self.log_payload = log_payload
+        self.log_fetch = log_fetch
+        self.catalog = catalog
+
+    def fetch_endpoints(self, model_id: str) -> object:
+        assert model_id == MODEL_ID
+        return copy.deepcopy(self.payload)
+
+    def fetch_models(self) -> object:
+        return self.catalog if self.catalog is not None else {
+            "data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
+
+    def fetch_log(self, slug: str) -> object:
+        assert slug == SLUG
+        if self.log_fetch is not None:
+            return self.log_fetch()
+        return copy.deepcopy(self.log_payload)
+
+
+def _request_payloads(history: list[tuple[str, dict]], hosts: dict[str, list[dict]],
+                      endpoint_rates: dict) -> tuple[dict, dict]:
+    log_payload = {"data": {"series": [_series(history)]}}
+    endpoint_hosts = dict(hosts)
+    endpoint_hosts.setdefault(HOST, [])
+    endpoints = [_endpoint(host, endpoint_rates if host == HOST else row[-1])
+                 for host, row in endpoint_hosts.items()]
+    return {"data": {"endpoints": endpoints}}, log_payload
+
+
 def _run(tmp_path: Path, capsys, *, history: list[tuple[str, dict]],
          hosts: dict[str, list[dict]] | None = None,
          endpoint_rates: dict | None = None, now: datetime = NOW,
          log_fetch=None, catalog=None, version: int = 13):
-    log_payload = {"data": {"series": [_series(history)]}}
-    row_hosts = {HOST: [_entry(None, RATE_A)]} if hosts is None else hosts
-    doc = _doc(row_hosts)
+    case = RefreshCase(
+        history, hosts if hosts is not None else {HOST: [_entry(None, RATE_A)]},
+        endpoint_rates or history[-1][1], now, log_fetch, catalog, version)
+    return _run_case(tmp_path, capsys, case)
+
+
+def _run_case(tmp_path: Path, capsys, case: RefreshCase):
+    doc = _doc(case.hosts)
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
     pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    constants_path.write_text(f'PRICING_VERSION = "{version}"\n', encoding="utf-8")
-    endpoint_rates = endpoint_rates or history[-1][1]
-    endpoint_hosts = dict(row_hosts)
-    endpoint_hosts.setdefault(HOST, [])
-    endpoints = []
-    for host, row in endpoint_hosts.items():
-        rates = endpoint_rates if host == HOST else row[-1]
-        endpoints.append(_endpoint(host, rates))
-    payload = {"data": {"endpoints": endpoints}}
-
-    def fetch_endpoints(model_id: str) -> object:
-        assert model_id == MODEL_ID
-        return copy.deepcopy(payload)
-
-    def fetch_models() -> object:
-        return catalog if catalog is not None else {
-            "data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
-
-    def fetch_listed(slug: str) -> object:
-        assert slug == SLUG
-        if log_fetch:
-            return log_fetch()
-        return copy.deepcopy(log_payload)
-
-    rc = refresh.main([], fetch=fetch_endpoints, fetch_models=fetch_models,
-                      fetch_log=fetch_listed, now=now, pricing_path=pricing_path,
+    constants_path.write_text(f'PRICING_VERSION = "{case.version}"\n', encoding="utf-8")
+    payload, log_payload = _request_payloads(
+        case.history, case.hosts, case.endpoint_rates)
+    fetches = RefreshFetches(payload, log_payload, case.log_fetch, case.catalog)
+    rc = refresh.main([], fetch=fetches.fetch_endpoints,
+                      fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
+                      now=case.now, pricing_path=pricing_path,
                       constants_path=constants_path)
     out, err = capsys.readouterr()
     return rc, out, err, pricing_path, constants_path

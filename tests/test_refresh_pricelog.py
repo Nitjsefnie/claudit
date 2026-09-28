@@ -5,17 +5,18 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import _per_token
 
+# Pylint cannot follow this test-only path injection to the script's return
+# annotations; pyright and the executed assertions validate the list access.
+# pylint: disable=unsubscriptable-object,not-an-iterable
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
-try:
-    import refresh_pricelog as pricelog
-except ModuleNotFoundError as exc:
-    if exc.name != "refresh_pricelog":
-        raise
-    pricelog = None
+# The directly executable script resolves sibling modules from scripts/ci.
+# pylint: disable=wrong-import-position,wrong-import-order
+import refresh_pricelog as pricelog  # noqa: E402
 
 
 def _point(at: str, value: float | None) -> dict:
@@ -33,7 +34,7 @@ def _series(*, slug: str = "wafer", host: str = "Wafer",
         "output": [_point("2026-09-01T00:00:00Z", current["output"])],
         "cacheRead": [_point("2026-09-01T00:00:00Z", current["read"])],
         "cacheWrite": [_point("2026-09-01T00:00:00Z", current["create_5m"]
-                               if current["create_5m"] != current["fresh"] else 0)],
+                              if current["create_5m"] != current["fresh"] else 0)],
         "discount": [],
     }
     if schedule is not None:
@@ -53,8 +54,6 @@ def _rates(fresh: float, output: float, read: float = 0,
 
 
 def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False) -> dict:
-    from tests.refresh_fixture_builders import _per_token
-
     pricing = {
         "prompt": _per_token(rates["fresh"]),
         "completion": _per_token(rates["output"]),
@@ -70,14 +69,19 @@ def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False) -> d
 
 def _joined(endpoints: list[dict], series: list[dict], *, region: str | None = None,
             resolutions: dict | None = None) -> dict:
-    assert pricelog is not None, "refresh_pricelog must provide the joiner"
     parsed = pricelog.read_log_payload(_payload(*series))
     listing = {"data": {"endpoints": endpoints}}
     return pricelog.join_listed_pricing(listing, parsed, region, resolutions or {})
 
 
+def _entries(item: dict) -> list[dict]:
+    entries = pricelog.entries_for_series(pricelog.read_log_payload(_payload(item))[0])
+    if entries is None:
+        raise AssertionError("synthetic series should have a complete state")
+    return entries
+
+
 def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
-    assert pricelog is not None, "refresh_pricelog must provide series conversion"
     item = _series()
     item["input"] = [
         _point("2026-09-01T00:00:00.100Z", 0.1),
@@ -105,9 +109,9 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
         _point("2026-09-01T00:00:02Z", 0.5),
     ]
 
-    entries = pricelog.entries_for_series(pricelog.read_log_payload(_payload(item))[0])
+    entries: list[dict] = _entries(item)
 
-    assert entries is not None and len(entries) == 3
+    assert len(entries) == 3
     assert [entry["from"] for entry in entries] == [
         "2026-09-01T00:00:00Z", "2026-09-01T00:00:01Z", "2026-09-01T00:00:03Z"]
     assert {key: entries[0][key] for key in ("fresh", "create_5m", "create_1h",
@@ -121,14 +125,13 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
 
 
 def test_a_series_waits_until_input_and_output_both_exist():
-    assert pricelog is not None, "refresh_pricelog must provide series conversion"
     item = _series()
     item["input"] = [_point("2026-09-01T00:00:00Z", 0.2)]
     item["output"] = [_point("2026-09-01T00:00:03Z", 0.7)]
 
-    entries = pricelog.entries_for_series(pricelog.read_log_payload(_payload(item))[0])
+    entries: list[dict] = _entries(item)
 
-    assert entries is not None and len(entries) == 1
+    assert len(entries) == 1
     assert entries[0]["from"] == "2026-09-01T00:00:03Z"
     assert entries[0]["fresh"] == 0.2
     assert entries[0]["output"] == 0.7
@@ -136,7 +139,6 @@ def test_a_series_waits_until_input_and_output_both_exist():
 
 @pytest.mark.parametrize("field", ["input", "output"])
 def test_null_input_or_output_makes_a_series_unusable(field: str):
-    assert pricelog is not None, "refresh_pricelog must provide series conversion"
     item = _series()
     item[field].append(_point("2026-09-02T00:00:00Z", None))
 
@@ -149,7 +151,6 @@ def test_null_input_or_output_makes_a_series_unusable(field: str):
      "nonfinite", "wrong-type"],
 )
 def test_unrecognised_log_payload_is_unavailable_with_a_reason(damage: str):
-    assert pricelog is not None, "refresh_pricelog must provide log validation"
     valid = _payload(_series())
     if damage == "missing-data":
         payload = {}

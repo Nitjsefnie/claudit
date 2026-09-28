@@ -69,6 +69,14 @@ class HostLog:
     reason: str | None
 
 
+@dataclass(frozen=True)
+class HostSelection:
+    """Endpoint subset and histories selected for one listed host."""
+    prefix: str
+    endpoint_index: int
+    series: list[PriceSeries]
+
+
 def fetch_models() -> object:
     """Fetch OpenRouter's canonical model slugs."""
     return _fetch_json(MODELS_URL)
@@ -163,7 +171,8 @@ def read_log_payload(payload: object) -> list[PriceSeries]:
         schedule = raw.get("schedule", [])
         if not isinstance(schedule, list):
             raise PriceLogError(f"{where}.schedule is not a list")
-        series_list.append(PriceSeries(*identity, fields, bool(schedule)))
+        series_list.append(PriceSeries(
+            identity[0], identity[1], identity[2], fields, bool(schedule)))
     return series_list
 
 
@@ -315,13 +324,101 @@ def _series_prefixes(series: list[PriceSeries]) -> dict[str, list[PriceSeries]]:
     return by_prefix
 
 
-def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
-                        region: str | None, resolutions: dict) -> dict[str, HostLog]:
-    """Join log histories to only the hosts with one provable endpoint."""
-    data = endpoint_payload.get("data") if isinstance(endpoint_payload, dict) else None
-    raw_endpoints = data.get("endpoints") if isinstance(data, dict) else None
-    if not isinstance(raw_endpoints, list):
-        raise PriceLogError("endpoint response has no data.endpoints list")
+def _series_entries(series: PriceSeries) -> list[dict] | None:
+    entries = entries_for_series(series)
+    if not entries:
+        return None
+    return entries
+
+
+def _series_rates(series: PriceSeries) -> tuple[float, ...] | None:
+    entries = _series_entries(series)
+    if not isinstance(entries, list) or not entries:
+        return None
+    return _rate_vector(entries.pop())
+
+
+def _match_series_to_endpoints(
+        host_series: list[PriceSeries],
+        endpoint_rates: list[dict[str, float]]) -> tuple[dict[int, PriceSeries] | None, str | None]:
+    matched: dict[int, PriceSeries] = {}
+    for item in host_series:
+        latest = _series_rates(item)
+        if latest is None:
+            return None, "series has null input or output, or no complete state"
+        candidates = [i for i, rates in enumerate(endpoint_rates)
+                      if _rate_vector(rates) == latest]
+        if not candidates:
+            return None, "latest log state disagrees with the listed price"
+        if len(candidates) != 1:
+            return None, "series current rates do not identify exactly one endpoint"
+        endpoint_index = candidates[0]
+        if endpoint_index in matched:
+            return None, "more than one series matches the same endpoint"
+        matched[endpoint_index] = item
+    if len(matched) != len(endpoint_rates):
+        return None, "one or more endpoints have no matching series"
+    return matched, None
+
+
+def _has_endpoint_schedule(endpoint: dict) -> bool:
+    pricing = endpoint.get("pricing")
+    return isinstance(pricing, dict) and bool(pricing.get("overrides"))
+
+
+def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
+                  series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
+                  resolutions: dict) -> tuple[HostSelection | None, str | None]:
+    prefixes = {endpoint["tag"].split("/", 1)[0] for endpoint in endpoints}
+    reason = None
+    prefix = next(iter(prefixes)) if len(prefixes) == 1 else ""
+    selected: list[int] = []
+    host_series = []
+    if len(prefixes) != 1:
+        reason = "host endpoints use more than one tag prefix"
+    elif not prefix or prefix_owners.get(prefix) != {host}:
+        reason = "tag prefix is shared by another host"
+    elif any(_has_endpoint_schedule(endpoint) for endpoint in endpoints):
+        reason = "endpoint has a pricing schedule"
+    else:
+        selected, reason = _selection_indices(host, endpoints, region, resolutions)
+    if reason is None:
+        host_series = series_by_prefix.get(prefix, [])
+        if any(item.scheduled for item in host_series):
+            reason = "series has a schedule"
+        elif len(host_series) != len(endpoints):
+            reason = "series count does not match endpoint count"
+    selection = None if reason else HostSelection(prefix, selected[0], host_series)
+    return selection, reason
+
+
+def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
+               series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
+               resolutions: dict) -> HostLog:
+    selection, reason = _prepare_host(
+        host, endpoints, prefix_owners, series_by_prefix, region, resolutions)
+    if reason:
+        return HostLog(None, reason)
+    if selection is None:
+        return HostLog(None, "listed host did not resolve to one endpoint")
+    try:
+        endpoint_rates = [_endpoint_rates(endpoint, f"{host} endpoint {i}")
+                          for i, endpoint in enumerate(endpoints)]
+    except PriceLogError as exc:
+        return HostLog(None, str(exc))
+    matches, reason = _match_series_to_endpoints(selection.series, endpoint_rates)
+    if reason or matches is None:
+        return HostLog(None, reason or "series did not identify one endpoint per listing")
+    chosen = matches.get(selection.endpoint_index)
+    entries = _series_entries(chosen) if chosen else None
+    if not isinstance(entries, list) or not entries:
+        return HostLog(None, "selected endpoint has no usable history")
+    return HostLog(entries, None)
+
+
+def _endpoint_groups(
+        raw_endpoints: list,
+) -> tuple[dict[str, list[dict]], dict[str, str], dict[str, set[str]]]:
     by_host: dict[str, list[dict]] = {}
     invalid: dict[str, str] = {}
     for index, endpoint in enumerate(raw_endpoints):
@@ -332,82 +429,28 @@ def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
             invalid[host] = f"endpoint {index} has no tag"
         by_host.setdefault(host, []).append(endpoint)
     owners: dict[str, set[str]] = {}
-    prefixes: dict[str, set[str]] = {}
     for host, endpoints in by_host.items():
-        host_prefixes = {endpoint["tag"].split("/", 1)[0]
-                         for endpoint in endpoints if isinstance(endpoint.get("tag"), str)}
-        prefixes[host] = host_prefixes
-        for prefix in host_prefixes:
+        prefixes = {endpoint["tag"].split("/", 1)[0]
+                    for endpoint in endpoints if isinstance(endpoint.get("tag"), str)}
+        for prefix in prefixes:
             owners.setdefault(prefix, set()).add(host)
+    return by_host, invalid, owners
+
+
+def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
+                        region: str | None, resolutions: dict) -> dict[str, HostLog]:
+    """Join log histories to only the hosts with one provable endpoint."""
+    data = endpoint_payload.get("data") if isinstance(endpoint_payload, dict) else None
+    raw_endpoints = data.get("endpoints") if isinstance(data, dict) else None
+    if not isinstance(raw_endpoints, list):
+        raise PriceLogError("endpoint response has no data.endpoints list")
+    by_host, invalid, owners = _endpoint_groups(raw_endpoints)
     series_by_prefix = _series_prefixes(series)
     matched: dict[str, HostLog] = {}
     for host, endpoints in by_host.items():
         if host in invalid:
             matched[host] = HostLog(None, invalid[host])
             continue
-        host_prefixes = prefixes[host]
-        if len(host_prefixes) != 1:
-            matched[host] = HostLog(None, "host endpoints use more than one tag prefix")
-            continue
-        prefix = next(iter(host_prefixes))
-        if not prefix or owners.get(prefix) != {host}:
-            matched[host] = HostLog(None, "tag prefix is shared by another host")
-            continue
-        if any(isinstance(endpoint.get("pricing"), dict)
-               and endpoint["pricing"].get("overrides") for endpoint in endpoints):
-            matched[host] = HostLog(None, "endpoint has a pricing schedule")
-            continue
-        selected, selection_error = _selection_indices(host, endpoints, region, resolutions)
-        if selection_error:
-            matched[host] = HostLog(None, selection_error)
-            continue
-        host_series = series_by_prefix.get(prefix, [])
-        if any(item.scheduled for item in host_series):
-            matched[host] = HostLog(None, "series has a schedule")
-            continue
-        if len(host_series) != len(endpoints):
-            matched[host] = HostLog(None, "series count does not match endpoint count")
-            continue
-        endpoint_rates: list[dict[str, float]] = []
-        try:
-            endpoint_rates = [_endpoint_rates(endpoint, f"{host} endpoint {i}")
-                              for i, endpoint in enumerate(endpoints)]
-        except PriceLogError as exc:
-            matched[host] = HostLog(None, str(exc))
-            continue
-        series_for_endpoint: dict[int, PriceSeries] = {}
-        ambiguous = None
-        for item in host_series:
-            entries = entries_for_series(item)
-            if entries is None:
-                ambiguous = "series has null input or output, or no complete state"
-                break
-            latest = _rate_vector(entries[-1])
-            candidates = [i for i, rates in enumerate(endpoint_rates)
-                          if _rate_vector(rates) == latest]
-            if not candidates:
-                ambiguous = "latest log state disagrees with the listed price"
-                break
-            if len(candidates) != 1:
-                ambiguous = "series current rates do not identify exactly one endpoint"
-                break
-            endpoint_index = candidates[0]
-            if endpoint_index in series_for_endpoint:
-                ambiguous = "more than one series matches the same endpoint"
-                break
-            series_for_endpoint[endpoint_index] = item
-        if ambiguous:
-            matched[host] = HostLog(None, ambiguous)
-            continue
-        if len(series_for_endpoint) != len(endpoints):
-            matched[host] = HostLog(None, "one or more endpoints have no matching series")
-            continue
-        chosen = series_for_endpoint.get(selected[0])
-        entries = entries_for_series(chosen) if chosen else None
-        if entries is None:
-            matched[host] = HostLog(None, "selected endpoint has no usable history")
-        elif _rate_vector(entries[-1]) != _rate_vector(endpoint_rates[selected[0]]):
-            matched[host] = HostLog(None, "latest log state disagrees with the listed price")
-        else:
-            matched[host] = HostLog(entries, None)
+        matched[host] = _join_host(host, endpoints, owners, series_by_prefix,
+                                   region, resolutions)
     return matched

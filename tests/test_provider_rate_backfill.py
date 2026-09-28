@@ -4,20 +4,18 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
-try:
-    import backfill_provider_rates as backfill
-except ModuleNotFoundError as exc:
-    if exc.name != "backfill_provider_rates":
-        raise
-    backfill = None
-
-from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
+# The backfill CLI resolves its sibling scripts from scripts/ci.
+# pylint: disable=wrong-import-position,wrong-import-order
+import backfill_provider_rates as backfill  # noqa: E402
 
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
@@ -58,37 +56,64 @@ def _doc(hosts: dict[str, list[dict]]) -> dict:
     }
 
 
+@dataclass
+class BackfillCase:
+    """Inputs for one synthetic backfill invocation."""
+    hosts: dict[str, list[dict]]
+    states: list[tuple[str, dict]]
+    as_of: str
+    args: list[str]
+    new_hosts: list[str]
+
+
+class BackfillFetches:
+    """Network stubs used by every backfill test in this file."""
+    def __init__(self, endpoints: list[dict], log: dict) -> None:
+        self.endpoints = endpoints
+        self.log = log
+
+    def fetch_endpoints(self, model_id: str) -> object:
+        assert model_id == MODEL_ID
+        return {"data": {"endpoints": copy.deepcopy(self.endpoints)}}
+
+    def fetch_models(self) -> object:
+        return {"data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
+
+    def fetch_log(self, canonical_slug: str) -> object:
+        assert canonical_slug == SLUG
+        return copy.deepcopy(self.log)
+
+
+def _request_payloads(hosts: dict[str, list[dict]], states: list[tuple[str, dict]],
+                      new_hosts: list[str]) -> tuple[list[dict], dict]:
+    endpoints = []
+    for host, history in hosts.items():
+        listed = states[-1][1] if host == "Wafer" else history[-1]
+        endpoints.append(fixture_endpoint(host, listed, tag=f"{host.lower()}/fp8"))
+    endpoints.extend(fixture_endpoint(host, RATE_A, tag=f"{host.lower()}/fp8")
+                     for host in new_hosts)
+    log = {"data": {"series": [_series("Wafer", "wafer", states)]}}
+    return endpoints, log
+
+
 def _run(tmp_path: Path, capsys, hosts: dict[str, list[dict]],
          states: list[tuple[str, dict]], *, as_of: str = AS_OF,
          args: list[str] | None = None, new_hosts: list[str] | None = None):
-    assert backfill is not None, "backfill_provider_rates must provide the backfill CLI"
-    doc = _doc(hosts)
+    case = BackfillCase(hosts, states, as_of, args or [], new_hosts or [])
+    return _run_case(tmp_path, capsys, case)
+
+
+def _run_case(tmp_path: Path, capsys, case: BackfillCase):
+    doc = _doc(case.hosts)
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
     original = json.dumps(doc, indent=2, sort_keys=True) + "\n"
     pricing_path.write_text(original, encoding="utf-8")
     constants_path.write_text('PRICING_VERSION = "31"\n', encoding="utf-8")
-    endpoints = []
-    for host, history in hosts.items():
-        listed = states[-1][1] if host == "Wafer" else history[-1]
-        endpoints.append(fixture_endpoint(host, listed, tag=f"{host.lower()}/fp8"))
-    for host in new_hosts or []:
-        endpoints.append(fixture_endpoint(host, RATE_A, tag=f"{host.lower()}/fp8"))
-    log = {"data": {"series": [_series("Wafer", "wafer", states)]}}
-
-    def fetch_endpoints(model_id: str) -> object:
-        assert model_id == MODEL_ID
-        return {"data": {"endpoints": copy.deepcopy(endpoints)}}
-
-    def fetch_models() -> object:
-        return {"data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
-
-    def fetch_log(canonical_slug: str) -> object:
-        assert canonical_slug == SLUG
-        return copy.deepcopy(log)
-
-    rc = backfill.main(["--as-of", as_of, *(args or [])], fetch=fetch_endpoints,
-                       fetch_models=fetch_models, fetch_log=fetch_log,
+    endpoints, log = _request_payloads(case.hosts, case.states, case.new_hosts)
+    fetches = BackfillFetches(endpoints, log)
+    rc = backfill.main(["--as-of", case.as_of, *case.args], fetch=fetches.fetch_endpoints,
+                       fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
                        pricing_path=pricing_path, constants_path=constants_path)
     out, err = capsys.readouterr()
     return rc, out, err, pricing_path, constants_path, original
