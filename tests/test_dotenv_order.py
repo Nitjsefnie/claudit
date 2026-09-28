@@ -12,15 +12,19 @@ _IMPORT_APP = r"""
 import json
 import os
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import psycopg
 import backend.db as db
 
 dotenv_path = sys.argv[1]
+expected_dotenv_path = Path.cwd() / ".env"
 load_dotenv = db.load_dotenv
 
-def load_test_dotenv(_path=".env"):
+def load_test_dotenv(path=".env"):
+    if Path(path).resolve() != expected_dotenv_path.resolve():
+        raise AssertionError("backend.app did not request repository-root .env")
     load_dotenv(dotenv_path)
 
 db.load_dotenv = load_test_dotenv
