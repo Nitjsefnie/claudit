@@ -377,19 +377,23 @@ def _snapshot_collection_root(source: Path, dest: Path) -> None:
         dirs[:] = [d for d in dirs if d not in PRUNED_TEST_DIRS]
         for d in dirs:
             if (here / d).is_symlink():
-                raise SystemExit(_shard_refusal(here / d))
+                raise SystemExit(_shard_refusal(here / d, source))
         for name in files:
             src = here / name
             dst = dest / src.relative_to(source)
             if src.is_symlink() or not src.is_file():
-                raise SystemExit(_shard_refusal(src))
+                raise SystemExit(_shard_refusal(src, source))
             if not dst.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dst)
 
 
-def _shard_refusal(path: Path) -> str:
-    return (f"fuzz: refusing to shard: {path} under tests/ is not a "
+def _shard_refusal(path: Path, repo_root: Path) -> str:
+    """Format the refused path as a repository-relative POSIX path."""
+    display_path = (path.relative_to(repo_root).as_posix()
+                    if path.is_relative_to(repo_root)
+                    else path.absolute().as_posix())
+    return (f"fuzz: refusing to shard: {display_path} is not a "
             "regular file, so it cannot be snapshotted and the shard "
             "would silently miss it; remove it or run without --jobs")
 
