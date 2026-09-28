@@ -26,6 +26,10 @@ window.LONG_CONTEXT_THRESHOLD = 272000;
 window.LONG_CONTEXT_INPUT_MULT = 2.0;
 window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
 
+// Context Growth drops cumulative counters above this derived-series bound.
+// Mirror backend.constants.MAX_PLAUSIBLE_CTX; tests pin both values.
+window.MAX_PLAUSIBLE_CTX = 2000000;
+
 // --------------------------------------------------------------------------
 // Shared helpers
 // --------------------------------------------------------------------------

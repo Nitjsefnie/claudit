@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 
 from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
@@ -419,17 +419,12 @@ def _ctx_turns_from_turns(turns: list[dict], records: list[dict]) -> list[dict]:
 
 
 def _build_ctx_turns(records: list, user_text_lines: list) -> list:
-    """Build ctx_turns by user-text boundary (SV-PARSER-SPEC)."""
+    """Build line-ordered ctx_turns, keeping pre-prompt usage as a leading turn.
+
+    Each turn uses its last usage; zero or implausible context is dropped.
+    """
     boundary_lines = sorted(user_text_lines)
-    aware_min = datetime.min.replace(tzinfo=timezone.utc)
-    sorted_recs = sorted(
-        records,
-        key=lambda r: (
-            r["ts"] is not None,
-            r["ts"] if r["ts"] is not None else aware_min,
-            r["line_num"],
-        ),
-    )
+    sorted_recs = sorted(records, key=lambda r: r["line_num"])
 
     turn_records: list[dict] = []
     last_usage: dict | None = None

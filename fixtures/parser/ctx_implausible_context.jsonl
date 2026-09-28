@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-05-07T10:00:00Z","uuid":"ctx-pu1","message":{"role":"user","content":"check context"}}
+{"type":"assistant","timestamp":"2026-05-07T10:00:01Z","uuid":"ctx-pa1","requestId":"ctx-pr1","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"reply"}],"usage":{"input_tokens":2000001,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
