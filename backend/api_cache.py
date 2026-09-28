@@ -46,7 +46,7 @@ def _cache_canon_source(project: str | None, model: str | None,
         canon_args.append(f"%{model}%")
     canon_src = f"""
         FROM records
-        WHERE ts >= %s AND is_canonical {proj_filter} {model_filter}
+        WHERE (ts >= %s OR ts IS NULL) AND is_canonical {proj_filter} {model_filter}
     """
     return canon_src, canon_args
 
