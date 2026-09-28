@@ -38,9 +38,15 @@ from typing import NamedTuple
 import psycopg
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2
+from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2, timing
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
+from backend.ingest_timing import (  # noqa: F401  (re-export)
+    _RUN_TIMING, _RunTiming, _record_phase, _timed_step,
+)
+from backend.ingest_walk import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _stored_version_is_newer, _track_project, _track_walked_project,
+)
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
 # resolving after the split; _rebuild_derived_state is their caller.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
@@ -281,55 +287,19 @@ def _existing_files() -> dict:
         }
 
 
-def _track_project(seen_projects: dict[str, dict], project_id: str,
-                   last_modified, project_path: str | None,
-                   original_id: str | None = None) -> None:
-    """Accumulate first/last seen mtimes for one project.
-
-    `project_id` is the id this run resolved for the file — the slug of
-    the project's marker path when the run read one, else the stored or
-    bare-hash id (lane_projects.resolve_lane_project); `original_id` is
-    the project id the OBJECT KEY carried before that resolution — the
-    pre-fold slug for a Claude-layout file, the lane hash otherwise.
-    display_name comes from that
-    marker path where one was read; every other project — and a lane
-    project whose marker was missing or malformed — displays the
-    original-case id holding the MOST files this walk (ties: the first
-    seen) — which for a Windows project is the one session's shell's
-    casing, never the blindly-lowercased folded id.
-    `display_name_set` records which case this run is, so _persist's
-    upsert can PRESERVE a stored display_name on a run that read no
-    marker instead of resetting it to the bare id; a stored display that
-    IS the bare id gets upgraded to this run's cased form in SQL (the
-    upsert's second CASE branch). The path is applied
-    even when the entry already exists (a Claude-layout file of the same
-    directory created it first): the merge is what the slug id is for.
+class _Wire(NamedTuple):
+    """A listed transcript and its meta.json sidecar. `etag` joins the
+    sidecar's to the transcript's: the sidecar can decide agent_type, so
+    one landing after its transcript (the archiver uploads it second),
+    changing or going away reparses the file, at no extra request. A main
+    transcript has none, so /api/sessions still serves the object's own.
     """
-    proj = seen_projects.setdefault(project_id, {
-        "project_id": project_id,
-        "display_name": project_path or original_id or project_id,
-        "display_name_set": bool(project_path),
-        "first_seen_at": last_modified,
-        "last_seen_at": last_modified,
-        "case_counts": {},
-    })
-    if project_path:
-        if not proj["display_name_set"]:
-            proj["display_name"] = project_path
-            proj["display_name_set"] = True
-    else:
-        original = original_id or project_id
-        counts: dict[str, int] = proj["case_counts"]
-        counts[original] = counts.get(original, 0) + 1
-        if not proj["display_name_set"]:
-            # max() keeps the FIRST maximal pair, so an equal count
-            # leaves the display with the first-seen slug.
-            proj["display_name"] = max(
-                counts.items(), key=lambda item: item[1])[0]
-    if last_modified < proj["first_seen_at"]:
-        proj["first_seen_at"] = last_modified
-    if last_modified > proj["last_seen_at"]:
-        proj["last_seen_at"] = last_modified
+
+    key: str
+    etag: str
+    size: int
+    last_modified: datetime
+    sidecar_key: str | None
 
 
 def _fetch_marker(project_id: str, key: str) -> tuple[str, str] | None:
@@ -385,21 +355,6 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
     return project_paths
 
 
-class _Wire(NamedTuple):
-    """A listed transcript and its meta.json sidecar. `etag` joins the
-    sidecar's to the transcript's: the sidecar can decide agent_type, so
-    one landing after its transcript (the archiver uploads it second),
-    changing or going away reparses the file, at no extra request. A main
-    transcript has none, so /api/sessions still serves the object's own.
-    """
-
-    key: str
-    etag: str
-    size: int
-    last_modified: datetime
-    sidecar_key: str | None
-
-
 def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     """One listing pass: transcripts, each paired with the meta.json
     sidecar listed beside it (_Wire), and lane marker items.
@@ -411,66 +366,26 @@ def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     wire_objs: list = []
     marker_items: list[tuple[str, str, str]] = []
     sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
-    for obj in r2.list_keys():
-        bucket, object_key = r2.split_key(obj.key)
-        marker_project = key_layout.project_marker(object_key)
-        if marker_project is not None:
-            marker_items.append((marker_project, obj.key, obj.etag))
-        elif (stem := key_layout.sidecar_stem(object_key)) is not None:
-            sidecars[(bucket, stem)] = obj
-        elif key_layout.classify(object_key) is not None:
-            wire_objs.append(obj)
-    wires = []
-    for obj in wire_objs:
-        bucket, object_key = r2.split_key(obj.key)
-        side = sidecars.get((bucket, key_layout.transcript_stem(object_key)))
-        wires.append(_Wire(obj.key, obj.etag if side is None else f"{obj.etag}+{side.etag}",
-                           obj.size, obj.last_modified, side.key if side else None))
+    with _timed_step("list"):
+        for obj in r2.list_keys():
+            bucket, object_key = r2.split_key(obj.key)
+            marker_project = key_layout.project_marker(object_key)
+            if marker_project is not None:
+                marker_items.append((marker_project, obj.key, obj.etag))
+            elif (stem := key_layout.sidecar_stem(object_key)) is not None:
+                sidecars[(bucket, stem)] = obj
+            elif key_layout.classify(object_key) is not None:
+                wire_objs.append(obj)
+        wires = []
+        for obj in wire_objs:
+            bucket, object_key = r2.split_key(obj.key)
+            side = sidecars.get((bucket, key_layout.transcript_stem(object_key)))
+            wires.append(_Wire(obj.key, obj.etag if side is None else f"{obj.etag}+{side.etag}",
+                               obj.size, obj.last_modified, side.key if side else None))
     return wires, marker_items
 
 
-def _track_walked_project(seen_projects: dict[str, dict], info, obj,
-                          project_paths: dict[str, str],
-                          stored_lane: dict[str, str]) -> dict:
-    """Resolve one walked file's project id and accumulate its mtimes.
-
-    Returns the seen_projects entry (which _persist keys its project_id
-    off), so the walk and every persist of the run share one identity —
-    marker slug, stored mapping, or bare hash (lane_projects.resolve_lane_project).
-    """
-    # The PRE-canonical project id the key carried: classify() folds a
-    # Windows slug on the Claude layout, and the walk needs the raw form
-    # to choose display_name from (never the folded id itself). A lane
-    # key's project is the hash segment; classify leaves it untouched.
-    parts = r2.split_key(obj.key)[1].split("/")
-    original_id = (parts[1] if parts[0] == key_layout.LANE_ROOT
-                   else parts[0])
-    marker_path = project_paths.get(info.project_id)
-    project_id = lane_projects.resolve_lane_project(
-        info.project_id, marker_path, stored_lane)
-    _track_project(seen_projects, project_id,
-                   obj.last_modified, marker_path, original_id=original_id)
-    return seen_projects[project_id]
-
-
-def _stored_version_is_newer(stored, parser_version: str) -> bool:
-    """Whether a stored files row was written by a NEWER parser version.
-
-    A rollback must not let the older binary's ingest rewrite rows it
-    cannot write whole: _persist DELETEs and re-INSERTs each file's rows
-    with its own column list, silently NULLing every column it does not
-    know (issue #118). A stored value that does not parse as an int
-    cannot be shown newer, so the ordinary reparse decision applies.
-    """
-    if stored is None:
-        return False
-    try:
-        return int(stored[1]) > int(parser_version)
-    except (TypeError, ValueError):
-        return False
-
-
-def _collect_todo(existing: dict, parser_version: str,  # pylint: disable=too-many-locals
+def _collect_todo(existing: dict, parser_version: str,
                   failed: list[tuple[str, str]]) -> tuple:
     """Walk the bucket: count objects, remember live keys, and queue the
     files whose etag/parser_version says they need (re)parsing.
@@ -491,33 +406,40 @@ def _collect_todo(existing: dict, parser_version: str,  # pylint: disable=too-ma
     display_name is settled by the time _track_project runs — the same
     scan → resolve → plan shape codexmeter's ingest uses.
     """
+    # pylint: disable=too-many-locals
     wire_objs, marker_items = _scan_objects()
-    project_paths = _resolve_project_paths(
-        marker_items, worker_count(), failed
-    )
+    with _timed_step("markers"):
+        project_paths = _resolve_project_paths(
+            marker_items, worker_count(), failed
+        )
     listed = 0
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}
     todo: list[tuple] = []
     newer = 0
-    stored_lane = lane_projects.stored_lane_ids()
-    lane_projects.rekey_stale_lane_projects(project_paths, stored_lane)
-    for obj in wire_objs:
-        info = key_layout.classify(r2.split_key(obj.key)[1])
-        if info is None:  # pragma: no cover - the scan kept only transcripts
-            continue
-        listed += 1
-        seen_keys.add(obj.key)
-        tracked = _track_walked_project(
-            seen_projects, info, obj, project_paths, stored_lane)
-
-        stored = existing.get(obj.key)
-        if (stored is None or stored[0] != obj.etag
-                or stored[1] != parser_version):
-            if _stored_version_is_newer(stored, parser_version):
-                newer += 1
+    with _timed_step("lane_ids"):
+        stored_lane = lane_projects.stored_lane_ids()
+        lane_projects.rekey_stale_lane_projects(project_paths, stored_lane)
+    with _timed_step("plan"):
+        for obj in wire_objs:
+            info = key_layout.classify(r2.split_key(obj.key)[1])
+            if info is None:  # pragma: no cover - the scan kept only transcripts
                 continue
-            todo.append((obj, tracked, stored))
+            listed += 1
+            seen_keys.add(obj.key)
+            tracked = _track_walked_project(
+                seen_projects, info, obj, project_paths, stored_lane)
+
+            stored = existing.get(obj.key)
+            if (stored is None or stored[0] != obj.etag
+                    or stored[1] != parser_version):
+                if _stored_version_is_newer(stored, parser_version):
+                    newer += 1
+                    continue
+                todo.append((obj, tracked, stored))
+    current = _RUN_TIMING.get()
+    if current is not None:
+        current.todo = len(todo)
     return listed, todo, seen_keys, newer
 
 
@@ -538,33 +460,54 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
 
     Returns (inserted, reparsed, vanished).
     """
+    # pylint: disable=too-many-locals
+    # Separate vanished, failed, and persisted results retain their existing
+    # behavior, with fetch-pool and sync-persist timing collected together.
     inserted = 0
     reparsed = 0
     vanished = 0
+    current = _RUN_TIMING.get()
+    fetch_parse_started = time.perf_counter() if current is not None else None
     _set_progress(phase="parsing", total=len(todo), done=0)
     workers = worker_count()
     chunk = max(1, workers * 4)
-    for start in range(0, len(todo), chunk):
-        _check_shutdown()
-        for (obj, proj, stored), parsed, exc in _resolve(
-            todo[start:start + chunk],
-            lambda it: _fetch_and_parse(it[0].key, it[0].sidecar_key),
-            workers,
-        ):
-            if isinstance(exc, VanishedObject):
-                log.info("ingest: %s vanished between list and fetch", obj.key)
-                seen_keys.discard(obj.key)
-                vanished += 1
-                continue
-            if exc is not None:
-                _record_failure(failed, obj.key, exc)
-                continue
-            _persist(obj, proj, parsed, parser_version)
-            if stored is None:
-                inserted += 1
-            else:
-                reparsed += 1
-            _set_progress(done=inserted + reparsed)
+    try:
+        for start in range(0, len(todo), chunk):
+            _check_shutdown()
+            for (obj, proj, stored), parsed, exc in _resolve(
+                todo[start:start + chunk],
+                lambda it: _fetch_and_parse(it[0].key, it[0].sidecar_key),
+                workers,
+            ):
+                if isinstance(exc, VanishedObject):
+                    log.info("ingest: %s vanished between list and fetch", obj.key)
+                    seen_keys.discard(obj.key)
+                    vanished += 1
+                    continue
+                if exc is not None:
+                    _record_failure(failed, obj.key, exc)
+                    continue
+                if current is None:
+                    _persist(obj, proj, parsed, parser_version)
+                else:
+                    persist_started = time.perf_counter()
+                    try:
+                        _persist(obj, proj, parsed, parser_version)
+                    finally:
+                        current.persist_seconds += (
+                            time.perf_counter() - persist_started)
+                if stored is None:
+                    inserted += 1
+                else:
+                    reparsed += 1
+                _set_progress(done=inserted + reparsed)
+    finally:
+        if current is not None and fetch_parse_started is not None:
+            current.phases.mark(
+                "fetch_parse",
+                time.perf_counter() - fetch_parse_started
+                - current.persist_seconds)
+            current.phases.mark("persist", current.persist_seconds)
     return inserted, reparsed, vanished
 
 
@@ -635,9 +578,13 @@ def _rebuild_derived_state() -> int:
     changed = 0
     for phase, rebuild in phases:
         _check_shutdown()
-        _set_progress(phase=phase)
-        rows = rebuild() or 0
+        with _timed_step(phase):
+            _set_progress(phase=phase)
+            rows = rebuild() or 0
         changed += rows if phase in ("suppressed", "reprice", "canonical", "teammates") else 0
+        current = _RUN_TIMING.get()
+        if current is not None:
+            current.changed = changed
     return changed
 
 
@@ -651,39 +598,87 @@ def _walk_and_persist(parser_version: str,
     run-level `fatal` — except IngestAborted, which closes the run as
     aborted.
     """
-    listed, todo, seen_keys, newer = _collect_todo(
-        _existing_files(), parser_version, failed
-    )
+    existing_started = time.perf_counter()
+    existing = _existing_files()
+    existing_seconds = time.perf_counter() - existing_started
+    # Defer its mark to preserve the walk's reported order without moving SQL.
+    try:
+        listed, todo, seen_keys, newer = _collect_todo(
+            existing, parser_version, failed
+        )
+    finally:
+        _record_phase("existing", existing_seconds)
     _check_shutdown()
     inserted, reparsed, vanished = _fetch_parse_persist(
         todo, parser_version, failed, seen_keys
     )
     _check_shutdown()
-    deleted = _delete_orphans(seen_keys)
-    _delete_orphan_projects()
+    with _timed_step("orphans"):
+        deleted = _delete_orphans(seen_keys)
+    with _timed_step("orphan_projects"):
+        _delete_orphan_projects()
     _check_shutdown()
     return listed, inserted, reparsed, deleted, vanished, newer
 
 
-def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
-    started = datetime.now(timezone.utc)
-    run_id = _open_run(started, trigger)
+def run_ingest_locked(trigger: str) -> dict:
+    """Run ingest under one phase-timing context.
 
-    _set_progress(phase="listing", done=0, total=0,
-                  run_id=run_id, started_at=started.isoformat())
-    listed = inserted = reparsed = deleted = vanished = newer = changed = 0
-    # Per-object failures (qualified key, message). Counted in `error`,
-    # whose public /health surface cannot carry keys (issue #253).
-    # Retained for `_record_failure` logs and the authenticated
-    # `failed_keys` response field after SSE serialization. They do not
-    # gate the run: one dropped connection out of 9,213 files is still
-    # a retry pending, not a failed run.
-    failed: list[tuple[str, str]] = []
-    # A whole-run exception, which DOES gate the post-passes below.
-    fatal = None
-    # A shutdown request honoured mid-run (issue #103). Like `fatal`, it
-    # gates the post-passes; unlike it, the row closes saying "aborted".
-    aborted = False
+    The context-local holder preserves every helper's existing signature;
+    tests and downstream instrumentation call and patch those helpers.
+    The delegate owns the original run lifecycle, including cache warming
+    and the progress reset, while this wrapper emits the aggregate only
+    after that lifecycle returns or raises.
+
+    Partial counts survive abort and fatal walk paths. The outcome defaults
+    to fatal until the normal path sets a more specific result, so a failure
+    before summary construction still emits a useful terminal line. With
+    `CLAUDIT_TIMING` off, the delegate runs without a timing context.
+    """
+    if not timing.TIMING_ON:
+        return _run_ingest_locked(trigger)
+    phases = timing.Phases("ingest", logger=log, account=True)
+    current = _RunTiming(phases)
+    token = _RUN_TIMING.set(current)
+    summary: dict | None = None
+    try:
+        summary = _run_ingest_locked(trigger)
+        return summary
+    finally:
+        _RUN_TIMING.reset(token)
+        try:
+            phases.done(
+                listed=summary["r2_listed"] if summary is not None else 0,
+                todo=current.todo,
+                inserted=summary["inserted"] if summary is not None else 0,
+                reparsed=summary["reparsed"] if summary is not None else 0,
+                deleted=summary["deleted"] if summary is not None else 0,
+                changed=current.changed,
+                outcome=current.outcome,
+            )
+        except BaseException:
+            # Instrumentation must not change what the run returns or raises.
+            pass
+
+
+def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals,too-many-statements
+    with _timed_step("open_run"):
+        started = datetime.now(timezone.utc)
+        run_id = _open_run(started, trigger)
+        _set_progress(phase="listing", done=0, total=0, run_id=run_id, started_at=started.isoformat())
+        listed = inserted = reparsed = deleted = vanished = newer = changed = 0
+        # Per-object failures (qualified key, message). Counted in `error`,
+        # whose public /health surface cannot carry keys (issue #253).
+        # Retained for `_record_failure` logs and the authenticated
+        # `failed_keys` response field after SSE serialization. They do not
+        # gate the run: one dropped connection out of 9,213 files is still
+        # a retry pending, not a failed run.
+        failed: list[tuple[str, str]] = []
+        # A whole-run exception, which DOES gate the post-passes below.
+        fatal = None
+        # A shutdown request honoured mid-run (issue #103). Like `fatal`, it
+        # gates the post-passes; unlike it, the row closes saying "aborted".
+        aborted = False
 
     try:
         listed, inserted, reparsed, deleted, vanished, newer = (
@@ -742,25 +737,25 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
             fatal = f"{type(e).__name__}: details are in the server log"
             err = fatal
 
-    finished = datetime.now(timezone.utc)
-    _close_run(run_id, finished, listed, reparsed, inserted, deleted,
-               newer, err)
-
-    summary = {
-        "id": run_id,
-        "started_at": started.isoformat(),
-        "finished_at": finished.isoformat(),
-        "trigger": trigger,
-        "r2_listed": listed,
-        "inserted": inserted,
-        "reparsed": reparsed,
-        "deleted": deleted,
-        "failed": len(failed),
-        "vanished": vanished,
-        "newer": newer,
-        "aborted": aborted,
-        "error": err,
-    }
+    with _timed_step("close_run"):
+        finished = datetime.now(timezone.utc)
+        _close_run(run_id, finished, listed, reparsed, inserted, deleted,
+                   newer, err)
+        summary = {
+            "id": run_id,
+            "started_at": started.isoformat(),
+            "finished_at": finished.isoformat(),
+            "trigger": trigger,
+            "r2_listed": listed,
+            "inserted": inserted,
+            "reparsed": reparsed,
+            "deleted": deleted,
+            "failed": len(failed),
+            "vanished": vanished,
+            "newer": newer,
+            "aborted": aborted,
+            "error": err,
+        }
 
     # Data changed: mark the response cache stale, then notify connected SSE
     # clients so the dashboard re-fetches. invalidate(), not clear(): entries
@@ -769,19 +764,24 @@ def run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     # adds the derived-state count (issue #256): a reprice- or purge-only run
     # changes records without touching a file. Threadsafe; aborted runs skip.
     if fatal is None and not aborted and any((inserted, reparsed, deleted, changed)):
-        cache.response_cache.invalidate()
-        events.broadcast_threadsafe("ingest_done", summary)
+        with _timed_step("notify"):
+            cache.response_cache.invalidate()
+            events.broadcast_threadsafe("ingest_done", summary)
 
     if fatal is None and not aborted:
-        _set_progress(phase="warming")
-        warm_common()
-    _set_progress(phase="idle", done=0, total=0)
-    # Authenticated triage only (/admin/ingest response). The broadcast
-    # above serializes eagerly (json.dumps inside broadcast_threadsafe),
-    # so this field never reaches the guest-visible SSE payload (issue
-    # #253); ingest_runs.error is count-only at the source. Keep this
-    # assignment here to preserve that serialization boundary.
-    summary["failed_keys"] = failed_public_keys(failed)
+        with _timed_step("warm"):
+            _set_progress(phase="warming")
+            warm_common()
+    with _timed_step("finish"):
+        _set_progress(phase="idle", done=0, total=0)
+        # Authenticated triage only (/admin/ingest response). The broadcast
+        # above serializes eagerly (json.dumps inside broadcast_threadsafe),
+        # so this field never reaches the guest-visible SSE payload (issue
+        # #253); ingest_runs.error is count-only at the source. Keep this
+        # assignment here to preserve that serialization boundary.
+        summary["failed_keys"] = failed_public_keys(failed)
+        if (current := _RUN_TIMING.get()) is not None:
+            current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
     return summary
 
 
