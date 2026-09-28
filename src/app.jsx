@@ -182,6 +182,34 @@ async function fetchTranscriptText(sessionId, fetchImpl = fetch) {
   return r.text();
 }
 
+function makeTranscriptLoader({ fetchText, parse, onStart, onSuccess, onError }) {
+  let latestRequest = 0;
+  return async function load(sessionId) {
+    const request = ++latestRequest;
+    onStart();
+
+    let text;
+    try {
+      text = await fetchText(sessionId);
+    } catch (err) {
+      if (request !== latestRequest) return;
+      onError(err && err.message ? err.message : String(err));
+      return;
+    }
+    if (request !== latestRequest) return;
+
+    let tx;
+    try {
+      tx = parse(text);
+    } catch (err) {
+      if (request !== latestRequest) return;
+      onError(err && err.message ? err.message : String(err));
+      return;
+    }
+    if (request === latestRequest) onSuccess(tx);
+  };
+}
+
 function App() {
   const [route, setRoute] = useState('dashboard'); // dashboard | sessions | session
   const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
@@ -209,6 +237,34 @@ function App() {
   // it. null = nothing pending.
   const [refreshMsg, setRefreshMsg] = useState('');
   const refreshRef = useRef(null);
+  const transcriptSessionIdRef = useRef('');
+  const transcriptLoaderRef = useRef(null);
+  if (!transcriptLoaderRef.current) {
+    transcriptLoaderRef.current = makeTranscriptLoader({
+      fetchText: fetchTranscriptText,
+      parse: text => {
+        const { events, meta } = window.parseTranscript(text);
+        const stats = window.computeSessionStats(events, meta);
+        return { events, meta, stats };
+      },
+      onStart: () => {
+        setTx(null);
+        setTranscriptError('');
+      },
+      onSuccess: tx => {
+        setTx(tx);
+        setTranscriptError('');
+        setFilename(transcriptSessionIdRef.current);
+        setUseSynth(false);
+        setRoute('session');
+      },
+      onError: message => {
+        console.error('transcript fetch failed', message);
+        setTranscriptError(message);
+        setRoute('session');
+      },
+    });
+  }
 
   // Synthetic data is the no-backend demo dataset. When a backend is
   // configured its numbers are thrown away the moment /api/dashboard
@@ -337,23 +393,9 @@ function App() {
     [backendDash, useSynth, liveData, synth],
   );
 
-  async function loadFromBackend(sessionId) {
-    setTx(null);
-    setTranscriptError('');
-    try {
-      const text = await fetchTranscriptText(sessionId);
-      const { events, meta } = window.parseTranscript(text);
-      const stats = window.computeSessionStats(events, meta);
-      setTx({ events, meta, stats });
-      setTranscriptError('');
-      setFilename(sessionId);
-      setUseSynth(false);
-      setRoute('session');
-    } catch (err) {
-      console.error('transcript fetch failed', err);
-      setTranscriptError(err && err.message ? err.message : String(err));
-      setRoute('session');
-    }
+  function loadFromBackend(sessionId) {
+    transcriptSessionIdRef.current = sessionId;
+    return transcriptLoaderRef.current(sessionId);
   }
 
   return (
