@@ -143,19 +143,23 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
 def test_process_pool_a_broken_fetch_is_fatal(
         fresh_db, mini_r2_env, monkeypatch):
     """A non-transient fetch failure means the fetch path itself is
-    broken: the exception escapes the pipeline and the run closes fatal.
+    broken: the real wrapper raises FatalFetchError, it escapes the
+    pool's per-item booking, and the run closes fatal with NOTHING
+    booked as a per-object failure.
     """
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
 
-    def broken_fetch(_key):
-        raise RuntimeError("no client at all")
+    def broken_get_object(_key):
+        raise TypeError("no client at all")
 
-    monkeypatch.setattr(ingest, "_fetch_with_retry", broken_fetch)
+    monkeypatch.setattr(ingest.r2, "get_object", broken_get_object)
     summary = ingest.run_ingest("test-proc-fatal")
 
-    assert summary["error"] is not None
     assert summary["aborted"] is False
+    assert summary["failed"] == 0, (
+        "the escape regressed into per-file booking")
+    assert summary["error"] is not None
 
 
 def test_process_pool_rerun_reparses_and_counts(
