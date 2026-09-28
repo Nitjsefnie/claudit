@@ -18,7 +18,7 @@ _CHILD_RELEASE_TIMEOUT_S = 30.0
 _POST_EXCEPTION_OBSERVATION_S = 1.0
 _TIMEOUT_S = 0.2
 _FLOOD_BYTES = 4 * 1024 * 1024
-_FLOOD_TIMEOUT_S = 1.0
+_FLOOD_TIMEOUT_S = 5.0
 _T = TypeVar("_T")
 
 
@@ -176,6 +176,46 @@ async def _wait_for_process(
     return processes[0]
 
 
+async def _wait_for_stdout_pause(proc: asyncio.subprocess.Process) -> None:
+    process_transport = getattr(proc, "_transport")  # pylint: disable=protected-access
+    stdout_transport = process_transport.get_pipe_transport(1)
+    assert stdout_transport is not None
+    deadline = asyncio.get_running_loop().time() + _TEST_WAIT_S
+    while stdout_transport.is_reading():
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise AssertionError("renderer stdout pipe did not pause reading")
+        await asyncio.sleep(min(0.01, remaining))
+
+
+def _prepare_flooded_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    list[asyncio.subprocess.Process],
+    list[int | None],
+    asyncio.Event,
+    asyncio.Event,
+]:
+    communicate_started = asyncio.Event()
+    release_communicate = asyncio.Event()
+    _hold_initial_communicate(monkeypatch, communicate_started, release_communicate)
+    processes, returncodes = _record_render_exit(monkeypatch)
+    return processes, returncodes, communicate_started, release_communicate
+
+
+async def _wait_for_flooded_render(
+    marker: Path,
+    task: asyncio.Task[Any],
+    processes: list[asyncio.subprocess.Process],
+    communicate_started: asyncio.Event,
+) -> int:
+    pid = await _wait_for_started(marker, task)
+    proc = await _wait_for_process(processes)
+    await _await_bounded(communicate_started.wait(), "initial communicate start")
+    await _await_bounded(_wait_for_stdout_pause(proc), "stdout pipe pause")
+    return pid
+
+
 async def _file_appeared_during(path: Path, duration: float) -> bool:
     deadline = asyncio.get_running_loop().time() + duration
     while not path.exists():
@@ -266,19 +306,16 @@ def test_cancelled_render_drains_flooded_stdout_before_reaping(tmp_path, monkeyp
     marker = tmp_path / "started"
     release = tmp_path / "release"
     out_path = tmp_path / "out.png"
-    communicate_started = asyncio.Event()
-    release_communicate = asyncio.Event()
-    _hold_initial_communicate(monkeypatch, communicate_started, release_communicate)
-    processes, returncodes = _record_render_exit(monkeypatch)
+    processes, returncodes, communicate_started, release_communicate = (
+        _prepare_flooded_render(monkeypatch))
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
         try:
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
                 _renderer_argv(marker, out_path, release, _FLOOD_BYTES), str(out_path)))
-            pid = await _wait_for_started(marker, task)
-            await _await_bounded(communicate_started.wait(), "initial communicate start")
-            await asyncio.sleep(0.1)
+            pid = await _wait_for_flooded_render(
+                marker, task, processes, communicate_started)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "cancelled flooded render task")
@@ -290,7 +327,7 @@ def test_cancelled_render_drains_flooded_stdout_before_reaping(tmp_path, monkeyp
                 f"child_alive_after_flood_cancel={child_alive}; "
                 f"output_appeared_after_flood_cancel={output_appeared}")
         finally:
-            await _cleanup_test(task, processes, release)
+            await _cleanup_test(task, processes, release, (release_communicate,))
 
     asyncio.run(run())
 
@@ -367,20 +404,16 @@ def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypat
     marker = tmp_path / "started"
     release = tmp_path / "release"
     out_path = tmp_path / "out.png"
-    communicate_started = asyncio.Event()
-    release_communicate = asyncio.Event()
-    _hold_initial_communicate(monkeypatch, communicate_started, release_communicate)
     monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _FLOOD_TIMEOUT_S)
-    processes, returncodes = _record_render_exit(monkeypatch)
+    processes, returncodes, communicate_started, release_communicate = (
+        _prepare_flooded_render(monkeypatch))
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
         try:
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
                 _renderer_argv(marker, out_path, release, _FLOOD_BYTES), str(out_path)))
-            await _wait_for_started(marker, task)
-            await _await_bounded(communicate_started.wait(), "initial communicate start")
-            await asyncio.sleep(0.1)
+            await _wait_for_flooded_render(marker, task, processes, communicate_started)
             with pytest.raises(HTTPException) as excinfo:
                 await _await_bounded(task, "timed-out flooded render task")
 
@@ -390,7 +423,7 @@ def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypat
             assert returncodes and returncodes[-1] is not None
             assert not output_appeared
         finally:
-            await _cleanup_test(task, processes, release)
+            await _cleanup_test(task, processes, release, (release_communicate,))
 
     asyncio.run(run())
 
@@ -475,6 +508,66 @@ def test_communicate_error_still_reaps_child_before_propagating(tmp_path, monkey
             assert not output_appeared
         finally:
             await _cleanup_test(task, processes, release)
+
+    asyncio.run(run())
+
+
+def test_pipe_read_error_still_reaps_child_and_preserves_error(tmp_path, monkeypatch):
+    marker = tmp_path / "started"
+    release = tmp_path / "release"
+    out_path = tmp_path / "out.png"
+    allow_read_failure = asyncio.Event()
+    original_create = api_export.asyncio.create_subprocess_exec
+
+    async def capture_process(*args: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+        proc = await original_create(*args, **kwargs)
+        assert proc.stdout is not None
+        original_read = proc.stdout.read
+        first_read = True
+        original_kill = proc.kill
+        kill_calls = 0
+
+        def defer_kill_one_tenth_second() -> None:
+            nonlocal kill_calls
+            kill_calls += 1
+            if kill_calls == 1:
+                asyncio.get_running_loop().call_later(0.1, original_kill)
+            else:
+                original_kill()
+
+        async def fail_first_read(*read_args: Any, **read_kwargs: Any) -> bytes:
+            nonlocal first_read
+            if first_read:
+                first_read = False
+                await _await_bounded(
+                    allow_read_failure.wait(), "synthetic pipe read failure gate")
+                raise OSError("synthetic pipe read failure")
+            return await original_read(*read_args, **read_kwargs)
+
+        monkeypatch.setattr(proc.stdout, "read", fail_first_read)
+        monkeypatch.setattr(proc, "kill", defer_kill_one_tenth_second)
+        return proc
+
+    monkeypatch.setattr(api_export.asyncio, "create_subprocess_exec", capture_process)
+    processes, returncodes = _record_render_exit(monkeypatch)
+
+    async def run() -> None:
+        task: asyncio.Task[Any] | None = None
+        try:
+            task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
+                _renderer_argv(marker, out_path, release), str(out_path)))
+            await _wait_for_started(marker, task)
+            allow_read_failure.set()
+            with pytest.raises(OSError, match="synthetic pipe read failure"):
+                await _await_bounded(task, "render after pipe read error")
+
+            assert returncodes and returncodes[-1] is not None
+            output_appeared = await _release_and_observe(release, out_path)
+            assert not output_appeared
+        finally:
+            await _cleanup_test(task, processes, release, (allow_read_failure,))
+            for proc in processes:
+                await _await_bounded(proc.wait(), "renderer process cleanup wait")
 
     asyncio.run(run())
 
