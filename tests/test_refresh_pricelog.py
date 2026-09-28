@@ -135,6 +135,17 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
     assert entries[1]["read"] == 0.01
 
 
+def test_generated_log_entry_timestamp_zero_pads_the_year():
+    item = _series()
+    for field in ("input", "output", "cacheRead", "cacheWrite"):
+        item[field] = [_point("0001-01-01T00:00:00Z", item[field][0]["value"])]
+
+    entries = _entries(item)
+
+    assert entries
+    assert entries[0]["from"] == "0001-01-01T00:00:00Z"
+
+
 def test_a_series_waits_until_input_and_output_both_exist():
     item = _series()
     item["input"] = [_point("2026-09-01T00:00:00Z", 0.2)]

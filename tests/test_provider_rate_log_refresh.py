@@ -233,6 +233,41 @@ def test_log_append_compares_offset_timestamps_as_instants(
     assert saved["providers"][MODEL][HOST] == expected
 
 
+def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):
+    wafer_states = [("2030-12-31T23:50:00Z", RATE_A),
+                    ("2031-01-01T00:10:00Z", RATE_B)]
+    ancient_series = {
+        **_series([("0001-01-01T00:00:00Z", RATE_C)]),
+        "endpointId": "synthetic-ancient-endpoint",
+        "providerName": "Ancient",
+        "providerSlug": "ancient",
+    }
+    endpoint_payload = {"data": {"endpoints": [
+        _endpoint(HOST, RATE_B), fixture_endpoint("Ancient", RATE_C, tag="ancient/fp8")
+    ]}}
+    log_payload = {"data": {"series": [_series(wafer_states), ancient_series]}}
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    pricing_path.write_text(json.dumps(_doc({HOST: [_entry(None, RATE_A)]}),
+                                       indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    constants_path.write_text('PRICING_VERSION = "13"\n', encoding="utf-8")
+    fetches = RefreshFetches(endpoint_payload, log_payload, None, None)
+
+    rc = refresh.main([], fetch=fetches.fetch_endpoints,
+                      fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
+                      now=NOW, pricing_path=pricing_path,
+                      constants_path=constants_path)
+    out, err = capsys.readouterr()
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [
+        _entry(None, RATE_A), _entry(wafer_states[1][0], RATE_B)]
+    assert saved["providers"][MODEL]["Ancient"] == [_entry(STAMP, RATE_C)]
+    assert (f"listed-pricing entries are unusable for {MODEL} via Ancient" in out
+            and "the host was sampled" in out)
+
+
 def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
     states = [("2030-12-31T23:00:00Z", RATE_A),
               ("2031-01-01T00:10:00Z", RATE_B)]
