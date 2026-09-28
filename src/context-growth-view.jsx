@@ -1,11 +1,13 @@
 // Per-turn context growth view for the Inspector.
 // Turn-stats algorithm (the ctx_turns rule of SV-PARSER-SPEC):
-//   1. Walk events chronologically.
+//   1. Walk user-text boundaries and usage records in file (line) order.
 //   2. User text messages with non-empty text content are turn boundaries.
 //      (User messages that are tool_result-only don't count.)
-//   3. For each turn, take the LAST assistant_usage record before the
+//   3. Usage before the first user-text boundary forms a leading turn.
+//   4. For each turn, take the LAST assistant_usage record before the
 //      next boundary as that turn's context size = input + cache_create + cache_read.
-//   4. Drop turns where input == 0 (API refusals / interrupts).
+//   5. Drop turns with zero or implausible context (API refusals / interrupts
+//      or cumulative counters above MAX_PLAUSIBLE_CTX).
 //
 // Renders: a sparkline-style chart of input over turns, plus a dense table.
 
@@ -36,7 +38,9 @@ function computeTurnStats(tx) {
 
   // Walk: each user_text starts a new turn; collect usages until next user_text.
   const turns = [];
-  let cur = null;
+  // Usage before the first user prompt belongs to a leading turn. Leaving an
+  // empty turn here has no effect when the file starts with a user prompt.
+  let cur = { startLine: null, startTs: null, usages: [] };
   for (const item of allLines) {
     if (item.kind === 'user_text') {
       if (cur && cur.usages.length) turns.push(cur);
@@ -62,7 +66,7 @@ function computeTurnStats(tx) {
     // fanned out via advisor()/sub-agent; otherwise the top-level sum.
     // Top-level inp/cc/cr stay as billing sums for the breakdown columns.
     const ctx = window.usageCtxInput(u);
-    if (ctx === 0) continue; // refusal / interrupt
+    if (ctx <= 0 || ctx > window.MAX_PLAUSIBLE_CTX) continue;
     const delta = prevInput !== null ? ctx - prevInput : null;
     rows.push({
       turnNum: rows.length + 1,

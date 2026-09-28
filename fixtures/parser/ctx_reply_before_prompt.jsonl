@@ -1,0 +1,3 @@
+{"type":"assistant","timestamp":"2026-05-07T10:00:00Z","uuid":"ctx-a0","requestId":"ctx-r0","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"resumed"}],"usage":{"input_tokens":10,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":90}}}
+{"type":"user","timestamp":"2026-05-07T10:00:01Z","uuid":"ctx-u1","message":{"role":"user","content":"continue"}}
+{"type":"assistant","timestamp":"2026-05-07T10:00:02Z","uuid":"ctx-a2","requestId":"ctx-r2","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"continued"}],"usage":{"input_tokens":20,"output_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":180}}}
