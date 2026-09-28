@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -19,7 +20,20 @@ from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
-import refresh_provider_rates as refresh  # noqa: E402
+
+
+def _load():
+    """Import scripts/ci/refresh_provider_rates.py by path."""
+    path = CI / "refresh_provider_rates.py"
+    spec = importlib.util.spec_from_file_location("refresh_provider_rates", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["refresh_provider_rates"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+refresh = _load()
 
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
