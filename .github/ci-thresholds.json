@@ -1,8 +1,8 @@
 {
   "coverage": {
     "python": {
-      "floor": 92.5,
-      "measured": 94.0
+      "floor": 94.1,
+      "measured": 95.6
     }
   },
   "module_size_baseline": {
