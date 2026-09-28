@@ -39,6 +39,11 @@ os.environ.setdefault("ADMIN_TOKEN", "test-admin")
 # Exported values still win because these are set with setdefault.
 os.environ.setdefault("EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
+# The in-process pipeline by default: forked parse children under pytest
+# duplicate capture state and slow every ingest test. The process-pool
+# tests opt in explicitly (test_ingest.py, issue #309).
+os.environ["INGEST_PARSE_PROCESSES"] = "1"
+os.environ["INGEST_PERSIST_THREADS"] = "1"
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.
 os.environ.setdefault("COOKIE_SECURE", "0")
 # No background cache warming under test: a warm queued by run_ingest

@@ -28,7 +28,6 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import partial
@@ -37,6 +36,11 @@ from typing import NamedTuple
 import psycopg
 
 from backend import cache, constants, db, events, ingest_fetch, key_layout, lane_markers, lane_projects, parse, r2, timing
+from backend.ingest_fetch import (  # noqa: F401  (re-export)
+    parse_process_count, persist_thread_count,
+    pipeline_pool as _pipeline_pool, pipeline_threads as _pipeline_threads,
+    record_failure as _record_failure, resolve as _resolve, worker_count,
+)
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 from backend.ingest_timing import (  # noqa: F401  (re-export)
@@ -55,7 +59,7 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     recompute_canonical, resolve_teammate_agent_types,
 )
 from backend.ingest_scope import (  # noqa: F401  (re-export)
-    begin_scope, capture_and_add, capture_contributions, current_scope,
+    begin_scope, current_scope,
     finish_scope, mark_complete,
 )
 from backend.project_aliases import rekey_folded_projects
@@ -419,83 +423,31 @@ def _collect_todo(existing: dict, parser_version: str,
 def _fetch_parse_persist(todo: list[tuple], parser_version: str,
                          failed: list[tuple[str, str]],
                          seen_keys: set[str]) -> tuple[int, int, int]:
-    """Fetch+parse the queued files on a pool, persist on this thread.
-
-    Fetch + parse is ~88% of per-file wall time and is network-bound
-    (one R2 GET each), so it runs on a thread pool. Persistence stays
-    on this thread: the per-file transaction boundary, and therefore
-    ordering and failure semantics, are exactly as before. Work is
-    submitted in bounded chunks so an 8k-file reparse does not hold
-    every inflated blob in memory at once.
-
-    A VanishedObject is discarded from `seen_keys` so _delete_orphans
-    treats the key exactly as one the listing never showed.
-
-    Returns (inserted, reparsed, vanished).
+    """Dispatch the chosen pipeline with this module's seams. The
+    mechanics live in ingest_fetch (module-size baseline); the seams stay
+    here so tests patching `ingest.*` keep working.
     """
-    # pylint: disable=too-many-locals,too-many-branches
-    # Separate vanished, failed, and persisted results retain their existing
-    # behavior, with fetch-pool and sync-persist timing collected together.
-    inserted = 0
-    reparsed = 0
-    vanished = 0
-    scope = current_scope()
-    todo_keys = {obj.key for obj, _, _ in todo}
-    old_contributions = {}
-    if scope is not None and not scope.full and todo_keys:
-        with db.viz_conn() as conn:
-            old_contributions = capture_contributions(scope, conn, todo_keys)
-    persisted_keys: set[str] = set()
-    current = _RUN_TIMING.get()
-    fetch_parse_started = time.perf_counter() if current is not None else None
-    _set_progress(phase="parsing", total=len(todo), done=0)
-    workers = worker_count()
-    chunk = max(1, workers * 4)
+    return ingest_fetch.fetch_parse_persist(
+        todo, parser_version, failed, seen_keys,
+        parse_call=_fetch_and_parse, persist_call=_persist_one,
+        check_shutdown=_check_shutdown)
+
+
+def _persist_one(obj, proj, parsed, parser_version,
+                 current: _RunTiming | None):
+    """The unit submitted to the persist pool: one `_persist` (one file,
+    one transaction), timed into the run phases. Runs on a pool thread;
+    `ingest._persist` resolves from module globals at call time, so the
+    test seam keeps working.
+    """
+    started = time.perf_counter()
     try:
-        for start in range(0, len(todo), chunk):
-            _check_shutdown()
-            for (obj, proj, stored), parsed, exc in _resolve(
-                todo[start:start + chunk],
-                lambda it: _fetch_and_parse(it[0].key, it[0].sidecar_key),
-                workers,
-            ):
-                if isinstance(exc, VanishedObject):
-                    log.info("ingest: %s vanished between list and fetch", obj.key)
-                    seen_keys.discard(obj.key)
-                    vanished += 1
-                    continue
-                if exc is not None:
-                    _record_failure(failed, obj.key, exc)
-                    continue
-                if current is None:
-                    _persist(obj, proj, parsed, parser_version)
-                else:
-                    persist_started = time.perf_counter()
-                    try:
-                        _persist(obj, proj, parsed, parser_version)
-                    finally:
-                        current.persist_seconds += (
-                            time.perf_counter() - persist_started)
-                if scope is not None and not scope.full:
-                    scope.add_contributions(old_contributions, {obj.key})
-                    persisted_keys.add(obj.key)
-                if stored is None:
-                    inserted += 1
-                else:
-                    reparsed += 1
-                _set_progress(done=inserted + reparsed)
+        _persist(obj, proj, parsed, parser_version)
     finally:
-        if current is not None and fetch_parse_started is not None:
-            current.phases.mark(
-                "fetch_parse",
-                time.perf_counter() - fetch_parse_started
-                - current.persist_seconds)
-            current.phases.mark("persist", current.persist_seconds)
-    if scope is not None and not scope.full and persisted_keys:
-        with db.viz_conn() as conn:
-            capture_and_add(scope, conn, persisted_keys)
-        scope.check_latency_null()
-    return inserted, reparsed, vanished
+        if current is not None:
+            with current.persist_lock:
+                current.persist_seconds += time.perf_counter() - started
+    return obj
 
 
 def _rebuild_derived_state() -> int:
@@ -607,6 +559,8 @@ def run_ingest_locked(trigger: str) -> dict:
             finish_scope()
     phases = timing.Phases("ingest", logger=log, account=True)
     current = _RunTiming(phases)
+    current.parse_processes = parse_process_count()
+    current.persist_threads = persist_thread_count()
     token = _RUN_TIMING.set(current)
     summary: dict | None = None
     try:
@@ -629,6 +583,8 @@ def run_ingest_locked(trigger: str) -> dict:
                 changed=current.changed,
                 outcome=current.outcome,
                 scope=current.scope,
+                parse_processes=current.parse_processes,
+                persist_threads=current.persist_threads,
             )
         except BaseException:
             # Instrumentation must not change what the run returns or raises.
@@ -762,78 +718,6 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     if (current := _RUN_TIMING.get()) is not None:
         current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
     return summary
-
-
-def _resolve(items: list, call, workers: int) -> list[tuple]:
-    """Run `call(item)` over `items`, pairing each with its result OR its
-    exception instead of letting the first failure escape.
-
-    Sequential when workers == 1, on a pool otherwise. Collecting with
-    `[f.result() for f in as_completed(...)]` re-raised the worker's
-    exception out of the collection step, which aborted the whole ingest
-    AND discarded every already-fetched result alongside it. The two shapes
-    have to behave identically, which is easiest to guarantee with one
-    implementation.
-
-    FatalFetchError is the one exception that still escapes: it means the
-    fetch is broken rather than one object being unlucky, so it belongs to
-    the run, not to the item.
-
-    Returns [(item, result, None) | (item, None, exception)].
-    """
-    outcomes: list[tuple] = []
-    if workers == 1:
-        for item in items:
-            try:
-                outcomes.append((item, call(item), None))
-            except FatalFetchError:
-                raise
-            except Exception as e:  # noqa: BLE001
-                outcomes.append((item, None, e))
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(call, item): item for item in items}
-            for f in as_completed(futures):
-                item = futures[f]
-                try:
-                    outcomes.append((item, f.result(), None))
-                except FatalFetchError:
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    outcomes.append((item, None, e))
-    return outcomes
-
-
-def _record_failure(failed: list[tuple[str, str]], key: str,
-                    exc: BaseException) -> None:
-    """Book one failed object and retain its qualified key for triage.
-
-    `_record_failure` logs the key for server-side investigation. The
-    failure list feeds the admin-only response field; `ingest_runs.error`
-    receives `failure_summary`'s count because /health is public.
-    """
-    failed.append((key, f"{type(exc).__name__}: {exc}"))
-    log.warning(
-        "ingest: %s failed after %d attempt(s): %s: %s",
-        key, FETCH_ATTEMPTS, type(exc).__name__, exc,
-    )
-
-
-def worker_count() -> int:
-    """Fetch+parse concurrency.
-
-    Unset or unparseable -> auto (network-bound work, so oversubscribe
-    cores). An explicit number is honoured, clamped to at least 1, so
-    INGEST_WORKERS=1 is a real "go sequential" switch for debugging.
-    """
-    auto = min(16, (os.cpu_count() or 4) * 2)
-    raw = os.environ.get("INGEST_WORKERS", "").strip()
-    if not raw:
-        return auto
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return auto
 
 
 def _is_missing(exc: BaseException) -> bool:
