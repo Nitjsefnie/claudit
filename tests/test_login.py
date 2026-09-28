@@ -327,6 +327,36 @@ def test_non_hex_legacy_salt_is_generic_and_normalizes_from_zero(
     assert calls == [0]
 
 
+@pytest.mark.parametrize(
+    ("stored_hash", "stored_salt"),
+    [
+        (123, "ff" * 16),
+        ("ab" * 32, 123),
+    ],
+    ids=("integer-hash", "integer-salt"),
+)
+def test_non_string_credential_material_is_generic_and_normalizes_from_zero(
+    app, fake_user, monkeypatch, stored_hash, stored_salt
+):
+    fake_user[559] = {
+        auth.WEB_PASSWORD_HASH_KEY: stored_hash,
+        auth.WEB_PASSWORD_SALT_KEY: stored_salt,
+    }
+    calls: list[int] = []
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda password, spent: calls.append(spent),
+    )
+    response = _post_login(
+        TestClient(app, raise_server_exceptions=False), 559, "anything"
+    )
+
+    assert response.status_code == 401
+    assert response.text == "Invalid credentials."
+    assert calls == [0]
+
+
 def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
     """An unknown id has nothing to verify, so it normalizes from
     zero: the full dummy run at the target count."""

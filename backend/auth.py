@@ -110,6 +110,8 @@ def verify_web_password(config: dict, password: str) -> bool:
     stored_salt = config.get(WEB_PASSWORD_SALT_KEY)
     if not stored_hash or not stored_salt:
         return False
+    if not isinstance(stored_hash, str) or not isinstance(stored_salt, str):
+        return False
     if stored_hash.startswith(_HASH_SCHEME + "$"):
         parsed = _parse_versioned(stored_hash)
         if parsed is None:
@@ -142,6 +144,8 @@ def stored_verification_iterations(config: dict) -> int:
     stored_hash = config.get(WEB_PASSWORD_HASH_KEY)
     stored_salt = config.get(WEB_PASSWORD_SALT_KEY)
     if not stored_hash or not stored_salt:
+        return 0
+    if not isinstance(stored_hash, str) or not isinstance(stored_salt, str):
         return 0
     if stored_hash.startswith(_HASH_SCHEME + "$"):
         parsed = _parse_versioned(stored_hash)
