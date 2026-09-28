@@ -62,9 +62,9 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(monkeypatch):
         _row(model, 0, fresh=1_000_000, cost=before["fresh"]),
         _row(model, 1, fresh=1_000_000, cost=after["fresh"]),
     ]
-    total = w.before["fresh"] + w.after["fresh"]
+    total = before["fresh"] + after["fresh"]
     out = fold_per_model(
-        rows, pair_bounds={(w.model, ""): [w.cutover]})
+        rows, pair_bounds={(model, ""): [cutover]})
     assert len(out) == 1, "epochs must fold into one row per model"
     m = out[0]
     assert m["fresh"] == 2_000_000
