@@ -91,7 +91,7 @@ backend/          — FastAPI application
                     Kimi's Agent calls); also the Claude path's
                     user-text-boundary ctx builder (_build_ctx_turns),
                     beside the lanes' own (_ctx_turns_from_turns).
-  json_shape.py  — Small decoded-JSON object and array guards shared by
+  json_shape.py   — Small decoded-JSON object and array guards shared by
                     the transcript parsers.
   parse_lanes.py  — Format sniffing (sniff_format) and the lane→claudit
                     row adapter (to_claudit): lane row shapes project
