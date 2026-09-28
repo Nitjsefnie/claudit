@@ -18,7 +18,6 @@ _CHILD_RELEASE_TIMEOUT_S = 30.0
 _POST_EXCEPTION_OBSERVATION_S = 1.0
 _TIMEOUT_S = 0.2
 _FLOOD_BYTES = 4 * 1024 * 1024
-_FLOOD_TIMEOUT_S = 5.0
 _T = TypeVar("_T")
 
 
@@ -97,6 +96,7 @@ def _hold_initial_communicate(
     monkeypatch: pytest.MonkeyPatch,
     communicate_started: asyncio.Event,
     release_communicate: asyncio.Event,
+    raise_on_release: type[BaseException] | None = None,
 ) -> None:
     """Fill the pipe before reaping and register wait before the child exits."""
     original_create = api_export.asyncio.create_subprocess_exec
@@ -116,6 +116,8 @@ def _hold_initial_communicate(
                 first_call = False
                 communicate_started.set()
                 await release_communicate.wait()
+                if raise_on_release is not None:
+                    raise raise_on_release()
             return await original_communicate()
 
         monkeypatch.setattr(proc, "communicate", gated_communicate)
@@ -195,6 +197,7 @@ async def _wait_for_stdout_pause(proc: asyncio.subprocess.Process) -> None:
 
 def _prepare_flooded_render(
     monkeypatch: pytest.MonkeyPatch,
+    raise_on_release: type[BaseException] | None = None,
 ) -> tuple[
     list[asyncio.subprocess.Process],
     list[int | None],
@@ -203,7 +206,12 @@ def _prepare_flooded_render(
 ]:
     communicate_started = asyncio.Event()
     release_communicate = asyncio.Event()
-    _hold_initial_communicate(monkeypatch, communicate_started, release_communicate)
+    _hold_initial_communicate(
+        monkeypatch,
+        communicate_started,
+        release_communicate,
+        raise_on_release,
+    )
     processes, returncodes = _record_render_exit(monkeypatch)
     return processes, returncodes, communicate_started, release_communicate
 
@@ -411,9 +419,9 @@ def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypat
     marker = tmp_path / "started"
     release = tmp_path / "release"
     out_path = tmp_path / "out.png"
-    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _FLOOD_TIMEOUT_S)
+    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", 60.0)
     processes, returncodes, communicate_started, release_communicate = (
-        _prepare_flooded_render(monkeypatch))
+        _prepare_flooded_render(monkeypatch, asyncio.TimeoutError))
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
@@ -421,6 +429,7 @@ def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypat
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
                 _renderer_argv(marker, out_path, release, _FLOOD_BYTES), str(out_path)))
             await _wait_for_flooded_render(marker, task, processes, communicate_started)
+            release_communicate.set()
             with pytest.raises(HTTPException) as excinfo:
                 await _await_bounded(task, "timed-out flooded render task")
 
