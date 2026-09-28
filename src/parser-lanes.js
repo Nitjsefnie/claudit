@@ -314,14 +314,23 @@ function laneKcArgsToInput(args) {
   return { _raw: args };
 }
 
+function laneResultTextParts(parts) {
+  const text = [];
+  for (const part of parts) {
+    if (typeof part === 'string') {
+      text.push(part);
+    } else if (laneIsPlainObject(part) && part.type === 'text') {
+      text.push(String(part.text || ''));
+    }
+  }
+  return text;
+}
+
 function laneKcResultDetail(result) {
   if (!laneIsPlainObject(result)) return String(result || '');
   const output = result.output;
   if (Array.isArray(output)) {
-    return output
-      .filter(x => typeof x === 'string' || laneIsPlainObject(x))
-      .map(x => (laneIsPlainObject(x) ? (x.text || '') : x))
-      .join('\n');
+    return laneResultTextParts(output).join('\n');
   }
   return String(output || '');
 }
@@ -391,8 +400,7 @@ function parseLaneKimiCode(blob, opts) {
           events.push(ev);
         });
       } else if (role === 'tool') {
-        const detail = content
-          .map(p => (laneIsPlainObject(p) ? (p.text || '') : '')).join('');
+        const detail = laneResultTextParts(content).join('');
         events.push({
           line: lineNum, type: 'tool_result', ts: tsIso,
           tool_use_id: String(msg.toolCallId || ''),
