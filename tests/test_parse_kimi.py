@@ -59,7 +59,7 @@ def test_single_turn_emits_one_record_one_turn():
         "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=100, output=200, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
     assert r["text_chars"] == len("hello world")
     # TurnBegin 12:00:00 -> first ContentPart 12:00:01, not the 12:00:03
     # StatusUpdate: the window ends at the first assistant output.
@@ -105,7 +105,7 @@ def test_cache_creation_and_read_are_flat_rate_billed():
         "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_pre_cutoff_timestamp_labels_k2_6():
@@ -121,7 +121,7 @@ def test_pre_cutoff_timestamp_labels_k2_6():
         "kimi-k2-6", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=1000, eph5=0, eph1h=0, unsplit_create=0, read=1000,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_at_k3_cutoff_labels_k3():
@@ -154,7 +154,7 @@ def test_post_k3_cutoff_cost_uses_k3_rates():
         "kimi-k3", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=400, output=50, eph5=0, eph1h=0, unsplit_create=100, read=200,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_canonical_model_maps_k3_provider_id():
@@ -261,7 +261,7 @@ def test_kimi_code_post_k3_cutoff_kimi_for_coding_stays_k2_7_code():
         "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_ctx_turns_match_canonical_shape():
@@ -341,7 +341,7 @@ def test_kimi_code_usage_record_drives_record_and_turn():
         "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
     assert len(out["ctx_turns"]) == 1
     t = out["ctx_turns"][0]
@@ -366,7 +366,7 @@ def test_kimi_code_ambiguous_wire_id_falls_through_to_the_date():
         "kimi-k2-7-code", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_kimi_code_pre_cutoff_ambiguous_wire_id_resolves_to_k2_6():
@@ -387,7 +387,7 @@ def test_kimi_code_pre_cutoff_ambiguous_wire_id_resolves_to_k2_6():
         "kimi-k2-6", ts=r["ts"],  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
-    assert r["cost_usd"] == pytest.approx(expected_cost, rel=1e-9)
+    assert r["cost_usd"] == round(expected_cost, 6)
 
 
 def test_kimi_code_tool_call_result_pairing():
