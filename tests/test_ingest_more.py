@@ -163,20 +163,6 @@ def test_dispatch_brief_rollup_totals_match_raw(fresh_db, mini_r2_env):
     assert dict((r[0], r[1]) for r in rolled) == {False: 2, True: 1}
 
 
-def test_rollups_rebuilt_when_nothing_changed(fresh_db, mini_r2_env):
-    """Derived state is rebuilt on every successful ingest, not only
-    when files changed — same contract as recompute_canonical()."""
-    _plant(mini_r2_env, "projK", "sess-K", "error_kinds.jsonl")
-    ingest.run_ingest(trigger="manual")
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM tool_error_rollup")
-        c.commit()
-    result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == 0
-    with db.viz_conn() as c:
-        assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0
-
-
 def test_lane_layout_ingests_with_marker_display_name(
         fresh_db, tmp_path, monkeypatch):
     """A lane bucket's sessions/ tree: wire.jsonl[.xz] under
@@ -442,3 +428,18 @@ def test_a_failed_rebuild_still_closes_the_run(fresh_db, mini_r2_env,
     assert not broadcasts, "a fatal run must not broadcast ingest_done"
     assert cache.response_cache.get_entry("rebuild-fatal-key") == (
         {"v": "old"}, False), "a fatal run must not mark responses stale"
+
+
+def test_state_reset_forces_full_rebuild(fresh_db, mini_r2_env):
+    """Clearing the state row repairs derived data without reparsing files."""
+    _plant(mini_r2_env, "projK", "sess-K", "error_kinds.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM tool_error_rollup")
+        c.execute("DELETE FROM ingest_derived_state")
+        c.commit()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["reparsed"] == 0
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0
+

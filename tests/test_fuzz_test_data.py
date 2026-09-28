@@ -389,6 +389,10 @@ def test_a_shard_snapshot_carries_uncommitted_work(git_repo, tmp_path):
     assert status.stdout == ""
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="no fifo on this platform; the sharding refusal path for "
+    "non-regular entries is exercised on POSIX")
 def test_an_ignored_fifo_does_not_break_the_snapshot(git_repo, tmp_path):
     """The snapshot carries exactly the files git knows about — tracked
     plus untracked, unignored — never walking ignored runtime paths, so
@@ -446,6 +450,10 @@ def test_a_nested_ignored_test_dir_reaches_the_shard(git_repo, tmp_path):
     assert got.read_text(encoding="utf-8") == "def test_nested(): ...\n"
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="no fifo on this platform; the sharding refusal path for "
+    "non-regular entries is exercised on POSIX")
 def test_a_fifo_under_tests_refuses_sharding_but_not_sequential(
         monkeypatch, git_repo, tmp_path):
     """A non-regular file under tests/ cannot be snapshotted, so the
@@ -469,6 +477,25 @@ def test_a_fifo_under_tests_refuses_sharding_but_not_sequential(
         ["--iterations", "1", "--jobs", "1", "--seed", "7",
          "--artifact-dir", str(tmp_path)], repo_root=git_repo)
     assert exit_code == 0
+
+
+def test_shard_refusal_names_repo_relative_posix_path(tmp_path):
+    repo_root = tmp_path / "repo"
+    refused_path = repo_root / "tests" / "linked_test.py"
+    # pylint: disable-next=protected-access
+    message = fuzz_module._shard_refusal(refused_path, repo_root)
+    assert message.startswith(
+        "fuzz: refusing to shard: tests/linked_test.py is not a regular file")
+
+
+def test_shard_refusal_uses_absolute_posix_path_outside_repo(tmp_path):
+    repo_root = tmp_path / "repo"
+    refused_path = tmp_path / "outside.py"
+    # pylint: disable-next=protected-access
+    message = fuzz_module._shard_refusal(refused_path, repo_root)
+    assert message.startswith(
+        f"fuzz: refusing to shard: {refused_path.absolute().as_posix()} "
+        "is not a regular file")
 
 
 def test_a_file_symlink_under_tests_refuses_sharding(
