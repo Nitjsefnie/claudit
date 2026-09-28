@@ -45,16 +45,20 @@ window.usageCtxInput = usageCtxInput;
 // the prompt lists in app.jsx all skip it the way backend prompt_count
 // does. The interrupt marker mirrors backend/constants.INTERRUPT_MARKER,
 // which the backend also denies before a text can anchor or count.
-const PROMPT_DATA_TAG_RE = /^<([A-Za-z][A-Za-z0-9._:-]*)(?:\s[^<>]*)?>/;
+// This escaped whitespace class mirrors backend/prompt_gate.py verbatim.
+// JS \s and trim() use a different Unicode repertoire and would drift from
+// the backend's stored prompt counts.
+const PROMPT_WS_CLASS = String.raw`\x09-\x0d\x1c-\x1f\x20\x85\xa0\u1680` +
+  String.raw`\u2000-\u200a\u2028\u2029\u202f\u205f\u3000`;
+const PROMPT_WS_RE = new RegExp('^[' + PROMPT_WS_CLASS + ']+');
+const PROMPT_DATA_TAG_RE = new RegExp(
+  '^<([A-Za-z][A-Za-z0-9._:-]*)(?:[' + PROMPT_WS_CLASS + '][^<>]*)?>',
+);
 const PROMPT_HUMAN_TAGS = new Set(['pasted_content']);
 const INTERRUPT_MARKER = '[Request interrupted by user';
 
 function isPromptText(text) {
-  // The explicit \x1c-\x1f and \x85 ranges exist for Python lstrip parity:
-  // str.lstrip() also strips the C0 file/group/record/unit separators and
-  // NEL, which JS \s does not — without them a control-char-prefixed
-  // injection is denied by the backend but counted here.
-  const stripped = String(text ?? '').replace(/^[\s\x1c-\x1f\x85]+/, '');
+  const stripped = String(text ?? '').replace(PROMPT_WS_RE, '');
   if (!stripped) return false;
   const m = PROMPT_DATA_TAG_RE.exec(stripped);
   if (!m) return true;
@@ -63,7 +67,8 @@ function isPromptText(text) {
 
 function shouldPushUserText(text) {
   const s = String(text ?? '');
-  return isPromptText(s) && !s.trim().startsWith(INTERRUPT_MARKER);
+  const stripped = s.replace(PROMPT_WS_RE, '');
+  return isPromptText(s) && !stripped.startsWith(INTERRUPT_MARKER);
 }
 
 window.parseTranscript = function parseTranscript(text, opts) {
