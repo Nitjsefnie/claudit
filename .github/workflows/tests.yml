@@ -284,6 +284,7 @@ jobs:
           python -m coverage report "--fail-under=${floor}" --precision=1
 
       - name: Install c8 (pinned, no package.json, no build step)
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         # zizmor: ignore[adhoc-packages]
         # Same deliberate no-lockfile install as eslint.yml: a
         # package.json here would read as the repo having adopted a build
@@ -309,6 +310,9 @@ jobs:
           NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
         run: |
           rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
+          # Mechanically derived today via: grep -l '["node"' tests/*.py
+          # A new node-executing test file must be added to this list or
+          # its exercised paths stay outside the measurement.
           python -m pytest tests/test_breakdown_exact_rate.py \
             tests/test_ctx_turn_parity.py \
             tests/test_dashboard_binning.py \
