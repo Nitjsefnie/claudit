@@ -442,4 +442,3 @@ def test_state_reset_forces_full_rebuild(fresh_db, mini_r2_env):
     assert result["reparsed"] == 0
     with db.viz_conn() as c:
         assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0
-
