@@ -48,6 +48,8 @@ import pytest
 #                        scratch DB in-body
 #   client               test_provider_split_api; creates its own
 #                        scratch DB in-body
+#   api_client           test_rate_boundary_fold_api; takes fresh_db,
+#                        which creates the scratch DB
 #   _viz_ready           test_db_schema_check; autouse, applies the app
 #                        schema to its own scratch viz DB
 #   auth_env             test_db_schema_check; creates its own empty
@@ -63,6 +65,7 @@ DB_FIXTURES = frozenset({
     "app_with_prompt_range_data",
     "dashboard_body",
     "client",
+    "api_client",
     "_viz_ready",
     "auth_env",
     "projects_client",
