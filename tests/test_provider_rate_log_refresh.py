@@ -251,6 +251,22 @@ def test_log_fetch_failure_samples_moved_price_without_refusing_the_run(
         encoding="utf-8")
 
 
+def test_report_lists_each_sampled_host_with_a_short_reason():
+    result = refresh.Result(
+        {}, [], [], [], [],
+        {MODEL: {
+            "Wafer": "2 endpoints at one current price",
+            "BaseTen": "cheapest resolution has no stable endpoint identity",
+        }},
+    )
+
+    out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
+
+    assert ("  sampled   BaseTen (cheapest resolution), "
+            "Wafer (2 endpoints at one current price)") in out
+    assert "notices:" not in out
+
+
 def test_missing_canonical_slug_samples_every_host_without_refusal(tmp_path, capsys):
     states = [("2030-12-31T23:00:00Z", RATE_A)]
     catalog = {"data": [{"id": MODEL_ID}]}
