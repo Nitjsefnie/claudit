@@ -168,9 +168,24 @@ function mintRunSignal() {
   };
 }
 
+async function fetchTranscriptText(sessionId, fetchImpl = fetch) {
+  const r = await fetchImpl(`/api/sessions/${sessionId}/transcript`,
+                           { credentials: 'same-origin' });
+  if (!r.ok) {
+    let message = 'HTTP ' + r.status;
+    try {
+      const body = await r.json();
+      if (body && typeof body.detail === 'string') message += ': ' + body.detail;
+    } catch (_) {}
+    throw new Error(message);
+  }
+  return r.text();
+}
+
 function App() {
   const [route, setRoute] = useState('dashboard'); // dashboard | sessions | session
   const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
+  const [transcriptError, setTranscriptError] = useState('');
   const [, setFilename] = useState('');
   const [synth, setSynth] = useState(null);
   const [useSynth, setUseSynth] = useState(true);
@@ -323,17 +338,21 @@ function App() {
   );
 
   async function loadFromBackend(sessionId) {
+    setTx(null);
+    setTranscriptError('');
     try {
-      const r = await fetch(`/api/sessions/${sessionId}/transcript`, { credentials: 'same-origin' });
-      const text = await r.text();
+      const text = await fetchTranscriptText(sessionId);
       const { events, meta } = window.parseTranscript(text);
       const stats = window.computeSessionStats(events, meta);
       setTx({ events, meta, stats });
+      setTranscriptError('');
       setFilename(sessionId);
       setUseSynth(false);
       setRoute('session');
     } catch (err) {
       console.error('transcript fetch failed', err);
+      setTranscriptError(err && err.message ? err.message : String(err));
+      setRoute('session');
     }
   }
 
@@ -367,7 +386,9 @@ function App() {
           <window.ContextGrowthAgg project={activeProject} range={activeRange} />
         </div>
       )}
-      {route === 'session' && <SessionView tx={tx} />}
+      {route === 'session' && (transcriptError
+        ? <div className="err">transcript fetch failed: {transcriptError}</div>
+        : <SessionView tx={tx} />)}
       {/* Live region for the SSE ingest_done refresh (issue #117).
           Mounted here, outside the panel tree, so no re-render can
           unmount it; polite + atomic so it never interrupts or steals
