@@ -82,3 +82,139 @@ def test_process_pool_persists_survive_a_per_file_failure(
         total = _scalar(c, "SELECT count(*) FROM files")
     assert kept, "the survivor file did not land"
     assert total == 1, "files beyond the survivor landed despite the failure"
+
+
+def test_process_pool_books_a_parse_failure_per_file(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A fetch failure in a forked child books its own file only; the run
+    answers without a fatal error and every other file still lands.
+    """
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    real_fetch = ingest._fetch_with_retry
+
+    def flaky_fetch(key):
+        if key.endswith(_FLAKY_KEY):
+            raise OSError("connection dropped")
+        return real_fetch(key)
+
+    monkeypatch.setattr(ingest, "_fetch_with_retry", flaky_fetch)
+    summary = ingest.run_ingest("test-proc-parse-fail")
+
+    assert summary["failed"] == 1
+    assert summary["error"] is not None
+    with db.viz_conn() as c:
+        landed = c.execute("SELECT count(*) FROM files").fetchone()[0]
+    assert landed == 4, "the flaky file's peers did not land"
+
+
+def test_process_pool_treats_a_vanished_object_as_not_a_failure(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A key that disappears between list and fetch is discarded from the
+    orphan sweep's seen set, not booked as a failure.
+    """
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    real_fetch = ingest._fetch_with_retry
+
+    from backend.ingest_fetch import VanishedObject
+
+    def vanishing_fetch(key):
+        if key.endswith(_FLAKY_KEY):
+            raise VanishedObject(key)
+        return real_fetch(key)
+
+    monkeypatch.setattr(ingest, "_fetch_with_retry", vanishing_fetch)
+    summary = ingest.run_ingest("test-proc-vanished")
+
+    assert summary["error"] is None
+    assert summary["failed"] == 0
+    assert summary["vanished"] == 1
+    with db.viz_conn() as c:
+        doomed = c.execute(
+            "SELECT count(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,)
+        ).fetchone()[0]
+    assert doomed == 0, "the vanished key survived as a files row"
+
+
+def test_process_pool_a_broken_fetch_is_fatal(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A non-transient fetch failure means the fetch path itself is
+    broken: the exception escapes the pipeline and the run closes fatal.
+    """
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+
+    def broken_fetch(_key):
+        raise RuntimeError("no client at all")
+
+    monkeypatch.setattr(ingest, "_fetch_with_retry", broken_fetch)
+    summary = ingest.run_ingest("test-proc-fatal")
+
+    assert summary["error"] is not None
+    assert summary["aborted"] is False
+
+
+def test_process_pool_rerun_reparses_and_counts(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A second pool run over an unchanged mirror reparses nothing; a
+    PARSER_VERSION bump reparses every file through the pool path.
+    """
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    first = ingest.run_ingest("test-proc-1")
+    assert first["reparsed"] == 0
+    second = ingest.run_ingest("test-proc-2")
+    assert second["reparsed"] == 0
+    with db.viz_conn() as c:
+        c.execute("UPDATE files SET parser_version = '0'")
+        c.commit()
+    third = ingest.run_ingest("test-proc-3")
+    assert third["reparsed"] == 5
+
+
+def test_process_pool_timing_line_marks_disjoint_phases(
+        fresh_db, mini_r2_env, monkeypatch, caplog):
+    """With CLAUDIT_TIMING on, the pool path's fetch_parse and persist
+    marks stay disjoint and never exceed the run total.
+    """
+    import logging as _logging
+
+    from backend import timing as _timing
+
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setattr(_timing, "TIMING_ON", True)
+    with caplog.at_level(_logging.INFO, logger="claudit.ingest"):
+        summary = ingest.run_ingest("test-proc-timing")
+    assert summary["error"] is None
+    line = next(r.getMessage() for r in caplog.records
+                if r.name == "claudit.ingest"
+                and r.getMessage().startswith("TIMING ingest "))
+    import re as _re
+
+    def _ms(field):
+        m = _re.search(rf"\b{field}=(\d+)ms", line)
+        return int(m.group(1))
+
+    total, parse_ms, persist_ms = (
+        _ms("total"), _ms("fetch_parse"), _ms("persist"))
+    assert parse_ms >= 0 and persist_ms >= 0
+    assert parse_ms + persist_ms <= total + 100, line
+    assert f"parse_processes=2" in line
+    assert f"persist_threads=2" in line
+
+
+def test_persist_thread_count_defaults_and_clamps(monkeypatch):
+    monkeypatch.delenv("INGEST_PERSIST_THREADS", raising=False)
+    assert ingest.persist_thread_count() == 4
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "")
+    assert ingest.persist_thread_count() == 4
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "junk")
+    assert ingest.persist_thread_count() == 4
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "0")
+    assert ingest.persist_thread_count() == 1
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "3")
+    assert ingest.persist_thread_count() == 3
