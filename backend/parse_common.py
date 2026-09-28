@@ -39,9 +39,14 @@ def iter_lines(blob: bytes) -> Iterator[bytes]:
     a separator, and the trailing fragment yields only when non-empty.
     """
     start = 0
+    nl = blob.find(b"\n")
+    cr = blob.find(b"\r")
     while start < len(blob):
-        nl = blob.find(b"\n", start)
-        cr = blob.find(b"\r", start)
+        # Keep -1 exhausted; refresh only a delimiter already consumed.
+        if nl != -1 and nl < start:
+            nl = blob.find(b"\n", start)
+        if cr != -1 and cr < start:
+            cr = blob.find(b"\r", start)
         if cr != -1 and (nl == -1 or cr < nl):
             if cr == nl - 1:  # CRLF: one separator, not two
                 yield blob[start:cr]
