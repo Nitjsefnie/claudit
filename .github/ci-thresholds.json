@@ -8,7 +8,7 @@
   "module_size_baseline": {
     "backend/api.py": 986,
     "backend/api_dashboard.py": 834,
-    "backend/bash_churn.py": 937,
+    "backend/bash_churn.py": 918,
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 942,
     "backend/ingest_rollups.py": 609,
