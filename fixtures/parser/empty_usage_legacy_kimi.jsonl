@@ -1,0 +1,4 @@
+{"type":"metadata","protocol_version":"1.10"}
+{"timestamp":1784226326.0,"message":{"type":"TurnBegin","payload":{"user_input":"hi"}}}
+{"timestamp":1784226327.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{},"message_id":"empty-311"}}}
+{"timestamp":1784226328.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"input_cache_creation":0,"input_cache_read":0,"output":2},"message_id":"real-311"}}}
