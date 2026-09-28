@@ -150,3 +150,39 @@ def test_a_seeded_default_cannot_price_any_minute_of_the_week(
 )
 def test_covers_week_checks_every_week_minute(schedule: list, expected: bool) -> None:
     assert refresh.covers_week(schedule) is expected
+
+
+def test_first_seen_override_with_explicit_null_days_stores_days_absent(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run = Run(tmp_path)
+    rates = _scaled_rates(0.5)
+    endpoint = _endpoint("NullDays", rates)
+    endpoint["pricing"]["overrides"] = [{"utc_days": None, **_listed(rates)}]
+    run.endpoints(GLM).append(endpoint)
+
+    rc, _, err = run(capsys, now=NOW)
+
+    assert rc == 0, err
+    history = run.doc()["providers"][GLM]["NullDays"]
+    assert history[0]["from"] == STAMP
+    window = history[0]["schedule"][0]
+    assert "days" not in window
+
+
+def test_first_seen_override_with_null_time_bounds_stores_bounds_absent(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run = Run(tmp_path)
+    rates = _scaled_rates(0.5)
+    endpoint = _endpoint("NullTimes", rates)
+    endpoint["pricing"]["overrides"] = [
+        {"utc_start": None, "utc_end": None, **_listed(rates)}]
+    run.endpoints(GLM).append(endpoint)
+
+    rc, _, err = run(capsys, now=NOW)
+
+    assert rc == 0, err
+    history = run.doc()["providers"][GLM]["NullTimes"]
+    assert history[0]["from"] == STAMP
+    window = history[0]["schedule"][0]
+    assert "start" not in window
+    assert "end" not in window

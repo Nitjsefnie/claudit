@@ -123,9 +123,10 @@ def entry_schedule(price: dict, where: str) -> list | None:
         window: dict = {"rates": rates_of({**{k: price[k] for k in PRICED if k in price},
                                            **{k: override[k] for k in PRICED if k in override}},
                                           where)}
-        if "utc_days" in override:
+        if override.get("utc_days") is not None:
             window["days"] = override["utc_days"]
-        if "utc_start" in override or "utc_end" in override:
+        if (override.get("utc_start") is not None
+                or override.get("utc_end") is not None):
             window["start"] = override.get("utc_start")
             window["end"] = override.get("utc_end")
         schedule.append(window)
