@@ -23,7 +23,8 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _classify_error, _flatten_result_text,
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
-from backend.bash_churn import BashCommand, bash_churn, churn_survives_error, replace_churn
+from backend.bash_churn import BashCommand, bash_churn, replace_churn
+from backend.bash_churn_errors import churn_survives_error
 from backend import bash_reads
 from backend.prompt_gate import _is_prompt_text
 from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
@@ -656,7 +657,7 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
     excluded from rate denominators at query time. An errored call
     changed nothing on disk, so its churn is zeroed (an unmatched
     call keeps its churn: the file may simply end before the result
-    record) — unless `bash_churn.churn_survives_error` says otherwise."""
+    record) — unless `bash_churn_errors.churn_survives_error` says otherwise."""
     for tu in tool_uses:
         # Kept on the row: ingest dedups compaction-sidecar replays on it.
         tu["tool_use_id"] = tu_id = tu.get("tool_use_id") or None

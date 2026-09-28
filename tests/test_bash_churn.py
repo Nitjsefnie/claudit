@@ -9,7 +9,8 @@ import warnings
 
 import pytest
 
-from backend.bash_churn import bash_churn, churn_survives_error, python_write_paths, replace_churn
+from backend.bash_churn import bash_churn, python_write_paths, replace_churn
+from backend.bash_churn_errors import churn_survives_error
 
 
 @pytest.mark.parametrize("command,expected", [

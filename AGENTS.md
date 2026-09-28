@@ -151,10 +151,11 @@ backend/          — FastAPI application
                     replacement strings are literals — inline, via a
                     name bound to a literal at that statement, or via
                     a same-script helper called with literals. Also
-                    the paths those bodies open for writing, and
-                    whether a heredoc write survives a later stage's
-                    nonzero exit. Anything needing the command to RUN
-                    counts 0, never an estimate.
+                    the paths those bodies open for writing. Anything
+                    needing the command to RUN counts 0, never an estimate.
+  bash_churn_errors.py — Whether a verbatim heredoc write survives a
+                    later stage's failure, including target-specific
+                    write errors.
   pricing.py      — Loads src/pricing.json and resolves a record to its
                     per-model token rates (USD/M), or to PROVIDER_RATES:
                     per-(model, serving host) rates for OpenRouter
