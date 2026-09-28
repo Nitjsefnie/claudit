@@ -4,6 +4,9 @@ import sys
 import threading
 import time
 
+import pytest
+from fastapi import HTTPException
+
 from backend import cache as cache_mod
 from backend.cache import _IdleLRU, _TTLCache, cache_response
 
@@ -277,3 +280,60 @@ def test_response_cache_keys_bounded_under_free_text_churn():
 def test_response_cache_is_capped():
     """The shipped response cache itself carries the cap."""
     assert cache_mod.response_cache.max_entries is not None
+
+
+# --------------------------------------------------------------------------
+# Issue #261: failed response-cache computes leave no entry to trigger the
+# existing per-key lock reclamation paths.
+
+def test_failed_compute_leaves_no_lock_behind(monkeypatch):
+    """A failed decorated compute propagates and releases its empty key."""
+    c = _TTLCache(ttl_seconds=3600, max_entries=256)
+    monkeypatch.setattr(cache_mod, "response_cache", c)
+
+    @cache_response
+    def endpoint(rng: str) -> dict:
+        raise HTTPException(status_code=400, detail="invalid range")
+
+    with pytest.raises(HTTPException, match="invalid range"):
+        endpoint(rng="invalid")
+
+    assert len(c._key_locks) == 0  # pylint: disable=protected-access
+    assert len(c._items) == 0  # pylint: disable=protected-access
+
+
+def test_distinct_failing_requests_do_not_accumulate_locks(monkeypatch):
+    """Distinct failing query values leave no locks or entries behind."""
+    c = _TTLCache(ttl_seconds=3600, max_entries=256)
+    monkeypatch.setattr(cache_mod, "response_cache", c)
+
+    @cache_response
+    def endpoint(rng: str) -> dict:
+        if rng == "valid":
+            return {"range": rng}
+        raise HTTPException(status_code=400, detail="invalid range")
+
+    for i in range(300):
+        with pytest.raises(HTTPException, match="invalid range"):
+            endpoint(rng=f"invalid-{i}")
+        assert len(c._key_locks) == 0  # pylint: disable=protected-access
+        assert len(c._items) == 0  # pylint: disable=protected-access
+
+    assert endpoint(rng="valid") == {"range": "valid"}
+    assert len(c._items) == 1  # pylint: disable=protected-access
+
+
+def test_same_key_retry_after_failed_compute_reclaims_lock(monkeypatch):
+    """A second failed compute on the same key gets its own error cleanly."""
+    c = _TTLCache(ttl_seconds=3600, max_entries=256)
+    monkeypatch.setattr(cache_mod, "response_cache", c)
+
+    @cache_response
+    def endpoint(rng: str) -> dict:
+        raise HTTPException(status_code=400, detail="invalid range")
+
+    for _ in range(2):
+        with pytest.raises(HTTPException, match="invalid range"):
+            endpoint(rng="invalid")
+        assert len(c._key_locks) == 0  # pylint: disable=protected-access
+        assert len(c._items) == 0  # pylint: disable=protected-access
