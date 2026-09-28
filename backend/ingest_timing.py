@@ -15,6 +15,7 @@ class _RunTiming:
     changed: int = 0
     outcome: str = "fatal"
     persist_seconds: float = 0.0
+    scope: str = "full"
 
 
 _RUN_TIMING: ContextVar[_RunTiming | None] = ContextVar(
@@ -30,3 +31,9 @@ def _record_phase(label: str, seconds: float) -> None:
     current = _RUN_TIMING.get()
     if current is not None:
         current.phases.mark(label, seconds)
+
+
+def _record_scope(scope: str) -> None:
+    current = _RUN_TIMING.get()
+    if current is not None:
+        current.scope = scope

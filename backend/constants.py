@@ -104,6 +104,10 @@ PARSER_VERSION = "88"
 # parser-semantics changes from now on.
 PRICING_VERSION = "48"
 
+# Stored rollup semantics version. Bump whenever any rollup SQL semantics
+# change; it forces one complete rebuild without reparsing files.
+DERIVED_STATE_VERSION = "1"
+
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
 #: another version is re-fetched, so bump this whenever that reading

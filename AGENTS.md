@@ -118,7 +118,8 @@ backend/          — FastAPI application
                     marker→stored→hash resolution the walk uses, and the
                     migration-stall rekey.
   project_aliases.py — Per-deploy project-id aliases folded onto their
-                       target during ingest before rollups rebuild.
+                       target before rollups; the zero-argument fold
+                       reports moved files to the active incremental scope.
   branding.py     — APP_NAME/APP_TITLE/APP_DESCRIPTION → browser title,
                     meta, logo, sign-in page, export filename. Escapes
                     per context (HTML vs script payload) — see
@@ -182,11 +183,32 @@ backend/          — FastAPI application
                     lock and two accessors. Re-exported from ingest.
   ingest_timing.py — Per-run ingest timing state and helpers. Re-exported
                      from ingest so run instrumentation stays local.
+  ingest_scope.py — Per-run dirty files, identities and project-hour keys
+                    normalized to UTC instants so repeated local hours
+                    remain distinct. Fingerprints derived semantics and
+                    operator tables; captures pre-mutation contributions,
+                    commits incomplete before mutation, and marks complete only after run
+                    finalization succeeds with the scope used by rollups.
+  ingest_fetch.py — Bounded fetch/parse worker-pool helpers used by the
+                    walk. Re-exported through ingest so tests can keep
+                    patching its established seams.
+  ingest_rollup_state.py — Suppression, canonical-flag updates and
+                    teammate resolution, with dirty-scope support.
+  ingest_rollup_hourly.py — The seven hour-keyed aggregate rebuilds;
+                    scoped runs delete exact dirty instants and select each
+                    source row through a materialized candidate CTE joined
+                    to per-project merged, disjoint widened UTC timestamp
+                    intervals, then exact-check its session-zone group key.
+  ingest_rollup_latency.py — Latency aggregate rebuilds; incremental runs
+                    replace every epoch-aligned display bucket overlapping
+                    each `[hour, hour + 2 hours)` dirty interval, so
+                    percentiles use full populations.
   ingest_rollups.py — The derived-table rebuilds ingest runs after each
-                    walk, in a load-bearing order: suppression, the
-                    canonical flags, every rollup, the teammate
-                    agent_type resolution. Nothing here fetches, parses
-                    or persists. Re-exported from ingest.
+                    walk, in a load-bearing order: suppression, repricing,
+                    aliases, canonical flags, teammate resolution, then
+                    every rollup. Compatibility re-exports for
+                    the implementations above; nothing here fetches,
+                    parses or persists.
   r2.py           — S3 client with file:// filesystem-mirror fallback for dev.
   auth.py         — PBKDF2-SHA256 password hashing/verification helpers
                     (versioned hash format; a legacy bare-hex hash still
@@ -539,8 +561,33 @@ SV-CI-RATCHETS (`.claude/rules/claudit-doctrine.md`).
   (both carrying `total_tokens` beside `cost_usd`) and `latency_rollup`
   — see SV-ROLLUP. The first two hold pure sums/counts/min/max, summed
   to the display bucket; valid only for buckets ≥ 1h, so the 24h view
-  takes a live path.
-- **`latency_rollup` is different**: percentiles do NOT compose across buckets, so it is stored once *per display bucket width* (`constants.LATENCY_BUCKETS`) — possible only because the widths are epoch-aligned and there are just a handful. It also stores a separate all-projects row (`project_id = ''`), because a project filter changes the population inside each group and `p50` over all projects is not derivable from per-project `p50`s. Response-size percentiles are still live.
+  takes a live path. A steady-state ingest replaces only affected
+  file/project-hour keys stored as UTC-aware instants; scoped source rows
+  are first selected through per-project merged, disjoint widened UTC
+  timestamp intervals in a materialized candidate CTE, then must match their
+  exact `(project_id, date_trunc('hour', ts))` output key by instant equality.
+  The disjoint intervals prevent row multiplication, and the exact check
+  excludes clean output groups. Full
+  rebuilds are selected by a changed derived
+  fingerprint, missing/incomplete state, a last full rebuild older than
+  24 hours, more than min(2,000 files, 20% of stored files) dirty, a lane
+  identity rekey, changed repricing, or a NULL-hour latency row.
+  `DERIVED_STATE_VERSION` in `backend/constants.py` invalidates derived SQL
+  semantics. For an out-of-band edit to `records`, `tool_uses` or `files`,
+  delete the singleton from `ingest_derived_state` to force a full rebuild
+  on the next ingest (SV-ROLLUP). The marker becomes complete only after
+  derived phases, run close, notification and cache warming succeed;
+  `last_full_at` advances only when rollups began in full scope.
+- **`latency_rollup` is different**: percentiles do NOT compose across
+  buckets, so it is stored once *per display bucket width*
+  (`constants.LATENCY_BUCKETS`) — possible only because the widths are
+  epoch-aligned and there are just a handful. Each UTC-normalized
+  dirty-hour instant replaces every epoch bucket overlapping
+  `[hour, hour + 2 hours)`, including the all-projects row. It also
+  stores a separate all-projects row (`project_id = ''`), because a
+  project filter changes the population inside each group and `p50` over
+  all projects is not derivable from per-project `p50`s. Response-size
+  percentiles are still live.
 - **Parsing is self-contained.** Never invoke or vendor a parser from
   outside the repo (SV-READ-ONLY-CANONICAL); when `backend/parse.py`
   and `src/parser.js` drift, fix it here against the spec and the

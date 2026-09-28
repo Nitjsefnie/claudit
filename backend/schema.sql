@@ -11,6 +11,16 @@ CREATE TABLE IF NOT EXISTS projects (
   last_seen_at  TIMESTAMPTZ NOT NULL
 );
 
+-- The last complete derived-state fingerprint. `complete = FALSE` is
+-- committed before ingest mutates source rows, so an interrupted run forces
+-- a complete rebuild on the next successful ingest.
+CREATE TABLE IF NOT EXISTS ingest_derived_state (
+  singleton    BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  fingerprint  TEXT NOT NULL,
+  complete     BOOLEAN NOT NULL DEFAULT FALSE,
+  last_full_at TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS files (
   file_key            TEXT PRIMARY KEY,
   project_id          TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
