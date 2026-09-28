@@ -33,6 +33,8 @@ CASES = [
     ("claude-mythos-5-1", None),
     ("claude-opus-5-5", None),
     ("claude-opus-5-5[1m]", None),
+    ("claude-sonnet-5-5", None),
+    ("claude-sonnet-5-5[1m]", None),
     ("claude-mythos-5", None),
     ("claude-fable-9", None),
     ("claude-fable-5", None),

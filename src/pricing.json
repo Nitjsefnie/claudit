@@ -234,6 +234,16 @@
         "read": 0.2
       }
     ],
+    "claude-sonnet-5-5": [
+      {
+        "create_1h": 4.0,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": null,
+        "output": 10.0,
+        "read": 0.2
+      }
+    ],
     "glm-5-3-flash": [
       {
         "create_1h": 0.0,

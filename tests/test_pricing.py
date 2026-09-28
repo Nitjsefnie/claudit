@@ -61,6 +61,16 @@ def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
         assert older.rates is not newer.rates
 
 
+def test_sonnet_5_5_resolves_exact_to_its_own_row():
+    """Sonnet 5.5 carries its own row and never rides the Sonnet family
+    fallback (issue #328): before the row landed it resolved kind='tier'
+    with key=None. The live table check pins only exact-key resolution."""
+    s55 = pricing.resolve("claude-sonnet-5-5")  # sv-test-data: allow (structure: exact key survives appends)
+    assert s55.kind == "exact"
+    assert s55.key == "claude-sonnet-5-5"
+    assert set(s55.rates) == set(pricing.RATE_FIELDS)
+
+
 def test_fable_5_1_does_not_misroute_to_fable_5(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Suffix resolution keeps each synthetic version on its own row."""
@@ -300,12 +310,21 @@ def test_dated_window_does_not_leak_to_other_models(synthetic_dated_rate):
         assert during == after == pricing.rate_for(m)
 
 
-def test_tier_fallback_never_inherits_a_dated_promotion(synthetic_dated_rate):
-    # An unrecognised sonnet falls back to Sonnet 5's LIST rates, not its
-    # promotional ones, even inside the window.
+def test_tier_fallback_never_inherits_a_dated_promotion(monkeypatch):
+    # An unrecognised sonnet falls back to the current-generation row's
+    # LIST rates, not its promotional ones, even inside the window. The
+    # promo must hang on whatever row IS the current fallback — derived
+    # here so a new Sonnet release moves the test instead of voiding it.
+    fallback = pricing._latest("sonnet")  # pylint: disable=protected-access
+    key = next(k for k, v in pricing.MODEL_RATES.items() if v is fallback)
+    cutover = datetime(2026, 9, 1, tzinfo=UTC)
+    promo = {"fresh": 9.00, "create_5m": 11.25, "create_1h": 18.00,
+             "read": 0.90, "output": 45.00}
+    monkeypatch.setattr(pricing, "DATED_RATES", {key: [(cutover, promo)]})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
     r = pricing.resolve("claude-sonnet-9", ts=datetime(2026, 7, 21, tzinfo=UTC))
     assert r.kind == "tier"
-    assert r.rates == synthetic_dated_rate.after
+    assert r.rates == fallback
 
 
 def test_rate_epochs_are_exposed_sorted_for_read_time_grouping(synthetic_dated_rate):
@@ -533,7 +552,7 @@ def test_resolve_reports_tier_fallback_for_unknown_claude_model():
     res = pricing.resolve("claude-sonnet-6")
     assert res.kind == "tier"
     # Current-generation Sonnet rates, whatever they are today.
-    assert res.rates == pricing.MODEL_RATES["claude-sonnet-5"]
+    assert res.rates == pricing.MODEL_RATES["claude-sonnet-5-5"]
 
 
 def test_resolve_reports_default_for_wholly_unknown_model():
