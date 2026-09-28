@@ -146,6 +146,8 @@ backend/          — FastAPI application
                     multiplies the count; a runtime list counts one, the
                     floor. Split out of bash_churn so that module stays
                     one concern.
+  bash_dash_c.py  — Python stdin and `-c` command matching, plus inline
+                    script tokenization with the shell scan's exact results.
   bash_churn.py   — lines_added/lines_deleted recovered from Bash
                     command TEXT: heredoc bodies redirected into a file,
                     inline git-apply/patch hunks, and python

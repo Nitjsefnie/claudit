@@ -19,10 +19,10 @@ import ast
 import difflib
 import functools
 import re
-import shlex
 import warnings
 from dataclasses import dataclass
 
+from backend.bash_dash_c import _PYTHON_STDIN, _dash_c_sources
 from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, effects_from_tokens, shell_tokens
 from backend.bash_loops import heredoc_repeats
 
@@ -40,12 +40,6 @@ _REDIRECT = re.compile(r"(?<![0-9<>&])>>?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";&
 _CAT = re.compile(r"(?:^|[|;&(]|\s)cat\b")
 _TEE = re.compile(r"(?:^|[|;&(]|\s)tee\b")
 _PATCH = re.compile(r"(?:^|[|;&(]|\s)(?:git\s+apply|patch)\b")
-# `python3 -` / `python -` / `python3.13 -`: an interpreter reading
-# stdin — bare, or by path (`.venv/bin/python -`, `/usr/bin/python3 -`),
-# which is how a repo with a venv spells it.
-_PYTHON_WORD = r"(?:^|[|;&(]|\s)(?:\S*/)?python(?:3(?:\.\d+)?)?"
-_PYTHON_STDIN = re.compile(_PYTHON_WORD + r"\s+-(?:\s|$)")
-_PYTHON_DASH_C = re.compile(_PYTHON_WORD + r"\s+-c\s")
 
 _NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 
@@ -811,19 +805,6 @@ def _python_churn(src: str) -> tuple[int, int]:
     """Churn enumerable from a python script's own source."""
     added, deleted, _, _ = _python_scan(src)
     return added, deleted
-
-
-def _dash_c_sources(text: str) -> list[str]:
-    """Script bodies passed as `python3 -c '<code>'`."""
-    out: list[str] = []
-    for m in _PYTHON_DASH_C.finditer(text):
-        try:
-            tokens = shlex.split(text[m.end():], comments=False, posix=True)
-        except ValueError:
-            continue
-        if tokens:
-            out.append(tokens[0])
-    return out
 
 
 class BashCommand:
