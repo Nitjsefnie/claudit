@@ -301,6 +301,9 @@ A cyclic alias set is an operator error: folded ids advance around the
 cycle on successive ingests; fix the table. A pass with no matching
 source ids moves nothing. A project whose id equals its matched target
 is never moved or deleted.
+Every project id named as an alias target is labelled with its own id on
+every ingest, regardless of paths recorded by its folded files;
+non-target projects keep their existing labels.
 
 The fold runs at ingest before rollups rebuild, so every rollup and read
 path — `/api/projects` included — sees only the target id. Adding or

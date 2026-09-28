@@ -5,7 +5,9 @@ repository's cost is split across hundreds of ids a `-tmp-%`-shaped
 pattern could name. The fix is DATA, not code: a per-deploy
 `project_aliases` table (pattern → target project id, plus note),
 shipped EMPTY in schema.sql, applied at ingest so every stored row and
-rollup sees the target id. Matching is SQL LIKE, case-sensitive — POSIX
+rollup sees the target id. Every alias target is labelled with its own
+id after every fold pass; other projects keep their existing labels.
+Matching is SQL LIKE, case-sensitive — POSIX
 project slugs are case-sensitive, and the Windows ones are already
 case-folded by key_layout.canonical_project_id. In each pass, a stored
 project id is resolved EXACTLY ONCE against the current alias list: the
@@ -113,12 +115,12 @@ def rekey_folded_projects() -> int:
     Runs in _rebuild_derived_state after "reprice" and before
     "canonical" — identity before any derived state, so the rollups
     rebuilt after it see only folded ids. Per move: upsert the target
-    `projects` row (display_name = the target id only when the row is
-    newly created; an existing row is never overwritten), move every
-    file in ONE statement evaluated against the pre-fold ids, then drop
-    each emptied source row — the NOT EXISTS guard keeps a project that
-    is another move's target (its row freshly repopulated by this same
-    pass) from being dropped.
+    `projects` row, move every file in ONE statement evaluated against
+    the pre-fold ids, then drop each emptied source row — the NOT EXISTS
+    guard keeps a project that is another move's target (its row freshly
+    repopulated by this same pass) from being dropped. After the moves,
+    every alias target's display_name is reset to its project id on every
+    pass, including passes with no moves; non-target labels are untouched.
 
     Adding or editing a row re-keys stored rows on the next ingest;
     deleting one stops folding NEW files. Already-folded rows stay at
@@ -144,43 +146,57 @@ def rekey_folded_projects() -> int:
         if not row or not row[0]:
             return 0
         moves = folded_pairs(c)
-        if not moves:
-            return 0
+        relabeled = 0
         with c.cursor() as cur:
-            for src in sorted(moves):
-                tgt = moves[src]
+            if moves:
+                for src in sorted(moves):
+                    tgt = moves[src]
+                    cur.execute(
+                        """
+                        INSERT INTO projects (project_id, display_name,
+                          first_seen_at, last_seen_at)
+                        SELECT %s, %s, MIN(r2_last_modified),
+                               MAX(r2_last_modified)
+                          FROM files WHERE project_id = %s
+                        HAVING COUNT(*) > 0
+                        ON CONFLICT (project_id) DO NOTHING
+                        """,
+                        (tgt, tgt, src))
+                # One statement over the whole moves map, not one UPDATE per
+                # source: the join reads the pre-statement ids and each row
+                # is updated at most once, so rows folded onto a project
+                # that is itself aliased stop there instead of moving on.
                 cur.execute(
                     """
-                    INSERT INTO projects (project_id, display_name,
-                      first_seen_at, last_seen_at)
-                    SELECT %s, %s, MIN(r2_last_modified), MAX(r2_last_modified)
-                      FROM files WHERE project_id = %s
-                    HAVING COUNT(*) > 0
-                    ON CONFLICT (project_id) DO NOTHING
+                    UPDATE files f
+                       SET project_id = m.tgt
+                      FROM unnest(%(srcs)s::text[], %(tgts)s::text[])
+                           AS m(src, tgt)
+                     WHERE f.project_id = m.src
                     """,
-                    (tgt, tgt, src))
-            # One statement over the whole moves map, not one UPDATE per
-            # source: the join reads the pre-statement ids and each row
-            # is updated at most once, so rows folded onto a project
-            # that is itself aliased stop there instead of moving on.
+                    {"srcs": sorted(moves),
+                     "tgts": [moves[s] for s in sorted(moves)]})
+                cur.execute(
+                    """
+                    DELETE FROM projects p
+                     WHERE p.project_id = ANY(%s)
+                       AND NOT EXISTS (SELECT 1 FROM files f
+                                        WHERE f.project_id = p.project_id)
+                    """,
+                    (sorted(moves),))
             cur.execute(
                 """
-                UPDATE files f
-                   SET project_id = m.tgt
-                  FROM unnest(%(srcs)s::text[], %(tgts)s::text[])
-                       AS m(src, tgt)
-                 WHERE f.project_id = m.src
-                """,
-                {"srcs": sorted(moves),
-                 "tgts": [moves[s] for s in sorted(moves)]})
-            cur.execute(
+                UPDATE projects p
+                   SET display_name = p.project_id
+                 WHERE p.display_name IS DISTINCT FROM p.project_id
+                   AND p.project_id IN (
+                       SELECT a.project_id FROM project_aliases a)
                 """
-                DELETE FROM projects p
-                 WHERE p.project_id = ANY(%s)
-                   AND NOT EXISTS (SELECT 1 FROM files f
-                                    WHERE f.project_id = p.project_id)
-                """,
-                (sorted(moves),))
+            )
+            relabeled = cur.rowcount
         c.commit()
     log.info("rekey_folded_projects: %d project id(s) folded", len(moves))
+    if relabeled:
+        log.info("rekey_folded_projects: %d alias target label(s) reset",
+                 relabeled)
     return len(moves)

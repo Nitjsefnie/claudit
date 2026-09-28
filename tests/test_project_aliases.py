@@ -239,6 +239,71 @@ def test_fold_with_no_remaining_match_moves_zero(fresh_db):
     assert _owners() == after_first
 
 
+def test_fold_labels_existing_target_with_its_id(fresh_db):
+    """Folding into an existing target resets a path label to its id."""
+    source = "-tmp-acme-wt-1"
+    target = "Acme"
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, source, [f"claude/{source}/s1/f.jsonl"])
+        _seed(cur, target, [f"claude/{target}/s1/f.jsonl"])
+        cur.execute(
+            "UPDATE projects SET display_name = %s WHERE project_id = %s",
+            ("/tmp/acme-wt/issue-1", target))
+        c.commit()
+    _alias("-tmp-acme-wt-%", target)
+
+    assert project_aliases.rekey_folded_projects() == 1
+    with db.viz_conn() as c:
+        label = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (target,))
+    assert label == target
+
+
+def test_fold_relabels_target_when_there_are_no_moves(fresh_db):
+    """An alias target is relabeled even after its files already folded."""
+    target = "Acme"
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, target, [f"claude/{target}/s1/f.jsonl"])
+        cur.execute(
+            "UPDATE projects SET display_name = %s WHERE project_id = %s",
+            ("/tmp/acme-wt/issue-1", target))
+        c.commit()
+    _alias("-tmp-acme-wt-%", target)
+
+    assert _pairs() == {}
+    assert project_aliases.rekey_folded_projects() == 0
+    with db.viz_conn() as c:
+        label = _scalar(
+            c, "SELECT display_name FROM projects WHERE project_id = %s",
+            (target,))
+    assert label == target
+
+
+def test_fold_keeps_non_target_project_display_name(fresh_db):
+    """An alias pass changes labels only for projects that are targets."""
+    source = "-tmp-acme-wt-1"
+    target = "Acme"
+    other = "Other"
+    other_label = "/tmp/acme-wt/unrelated"
+    with db.viz_conn() as c, c.cursor() as cur:
+        _seed(cur, source, [f"claude/{source}/s1/f.jsonl"])
+        _seed(cur, target, [f"claude/{target}/s1/f.jsonl"])
+        _seed(cur, other, [f"claude/{other}/s1/f.jsonl"])
+        cur.execute(
+            "UPDATE projects SET display_name = %s WHERE project_id = %s",
+            (other_label, other))
+        c.commit()
+    _alias("-tmp-acme-wt-%", target)
+
+    assert project_aliases.rekey_folded_projects() == 1
+    with db.viz_conn() as c:
+        labels = dict(c.execute(
+            "SELECT project_id, display_name FROM projects").fetchall())
+    assert labels[target] == target
+    assert labels[other] == other_label
+
+
 def test_rekey_is_a_noop_with_an_empty_alias_table(fresh_db):
     """The pass runs on every ingest, so the empty-alias case is the
     common one — and this codebase also ships to deploys that alias
@@ -263,22 +328,27 @@ def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
     the emptied source project row is gone, and usage_rollup (rebuilt
     after the fold) carries the target id only."""
     _alias("projA%", "projB")
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    with db.viz_conn() as c:
-        src_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
-                              "WHERE project_id = 'projA'")
-        tgt_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
-                              "WHERE project_id = 'projB'")
-        rolled = dict(c.execute(
-            "SELECT project_id, COUNT(*) FROM usage_rollup GROUP BY 1"
-        ).fetchall())
-    assert _owners() == {"projB": 5}, (
-        "every file in the mirror lands on the target id")
-    assert src_rows == 0, "the emptied source project row is gone"
-    assert tgt_rows == 1, "the target project row exists"
-    assert set(rolled) == {"projB"} and sum(rolled.values()) > 0, (
-        "usage_rollup was rebuilt after the fold and carries the target id")
+    for _ in range(2):
+        result = ingest.run_ingest(trigger="manual")
+        assert result["error"] is None
+        with db.viz_conn() as c:
+            src_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
+                                  "WHERE project_id = 'projA'")
+            target = _scalar(
+                c, "SELECT display_name FROM projects "
+                   "WHERE project_id = 'projB'")
+            tgt_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
+                                  "WHERE project_id = 'projB'")
+            rolled = dict(c.execute(
+                "SELECT project_id, COUNT(*) FROM usage_rollup GROUP BY 1"
+            ).fetchall())
+        assert _owners() == {"projB": 5}, (
+            "every file in the mirror lands on the target id")
+        assert src_rows == 0, "the emptied source project row is gone"
+        assert tgt_rows == 1, "the target project row exists"
+        assert target == "projB"
+        assert set(rolled) == {"projB"} and sum(rolled.values()) > 0, (
+            "usage_rollup was rebuilt after the fold and carries the target id")
 
 
 def test_alias_added_after_first_ingest_folds_without_a_reparse(
@@ -337,10 +407,10 @@ def _assert_lane_project_is_folded(target: str, slug: str,
     assert slug_files == 0
 
 
-def test_marker_lane_alias_stays_folded_and_keeps_target_display_name(
+def test_marker_lane_alias_stays_folded_and_labels_target_with_its_id(
         fresh_db, lane_r2_env):
     """Repeated marker reconciliation must resolve the slug through its
-    alias before moving files, preserving the existing target row."""
+    alias before moving files and relabel its target with the target id."""
     target = "lanework-repository"
     display_name = "Lanework repository (main checkout)"
     _alias(lane_r2_env["slug"], target)
@@ -366,7 +436,7 @@ def test_marker_lane_alias_stays_folded_and_keeps_target_display_name(
         assert result["error"] is None
         assert result["reparsed"] == 0
         _assert_lane_project_is_folded(
-            target, lane_r2_env["slug"], display_name)
+            target, lane_r2_env["slug"], target)
 
 
 def test_deleting_lane_alias_returns_files_to_marker_slug(
@@ -412,7 +482,7 @@ def test_marker_lane_alias_chain_stays_at_its_fixed_point(
     assert second["error"] is None
     assert second["reparsed"] == 0
     _assert_lane_project_is_folded(
-        target_b, lane_r2_env["slug"], display_name)
+        target_b, lane_r2_env["slug"], target_b)
     assert target_a not in _owners()
 
 
