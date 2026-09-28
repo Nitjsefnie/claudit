@@ -1,9 +1,10 @@
-"""The deploy's user-visible branding: APP_NAME, APP_TITLE, APP_DESCRIPTION.
+"""The deploy's user-visible branding: APP_NAME, APP_TITLE,
+APP_DESCRIPTION, APP_PRIVACY_NOTICE_URL.
 
 One codebase is deployed over several buckets (claudit, codexmeter,
 kimimeter); which name the UI shows comes from the environment, never
 from the code. Defaults reproduce today's claudit strings exactly, so a
-deploy that sets none of the three is byte-identical to before.
+deploy that sets none of them is byte-identical to before.
 
 Two escaping contexts, deliberately different (SV-BRAND-ESCAPE):
 - HTML text/attribute contexts — the page <title>, the meta description,
@@ -53,6 +54,10 @@ def brand_title() -> str:
 
 def brand_description() -> str:
     return _branded("APP_DESCRIPTION", DEFAULT_DESCRIPTION)
+
+
+def privacy_notice_url() -> str:
+    return _branded("APP_PRIVACY_NOTICE_URL", "")
 
 
 def brand() -> dict[str, str]:
