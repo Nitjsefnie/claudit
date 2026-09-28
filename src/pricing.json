@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T08:57:22Z",
+  "provider_rates_fetched": "2026-09-28T09:54:18Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -939,6 +939,14 @@
           "create_5m": 0.025,
           "fresh": 0.025,
           "from": "2026-09-28T08:00:09Z",
+          "output": 0.6,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.045,
+          "create_5m": 0.045,
+          "fresh": 0.045,
+          "from": "2026-09-28T09:54:18Z",
           "output": 0.6,
           "read": 0.01
         }
@@ -1667,6 +1675,14 @@
           "from": "2026-09-28T04:53:53Z",
           "output": 0.396,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.039,
+          "create_5m": 0.039,
+          "fresh": 0.039,
+          "from": "2026-09-28T09:54:18Z",
+          "output": 0.396,
+          "read": 0.027
         }
       ],
       "Makora": [
@@ -2528,6 +2544,14 @@
           "from": "2026-09-28T08:57:22Z",
           "output": 3.5,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.35,
+          "create_5m": 0.35,
+          "fresh": 0.35,
+          "from": "2026-09-28T09:54:18Z",
+          "output": 3.5,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -3003,6 +3027,14 @@
           "from": "2026-09-28T08:00:09Z",
           "output": 2.4068,
           "read": 0.1253
+        },
+        {
+          "create_1h": 0.3062,
+          "create_5m": 0.3062,
+          "fresh": 0.3062,
+          "from": "2026-09-28T09:54:18Z",
+          "output": 2.034,
+          "read": 0.1169
         }
       ],
       "InferenceNet": [
@@ -3183,6 +3215,14 @@
           "from": "2026-09-28T01:54:17Z",
           "output": 2.574,
           "read": 0.1521
+        },
+        {
+          "create_1h": 0.37,
+          "create_5m": 0.37,
+          "fresh": 0.37,
+          "from": "2026-09-28T09:54:18Z",
+          "output": 1.14,
+          "read": 0.067
         }
       ],
       "Relace": [
@@ -3323,6 +3363,14 @@
           "create_5m": 0.45,
           "fresh": 0.45,
           "from": "2026-09-28T08:57:22Z",
+          "output": 4.4,
+          "read": 0.26
+        },
+        {
+          "create_1h": 0.54,
+          "create_5m": 0.54,
+          "fresh": 0.54,
+          "from": "2026-09-28T09:54:18Z",
           "output": 4.4,
           "read": 0.26
         }
@@ -3790,6 +3838,15 @@
           "note": "6% off",
           "output": 0.47,
           "read": 0.0282
+        },
+        {
+          "create_1h": 0.1275,
+          "create_5m": 0.1275,
+          "fresh": 0.1275,
+          "from": "2026-09-28T09:54:18Z",
+          "note": "15% off",
+          "output": 0.425,
+          "read": 0.0255
         }
       ],
       "Together": [
