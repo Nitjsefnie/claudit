@@ -20,15 +20,22 @@ CONTEXT_GROWTH_JSX = ROOT / "src" / "context-growth-view.jsx"
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("ctx_reply_before_prompt.jsonl", [(1, 100), (3, 200)]),
-        ("ctx_out_of_order_ts.jsonl", [(2, 100), (4, 200)]),
+        ("ctx_reply_before_prompt.jsonl", [(1, 100, 100), (3, 200, 100)]),
+        ("ctx_out_of_order_ts.jsonl", [(2, 100, 100), (4, 200, 100)]),
+        (
+            "ctx_prompt_inside_merged_request.jsonl",
+            [(2, 200, 200), (5, 300, 100)],
+        ),
     ],
 )
 def test_backend_context_turns_use_file_order(name, expected):
-    """Resumed and out-of-order files retain each line-ordered turn."""
+    """Leading, out-of-order, and merged requests retain line-order turns."""
     result = parse.parse_file(name, (FIXTURE_DIR / name).read_bytes())
-    assert [(turn["line"], turn["input"]) for turn in result["ctx_turns"]] \
-        == expected
+    assert [
+        (turn["line"], turn["input"], turn["delta"])
+        for turn in result["ctx_turns"]
+    ] == expected
+    assert result["turn_count"] == len(expected)
 
 
 def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
@@ -53,6 +60,7 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
           turns: computeTurnStats(tx).map((turn) => ({
             line: turn.line,
             ctx: turn.ctx,
+            delta: turn.delta,
           })),
         };
       });
@@ -105,22 +113,47 @@ def test_browser_context_turns_match_backend_for_claude_fixtures():
     assert {
         "ctx_reply_before_prompt.jsonl",
         "ctx_out_of_order_ts.jsonl",
+        "ctx_prompt_inside_merged_request.jsonl",
     } <= names
 
     result = _browser_context_stats([path for path, _ in fixtures])
     browser_by_name = {
-        fixture["name"]: [
-            (turn["line"], turn["ctx"]) for turn in fixture["turns"]
-        ]
+        fixture["name"]: fixture["turns"]
         for fixture in result["fixtures"]
     }
     disagreements = []
     for path, backend_turns in fixtures:
         expected = [(turn["line"], turn["input"]) for turn in backend_turns]
         actual = browser_by_name.get(path.name)
-        if actual != expected:
+        if actual is None:
+            disagreements.append(f"{path.name}: browser fixture result missing")
+            continue
+        actual_contexts = [(turn["line"], turn["ctx"]) for turn in actual]
+        if actual_contexts != expected:
             disagreements.append(
-                f"{path.name}: browser {actual!r}, backend {expected!r}"
+                f"{path.name}: browser {actual_contexts!r}, backend {expected!r}"
+            )
+            continue
+        backend_deltas = [turn["delta"] for turn in backend_turns]
+        browser_deltas = [turn["delta"] for turn in actual]
+        if browser_deltas[0] is not None:
+            disagreements.append(
+                f"{path.name}: browser first-row delta {browser_deltas[0]!r}, "
+                "expected null"
+            )
+        if browser_deltas[1:] != backend_deltas[1:]:
+            disagreements.append(
+                f"{path.name}: browser deltas {browser_deltas[1:]!r}, "
+                f"backend deltas {backend_deltas[1:]!r} after first row"
+            )
+        context_deltas = [
+            actual[index]["ctx"] - actual[index - 1]["ctx"]
+            for index in range(1, len(actual))
+        ]
+        if context_deltas != backend_deltas[1:]:
+            disagreements.append(
+                f"{path.name}: browser ctx differences {context_deltas!r}, "
+                f"backend deltas {backend_deltas[1:]!r} after first row"
             )
     assert not disagreements, "\n".join(disagreements)
 

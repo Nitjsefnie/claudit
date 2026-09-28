@@ -18,7 +18,8 @@ Keep both implementations in lockstep on:
 - `<task-notification>` ref detection for sub-agent jsonls
 - Sidecar `data/subagents/agent-*.jsonl` resolution
 - Context turns: backend `_build_ctx_turns` / browser `computeTurnStats` use
-  line order, keep pre-prompt turns, take last usage, and drop zero / implausible context.
+  line order, keep pre-prompt turns, take last usage, and drop zero /
+  implausible context.
 - Rate resolution (normalisation, key matching, window selection) over
   the tables both sides read from `src/pricing.json` (SV-RATE-DATA)
 
