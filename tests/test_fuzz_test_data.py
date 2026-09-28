@@ -230,9 +230,17 @@ def test_a_nonempty_subset_is_touched_and_the_rest_is_untouched(
         monkeypatch, tmp_path):
     result, perturbed, original, _pristine = _run_one(monkeypatch, tmp_path)
     original_rows = _rows_of(original)
-    assert 1 <= result["rows_touched"] <= len(original_rows)
+    existing_touched = set(result["keys"]) & original_rows.keys()
+    assert 1 <= len(existing_touched) <= len(original_rows)
+    added_rows = set(_rows_of(perturbed)) - original_rows.keys()
+    assert len(added_rows) <= 1
+    assert added_rows <= set(result["keys"])
+    assert all(fuzz_module.RESERVED_NAMESPACE in key for key in added_rows)
+    assert result["rows_touched"] == len(result["keys"])
     for key, entries in _rows_of(perturbed).items():
-        if key in result["keys"]:
+        if key not in original_rows:
+            assert len(entries) == 1
+        elif key in result["keys"]:
             assert len(entries) == len(original_rows[key]) + 1
             assert entries[:-1] == original_rows[key]
         else:
@@ -612,7 +620,8 @@ def result_keys(touched: dict, pristine_doc: dict) -> list[str]:
     """The rows that gained an entry, read off the failing artifact."""
     original_rows = _rows_of(pristine_doc)
     return [key for key, entries in _rows_of(touched).items()
-            if len(entries) == len(original_rows[key]) + 1]
+            if (key not in original_rows
+                or len(entries) == len(original_rows[key]) + 1)]
 
 
 def test_shards_partition_the_iterations_round_robin():

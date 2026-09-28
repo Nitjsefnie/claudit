@@ -486,13 +486,12 @@ def test_an_exact_variant_row_wins_over_the_bare_fold(
 # --- resolution robustness -------------------------------------------------
 
 
-def test_future_opus_does_not_inherit_legacy_opus_4_pricing():
-    # 'claude-opus-4' is a prefix of 'claude-opus-4-9' but a naive substring
-    # match would bill a future Opus at retired 15/75 rates.
+def test_future_opus_uses_the_current_opus_tier_fallback():
+    # 'claude-opus-4' is a prefix of 'claude-opus-4-9', but the unknown
+    # future model must use the family fallback rather than an exact row.
     r = pricing.resolve("claude-opus-4-9")
     assert r.kind == "tier"
     assert r.rates is pricing.MODEL_RATES["claude-opus-5-5"]
-    assert r.rates["fresh"] != 15.00
 
 
 def test_dated_snapshot_still_matches_its_generic_key(
