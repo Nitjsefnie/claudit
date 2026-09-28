@@ -2,14 +2,76 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 from pathlib import Path
+import subprocess
 import sys
+import time
 
 import pytest
 
 from backend.parse import parse_file
 from backend import bash_literals
+from backend.bash_churn import bash_churn, python_write_paths
+from backend.bash_churn_errors import churn_survives_error
+from backend.bash_reads import scan
 from scripts.bench_parser import _check_outputs
+
+
+_HEREDOC_PERFORMANCE_WORKER = '''
+import json
+import sys
+
+from backend.bash_churn import bash_churn, python_write_paths
+from backend.bash_churn_errors import churn_survives_error
+from backend.bash_reads import scan
+
+results = []
+for command in json.load(sys.stdin):
+    results.append([
+        list(bash_churn(command)),
+        python_write_paths(command),
+        churn_survives_error(command, 'Exit code 1'),
+        list(scan(command)),
+    ])
+json.dump(results, sys.stdout)
+'''
+
+
+def _heredoc_write_command(count):
+    return 'cat >out.txt ' + '<<A ' * count + '\nx\nA' * count + '\n&& true'
+
+
+@pytest.mark.parametrize(('count', 'expected_churn'), [(3, (3, 0)), (50, (50, 0))])
+def test_repeated_heredoc_write_outputs(count, expected_churn):
+    command = _heredoc_write_command(count)
+    assert (bash_churn(command), python_write_paths(command),
+            churn_survives_error(command, 'Exit code 1'), scan(command)) == (
+                expected_churn, [], True, (None, [], ['out.txt']))
+
+
+def test_many_same_line_heredoc_openers_stay_within_budget():
+    count = 20_000
+    opener_command = 'cat ' + '<<A ' * count
+    write_command = _heredoc_write_command(count)
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            [sys.executable, '-c', _HEREDOC_PERFORMANCE_WORKER],
+            input=json.dumps([opener_command, write_command]),
+            capture_output=True, check=False, cwd=Path(__file__).resolve().parents[1],
+            text=True, timeout=10.0)
+    except subprocess.TimeoutExpired:
+        elapsed = time.perf_counter() - started
+        pytest.fail(f'20,000 heredoc openers exceeded 10.0 seconds ({elapsed:.2f}s)')
+    elapsed = time.perf_counter() - started
+
+    assert completed.returncode == 0, completed.stderr
+    assert elapsed < 10.0
+    assert json.loads(completed.stdout) == [
+        [[0, 0], [], False, [None, [], []]],
+        [[count, 0], [], True, [None, [], ['out.txt']]],
+    ]
 
 
 def test_bash_shared_scan():
