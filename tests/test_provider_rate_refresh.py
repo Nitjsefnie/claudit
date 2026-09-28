@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
-from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides)
+from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides, _per_token)
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
@@ -206,7 +206,7 @@ def test_a_moved_price_appends_an_entry_from_the_detection_time(tmp_path, capsys
     assert after == {**before, "provider_rates_fetched": STAMP}
     text = run.pricing.read_text(encoding="utf-8")
     assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
-    assert "OpenInference" in out and "0.1 → 0.07" in out
+    assert "OpenInference" in out and f"{history[-2]['fresh']!r} → {history[-1]['fresh']!r}" in out
 
 
 def test_a_run_that_appends_bumps_pricing_version_relative_to_the_file(
@@ -498,14 +498,14 @@ def _novita_region_twin(run: Run) -> dict:
 
 
 def test_the_global_endpoint_is_taken_over_a_region_one(tmp_path, capsys):
-    """The global price moving is a move — the rule does not stop matching
-    the way a pin on the old price would."""
+    """The global price moving is a move even when a region twin exists."""
     run = Run(tmp_path)
+    seeded = run.doc()["providers"][GLM]["Novita"][-1]
     _novita_region_twin(run)
-    run.endpoint(GLM, "Novita")["pricing"]["completion"] = "0.0000005"
+    run.endpoint(GLM, "Novita")["pricing"]["completion"] = _per_token(seeded["output"] * 2)
     assert run(capsys)[0] == 0
     entry = run.doc()["providers"][GLM]["Novita"][-1]
-    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.0264, 0.5)
+    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, seeded["read"], seeded["output"] * 2)
 
 
 def test_a_region_endpoint_moving_alone_moves_nothing(tmp_path, capsys):
@@ -842,10 +842,10 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
 
 def test_a_dry_run_reports_and_writes_nothing(tmp_path, capsys):
     run = Run(tmp_path)
-    _move_openinference(run)
-    before = run.snapshot()
+    before = (run.snapshot(), run.doc()["providers"][GLM]["OpenInference"][-1]["fresh"])
+    moved = _move_openinference(run)
     rc, out, _ = run(capsys, "--dry-run")
     assert rc == 0
-    assert run.snapshot() == before
+    assert run.snapshot() == before[0]
     assert not run.commit_msg.exists()
-    assert "OpenInference" in out and "0.1 → 0.07" in out
+    assert "OpenInference" in out and f"{before[1]!r} → {moved['fresh']!r}" in out
