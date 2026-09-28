@@ -201,6 +201,38 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
     assert saved["providers"][MODEL][HOST] == row + [_entry(states[2][0], RATE_A)]
 
 
+@pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,additions", [
+    (
+        "2031-01-01T05:00:00+05:00", RATE_A,
+        [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:15:00Z", RATE_B)],
+        RATE_B, [_entry("2031-01-01T00:15:00Z", RATE_B)],
+    ),
+    (
+        "2031-01-01T00:00:00-00:15", RATE_B,
+        [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:05:00Z", RATE_C),
+         ("2031-01-01T00:10:00Z", RATE_B), ("2031-01-01T00:20:00Z", RATE_C)],
+        RATE_C, [_entry("2031-01-01T00:20:00Z", RATE_C)],
+    ),
+    (
+        "2031-01-01T00:00:00+00:00", RATE_A,
+        [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:00:00Z", RATE_B)],
+        RATE_B, [],
+    ),
+])
+def test_log_append_compares_offset_timestamps_as_instants(
+        tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions):
+    row = [_entry(None, RATE_A), _entry(row_at, row_rates)]
+    expected = row + additions
+
+    rc, _, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states, hosts={HOST: row},
+        endpoint_rates=endpoint_rates)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == expected
+
+
 def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
     states = [("2030-12-31T23:00:00Z", RATE_A),
               ("2031-01-01T00:10:00Z", RATE_B)]

@@ -338,10 +338,14 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
         return Move(model, host, None, listing, len(entries), "log")
     newest = history[-1]
     newest_from = newest["from"]
+    newest_at = (pricing._instant(newest_from, f"{model} via {host}")
+                 if newest_from is not None else None)  # pylint: disable=protected-access
     previous = {field: newest[field] for field in RATE_FIELDS}
     additions = []
     for entry in entries:
-        if newest_from is not None and entry["from"] <= newest_from:
+        entry_at = pricing._instant(
+            entry["from"], f"{model} via {host}")  # pylint: disable=protected-access
+        if newest_at is not None and entry_at <= newest_at:
             continue
         rates = {field: entry[field] for field in RATE_FIELDS}
         if rates == previous:
