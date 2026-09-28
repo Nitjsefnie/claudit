@@ -8,7 +8,7 @@
   "module_size_baseline": {
     "backend/api.py": 986,
     "backend/api_dashboard.py": 834,
-    "backend/bash_churn.py": 982,
+    "backend/bash_churn.py": 926,
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 942,
     "backend/ingest_rollups.py": 609,
@@ -19,7 +19,7 @@
     "scripts/ci/refresh_provider_rates.py": 528,
     "scripts/plots/ccusage_plot_render.py": 704,
     "tests/test_api.py": 1042,
-    "tests/test_bash_churn.py": 748,
+    "tests/test_bash_churn.py": 747,
     "tests/test_ingest.py": 957,
     "tests/test_parse.py": 1046,
     "tests/test_parse_codex.py": 1000,

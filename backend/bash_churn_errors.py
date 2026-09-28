@@ -7,13 +7,10 @@ import shlex
 
 from backend.bash_churn import (
     MAX_COMMAND_CHARS,
+    BashCommand,
     _NULL_SINKS,
-    _PATCH,
-    _PYTHON_STDIN,
     _REDIRECT,
     _TEE,
-    _split_heredocs,
-    _writes_to_a_file,
 )
 
 
@@ -66,16 +63,16 @@ def churn_survives_error(command: str, error_text: str) -> bool:
     """
     if not command or len(command) > MAX_COMMAND_CHARS:
         return False
-    pairs, outside = _split_heredocs(command)
+    parsed = BashCommand(command)
     targets: list[str] = []
-    for context, body in pairs:
-        if _PATCH.search(context) or _PYTHON_STDIN.search(context):
-            continue
-        if body and _writes_to_a_file(context):
+    seen_contexts: set[str] = set()
+    for (context, body), kind in zip(parsed.parts[0], parsed.heredoc_kinds):
+        if body and kind == "file" and context not in seen_contexts:
+            seen_contexts.add(context)
             targets.extend(_verbatim_targets(context))
     if not targets:
         return False
-    stages = [s for s in _STAGE_SPLIT.split(outside) if s.strip()]
+    stages = [s for s in _STAGE_SPLIT.split(parsed.parts[1]) if s.strip()]
     return len(stages) >= 2 and not _write_reported_failed(targets, error_text)
 
 

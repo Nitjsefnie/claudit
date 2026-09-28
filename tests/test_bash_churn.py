@@ -475,9 +475,7 @@ def test_heredoc_write_whose_target_failed_does_not_survive():
     assert churn_survives_error(cmd, text) is False
 
 
-@pytest.mark.parametrize("text", [
-    "No space left on device", "Read-only file system",
-])
+@pytest.mark.parametrize("text", ["No space left on device", "Read-only file system"])
 def test_disk_failure_never_survives(text):
     cmd = "cat > f.py <<'EOF'\nx\nEOF\npython3 f.py"
     assert churn_survives_error(cmd, text) is False

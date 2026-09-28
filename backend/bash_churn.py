@@ -18,7 +18,6 @@ from __future__ import annotations
 import ast
 import difflib
 import functools
-import posixpath
 import re
 import shlex
 import warnings
@@ -140,6 +139,17 @@ def _writes_to_a_file(context: str) -> bool:
     targets = [m.group(1) or m.group(2) or m.group(3)
                for m in _REDIRECT.finditer(context)]
     return any(t and t not in _NULL_SINKS for t in targets)
+
+
+def _heredoc_context_kind(context: str) -> str | None:
+    """Classify an opener context with churn's existing precedence."""
+    if _PATCH.search(context):
+        return "patch"
+    if _PYTHON_STDIN.search(context):
+        return "python"
+    if _writes_to_a_file(context):
+        return "file"
+    return None
 
 
 def _diff_churn(body: str) -> tuple[int, int]:
@@ -844,6 +854,17 @@ class BashCommand:
         return heredoc_repeats(self.tokens, len(self.parts[0]))
 
     @functools.cached_property
+    def heredoc_kinds(self) -> list[str | None]:
+        """Classifications for opener pairs, reusing each distinct context."""
+        kinds_by_context: dict[str, str | None] = {}
+        kinds = []
+        for context, _ in self.parts[0]:
+            if context not in kinds_by_context:
+                kinds_by_context[context] = _heredoc_context_kind(context)
+            kinds.append(kinds_by_context[context])
+        return kinds
+
+    @functools.cached_property
     def dash_c_sources(self) -> list[str]:
         """Inline Python bodies, decoded once for both consumers."""
         return _dash_c_sources(self.parts[1])
@@ -854,13 +875,14 @@ class BashCommand:
             return 0, 0
         added = deleted = 0
         unknown = False
-        for (context, body), times in zip(self.parts[0], self.heredoc_repeats):
-            if _PATCH.search(context):
+        for (_, body), times, kind in zip(
+                self.parts[0], self.heredoc_repeats, self.heredoc_kinds):
+            if kind == "patch":
                 a, d = _diff_churn(body)
-            elif _PYTHON_STDIN.search(context):
+            elif kind == "python":
                 a, d, _, unresolved = _python_scan(body)
                 unknown |= unresolved
-            elif _writes_to_a_file(context):
+            elif kind == "file":
                 a, d = (count_lines(body + "\n") if body else 0), 0
             else:
                 a, d = 0, 0
@@ -881,7 +903,8 @@ class BashCommand:
         """Python write targets, before the caller resolves their cwd."""
         if not self.command or len(self.command) > MAX_COMMAND_CHARS:
             return []
-        sources = [body for context, body in self.parts[0] if _PYTHON_STDIN.search(context)]
+        sources = [body for (_, body), kind in zip(self.parts[0], self.heredoc_kinds)
+                   if kind == "python"]
         sources.extend(self.dash_c_sources)
         paths: list[str] = []
         for src in sources:

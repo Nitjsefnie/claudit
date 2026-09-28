@@ -24,8 +24,7 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, bash_churn, replace_churn
-from backend.bash_churn_errors import churn_survives_error
-from backend import bash_reads
+from backend import bash_churn_errors, bash_reads
 from backend.prompt_gate import _is_prompt_text
 from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
                                   _to_dt, iter_lines)
@@ -671,7 +670,7 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
                 tu["error_kind"] = _classify_error(text)
                 tu["error_text"] = text[:ERROR_TEXT_MAX] or None
                 ran = tu["error_kind"] == ERROR_KIND_TOOL_ERROR
-                if not (ran and churn_survives_error(command, text)):
+                if not (ran and bash_churn_errors.churn_survives_error(command, text)):
                     tu["lines_added"], tu["lines_deleted"] = 0, 0
                 if not ran:
                     tu["write_targets"] = []  # wrote nothing
