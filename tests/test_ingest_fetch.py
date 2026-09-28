@@ -191,15 +191,15 @@ def test_ctx_cost_rollup_counts_only_canonical_rows(fresh_db, mini_r2_env):
     assert rolled == canonical
 
 
-def test_ctx_cost_rollup_is_rebuilt_after_every_run(fresh_db, mini_r2_env):
-    """Derived state: wrecking it and re-running must restore it, the
-    same guarantee usage_rollup and tool_rollup carry."""
+def test_ctx_cost_rollup_is_rebuilt_after_state_reset(fresh_db, mini_r2_env):
+    """Clearing derived state forces a full rebuild without reparsing."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         before = _scalar(c, "SELECT COUNT(*) FROM ctx_cost_rollup")
     assert before > 0, "fixture proves nothing"
     with db.viz_conn() as c:
         c.execute("TRUNCATE ctx_cost_rollup")
+        c.execute("DELETE FROM ingest_derived_state")
         c.commit()
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:

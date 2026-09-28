@@ -18,7 +18,7 @@ _DERIVED_PHASES = (
     "ctx_cost_rollup", "agent_rollup",
 )
 _INGEST_PHASES = (
-    "open_run", "list", "markers", "lane_ids", "plan", "existing",
+    "open_run", "scope", "list", "markers", "lane_ids", "plan", "existing",
     "fetch_parse", "persist", "orphans", "orphan_projects",
     *_DERIVED_PHASES, "close_run", "notify", "warm", "finish",
 )

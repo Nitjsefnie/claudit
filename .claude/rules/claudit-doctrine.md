@@ -137,6 +137,16 @@ writing a new column converges the database instead of aborting every
 ingest with `UndefinedColumn` while the dashboard serves stale
 aggregates.
 
+`ingest_derived_state` is also created with `CREATE TABLE IF NOT EXISTS`.
+Ingest commits `complete = FALSE` before it mutates `files`, `records` or
+`tool_uses`. It marks the fingerprint complete only after every derived
+phase, `_close_run`, notification and `warm_common` have succeeded. The
+full-rebuild time advances only when the scope was full as the first
+hour-keyed rollup began. A later promotion leaves the marker incomplete;
+an aborted, failed or interrupted run does too, forcing a full derived
+rebuild on the next run. The marker is derived metadata and an older
+binary may ignore it.
+
 Consequence: ROLLBACK IS ONE-DIRECTIONAL — restarting an older binary
 leaves it against a newer schema. That is acceptable because every
 migration is additive and nullable, with TWO allowed exceptions, both
@@ -235,11 +245,15 @@ reintroduce `DISTINCT ON (uuid)`: `records` is immutable between
 hourly ingests, and a read-time sort would re-sort the whole table per
 read to drop the ~3.5% duplicates.
 
-`ingest.recompute_canonical()` runs after EVERY successful ingest, not
-only when files changed: adding or removing a FILE can change which
-row wins for a uuid, and a freshly-migrated DB has the column
-defaulted to TRUE across the board. The UPDATE only touches rows whose
-flag actually flips. The column defaults to TRUE so a
+`ingest.recompute_canonical()` runs after EVERY successful ingest. A
+full rebuild ranks the full tables; an incremental run ranks only UUIDs
+and tool-use ids contributed by dirty files before or after mutation, so
+deleting a former winner still promotes the next row. NULL-identity rows
+of dirty files are set canonical. The UPDATE only touches rows whose
+flag actually flips, and every flipped row adds its project-hour to the
+rollup scope through the UTC-instant normalizer, so both folds of a
+repeated local hour remain distinct. A freshly-migrated DB has the
+column defaulted to TRUE across the board. The column defaults to TRUE so a
 migrated-but-not-yet-recomputed DB over-counts rather than silently
 dropping rows.
 
@@ -269,7 +283,9 @@ join to `records` on `(file_key, line_num)` — because most calls sit
 on a line with no record (a Claude tool_use usually follows its
 requestId's merged record, and a lane call never shares a line with
 one), so a call left behind would keep counting under the suppressed
-model.
+model. A full rebuild checks every row; an incremental run checks only
+dirty files because an unchanged suppression fingerprint means prior
+stored rows were already purged.
 
 Patterns are matched `model ILIKE pattern`, so `glm-%` covers a family
 and a bare model id still matches exactly. The table ships EMPTY and
@@ -278,8 +294,10 @@ the `zai` bucket as glmmeter, where `glm-%` would suppress everything.
 Populate per deploy. Why it exists: resuming a session on the other
 lane interleaves that provider's assistant entries into a transcript
 this bucket already owns — real usage, but not ours, and priced
-against our table it invents a cost. Removing a pattern brings the
-rows back only on a reparse (bump `PARSER_VERSION`).
+against our table it invents a cost. A change to this table changes the
+derived-state fingerprint and forces a full rebuild. Removing a pattern
+brings the rows back only on a reparse (bump `PARSER_VERSION`); a full
+derived rebuild cannot restore rows that suppression already deleted.
 
 `files.models` lists every model that answered in the file, recorded
 at parse time and so surviving the purge: it is the only trace that a
@@ -310,8 +328,15 @@ non-target projects keep their existing labels.
 
 The fold runs at ingest before rollups rebuild, so every rollup and read
 path — `/api/projects` included — sees only the target id. Adding or
-editing a row re-keys stored rows on the next ingest; the rekey needs
-no reparse, no R2 fetch and no `PARSER_VERSION` bump. Deleting a
+editing a row changes the derived-state fingerprint and forces a full
+rebuild on the next ingest; the rekey needs no reparse, no R2 fetch and
+no `PARSER_VERSION` bump. With an unchanged alias table, a fold does not
+by itself force a full rebuild: moved files join the dirty scope, and
+their source and target project-hour instants are both UTC-normalized and
+replaced. The
+zero-argument `rekey_folded_projects()` reports moved file keys to the
+active scope itself, preserving the ingest phase's monkeypatch seam.
+Deleting a
 row stops folding new files. Already-folded rows stay at the target
 only until another identity pass re-keys them: a reparse derives the
 raw id from the object key, while marker-backed lane files re-converge
@@ -344,6 +369,51 @@ like every other series; it is summed, never added to the others.
 `(session_id, hour, model, provider, is_main, long_context)`, rebuilt
 by `ingest.rebuild_rollup()` after every successful ingest (AFTER
 `recompute_canonical()` — it reads `is_canonical`).
+
+Each run's derived scope tracks dirty file keys, affected record UUIDs
+and tool-use ids, plus the union of dirty `(project_id, hour)` keys from
+`records` and `tool_uses`. Ingest captures old contributions before
+reparse or orphan deletion and current contributions after persistence
+and identity moves. Scope stores every hour as a UTC-aware instant before
+set insertion, preserving distinct fall-back folds; full rebuild grouping
+continues to use `date_trunc` in the database session timezone. The seven
+hour-keyed rollups delete by exact `(project_id, hour)` instant equality.
+Their scoped source query joins per-project, merged and disjoint widened UTC
+intervals to the source timestamp index in a materialized candidate CTE,
+then requires each candidate's own `(project_id,
+date_trunc('hour', ts))` key to match a dirty instant exactly. The intervals
+cannot multiply a source row, and the exact membership keeps candidates out
+of clean output groups. `latency_rollup` replaces
+whole affected display buckets, for each dirty project and the all-projects
+row, because its percentiles need the whole bucket population. Latency
+buckets are epoch-aligned; each dirty-hour instant therefore replaces every
+bucket overlapping `[hour, hour + 2 hours)`, including the all-projects row.
+Tied outlier latencies order by `file_key, line_num`
+for repeatable output. A latency-bearing row with NULL `ts` forces a full
+rebuild. Teammate resolution still runs its full query each time; changed
+files add their record hours to the scope because `agent_rollup` reads
+`files.agent_type`.
+
+`ingest_derived_state` stores the fingerprint of the last completed
+derived semantics and the time of the last full rebuild. The fingerprint
+covers `constants.DERIVED_STATE_VERSION`, `PARSER_VERSION`,
+`PRICING_VERSION`, latency/context bucket constants and the default agent
+type, plus the ordered contents of `suppressed_models` and
+`project_aliases`. Bump `DERIVED_STATE_VERSION` whenever rollup SQL
+semantics change; it forces a full derived rebuild without reparsing.
+Full rebuilds are also required when state is missing or incomplete, the
+last full rebuild is older than 24 hours, the dirty-file set exceeds the
+smaller of 2,000 files or 20% of the stored corpus, a lane identity rekey
+moves files, or repricing changes any row. An unchanged alias fold joins
+the moved files to the dirty scope; an alias-table edit changes the
+fingerprint and takes the full path. The incomplete marker is committed
+before source-row mutation. The marker becomes complete only after the
+derived phases, run close, notification and common-cache warm succeed; a
+promotion after hourly rollups begin leaves it incomplete. The next run
+then takes the full path. `last_full_at` advances only if rollups began
+in full scope. For an out-of-band mutation of `records`, `tool_uses` or
+`files`, delete the singleton row with `DELETE FROM ingest_derived_state`;
+the next ingest performs a full rebuild.
 
 The grain is load-bearing, do not "simplify" it:
 
@@ -770,12 +840,15 @@ version that parses as an int NEWER than the binary's own is skipped,
 never overwritten — an older binary must not clobber semantics it
 cannot reproduce. The pass runs in `_rebuild_derived_state` between
 suppression and the canonical pass, and a reparse stamps the current
-version at persist, so freshly parsed rows never reprice. No endpoint,
+version at persist, so freshly parsed rows never reprice. When it changes
+any row, that run uses a full derived rebuild because repricing can
+change rollup values outside the otherwise dirty files. No endpoint,
 panel or rollup reads `pricing_version` — the pass changes what the
 stored numbers SAY, not who serves them. `cost_usd` and the Codex
 long-context meter (`records.long_context`) are both the recomputed
 state; the flag is re-derived from the same stored columns the cost
 reads, and rides the same staleness switch.
+The completion marker follows the finalization rule in SV-ROLLUP.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 

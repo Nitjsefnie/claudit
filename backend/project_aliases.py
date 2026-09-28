@@ -41,6 +41,7 @@ import logging
 import psycopg
 
 from backend import db
+from backend.ingest_scope import add_alias_move_contributions, current_scope
 
 log = logging.getLogger("claudit.ingest")
 
@@ -138,8 +139,11 @@ def rekey_folded_projects() -> int:
     the table. A pass that changes nothing moves 0. Needs no reparse,
     no R2 fetch, and no PARSER_VERSION bump:
     only stored identity moves; token columns and costs are untouched.
-    Returns the number of project ids re-keyed.
+    Returns the number of project ids re-keyed. Moved files are reported to
+    the active incremental scope with their old and new project-hour keys.
     """
+    scope = current_scope()
+    moved_files: dict[str, tuple[str, str]] = {}
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT EXISTS (SELECT 1 FROM project_aliases)").fetchone()
@@ -162,6 +166,21 @@ def rekey_folded_projects() -> int:
                         ON CONFLICT (project_id) DO NOTHING
                         """,
                         (tgt, tgt, src))
+                if scope is not None and not scope.full:
+                    rows = cur.execute(
+                        """
+                        SELECT f.file_key, f.project_id, m.tgt
+                          FROM files f
+                          JOIN unnest(%(srcs)s::text[], %(tgts)s::text[])
+                               AS m(src, tgt) ON f.project_id = m.src
+                        """,
+                        {"srcs": sorted(moves),
+                         "tgts": [moves[s] for s in sorted(moves)]},
+                    ).fetchall()
+                    moved_files.update({
+                        file_key: (source, target)
+                        for file_key, source, target in rows
+                    })
                 # One statement over the whole moves map, not one UPDATE per
                 # source: the join reads the pre-statement ids and each row
                 # is updated at most once, so rows folded onto a project
@@ -195,6 +214,8 @@ def rekey_folded_projects() -> int:
             )
             relabeled = cur.rowcount
         c.commit()
+    if scope is not None and moved_files:
+        add_alias_move_contributions(scope, moved_files)
     if moves:
         log.info("rekey_folded_projects: %d project id(s) folded", len(moves))
     if relabeled:

@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import json
 import logging
-import lzma
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -36,13 +35,12 @@ from functools import partial
 from typing import NamedTuple
 
 import psycopg
-from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import agent_sidecar, cache, constants, db, events, key_layout, lane_markers, lane_projects, parse, r2, timing
+from backend import cache, constants, db, events, ingest_fetch, key_layout, lane_markers, lane_projects, parse, r2, timing
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 from backend.ingest_timing import (  # noqa: F401  (re-export)
-    _RUN_TIMING, _RunTiming, _record_phase, _timed_step,
+    _RUN_TIMING, _RunTiming, _record_phase, _record_scope, _timed_step,
 )
 from backend.ingest_walk import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _stored_version_is_newer, _track_project, _track_walked_project,
@@ -55,6 +53,10 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
     rebuild_tool_error_rollup, rebuild_tool_rollup,
     recompute_canonical, resolve_teammate_agent_types,
+)
+from backend.ingest_scope import (  # noqa: F401  (re-export)
+    begin_scope, capture_and_add, capture_contributions, current_scope,
+    finish_scope, mark_complete,
 )
 from backend.project_aliases import rekey_folded_projects
 # The run-row module owns the public-facing error formatter.
@@ -118,52 +120,14 @@ def _check_shutdown() -> None:
 _ABORT_ERROR = "aborted: shutdown requested"
 
 
-# What the fetch retry treats as transient. None of the boto3 failures is an
-# OSError — ConnectionClosedError and EndpointConnectionError are
-# BotoCoreErrors, and ClientError descends from neither — so catching
-# OSError alone would miss exactly the drops this retry exists for.
-# Deliberately NOT `Exception`: see FatalFetchError.
-TRANSIENT_FETCH_ERRORS = (OSError, BotoCoreError, ClientError)
-
-# A corrupt object, not a corrupt connection. r2.get_object inflates `.xz`
-# keys transparently, so lzma raises from INSIDE the fetch — and every
-# production object is `.xz`, which makes this the likeliest per-object
-# failure there is. It is deterministic: retrying cannot un-truncate an
-# upload, and treating it as a bug would abort the whole run over one bad
-# file, which is the exact failure issue #2 is about.
-CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
-
-
-class VanishedObject(Exception):
-    """A listed object that was gone by the time its GET ran.
-
-    The archiver deletes and moves objects while a run is in flight (a
-    session pruned mid-run, or re-filed into another lane's bucket), so a
-    NoSuchKey after a successful listing is the ordinary shape of "this
-    key is an orphan that appeared early", not a drop and not a failure:
-    retrying cannot bring the bytes back, and the next listing will not
-    show the key at all. Raised on the first attempt, never booked in
-    ingest_runs.error, and the key is handed to the orphan sweep so a row
-    a previous run left for it does not linger as a stale file.
-    """
-
-
-class FatalFetchError(Exception):
-    """A non-transient failure of an R2 GET, i.e. a bug rather than a drop.
-
-    Routed past the per-object collector to the run-level handler on
-    purpose: it is not something the next hourly run will fix, and booking
-    it per object would report a code defect as a partial-data problem.
-    """
-
-
-# Bounded retry for the R2 GET only (see _fetch_with_retry). The tuple is
-# the backoff BETWEEN attempts, so this is three attempts sleeping 0.5s then
-# 1.0s: long enough to ride out a dropped connection, short enough that a
-# genuinely dead object costs 1.5s rather than a run. Attempts are derived
-# from the tuple so the two can never disagree.
-FETCH_BACKOFF_S = (0.5, 1.0)
-FETCH_ATTEMPTS = len(FETCH_BACKOFF_S) + 1
+TRANSIENT_FETCH_ERRORS = ingest_fetch.TRANSIENT_FETCH_ERRORS
+CORRUPT_PAYLOAD_ERRORS = ingest_fetch.CORRUPT_PAYLOAD_ERRORS
+FETCH_BACKOFF_S = ingest_fetch.FETCH_BACKOFF_S
+FETCH_ATTEMPTS = ingest_fetch.FETCH_ATTEMPTS
+VanishedObject = ingest_fetch.VanishedObject
+FatalFetchError = ingest_fetch.FatalFetchError
+ClientError = ingest_fetch.ClientError
+BotoCoreError = ingest_fetch.BotoCoreError
 
 
 @contextmanager
@@ -419,7 +383,10 @@ def _collect_todo(existing: dict, parser_version: str,
     newer = 0
     with _timed_step("lane_ids"):
         stored_lane = lane_projects.stored_lane_ids()
-        lane_projects.rekey_stale_lane_projects(project_paths, stored_lane)
+        moved = lane_projects.rekey_stale_lane_projects(
+            project_paths, stored_lane)
+        if moved and (scope := current_scope()) is not None:
+            scope.promote_full("lane-project identity move")
     with _timed_step("plan"):
         for obj in wire_objs:
             info = key_layout.classify(r2.split_key(obj.key)[1])
@@ -460,12 +427,19 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
 
     Returns (inserted, reparsed, vanished).
     """
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals,too-many-branches
     # Separate vanished, failed, and persisted results retain their existing
     # behavior, with fetch-pool and sync-persist timing collected together.
     inserted = 0
     reparsed = 0
     vanished = 0
+    scope = current_scope()
+    todo_keys = {obj.key for obj, _, _ in todo}
+    old_contributions = {}
+    if scope is not None and not scope.full and todo_keys:
+        with db.viz_conn() as conn:
+            old_contributions = capture_contributions(scope, conn, todo_keys)
+    persisted_keys: set[str] = set()
     current = _RUN_TIMING.get()
     fetch_parse_started = time.perf_counter() if current is not None else None
     _set_progress(phase="parsing", total=len(todo), done=0)
@@ -496,6 +470,9 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
                     finally:
                         current.persist_seconds += (
                             time.perf_counter() - persist_started)
+                if scope is not None and not scope.full:
+                    scope.add_contributions(old_contributions, {obj.key})
+                    persisted_keys.add(obj.key)
                 if stored is None:
                     inserted += 1
                 else:
@@ -508,6 +485,10 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
                 time.perf_counter() - fetch_parse_started
                 - current.persist_seconds)
             current.phases.mark("persist", current.persist_seconds)
+    if scope is not None and not scope.full and persisted_keys:
+        with db.viz_conn() as conn:
+            capture_and_add(scope, conn, persisted_keys)
+        scope.check_latency_null()
     return inserted, reparsed, vanished
 
 
@@ -515,6 +496,22 @@ def _delete_orphans(seen_keys: set[str]) -> int:
     """Drop files rows whose R2 key is gone. CASCADE drops records."""
     _set_progress(phase="orphans")
     with db.viz_conn() as c, c.cursor() as cur:
+        scope = current_scope()
+        if scope is not None and not scope.full:
+            if seen_keys:
+                doomed = {
+                    row[0] for row in c.execute(
+                        "SELECT file_key FROM files "
+                        "WHERE file_key != ALL(%s)", (list(seen_keys),)
+                    ).fetchall()
+                }
+            else:
+                doomed = {
+                    row[0] for row in c.execute(
+                        "SELECT file_key FROM files").fetchall()
+                }
+            capture_and_add(scope, c, doomed)
+            scope.check_latency_null()
         if seen_keys:
             cur.execute(
                 "DELETE FROM files WHERE file_key != ALL(%s) RETURNING 1",
@@ -555,10 +552,8 @@ def _delete_orphan_projects() -> int:
 def _rebuild_derived_state() -> int:
     """Canonical flags and teammate roles, then the rollups that read them.
 
-    Each phase is a bounded step, checked for shutdown between: an abort
-    leaves the later rollups unbuilt; the next successful run rebuilds.
-    Returns the row count its record-mutating phases changed — the four
-    before the rollups; those rewrite their whole table every run.
+    Each bounded phase checks for shutdown. An abort skips later phases; the
+    next successful run rebuilds. Returns rows changed by mutating phases.
     """
     # Order matters: suppression removes rows the canonical pass would
     # otherwise rank, the alias fold re-keys identity first, and the
@@ -566,25 +561,43 @@ def _rebuild_derived_state() -> int:
     # this module's globals at call time, so a test can monkeypatch any
     # phase on `ingest` itself; the reprice partial carries should_stop.
     reprice = partial(reprice_stale, should_stop=_check_shutdown)
-    phases = (
-        ("suppressed", purge_suppressed), ("reprice", reprice),
+    phases: tuple[tuple[str, Callable[[], int]], ...] = (
+        ("suppressed", purge_suppressed),
+        ("reprice", reprice),
         ("aliases", rekey_folded_projects),
-        ("canonical", recompute_canonical), ("teammates", resolve_teammate_agent_types),
-        ("usage_rollup", rebuild_rollup), ("tool_rollup", rebuild_tool_rollup),
-        ("tool_error_rollup", rebuild_tool_error_rollup), ("dispatch_rollup", rebuild_dispatch_rollup),
-        ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup), ("latency_rollup", rebuild_latency_rollup),
-        ("ctx_cost_rollup", rebuild_ctx_cost_rollup), ("agent_rollup", rebuild_agent_rollup),
+        ("canonical", recompute_canonical),
+        ("teammates", resolve_teammate_agent_types),
+        ("usage_rollup", rebuild_rollup),
+        ("tool_rollup", rebuild_tool_rollup),
+        ("tool_error_rollup", rebuild_tool_error_rollup),
+        ("dispatch_rollup", rebuild_dispatch_rollup),
+        ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup),
+        ("latency_rollup", rebuild_latency_rollup),
+        ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
+        ("agent_rollup", rebuild_agent_rollup),
     )
     changed = 0
+    scope = current_scope()
+    if scope is not None:
+        scope.check_latency_null()
     for phase, rebuild in phases:
         _check_shutdown()
+        if phase == "usage_rollup" and scope is not None:
+            scope.start_rollups()
         with _timed_step(phase):
             _set_progress(phase=phase)
             rows = rebuild() or 0
+        if phase == "reprice" and rows and scope is not None:
+            scope.promote_full("reprice changed records")
+        if phase == "canonical" and scope is not None:
+            scope.check_latency_null()
         changed += rows if phase in ("suppressed", "reprice", "canonical", "teammates") else 0
         current = _RUN_TIMING.get()
         if current is not None:
             current.changed = changed
+    if scope is not None:
+        scope.check_dirty_threshold(scope.dirty_files)
+        scope.check_latency_null()
     return changed
 
 
@@ -618,6 +631,9 @@ def _walk_and_persist(parser_version: str,
     with _timed_step("orphan_projects"):
         _delete_orphan_projects()
     _check_shutdown()
+    if (scope := current_scope()) is not None:
+        scope.check_dirty_threshold(scope.dirty_files)
+        scope.check_latency_null()
     return listed, inserted, reparsed, deleted, vanished, newer
 
 
@@ -636,7 +652,10 @@ def run_ingest_locked(trigger: str) -> dict:
     `CLAUDIT_TIMING` off, the delegate runs without a timing context.
     """
     if not timing.TIMING_ON:
-        return _run_ingest_locked(trigger)
+        try:
+            return _run_ingest_locked(trigger)
+        finally:
+            finish_scope()
     phases = timing.Phases("ingest", logger=log, account=True)
     current = _RunTiming(phases)
     token = _RUN_TIMING.set(current)
@@ -645,6 +664,11 @@ def run_ingest_locked(trigger: str) -> dict:
         summary = _run_ingest_locked(trigger)
         return summary
     finally:
+        scope = finish_scope()
+        if scope is not None:
+            used_full_scope = (scope.rollups_full if scope.rollups_full is not None
+                               else scope.full)
+            current.scope = "full" if used_full_scope else "incremental"
         _RUN_TIMING.reset(token)
         try:
             phases.done(
@@ -655,13 +679,14 @@ def run_ingest_locked(trigger: str) -> dict:
                 deleted=summary["deleted"] if summary is not None else 0,
                 changed=current.changed,
                 outcome=current.outcome,
+                scope=current.scope,
             )
         except BaseException:
             # Instrumentation must not change what the run returns or raises.
             pass
 
 
-def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals,too-many-statements
+def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     with _timed_step("open_run"):
         started = datetime.now(timezone.utc)
         run_id = _open_run(started, trigger)
@@ -681,6 +706,9 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         aborted = False
 
     try:
+        with _timed_step("scope"):
+            scope = begin_scope()
+        _record_scope("full" if scope.full else "incremental")
         listed, inserted, reparsed, deleted, vanished, newer = (
             _walk_and_persist(constants.PARSER_VERSION, failed))
     except IngestAborted:
@@ -780,8 +808,10 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         # #253); ingest_runs.error is count-only at the source. Keep this
         # assignment here to preserve that serialization boundary.
         summary["failed_keys"] = failed_public_keys(failed)
-        if (current := _RUN_TIMING.get()) is not None:
-            current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
+        if fatal is None and not aborted:
+            mark_complete()
+    if (current := _RUN_TIMING.get()) is not None:
+        current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
     return summary
 
 
@@ -857,86 +887,16 @@ def worker_count() -> int:
         return auto
 
 
-def _fetch_with_retry(key: str) -> bytes:
-    """One R2 GET, retried on transient failure. Runs on a pool thread.
-
-    The retry lives here rather than in backend.r2 so the transcript and
-    sidecar readers keep their current single-shot semantics — only the
-    ingest, which walks the whole bucket in one pass, needs to ride out a
-    transient drop.
-
-    Three outcomes, because "did that fail" is three questions, not two:
-
-    - TRANSIENT_FETCH_ERRORS — retry, then propagate so the caller books
-      one per-object failure.
-    - CORRUPT_PAYLOAD_ERRORS — propagate on the FIRST attempt. Also one
-      per-object failure, but no retry: the bytes will not improve.
-    - a missing object (S3 NoSuchKey, file-mode ENOENT) — VanishedObject
-      on the FIRST attempt: not a failure at all, see the class.
-    - anything else — a bug, re-raised as FatalFetchError so the
-      per-object collector does not absorb it. A TypeError inside
-      get_object would otherwise become a 9,213-object "partial run" that
-      slept the better part of four hours through the same bug instead of
-      raising one loud traceback. The failed key and exception detail stay
-      in the server log, while public `ingest_runs.error` keeps only the
-      exception type (issue #253). The cause chain remains intact for logs.
-    """
-    for attempt in range(1, FETCH_ATTEMPTS + 1):
-        try:
-            return r2.get_object(key)
-        except CORRUPT_PAYLOAD_ERRORS:
-            raise
-        except TRANSIENT_FETCH_ERRORS as e:
-            if _is_missing(e):
-                raise VanishedObject(key) from e
-            if attempt == FETCH_ATTEMPTS:
-                raise
-            log.warning(
-                "ingest: fetch of %s failed (attempt %d/%d), retrying",
-                key, attempt, FETCH_ATTEMPTS,
-            )
-            time.sleep(FETCH_BACKOFF_S[attempt - 1])
-        except Exception as e:  # noqa: BLE001
-            log.error("ingest: fatal fetch failure on %s", key)
-            raise FatalFetchError(f"{type(e).__name__} while fetching an object; details are in the server log") from e
-    raise AssertionError("unreachable")  # pragma: no cover
-
-
 def _is_missing(exc: BaseException) -> bool:
-    """Whether a fetch error says the object does not exist (any more).
+    return ingest_fetch.is_missing(exc)
 
-    FileNotFoundError is the file:// mirror's spelling; boto3 folds the
-    S3 404 into a ClientError whose code is `NoSuchKey`. Neither is
-    transient, and neither is a bug, which is why they need a name of
-    their own rather than a place in the two tuples above.
-    """
-    if isinstance(exc, FileNotFoundError):
-        return True
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in ("NoSuchKey", "404")
-    return False
+
+def _fetch_with_retry(key: str) -> bytes:
+    """Keep the ingest-level monkeypatch seam over the extracted fetcher."""
+    return ingest_fetch.fetch_with_retry(key)
 
 
 def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
-    """Runs on a pool thread. Touches no DB connection.
-
-    Only the GET is retried: a parse failure is deterministic, so a second
-    attempt reproduces the same error against the same bytes and buys
-    nothing but delay.
-
-    The meta.json sidecar is fetched only for a transcript naming no role
-    of its own (agent_sidecar.apply_agent_sidecar). A vanished or corrupt one
-    leaves the default agent_type, which no retry would change. A
-    transient failure fails the FILE like its own GET would: persisting
-    it would store the pair etag with the default, and a healthy run
-    would then see nothing to redo. FatalFetchError escapes to the run.
-    """
-    parsed = parse.parse_file(key, _fetch_with_retry(key))
-    if sidecar_key is None or parsed["agent_type_in_band"]:
-        return parsed
-    try:
-        sidecar = _fetch_with_retry(sidecar_key)
-    except (VanishedObject, *CORRUPT_PAYLOAD_ERRORS):
-        return parsed
-    return agent_sidecar.apply_agent_sidecar(parsed, sidecar, r2.split_key(key)[1])
+    """Run the extracted parser while preserving the patched fetch callback."""
+    return ingest_fetch.fetch_and_parse(
+        key, sidecar_key, _fetch_with_retry, parse.parse_file)
