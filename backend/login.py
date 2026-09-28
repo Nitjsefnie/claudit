@@ -37,6 +37,7 @@ router = APIRouter()
 log = logging.getLogger("claudit.login")
 
 _LOGIN_FAILURES: dict[str, list[float]] = {}
+_LOGIN_INFLIGHT: dict[str, int] = {}
 _LOGIN_MAX_FAILURES = 5
 _LOGIN_WINDOW_SECONDS = 300
 # Sweep trigger: above this many tracked (ip, user) pairs, every key
@@ -45,6 +46,7 @@ _LOGIN_WINDOW_SECONDS = 300
 _LOGIN_MAX_KEYS = 4096
 
 _LOGIN_IP_FAILURES: dict[str, list[float]] = {}
+_LOGIN_IP_INFLIGHT: dict[str, int] = {}
 # Above the per-pair cap so the pair limit remains binding for one id,
 # while id rotation is limited to 20 failures from one IP per 5 minutes.
 _LOGIN_MAX_IP_FAILURES = 20
@@ -88,10 +90,11 @@ def _sweep_expired_keys(now: float) -> None:
 
 def _check_login_rate_limit(ip: str, uid: int) -> bool:
     now = time.time()
-    attempts = _prune_key(_failure_key(ip, uid), now)
+    key = _failure_key(ip, uid)
+    attempts = _prune_key(key, now)
     if len(_LOGIN_FAILURES) > _LOGIN_MAX_KEYS:
         _sweep_expired_keys(now)
-    return len(attempts) >= _LOGIN_MAX_FAILURES
+    return len(attempts) + _LOGIN_INFLIGHT.get(key, 0) >= _LOGIN_MAX_FAILURES
 
 
 def _record_login_failure(ip: str, uid: int) -> None:
@@ -132,7 +135,10 @@ def _check_login_ip_rate_limit(ip: str) -> bool:
     attempts = _prune_ip_key(ip, now)
     if len(_LOGIN_IP_FAILURES) > _LOGIN_MAX_IP_KEYS:
         _sweep_expired_ip_keys(now)
-    return len(attempts) >= _LOGIN_MAX_IP_FAILURES
+    return (
+        len(attempts) + _LOGIN_IP_INFLIGHT.get(ip, 0)
+        >= _LOGIN_MAX_IP_FAILURES
+    )
 
 
 def _record_login_ip_failure(ip: str) -> None:
@@ -144,12 +150,36 @@ def _record_login_ip_failure(ip: str) -> None:
         _sweep_expired_ip_keys(now)
 
 
+def _reserve_login_attempt(ip: str, uid: int) -> None:
+    """Reserve both limiter slots before a login awaits verification."""
+    key = _failure_key(ip, uid)
+    _LOGIN_INFLIGHT[key] = _LOGIN_INFLIGHT.get(key, 0) + 1
+    _LOGIN_IP_INFLIGHT[ip] = _LOGIN_IP_INFLIGHT.get(ip, 0) + 1
+
+
+def _release_login_attempt(ip: str, uid: int) -> None:
+    """Release both reservations when the request finishes."""
+    key = _failure_key(ip, uid)
+    pair_count = _LOGIN_INFLIGHT[key] - 1
+    if pair_count:
+        _LOGIN_INFLIGHT[key] = pair_count
+    else:
+        del _LOGIN_INFLIGHT[key]
+    ip_count = _LOGIN_IP_INFLIGHT[ip] - 1
+    if ip_count:
+        _LOGIN_IP_INFLIGHT[ip] = ip_count
+    else:
+        del _LOGIN_IP_INFLIGHT[ip]
+
+
 def reset_login_rate_limits() -> None:
     """Clear the process-global failure dict. Tests need this between
     cases that POST from the same TestClient host; production never
     calls it."""
     _LOGIN_FAILURES.clear()
     _LOGIN_IP_FAILURES.clear()
+    _LOGIN_INFLIGHT.clear()
+    _LOGIN_IP_INFLIGHT.clear()
 
 
 _LOGIN_HTML = """<!DOCTYPE html>
@@ -230,45 +260,59 @@ async def login_post(
             "Too many login attempts. Try again later.",
             status_code=429, media_type="text/plain",
         )
-    config = session_mod.load_user_config(uid)
-    if not config or not auth.has_web_password(config):
-        # The real verification cannot run: normalize from zero — burn
-        # the CPU the real verification would cost — and give the same
-        # generic answer a wrong password gets, so neither response
-        # shape nor timing separates the two (#109).
-        await asyncio.to_thread(
-            auth.normalize_verification_timing, password, 0
+    # No await may intervene between both checks and reservation: this
+    # event-loop turn atomically accounts for the admitted request.
+    _reserve_login_attempt(ip, uid)
+    try:
+        config = session_mod.load_user_config(uid)
+        if not config or not auth.has_web_password(config):
+            # The real verification cannot run: normalize from zero — burn
+            # the CPU the real verification would cost — and give the same
+            # generic answer a wrong password gets, so neither response
+            # shape nor timing separates the two (#109).
+            await asyncio.to_thread(
+                auth.normalize_verification_timing, password, 0
+            )
+            _record_login_failure(ip, uid)
+            _record_login_ip_failure(ip)
+            return Response(
+                _GENERIC_FAILURE_TEXT,
+                status_code=401,
+                media_type="text/plain",
+            )
+        if not await asyncio.to_thread(
+            auth.verify_web_password, config, password
+        ):
+            # Top up whatever the real verification spent (its own count
+            # for a versioned hash, the legacy count for valid bare hex,
+            # zero for malformed versioned or corrupt legacy material
+            # that ran no PBKDF2 at all) so a failure costs ≈ the target
+            # whatever shape the stored hash is (#109).
+            await asyncio.to_thread(
+                auth.normalize_verification_timing,
+                password,
+                auth.stored_verification_iterations(config),
+            )
+            _record_login_failure(ip, uid)
+            _record_login_ip_failure(ip)
+            return Response(
+                _GENERIC_FAILURE_TEXT,
+                status_code=401,
+                media_type="text/plain",
+            )
+        cred_fp = session_mod.credential_fingerprint(config)
+        secret, generation = session_mod.get_or_create_session_row(
+            uid, cred_fp
         )
-        _record_login_failure(ip, uid)
-        _record_login_ip_failure(ip)
-        return Response(
-            _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
+        session_mod.remember_user_config(uid, config)
+        token = session_mod.make_session_token(
+            uid, secret, generation=generation
         )
-    if not await asyncio.to_thread(
-        auth.verify_web_password, config, password
-    ):
-        # Top up whatever the real verification spent (its own count
-        # for a versioned hash, the legacy count for valid bare hex,
-        # zero for malformed versioned or corrupt legacy material
-        # that ran no PBKDF2 at all) so a failure
-        # costs ≈ the target whatever shape the stored hash is (#109).
-        await asyncio.to_thread(
-            auth.normalize_verification_timing,
-            password,
-            auth.stored_verification_iterations(config),
-        )
-        _record_login_failure(ip, uid)
-        _record_login_ip_failure(ip)
-        return Response(
-            _GENERIC_FAILURE_TEXT, status_code=401, media_type="text/plain"
-        )
-    cred_fp = session_mod.credential_fingerprint(config)
-    secret, generation = session_mod.get_or_create_session_row(uid, cred_fp)
-    session_mod.remember_user_config(uid, config)
-    token = session_mod.make_session_token(uid, secret, generation=generation)
-    response = RedirectResponse("/", status_code=303)
-    session_mod.set_session_cookie(response, token)
-    return response
+        response = RedirectResponse("/", status_code=303)
+        session_mod.set_session_cookie(response, token)
+        return response
+    finally:
+        _release_login_attempt(ip, uid)
 
 
 @router.get("/logout")
