@@ -115,8 +115,11 @@ jobs:
         # blanket `retry 3` would therefore re-run a genuine vulnerability
         # three times before reporting it, and — worse — a gate that goes
         # red for reasons unrelated to its subject is one people learn to
-        # ignore. So this retries ONLY when the output carries a transport
-        # error, and reports anything else immediately and verbatim.
+        # ignore. So this retries ONLY transport/service failures: connection
+        # errors, SSLError, HTTP 5xx, rate-limited 429, and a ServiceError
+        # exception. 429 is the sole retried 4xx; other 4xx responses (such
+        # as a 404 for a missing package) are checked before ServiceError.
+        # Findings and other failures are reported immediately.
         run: |
           for attempt in 1 2 3; do
             if pip-audit \
@@ -129,8 +132,19 @@ jobs:
               exit 0
             fi
 
-            if grep -qiE 'connection (aborted|reset|error)|read timed out|temporary failure in name resolution' audit.out; then
-              echo "attempt $attempt: transport failure talking to PyPI, retrying"
+            if grep -qiE '4[0-9][0-9] Client Error' audit.out \
+                && ! grep -qiE '429 (Client Error|Too Many Requests)' audit.out; then
+              echo "pip-audit failed with a non-retryable 4xx client error:" >&2
+              cat audit.out >&2
+              exit 1
+            fi
+
+            if grep -qiE 'connection (aborted|reset|error)|read timed out|temporary failure in name resolution' audit.out \
+                || grep -qiE 'Could not connect to (PyPI|OSV).*vulnerability feed' audit.out \
+                || grep -qiE '(^|[[:space:]])[[:alnum:]_.]*SSLError:' audit.out \
+                || grep -qiE '5[0-9][0-9] Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|429 (Client Error|Too Many Requests)' audit.out \
+                || grep -qiE '(^|[[:space:]])(pip_audit\._service\.interface\.)?ServiceError:' audit.out; then
+              echo "attempt $attempt: transport/service failure, retrying"
               tail -n 5 audit.out
               sleep $(( attempt * 15 ))
               continue
@@ -141,6 +155,6 @@ jobs:
             exit 1
           done
 
-          echo "pip-audit could not reach PyPI after 3 attempts:" >&2
+          echo "pip-audit exhausted 3 attempts after a transport/service failure:" >&2
           cat audit.out >&2
           exit 1
