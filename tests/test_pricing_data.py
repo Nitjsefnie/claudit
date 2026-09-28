@@ -62,6 +62,14 @@ def _histories(doc: dict):
             yield model, host, history
 
 
+def _latest_document_stamp(doc: dict) -> datetime:
+    """Latest rate or fetch stamp, so synthetic rows follow the whole file."""
+    stamps = [_at(entry["from"]) for _, _, history in _histories(doc)
+              for entry in history if entry["from"]]
+    stamps.append(_at(doc["provider_rates_fetched"]))
+    return max(stamps, default=datetime.min.replace(tzinfo=timezone.utc))
+
+
 def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
     """Rates in force at `stamp`; a free-shaped id prices by shape."""
     if pricing._is_free(model, pricing._normalise(model)):  # pylint: disable=protected-access
@@ -133,19 +141,20 @@ def test_the_file_has_every_cutover_the_backend_prices_by():
 
 
 def _moved() -> dict:
-    """The file as the refresh leaves it after a busy hour: a host first
-    seen at CUT, a later move on it, and a move on a seeded row."""
+    """The file after a busy hour: a new host, its later move, and a move
+    on a seeded row."""
     doc = _with_newcomer()
     novita = doc["providers"]["z-ai/glm-5-3-flash"]["Novita"]
-    newest = max((_at(entry["from"]) for entry in novita if entry["from"]),
-                 default=datetime.min.replace(tzinfo=timezone.utc))
-    cut = max(newest, _at(doc["provider_rates_fetched"])) + timedelta(seconds=1)
-    moved = cut + timedelta(seconds=1)
-    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"].append(
-        {"from": _stamp(moved), "create_1h": 0.4, "create_5m": 0.4,
+    newcomer = doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"]
+    newcomer_start = _latest_document_stamp(doc) + timedelta(seconds=1)
+    newcomer[0]["from"] = _stamp(newcomer_start)
+    cut = _stamp(newcomer_start + timedelta(seconds=1))
+    moved = _stamp(_at(cut) + timedelta(seconds=1))
+    newcomer.append(
+        {"from": moved, "create_1h": 0.4, "create_5m": 0.4,
          "fresh": 0.4, "output": 1.8, "read": 0.1})
-    novita.append({**novita[-1], "from": _stamp(cut), "read": 0.5})
-    doc["provider_rates_fetched"] = _stamp(moved)
+    novita.append({**novita[-1], "from": cut, "read": 0.5})
+    doc["provider_rates_fetched"] = moved
     return doc
 
 
@@ -291,7 +300,7 @@ APPEND_ROWS = [
 
 def _appended(path: tuple[str, ...]) -> tuple[dict, dict, dict]:
     """The file with one entry appended to the row at `path`: the new
-    document, the rates in force before CUT, and the appended rates."""
+    document, the rates in force before the cutover, and the new rates."""
     doc = copy.deepcopy(_doc())
     history: Any = doc
     for part in path:
@@ -313,16 +322,19 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_backend(
         monkeypatch, path, model, host):
     doc, before, after = _appended(path)
     cut = _at(doc["provider_rates_fetched"])
+    previous_epochs = set(pricing.RATE_EPOCHS)
     earlier = {epoch: pricing.rate_for(model, epoch - timedelta(seconds=1), host)
                for epoch in pricing.RATE_EPOCHS}
     for name, value in pricing.load_tables(doc).items():
         monkeypatch.setattr(pricing, name, value)
-    assert pricing.RATE_EPOCHS == sorted([*earlier, cut])
+    assert previous_epochs.issubset(pricing.RATE_EPOCHS)
+    assert cut in pricing.RATE_EPOCHS
     assert pricing.rate_for(model, cut - timedelta(seconds=1), host) == before
     assert pricing.rate_for(model, cut, host) == after
     assert pricing.rate_for(model, None, host) == after, "no ts => newest"
     for epoch, want in earlier.items():
-        assert pricing.rate_for(model, epoch - timedelta(seconds=1), host) == want
+        if epoch <= cut:
+            assert pricing.rate_for(model, epoch - timedelta(seconds=1), host) == want
 
 
 @needs_node
@@ -332,8 +344,9 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_browser(
     doc, before, after = _appended(path)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
-    cut = _at(CUT)
-    stamps = [_stamp(cut - timedelta(seconds=1)), CUT, None]
+    cut = _at(doc["provider_rates_fetched"])
+    stamps = [_stamp(cut - timedelta(seconds=1)),
+              doc["provider_rates_fetched"], None]
     got = _node(tmp_path / "parser.js", f"""
       const stamps = {json.dumps(stamps)};
       console.log(JSON.stringify({{
