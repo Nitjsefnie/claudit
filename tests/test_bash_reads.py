@@ -1,9 +1,31 @@
 """Read-target recovery from Bash command text (backend/bash_reads.py)."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import resource
+import subprocess
+import sys
+
 import pytest
 
+from backend.bash_churn import MAX_COMMAND_CHARS
 from backend.bash_reads import scan
+
+
+def _run_limited_python(code: str, input_text: str = "", *,
+                        args: tuple[str, ...] = (),
+                        timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
+    """Run scanner regressions with a ceiling for the original blowups."""
+    def set_memory_limit() -> None:
+        limit = 768 * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+    return subprocess.run(
+        [sys.executable, "-c", code, *args], input=input_text, text=True,
+        capture_output=True, check=False, timeout=timeout,
+        preexec_fn=set_memory_limit,
+    )
 
 
 @pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
@@ -549,3 +571,108 @@ def test_windows_spelling_in_grep_pattern_is_not_a_read_target(cwd, expected):
 def test_copy_children_use_destination_flavor_without_changing_verbatim_components(program, directory, expected):
     command = program + " file.py '" + directory + "'"
     assert scan(command, r"C:\work")[2] == [expected]
+
+
+def test_short_chained_assignment_expansion_keeps_existing_targets():
+    command = "A0=xy " + " ".join(
+        f"A{i}=$A{i - 1}$A{i - 1}" for i in range(1, 4)
+    ) + " cat $A3/x"
+    assert scan(command, "/repo") == (
+        "whole", ["/repo/xyxyxyxyxyxyxyxy/x"], []
+    )
+
+
+def test_40_assignment_chain_is_bounded_and_keeps_literal_read():
+    command = (
+        "A0=xy " + " ".join(
+            f"A{i}=$A{i - 1}$A{i - 1}" for i in range(1, 41)
+        ) + " cat /tmp/$A40 /tmp/f"
+    )
+    code = """
+import json
+import sys
+import time
+from backend.bash_reads import scan
+command = sys.stdin.read()
+started = time.perf_counter()
+result = scan(command)
+print(json.dumps([result, time.perf_counter() - started]))
+"""
+    completed = _run_limited_python(code, command)
+    assert completed.returncode == 0, completed.stderr
+    result, elapsed = json.loads(completed.stdout)
+    # An earlier doubled assignment exceeds the per-expansion cap, leaving
+    # A40 unknown; the separate /tmp/f operand remains a whole-file read.
+    assert result == ["whole", ["/tmp/f"], []]
+    assert elapsed < 5.0
+
+
+def test_scan_cumulative_expansion_budget_refuses_later_operands():
+    value = "x" * 900_000
+    command = "A=" + value + " cat " + " ".join(
+        f"$A/{letter}" for letter in "abcde"
+    )
+    kind, reads, writes = scan(command)
+    # Four 900k expansions fit under the 4M per-scan budget; the fifth
+    # would exceed it even though each individual result is under 1M.
+    assert kind == "whole"
+    assert [path[-2:] for path in reads] == ["/a", "/b", "/c", "/d"]
+    assert not writes
+
+
+def test_parse_file_keeps_literal_read_after_assignment_expansion_cap():
+    fixture = (Path(__file__).resolve().parents[1] / "fixtures" / "parser" /
+               "bash_chained_assignment_budget.jsonl")
+    code = """
+import json
+import sys
+import time
+from pathlib import Path
+from backend.parse import parse_file
+path = Path(sys.argv[1])
+started = time.perf_counter()
+parsed = parse_file(path.name, path.read_bytes())
+tool = parsed["tool_uses"][0]
+print(json.dumps([tool["read_targets"], tool["read_kind"],
+                  time.perf_counter() - started]))
+"""
+    completed = _run_limited_python(code, args=(str(fixture),))
+    assert completed.returncode == 0, completed.stderr
+    targets, kind, elapsed = json.loads(completed.stdout)
+    assert targets == ["/tmp/f"]
+    assert kind == "whole"
+    assert elapsed < 5.0
+
+
+@pytest.mark.parametrize("command", [
+    "$(" * 1_000_000,
+    "true " + "x " * 1_000_000,
+], ids=["unclosed-command-substitution", "many-benign-words"])
+def test_scan_command_skips_over_limit_text_without_tokenizing(command):
+    code = """
+import json
+import sys
+import time
+from backend.bash_churn import BashCommand
+from backend.bash_reads import scan, scan_command
+text = sys.stdin.read()
+started = time.perf_counter()
+result = scan(text)
+elapsed = time.perf_counter() - started
+command = BashCommand(text)
+scan_command(command)
+print(json.dumps([result, elapsed, "tokens" in command.__dict__]))
+"""
+    completed = _run_limited_python(code, command)
+    assert completed.returncode == 0, completed.stderr
+    result, elapsed, tokens_were_computed = json.loads(completed.stdout)
+    assert result == [None, [], []]
+    assert not tokens_were_computed
+    assert elapsed < 5.0
+
+
+def test_command_at_size_limit_is_still_scanned():
+    prefix = "cat /tmp/f; "
+    command = prefix + "x" * (MAX_COMMAND_CHARS - len(prefix))
+    assert len(command) == MAX_COMMAND_CHARS
+    assert scan(command) == ("whole", ["/tmp/f"], [])
