@@ -224,8 +224,10 @@ def test_terminate_shards_signals_whole_process_groups(monkeypatch) -> None:
 
 def test_terminate_shards_escalates_to_sigkill_when_a_child_hangs(
         monkeypatch) -> None:
-    """A shard still alive after the grace window gets SIGKILL for its
-    whole group and is then reaped; SIGTERM always went first."""
+    """A shard still alive after the grace window gets the escalation
+    signal for its whole group and is then reaped; SIGTERM always went
+    first. Pinned against the module's ESCALATION_SIGNAL so the shape
+    holds on platforms without SIGKILL."""
     kills: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "killpg",
                         lambda pid, sig: kills.append((pid, sig)),
@@ -236,7 +238,8 @@ def test_terminate_shards_escalates_to_sigkill_when_a_child_hangs(
     fuzz_sharding._terminate_shards(
         [(Path("/tmp/s0"), Path("/tmp/s0/r.json"), child)])
 
-    assert kills == [(4244, signal.SIGTERM), (4244, signal.SIGKILL)]
+    assert kills == [(4244, signal.SIGTERM),
+                     (4244, fuzz_sharding.ESCALATION_SIGNAL)]
     assert child.waits == 2
 
 
@@ -442,6 +445,9 @@ def test_a_sigterm_during_a_sharded_run_removes_the_snapshots_and_shards(
     assert not _procs_referencing(str(scratch))
 
 
+@pytest.mark.skipif(os.name != "posix",
+                    reason="os.kill(self, SIGTERM) is TerminateProcess "
+                           "on Windows, never a catchable signal")
 def test_a_sigterm_during_a_sequential_run_restores_the_baseline(
         monkeypatch, tmp_path: Path) -> None:
     """(issue #331) The sequential path gets the same unwinding: the
