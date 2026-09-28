@@ -51,6 +51,10 @@ def _document(baseline=None):
                 "measured": 92.6,
                 "floor": 91.1,
             },
+            "javascript": {
+                "measured": 50.0,
+                "floor": 48.5,
+            },
         },
         "module_size_baseline": baseline or {},
     }
@@ -68,6 +72,8 @@ def test_ceiling_rule():
     size_baseline = _size_baseline()
     assert size_baseline.ceiling_for("tests/test_x.py") == 700
     assert size_baseline.ceiling_for("backend/x.py") == 500
+    assert size_baseline.ceiling_for("src/app.jsx") == 500
+    assert size_baseline.ceiling_for("src/parser.js") == 500
     assert size_baseline.ceiling_for("scripts/ci/x.py") == 500
 
 
@@ -180,10 +186,27 @@ def test_tracked_sizes_scope_and_counts():
     sizes = size_baseline.tracked_sizes()
     assert sizes, "tracked_sizes found no modules"
     for rel in sizes:
-        assert rel.startswith(("backend/", "scripts/", "tests/"))
+        assert rel.startswith(
+            ("backend/", "scripts/", "tests/", "src/"))
     known = REPO_ROOT / "backend" / "api.py"
     assert sizes["backend/api.py"] == len(
         known.read_text(encoding="utf-8").splitlines())
+
+
+def test_tracked_sizes_cover_src_javascript():
+    # The shipped JS/JSX front end is in the size ratchet's scope: every
+    # tracked src/**/*.js(x) file is counted, priced against the
+    # production ceiling, and src/pricing.json is not (it is data).
+    size_baseline = _size_baseline()
+    sizes = size_baseline.tracked_sizes()
+    for rel in ("src/parser.js", "src/parser-lanes.js",
+                "src/dashboard-charts-extra.jsx", "src/app.jsx",
+                "src/views/cache-view.jsx"):
+        assert rel in sizes, f"{rel} is outside the size ratchet"
+        actual = (REPO_ROOT / rel).read_text(
+            encoding="utf-8").splitlines()
+        assert sizes[rel] == len(actual)
+    assert "src/pricing.json" not in sizes
 
 
 def test_committed_document_matches_tree():

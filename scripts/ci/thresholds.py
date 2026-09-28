@@ -18,7 +18,10 @@ THRESHOLDS = (Path(__file__).resolve().parents[2]
 # yardstick values, not tunables (SV-CI-RATCHETS).
 CALIBRATION_GAP = Decimal('1.5')
 _SCHEMA_VERSION = 1
-_COVERAGE_LANGUAGES = ('python',)
+# Every coverage language the ratchet gates: python from the pytest run
+# over backend/, javascript from the node-executing tests over the src
+# files they load (src/**/*.js; node parses no JSX).
+COVERAGE_LANGUAGES = ('python', 'javascript')
 _BASELINE_FIELDS = ('module_size_baseline',)
 _TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *_BASELINE_FIELDS)
 _COVERAGE_FIELDS = ('measured', 'floor')
@@ -140,9 +143,9 @@ def normalise(data):
             f'unsupported schema_version: {data["schema_version"]}')
 
     coverage_data = data['coverage']
-    _required_fields(coverage_data, _COVERAGE_LANGUAGES, 'coverage')
+    _required_fields(coverage_data, COVERAGE_LANGUAGES, 'coverage')
     normalised_coverage = {}
-    for language in _COVERAGE_LANGUAGES:
+    for language in COVERAGE_LANGUAGES:
         record = coverage_data[language]
         prefix = f'coverage.{language}'
         _required_fields(record, _COVERAGE_FIELDS, prefix)
@@ -191,7 +194,7 @@ def load(path=THRESHOLDS):
 
 
 def coverage(data, language):
-    if language not in _COVERAGE_LANGUAGES:
+    if language not in COVERAGE_LANGUAGES:
         raise ValueError(f'unknown coverage language: {language}')
     normalised = normalise(data)
     record = normalised['coverage'][language]
@@ -274,9 +277,9 @@ def _parser():
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--check', action='store_true',
                        help='validate the threshold document')
-    modes.add_argument('--coverage-floor', choices=_COVERAGE_LANGUAGES,
+    modes.add_argument('--coverage-floor', choices=COVERAGE_LANGUAGES,
                        help='print one language floor')
-    modes.add_argument('--coverage-measured', choices=_COVERAGE_LANGUAGES,
+    modes.add_argument('--coverage-measured', choices=COVERAGE_LANGUAGES,
                        help='print one language measured value')
     parser.add_argument('--thresholds', type=Path, default=THRESHOLDS)
     return parser

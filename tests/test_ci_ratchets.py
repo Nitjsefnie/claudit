@@ -54,6 +54,10 @@ def _document(measured="92.6", floor="91.1"):
                 "measured": Decimal(measured),
                 "floor": Decimal(floor),
             },
+            "javascript": {
+                "measured": Decimal("50.0"),
+                "floor": Decimal("48.5"),
+            },
         },
         "module_size_baseline": {},
     }
@@ -84,6 +88,33 @@ def test_raise_beyond_hysteresis():
     # Nothing outside the raised calibration moved.
     assert updated["schema_version"] == 1
     assert updated["module_size_baseline"] == {}
+    assert updated["coverage"]["javascript"] == {
+        "measured": Decimal("50.0"),
+        "floor": Decimal("48.5"),
+    }
+
+
+def test_raise_beyond_hysteresis_javascript():
+    ratchet = _ratchet()
+    doc = _document()
+    updated = ratchet.update(doc, Decimal("52.0"), language="javascript")
+    assert updated is not None
+    record = updated["coverage"]["javascript"]
+    assert record["measured"] == Decimal("52.0")
+    assert record["floor"] == Decimal("50.5")
+    # Only the raised calibration moved.
+    assert updated["coverage"]["python"] == {
+        "measured": Decimal("92.6"),
+        "floor": Decimal("91.1"),
+    }
+    assert updated["module_size_baseline"] == {}
+
+
+def test_no_raise_within_hysteresis_javascript():
+    ratchet = _ratchet()
+    measured = Decimal("51.5")  # recorded 50.0 + hysteresis 1.5, not over
+    assert ratchet.update(
+        _document(), measured, language="javascript") is None
 
 
 def test_measured_below_recorded_never_lowers():
@@ -125,6 +156,24 @@ def test_main_raise_rewrites_the_file(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "raised" in out
     assert "91.1 -> 93.5" in out
+
+
+def test_main_raise_javascript_rewrites_the_file(tmp_path, capsys):
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path)
+    assert ratchet.main(
+        ["--language", "javascript", "--measured", "52.0",
+         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["coverage"]["javascript"]["measured"] == Decimal("52.0")
+    assert doc["coverage"]["javascript"]["floor"] == Decimal("50.5")
+    # The python calibration is untouched by a javascript raise.
+    assert doc["coverage"]["python"]["measured"] == Decimal("92.6")
+    assert doc["coverage"]["python"]["floor"] == Decimal("91.1")
+    out = capsys.readouterr().out
+    assert "raised" in out
+    assert "48.5 -> 50.5" in out
 
 
 def test_main_invalid_measurement_fails(tmp_path, capsys):

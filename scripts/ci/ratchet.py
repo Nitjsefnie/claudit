@@ -25,6 +25,7 @@ else:
 
 CALIBRATION_GAP = Decimal('1.5')
 RAISE_HYSTERESIS = Decimal('1.5')
+_LABELS = {'python': 'Python', 'javascript': 'JavaScript'}
 
 
 def _measurement(value):
@@ -43,19 +44,19 @@ def floor_for(measured):
     return _measurement(measured) - CALIBRATION_GAP
 
 
-def read_calibration(data):
-    return thresholds.coverage(data, 'python')
+def read_calibration(data, language='python'):
+    return thresholds.coverage(data, language)
 
 
-def update(data, measured):
+def update(data, measured, language='python'):
     """Return an updated document, or ``None`` when no raise is justified."""
     candidate = thresholds.normalise(data)
     measured = _measurement(measured)
-    recorded_measured, _floor = read_calibration(candidate)
+    recorded_measured, _floor = read_calibration(candidate, language)
     should_raise = measured - recorded_measured > RAISE_HYSTERESIS
     if not should_raise:
         return None
-    candidate['coverage']['python'] = {
+    candidate['coverage'][language] = {
         'measured': measured,
         'floor': measured - CALIBRATION_GAP,
     }
@@ -66,6 +67,9 @@ def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--measured', required=True,
                         help='coverage measured by this run, e.g. 92.6')
+    parser.add_argument('--language', choices=thresholds.COVERAGE_LANGUAGES,
+                        default='python',
+                        help='which language calibration to raise')
     parser.add_argument(
         '--thresholds', type=Path, default=thresholds.THRESHOLDS)
     return parser
@@ -73,18 +77,19 @@ def _parser():
 
 def main(argv=None):
     args = _parser().parse_args(argv)
+    label = _LABELS.get(args.language, args.language)
     try:
         data = thresholds.load(args.thresholds)
         measured = _measurement(args.measured)
-        floor = read_calibration(data)[1]
-        candidate = update(data, measured)
+        floor = read_calibration(data, args.language)[1]
+        candidate = update(data, measured, language=args.language)
         if candidate is None:
-            print(f'Python coverage {measured:.1f}% justifies no raise '
+            print(f'{label} coverage {measured:.1f}% justifies no raise '
                   f'above the {floor:.1f} floor')
             return 0
         thresholds.write(args.thresholds, candidate)
-        new_floor = candidate['coverage']['python']['floor']
-        print(f'raised the Python coverage floor {floor:.1f} -> '
+        new_floor = candidate['coverage'][args.language]['floor']
+        print(f'raised the {label} coverage floor {floor:.1f} -> '
               f'{new_floor:.1f} (measured {measured:.1f}%)')
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
