@@ -1,0 +1,7 @@
+{"type":"metadata","protocol_version":"1.10"}
+{"timestamp":"2026-09-21T10:00:00Z","message":{"type":"TurnBegin","payload":{"user_input":"before"}}}
+{"timestamp":"2026-09-21T10:00:01Z","message":[{"role":"user"}]}
+{"timestamp":"2026-09-21T10:00:02Z","message":{"type":"ToolCall","payload":{"type":"function","id":"nested-lt1","function":{"name":"Shell","arguments":"{\"command\":\"echo hi\"}"}}}}
+{"timestamp":"2026-09-21T10:00:10Z","message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"output":2},"message_id":"nested-l1"}}}
+{"timestamp":"2026-09-21T10:00:20Z","message":{"type":"TurnBegin","payload":{"user_input":"after"}}}
+{"timestamp":"2026-09-21T10:00:30Z","message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":12,"output":3},"message_id":"nested-l2"}}}

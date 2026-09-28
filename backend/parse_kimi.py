@@ -17,8 +17,6 @@ import json
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import cast
-
 from orjson import JSONDecodeError, loads
 
 from backend.bash_churn import bash_churn
@@ -213,7 +211,9 @@ def _legacy_content_part(st: _ParseState, ts: datetime | None,
 
 def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
                       payload: dict) -> None:
-    func = payload.get("function", {})
+    func = payload.get("function")
+    if not isinstance(func, dict):
+        func = {}
     name = func.get("name", "")
     args = _args_to_dict(func.get("arguments"))
     _append_tool_use(st, line_num, ts, name, payload.get("id", ""),
@@ -237,7 +237,7 @@ def _legacy_tool_result(st: _ParseState, payload: dict) -> None:
 def _legacy_status_update(st: _ParseState, line_num: int,
                           ts: datetime | None, payload: dict) -> None:
     tu = payload.get("token_usage")
-    if not tu:
+    if not isinstance(tu, dict) or not tu:
         return
     toks = (
         int(tu.get("input_other", 0) or 0),
@@ -299,9 +299,14 @@ def parse_legacy(file_key: str, blob: bytes) -> dict:
         if ts_dt is not None and st.first_event_ts is None:
             st.first_event_ts = ts_dt
 
-        msg = obj.get("message") or {}
+        msg = obj.get("message")
+        if not isinstance(msg, dict):
+            msg = {}
+        payload = msg.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
         _legacy_dispatch(
-            st, msg.get("type", ""), line_num, ts_dt, msg.get("payload", {})
+            st, msg.get("type", ""), line_num, ts_dt, payload
         )
 
     _attribute_tool_models(st)
@@ -352,6 +357,8 @@ def _kc_parse_tool_call(tc: dict) -> tuple[str, str | None, str]:
     if "name" in tc:
         return str(tc.get("name", "")), tc.get("arguments"), tcid
     func = tc.get("function") or {}
+    if not isinstance(func, dict):
+        func = {}
     return str(func.get("name", "")), func.get("arguments"), tcid
 
 
@@ -399,13 +406,23 @@ def _count_content_text(content: list[dict]) -> int:
 
 def _kc_append_message(st: _KimiCodeState, line_num: int,
                        ts: datetime | None, obj: dict) -> None:
-    msg = obj.get("message") or {}
+    msg = obj.get("message")
+    if not isinstance(msg, dict):
+        msg = {}
     role = msg.get("role")
     if role == "assistant":
+        content = msg.get("content") or []
+        if not isinstance(content, list):
+            content = []
         st.text_chars_since_turn += _count_content_text(
-            msg.get("content") or []
+            content
         )
-        for tc in msg.get("toolCalls") or []:
+        tool_calls = msg.get("toolCalls") or []
+        if not isinstance(tool_calls, list):
+            tool_calls = []
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
             name, raw_args, tcid = _kc_parse_tool_call(tc)
             args = _args_to_dict(raw_args)
             _append_tool_use(st, line_num, ts, name, tcid,
@@ -470,7 +487,9 @@ def _kc_step_begin(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
                    obj: dict) -> None:
-    ev = obj.get("event") or {}
+    ev = obj.get("event")
+    if not isinstance(ev, dict):
+        ev = {}
     et = ev.get("type")
     if et == "step.begin":
         _kc_step_begin(st, line_num, ts, ev.get("turnId"))
@@ -488,11 +507,12 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         )
         _mark_assistant_event(st, ts)
     elif et == "tool.result":
-        res = ev.get("result") or {}
+        res = ev.get("result")
+        if not isinstance(res, dict):
+            res = {}
         tcid = ev.get("toolCallId", "")
         if tcid:
-            is_err = bool(res.get("isError") if isinstance(res, dict)
-                          else False)
+            is_err = bool(res.get("isError"))
             text = (_flatten_result_text(res.get("output"))
                     if is_err else "")
             _settle_lane_tool_result(st, tcid, is_err, text)
@@ -502,7 +522,9 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_usage_record(st: _ParseState, line_num: int, ts: datetime | None,
                      obj: dict) -> None:
-    usage = obj.get("usage") or {}
+    usage = obj.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
     toks = (
         int(usage.get("inputOther") or 0),
         int(usage.get("inputCacheCreation") or 0),
@@ -546,7 +568,7 @@ def _kc_llm_error(st: _ParseState, line_num: int, ts: datetime | None,
     })
 
 
-def _kc_dispatch(st: _KimiCodeState, typ: str, line_num: int,
+def _kc_dispatch(st: _KimiCodeState, typ: object, line_num: int,
                  ts: datetime | None, obj: dict) -> None:
     # Turn boundaries. A prompt reaches the model at once; a steer may wait
     # behind an in-flight step (see _kc_steer).
@@ -591,7 +613,7 @@ def parse_kimi_code(file_key: str, blob: bytes) -> dict:
             continue
 
         ts_dt = _kc_event_ts(st, obj)
-        _kc_dispatch(st, cast(str, typ), line_num, ts_dt, obj)
+        _kc_dispatch(st, typ, line_num, ts_dt, obj)
 
     _attribute_tool_models(st)
     return _finish_parse(st, len(blob.splitlines()))

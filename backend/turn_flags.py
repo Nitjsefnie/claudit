@@ -161,7 +161,10 @@ class TurnWindow:
             self.flags.add(FLAG_INTERRUPT)
         if obj.get("toolDenialKind") == "user-rejected":
             self.flags.add(FLAG_USER_REJECTED)
-        content = (obj.get("message") or {}).get("content")
+        message = obj.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        content = message.get("content")
         if isinstance(content, str):
             self._observe_user_text(obj, content)
             return

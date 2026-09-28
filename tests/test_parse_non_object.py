@@ -24,6 +24,12 @@ LINE_FIXTURES = {
     "non_object_lines_kimi_legacy.jsonl": [5, 6, 7, 8, 9],
 }
 
+NESTED_FIXTURES = {
+    "non_object_nested_claude.jsonl": [2],
+    "non_object_nested_kimi_code.jsonl": [3, 4],
+    "non_object_nested_kimi_legacy.jsonl": [3],
+}
+
 
 def _backend_prompt_lines(text: str, parsed: dict[str, Any]) -> list[int]:
     """Map stored prompt timestamps to their source record lines."""
@@ -121,6 +127,47 @@ def test_backend_kimi_code_skips_a_non_object_content_part():
     assert actual == expected
 
 
+@pytest.mark.parametrize("name", NESTED_FIXTURES)
+def test_backend_nested_non_object_maps_match_empty_lines(name):
+    text = (FIX / name).read_text(encoding="ascii")
+    file_key = f"sessions/p/s/{name}"
+    actual = parse.parse_file(file_key, text.encode("ascii"))
+    expected = parse.parse_file(
+        file_key, _without_lines(text, NESTED_FIXTURES[name])
+    )
+
+    assert expected["records"]
+    assert expected["tool_uses"]
+    assert expected["prompt_count"] == 2
+    prompt_lines = _backend_prompt_lines(text, expected)
+    assert prompt_lines
+    assert any(line < NESTED_FIXTURES[name][0] for line in prompt_lines)
+    assert any(line > NESTED_FIXTURES[name][-1] for line in prompt_lines)
+    assert actual == expected
+
+
+def test_backend_kimi_code_non_object_loop_event_matches_empty_line():
+    name = "non_object_nested_kimi_code.jsonl"
+    text = (FIX / name).read_text(encoding="ascii")
+    lines = text.splitlines()
+    message_line = json.loads(lines[2])
+    message_line["message"] = {}
+    lines[2] = json.dumps(message_line, separators=(",", ":"))
+    event_text = "\n".join(lines)
+    actual = parse.parse_file(
+        f"sessions/p/s/{name}", event_text.encode("ascii")
+    )
+    expected = parse.parse_file(
+        f"sessions/p/s/{name}",
+        _without_lines(event_text, [4]),
+    )
+
+    assert expected["records"]
+    assert expected["tool_uses"]
+    assert expected["prompt_count"] == 2
+    assert actual == expected
+
+
 def test_backend_null_user_blocks_keep_prompts_and_latency_anchors():
     name = "null_user_content_block.jsonl"
     text = (FIX / name).read_text(encoding="ascii")
@@ -185,10 +232,32 @@ def test_browser_skips_non_object_lines_and_matches_backend():
         assert got[name]["lines"] == prompt_lines, name
         assert got[name]["userMsgs"] == parsed["prompt_count"], name
         assert got[name]["usageCount"] == len(parsed["records"]), name
-        if name in LINE_FIXTURES:
-            assert got[name]["parseErrors"] == 0, name
-            assert not (set(got[name]["parsedLines"])
-                        & set(LINE_FIXTURES[name])), name
+        assert got[name]["parseErrors"] == 0, name
+        assert not (set(got[name]["parsedLines"])
+                    & set(LINE_FIXTURES[name])), name
+
+
+def test_browser_nested_non_object_maps_match_backend_prompts():
+    texts = {
+        name: (FIX / name).read_text(encoding="ascii")
+        for name in NESTED_FIXTURES
+    }
+    got = _node_parse(texts)
+
+    for name, text in texts.items():
+        assert "error" not in got[name], got[name].get("stack", got[name])
+        parsed = parse.parse_file(f"sessions/p/s/{name}", text.encode("ascii"))
+        prompt_lines = _backend_prompt_lines(text, parsed)
+        assert prompt_lines, name
+        assert parsed["records"], name
+        assert parsed["tool_uses"], name
+        assert parsed["prompt_count"] == 2, name
+        assert got[name]["lines"] == prompt_lines, name
+        assert got[name]["userMsgs"] == parsed["prompt_count"], name
+        assert got[name]["usageCount"] == len(parsed["records"]), name
+        assert got[name]["parseErrors"] == 0, name
+        assert not (set(got[name]["parsedLines"])
+                    & set(NESTED_FIXTURES[name])), name
 
 
 def test_browser_null_user_content_blocks_match_backend():
