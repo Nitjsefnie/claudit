@@ -840,8 +840,9 @@ keeps the same rules:
     and the alternation rule below applies. A failed or unrecognised log
     is never a guess and never a refusal: the run reports a
     "listed-pricing log unavailable" notice naming the model and the
-    reason, and stays green. A host the log does not back is reported by
-    name in the run's report.
+    reason, and stays green. A host the log does not back is listed in
+    the run's report with the reason, not in its notices: such a host is
+    sampled every hour, and a notice would repeat in every commit.
 - **The one-time backfill rewrites log-backed rows.**
   `scripts/ci/backfill_provider_rates.py --as-of <instant>` replaces
   the history of every row the log backs at that run with the log's
