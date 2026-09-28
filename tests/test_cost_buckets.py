@@ -9,7 +9,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
-from backend.api_common import epoch_ts, fold_per_model, rate_epoch_sql
+from backend.api_common import (
+    epoch_ts, fold_per_model, fold_per_model_provider, rate_epoch_sql,
+)
 from backend.db import sql_text
 from tests import scratch_db
 
@@ -68,33 +70,95 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(synthetic_dated_rate):
         round(total, 4), abs=1e-6)
 
 
+def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
+    """A null timestamp uses the provider row's default on both sides."""
+    model, host = "claude-sonnet-99", "SyntheticHost"
+    model_rates = {
+        "fresh": 0.40, "create_5m": 0.50, "create_1h": 0.80,
+        "read": 0.04, "output": 2.00,
+    }
+    provider_rates = {
+        "fresh": 8.25, "create_5m": 10.00, "create_1h": 16.50,
+        "read": 0.825, "output": 41.25,
+    }
+    provider_start = pricing.RATE_EPOCHS[0] + timedelta(seconds=1)
+    first_epoch_ts = epoch_ts(0)
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: model_rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {(model, host): provider_rates})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {(model, host): provider_start})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+
+    assert first_epoch_ts is not None
+    assert provider_start > first_epoch_ts
+    stored = pricing.compute_cost(
+        model, fresh=1_000_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=None, provider=host,
+    )
+    assert stored == provider_rates["fresh"]
+    row = (model, host, -1, False, 1, 1_000_000, 0, 0, 0, 0, 0, stored)
+
+    folded = fold_per_model_provider([row])[0]
+    bucket_total = sum(folded["cost_buckets"].values())
+    assert folded["cost_total"] == pytest.approx(stored)
+    assert bucket_total == pytest.approx(stored)
+
+    resolved = pricing.resolve(model, None, host)
+    assert resolved.rates["fresh"] == provider_rates["fresh"]
+    resolved_cost = 1_000_000 * resolved.rates["fresh"] / 1_000_000
+    assert bucket_total == pytest.approx(resolved_cost)
+
+
 def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_rate):
     w = synthetic_dated_rate
     assert pricing.rate_for(w.model, epoch_ts(0))["fresh"] == w.before["fresh"]
     assert pricing.rate_for(w.model, epoch_ts(1))["fresh"] == w.after["fresh"]
 
 
+@pytest.mark.db
+def test_epoch_sql_places_null_at_list_epoch(monkeypatch):
+    boundary = datetime(2031, 1, 1, tzinfo=UTC)
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
+    expr, params = rate_epoch_sql("ts")
+    tick = timedelta(microseconds=1)
+    probes = [None, boundary - tick, boundary + tick]
+    with scratch_db.admin_connection() as conn:
+        got = conn.execute(
+            sql_text(f"SELECT {expr} FROM unnest(%s::timestamptz[])"
+                     " AS v(ts)"),
+            [*params, probes],
+        ).fetchall()
+    assert [row[0] for row in got] == [-1, 0, 1]
+
+
+def test_epoch_ts_negative_index_is_list_price_epoch(synthetic_dated_rate):
+    assert epoch_ts(-1) is None
+    assert epoch_ts(0) == synthetic_dated_rate.cutover - timedelta(microseconds=1)
+
+
 def test_epoch_sql_expression_has_one_case_per_boundary(synthetic_dated_rate):
     expr, params = rate_epoch_sql("ts")
     # Boundaries are BOUND, never interpolated into the SQL string.
     assert params == [synthetic_dated_rate.cutover]
-    assert expr.count("CASE") == 1
+    assert expr.count("CASE") == 2
 
 
 def test_epoch_sql_collapses_to_a_constant_when_no_rates_are_dated(monkeypatch):
     # Patched empty table (the live table now carries the GLM-5.3-Flash
-    # promotion): every row must land in epoch 0, with no parameters bound
-    # and no CASE emitted.
+    # promotion): non-NULL rows land in epoch 0 and NULL rows in the
+    # list-price epoch, with no parameters bound.
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [])
     expr, params = rate_epoch_sql("ts")
-    assert (expr, params) == ("0", [])
+    assert expr == "(CASE WHEN ts IS NULL THEN -1 ELSE 0 END)"
+    assert not params
     assert epoch_ts(0) is None, "no epochs => price at list, not a window"
 
 
 def test_epoch_sql_binds_every_live_rate_boundary():
-    """Each boundary the file carries is bound as a parameter, one CASE per
-    boundary. Derived from the file, provider windows and row starts
+    """Each boundary is bound as a parameter and gets a CASE; the NULL
+    wrapper adds one more CASE. Derived from the file, provider windows and row starts
     included, because the scheduled refresh appends boundaries: a literal
     list here would fail the first commit it makes."""
     expr, params = rate_epoch_sql("ts")
@@ -102,7 +166,7 @@ def test_epoch_sql_binds_every_live_rate_boundary():
         {end for w in pricing.DATED_RATES.values() for end, _ in w}
         | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
         | set(pricing.PROVIDER_STARTS.values()))
-    assert expr.count("CASE") == len(params)
+    assert expr.count("CASE") == len(params) + 1
     # The model rows' own boundaries, which no refresh touches, are there.
     assert {
         datetime(2026, 7, 30, 18, 12, tzinfo=UTC),   # GPT-5.6 JUL30_CUT
@@ -122,10 +186,14 @@ def test_epoch_sql_places_every_timestamp_with_200_epochs(monkeypatch):
               for i in range(200)]
     monkeypatch.setattr(pricing, "RATE_EPOCHS", epochs)
     expr, params = rate_epoch_sql("ts")
-    assert expr.count("CASE") == 200 and params == epochs
+    assert expr.count("CASE") == 201 and params == epochs
     tick = timedelta(microseconds=1)
-    probes = [(e + d, i + (d >= timedelta(0)))
-              for i, e in enumerate(epochs) for d in (-tick, timedelta(0), tick)]
+    probes = [(None, -1)]
+    probes += [
+        (e + d, i + (d >= timedelta(0)))
+        for i, e in enumerate(epochs)
+        for d in (-tick, timedelta(0), tick)
+    ]
     probes += [(epoch_ts(i), i) for i in range(201)]
     with scratch_db.admin_connection() as conn:
         got = conn.execute(

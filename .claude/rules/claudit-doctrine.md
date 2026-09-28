@@ -537,6 +537,9 @@ exact model key, derived from the row's history in `src/pricing.json`
 request being priced, never the time of rendering. `parse.py` passes
 each record's own `ts`; omitting `ts` yields LIST price (conservative
 — never silently applies a discount).
+The read-time fold honors the same rule: `rate_epoch_sql` maps a NULL ts
+to the list-price epoch -1, whose representative instant is None, so its
+buckets price at exactly what persist and reprice used.
 
 A window (a superseded history entry) is NEVER dropped once it has
 expired. Every `PRICING_VERSION` bump reprices every record from its
