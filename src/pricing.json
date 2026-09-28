@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T12:53:47Z",
+  "provider_rates_fetched": "2026-09-28T13:53:36Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -727,6 +727,16 @@
           "read": 0.001
         }
       ],
+      "Ionstream": [
+        {
+          "create_1h": 0.014,
+          "create_5m": 0.014,
+          "fresh": 0.014,
+          "from": "2026-09-28T13:53:36Z",
+          "output": 0.4,
+          "read": 0.004
+        }
+      ],
       "Krea": [
         {
           "create_1h": 0.225,
@@ -959,6 +969,14 @@
           "from": "2026-09-28T09:54:18Z",
           "output": 0.6,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-28T13:53:36Z",
+          "output": 0.6,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -1134,6 +1152,14 @@
           "from": "2026-09-28T12:53:47Z",
           "output": 0.6,
           "read": 0.044
+        },
+        {
+          "create_1h": 0.0395,
+          "create_5m": 0.0395,
+          "fresh": 0.0395,
+          "from": "2026-09-28T13:53:36Z",
+          "output": 0.6,
+          "read": 0.039
         }
       ]
     },
@@ -1239,6 +1265,15 @@
           "note": "36.8% off",
           "output": 0.17696,
           "read": 0.017696
+        },
+        {
+          "create_1h": 0.08386,
+          "create_5m": 0.08386,
+          "fresh": 0.08386,
+          "from": "2026-09-28T13:53:36Z",
+          "note": "40.1% off",
+          "output": 0.16772,
+          "read": 0.016772
         }
       ],
       "DeepInfra": [
@@ -1447,6 +1482,15 @@
           "note": "37.8% off",
           "output": 0.17416,
           "read": 0.017416
+        },
+        {
+          "create_1h": 0.08246,
+          "create_5m": 0.08246,
+          "fresh": 0.08246,
+          "from": "2026-09-28T13:53:36Z",
+          "note": "41.1% off",
+          "output": 0.16492,
+          "read": 0.016492
         }
       ],
       "Venice": [
@@ -2140,6 +2184,15 @@
           "note": "43.5% off",
           "output": 1.9097,
           "read": 0.0791
+        },
+        {
+          "create_1h": 0.94978,
+          "create_5m": 0.94978,
+          "fresh": 0.94978,
+          "from": "2026-09-28T13:53:36Z",
+          "note": "43.8% off",
+          "output": 1.89956,
+          "read": 0.07868
         }
       ],
       "Cloudflare": [
@@ -2259,6 +2312,15 @@
           "note": "45.22% off",
           "output": 1.906344,
           "read": 0.079431
+        },
+        {
+          "create_1h": 0.948126,
+          "create_5m": 0.948126,
+          "fresh": 0.948126,
+          "from": "2026-09-28T13:53:36Z",
+          "note": "45.51% off",
+          "output": 1.896252,
+          "read": 0.0790105
         }
       ],
       "Venice": [
@@ -2850,6 +2912,14 @@
           "create_5m": 0.07,
           "fresh": 0.07,
           "from": "2026-09-28T12:53:47Z",
+          "output": 0.28,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-28T13:53:36Z",
           "output": 0.28,
           "read": 0.02
         }
@@ -4166,6 +4236,14 @@
           "create_5m": 1.0,
           "fresh": 1.0,
           "from": "2026-09-28T06:53:45Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.75,
+          "create_5m": 0.75,
+          "fresh": 0.75,
+          "from": "2026-09-28T13:53:36Z",
           "output": 0.5,
           "read": 0.03
         }
