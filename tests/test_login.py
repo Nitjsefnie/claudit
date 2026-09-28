@@ -85,9 +85,13 @@ def _fake_session_store_fixture(monkeypatch):
 
     def _get_or_create(user_id, cred_fp):
         row = rows.get(user_id)
-        secret, generation = (
-            (secrets.token_urlsafe(32), 0) if row is None else row[:2]
-        )
+        new_secret = secrets.token_urlsafe(32)
+        if row is None:
+            secret, generation = new_secret, 0
+        elif row[2] != cred_fp:
+            secret, generation = new_secret, row[1] + 1
+        else:
+            secret, generation = row[:2]
         rows[user_id] = (secret, generation, cred_fp)
         return secret, generation
 
@@ -675,6 +679,35 @@ def test_login_after_password_change_rebinds_session_immediately(
     auth.set_web_password(fake_user[12345], "new password")
     assert _post_login(client, 12345, "new password").status_code == 303
     assert client.get("/api/me").status_code == 200
+
+
+def test_password_change_relogin_does_not_resurrect_old_cookie(
+    app, fake_user, fake_session_store
+):
+    client = _signed_in_client(app)
+    old_cookie = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert old_cookie
+
+    auth.set_web_password(fake_user[12345], "new password")
+    _clear_user_config_cache()
+    old_client = TestClient(app)
+    assert old_client.get(
+        "/api/me", headers={"Cookie": f"session={old_cookie}"}
+    ).status_code == 401
+
+    login = _post_login(client, 12345, "new password")
+    assert login.status_code == 303
+    new_cookie = login.cookies.get(session_mod.SESSION_COOKIE_NAME)
+    assert new_cookie and new_cookie != old_cookie
+
+    old_after_relogin = old_client.get(
+        "/api/me", headers={"Cookie": f"session={old_cookie}"}
+    )
+    assert old_after_relogin.status_code == 401
+    new_client = TestClient(app)
+    assert new_client.get(
+        "/api/me", headers={"Cookie": f"session={new_cookie}"}
+    ).status_code == 200
 
 
 @pytest.fixture(name="fresh_db")

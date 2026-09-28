@@ -203,36 +203,49 @@ def test_session_row_second_call_returns_same_row(fresh_db):
     ) == first
 
 
-def test_session_row_conflict_keeps_secret_and_binds_fingerprint(fresh_db):
-    """A conflict keeps the existing secret and generation while
-    binding the just-proven credential fingerprint."""
+def test_session_row_conflict_with_null_fingerprint_rotates_secret(
+    fresh_db,
+):
+    """A NULL fingerprint differs from the just-proven credential, so
+    binding it rotates the secret and invalidates previously captured
+    tokens."""
     with db.viz_conn() as c:
         c.execute(
             "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
             (555, "winner-secret"),
         )
         c.commit()
-    assert session.get_or_create_session_row(
+    secret, generation = session.get_or_create_session_row(
         555, _TEST_CREDENTIAL_FP
-    ) == ("winner-secret", 0)
+    )
+    assert secret != "winner-secret"
+    assert generation == 1
     assert session.load_session_row(555) == (
-        "winner-secret", 0, _TEST_CREDENTIAL_FP
+        secret, 1, _TEST_CREDENTIAL_FP
     )
 
 
-def test_session_row_relogin_rebinds_fingerprint_without_resetting_state(
+def test_session_row_changed_fingerprint_rotates_secret_and_generation(
     fresh_db,
 ):
     secret, generation = session.get_or_create_session_row(
         77, _TEST_CREDENTIAL_FP
     )
-    session.bump_session_generation(77)
+    token = session.make_session_token(77, secret, generation=generation)
+    assert session.resolve_session_user_id(token) == 77
+
+    changed_secret, changed_generation = session.get_or_create_session_row(
+        77, "new-fingerprint"
+    )
+    assert changed_secret != secret
+    assert changed_generation == generation + 1
+    assert session.load_session_row(77) == (
+        changed_secret, generation + 1, "new-fingerprint"
+    )
+    assert session.resolve_session_user_id(token) is None
 
     assert session.get_or_create_session_row(77, "new-fingerprint") == (
-        secret, generation + 1
-    )
-    assert session.load_session_row(77) == (
-        secret, generation + 1, "new-fingerprint"
+        changed_secret, changed_generation
     )
 
 
