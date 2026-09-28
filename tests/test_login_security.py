@@ -510,6 +510,26 @@ def test_cancelled_login_holds_reservations_until_workers_finish(
         login_mod, "_check_login_rate_limit", count_pair_checks
     )
 
+    async def _wait_maps_drained(
+        timeout: float = 5.0, strict: bool = True
+    ) -> None:
+        """Slots release via task done-callbacks; wait for the drain.
+
+        workers_idle only proves the thread functions returned — the
+        done-callbacks still have to run on the loop before the maps
+        empty, so snapshotting after a single sleep(0) races them.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while (
+            login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+            or login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
+        ):
+            if loop.time() >= deadline:
+                assert not strict, "login reservations outlived their workers"
+                return
+            await asyncio.sleep(0.01)
+
     async def run_cancellation_race():
         first_requests = [
             asyncio.create_task(login_mod.login_post(
@@ -544,7 +564,7 @@ def test_cancelled_login_holds_reservations_until_workers_finish(
             release_workers.set()
             extra_responses = await asyncio.gather(*extra_requests)
             assert await asyncio.to_thread(workers_idle.wait, 5)
-            await asyncio.sleep(0)
+            await _wait_maps_drained()
             maps_after_workers = (
                 dict(login_mod._LOGIN_INFLIGHT),  # pylint: disable=protected-access
                 dict(login_mod._LOGIN_IP_INFLIGHT),  # pylint: disable=protected-access
@@ -568,7 +588,7 @@ def test_cancelled_login_holds_reservations_until_workers_finish(
                     task.cancel()
             await asyncio.gather(*all_requests, return_exceptions=True)
             await asyncio.to_thread(workers_idle.wait, 5)
-            await asyncio.sleep(0)
+            await _wait_maps_drained(strict=False)
 
     (
         held_after_cancel,
