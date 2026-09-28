@@ -11,6 +11,7 @@ import time
 import pytest
 
 from backend.parse import parse_file
+from backend.parse_common import iter_lines
 from backend import bash_literals
 from backend.bash_churn import bash_churn, python_write_paths
 from backend.bash_churn_errors import churn_survives_error
@@ -177,3 +178,31 @@ def test_line_endings_preserve_skipped_lines_and_record_positions(separator):
     assert expected['records'][0]['line_num'] == 4
     assert parse_file('shared.jsonl', separator.join(lines)) == expected
     assert parse_file('shared.jsonl', b'\r\n'.join(lines[:2]) + b'\r' + b'\n'.join(lines[2:])) == expected
+
+
+def test_iter_lines_is_linear_for_lf_only_blobs():
+    line = b'{"type":"user","x":1}'
+    blob = (line + b'\n') * 199_999 + line
+    started = time.perf_counter()
+    line_count = sum(1 for _ in iter_lines(blob))
+    elapsed = time.perf_counter() - started
+
+    assert line_count == 200_000
+    assert elapsed < 5.0, f'200,000 LF-only lines took {elapsed:.3f}s'
+
+
+@pytest.mark.parametrize(('blob', 'expected'), [
+    (b'alpha\nbeta', [b'alpha', b'beta']),
+    (b'alpha\rbeta', [b'alpha', b'beta']),
+    (b'alpha\r\nbeta', [b'alpha', b'beta']),
+    (b'alpha\rbeta\ngamma', [b'alpha', b'beta', b'gamma']),
+    (b'\r\r\n', [b'', b'']),
+    (b'\n\r', [b'', b'']),
+    (b'\nfirst\r\nlast\r', [b'', b'first', b'last']),
+    (b'first\n\nbetween\r\rlast', [b'first', b'', b'between', b'', b'last']),
+    (b'whole', [b'whole']),
+    (b'', []),
+    (b'first\nlast', [b'first', b'last']),
+])
+def test_iter_lines_matches_pinned_line_ending_semantics(blob, expected):
+    assert list(iter_lines(blob)) == expected
