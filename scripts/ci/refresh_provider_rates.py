@@ -329,6 +329,11 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
     return moves
 
 
+def _price_instant(stamp: object, where: str) -> datetime:
+    """Parse an entry timestamp with the pricing loader's rules."""
+    return pricing._instant(stamp, where)  # pylint: disable=protected-access
+
+
 def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    entries: list[dict]) -> Move | None:
     """Append every new log state after the stored row without rewriting it."""
@@ -338,13 +343,12 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
         return Move(model, host, None, listing, len(entries), "log")
     newest = history[-1]
     newest_from = newest["from"]
-    newest_at = (pricing._instant(newest_from, f"{model} via {host}")
-                 if newest_from is not None else None)  # pylint: disable=protected-access
+    newest_at = (_price_instant(newest_from, f"{model} via {host}")
+                 if newest_from is not None else None)
     previous = {field: newest[field] for field in RATE_FIELDS}
     additions = []
     for entry in entries:
-        entry_at = pricing._instant(
-            entry["from"], f"{model} via {host}")  # pylint: disable=protected-access
+        entry_at = _price_instant(entry["from"], f"{model} via {host}")
         if newest_at is not None and entry_at <= newest_at:
             continue
         rates = {field: entry[field] for field in RATE_FIELDS}

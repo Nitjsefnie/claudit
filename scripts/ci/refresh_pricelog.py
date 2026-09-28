@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from backend import pricing
 from refresh_prices import RefreshError, rates_of, tag_region
+from backend import pricing as rate_pricing
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 LOG_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
@@ -395,15 +395,26 @@ def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set
     return selection, reason
 
 
+def _generated_history_issue(series: PriceSeries, entries: list[dict], host: str) -> str | None:
+    """Return why generated log entries cannot safely back a pricing row."""
+    try:
+        rate_pricing._history(  # pylint: disable=protected-access
+            entries, f"{host} listed-pricing log", may_begin=True)
+    except ValueError as exc:
+        return f"series has unusable pricing entries: {exc}"
+    if any(point.at < _UNIX_EPOCH
+           for points in series.fields.values() for point in points):
+        return "series has unusable pricing entries: log instant predates 1970"
+    return None
+
+
 def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
                series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
                resolutions: dict) -> HostLog:
     selection, reason = _prepare_host(
         host, endpoints, prefix_owners, series_by_prefix, region, resolutions)
-    if reason:
-        return HostLog(None, reason)
-    if selection is None:
-        return HostLog(None, "listed host did not resolve to one endpoint")
+    if reason or selection is None:
+        return HostLog(None, reason or "listed host did not resolve to one endpoint")
     try:
         endpoint_rates = [_endpoint_rates(endpoint, f"{host} endpoint {i}")
                           for i, endpoint in enumerate(endpoints)]
@@ -413,19 +424,13 @@ def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[st
     if reason or matches is None:
         return HostLog(None, reason or "series did not identify one endpoint per listing")
     chosen = matches.get(selection.endpoint_index)
-    entries = _series_entries(chosen) if chosen else None
+    if chosen is None:
+        return HostLog(None, "selected endpoint has no matching series")
+    entries = _series_entries(chosen)
     if not isinstance(entries, list) or not entries:
         return HostLog(None, "selected endpoint has no usable history")
-    try:
-        pricing._history(  # pylint: disable=protected-access
-            entries, f"{host} listed-pricing log", may_begin=True
-        )
-    except ValueError as exc:
-        return HostLog(None, f"series has unusable pricing entries: {exc}")
-    if any(point.at < _UNIX_EPOCH
-           for points in chosen.fields.values() for point in points):
-        return HostLog(None, "series has unusable pricing entries: log instant predates 1970")
-    return HostLog(entries, None)
+    issue = _generated_history_issue(chosen, entries, host)
+    return HostLog(None, issue) if issue else HostLog(entries, None)
 
 
 def _endpoint_groups(
