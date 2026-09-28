@@ -865,6 +865,17 @@ class BashCommand:
         return kinds
 
     @functools.cached_property
+    def heredoc_python_stdin(self) -> list[bool]:
+        """Whether each opener context matches Python stdin, memoized by context."""
+        matches_by_context: dict[str, bool] = {}
+        matches = []
+        for context, _ in self.parts[0]:
+            if context not in matches_by_context:
+                matches_by_context[context] = bool(_PYTHON_STDIN.search(context))
+            matches.append(matches_by_context[context])
+        return matches
+
+    @functools.cached_property
     def dash_c_sources(self) -> list[str]:
         """Inline Python bodies, decoded once for both consumers."""
         return _dash_c_sources(self.parts[1])
@@ -903,8 +914,8 @@ class BashCommand:
         """Python write targets, before the caller resolves their cwd."""
         if not self.command or len(self.command) > MAX_COMMAND_CHARS:
             return []
-        sources = [body for (_, body), kind in zip(self.parts[0], self.heredoc_kinds)
-                   if kind == "python"]
+        sources = [body for (_, body), is_python in
+                   zip(self.parts[0], self.heredoc_python_stdin) if is_python]
         sources.extend(self.dash_c_sources)
         paths: list[str] = []
         for src in sources:

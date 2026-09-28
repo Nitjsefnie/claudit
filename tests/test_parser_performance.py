@@ -50,6 +50,17 @@ def test_repeated_heredoc_write_outputs(count, expected_churn):
                 expected_churn, [], True, (None, [], ['out.txt']))
 
 
+def test_python_write_paths_match_python_stdin_even_with_patch_context():
+    command = ('patch && python3 - <<PY\n'
+               'from pathlib import Path\n'
+               'Path("x").write_text("x")\n'
+               'PY')
+
+    assert python_write_paths(command) == ['x']
+    assert scan(command, '/w') == (None, [], ['/w/x'])
+    assert bash_churn(command) == (0, 0)
+
+
 def test_many_same_line_heredoc_openers_stay_within_budget():
     count = 20_000
     opener_command = 'cat ' + '<<A ' * count
