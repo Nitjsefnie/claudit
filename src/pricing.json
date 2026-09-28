@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T03:53:33Z",
+  "provider_rates_fetched": "2026-09-28T04:53:53Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1052,6 +1052,14 @@
           "from": "2026-09-28T00:52:31Z",
           "output": 0.6,
           "read": 0.02678
+        },
+        {
+          "create_1h": 0.06,
+          "create_5m": 0.06,
+          "fresh": 0.06,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 0.6,
+          "read": 0.055
         }
       ]
     },
@@ -1603,6 +1611,14 @@
           "from": "2026-09-28T02:54:08Z",
           "output": 0.287,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.039,
+          "create_5m": 0.039,
+          "fresh": 0.039,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 0.396,
+          "read": 0.03
         }
       ],
       "Makora": [
@@ -1763,6 +1779,14 @@
           "fresh": 0.088,
           "from": null,
           "note": "20% off",
+          "output": 0.528,
+          "read": 0.0056
+        },
+        {
+          "create_1h": 0.021,
+          "create_5m": 0.021,
+          "fresh": 0.021,
+          "from": "2026-09-28T04:53:53Z",
           "output": 0.528,
           "read": 0.0056
         }
@@ -2415,6 +2439,16 @@
           "read": 0.15
         }
       ],
+      "Relace": [
+        {
+          "create_1h": 1.32,
+          "create_5m": 1.32,
+          "fresh": 1.32,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 3.96,
+          "read": 0.044
+        }
+      ],
       "Sail Research": [
         {
           "create_1h": 0.4,
@@ -2523,6 +2557,14 @@
           "fresh": 0.2523,
           "from": "2026-09-28T00:52:31Z",
           "output": 3.5,
+          "read": 0.2518
+        },
+        {
+          "create_1h": 0.2523,
+          "create_5m": 0.2523,
+          "fresh": 0.2523,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 4.2,
           "read": 0.2518
         }
       ]
@@ -2814,6 +2856,14 @@
           "from": "2026-09-28T01:54:17Z",
           "output": 2.5612,
           "read": 0.1407
+        },
+        {
+          "create_1h": 0.37,
+          "create_5m": 0.37,
+          "fresh": 0.37,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 1.368,
+          "read": 0.0838
         }
       ],
       "InferenceNet": [
@@ -2987,6 +3037,14 @@
           "from": null,
           "output": 1.7,
           "read": 0.1
+        },
+        {
+          "create_1h": 0.37,
+          "create_5m": 0.37,
+          "fresh": 0.37,
+          "from": "2026-09-28T04:53:53Z",
+          "output": 1.14,
+          "read": 0.067
         }
       ],
       "Sail Research": [
@@ -3652,6 +3710,14 @@
           "create_5m": 0.559,
           "fresh": 0.559,
           "from": "2026-09-28T00:52:31Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.55,
+          "create_5m": 0.55,
+          "fresh": 0.55,
+          "from": "2026-09-28T04:53:53Z",
           "output": 0.5,
           "read": 0.03
         }
