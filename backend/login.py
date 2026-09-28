@@ -295,7 +295,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
   .guest-btn:hover {{ background:#222640; }}
   .or {{ text-align:center; color:#556; font-size:11px; margin:16px 0 4px; letter-spacing:.2em; }}
   .err {{ color:#e76; font-size:12px; min-height:16px; margin-top:8px; }}
-</style>
+{privacy_css}</style>
 </head><body>
 <form method="post" action="/login">
   <h1>{app_name} · sign in</h1>
@@ -311,18 +311,39 @@ _LOGIN_HTML = """<!DOCTYPE html>
           formaction="/login/guest" formmethod="post" formnovalidate>
     Continue as guest
   </button>
-</form>
+{privacy_link}</form>
 </body></html>
 """
+
+
+def _privacy_notice_slots() -> dict[str, str]:
+    """The two _LOGIN_HTML slots for the operator's privacy notice
+    (issue #270). Empty unless APP_PRIVACY_NOTICE_URL is set, so the
+    unset page stays byte-identical to before — no anchor, no empty
+    href, and no styling either. The URL is attribute-escaped with the
+    same function the app_name slot uses (SV-BRAND-ESCAPE)."""
+    url = branding.privacy_notice_url()
+    if not url:
+        return {"privacy_link": "", "privacy_css": ""}
+    css = (
+        "  .privacy-link { display:block; text-align:center;"
+        " margin-top:12px; color:#8aa; font-size:12px; }\n"
+    )
+    link = (
+        '<a class="privacy-link" '
+        f'href="{html.escape(url, quote=True)}">Privacy notice</a>\n'
+    )
+    return {"privacy_link": link, "privacy_css": css}
 
 
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
     # The upper-cased APP_NAME is the page's brand word; html-escaped —
-    # both slots are real HTML contexts. Default = today's CLAUDIT.
+    # every slot is a real HTML context. Default = today's CLAUDIT.
     return HTMLResponse(_LOGIN_HTML.format(
         err="",
         app_name=html.escape(branding.brand_name().upper(), quote=True),
+        **_privacy_notice_slots(),
     ))
 
 
