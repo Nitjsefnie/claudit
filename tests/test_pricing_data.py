@@ -133,8 +133,9 @@ def _js_rates(js: dict) -> dict:
 
 def test_the_file_has_every_cutover_the_backend_prices_by():
     doc = _doc()
-    assert [_stamp(e) for e in pricing.RATE_EPOCHS] == sorted({
-        entry["from"] for _, _, history in _histories(doc)
+    # Offset spellings are loader-accepted; compare instants (SV-RATE-DATA).
+    assert pricing.RATE_EPOCHS == sorted({
+        _at(entry["from"]) for _, _, history in _histories(doc)
         for entry in history if entry["from"]
     })
     assert pricing.PROVIDER_RATES_FETCHED == _at(doc["provider_rates_fetched"])
