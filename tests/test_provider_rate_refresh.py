@@ -182,12 +182,11 @@ def test_a_run_with_no_moves_leaves_every_file_byte_identical(tmp_path, capsys):
 
 
 def _move_openinference(run: Run, discount: float = 0) -> dict:
-    moved = {**run.doc()["providers"][GLM]["OpenInference"][-1], "fresh": 0.07,
-             "create_5m": 0.07, "create_1h": 0.07, "read": 0.02, "output": 0.36}
-    run.endpoints(GLM)[:] = [
-        _endpoint("OpenInference", moved, discount)
-        if e["provider_name"] == "OpenInference" else e
-        for e in run.endpoints(GLM)]
+    moved = {**(seeded := run.doc()["providers"][GLM]["OpenInference"][-1]),
+             **{f: seeded[f] * k or 0.01 for f, k in zip(RATE_FIELDS, (.7, .7, .7, 1.3, .8))}}
+    endpoint = run.endpoint(GLM, "OpenInference")
+    endpoint.update(_endpoint("OpenInference", moved, discount))
+    endpoint["pricing"]["input_cache_write"] = _per_token(moved["create_5m"])
     return {f: moved[f] for f in RATE_FIELDS}
 
 
