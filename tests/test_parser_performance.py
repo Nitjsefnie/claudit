@@ -189,13 +189,13 @@ def test_line_endings_preserve_skipped_lines_and_record_positions(separator):
 
 def test_iter_lines_is_linear_for_lf_only_blobs():
     line = b'{"type":"user","x":1}'
-    blob = (line + b'\n') * 199_999 + line
+    blob = (line + b'\n') * 399_999 + line
     started = time.process_time()
     line_count = sum(1 for _ in iter_lines(blob))
     elapsed = time.process_time() - started
 
-    assert line_count == 200_000
-    assert elapsed < 5.0, f'200,000 LF-only lines took {elapsed:.3f}s'
+    assert line_count == 400_000
+    assert elapsed < 2.0, f'400,000 LF-only lines took {elapsed:.3f}s'
 
 
 @pytest.mark.parametrize(('blob', 'expected'), [
