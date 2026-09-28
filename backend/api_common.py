@@ -97,17 +97,26 @@ class Phases:
 
 
 def rate_epoch_sql(ts_column: str) -> tuple[str, list]:
-    """SQL expression yielding a 0-based rate-epoch index, plus its params."""
+    """Yield a rate-epoch index and params, mapping NULL timestamps to LIST.
+
+    Epoch -1 is the LIST-price epoch: ``epoch_ts(-1)`` is None, so
+    ``pricing.resolve(model, None, provider)`` uses the same rates persist
+    and reprice used for a NULL-ts record, keeping its buckets reconciled
+    with the stored total.
+    """
     cases = [
         f"(CASE WHEN {ts_column} >= %s THEN 1 ELSE 0 END)"
         for _ in pricing.RATE_EPOCHS
     ]
     expr = " + ".join(["0", *cases]) if cases else "0"
-    return expr, list(pricing.RATE_EPOCHS)
+    return (f"(CASE WHEN {ts_column} IS NULL THEN -1 ELSE {expr} END)",
+            list(pricing.RATE_EPOCHS))
 
 
 def epoch_ts(index: int) -> datetime | None:
-    """A timestamp lying inside rate epoch ``index``, for rate lookup."""
+    """Return an epoch representative, or None for the LIST-price epoch."""
+    if index < 0:
+        return None
     if not pricing.RATE_EPOCHS:
         return None
     if index <= 0:
