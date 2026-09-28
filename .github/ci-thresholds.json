@@ -14,7 +14,7 @@
     "backend/api_dashboard.py": 834,
     "backend/bash_churn.py": 918,
     "backend/bash_literals.py": 584,
-    "backend/ingest.py": 851,
+    "backend/ingest.py": 735,
     "backend/parse.py": 880,
     "backend/parse_codex.py": 716,
     "backend/parse_kimi.py": 565,

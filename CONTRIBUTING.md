@@ -217,7 +217,12 @@ Two tests are worth knowing about before you touch pricing:
 - `tests/test_ingest.py::test_parallel_ingest_matches_sequential_exactly`
   ingests the same mirror at `INGEST_WORKERS=1` and `=8` and requires
   byte-identical output. If you touch ingest concurrency, this is the test
-  that catches you.
+  that catches you. Its sibling in
+  `tests/test_ingest_pipeline.py` pins the process-pool pipeline
+  (issue #309) against the same bar: forked parse children plus persist
+  threads must land exactly what the in-process pipeline lands, and
+  `test_process_pool_persists_survive_a_per_file_failure` pins per-file
+  failure isolation there.
 
 ## If you change how cost is computed
 
