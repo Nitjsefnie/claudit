@@ -59,11 +59,22 @@ def _codex_usage_lines(*, snapshots, model="gpt-5.6-sol",
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
-def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp():
-    """Sol went from 5/30 to 4/20 on 2026-08-21. A corpus spanning that
-    instant priced entirely at today's table underbills everything before
-    it — silently, because the row still carries a plausible number.
+def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A corpus spanning Sol's 2026-08-21 rate boundary uses both windows.
+
+    Controlled rows keep this test focused on timestamp selection instead
+    of tying it to the repository's live rate table.
     """
+    dated_rates = {"fresh": 5.00, "create_5m": 6.25, "create_1h": 6.25,
+                   "read": 0.50, "output": 30.00}
+    list_rates = {"fresh": 4.00, "create_5m": 5.00, "create_1h": 5.00,
+                  "read": 0.40, "output": 20.00}
+    monkeypatch.setitem(pricing.MODEL_RATES, "gpt-5-6-sol", list_rates)
+    monkeypatch.setitem(
+        pricing.DATED_RATES, "gpt-5-6-sol",
+        [(_to_dt("2026-08-21T19:00:00.000Z"), dated_rates)],
+    )
     blob = _codex_usage_lines(snapshots=[
         ("2026-08-21T18:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
         ("2026-08-21T20:00:00.000Z", 1_100_000, 11_000, 100_000, 1_000),
@@ -73,8 +84,8 @@ def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp():
     assert len(out["records"]) == 2
     before, after = out["records"]
     # 100k fresh + 1k output, at 5.00/30.00 then at 4.00/20.00.
-    assert float(before["cost_usd"]) == pytest.approx(0.53, rel=1e-9)
-    assert float(after["cost_usd"]) == pytest.approx(0.42, rel=1e-9)
+    assert float(before["cost_usd"]) == 0.53
+    assert float(after["cost_usd"]) == 0.42
 
 
 def test_a_subscription_record_bills_the_long_context_meter():
