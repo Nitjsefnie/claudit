@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
+
 def _load():
     """Import scripts/ci/backfill_provider_rates.py by path."""
     path = CI / "backfill_provider_rates.py"
