@@ -28,7 +28,9 @@ from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _note_agent_role, _ParseState,
                                   _settle_lane_tool_result, _start_turn,
                                   _to_dt, _turn_boundary)
+from backend.kimi_content import (_count_content_text, _kc_parse_tool_call)
 from backend.tool_errors import _flatten_result_text
+from backend.json_shape import as_dict, as_list, dict_list
 
 # Model attribution, oldest first. Each constant is a frozen UTC epoch, NOT a
 # live expression.
@@ -211,9 +213,7 @@ def _legacy_content_part(st: _ParseState, ts: datetime | None,
 
 def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
                       payload: dict) -> None:
-    func = payload.get("function")
-    if not isinstance(func, dict):
-        func = {}
+    func = as_dict(payload.get("function"))
     name = func.get("name", "")
     args = _args_to_dict(func.get("arguments"))
     _append_tool_use(st, line_num, ts, name, payload.get("id", ""),
@@ -299,12 +299,8 @@ def parse_legacy(file_key: str, blob: bytes) -> dict:
         if ts_dt is not None and st.first_event_ts is None:
             st.first_event_ts = ts_dt
 
-        msg = obj.get("message")
-        if not isinstance(msg, dict):
-            msg = {}
-        payload = msg.get("payload")
-        if not isinstance(payload, dict):
-            payload = {}
+        msg = as_dict(obj.get("message"))
+        payload = as_dict(msg.get("payload"))
         _legacy_dispatch(
             st, msg.get("type", ""), line_num, ts_dt, payload
         )
@@ -349,32 +345,6 @@ class _KimiCodeState(_ParseState):
     pending_steers: list[list] = field(default_factory=list)
 
 
-def _kc_parse_tool_call(tc: dict) -> tuple[str, str | None, str]:
-    """Extract name, arguments, id from a kimi-code ToolCall (v1.0/v1.1)."""
-    if tc.get("type") != "function":
-        return "", None, ""
-    tcid = tc.get("id", "")
-    if "name" in tc:
-        return str(tc.get("name", "")), tc.get("arguments"), tcid
-    func = tc.get("function") or {}
-    if not isinstance(func, dict):
-        func = {}
-    return str(func.get("name", "")), func.get("arguments"), tcid
-
-
-def _kc_args_to_input(args) -> dict:
-    if args is None:
-        return {}
-    if isinstance(args, dict):
-        return args
-    if isinstance(args, str):
-        try:
-            return json.loads(args) if args else {}
-        except json.JSONDecodeError:
-            return {"_raw": args}
-    return {"_raw": args}
-
-
 def _kc_metadata(st: _ParseState, obj: dict) -> None:
     ts_ms = obj.get("created_at")
     if ts_ms and st.first_event_ts is None:
@@ -394,35 +364,17 @@ def _kc_event_ts(st: _ParseState, obj: dict) -> datetime | None:
     return ts_dt
 
 
-def _count_content_text(content: list[dict]) -> int:
-    chars = 0
-    for p in content:
-        if not isinstance(p, dict):
-            continue
-        if p.get("type") == "text":
-            chars += len(str(p.get("text", "")))
-    return chars
-
-
 def _kc_append_message(st: _KimiCodeState, line_num: int,
                        ts: datetime | None, obj: dict) -> None:
-    msg = obj.get("message")
-    if not isinstance(msg, dict):
-        msg = {}
+    msg = as_dict(obj.get("message"))
     role = msg.get("role")
     if role == "assistant":
-        content = msg.get("content") or []
-        if not isinstance(content, list):
-            content = []
+        content = as_list(msg.get("content") or [])
         st.text_chars_since_turn += _count_content_text(
             content
         )
-        tool_calls = msg.get("toolCalls") or []
-        if not isinstance(tool_calls, list):
-            tool_calls = []
+        tool_calls = dict_list(msg.get("toolCalls") or [])
         for tc in tool_calls:
-            if not isinstance(tc, dict):
-                continue
             name, raw_args, tcid = _kc_parse_tool_call(tc)
             args = _args_to_dict(raw_args)
             _append_tool_use(st, line_num, ts, name, tcid,
@@ -487,9 +439,7 @@ def _kc_step_begin(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
                    obj: dict) -> None:
-    ev = obj.get("event")
-    if not isinstance(ev, dict):
-        ev = {}
+    ev = as_dict(obj.get("event"))
     et = ev.get("type")
     if et == "step.begin":
         _kc_step_begin(st, line_num, ts, ev.get("turnId"))
@@ -507,9 +457,7 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         )
         _mark_assistant_event(st, ts)
     elif et == "tool.result":
-        res = ev.get("result")
-        if not isinstance(res, dict):
-            res = {}
+        res = as_dict(ev.get("result"))
         tcid = ev.get("toolCallId", "")
         if tcid:
             is_err = bool(res.get("isError"))
@@ -522,9 +470,7 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_usage_record(st: _ParseState, line_num: int, ts: datetime | None,
                      obj: dict) -> None:
-    usage = obj.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
+    usage = as_dict(obj.get("usage"))
     toks = (
         int(usage.get("inputOther") or 0),
         int(usage.get("inputCacheCreation") or 0),

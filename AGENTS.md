@@ -80,6 +80,7 @@ backend/          — FastAPI application
                     meter, apply_patch churn attribution.
   parse_kimi.py   — The two Kimi wire formats (kimi-code and legacy
                     kimi-cli), ported from codexmeter's parsers.
+  kimi_content.py — Pure content and tool-call helpers for kimi-code.
   parse_common.py — Format-independent machinery both lane parsers and
                     the Claude path share: per-file parse state, turn
                     bookkeeping, the billing-row builder (records the
@@ -90,6 +91,8 @@ backend/          — FastAPI application
                     Kimi's Agent calls); also the Claude path's
                     user-text-boundary ctx builder (_build_ctx_turns),
                     beside the lanes' own (_ctx_turns_from_turns).
+  json_shape.py  — Small decoded-JSON object and array guards shared by
+                    the transcript parsers.
   parse_lanes.py  — Format sniffing (sniff_format) and the lane→claudit
                     row adapter (to_claudit): lane row shapes project
                     onto claudit's records/tool_uses columns, legacy
