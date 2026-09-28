@@ -4,12 +4,12 @@ name: refresh-pricing
 # prices for every model src/pricing.json tracks, and when a price moved or a
 # host appeared, commit the appended entries straight to master.
 #
-# DETECTION TIME IS THE EFFECTIVE TIME. A moved price is appended as a new
-# entry effective from the moment this run saw it, never back-dated, so the
-# cadence is the precision: hourly means a price is right to within the hour.
-# Scheduled runs are dropped or delayed often enough that the same workflow
-# is also dispatched from outside every hour; a dispatched run takes no
-# inputs and behaves exactly like a scheduled one.
+# LOG-BACKED HOSTS use OpenRouter's endpoint change times, so moves between
+# hourly runs are retained at their own times. A host without an unambiguous
+# log match, or a model whose log is unavailable, is sampled at detection
+# time and still uses the alternation check. The one-time backfill is a
+# separate human-reviewed rewrite. Dispatch takes no inputs and behaves like
+# a scheduled run.
 #
 # WHAT COUNTS AS "MOVED" IS THE TWO DATA FILES. The script writes nothing
 # unless it appends: the fetch stamp in the JSON moves only with the data,
@@ -102,8 +102,9 @@ jobs:
       - name: Fetch and append
         id: fetch
         # stdlib only: nothing is installed before the fetch, so beyond the
-        # Postgres service a quiet hour costs one checkout and one request per
-        # tracked model. A refused host blocks only itself: the script still
+        # Postgres service a quiet hour costs one checkout, one model-catalog
+        # request, and two requests per tracked model. A refused host blocks
+        # only itself: the script still
         # writes every other move and exits nonzero, so this step records the
         # code instead of failing, the moves are tested and committed, and the
         # last step turns the run red.

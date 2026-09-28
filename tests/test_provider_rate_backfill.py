@@ -1,0 +1,175 @@
+"""One-time historical OpenRouter provider-rate rewrite tests."""
+from __future__ import annotations
+
+import copy
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CI = ROOT / "scripts" / "ci"
+sys.path.insert(0, str(CI))
+
+try:
+    import backfill_provider_rates as backfill
+except ModuleNotFoundError as exc:
+    if exc.name != "backfill_provider_rates":
+        raise
+    backfill = None
+
+from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
+
+MODEL = "synthetic/model"
+MODEL_ID = "synthetic/model-id"
+SLUG = "synthetic/canonical-model"
+AS_OF = "2031-01-01T00:15:00Z"
+RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
+          "read": 0.01, "output": 0.8}
+RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
+          "read": 0.02, "output": 0.7}
+RATE_C = {"fresh": 0.4, "create_5m": 0.4, "create_1h": 0.4,
+          "read": 0.03, "output": 0.9}
+
+
+def _entry(at: str | None, rates: dict) -> dict:
+    return {"from": at, **rates}
+
+
+def _series(host: str, slug: str, states: list[tuple[str, dict]]) -> dict:
+    fields = {"input": [], "output": [], "cacheRead": [], "cacheWrite": [], "discount": []}
+    for at, rates in states:
+        fields["input"].append({"at": at, "value": rates["fresh"]})
+        fields["output"].append({"at": at, "value": rates["output"]})
+        fields["cacheRead"].append({"at": at, "value": rates["read"]})
+        write = rates["create_5m"] if rates["create_5m"] != rates["fresh"] else 0
+        fields["cacheWrite"].append({"at": at, "value": write})
+        fields["discount"].append({"at": at, "value": 0})
+    return {"endpointId": f"synthetic-{slug}", "providerName": host,
+            "providerSlug": slug, **fields}
+
+
+def _doc(hosts: dict[str, list[dict]]) -> dict:
+    return {
+        "models": {MODEL: [{"from": None, **RATE_A}]},
+        "providers": {MODEL: copy.deepcopy(hosts)},
+        "provider_rates_fetched": "2026-01-01T00:00:00Z",
+        "openrouter": {"data_region": "global",
+                       "models": {MODEL: {"id": MODEL_ID}}},
+    }
+
+
+def _run(tmp_path: Path, capsys, hosts: dict[str, list[dict]],
+         states: list[tuple[str, dict]], *, as_of: str = AS_OF,
+         args: list[str] | None = None, new_hosts: list[str] | None = None):
+    assert backfill is not None, "backfill_provider_rates must provide the backfill CLI"
+    doc = _doc(hosts)
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    original = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    pricing_path.write_text(original, encoding="utf-8")
+    constants_path.write_text('PRICING_VERSION = "31"\n', encoding="utf-8")
+    endpoints = []
+    for host, history in hosts.items():
+        listed = states[-1][1] if host == "Wafer" else history[-1]
+        endpoints.append(fixture_endpoint(host, listed, tag=f"{host.lower()}/fp8"))
+    for host in new_hosts or []:
+        endpoints.append(fixture_endpoint(host, RATE_A, tag=f"{host.lower()}/fp8"))
+    log = {"data": {"series": [_series("Wafer", "wafer", states)]}}
+
+    def fetch_endpoints(model_id: str) -> object:
+        assert model_id == MODEL_ID
+        return {"data": {"endpoints": copy.deepcopy(endpoints)}}
+
+    def fetch_models() -> object:
+        return {"data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
+
+    def fetch_log(canonical_slug: str) -> object:
+        assert canonical_slug == SLUG
+        return copy.deepcopy(log)
+
+    rc = backfill.main(["--as-of", as_of, *(args or [])], fetch=fetch_endpoints,
+                       fetch_models=fetch_models, fetch_log=fetch_log,
+                       pricing_path=pricing_path, constants_path=constants_path)
+    out, err = capsys.readouterr()
+    return rc, out, err, pricing_path, constants_path, original
+
+
+def test_backfill_keeps_null_start_and_drops_changes_after_as_of(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:10:00Z", RATE_B),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+    old = [_entry(None, RATE_A), _entry("2031-01-01T00:05:00Z", RATE_C)]
+
+    rc, out, err, pricing_path, constants_path, _ = _run(
+        tmp_path, capsys, {"Wafer": old}, states)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL]["Wafer"] == [
+        _entry(None, RATE_A), _entry("2031-01-01T00:10:00Z", RATE_B)]
+    assert saved["provider_rates_fetched"] == AS_OF
+    assert 'PRICING_VERSION = "32"' in constants_path.read_text(encoding="utf-8")
+    assert "Wafer: 2 → 2 entries" in out
+    assert "newest log state through" in out
+
+
+def test_backfill_keeps_an_earlier_non_null_start(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:10:00Z", RATE_B),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+    old = [_entry("2030-01-01T00:00:00Z", RATE_A)]
+
+    rc, _, err, pricing_path, _, _ = _run(tmp_path, capsys, {"Wafer": old}, states)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    rewritten = saved["providers"][MODEL]["Wafer"]
+    assert len(rewritten) == 2
+    assert rewritten[0] == _entry("2030-01-01T00:00:00Z", RATE_A)
+    assert rewritten[1] == _entry("2031-01-01T00:10:00Z", RATE_B)
+
+
+def test_backfill_leaves_sampled_rows_unchanged_and_reports_the_reason(tmp_path, capsys):
+    other = "BaseTen"
+    rows = {"Wafer": [_entry(None, RATE_A)], other: [_entry(None, RATE_B)]}
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+
+    rc, out, err, pricing_path, _, _ = _run(tmp_path, capsys, rows, states)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][other] == rows[other]
+    assert f"untouched {other}:" in out
+    assert "series count does not match endpoint count" in out
+
+
+def test_backfill_reports_hosts_without_rows_without_creating_new_rows(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+
+    rc, out, err, pricing_path, _, _ = _run(
+        tmp_path, capsys, {"Wafer": [_entry(None, RATE_A)]}, states,
+        new_hosts=["NewHost"])
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert "NewHost" not in saved["providers"][MODEL]
+    assert "untouched NewHost: no row" in out
+    assert "series count does not match endpoint count" in out
+
+
+def test_backfill_dry_run_writes_nothing_and_reports_entry_counts(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:10:00Z", RATE_B),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+    old = [_entry(None, RATE_A), _entry("2031-01-01T00:05:00Z", RATE_B),
+           _entry("2031-01-01T00:12:00Z", RATE_C)]
+
+    rc, out, err, pricing_path, constants_path, original = _run(
+        tmp_path, capsys, {"Wafer": old}, states, args=["--dry-run"])
+
+    assert rc == 0 and not err
+    assert pricing_path.read_text(encoding="utf-8") == original
+    assert constants_path.read_text(encoding="utf-8") == 'PRICING_VERSION = "31"\n'
+    assert "Wafer: 3 → 2 entries" in out

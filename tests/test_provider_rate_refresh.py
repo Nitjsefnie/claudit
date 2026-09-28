@@ -143,14 +143,13 @@ class Run:
         return int(m.group(1))
 
     def __call__(self, capsys, *args: str, now: datetime = NOW):
-        payloads = copy.deepcopy(self.payloads)
-
-        def fetch(model_id: str) -> object:
-            return payloads[model_id]
-
         rc = refresh.main(["--commit-msg", str(self.commit_msg), *args],
-                          fetch=fetch, now=now, pricing_path=self.pricing,
-                          constants_path=self.constants)
+                          fetch=lambda model_id: copy.deepcopy(self.payloads[model_id]),
+                          fetch_models=lambda: {"data": [
+                              {"id": source["id"], "canonical_slug": source["id"]}
+                              for source in self.doc()["openrouter"]["models"].values()]},
+                          fetch_log=lambda _slug: {"data": {"series": []}},
+                          now=now, pricing_path=self.pricing, constants_path=self.constants)
         out, err = capsys.readouterr()
         return rc, out, err
 

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Refresh src/pricing.json's OpenRouter provider rates (SV-RATE-REFRESH).
 
-Fetches every tracked model's endpoints from OpenRouter's public API and
-APPENDS an entry, effective from the detection time, to each provider row
-whose price moved; a host seen for the first time gets a row that begins
-then. No existing entry is ever rewritten. A run that appends bumps PRICING_VERSION
-(a reprice, never a reparse) in backend/constants.py by one from whatever it holds, and
-moves provider_rates_fetched; a run that appends nothing writes nothing.
+Fetches every tracked model's endpoints and listed-pricing log. A host with
+one provable endpoint history appends each logged rate change at OpenRouter's
+change time; its first row carries the whole log. Hosts without an unambiguous
+log join are sampled at detection time and use the existing alternation rule.
+No existing entry is rewritten by the hourly refresh. A run that appends
+bumps PRICING_VERSION (a reprice, never a reparse) by one from whatever
+backend/constants.py holds and moves provider_rates_fetched; a quiet run
+writes nothing.
 
 Only endpoints in the account's data region count (tag_region). A host's
 weekly time-of-day prices (pricing.overrides) become its entry's schedule;
@@ -27,50 +29,48 @@ These refuse the host or model they concern, which appends nothing:
   every window starts the row;
 - a tracked model with no endpoints, or none in the region.
 
-Every other move is still written, then the script exits nonzero naming
-each refusal. A detection time not after a row's newest entry writes
-nothing at all.
+Every other sampled move is still written, then the script exits nonzero
+naming each refusal. A detection time not after a sampled row's newest
+entry writes nothing at all. The one-time, human-reviewed history rewrite
+lives in backfill_provider_rates.py.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
 from __future__ import annotations
 
-import argparse
 import copy
 import json
-import re
 import sys
 import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from itertools import combinations
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import refresh_alternation  # noqa: E402
-from refresh_prices import (PRICED, REGION_RE, RefreshError, as_listed, covers_week,  # noqa: E402
+import refresh_pricelog  # noqa: E402
+from refresh_pricelog import (FetchEndpoints as Fetch, FetchLog, FetchModels)  # noqa: E402
+from refresh_common import (bump_pricing_version, data_region,  # noqa: E402
+                            detection_stamp, sources as _sources)
+from refresh_report import arguments as _arguments  # noqa: E402
+from refresh_report import commit_message, report  # noqa: E402
+from refresh_prices import (PRICED, RefreshError, as_listed, covers_week,  # noqa: E402
                             entry_schedule, in_a_window, is_zero, rates_of, tag_region,
                             unknown_suffixes)
 from backend import pricing  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
-API_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 RATE_FIELDS = pricing.RATE_FIELDS
-_PRICING_VERSION = re.compile(r'^PRICING_VERSION = "(\d+)"$', re.MULTILINE)
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
              "max_prompt_tokens")
 # Price order for "select": "cheapest": cache read, then input, then output.
 _ORDER = ("read", "fresh", "output")
-
-Fetch = Callable[[str], object]
-
 
 @dataclass(frozen=True)
 class Listing:
@@ -93,19 +93,8 @@ class Move:
     host: str
     old: dict | None
     new: Listing
-
-
-def fetch_endpoints(model_id: str) -> object:
-    request = urllib.request.Request(
-        API_URL.format(model_id),
-        headers={"User-Agent": "claudit-refresh-provider-rates"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
-
-
-def detection_stamp(now: datetime) -> str:
-    """Whole seconds in UTC: the one spelling both loaders accept."""
-    return now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entries_appended: int = 1
+    source: str = "sampled"
 
 
 def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> Listing:
@@ -338,6 +327,31 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
     return moves
 
 
+def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
+                   entries: list[dict]) -> Move | None:
+    """Append every new log state after the stored row without rewriting it."""
+    history = hosts.get(host)
+    if history is None:
+        hosts[host] = copy.deepcopy(entries)
+        return Move(model, host, None, listing, len(entries), "log")
+    newest = history[-1]
+    newest_from = newest["from"]
+    previous = {field: newest[field] for field in RATE_FIELDS}
+    additions = []
+    for entry in entries:
+        if newest_from is not None and entry["from"] <= newest_from:
+            continue
+        rates = {field: entry[field] for field in RATE_FIELDS}
+        if rates == previous:
+            continue
+        additions.append(copy.deepcopy(entry))
+        previous = rates
+    if not additions:
+        return None
+    history.extend(additions)
+    return Move(model, host, newest, listing, len(additions), "log")
+
+
 def _scales_alike(listing: Listing) -> bool:
     """Whether every window is the default times one factor per window,
     which keeps the read-time fold's Token Breakdown split exact
@@ -362,28 +376,6 @@ def _fetch(fetch: Fetch, model: str, source: object) -> object:
         raise RefreshError(f"{model}: fetching {source['id']} failed: {exc}") from exc
 
 
-def data_region(config: object) -> str | None:
-    """openrouter.data_region: "global" (None: endpoints no region tag
-    names) or the lowercase region code whose tagged endpoints the account
-    uses."""
-    region = config.get("data_region") if isinstance(config, dict) else None
-    if region == "global":
-        return None
-    if isinstance(region, str) and region == region.lower() and REGION_RE.fullmatch(region):
-        return region
-    raise RefreshError(f"openrouter.data_region {region!r} is neither 'global' "
-                       "nor a region code")
-
-
-def _sources(doc: dict) -> tuple[dict, str | None]:
-    """The tracked models and the data region, from the openrouter section."""
-    config = doc.get("openrouter")
-    tracked = config.get("models") if isinstance(config, dict) else None
-    if not isinstance(tracked, dict) or not set(doc["providers"]) <= set(tracked):
-        raise RefreshError("every provider-table model needs an openrouter.models id")
-    return tracked, data_region(config)
-
-
 @dataclass
 class Result:
     """A run's outcome: the file it would write, and what it reports."""
@@ -392,32 +384,83 @@ class Result:
     vanished: list[tuple[str, str]]
     refusals: list[str]
     notices: list[str]
+    sampled: dict[str, dict[str, str]]
 
 
-def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
-    """The file with every move appended, and what the run reports. A
-    refused host, or a refused model, blocks only itself: its rows are left
-    untouched and every other move stands."""
+def _same_rates(left: dict, right: dict) -> bool:
+    return all(round(float(left[field]), 10) == round(float(right[field]), 10)
+               for field in RATE_FIELDS)
+
+
+def refresh(doc: dict, fetch: Fetch, stamp: str,
+            fetch_models: FetchModels | None = None,
+            fetch_log: FetchLog | None = None) -> Result:
+    """Append each log-backed move at its change time and sample the rest."""
     tracked, region = _sources(doc)
     at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    result = Result(copy.deepcopy(doc), [], [], [], [])
+    logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
+    result = Result(copy.deepcopy(doc), [], [], [], [], {})
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at.
         hosts = result.doc["providers"].setdefault(model, {})
         try:
+            endpoint_payload = _fetch(fetch, model, source)
             rows, refused, notices = listed_rows(
-                model, _fetch(fetch, model, source), region, source.get("resolve", {}),
+                model, endpoint_payload, region, source.get("resolve", {}),
                 {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()}, at)
         except RefreshError as exc:
             result.refusals.append(str(exc))
             continue
         result.refusals += refused.values()
         result.notices += notices
-        moves = _append(model, hosts, rows, stamp, at, result.notices)
+        sampled_rows = {}
+        sampled = {}
+        logged_moves = []
+        read = logs[model]
+        if read.series is None:
+            reason = read.reason or "listed-pricing log is unavailable"
+            result.notices.append(
+                f"listed-pricing log unavailable for {model}: {reason}; its hosts were sampled")
+            sampled = {host: reason for host in rows}
+            sampled_rows = rows
+        else:
+            try:
+                joined = refresh_pricelog.join_listed_pricing(
+                    endpoint_payload, read.series, region, source.get("resolve", {}))
+            except refresh_pricelog.PriceLogError as exc:
+                reason = str(exc)
+                result.notices.append(
+                    f"listed-pricing log unavailable for {model}: {reason}; its hosts were sampled")
+                sampled = {host: reason for host in rows}
+                sampled_rows = rows
+            else:
+                for host, listing in rows.items():
+                    match = joined.get(host)
+                    reason = match.reason if match else "no series joined to the listed host"
+                    if match is not None and match.entries is not None:
+                        if not _same_rates(match.entries[-1], listing.rates):
+                            reason = "latest log state disagrees with the listed price"
+                        elif (hosts.get(host) and
+                              hosts[host][-1].get("schedule") != listing.schedule):
+                            reason = "stored schedule changed outside the price log"
+                        else:
+                            move = _append_logged(model, hosts, host, listing, match.entries)
+                            if move:
+                                logged_moves.append(move)
+                            continue
+                    if reason and "disagrees" in reason:
+                        result.notices.append(
+                            f"listed-pricing log disagrees with the listing for "
+                            f"{model} via {host}; the host was sampled")
+                    sampled[host] = reason or "log does not identify one endpoint"
+                    sampled_rows[host] = listing
+        result.sampled[model] = sampled
+        moves = logged_moves + _append(model, hosts, sampled_rows, stamp, at, result.notices)
         result.moves += moves
         result.notices += [f"non-uniform schedule: Token Breakdown split is approximate "
-                           f"for {model} via {m.host}" for m in moves if not _scales_alike(m.new)]
+                           f"for {model} via {move.host}"
+                           for move in moves if not _scales_alike(move.new)]
         result.vanished += [(model, host) for host in hosts
                             if host not in rows and host not in refused]
     if result.moves:
@@ -431,77 +474,16 @@ def refresh(doc: dict, fetch: Fetch, stamp: str) -> Result:
     return result
 
 
-def bump_pricing_version(text: str) -> str:
-    """PRICING_VERSION one past whatever the file holds, so a manual bump
-    that lands first is never collided with. Only the version line moves:
-    constants.py carries the rule, the commits carry the history."""
-    found = _PRICING_VERSION.findall(text)
-    if len(found) != 1:
-        raise RefreshError("backend/constants.py: expected exactly one PRICING_VERSION line")
-    version = int(found[0]) + 1
-    return _PRICING_VERSION.sub(f'PRICING_VERSION = "{version}"', text)
-
-
-def _move_text(move: Move) -> str:
-    new = move.new
-    off = f" ({_discount_note(new.discount)})" if new.discount else ""
-    windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
-    if move.old is None:
-        rates = ", ".join(f"{f} {new.rates[f]!r}" for f in RATE_FIELDS)
-        return f"  new       {move.host}: {rates}{windows}{off}"
-    moved = [f"{f} {move.old[f]!r} → {new.rates[f]!r}"
-             for f in RATE_FIELDS if move.old[f] != new.rates[f]]
-    if move.old.get("schedule") != new.schedule:
-        moved.append(f"schedule of {len(move.old.get('schedule') or [])} → "
-                     f"{len(new.schedule or [])} windows")
-    return f"  changed   {move.host}: {', '.join(moved)}{off}"
-
-
-def report(stamp: str, result: Result, tracked: dict) -> str:
-    lines = [f"OpenRouter provider rates, detected {stamp}"]
-    if not result.moves:
-        lines.append("no rate moved")
-    for model, source in tracked.items():
-        section = [_move_text(m) for m in result.moves if m.model == model]
-        section += [f"  vanished  {host} (row kept)"
-                    for m, host in result.vanished if m == model]
-        if section:
-            lines += ["", f"{model} ({source['id']})", *section]
-    if result.refusals:
-        lines += ["", "refused, rows left untouched:", *(f"  {r}" for r in result.refusals)]
-    if result.notices:
-        lines += ["", "notices:", *(f"  {n}" for n in result.notices)]
-    return "\n".join(lines)
-
-
-def commit_message(result: Result, body: str) -> str:
-    changed = sum(1 for m in result.moves if m.old is not None)
-    added = len(result.moves) - changed
-    counts = [f"{changed} changed" if changed else "",
-              f"{added} new" if added else "",
-              f"{len(result.vanished)} vanished" if result.vanished else "",
-              f"{len(result.refusals)} refused" if result.refusals else ""]
-    subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
-    return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
-
-
-def _arguments(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Append moved OpenRouter provider rates to src/pricing.json.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="report what would be appended; write nothing")
-    parser.add_argument("--commit-msg", type=Path,
-                        help="write the commit message here when anything is appended")
-    return parser.parse_args(argv)
-
-
-def main(argv: list[str] | None = None, *, fetch: Fetch = fetch_endpoints,
+def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch_endpoints,
+         fetch_models: FetchModels = refresh_pricelog.fetch_models,
+         fetch_log: FetchLog = refresh_pricelog.fetch_listed_pricing,
          now: datetime | None = None, pricing_path: Path = PRICING_JSON,
          constants_path: Path = CONSTANTS_PY) -> int:
     args = _arguments(argv)
     stamp = detection_stamp(now or datetime.now(timezone.utc))
     try:
-        result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp)
+        result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp,
+                         fetch_models, fetch_log)
         constants = constants_path.read_text(encoding="utf-8")
         if result.moves:
             constants = bump_pricing_version(constants)
