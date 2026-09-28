@@ -423,6 +423,10 @@ code {
 .trow-body { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .trow-one  { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .trow.sel .trow-one { color: var(--fg); }
+/* --muted over the selected row's --accent-soft highlight (composited
+   over --bg: #0f2f2d) is 3.77:1, below the 4.5:1 AA floor -- lift the
+   timestamp to --fg-2 there (7.68:1), the same step .trow-one takes. */
+.trow.sel .trow-time { color: var(--fg-2); }
 .trow-batch { font-family: var(--mono); font-size: 11px; color: var(--accent); flex-shrink: 0; }
 .trow-err   { font-family: var(--mono); font-size: 10px; color: var(--err); padding: 1px 5px; border: 1px solid var(--err); border-radius: 2px; flex-shrink: 0; letter-spacing: 0.08em; }
 

@@ -902,6 +902,7 @@ function TokenBreakdownPanel({ events }) {
       }}>
         <span>model:</span>
         <select
+          aria-label="Token Breakdown model filter"
           value={activeModel}
           onChange={e => setActiveModel(e.target.value)}
           style={{

@@ -2276,6 +2276,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
           >all</button>
           <span style={{ marginLeft: 8 }}>model:</span>
           <select
+            aria-label="Tool Usage model filter"
             value={activeModel}
             onChange={e => setActiveModel(e.target.value)}
             style={{
@@ -2619,6 +2620,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           model:
           <select
+            aria-label="Reply Latency model filter"
             value={activeModel}
             onChange={e => setActiveModel(e.target.value)}
             style={{
@@ -2939,6 +2941,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
           ))}
           <span style={{ marginLeft: 8 }}>model:</span>
           <select
+            aria-label="Activity Heatmap model filter"
             value={activeModel}
             onChange={e => setActiveModel(e.target.value)}
             style={{
@@ -3273,6 +3276,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           <span>model:</span>
           <select
+            aria-label="Cost by Context Size model filter"
             value={activeModel}
             onChange={e => setActiveModel(e.target.value)}
             style={{
@@ -3467,6 +3471,7 @@ function CostByAgentPanel({ models, project, range, nonce }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>model:</span>
           <select
+            aria-label="Agent Type model filter"
             value={activeModel}
             onChange={e => setActiveModel(e.target.value)}
             style={{
