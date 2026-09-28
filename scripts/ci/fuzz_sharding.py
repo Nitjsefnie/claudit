@@ -31,6 +31,10 @@ from typing import Any
 FUZZER_NAME = "fuzz_test_data.py"
 # Grace between SIGTERM and SIGKILL for a shard's process group.
 KILL_GRACE_S = 5.0
+# The escalation signal: SIGKILL on POSIX. Windows has neither SIGKILL
+# nor killpg, where the group stage is moot; the constant exists so the
+# module imports and its unit tests pin the escalation shape everywhere.
+ESCALATION_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 INTERRUPT_SIGNAL_NAMES = ("SIGTERM", "SIGINT", "SIGHUP")
 # The only names pruned from the collection-root union: never tests.
 PRUNED_TEST_DIRS = frozenset({"__pycache__", ".pytest_cache"})
@@ -128,7 +132,7 @@ def _terminate_shards(
                 child.wait(timeout=max(deadline - time.monotonic(), 0.1))
             except subprocess.TimeoutExpired:
                 try:
-                    os.killpg(child.pid, signal.SIGKILL)
+                    os.killpg(child.pid, ESCALATION_SIGNAL)
                 except ProcessLookupError:
                     pass
                 child.wait()
