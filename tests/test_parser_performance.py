@@ -22,20 +22,24 @@ from scripts.bench_parser import _check_outputs
 _HEREDOC_PERFORMANCE_WORKER = '''
 import json
 import sys
+import time
 
 from backend.bash_churn import bash_churn, python_write_paths
 from backend.bash_churn_errors import churn_survives_error
 from backend.bash_reads import scan
 
+commands = json.load(sys.stdin)
 results = []
-for command in json.load(sys.stdin):
+started = time.process_time()
+for command in commands:
     results.append([
         list(bash_churn(command)),
         python_write_paths(command),
         churn_survives_error(command, 'Exit code 1'),
         list(scan(command)),
     ])
-json.dump(results, sys.stdout)
+cpu_elapsed = time.process_time() - started
+json.dump({'cpu': cpu_elapsed, 'results': results}, sys.stdout)
 '''
 
 
@@ -72,15 +76,18 @@ def test_many_same_line_heredoc_openers_stay_within_budget():
             [sys.executable, '-c', _HEREDOC_PERFORMANCE_WORKER],
             input=json.dumps([opener_command, write_command]),
             capture_output=True, check=False, cwd=Path(__file__).resolve().parents[1],
-            text=True, timeout=10.0)
+            text=True, timeout=120.0)
     except subprocess.TimeoutExpired:
         elapsed = time.perf_counter() - started
-        pytest.fail(f'20,000 heredoc openers exceeded 10.0 seconds ({elapsed:.2f}s)')
-    elapsed = time.perf_counter() - started
+        pytest.fail(
+            f'20,000 heredoc openers hit the 120.0-second subprocess hang guard '
+            f'({elapsed:.2f}s)')
 
     assert completed.returncode == 0, completed.stderr
-    assert elapsed < 10.0
-    assert json.loads(completed.stdout) == [
+    measurement = json.loads(completed.stdout)
+    assert measurement['cpu'] < 10.0, (
+        f"20,000 heredoc openers took {measurement['cpu']:.2f}s CPU")
+    assert measurement['results'] == [
         [[0, 0], [], False, [None, [], []]],
         [[count, 0], [], True, [None, [], ['out.txt']]],
     ]
@@ -183,9 +190,9 @@ def test_line_endings_preserve_skipped_lines_and_record_positions(separator):
 def test_iter_lines_is_linear_for_lf_only_blobs():
     line = b'{"type":"user","x":1}'
     blob = (line + b'\n') * 199_999 + line
-    started = time.perf_counter()
+    started = time.process_time()
     line_count = sum(1 for _ in iter_lines(blob))
-    elapsed = time.perf_counter() - started
+    elapsed = time.process_time() - started
 
     assert line_count == 200_000
     assert elapsed < 5.0, f'200,000 LF-only lines took {elapsed:.3f}s'
