@@ -9,6 +9,7 @@ to keep its established call surface.
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import os
 import time
 import lzma
@@ -395,12 +396,25 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                 reparsed += 1
             _set_progress(done=inserted + reparsed)
 
-    with ProcessPoolExecutor(max_workers=processes) as parse_pool, \
+    # fork is pinned: children inherit the caller's patched seams (the
+    # property the failure-injection tests rely on) and the pickled parse
+    # unit resolves module attributes the same way the parent would. The
+    # forked child can log (the retry warning); a fork of a multithreaded
+    # parent carries a small deadlock risk on an inherited logging lock,
+    # accepted here because children log at most a few lines per run.
+    with ProcessPoolExecutor(
+            max_workers=processes,
+            mp_context=multiprocessing.get_context("fork")) as parse_pool, \
             ThreadPoolExecutor(max_workers=persist_workers) as persist_pool:
         # The previous chunk's (persist futures, stored map), drained while
         # this chunk's parses run — the drain costs no parse throughput.
         pending: tuple[dict, dict] | None = None
         for start in range(0, len(todo), chunk):
+            # Checked BEFORE the previous chunk's drain: on abort the
+            # in-flight persists still execute during the with-block
+            # shutdown and land in the DB, but their counts are never
+            # booked — the run closes aborted with partial counts, which
+            # is the documented abort contract; the next run converges.
             check_shutdown()
             items = todo[start:start + chunk]
             stored_by_key = {o.key: stored for o, _p, stored in items}
