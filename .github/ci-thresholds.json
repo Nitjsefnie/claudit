@@ -18,7 +18,7 @@
     "backend/pricing.py": 561,
     "scripts/ci/refresh_provider_rates.py": 528,
     "scripts/plots/ccusage_plot_render.py": 704,
-    "tests/test_api.py": 1042,
+    "tests/test_api.py": 1041,
     "tests/test_bash_churn.py": 747,
     "tests/test_ingest.py": 957,
     "tests/test_parse.py": 1046,
