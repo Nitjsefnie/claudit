@@ -11,6 +11,27 @@ _PYTHON_CANDIDATE = re.compile(r"python(?:3(?:\.\d+)?)?\s+-c\s")
 # The one-character lookbehind admits every legal prefix, including `/` paths.
 _PYTHON_STDIN = re.compile(
     r"(?<![^\s|;&(/])python(?:3(?:\.\d+)?)?\s+-(?:\s|$)")
+_SHLEX_SPECIAL = re.compile(r"[ \t\r\n'\"\\]")
+
+# Suffix validity depends on the shlex state at each position. State order is
+# between words, word, single quote, double quote, escape-to-word, escape-to-double.
+_SHLEX_END_RAISES = (False, False, True, True, True, True)
+_SHLEX_ORDINARY = (1, 1, 2, 3, 1, 3)
+_SHLEX_WHITESPACE = (0, 0, 2, 3, 1, 3)
+_SHLEX_SINGLE_QUOTE = (2, 2, 1, 3, 1, 3)
+_SHLEX_DOUBLE_QUOTE = (3, 3, 2, 1, 1, 3)
+_SHLEX_ESCAPE = (4, 4, 2, 5, 1, 3)
+
+
+def _advance_shlex(
+        raises: tuple[bool, ...], transition: tuple[int, ...]
+) -> tuple[bool, ...]:
+    """Apply one character's state transition to suffix raise outcomes."""
+    return (
+        raises[transition[0]], raises[transition[1]],
+        raises[transition[2]], raises[transition[3]],
+        raises[transition[4]], raises[transition[5]],
+    )
 
 
 def _largest_valid_start(text: str, position: int) -> int | None:
@@ -34,46 +55,54 @@ def _largest_valid_start(text: str, position: int) -> int | None:
 
 
 def _script_tokens(
-        text: str, positions: list[int]) -> dict[int, tuple[str | None, bool]]:
-    """Memoize suffix validity at boundaries and first tokens for candidates."""
-    candidate_starts = set(positions)
-    outcomes: dict[int, tuple[str | None, bool]] = {}
-    for position in positions:
-        if position in outcomes:
-            continue
+        text: str, positions: list[int]) -> dict[int, str | None]:
+    """Check suffix validity backward, then lex one first token per valid suffix."""
+    if not positions:
+        return {}
 
-        stream = io.StringIO(text)
+    # Ordinary characters share one transition; shlex only changes behavior
+    # at its ASCII whitespace, quote, and escape characters.
+    specials = list(_SHLEX_SPECIAL.finditer(text, positions[0]))
+    special_index = len(specials) - 1
+    cursor = len(text)
+    raises: tuple[bool, ...] = _SHLEX_END_RAISES
+    valid: dict[int, bool] = {}
+    for position in reversed(positions):
+        while special_index >= 0 and specials[special_index].start() >= position:
+            special = specials[special_index]
+            special_index -= 1
+            special_position = special.start()
+            if cursor > special_position + 1:
+                raises = _advance_shlex(raises, _SHLEX_ORDINARY)
+            char = special.group()
+            if char in " \t\r\n":
+                transition = _SHLEX_WHITESPACE
+            elif char == "'":
+                transition = _SHLEX_SINGLE_QUOTE
+            elif char == '"':
+                transition = _SHLEX_DOUBLE_QUOTE
+            else:
+                transition = _SHLEX_ESCAPE
+            raises = _advance_shlex(raises, transition)
+            cursor = special_position
+
+        if cursor > position:
+            raises = _advance_shlex(raises, _SHLEX_ORDINARY)
+        valid[position] = not raises[0]
+        cursor = position
+
+    stream = io.StringIO(text)
+    tokens: dict[int, str | None] = {}
+    for position in positions:
+        if not valid[position]:
+            tokens[position] = None
+            continue
         stream.seek(position)
         lexer = shlex.shlex(stream, posix=True)
         lexer.whitespace_split = True
         lexer.commenters = ""
-
-        path: list[tuple[int, str | None]] = []
-        cursor = position
-        while True:
-            # Each cursor follows a complete token and its consumed separator.
-            if cursor in outcomes:
-                valid = outcomes[cursor][1]
-                break
-            try:
-                token = lexer.get_token()
-            except ValueError:
-                outcomes[cursor] = (None, False)
-                valid = False
-                break
-            if token is None:
-                outcomes[cursor] = (None, True)
-                valid = True
-                break
-            first_token = token if cursor in candidate_starts else None
-            path.append((cursor, first_token))
-            # get_token consumes one separator after a token; this is the next
-            # position from which a fresh lexer has the same state and result.
-            cursor = stream.tell()
-
-        for token_start, first_token in path:
-            outcomes[token_start] = (first_token, valid)
-    return outcomes
+        tokens[position] = lexer.get_token()
+    return tokens
 
 
 def _dash_c_sources(text: str) -> list[str]:
@@ -92,7 +121,7 @@ def _dash_c_sources(text: str) -> list[str]:
     outcomes = _script_tokens(text, positions)
     out: list[str] = []
     for position in positions:
-        token, valid = outcomes[position]
-        if valid and token is not None:
+        token = outcomes[position]
+        if token is not None:
             out.append(token)
     return out
