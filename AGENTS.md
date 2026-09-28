@@ -39,8 +39,10 @@ backend/          — FastAPI application
                     /api/reply-latency, /api/events SSE, /api/models,
                     /api/context-growth/{agg,session}); includes the four
                     sub-routers below
-  api_common.py   — Shared endpoint helpers: Phases timing, dated-rate
-                    fold, _parse_range/_bucket_seconds/_iso, HEATMAP_TZ
+  api_common.py   — Shared endpoint helpers: dated-rate fold,
+                    _parse_range/_bucket_seconds/_iso, HEATMAP_TZ
+  timing.py       — Dependency-free CLAUDIT_TIMING flag, logger setup and
+                    Phases collector shared by API and ingest.
   api_dashboard.py — /api/dashboard (sources/queries/build split)
   api_cache.py    — /api/cache (per-model and per-session prompt-cache
                     totals, TTL-split cost, top requests)
@@ -165,12 +167,16 @@ backend/          — FastAPI application
                     are data (SV-RATE-DATA).
   ingest.py       — R2 walk, etag/parser-version reparse decision, persistence
                     in two-phase transactions, broadcasts ingest_done SSE.
+  ingest_walk.py  — Project identity and stored-version helpers used by
+                    ingest's listing and planning walk.
   ingest_persist.py — ingest's `_persist` alone: one file per
                     transaction, with INSERT columns and VALUES
                     placeholders laid out one per line in the same order
                     (issue #86). Re-exported from ingest.
   ingest_progress.py — The live /health progress readout: one dict, its
                     lock and two accessors. Re-exported from ingest.
+  ingest_timing.py — Per-run ingest timing state and helpers. Re-exported
+                     from ingest so run instrumentation stays local.
   ingest_rollups.py — The derived-table rebuilds ingest runs after each
                     walk, in a load-bearing order: suppression, the
                     canonical flags, every rollup, the teammate
