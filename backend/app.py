@@ -21,14 +21,21 @@ from starlette.responses import (
     Response,
 )
 
-from backend import api, constants, db, events, ingest, login, r2, session
-from backend import branding
-
-log = logging.getLogger("claudit.app")
-
+from backend import db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+# Load .env before importing backend modules that snapshot settings at import.
+# db itself reads its database URLs only when a pool is first opened.
 db.load_dotenv(str(_REPO_ROOT / ".env"))
+
+# These imports follow dotenv loading because some modules capture settings
+# while they are imported (for example, EXPORT_PYTHON and CLAUDIT_TIMING).
+# pylint: disable=wrong-import-position
+from backend import api, constants, events, ingest, login, r2, session  # noqa: E402
+from backend import branding  # noqa: E402
+# pylint: enable=wrong-import-position
+
+log = logging.getLogger("claudit.app")
 
 _PUBLIC = _REPO_ROOT / "public"
 _SRC = _REPO_ROOT / "src"
