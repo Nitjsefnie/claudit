@@ -60,7 +60,7 @@ def _move_text(move: Move) -> str:
     if move.old.get("schedule") != new.schedule:
         moved.append(f"schedule of {len(move.old.get('schedule') or [])} → "
                      f"{len(new.schedule or [])} windows")
-    return f"  changed   {move.host}: {', '.join(moved)}{windows}{off}"
+    return f"  changed   {move.host}: {', '.join(moved)}{off}"
 
 
 def _discount_note(discount: Decimal) -> str:

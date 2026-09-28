@@ -10,6 +10,7 @@ import sys
 import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
@@ -265,6 +266,17 @@ def test_report_lists_each_sampled_host_with_a_short_reason():
     assert ("  sampled   BaseTen (cheapest resolution), "
             "Wafer (2 endpoints at one current price)") in out
     assert "notices:" not in out
+
+
+def test_sampled_schedule_change_keeps_the_original_report_text():
+    listing = refresh.Listing(
+        "wafer/fp8", "wafer", RATE_A, [{"rates": RATE_A}], Decimal(0))
+    move = refresh.Move(MODEL, HOST, {**RATE_A, "schedule": []}, listing)
+    result = refresh.Result({}, [move], [], [], [], {})
+
+    out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
+
+    assert "  changed   Wafer: schedule of 0 → 1 windows" in out.splitlines()
 
 
 def test_missing_canonical_slug_samples_every_host_without_refusal(tmp_path, capsys):
