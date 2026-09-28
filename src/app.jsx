@@ -1402,13 +1402,24 @@ function SessionView({ tx }) {
   // filter shrinks the timeline under the current index.
   const rowId = (idx) => `${viewId}-trow-${idx}`;
   const activeIdx = Math.min(selected, visible.length - 1);
+  // With focus parked on the container (aria-activedescendant), the
+  // browser does not scroll the active option into view; do it here so
+  // an arrow move past the viewport stays visible.
+  const revealRow = (idx) => {
+    const el = document.getElementById(rowId(idx));
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  };
   const onTimelineKeyDown = (ev) => {
     if (ev.key === 'ArrowDown') {
       ev.preventDefault();
-      setSelected(i => Math.min(visible.length - 1, i + 1));
+      const next = Math.min(visible.length - 1, selected + 1);
+      setSelected(next);
+      revealRow(next);
     } else if (ev.key === 'ArrowUp') {
       ev.preventDefault();
-      setSelected(i => Math.max(0, i - 1));
+      const next = Math.max(0, selected - 1);
+      setSelected(next);
+      revealRow(next);
     } else if (ev.key === 'Enter' || ev.key === ' ') {
       ev.preventDefault();
       setSelected(activeIdx);
