@@ -93,7 +93,9 @@ class _TTLCache:
     limit past which an entry is dropped and must be recomputed inline.
 
     The per-key locks that single-flight a cold compute live here too
-    (``lock_for``), and are reclaimed whenever their entry is dropped.
+    (``lock_for``), and are reclaimed whenever their entry is dropped or
+    a compute raises (issue #261), keeping locks bounded by the same cap
+    discipline as entries on both the success and failure paths.
     A lock whose entry was evicted while another thread still holds it
     is kept until its holder releases it; that race only degrades
     single-flighting into a duplicate compute, never into incorrect
@@ -126,6 +128,19 @@ class _TTLCache:
         if lock is not None and lock.acquire(blocking=False):
             lock.release()
             del self._key_locks[key]
+
+    def reclaim_failed_lock(self, key: str) -> None:
+        """Reclaim a failed compute's idle single-flight lock.
+
+        cache_response calls this after an endpoint raised and stored no
+        entry: the lock (and its key string) would otherwise remain for the
+        process lifetime, since every other reclamation rides an entry being dropped
+        (issue #261). The non-blocking acquire test inside _reclaim_lock
+        keeps a lock another thread started single-flighting on in the
+        meantime — that race only degrades single-flighting, never data.
+        """
+        with self._guard:
+            self._reclaim_lock(key)
 
     def get_entry(self, key: str) -> tuple[Any, bool] | None:
         """Return ``(value, is_stale)``, or None on miss/expiry."""
@@ -287,13 +302,17 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
                 _schedule_refresh(key, fn, kwargs)
             return value
 
-        with response_cache.lock_for(key):
-            # Another thread may have populated it while we queued.
-            entry = response_cache.get_entry(key)
-            if entry is not None:
-                return entry[0]
-            result = fn(**kwargs)
-            response_cache.put(key, result)
-            return result
+        try:
+            with response_cache.lock_for(key):
+                # Another thread may have populated it while we queued.
+                entry = response_cache.get_entry(key)
+                if entry is not None:
+                    return entry[0]
+                result = fn(**kwargs)
+                response_cache.put(key, result)
+                return result
+        except BaseException:  # noqa: BLE001
+            response_cache.reclaim_failed_lock(key)
+            raise
 
     return wrapper
