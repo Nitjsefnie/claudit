@@ -63,6 +63,19 @@ class _IdleLRU:
             self._items[key] = (data, time.time())
             self._size += len(data)
 
+    def evict(self, key: str) -> None:
+        """Drop one entry outright, fixing the byte/entry accounting.
+
+        The orphan sweep calls this for each deleted file's etag (issue
+        #269): the transcript bytes are keyed by r2_etag, so a file
+        deleted from the bucket must not stay readable from the cache
+        once its DB rows are gone. A missing key is a no-op.
+        """
+        with self._guard:
+            item = self._items.pop(key, None)
+            if item is not None:
+                self._size -= len(item[0])
+
     def _evict_idle(self) -> None:
         """Drop entries idle past `idle_seconds`. Caller holds the lock."""
         now = time.time()
