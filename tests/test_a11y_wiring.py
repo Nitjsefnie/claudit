@@ -17,6 +17,7 @@ directly and pin the three requirements:
 """
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -518,3 +519,104 @@ def test_inspector_keys_drive_the_click_selection_path():
     assert "onClick={() => setSelected(idx)}" in src, (
         "the row click no longer routes through setSelected(idx); the "
         "key handler's path is no longer the click path")
+
+
+# -- Model filter selects (issue #268) ----------------------------------
+
+def test_every_select_has_an_accessible_name():
+    """Every <select> in src/*.jsx carries an accessible name: an
+    aria-label, an aria-labelledby, or an id a <label htmlFor> in the
+    same file names. The six model filters sit beside visible
+    'model:' text that no label element associated, so their accessible
+    name was empty.
+    """
+    total = 0
+    for path in sorted((ROOT / "src").glob("*.jsx")):
+        src = _strip_line_comments(path.read_text(encoding="utf-8"))
+        for m in re.finditer(r"<select\b", src):
+            total += 1
+            line = src.count("\n", 0, m.start()) + 1
+            tag = _opening_tag(src, m.start())
+            if "aria-label=" in tag or "aria-labelledby=" in tag:
+                continue
+            id_attr = re.search(r'\bid=(?:"([^"]+)"|\{([^}]+)\})', tag)
+            assert id_attr, (
+                f"{path.name}:{line}: <select> carries no aria-label, "
+                f"aria-labelledby or id -- its accessible name is empty")
+            literal, bound = id_attr.group(1), id_attr.group(2)
+            if literal is not None:
+                named = re.search(
+                    r"<label[^>]*htmlFor=\"" + re.escape(literal) + "\"", src)
+            else:
+                named = re.search(
+                    r"<label[^>]*htmlFor=\{" + re.escape(bound) + r"\}", src)
+            assert named, (
+                f"{path.name}:{line}: <select> id={id_attr.group(0)} is "
+                f"named by no <label htmlFor> in the same file")
+    assert total >= 6, (
+        f"only {total} <select> elements found across src/*.jsx -- the "
+        f"guard would pass vacuously")
+
+
+# -- Selected-row timestamp contrast (issue #268) ------------------------
+
+def _oklch_over_hex(L: float, C: float, h_deg: float, alpha: float,
+                    over_hex: str) -> str:
+    """Composite an oklch(...) colour at `alpha` over an #rrggbb surface
+    and return the 8-bit sRGB result as #rrggbb (CSS source-over: the
+    gamma-encoded channels blend, as browsers paint it).
+    """
+    h = math.radians(h_deg)
+    a, b = C * math.cos(h), C * math.sin(h)
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l, m, s = l_ ** 3, m_ ** 3, s_ ** 3
+    rgb = (
+        +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    )
+
+    def enc(c):
+        c = max(0.0, min(1.0, c))
+        return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+    over = [int(over_hex.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    comp = (round(alpha * enc(c) * 255 + (1 - alpha) * o)
+            for c, o in zip(rgb, over))
+    return "#" + "".join(f"{v:02x}" for v in comp)
+
+
+def test_selected_row_timestamp_meets_aa_on_the_highlight():
+    """The Inspector timestamp paints --muted at 11.5px; over the
+    selected row's --accent-soft highlight (composited over --bg that is
+    #0f2f2d) muted computes 3.77:1, below AA. The pair therefore belongs
+    in the contrast floor: whatever paints the timestamp on the SELECTED
+    row must compute >= 4.5:1 against the composited highlight, while
+    the non-selected rows keep --muted over --bg (pinned elsewhere).
+    """
+    css = css_src()
+    m = re.search(r"--accent-soft:\s*oklch\(\s*([\d.]+)\s+([\d.]+)\s+"
+                  r"([\d.]+)\s*/\s*([\d.]+)\s*\)", css)
+    assert m, "--accent-soft is no longer an oklch token; recompute the " \
+              "selected-row surface this guard composites"
+    L, C, h_deg, alpha = (float(g) for g in m.groups())
+    surface = _oklch_over_hex(L, C, h_deg, alpha, _hex_token("bg"))
+    rule = re.search(r"\.trow\.sel \.trow-time\s*\{([^}]*)\}", css)
+    if rule:
+        color = re.search(r"color:\s*(?:var\(--([a-z0-9-]+)\)|"
+                          r"(#[0-9a-fA-F]{6}))", rule.group(1))
+        assert color, (
+            ".trow.sel .trow-time sets no color -- the selected-row "
+            "timestamp inherits whatever --muted paints (3.77:1 here)")
+        fg = color.group(2) or _hex_token(color.group(1))
+    else:
+        # Unfixed shape: no selected-row override, the timestamp is
+        # --muted on every row. Compute the real pair so the failure
+        # names the measured ratio.
+        fg = _hex_token("muted")
+    r = _ratio(fg, surface)
+    assert r >= AA, (
+        f"the selected-row timestamp {fg} over the composited highlight "
+        f"{surface} computes {r:.2f}:1, below the 4.5:1 AA floor")
