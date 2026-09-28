@@ -1040,22 +1040,39 @@ Coverage and module size are governed by committed data in
 `.github/ci-thresholds.json`, validated by `scripts/ci/thresholds.py`
 and enforced in `tests.yml` — not by hand-set numbers in a workflow.
 
-- Coverage: the document records `measured` and `floor` per language;
-  `floor = measured − 1.5` (the fixed gap). On a `master` push,
-  `scripts/ci/ratchet.py` raises the calibration only when the run's
-  measurement beats the recorded `measured` by more than the
-  hysteresis (1.5). The floor is never lowered by hand — not to turn a
-  red build green, not for any other reason.
+- Coverage: the document records `measured` and `floor` per language
+  (`python` and `javascript`); `floor = measured − 1.5` (the fixed
+  gap). On a `master` push, `scripts/ci/ratchet.py` raises a
+  calibration only when the run's measurement beats its recorded
+  `measured` by more than the hysteresis (1.5). The floor is never
+  lowered by hand — not to turn a red build green, not for any other
+  reason.
+- The python measurement is the full pytest run (`--cov=backend`). The
+  javascript measurement runs the node-executing tests under
+  `NODE_V8_COVERAGE` and folds them with c8 over `src/**/*.js` — the
+  boundary is the files node actually executes. The `.jsx` panels are
+  outside it: node parses no JSX, and the parity tests exercise them
+  only through eval'd fragments that V8 attributes to the eval, not
+  the source file. Both languages gate against their own committed
+  floor in `tests.yml`, and each is raised on master by
+  `ratchet.py --language <language>`.
 - Module size (`module_size_baseline`): every tracked `*.py` under
-  `backend/`, `scripts/`, `tests/` is capped per file (production 500
-  / test 700) by `scripts/ci/size_baseline.py`, which replaces
-  pylint's flat `max-module-lines`. Entries are never added or raised
-  by hand — a file that outgrows its entry is fixed by moving code
-  into a new module. CI tightens an entry as its file shrinks and
-  drops it once the file is back under the ceiling.
+  `backend/`, `scripts/`, `tests/`, plus every tracked
+  `src/**/*.js(x)` file, is capped per file (production 500 / test
+  700; a `src/` file is production) by `scripts/ci/size_baseline.py`,
+  which replaces pylint's flat `max-module-lines`. Entries are never
+  added or raised by hand — a file that outgrows its entry is fixed by
+  moving code into a new module. CI tightens an entry as its file
+  shrinks and drops it once the file is back under the ceiling. The
+  `src/` family joined in issue #266: its five then-over-ceiling files
+  were seeded once, at their current line counts, through the loader's
+  own writer — the one sanctioned seeding event for a new family; the
+  never-added-or-raised rule applies to every later run exactly as for
+  Python.
 - Coverage numbers carry exactly one decimal place (`92.0`, never
-  `92` or `92.00`) — the canonical spelling the ratchet writes and
-  `coverage --precision=1` measures. The published document is always
+  `92` or `92.00`) — the canonical spelling the ratchet writes,
+  `coverage --precision=1` measures for python and the JS gate's
+  `toFixed(1)` reads for javascript. The published document is always
   the loader's canonical bytes; never hand-edit it.
 - The bot commit that raises/tightens on master touches only the data
   file and must not re-trigger workflows: every gate workflow's push
