@@ -630,14 +630,31 @@ The machinery is tested through the `synthetic_dated_rate` fixture in
 `tests/conftest.py` rather than only the live entries, so the path
 cannot rot whenever the table happens to be empty.
 
-Any read path that RE-DERIVES rates from summed tokens must group by
-`pricing.RATE_EPOCHS` (`api_common.rate_epoch_sql` / `api_common.fold_per_model`)
-AND by `COALESCE(long_context, FALSE)` — the Codex meter multiplies a
+Any read path that RE-DERIVES rates from summed tokens must group each
+record by ITS OWN rate epochs — the instants at which
+`pricing.resolve(model, ts, provider)` can change for that record's
+(model, provider), which `rate_boundaries` lists — AND by
+`COALESCE(long_context, FALSE)` — the Codex meter multiplies a
 record's whole input side by 2 and its output by 1.5, and a fold that
 forgot the flag prices a long-context record at the flat rate, so its
 breakdown drifts from the `SUM(cost_usd)` total it claims to
 decompose. Totals themselves always come from the stored per-record
 `cost_usd` — do not recompute them at read time.
+
+The epochs are per (model, provider), never the global
+`pricing.RATE_EPOCHS` list. A log-backed provider row (SV-RATE-REFRESH)
+adds a boundary for every price change its host lists — about four
+thousand at the backfill and about a thousand a week after it — and a
+fold over the global list splits every record at every other row's
+changes: on a restore of the all-lanes meter, `/api/cache?range=all`
+took minutes per query with a `CASE` per boundary and about 21 s with
+`width_bucket` over the global list at 4,049 boundaries, against about
+9 s at 59. So the cache view reads the distinct (model, provider) pairs
+from `usage_rollup`, joins each record to its pair's own boundary array
+and takes `width_bucket` over it; the group count is then the number of
+epochs a pair's own records span, whatever the file holds. A record
+whose pair `usage_rollup` does not list (one an ingest wrote before its
+rollup rebuild) falls back to the global list: exact, only slower.
 
 ## Rates are data in one file (SV-RATE-DATA)
 
@@ -666,8 +683,11 @@ under 24:00), strictly after its predecessor's. The newest entry is
 the list price; each earlier entry applies until its successor's
 `from` — the SV-DATED-RATES window shape. So a price change is
 recorded by APPENDING `{"from": T, ...}`; an existing entry is never
-edited or removed, except when a seeded entry misstates the price it
-records. That correction happens only in a human commit that bumps
+edited or removed, except when entries misstate the prices or the
+instants they record: a seeded price that was wrong, or sampled entries
+dated at their detection time where OpenRouter's log records the real
+change points (the one-time backfill of SV-RATE-REFRESH). That
+correction happens only in a human commit that bumps
 `PRICING_VERSION`, which reprices stored records from their stored
 columns — no reparse needed, since no stored token column changes.
 Both loaders refuse a file that breaks these rules, naming the row;
@@ -711,10 +731,11 @@ dispatch, and commits to `master` as `github-actions[bot]` only after
 the full suite passes on the new data. A hand edit to a provider row
 keeps the same rules:
 
-- A moved price is a new rate effective from the detection time: an
-  entry APPENDED to the row, never back-dated, never an edit or a
-  deletion. A host seen for the first time gets a row that begins at
-  the detection time. A host no longer listed keeps its row untouched
+- A moved price is an entry APPENDED to the row, never an edit or a
+  deletion. On a log-backed row (below) it is dated by the change
+  point OpenRouter's own log records; on a sampled row it is dated at
+  the detection time, and a host seen for the first time gets a row
+  that begins then. A host no longer listed keeps its row untouched
   and is reported.
 - Normalisation: OpenRouter's USD per token becomes USD per million.
   The listed price already has any promotional discount applied; the
@@ -764,7 +785,79 @@ keeps the same rules:
     reported in the run's notices ("non-uniform schedule"), because
     the read-time fold's Token Breakdown split is then approximate
     (SV-RATE-DATA).
-- **An alternating price is reported, not appended.** When the
+- **Log-backed rows: a move is dated by OpenRouter's own change log.**
+  OpenRouter keeps a per-endpoint price history that its model pages
+  read and its documented API does not carry:
+  `https://openrouter.ai/api/frontend/v1/stats/listed-pricing?permaslug=<canonical_slug>&variant=standard&shape=v4&range=all`,
+  where `canonical_slug` is the model's field in `/api/v1/models`. For
+  each listed endpoint it returns `endpointId`, `providerName`,
+  `providerSlug` and, per field (`input`, `output`, `cacheRead`,
+  `cacheWrite`, `discount`), the change points `{at, value}` in USD per
+  million, discount applied, since the endpoint was first listed. The
+  refresh fetches it with `range=all` on every run, for every tracked
+  model, beside the endpoints listing.
+  - **The endpoint a log series is.** A series carries no tag, so it is
+    joined to the listing: a host is log-backed only when all its listed
+    endpoints share one tag prefix (the part before the first `/`) that
+    no other host of the model uses, the log has exactly one series for
+    each of those endpoints, the current state of each series (its
+    newest rates, normalised as below) equals the listed price of
+    exactly one endpoint and no two series match one endpoint, no
+    endpoint or series carries a schedule (`pricing.overrides`, or a
+    series `schedule`), the host has no `cheapest` resolution, and the
+    data-region filter or the tag pin then selects exactly ONE endpoint.
+    The row's history is that endpoint's series. Anything else — two
+    endpoints of one host at one current price, a series with no listed
+    endpoint, a host shared by two prefixes — is ambiguous, and the host
+    is sampled as below, never guessed.
+  - **Change points to entries.** A series' state at an instant is the
+    newest value of each field at or before it, and exists once both
+    `input` and `output` have a point. Each instant at which
+    the five rates change — normalised exactly as the listing is: cache
+    read `null` or absent is 0, cache write `null`, absent or 0 is the
+    input rate, values rounded to 10 decimal places — is one entry
+    whose `from` is that instant truncated to whole seconds (points in
+    one second collapse to the second's last state). A change of the
+    discount alone is not an entry; an entry's `note` is the discount in
+    force at its `from`. An `input` or `output` that is `null` is not a
+    price, and the host is sampled.
+  - **The hourly run appends.** For a log-backed host with a row, every
+    entry whose `from` is strictly after the row's newest entry's `from`
+    and whose rates differ from the entry before it is appended, oldest
+    first, so a flip that came and went between two runs is recorded as
+    the two moves it was. A host seen for the first time gets the whole
+    series as its row, beginning at the series' first change point. The
+    log never rewrites an existing entry in the hourly run.
+  - **The log must agree with the listing.** The series' newest state
+    must equal the host's listed price fetched in the same run; when it
+    does not (a move between the two requests, say), the host is sampled
+    this run and the notice says so.
+  - **Sampled rows.** A host the log does not back, and every host of a
+    model whose log fetch fails — an HTTP error, a timeout, a
+    `canonical_slug` missing from `/api/v1/models`, or a response whose
+    shape the reader does not recognise — is refreshed exactly as
+    before: a moved price is a new entry dated at the detection time,
+    and the alternation rule below applies. A failed or unrecognised log
+    is never a guess and never a refusal: the run reports a
+    "listed-pricing log unavailable" notice naming the model and the
+    reason, and stays green. A host the log does not back is reported by
+    name in the run's report.
+- **The one-time backfill rewrites log-backed rows.**
+  `scripts/ci/backfill_provider_rates.py --as-of <instant>` replaces
+  the history of every row the log backs at that run with the log's
+  entries up to `--as-of`, keeping the row's start: when the old row's
+  first `from` is earlier than the log's first change point (`null`
+  included), the rewritten row's first entry takes the old `from`. Rows
+  the log does not back are left untouched and listed. It is a
+  SV-RATE-DATA correction — the sampled entries misdated real moves and
+  missed the ones between two runs — so it lands only in a human-reviewed
+  commit that bumps `PRICING_VERSION` and names the invocation and the
+  entries each row gained. The hourly run never rewrites.
+- **An alternating price is reported, not appended — on a sampled row
+  only.** A log-backed row needs no such guard: every entry is a change
+  point the host really listed, at its own time, so a flip-flop is
+  recorded as the moves it was and a lasting return to an earlier price
+  is simply the next entry. On a sampled row, when the
   incoming listing and the row's newest entry both carry no schedule
   and the listed rates equal those of an entry whose `from` is within
   the last 7 days — measured against the detection time, never wall
@@ -780,12 +873,13 @@ keeps the same rules:
   per-request fee.
 - A run that appends bumps `PRICING_VERSION` to one past whatever
   `backend/constants.py` holds — never a literal — in the same
-  commit: a record at or after the detection time that was ingested
-  before the commit reached the deploy was priced at the old rate. It
-  also moves `provider_rates_fetched`. A run that appends nothing
-  writes nothing. Every appended entry adds a rate epoch
-  (SV-DATED-RATES), so the epoch list and the read-time `CASE` over it
-  grow with each detected move.
+  commit: a record at or after an appended entry's `from` that was
+  ingested before the commit reached the deploy was priced at the old
+  rate. It also moves `provider_rates_fetched`. A run that appends
+  nothing writes nothing. Every appended entry adds a rate epoch
+  (SV-DATED-RATES); the read-time fold groups a record only by its own
+  row's epochs, so the file's growth does not grow any other row's
+  groups.
 - Ambiguity is never a guess. Each of these refuses the host, or the
   model, it concerns, whose rows stay untouched:
   - a host with two endpoints inside the data region at different
