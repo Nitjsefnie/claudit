@@ -11,6 +11,7 @@ import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from email.message import Message
 from pathlib import Path
 from typing import Callable
 
@@ -236,7 +237,7 @@ def test_log_fetch_failure_samples_moved_price_without_refusing_the_run(
             raise TimeoutError("synthetic timeout")
         raise urllib.error.HTTPError(
             "https://example.invalid/listed-pricing", 503,
-            "synthetic HTTP failure", None, None)
+            "synthetic HTTP failure", Message(), None)
 
     rc, out, err, pricing_path, constants_path = _run(
         tmp_path, capsys, history=states, endpoint_rates=RATE_C,
