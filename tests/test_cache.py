@@ -161,6 +161,29 @@ def test_idle_lru_refuses_oversized_entry():
 
 
 # --------------------------------------------------------------------------
+# Issue #269: the orphan sweep must be able to drop one cached transcript
+# explicitly, so deleted source bytes do not stay served from the cache.
+
+def test_idle_lru_evict_drops_entry_and_byte_count():
+    """evict() pops one key and fixes the size accounting; a missing key
+    is a no-op, and the surviving entry keeps its bytes counted."""
+    lru = _IdleLRU(max_bytes=1024, idle_seconds=1200)
+    lru.put("gone", b"x" * 300)
+    lru.put("kept", b"y" * 200)
+    assert lru._size == 500  # pylint: disable=protected-access
+
+    lru.evict("gone")
+    assert lru.get("gone") is None
+    assert lru.get("kept") == b"y" * 200
+    assert lru._size == 200  # pylint: disable=protected-access
+    assert len(lru._items) == 1  # pylint: disable=protected-access
+
+    lru.evict("missing")  # no-op, no raise
+    assert lru._size == 200  # pylint: disable=protected-access
+    assert len(lru._items) == 1  # pylint: disable=protected-access
+
+
+# --------------------------------------------------------------------------
 # Issue #96: the response cache's keyspace and its per-key locks grew
 # without bound. The fix gives _TTLCache a max_entries cap and moves the
 # per-key locks inside it, so a lock is reclaimed when its entry is dropped.
