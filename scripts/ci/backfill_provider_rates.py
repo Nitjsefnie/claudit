@@ -11,6 +11,7 @@ import copy
 import json
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -90,83 +91,136 @@ def _render(as_of: str, reports: dict[str, list[str]]) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class ModelListing:
+    """Endpoint rows and log matches for one model's backfill pass."""
+    payload: object
+    rows: dict[str, hourly.Listing]
+    refused: dict[str, str]
+    matched: dict
+    unavailable: str
+
+
+@dataclass(frozen=True)
+class BackfillContext:
+    """Shared inputs for rewriting all tracked provider rows."""
+    source_doc: dict
+    result: dict
+    region: str | None
+    fetch: FetchEndpoints
+    logs: dict[str, refresh_pricelog.LogRead]
+    as_of: str
+
+
+def _join_model_log(payload: object, log: refresh_pricelog.LogRead,
+                    region: str | None, resolutions: dict) -> tuple[dict, str]:
+    if log.series is None:
+        reason = log.reason or "listed-pricing log unavailable"
+        return {}, f"listed-pricing log unavailable: {reason}"
+    try:
+        return (refresh_pricelog.join_listed_pricing(
+            payload, log.series, region, resolutions), "")
+    except refresh_pricelog.PriceLogError as exc:
+        return {}, f"listed-pricing log unavailable: {exc}"
+
+
+def _listed_model(model: str, source: dict, old_hosts: dict, region: str | None,
+                  fetch: FetchEndpoints, log: refresh_pricelog.LogRead,
+                  now: datetime) -> tuple[ModelListing | None, str | None]:
+    payload = hourly._fetch(fetch, model, source)  # pylint: disable=protected-access
+    rows, refused, _ = hourly.listed_rows(
+        model, payload, region, source.get("resolve", {}),
+        {host: _entry_rates(history[-1]) for host, history in old_hosts.items()}, now)
+    matched, unavailable = _join_model_log(
+        payload, log, region, source.get("resolve", {}))
+    return ModelListing(payload, rows, refused, matched, unavailable), None
+
+
+def _host_reason(
+        host: str, listing: ModelListing
+) -> tuple[refresh_pricelog.HostLog | None, str | None]:
+    if listing.unavailable:
+        return None, listing.unavailable
+    if host in listing.refused:
+        return None, listing.refused[host]
+    if host not in listing.rows:
+        match = listing.matched.get(host)
+        return match, (match.reason if match and match.reason else
+                       "no endpoint selected in the data region")
+    match = listing.matched.get(host)
+    return match, match.reason if match else "no log series joined to the listed host"
+
+
+def _rewrite_host(host: str, history: list[dict] | None, listing: ModelListing,
+                  providers: dict, as_of: str) -> tuple[bool, list[str]]:
+    match, reason = _host_reason(host, listing)
+    if reason is None and host in listing.rows and match is not None and match.entries:
+        if not hourly._same_rates(match.entries[-1], listing.rows[host].rates):  # pylint: disable=protected-access
+            reason = "latest log state disagrees with the listed price"
+        elif history is None:
+            return False, [f"  untouched {host}: no row (log-backed host)"]
+        else:
+            rewritten = _rewrite(history, match.entries, as_of)
+            if rewritten is None:
+                reason = "no log entries at or before --as-of"
+            else:
+                lines = []
+                if not _same_rates(rewritten[-1], history[-1]):
+                    lines.append(f"  newest log state through {as_of} differs from "
+                                 f"the old row for {host}; the log replaces it")
+                providers[host] = rewritten
+                lines.append(f"  rewritten {host}: {len(history)} → {len(rewritten)} entries")
+                return True, lines
+    if history is None:
+        return False, [f"  untouched {host}: no row ({reason})"]
+    return False, [f"  untouched {host}: {len(history)} → {len(history)} entries ({reason})"]
+
+
+def _backfill_model(context: BackfillContext, model: str, source: dict,
+                    old_hosts: dict) -> tuple[bool, list[str]]:
+    providers = context.result["providers"].setdefault(model, {})
+    try:
+        listing, error = _listed_model(
+            model, source, old_hosts, context.region, context.fetch, context.logs[model],
+            datetime.now(timezone.utc))
+    except hourly.RefreshError as exc:
+        listing, error = None, f"endpoint listing unavailable: {exc}"
+    if listing is None:
+        lines = [f"  untouched {host}: {len(history)} → {len(history)} entries ({error})"
+                 for host, history in old_hosts.items()]
+        return False, lines
+
+    rewritten_any = False
+    lines = []
+    hosts = set(old_hosts) | _hosts_from_listing(listing.payload) | set(listing.refused)
+    for host in sorted(hosts):
+        rewritten, host_lines = _rewrite_host(
+            host, old_hosts.get(host), listing, providers, context.as_of)
+        rewritten_any = rewritten_any or rewritten
+        lines.extend(host_lines)
+    return rewritten_any, lines
+
+
+def _backfill_models(context: BackfillContext,
+                     tracked: dict) -> tuple[dict[str, list[str]], bool]:
+    reports: dict[str, list[str]] = {}
+    rewrote = False
+    for model, source in tracked.items():
+        old_hosts = context.source_doc["providers"].get(model, {})
+        did_rewrite, model_report = _backfill_model(context, model, source, old_hosts)
+        rewrote = rewrote or did_rewrite
+        reports[model] = model_report
+    return reports, rewrote
+
+
 def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
              fetch_models: FetchModels, fetch_log: FetchLog) -> tuple[dict, dict[str, list[str]], bool]:
     """Build the reviewed historical file and per-host report lines."""
     tracked, region = hourly._sources(doc)  # pylint: disable=protected-access
     result = copy.deepcopy(doc)
     logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
-    reports: dict[str, list[str]] = {}
-    rewrote = False
-    for model, source in tracked.items():
-        providers = result["providers"].setdefault(model, {})
-        old_hosts = doc["providers"].get(model, {})
-        model_report = []
-        try:
-            payload = hourly._fetch(fetch, model, source)  # pylint: disable=protected-access
-            rows, refused, _ = hourly.listed_rows(
-                model, payload, region, source.get("resolve", {}),
-                {host: _entry_rates(history[-1]) for host, history in old_hosts.items()},
-                datetime.now(timezone.utc))
-        except hourly.RefreshError as exc:
-            reason = f"endpoint listing unavailable: {exc}"
-            for host, history in old_hosts.items():
-                model_report.append(f"  untouched {host}: {len(history)} → {len(history)} entries "
-                                    f"({reason})")
-            reports[model] = model_report
-            continue
-        log = logs[model]
-        if log.series is None:
-            why_unavailable = log.reason or "listed-pricing log unavailable"
-            matched = {}
-            unavailable_reason = f"listed-pricing log unavailable: {why_unavailable}"
-        else:
-            try:
-                matched = refresh_pricelog.join_listed_pricing(
-                    payload, log.series, region, source.get("resolve", {}))
-                unavailable_reason = ""
-            except refresh_pricelog.PriceLogError as exc:
-                matched = {}
-                unavailable_reason = f"listed-pricing log unavailable: {exc}"
-        hosts = set(old_hosts) | _hosts_from_listing(payload) | set(refused)
-        for host in sorted(hosts):
-            history = old_hosts.get(host)
-            if unavailable_reason:
-                reason = unavailable_reason
-            elif host in refused:
-                reason = refused[host]
-            elif host not in rows:
-                match = matched.get(host)
-                reason = match.reason if match and match.reason else "no endpoint selected in the data region"
-            else:
-                match = matched.get(host)
-                reason = match.reason if match else "no log series joined to the listed host"
-                if match is not None and match.entries is not None:
-                    if not hourly._same_rates(match.entries[-1], rows[host].rates):  # pylint: disable=protected-access
-                        reason = "latest log state disagrees with the listed price"
-                    elif history is None:
-                        model_report.append(f"  untouched {host}: no row (log-backed host)")
-                        continue
-                    else:
-                        rewritten = _rewrite(history, match.entries, as_of)
-                        if rewritten is None:
-                            reason = "no log entries at or before --as-of"
-                        else:
-                            if not _same_rates(rewritten[-1], history[-1]):
-                                model_report.append(
-                                    f"  newest log state through {as_of} differs from "
-                                    f"the old row for {host}; the log replaces it")
-                            providers[host] = rewritten
-                            rewrote = True
-                            model_report.append(
-                                f"  rewritten {host}: {len(history)} → {len(rewritten)} entries")
-                            continue
-            if history is None:
-                model_report.append(f"  untouched {host}: no row ({reason})")
-            else:
-                model_report.append(f"  untouched {host}: {len(history)} → {len(history)} entries "
-                                    f"({reason})")
-        reports[model] = model_report
+    context = BackfillContext(doc, result, region, fetch, logs, as_of)
+    reports, rewrote = _backfill_models(context, tracked)
     if rewrote:
         result["provider_rates_fetched"] = as_of
     pricing.load_tables(result)

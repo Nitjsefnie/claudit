@@ -53,9 +53,10 @@ sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import refresh_alternation  # noqa: E402
+import refresh_logrun  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from refresh_pricelog import (FetchEndpoints as Fetch, FetchLog, FetchModels)  # noqa: E402
-from refresh_common import (bump_pricing_version, data_region,  # noqa: E402
+from refresh_common import (bump_pricing_version,  # noqa: E402
                             detection_stamp, sources as _sources)
 from refresh_report import arguments as _arguments  # noqa: E402
 from refresh_report import commit_message, report  # noqa: E402
@@ -71,6 +72,7 @@ _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
              "max_prompt_tokens")
 # Price order for "select": "cheapest": cache read, then input, then output.
 _ORDER = ("read", "fresh", "output")
+
 
 @dataclass(frozen=True)
 class Listing:
@@ -387,9 +389,70 @@ class Result:
     sampled: dict[str, dict[str, str]]
 
 
+@dataclass
+class ModelResult:
+    """One model's entries and report details for a refresh run."""
+    moves: list[Move]
+    vanished: list[tuple[str, str]]
+    refusals: list[str]
+    notices: list[str]
+    sampled: dict[str, str]
+
+
+@dataclass(frozen=True)
+class RefreshContext:
+    """Shared inputs for the models in one refresh run."""
+    doc: dict
+    fetch: Fetch
+    region: str | None
+    stamp: str
+    at: datetime
+
+
+@dataclass
+class ListedModel:
+    """One model's endpoint rows before log classification."""
+    payload: object
+    rows: dict[str, Listing]
+    refused: dict[str, str]
+    notices: list[str]
+
+
 def _same_rates(left: dict, right: dict) -> bool:
     return all(round(float(left[field]), 10) == round(float(right[field]), 10)
                for field in RATE_FIELDS)
+
+
+def _listed_model(context: RefreshContext, model: str, source: dict,
+                  hosts: dict) -> ListedModel:
+    payload = _fetch(context.fetch, model, source)
+    rows, refused, notices = listed_rows(
+        model, payload, context.region, source.get("resolve", {}),
+        {host: {field: history[-1][field] for field in RATE_FIELDS}
+         for host, history in hosts.items()}, context.at)
+    return ListedModel(payload, rows, refused, notices)
+
+
+def _refresh_model(context: RefreshContext, model: str, source: dict,
+                   read: refresh_pricelog.LogRead) -> ModelResult:
+    """Refresh one model while keeping refusals local to that model."""
+    hosts = context.doc["providers"].setdefault(model, {})
+    try:
+        listed = _listed_model(context, model, source, hosts)
+    except RefreshError as exc:
+        return ModelResult([], [], [str(exc)], [], {})
+    logged = refresh_logrun.classify_log_rows(
+        model, listed.payload, listed.rows, hosts, read, context.region,
+        source.get("resolve", {}), _append_logged, _same_rates)
+    moves = logged.moves + _append(
+        model, hosts, logged.sampled_rows, context.stamp, context.at, listed.notices)
+    notices = listed.notices + logged.notices
+    notices += [f"non-uniform schedule: Token Breakdown split is approximate "
+                f"for {model} via {move.host}"
+                for move in moves if not _scales_alike(move.new)]
+    vanished = [(model, host) for host in hosts
+                if host not in listed.rows and host not in listed.refused]
+    return ModelResult(moves, vanished, list(listed.refused.values()), notices, logged.sampled)
 
 
 def refresh(doc: dict, fetch: Fetch, stamp: str,
@@ -400,69 +463,16 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
     at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
     result = Result(copy.deepcopy(doc), [], [], [], [], {})
+    context = RefreshContext(result.doc, fetch, region, stamp, at)
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at.
-        hosts = result.doc["providers"].setdefault(model, {})
-        try:
-            endpoint_payload = _fetch(fetch, model, source)
-            rows, refused, notices = listed_rows(
-                model, endpoint_payload, region, source.get("resolve", {}),
-                {host: {f: h[-1][f] for f in RATE_FIELDS} for host, h in hosts.items()}, at)
-        except RefreshError as exc:
-            result.refusals.append(str(exc))
-            continue
-        result.refusals += refused.values()
-        result.notices += notices
-        sampled_rows = {}
-        sampled = {}
-        logged_moves = []
-        read = logs[model]
-        if read.series is None:
-            reason = read.reason or "listed-pricing log is unavailable"
-            result.notices.append(
-                f"listed-pricing log unavailable for {model}: {reason}; its hosts were sampled")
-            sampled = {host: reason for host in rows}
-            sampled_rows = rows
-        else:
-            try:
-                joined = refresh_pricelog.join_listed_pricing(
-                    endpoint_payload, read.series, region, source.get("resolve", {}))
-            except refresh_pricelog.PriceLogError as exc:
-                reason = str(exc)
-                result.notices.append(
-                    f"listed-pricing log unavailable for {model}: {reason}; its hosts were sampled")
-                sampled = {host: reason for host in rows}
-                sampled_rows = rows
-            else:
-                for host, listing in rows.items():
-                    match = joined.get(host)
-                    reason = match.reason if match else "no series joined to the listed host"
-                    if match is not None and match.entries is not None:
-                        if not _same_rates(match.entries[-1], listing.rates):
-                            reason = "latest log state disagrees with the listed price"
-                        elif (hosts.get(host) and
-                              hosts[host][-1].get("schedule") != listing.schedule):
-                            reason = "stored schedule changed outside the price log"
-                        else:
-                            move = _append_logged(model, hosts, host, listing, match.entries)
-                            if move:
-                                logged_moves.append(move)
-                            continue
-                    if reason and "disagrees" in reason:
-                        result.notices.append(
-                            f"listed-pricing log disagrees with the listing for "
-                            f"{model} via {host}; the host was sampled")
-                    sampled[host] = reason or "log does not identify one endpoint"
-                    sampled_rows[host] = listing
-        result.sampled[model] = sampled
-        moves = logged_moves + _append(model, hosts, sampled_rows, stamp, at, result.notices)
-        result.moves += moves
-        result.notices += [f"non-uniform schedule: Token Breakdown split is approximate "
-                           f"for {model} via {move.host}"
-                           for move in moves if not _scales_alike(move.new)]
-        result.vanished += [(model, host) for host in hosts
-                            if host not in rows and host not in refused]
+        outcome = _refresh_model(context, model, source, logs[model])
+        result.moves += outcome.moves
+        result.vanished += outcome.vanished
+        result.refusals += outcome.refusals
+        result.notices += outcome.notices
+        result.sampled[model] = outcome.sampled
     if result.moves:
         result.doc["provider_rates_fetched"] = stamp
     # The loaders' own rules, run on what would be written: among them, a
