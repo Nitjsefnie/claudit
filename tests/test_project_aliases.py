@@ -328,7 +328,7 @@ def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
     the emptied source project row is gone, and usage_rollup (rebuilt
     after the fold) carries the target id only."""
     _alias("projA%", "projB")
-    for _ in range(2):
+    for pass_number in range(2):
         result = ingest.run_ingest(trigger="manual")
         assert result["error"] is None
         with db.viz_conn() as c:
@@ -349,6 +349,13 @@ def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
         assert target == "projB"
         assert set(rolled) == {"projB"} and sum(rolled.values()) > 0, (
             "usage_rollup was rebuilt after the fold and carries the target id")
+        if pass_number == 0:
+            with db.viz_conn() as c:
+                c.execute(
+                    "UPDATE projects SET display_name = %s "
+                    "WHERE project_id = %s",
+                    ("/synthetic/acme-wt/issue-290", "projB"))
+                c.commit()
 
 
 def test_alias_added_after_first_ingest_folds_without_a_reparse(
