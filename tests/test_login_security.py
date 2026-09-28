@@ -97,6 +97,75 @@ def _signed_in_client(app):
     return client
 
 
+def _raw_login_request(ip="198.51.100.91"):
+    return Request({
+        "type": "http",
+        "method": "POST",
+        "headers": [],
+        "client": (ip, 1234),
+    })
+
+
+def test_stale_password_login_cannot_rebind_after_new_password_login(
+    fake_user, fake_session_store, monkeypatch
+):  # pylint: disable=too-many-locals
+    """A paused old-password login cannot overwrite a newer credential bind."""
+    old_config = dict(fake_user[12345])
+    new_config: dict = {}
+    auth.set_web_password(new_config, "new password")
+    old_started = threading.Event()
+    release_old = threading.Event()
+    normalization_spent: list[int] = []
+
+    def controlled_verify(config, password):
+        if password == "old password":
+            old_started.set()
+            if not release_old.wait(timeout=5):
+                raise TimeoutError("old login barrier was not released")
+            return True
+        return password == "new password" and config is new_config
+
+    monkeypatch.setattr(auth, "verify_web_password", controlled_verify)
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda password, spent: normalization_spent.append(spent),
+    )
+
+    async def run_race():
+        old_task = asyncio.create_task(login_mod.login_post(
+            _raw_login_request(), user_id="12345", password="old password"
+        ))
+        try:
+            assert await asyncio.to_thread(old_started.wait, 5)
+            fake_user[12345] = new_config
+            new_response = await login_mod.login_post(
+                _raw_login_request(),
+                user_id="12345",
+                password="new password",
+            )
+            new_cookie = new_response.headers["set-cookie"].split(";", 1)[0].split("=", 1)[1]
+            release_old.set()
+            old_response = await old_task
+            return new_response, new_cookie, old_response
+        finally:
+            release_old.set()
+            if not old_task.done():
+                await old_task
+
+    new_response, new_cookie, old_response = asyncio.run(run_race())
+
+    assert new_response.status_code == 303
+    assert old_response.status_code == 401
+    assert old_response.body == b"Invalid credentials."
+    assert "set-cookie" not in old_response.headers
+    assert normalization_spent == [600_000]
+    assert fake_session_store[12345][2] == session_mod.credential_fingerprint(
+        new_config
+    )
+    assert session_mod.resolve_session_user_id(new_cookie) == 12345
+
+
 @pytest.mark.parametrize(
     ("stored_hash", "stored_salt"),
     [

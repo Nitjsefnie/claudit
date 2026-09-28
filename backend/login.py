@@ -310,11 +310,37 @@ async def login_post(
                 status_code=401,
                 media_type="text/plain",
             )
+
+        # Verification used the config captured before its worker-thread
+        # await. Re-read the auth DB and bind only if those exact credentials
+        # are still current. Keep this read, comparison, bind and cache update
+        # synchronous so another login cannot interleave and be overwritten.
+        fresh_config = session_mod.load_user_config(uid)
         cred_fp = session_mod.credential_fingerprint(config)
+        if (
+            fresh_config is None
+            or session_mod.credential_fingerprint(fresh_config) != cred_fp
+        ):
+            # The credential changed while verification ran. Treat the
+            # stale proof as a wrong password: it already spent the real
+            # verification count, so normalize from that count and record
+            # the same pair and IP failures without binding or caching it.
+            await asyncio.to_thread(
+                auth.normalize_verification_timing,
+                password,
+                auth.stored_verification_iterations(config),
+            )
+            _record_login_failure(ip, uid)
+            _record_login_ip_failure(ip)
+            return Response(
+                _GENERIC_FAILURE_TEXT,
+                status_code=401,
+                media_type="text/plain",
+            )
         secret, generation = session_mod.get_or_create_session_row(
             uid, cred_fp
         )
-        session_mod.remember_user_config(uid, config)
+        session_mod.remember_user_config(uid, fresh_config)
         token = session_mod.make_session_token(
             uid, secret, generation=generation
         )
