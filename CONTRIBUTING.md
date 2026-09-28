@@ -133,14 +133,22 @@ and pylint will report a clean run over every file except the one you
 just wrote.
 
 `pip install -r requirements-dev.txt -r requirements-test.txt` gets the
-pinned toolchain. Coverage is a self-raising ratchet, not a target: the
-measured value and its floor (always 1.5 below it) are committed data in
-`.github/ci-thresholds.json`, and CI raises the floor on master when a
-run measures more than 1.5 above the recorded value. The same file caps
-every Python file's line count too (production 500 / test 700): files
-over the cap carry baseline entries that CI lowers as they shrink, and
-entries are never added or raised by hand — grow a file by moving code
-into a new module instead.
+pinned toolchain. Coverage is a self-raising ratchet, not a target, and
+it covers both shipped source families. The python measurement is the
+full pytest run (`--cov=backend`); the javascript measurement runs the
+node-executing tests under `NODE_V8_COVERAGE` and folds the result with
+c8 over `src/**/*.js` — the files node actually executes. The `.jsx`
+panels sit outside that boundary (node parses no JSX, and the tests
+exercise them only through eval'd fragments, which V8 attributes to the
+eval, not the source file), so extending coverage to them means a real
+browser toolchain, not a wider flag. Both measured values and their
+floors (always 1.5 below) are committed data in
+`.github/ci-thresholds.json`, and CI raises each floor on master when a
+run measures more than 1.5 above its recorded value. The same file caps
+every Python file's line count and every tracked `src/**/*.js(x)` file
+too (production 500 / test 700): files over the cap carry baseline
+entries that CI lowers as they shrink, and entries are never added or
+raised by hand — grow a file by moving code into a new module instead.
 
 Beside that tree-level ratchet, a pull request also gets an
 **informational patch-coverage readout** — which of the lines the branch
