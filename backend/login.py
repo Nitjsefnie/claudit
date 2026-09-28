@@ -248,8 +248,9 @@ async def login_post(
         auth.verify_web_password, config, password
     ):
         # Top up whatever the real verification spent (its own count
-        # for a versioned hash, the legacy count for bare hex, zero
-        # for a malformed hash that ran no PBKDF2 at all) so a failure
+        # for a versioned hash, the legacy count for valid bare hex,
+        # zero for malformed versioned or corrupt legacy material
+        # that ran no PBKDF2 at all) so a failure
         # costs ≈ the target whatever shape the stored hash is (#109).
         await asyncio.to_thread(
             auth.normalize_verification_timing,
