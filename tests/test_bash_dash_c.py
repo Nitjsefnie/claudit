@@ -35,10 +35,15 @@ _EXHAUSTIVE_TOKENS = (
     "python", "python3", "/", "(", ";", " ", "-c", "x",
 )
 _RANDOM_TOKENS = _EXHAUSTIVE_TOKENS + (
-    "|", "&", "\t", "\u2003", "python3.12", ".venv/bin/python",
-    "print(1)", "'a b'", '"c d"', "\n", "-", "'", '"', "\\",
+    "|", "&", "\t", "\u2003", "\u3000", "\x1c", "\xa0", "\u2028",
+    "python3.12", ".venv/bin/python", "print(1)", "'a b'", '"c d"',
+    "\\'", '\\"', "\n", "-", "'", '"', "\\",
 )
 _RANDOM_INPUT_COUNT = 3_000
+_INVALID_SUFFIX_INPUT_COUNT = 300
+_INVALID_PREFIX_TOKENS = tuple(
+    token for token in _RANDOM_TOKENS
+    if not any(char in token for char in "'\"\\"))
 
 
 def _differential_inputs():
@@ -52,6 +57,11 @@ def _differential_inputs():
         yield "".join(
             rng.choice(_RANDOM_TOKENS)
             for _ in range(rng.randrange(41)))
+    for _ in range(_INVALID_SUFFIX_INPUT_COUNT):
+        prefix = "".join(
+            rng.choice(_INVALID_PREFIX_TOKENS)
+            for _ in range(rng.randrange(41)))
+        yield prefix + rng.choice(("'", '"', "\\"))
 
 
 def test_matchers_and_scripts_match_the_pre_change_reference():
@@ -66,7 +76,23 @@ def test_matchers_and_scripts_match_the_pre_change_reference():
 
     exhaustive_count = sum(len(_EXHAUSTIVE_TOKENS) ** length
                            for length in range(7))
-    assert checked == exhaustive_count + _RANDOM_INPUT_COUNT
+    assert checked == (exhaustive_count + _RANDOM_INPUT_COUNT
+                       + _INVALID_SUFFIX_INPUT_COUNT)
+
+
+def test_unicode_whitespace_invalid_suffixes_match_the_reference():
+    separators = ("\u3000", "\x1c", "\xa0", "\u2028")
+    for separator in separators:
+        for ending in ("'", '"', "\\"):
+            for count in (1, 2, 4, 8, 16, 32):
+                text = f"python{separator}-c{separator}x{separator}" * count
+                text += ending
+                assert bash_churn._dash_c_sources(text) == _dash_c_sources(text), (  # pylint: disable=protected-access
+                    f"script mismatch for invalid suffix {text!r}")
+        for script in ("value", "'a b'", '"c d"', "\\'", '\\"'):
+            text = f"python{separator}-c{separator}{script}{separator}"
+            assert bash_churn._dash_c_sources(text) == _dash_c_sources(text), (  # pylint: disable=protected-access
+                f"script mismatch for token {text!r}")
 
 
 def test_prefix_consumption_and_shlex_suffix_edges():
@@ -123,6 +149,14 @@ def test_quadratic_reproducers_finish_within_the_bounded_budget():
             "result = _dash_c_sources(text); "
             "elapsed = process_time() - start; "
             "assert result == ['x'] * 20_000; print(elapsed)",
+        ),
+        (
+            "unicode whitespace with unmatched quote",
+            "from time import process_time; "
+            "from backend.bash_churn import _dash_c_sources; "
+            "text = ('python\\u3000-c\\u3000x\\u3000' * 20_000) + \"'\"; "
+            "start = process_time(); result = _dash_c_sources(text); "
+            "elapsed = process_time() - start; assert result == []; print(elapsed)",
         ),
     )
     for name, program in cases:
