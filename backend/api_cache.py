@@ -8,7 +8,7 @@ function trips the locals gate. Behaviour is unchanged.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import APIRouter, Query, Request
 
@@ -19,6 +19,21 @@ from backend.cache import cache_response
 from backend.rate_boundaries import rate_boundaries
 
 router = APIRouter()
+
+
+class _RatePairInputs(NamedTuple):
+    models: list[str]
+    providers: list[str]
+    boundary_lists: list[str]
+    pair_bounds: dict[tuple[str, str], list[datetime]]
+
+
+class _CacheQueryResults(NamedTuple):
+    per_model_rows: list
+    top_output: list
+    top_create: list
+    top_read: list
+    pair_bounds: dict[tuple[str, str], list[datetime]]
 
 
 def _cache_canon_source(project: str | None, model: str | None,
@@ -52,8 +67,8 @@ def _cache_canon_source(project: str | None, model: str | None,
     return canon_src, canon_args
 
 
-def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
-    """Read pair boundaries, then run the per-model and top-10 queries."""
+def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
+    """Read the rollup's distinct pairs and encode their own boundaries."""
     pairs = ph.execute(
         "rate_pairs", c,
         "SELECT DISTINCT model, provider FROM usage_rollup",
@@ -68,6 +83,14 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
         ",".join(boundary.isoformat() for boundary in pair_bounds[pair])
         for pair in pairs
     ]
+    return _RatePairInputs(pair_models, pair_providers, boundary_lists,
+                           pair_bounds)
+
+
+def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
+        -> _CacheQueryResults:
+    """Read pair boundaries, then run the per-model and top-10 queries."""
+    pair_inputs = _rate_pair_inputs(c, ph)
 
     epoch_expr, epoch_params = rate_epoch_sql("ts")
     per_model_source = canon_src.replace(
@@ -107,7 +130,8 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
         GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE)
         ORDER BY cost_total DESC
         """,
-        [pair_models, pair_providers, boundary_lists] + epoch_params + canon_args,
+        [pair_inputs.models, pair_inputs.providers,
+         pair_inputs.boundary_lists] + epoch_params + canon_args,
     ).fetchall()
 
     top_output = ph.execute(
@@ -151,7 +175,9 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
         canon_args,
     ).fetchall()
 
-    return per_model_rows, top_output, top_create, top_read, pair_bounds
+    return _CacheQueryResults(
+        per_model_rows, top_output, top_create, top_read,
+        pair_inputs.pair_bounds)
 
 
 def _session_total(per_model: list) -> dict:
@@ -237,13 +263,12 @@ def cache_view(
 
     ph = Phases("cache_view")
     with db.viz_conn() as c:
-        per_model_rows, top_output, top_create, top_read, pair_bounds = _cache_queries(
-            c, ph, canon_src, canon_args
-        )
+        query_results = _cache_queries(c, ph, canon_src, canon_args)
 
-    per_model = fold_per_model(per_model_rows, pair_bounds=pair_bounds)
+    per_model = fold_per_model(
+        query_results.per_model_rows, pair_bounds=query_results.pair_bounds)
     per_model_provider = fold_per_model_provider(
-        per_model_rows, pair_bounds=pair_bounds)
+        query_results.per_model_rows, pair_bounds=query_results.pair_bounds)
     ph.done(models=len(per_model))
 
     return {
@@ -252,17 +277,17 @@ def cache_view(
         "per_model": per_model,
         "per_model_provider": per_model_provider,
         "session_total": _session_total(per_model),
-        "top_output": _top_rows(top_output, [
+        "top_output": _top_rows(query_results.top_output, [
             "ts", "line", "request_id", "model",
             "output", "c_read", "c_create_1h", "c_create_5m", "fresh",
             "cost", "file_key",
         ]),
-        "top_cache_create": _top_rows(top_create, [
+        "top_cache_create": _top_rows(query_results.top_create, [
             "ts", "line", "request_id", "model",
             "c_create", "c_create_1h", "c_create_5m", "c_read",
             "output", "fresh", "cost", "file_key",
         ]),
-        "top_cache_read": _top_rows(top_read, [
+        "top_cache_read": _top_rows(query_results.top_read, [
             "ts", "line", "request_id", "model",
             "c_read", "c_create_1h", "c_create_5m",
             "output", "fresh", "cost", "file_key",

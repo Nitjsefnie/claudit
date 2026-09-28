@@ -1,6 +1,7 @@
 """Per-pair cache folding and the global fallback for missing rollup pairs."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -12,6 +13,24 @@ from backend.cache import response_cache
 from tests import scratch_db
 
 UTC = timezone.utc
+
+
+@dataclass(frozen=True)
+class _NoisyEpochCase:
+    stable_pair: tuple[str, str]
+    noisy_pair: tuple[str, str]
+    changing_pair: tuple[str, str]
+    noisy_bounds: list[datetime]
+    records: list[tuple[str, str, datetime, int]]
+    rollup_pairs: list[tuple[str, str, datetime]]
+
+
+@dataclass(frozen=True)
+class _MissingPairCase:
+    present_pair: tuple[str, str]
+    missing_pair: tuple[str, str]
+    records: list[tuple[str, str, datetime, int]]
+    rollup_pairs: list[tuple[str, str, datetime]]
 
 
 def _rates(fresh: float) -> dict[str, float]:
@@ -83,7 +102,7 @@ def _seed_records(records, rollup_pairs):
 
 def _capture_per_model_rows(monkeypatch):
     captured = {}
-    original = api_cache._cache_queries
+    original = api_cache._cache_queries  # pylint: disable=protected-access
 
     def capture(conn, phases, canon_source, canon_args):
         result = original(conn, phases, canon_source, canon_args)
@@ -95,29 +114,27 @@ def _capture_per_model_rows(monkeypatch):
     return captured
 
 
-def test_cache_fold_ignores_other_pairs_boundaries_and_keeps_own_cutovers(
-        api_client, monkeypatch):
-    stable_model, stable_host = "acme/fold-stable-302", "StableHost"
-    noisy_model, noisy_host = "acme/fold-noisy-302", "NoiseHost"
-    changing_model, changing_host = "acme/fold-changing-302", "ChangingHost"
+def _install_noisy_epoch_case(monkeypatch) -> _NoisyEpochCase:
+    pairs = {
+        "stable": ("acme/fold-stable-302", "StableHost"),
+        "noisy": ("acme/fold-noisy-302", "NoiseHost"),
+        "changing": ("acme/fold-changing-302", "ChangingHost"),
+    }
     noisy_bounds = [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i)
                     for i in range(50)]
     changing_cut = datetime(2026, 3, 1, tzinfo=UTC)
     noise_rates = [_rates(100 + i) for i in range(len(noisy_bounds) + 1)]
-    changing_before, changing_after = _rates(2), _rates(7)
-    stable_key = (stable_model, stable_host)
-    noisy_key = (noisy_model, noisy_host)
-    changing_key = (changing_model, changing_host)
+    changing_rates = {"before": _rates(2), "after": _rates(7)}
 
     monkeypatch.setattr(pricing, "MODEL_RATES", {})
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        stable_key: _rates(3), noisy_key: noise_rates[-1],
-        changing_key: changing_after,
+        pairs["stable"]: _rates(3), pairs["noisy"]: noise_rates[-1],
+        pairs["changing"]: changing_rates["after"],
     })
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
-        noisy_key: list(zip(noisy_bounds, noise_rates[:-1], strict=True)),
-        changing_key: [(changing_cut, changing_before)],
+        pairs["noisy"]: list(zip(noisy_bounds, noise_rates[:-1], strict=True)),
+        pairs["changing"]: [(changing_cut, changing_rates["before"])],
     })
     monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
@@ -125,37 +142,46 @@ def test_cache_fold_ignores_other_pairs_boundaries_and_keeps_own_cutovers(
     monkeypatch.setattr(pricing, "DEFAULT_RATES", _rates(89))
     monkeypatch.setattr(pricing, "RATE_EPOCHS", sorted(noisy_bounds + [changing_cut]))
 
-    stable_records = [
-        (stable_model, stable_host, noisy_bounds[0] - timedelta(days=1),
+    records = [
+        (pairs["stable"][0], pairs["stable"][1],
+         noisy_bounds[0] - timedelta(days=1),
          1_000_000),
-        (stable_model, stable_host, noisy_bounds[-1] + timedelta(days=1),
+        (pairs["stable"][0], pairs["stable"][1],
+         noisy_bounds[-1] + timedelta(days=1),
          1_000_000),
-    ]
-    changing_records = [
-        (changing_model, changing_host, changing_cut - timedelta(days=1),
+        (pairs["changing"][0], pairs["changing"][1],
+         changing_cut - timedelta(days=1),
          1_000_000),
-        (changing_model, changing_host, changing_cut, 1_000_000),
+        (pairs["changing"][0], pairs["changing"][1], changing_cut, 1_000_000),
     ]
     rollup_pairs = [
-        (stable_model, stable_host, stable_records[0][2]),
-        (noisy_model, noisy_host, noisy_bounds[0]),
-        (changing_model, changing_host, changing_cut),
+        (*pairs["stable"], records[0][2]),
+        (*pairs["noisy"], noisy_bounds[0]),
+        (*pairs["changing"], changing_cut),
     ]
-    _seed_records(stable_records + changing_records, rollup_pairs)
+    return _NoisyEpochCase(
+        pairs["stable"], pairs["noisy"], pairs["changing"], noisy_bounds,
+        records, rollup_pairs)
+
+
+def test_cache_fold_ignores_other_pairs_boundaries_and_keeps_own_cutovers(
+        api_client, monkeypatch):
+    case = _install_noisy_epoch_case(monkeypatch)
+    _seed_records(case.records, case.rollup_pairs)
     captured = _capture_per_model_rows(monkeypatch)
 
     response = api_client.get("/api/cache?range=all")
     assert response.status_code == 200
     body = response.json()
     assert captured["rows"], "seeded canonical records must make fold rows"
-    assert len(noisy_bounds) == 50
-    assert captured["pair_bounds"][stable_key] == []
-    assert len(captured["pair_bounds"][noisy_key]) == 50
+    assert len(case.noisy_bounds) == 50
+    assert captured["pair_bounds"][case.stable_pair] == []
+    assert len(captured["pair_bounds"][case.noisy_pair]) == 50
 
     stable_groups = [row for row in captured["rows"]
-                     if row[0] == stable_model and row[1] == stable_host]
+                     if row[:2] == case.stable_pair]
     changing_groups = [row for row in captured["rows"]
-                       if row[0] == changing_model and row[1] == changing_host]
+                       if row[:2] == case.changing_pair]
     assert len(stable_groups) == 1
     assert stable_groups[0][2] == 0
     assert stable_groups[0][4] == 2
@@ -163,34 +189,35 @@ def test_cache_fold_ignores_other_pairs_boundaries_and_keeps_own_cutovers(
     assert len(changing_groups) == 2
 
     per_model = {entry["model"]: entry for entry in body["per_model"]}
-    assert set(per_model) == {stable_model, changing_model}
-    assert per_model[stable_model]["cost_total"] == pytest.approx(6.0)
-    assert per_model[stable_model]["cost_buckets"]["fresh"] == pytest.approx(6.0)
-    assert per_model[changing_model]["cost_total"] == pytest.approx(9.0)
-    assert per_model[changing_model]["cost_buckets"]["fresh"] == pytest.approx(9.0)
+    assert set(per_model) == {case.stable_pair[0], case.changing_pair[0]}
+    assert per_model[case.stable_pair[0]]["cost_total"] == pytest.approx(6.0)
+    assert per_model[case.stable_pair[0]]["cost_buckets"]["fresh"] == \
+        pytest.approx(6.0)
+    assert per_model[case.changing_pair[0]]["cost_total"] == pytest.approx(9.0)
+    assert per_model[case.changing_pair[0]]["cost_buckets"]["fresh"] == \
+        pytest.approx(9.0)
     for entry in per_model.values():
         assert abs(sum(entry["cost_buckets"].values())
                    - entry["cost_total"]) <= 3e-4
 
 
-def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
-        api_client, monkeypatch):
-    present_model, present_host = "acme/fold-present-302", "PresentHost"
-    missing_model, missing_host = "acme/fold-missing-302", "MissingHost"
+def _install_missing_pair_case(monkeypatch) -> _MissingPairCase:
+    pairs = {
+        "present": ("acme/fold-present-302", "PresentHost"),
+        "missing": ("acme/fold-missing-302", "MissingHost"),
+    }
     unrelated_cut = datetime(2026, 3, 1, tzinfo=UTC)
     missing_cut = datetime(2026, 4, 1, tzinfo=UTC)
-    present_key = (present_model, present_host)
-    missing_key = (missing_model, missing_host)
-    before, after = _rates(5), _rates(7)
+    target_rates = {"before": _rates(5), "after": _rates(7)}
 
     monkeypatch.setattr(pricing, "MODEL_RATES", {})
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        present_key: _rates(11), missing_key: after,
+        pairs["present"]: _rates(11), pairs["missing"]: target_rates["after"],
     })
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
-        present_key: [(unrelated_cut, _rates(9))],
-        missing_key: [(missing_cut, before)],
+        pairs["present"]: [(unrelated_cut, _rates(9))],
+        pairs["missing"]: [(missing_cut, target_rates["before"])],
     })
     monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
@@ -198,30 +225,38 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
     monkeypatch.setattr(pricing, "DEFAULT_RATES", _rates(89))
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [unrelated_cut, missing_cut])
 
-    missing_records = [
-        (missing_model, missing_host, missing_cut - timedelta(days=1),
+    records = [
+        (pairs["missing"][0], pairs["missing"][1],
+         missing_cut - timedelta(days=1),
          1_000_000),
-        (missing_model, missing_host, missing_cut, 1_000_000),
+        (pairs["missing"][0], pairs["missing"][1], missing_cut, 1_000_000),
     ]
+    rollup_pairs = [(*pairs["present"], unrelated_cut)]
+    return _MissingPairCase(pairs["present"], pairs["missing"], records,
+                            rollup_pairs)
+
+
+def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
+        api_client, monkeypatch):
+    case = _install_missing_pair_case(monkeypatch)
     # The missing pair's records are deliberately absent from this rollup
     # list, as after ingest writes records but before its rollup rebuild.
-    _seed_records(missing_records, [
-        (present_model, present_host, unrelated_cut),
-    ])
+    _seed_records(case.records, case.rollup_pairs)
     captured = _capture_per_model_rows(monkeypatch)
 
     response = api_client.get("/api/cache?range=all")
     assert response.status_code == 200
     body = response.json()
     assert captured["rows"], "the unrolled records must still be selected"
-    assert present_key in captured["pair_bounds"]
-    assert missing_key not in captured["pair_bounds"]
-    missing_groups = [row for row in captured["rows"] if row[0] == missing_model]
+    assert case.present_pair in captured["pair_bounds"]
+    assert case.missing_pair not in captured["pair_bounds"]
+    missing_groups = [row for row in captured["rows"]
+                      if row[0] == case.missing_pair[0]]
     assert len(missing_groups) == 2
     assert [row[2] for row in missing_groups] == [1, 2]
 
     missing_entry = next(entry for entry in body["per_model"]
-                         if entry["model"] == missing_model)
+                         if entry["model"] == case.missing_pair[0])
     assert missing_entry["cost_total"] == pytest.approx(12.0)
     assert missing_entry["cost_buckets"]["fresh"] == pytest.approx(12.0)
     assert abs(sum(missing_entry["cost_buckets"].values())

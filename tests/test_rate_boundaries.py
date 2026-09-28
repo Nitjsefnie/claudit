@@ -27,54 +27,64 @@ def _rates(fresh: float) -> dict[str, float]:
 def _install_rate_table(monkeypatch, dated_fixture):
     """Install only synthetic rows, including every resolver branch."""
     model, main_host = dated_fixture.model, "BoundaryHost"
-    model_after_start = datetime(2026, 11, 1, tzinfo=UTC)
-    provider_start = datetime(2026, 10, 1, tzinfo=UTC)
-    provider_cutover = datetime(2026, 12, 1, tzinfo=UTC)
-    perma_cutover = datetime(2027, 1, 1, tzinfo=UTC)
-    variant_cutover = datetime(2027, 2, 1, tzinfo=UTC)
-    model_only_ends = [datetime(2027, 3, 1, tzinfo=UTC),
-                       datetime(2027, 4, 1, tzinfo=UTC)]
-    free_start = datetime(2027, 5, 1, tzinfo=UTC)
-    free_cutover = datetime(2027, 6, 1, tzinfo=UTC)
-
-    model_before, model_middle, model_list = _rates(19), _rates(13), _rates(5)
-    main_provider_before, main_provider_list = _rates(31), _rates(7)
-    perma_before, perma_list = _rates(29), _rates(11)
-    variant_before, variant_list = _rates(37), _rates(17)
-    free_before, free_list = _rates(41), _rates(23)
-    model_only_before, model_only_middle, model_only_list = (
-        _rates(43), _rates(47), _rates(53))
-    tier_rates = _rates(59)
+    times = {
+        "model_after_start": datetime(2026, 11, 1, tzinfo=UTC),
+        "provider_start": datetime(2026, 10, 1, tzinfo=UTC),
+        "provider_cutover": datetime(2026, 12, 1, tzinfo=UTC),
+        "perma_cutover": datetime(2027, 1, 1, tzinfo=UTC),
+        "variant_cutover": datetime(2027, 2, 1, tzinfo=UTC),
+        "model_only_first": datetime(2027, 3, 1, tzinfo=UTC),
+        "model_only_second": datetime(2027, 4, 1, tzinfo=UTC),
+        "free_start": datetime(2027, 5, 1, tzinfo=UTC),
+        "free_cutover": datetime(2027, 6, 1, tzinfo=UTC),
+    }
+    rates = {
+        name: _rates(fresh) for name, fresh in {
+            "model_before": 19, "model_middle": 13, "model_list": 5,
+            "main_provider_before": 31, "main_provider_list": 7,
+            "snapshot_list": 3, "perma_before": 29, "perma_list": 11,
+            "variant_before": 37, "variant_list": 17,
+            "free_before": 41, "free_list": 23,
+            "model_only_before": 43, "model_only_middle": 47,
+            "model_only_list": 53, "tier": 59,
+        }.items()
+    }
 
     model_rates = {
-        model: model_list,
-        "acme/snapshot-0731": _rates(3),
-        "acme/model-only-9": model_only_list,
+        model: rates["model_list"],
+        "acme/snapshot-0731": rates["snapshot_list"],
+        "acme/model-only-9": rates["model_only_list"],
     }
     model_dated = {
-        model: [(dated_fixture.cutover, model_before),
-                (model_after_start, model_middle)],
-        "acme/model-only-9": [(model_only_ends[0], model_only_before),
-                              (model_only_ends[1], model_only_middle)],
+        model: [(dated_fixture.cutover, rates["model_before"]),
+                (times["model_after_start"], rates["model_middle"])],
+        "acme/model-only-9": [
+            (times["model_only_first"], rates["model_only_before"]),
+            (times["model_only_second"], rates["model_only_middle"]),
+        ],
     }
     provider_rates = {
-        (model, main_host): main_provider_list,
-        ("acme/snapshot-0731", main_host): perma_list,
-        ("acme/variant-9", main_host): variant_list,
-        ("acme/free-9", main_host): free_list,
+        (model, main_host): rates["main_provider_list"],
+        ("acme/snapshot-0731", main_host): rates["perma_list"],
+        ("acme/variant-9", main_host): rates["variant_list"],
+        ("acme/free-9", main_host): rates["free_list"],
     }
     provider_dated = {
-        (model, main_host): [(provider_cutover, main_provider_before)],
-        ("acme/snapshot-0731", main_host): [(perma_cutover, perma_before)],
+        (model, main_host): [(times["provider_cutover"],
+                             rates["main_provider_before"])],
+        ("acme/snapshot-0731", main_host): [
+            (times["perma_cutover"], rates["perma_before"])],
         # The provider start and dated end coincide; the result must be one
         # sorted boundary even though both sources name the same instant.
-        ("acme/variant-9", main_host): [(variant_cutover, variant_before)],
-        ("acme/free-9", main_host): [(free_cutover, free_before)],
+        ("acme/variant-9", main_host): [
+            (times["variant_cutover"], rates["variant_before"])],
+        ("acme/free-9", main_host): [
+            (times["free_cutover"], rates["free_before"])],
     }
     provider_starts = {
-        (model, main_host): provider_start,
-        ("acme/variant-9", main_host): variant_cutover,
-        ("acme/free-9", main_host): free_start,
+        (model, main_host): times["provider_start"],
+        ("acme/variant-9", main_host): times["variant_cutover"],
+        ("acme/free-9", main_host): times["free_start"],
     }
 
     monkeypatch.setattr(pricing, "MODEL_RATES", model_rates)
@@ -86,21 +96,23 @@ def _install_rate_table(monkeypatch, dated_fixture):
     monkeypatch.setattr(pricing, "DEFAULT_RATES", _rates(61))
     monkeypatch.setattr(
         pricing, "_TIER_FALLBACKS",  # pylint: disable=protected-access
-        ((re.compile(r"acme/tier"), tier_rates),),
+        ((re.compile(r"acme/tier"), rates["tier"]),),
     )
     return {
         "main": (model, main_host),
-        "main_boundaries": [dated_fixture.cutover, provider_start,
-                            provider_cutover],
-        "main_rates": [model_before, model_middle, main_provider_before,
-                       main_provider_list],
+        "main_boundaries": [dated_fixture.cutover, times["provider_start"],
+                            times["provider_cutover"]],
+        "main_rates": [rates["model_before"], rates["model_middle"],
+                       rates["main_provider_before"],
+                       rates["main_provider_list"]],
         "perma": ("acme/snapshot-20270731", main_host),
-        "perma_boundaries": [perma_cutover],
+        "perma_boundaries": [times["perma_cutover"]],
         "variant": ("acme/variant-9:nitro", main_host),
-        "variant_boundaries": [variant_cutover],
+        "variant_boundaries": [times["variant_cutover"]],
         "free": ("acme/free-9:free", main_host),
         "model_only": ("acme/model-only-9", "NoProviderRow"),
-        "model_only_boundaries": model_only_ends,
+        "model_only_boundaries": [times["model_only_first"],
+                                  times["model_only_second"]],
         "tier": ("acme/tier-99", "NoProviderRow"),
     }
 
@@ -108,7 +120,7 @@ def _install_rate_table(monkeypatch, dated_fixture):
 def _rate_boundaries_function():
     spec = importlib.util.find_spec("backend.rate_boundaries")
     assert spec is not None, "backend.rate_boundaries.rate_boundaries is missing"
-    from backend.rate_boundaries import rate_boundaries
+    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
     return rate_boundaries
 
 

@@ -131,13 +131,7 @@ def _accumulate_model_row(
     keyed, so a per-model entry's buckets still reconcile with its stored
     cost when its rows came from several hosts.
     """
-    model, provider, epoch, long_context, turns = row[:5]
-    tokens = dict(zip(_FOLD_TOKENS, (int(v or 0) for v in row[5:11])))
-    model = model or "unknown"
-    provider = provider or None
-    res = pricing.resolve(
-        model, _pair_epoch_ts(int(epoch or 0), model, provider, pair_bounds),
-        provider)
+    model, provider, tokens, res = _model_row_pricing(row, pair_bounds)
     key = (model, provider) if by_provider else model
     if key not in acc:
         acc[key] = _empty_model_entry(model)
@@ -145,12 +139,24 @@ def _accumulate_model_row(
             acc[key]["provider"] = provider
     entry = acc[key]
     entry["estimated_rate"] = entry["estimated_rate"] or res.estimated
-    entry["turns"] += int(turns or 0)
+    entry["turns"] += int(row[4] or 0)
     for field, value in tokens.items():
         entry[field] += value
     stored = float(row[11] or 0)
     entry["cost_total"] += stored
-    _accumulate_row_buckets(entry, res, tokens, bool(long_context), stored)
+    _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored)
+
+
+def _model_row_pricing(
+        row, pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
+        -> tuple[str, str | None, dict, pricing.Resolution]:
+    """Resolve one aggregate row from its pair and SQL epoch index."""
+    model = row[0] or "unknown"
+    provider = row[1] or None
+    tokens = dict(zip(_FOLD_TOKENS, (int(v or 0) for v in row[5:11])))
+    representative = _pair_epoch_ts(int(row[2] or 0), model, provider,
+                                    pair_bounds)
+    return model, provider, tokens, pricing.resolve(model, representative, provider)
 
 
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
