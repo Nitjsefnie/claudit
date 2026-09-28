@@ -20,7 +20,10 @@ Nothing in the schema names a person. Two identifiers matter:
   starts with `-`) and `files.session_id` is the session id from the
   object key. Directory paths commonly embed a username
   (`-home-subject-example-app`), which is how you find one person's
-  projects.
+  projects. Only the Claude layout carries the slug in its object
+  keys; the lane layout's keys are hash-segmented
+  (`sessions/<hash>/...`), and the slug comes from the path named in
+  the lane project's `project.json` marker at ingest time.
 
 The link between an account and its transcripts is an operational fact
 (the operator knows whose machine wrote which sessions), not something
@@ -36,17 +39,22 @@ it.
 | `lane_markers` (app DB) | The directory path each lane project marker named | Dropped when the marker object leaves the bucket and an ingest runs |
 | Derived rollups (`usage_rollup`, `tool_rollup`, `tool_error_rollup`, `dispatch_rollup`, `dispatch_brief_rollup`, `ctx_cost_rollup`, `agent_rollup`, `latency_rollup`) | Pre-summed aggregates rebuilt from `records`/`files`/`tool_uses` at every ingest | Automatic: rebuilt from what remains after the sweep |
 | `ingest_runs`, `ingest_derived_state` (app DB) | Run metadata — trigger, counts, a count-only error summary. No transcript content | Nothing to erase |
+| `suppressed_models`, `project_aliases` (app DB) | Operator config, ships empty. `project_aliases.project_id` names a target project id, so it can carry a person's slug where an alias is configured | Edit the table if a row names them; nothing is stored per person |
 | `user_session` (app DB) | Per-user session secret, generation counter, credential fingerprint | Operator `DELETE` (step 4 below) |
 | External auth DB `users` | `user_id` + `config` JSONB holding the PBKDF2 `web_password_hash` and `web_password_salt`. Read-only to claudit | Deleted by your user-management process, outside this app |
 | In-process caches | Raw transcript bytes (LRU keyed by etag), aggregate API responses, short-lived login-rate-limit and auth-config entries | Orphan sweep (transcript LRU), ingest invalidation, process restart, and 60 s / 5 min expiry |
 | Server and proxy logs, backups | Request lines (journald for the service, nginx access logs, Cloudflare edge), DB and bucket backups | Operator policy — outside this repo |
 
-The databases hold statistics and metadata, not message text — with
-three deliberate exceptions in `tool_uses` and `files`: `error_text`
-(the leading 200 characters of a failed tool result), `read_targets` /
-`write_targets` (file paths a call named), and the project slug /
-marker `path` (directory paths). These are content fragments; they
-cascade away with the `files` row.
+The databases hold statistics and metadata, not message text — with a
+few deliberate fragments. `tool_uses.error_text` (the leading 200
+characters of a failed tool result), `tool_uses.read_targets` /
+`write_targets` (file paths a call named) and `tool_uses.dispatch_name`
+(the name a dispatch gave its agent) cascade away with their `files`
+row; `projects.project_id` / `display_name` (the directory-path slug
+and, for a lane project, the path itself as the display name) go when
+the emptied project row is dropped; and `lane_markers.path` (the
+directory path a lane project marker named) goes when the marker object
+leaves the bucket.
 
 ## Exporting one person's data
 
@@ -73,10 +81,13 @@ Two routes; the first needs no claudit access at all:
   be xz-compressed (`*.jsonl.xz`); the plain JSONL is inside.
 - **Through the app.** `GET /api/sessions/{session_id}/transcript`
   returns a session's main transcript, and
-  `GET /api/sessions/{session_id}/sidecar?path=<name>` fetches a
-  sidecar beside it. Both require a signed-in non-guest session (a
-  guest is refused on `/api/sessions*`). The transcript route serves
-  the main file only; subagent files are separate sessions.
+  `GET /api/sessions/{session_id}/sidecar?path=<name>` fetches any file
+  beside it — a subagent transcript (`subagents/agent-<id>.jsonl`) or
+  its meta sidecar. Both require a signed-in non-guest session (a
+  guest is refused on `/api/sessions*`). Subagent transcripts share the
+  session id and sit in `files` as their own rows with
+  `is_main = FALSE`; list them with `SELECT file_key FROM files WHERE
+  session_id = '<session-id>'`.
 
 ### Export the derived rows
 
@@ -84,10 +95,15 @@ Two routes; the first needs no claudit access at all:
 joins through `files`:
 
 ```sql
-\copy (SELECT * FROM files    WHERE project_id = '<project-slug>')      TO 'files.csv'    CSV HEADER
-\copy (SELECT * FROM records  WHERE file_key LIKE '<bucket>/<project-slug>/%') TO 'records.csv'  CSV HEADER
-\copy (SELECT * FROM tool_uses WHERE file_key LIKE '<bucket>/<project-slug>/%') TO 'tool_uses.csv' CSV HEADER
+\copy (SELECT * FROM files     WHERE project_id = '<project-slug>') TO 'files.csv'     CSV HEADER
+\copy (SELECT * FROM records   WHERE file_key LIKE '<file-key-prefix>/%') TO 'records.csv'   CSV HEADER
+\copy (SELECT * FROM tool_uses WHERE file_key LIKE '<file-key-prefix>/%') TO 'tool_uses.csv' CSV HEADER
 ```
+
+`<file-key-prefix>` is the actual `file_key` prefix the files query
+returned: `<bucket>/<project-slug>` for a Claude-layout project,
+`<bucket>/sessions/<hash>` for a lane project (lane keys are
+hash-segmented, so a slug-shaped pattern would match none of them).
 
 The rollups are pure recombinations of `records`/`tool_uses`/`files`
 and are not exported separately. Run `psql` against the app DB
@@ -100,13 +116,22 @@ erase the account data.
 
 ### 1. Delete their objects from every configured bucket
 
-Delete the transcripts, sidecars and any
-`sessions/<project-slug>/project.json` marker under the person's
-prefixes, in **every** bucket named in `R2_BUCKET` (a deploy may serve
-several, joined by `+`). claudit has no delete API and never writes to
-the bucket, so this is an operator action in the bucket itself.
-Deleting an object does not by itself remove its database rows — they
-persist until the sweep — so run step 2 promptly after step 1.
+Delete every object under the person's prefixes — transcripts,
+subagent files, sidecars — in **every** bucket named in `R2_BUCKET`
+(a deploy may serve several, joined by `+`). For a lane project, also
+delete its `sessions/<hash>/project.json` marker object: lane bucket
+keys are hash-segmented, so the marker sits under no slug-derivable
+prefix. Find the exact key from the path the marker named:
+
+```sql
+SELECT marker_key FROM lane_markers WHERE path LIKE '%subject.example%';
+```
+
+(Claude-layout projects have no marker objects.) claudit has no delete
+API and never writes to the bucket, so this is an operator action in
+the bucket itself. Deleting an object does not by itself remove its
+database rows — they persist until the sweep — so run step 2 promptly
+after step 1.
 
 ### 2. Run an ingest so the orphan sweep cascades the rows
 
@@ -128,16 +153,16 @@ then rebuilt from what remains.
 ### 3. Verify nothing remains
 
 ```sql
--- All of these must return 0.
+-- All of these must return 0. <file-key-prefix> is the actual file_key
+-- prefix the export section's files query returned (see above).
 SELECT count(*) FROM files
-  WHERE file_key LIKE '<bucket>/<project-slug>/%';
+  WHERE file_key LIKE '<file-key-prefix>/%';
 SELECT count(*) FROM records
-  WHERE file_key LIKE '<bucket>/<project-slug>/%';
+  WHERE file_key LIKE '<file-key-prefix>/%';
 SELECT count(*) FROM tool_uses
-  WHERE file_key LIKE '<bucket>/<project-slug>/%';
+  WHERE file_key LIKE '<file-key-prefix>/%';
 SELECT count(*) FROM projects WHERE project_id = '<project-slug>';
-SELECT count(*) FROM lane_markers
-  WHERE marker_key LIKE '<bucket>/sessions/<project-slug>/%';
+SELECT count(*) FROM lane_markers WHERE path LIKE '%subject.example%';
 ```
 
 `records` and `tool_uses` cannot outlive `files` (the FKs cascade), so
