@@ -25,7 +25,7 @@ _TEST_CONFIG = {
     "web_password_salt": "stored-salt",
 }
 _TEST_CREDENTIAL_FP = (
-    "5f7c3688f3934ccacc7182694bb2e452089f3ab65cb831db3f04851798596baa"
+    "33875a22ef8572036d179f52c5464c6941cc1cd4c8779dcd762f27092ca8ca4a"
 )
 
 

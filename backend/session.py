@@ -190,12 +190,21 @@ def load_user_config(user_id: int) -> dict | None:
     return row[0] if row else None
 
 
+# Key for the credential fingerprint's HMAC — a fixed domain separator,
+# not a secret: the fingerprint is a change-detection tag over material
+# that is already a PBKDF2 output (issue #237).
+_FP_KEY = b"claudit credential fingerprint v1"
+
+
 def credential_fingerprint(config: dict) -> str:
-    """Fingerprint the stored auth hash and salt without retaining them."""
+    """HMAC-SHA256 tag binding a user_session row to the stored
+    credential (its stored hash string and salt). Keyed because it is a
+    MAC over already-hashed material for change detection — it never
+    sees a password and must not be read as password hashing."""
     stored_hash = config.get("web_password_hash", "")
     stored_salt = config.get("web_password_salt", "")
     material = f"{stored_hash}\x00{stored_salt}".encode("utf-8")
-    return hashlib.sha256(material).hexdigest()
+    return hmac.new(_FP_KEY, material, hashlib.sha256).hexdigest()
 
 
 def _prune_user_config_cache(now: float) -> None:
