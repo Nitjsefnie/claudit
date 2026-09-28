@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from backend import db, r2
 from backend.api_common import (Phases, _parse_range, fold_per_model,
@@ -168,7 +168,6 @@ def _top_rows(rows, columns):
     return out
 
 
-@router.get("/cache")
 @cache_response
 def cache_view(
     rng: str = Query("30d", alias="range"),
@@ -233,3 +232,30 @@ def cache_view(
             "output", "fresh", "cost", "file_key",
         ]),
     }
+
+
+@router.get("/cache")
+def cache_view_route(
+    request: Request,
+    rng: str = Query("30d", alias="range"),
+    project: str | None = Query(None),
+    model: str | None = Query(None),
+) -> dict:
+    """Route wrapper around the cached cache payload.
+
+    The cached body always carries file_key on every top-request row,
+    shared by all callers. Guests get a copied payload with file_key
+    removed from those rows; the dict comprehensions preserve the cached
+    object intact for later non-guest hits (issue #244)."""
+    payload = cache_view(rng=rng, project=project, model=model)
+    if bool(getattr(request.state, "is_guest", False)):
+        row_lists = ("top_output", "top_cache_create", "top_cache_read")
+        payload = {
+            **payload,
+            **{
+                name: [{k: v for k, v in row.items() if k != "file_key"}
+                       for row in payload[name]]
+                for name in row_lists
+            },
+        }
+    return payload

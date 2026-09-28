@@ -1,24 +1,18 @@
 """Read endpoints. All gated by session.auth_middleware via path prefix /api/.
 
-Per-FILE / per-RECORD shape (R1+R2+R3+R4):
-  - /api/projects: list of projects with file_count + total_cost
-  - /api/cache: literal compute_cache replica (per-model + top10 + buckets)
-  - /api/sessions/{id}/transcript: raw bytes for Inspector (LRU cache)
-  - /api/sessions/{id}/sidecar: path-validated sidecar fetch
+Per-FILE / per-RECORD: /api/projects, /api/cache, session transcripts and
+sidecars.
+Transcript reads stream raw bytes.
+Sidecar reads validate the requested path within the owning session.
 
-Legacy compatibility shims (R11) for the restored Dashboard / SessionsList /
-SessionView frontend (post-revert of R9). Sourced from new files+records
-tables but returning OLD response shape:
-  - /api/dashboard:        hourly aggregates + burns + ctx_lines
-  - /api/sessions:         paginated session list
-  - /api/sessions/{id}:    single session detail
+Legacy compatibility shims for the restored Dashboard / SessionsList /
+SessionView frontend return the older shape: /api/dashboard (hourly
+aggregates, burns, ctx_lines), /api/sessions (paginated list) and
+/api/sessions/{id} (session detail).
 
-Module layout (issue #8 split — the single file outgrew pylint's
-1000-line gate): shared helpers live in backend/api_common.py; the
-endpoint groups in backend/api_export.py, backend/api_dashboard.py,
-backend/api_sessions.py and backend/api_cache.py each define their own
-APIRouter, included below. This file keeps the panel endpoints that
-were small enough to stay.
+Shared helpers live in backend/api_common.py; export, dashboard, sessions
+and cache routes live in their own routers. This file keeps smaller panel
+endpoints.
 """
 from __future__ import annotations
 
@@ -26,8 +20,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
-from starlette.requests import Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
 from backend import db, events, r2
@@ -468,23 +461,31 @@ def _latency_live(rng: str, project: str | None, model: str | None,
 
 
 @router.get("/reply-latency")
+def reply_latency_route(
+    request: Request, rng: str = Query("30d", alias="range"),
+    project: str | None = Query(None), model: str | None = Query(None),
+) -> dict:
+    """Reply-latency wrapper (issue #244): latency is the gap from each
+    anchored user message to its assistant reply; project/model filters
+    apply to the assistant record. Guests get copied outliers without
+    file_key, preserving the cached body."""
+    payload = reply_latency(rng=rng, project=project, model=model)
+    if bool(getattr(request.state, "is_guest", False)):
+        payload = {**payload, "outliers": [
+            {k: v for k, v in row.items() if k != "file_key"}
+            for row in payload["outliers"]]}
+    return payload
+
+
 @cache_response
 def reply_latency(
     rng: str = Query("30d", alias="range"),
-    project: str | None = Query(None),
-    model: str | None = Query(None),
+    project: str | None = Query(None), model: str | None = Query(None),
 ) -> dict:
-    """Per-(bucket, model) reply-latency percentiles + per-bucket
-    top/bottom 1% outliers. Latency is the gap from each anchored user
-    message to its assistant reply, computed at parse time
-    (records.reply_latency_s). Model & project filters apply to the
-    assistant record's model/project."""
     delta = _parse_range(rng)
-    since = datetime.now(timezone.utc) - delta
-    bucket_s = _bucket_seconds(delta)
-    if bucket_s in LATENCY_BUCKETS:
-        return _latency_from_rollup(rng, project, model, bucket_s, since)
-    return _latency_live(rng, project, model, bucket_s, since)
+    since, bucket_s = datetime.now(timezone.utc) - delta, _bucket_seconds(delta)
+    compute = _latency_from_rollup if bucket_s in LATENCY_BUCKETS else _latency_live
+    return compute(rng, project, model, bucket_s, since)
 
 
 @router.get("/events")
@@ -959,9 +960,8 @@ def context_growth_agg(
 
 
 @router.get("/context-growth/session/{session_id}")
-def context_growth_session(session_id: str) -> dict:
-    """Per-turn array for the MAIN file of this session: its stored
-    ctx_turns, exactly as parse_common._build_ctx_turns built them."""
+def context_growth_session(request: Request, session_id: str) -> dict:
+    """Main-file ctx_turns, without file_key for guests (issue #244)."""
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT file_key, ctx_turns, turn_count "
@@ -971,7 +971,7 @@ def context_growth_session(session_id: str) -> dict:
     if row is None:
         raise HTTPException(404, "session not found")
     file_key, turns, count = row
-    final_ctx = 0
+    final_ctx, is_guest = 0, bool(getattr(request.state, "is_guest", False))
     if turns:
         try:
             final_ctx = int(turns[-1].get("input", 0))
@@ -979,7 +979,7 @@ def context_growth_session(session_id: str) -> dict:
             final_ctx = 0
     return {
         "session_id": session_id,
-        "file_key": r2.public_key(file_key),
+        **({} if is_guest else {"file_key": r2.public_key(file_key)}),
         "turns": turns,
         "total_turns": count,
         "final_ctx": final_ctx,
