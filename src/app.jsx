@@ -193,7 +193,7 @@ function makeTranscriptLoader({ fetchText, parse, onStart, onSuccess, onError })
       text = await fetchText(sessionId);
     } catch (err) {
       if (request !== latestRequest) return;
-      onError(err && err.message ? err.message : String(err));
+      onError('fetch', err);
       return;
     }
     if (request !== latestRequest) return;
@@ -203,7 +203,7 @@ function makeTranscriptLoader({ fetchText, parse, onStart, onSuccess, onError })
       tx = parse(text);
     } catch (err) {
       if (request !== latestRequest) return;
-      onError(err && err.message ? err.message : String(err));
+      onError('parse', err);
       return;
     }
     if (request === latestRequest) onSuccess(tx);
@@ -258,9 +258,15 @@ function App() {
         setUseSynth(false);
         setRoute('session');
       },
-      onError: message => {
-        console.error('transcript fetch failed', message);
-        setTranscriptError(message);
+      onError: (kind, err) => {
+        const message = err && err.message ? err.message : String(err);
+        if (kind === 'parse') {
+          console.error('transcript parse failed', err);
+          setTranscriptError(`transcript parse failed: ${message}`);
+        } else {
+          console.error('transcript fetch failed', err);
+          setTranscriptError(`transcript fetch failed: ${message}`);
+        }
         setRoute('session');
       },
     });
@@ -429,7 +435,7 @@ function App() {
         </div>
       )}
       {route === 'session' && (transcriptError
-        ? <div className="err">transcript fetch failed: {transcriptError}</div>
+        ? <div className="err">{transcriptError}</div>
         : <SessionView tx={tx} />)}
       {/* Live region for the SSE ingest_done refresh (issue #117).
           Mounted here, outside the panel tree, so no re-render can

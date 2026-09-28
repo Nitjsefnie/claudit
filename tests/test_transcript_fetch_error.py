@@ -77,7 +77,7 @@ def _extract_function(src: str, name: str) -> str:
 def _extract_arrow_body(src: str, name: str) -> str:
     """Extract the block body of a named object-property arrow callback."""
     match = re.search(
-        rf"\b{re.escape(name)}\s*:\s*(?:\(\s*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{{",
+        rf"\b{re.escape(name)}\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{{",
         src,
     )
     assert match, f"could not locate the `{name}` callback"
@@ -148,7 +148,7 @@ const assert = require('assert');
     parse: text => {{ events.push(['parse', text]); return {{parsed: text.toUpperCase()}}; }},
     onStart: () => events.push(['start']),
     onSuccess: tx => events.push(['success', tx]),
-    onError: message => events.push(['error', message]),
+    onError: (kind, err) => events.push(['error', kind, err]),
   }});
 
   const pending = load('chosen');
@@ -191,14 +191,58 @@ const assert = require('assert');
     parse: text => {{ parseCalls++; return text; }},
     onStart: () => events.push(['start']),
     onSuccess: tx => events.push(['success', tx]),
-    onError: message => events.push(['error', message]),
+    onError: (kind, err) => events.push(['error', kind, err]),
   }});
 
   await load('missing');
   assert.strictEqual(parseCalls, 0);
-  assert.deepStrictEqual(events, [
-    ['start'], ['error', 'HTTP 404: session not found'],
-  ]);
+  assert.deepStrictEqual(events[0], ['start']);
+  assert.strictEqual(events[1][0], 'error');
+  assert.strictEqual(events[1][1], 'fetch');
+  assert(events[1][2] instanceof Error);
+  assert.strictEqual(events[1][2].message, 'HTTP 404: session not found');
+}})().catch(err => {{
+  console.error(err);
+  process.exitCode = 1;
+}});
+"""
+    proc = _run_node(script)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_transcript_loader_reports_parse_error_after_successful_fetch():
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+
+    src = APP.read_text(encoding="utf-8")
+    loader = _extract_function(src, "makeTranscriptLoader")
+    fetch = _extract_function(src, "fetchTranscriptText")
+    script = f"""
+{fetch}
+{loader}
+const assert = require('assert');
+(async () => {{
+  const parseError = new Error('malformed transcript');
+  const events = [];
+  let parseInput;
+  const load = makeTranscriptLoader({{
+    fetchText: sessionId => fetchTranscriptText(sessionId, async (url, options) => {{
+      assert.strictEqual(url, '/api/sessions/bad/transcript');
+      return new Response('bad transcript', {{status: 200}});
+    }}),
+    parse: text => {{ parseInput = text; throw parseError; }},
+    onStart: () => events.push(['start']),
+    onSuccess: tx => events.push(['success', tx]),
+    onError: (kind, err) => events.push(['error', kind, err]),
+  }});
+
+  await load('bad');
+  assert.deepStrictEqual(events[0], ['start']);
+  assert.strictEqual(parseInput, 'bad transcript');
+  assert.strictEqual(events[1][0], 'error');
+  assert.strictEqual(events[1][1], 'parse');
+  assert.strictEqual(events[1][2], parseError);
+  assert(events[1][2] instanceof Error);
 }})().catch(err => {{
   console.error(err);
   process.exitCode = 1;
@@ -231,7 +275,7 @@ function deferred() {{
     parse: text => ({{parsed: text}}),
     onStart: () => events.push('start'),
     onSuccess: tx => events.push(['success', tx.parsed]),
-    onError: message => events.push(['error', message]),
+    onError: (kind, err) => events.push(['error', kind, err]),
   }});
 
   const first = load('A');
@@ -250,7 +294,7 @@ function deferred() {{
     parse: text => ({{parsed: text}}),
     onStart: () => {{}},
     onSuccess: tx => successes.push(tx.parsed),
-    onError: message => assert.fail(message),
+    onError: (kind, err) => assert.fail(err.message),
   }});
   const slowSuccess = loadSuccess('A');
   const fastSuccess = loadSuccess('B');
@@ -310,11 +354,31 @@ def test_transcript_loader_callbacks_keep_inspector_load_lifecycle():
     assert re.search(r"setFilename\s*\(\s*transcriptSessionIdRef\s*\.\s*current\s*\)", on_success)
     assert re.search(r"setUseSynth\s*\(\s*false\s*\)", on_success)
     assert re.search(r"setRoute\s*\(\s*['\"]session['\"]\s*\)", on_success)
-    assert re.search(r"setTranscriptError\s*\(\s*message\s*\)", on_error)
     assert re.search(r"setRoute\s*\(\s*['\"]session['\"]\s*\)", on_error), (
         "the error callback must route to the Inspector"
     )
-    assert re.search(r"console\.error\s*\(\s*['\"]transcript fetch failed['\"]", on_error)
+    assert re.search(
+        r"console\.error\s*\(\s*['\"]transcript fetch failed['\"]\s*,\s*err\s*\)",
+        on_error,
+    )
+    assert re.search(
+        r"setTranscriptError\s*\(\s*`transcript fetch failed: \$\{message\}`\s*\)",
+        on_error,
+    )
+
+
+def test_transcript_parse_failure_has_parse_label_and_keeps_error_object():
+    src = APP.read_text(encoding="utf-8")
+    on_error = re.sub(r"\s+", " ", _extract_arrow_body(src, "onError"))
+    assert re.search(
+        r"if\s*\(\s*kind\s*===\s*['\"]parse['\"]\s*\)\s*\{\s*"
+        r"console\.error\s*\(\s*['\"]transcript parse failed['\"]\s*,\s*err\s*\)\s*;\s*"
+        r"setTranscriptError\s*\(\s*`transcript parse failed: \$\{message\}`\s*\)\s*;\s*"
+        r"\}\s*else\s*\{\s*"
+        r"console\.error\s*\(\s*['\"]transcript fetch failed['\"]\s*,\s*err\s*\)\s*;\s*"
+        r"setTranscriptError\s*\(\s*`transcript fetch failed: \$\{message\}`\s*\)\s*;\s*\}",
+        on_error,
+    ), "parse errors must retain their parse label and log the Error object"
 
 
 def test_session_route_shows_error_before_session_view_and_ignores_reformatting():
@@ -324,7 +388,7 @@ def test_session_route_shows_error_before_session_view_and_ignores_reformatting(
     branch = re.sub(r"\s+", " ", match.group(1)).strip()
     assert re.search(
         r"\(\s*transcriptError\s*\?\s*<div\s+className=\"err\">"
-        r"\s*transcript fetch failed:\s*\{transcriptError\}\s*</div>\s*"
+        r"\s*\{transcriptError\}\s*</div>\s*"
         r":\s*<SessionView\b",
         branch,
     ), "the error element must render for transcriptError, before the normal SessionView branch"
