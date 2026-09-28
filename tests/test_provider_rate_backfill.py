@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import sys
 from dataclasses import dataclass
@@ -13,9 +14,18 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
-# The backfill CLI resolves its sibling scripts from scripts/ci.
-# pylint: disable=wrong-import-position,wrong-import-order
-import backfill_provider_rates as backfill  # noqa: E402
+def _load():
+    """Import scripts/ci/backfill_provider_rates.py by path."""
+    path = CI / "backfill_provider_rates.py"
+    spec = importlib.util.spec_from_file_location("backfill_provider_rates", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["backfill_provider_rates"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+backfill = _load()
 
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"

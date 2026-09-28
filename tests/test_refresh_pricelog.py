@@ -1,6 +1,7 @@
 """Synthetic tests for OpenRouter's per-endpoint listed-pricing log."""
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -14,9 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
-# The directly executable script resolves sibling modules from scripts/ci.
-# pylint: disable=wrong-import-position,wrong-import-order
-import refresh_pricelog as pricelog  # noqa: E402
+def _load():
+    """Import scripts/ci/refresh_pricelog.py by path."""
+    path = CI / "refresh_pricelog.py"
+    spec = importlib.util.spec_from_file_location("refresh_pricelog", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["refresh_pricelog"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+pricelog = _load()
 
 
 def _point(at: str, value: float | None) -> dict:
