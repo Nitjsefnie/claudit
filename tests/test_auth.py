@@ -154,6 +154,16 @@ def test_stored_verification_iterations_for_each_shape():
         auth.stored_verification_iterations(legacy)
         == auth.PBKDF2_ITERATIONS
     )
+    corrupt_legacy_salt = {
+        auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
+        auth.WEB_PASSWORD_SALT_KEY: "not-hex",
+    }
+    corrupt_legacy_hash = {
+        auth.WEB_PASSWORD_HASH_KEY: "not-hex",
+        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    }
+    assert auth.stored_verification_iterations(corrupt_legacy_salt) == 0
+    assert auth.stored_verification_iterations(corrupt_legacy_hash) == 0
     modern: dict = {}
     auth.set_web_password(modern, "pw")
     assert (

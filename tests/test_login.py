@@ -308,7 +308,7 @@ def test_wrong_password_against_legacy_hash_tops_up(
     assert calls == [auth.PBKDF2_ITERATIONS]
 
 
-def test_non_hex_legacy_salt_is_generic_and_normalizes_from_legacy_count(
+def test_non_hex_legacy_salt_is_generic_and_normalizes_from_zero(
     app, fake_user, monkeypatch
 ):
     fake_user[558] = {auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
@@ -319,7 +319,7 @@ def test_non_hex_legacy_salt_is_generic_and_normalizes_from_legacy_count(
     response = _post_login(TestClient(app), 558, "anything")
     assert response.status_code == 401
     assert response.text == "Invalid credentials."
-    assert calls == [auth.PBKDF2_ITERATIONS]
+    assert calls == [0]
 
 
 def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):

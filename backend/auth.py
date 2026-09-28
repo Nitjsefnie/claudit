@@ -134,10 +134,10 @@ def stored_verification_iterations(config: dict) -> int:
     """The iteration count `verify_web_password` would spend on this
     stored config: the count a versioned string carries, the legacy
     count for bare hex, and 0 when nothing would run at all (a missing
-    hash/salt pair, or a malformed versioned string, which fails
-    before any PBKDF2). Mirrors the format branch of
-    `verify_web_password` — the login flow passes this count back as
-    what a failed real verification already spent.
+    hash/salt pair, malformed versioned string, or corrupt legacy salt
+    or hash, each of which fails before any PBKDF2). Mirrors the format
+    branch of `verify_web_password` — the login flow passes this count
+    back as what a failed real verification already spent.
     """
     stored_hash = config.get(WEB_PASSWORD_HASH_KEY)
     stored_salt = config.get(WEB_PASSWORD_SALT_KEY)
@@ -146,6 +146,11 @@ def stored_verification_iterations(config: dict) -> int:
     if stored_hash.startswith(_HASH_SCHEME + "$"):
         parsed = _parse_versioned(stored_hash)
         return parsed[0] if parsed else 0
+    try:
+        bytes.fromhex(stored_salt)
+        bytes.fromhex(stored_hash)
+    except ValueError:
+        return 0
     return PBKDF2_ITERATIONS
 
 
