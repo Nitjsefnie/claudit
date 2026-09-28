@@ -90,6 +90,14 @@ jobs:
         with:
           python-version: "3.13"
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        # The JavaScript coverage ratchet measures V8 block coverage, which
+        # can shift across V8 minors; pin the EXACT node the seed was
+        # measured with so a runner-side drift cannot move the measurement
+        # out from under the committed floor (issue #266).
+        with:
+          node-version: "24.17.0"
+
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
@@ -162,11 +170,16 @@ jobs:
           recorded_measured="$(python3 scripts/ci/thresholds.py \
             --coverage-measured python)"
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
+          js_measured="$(python3 scripts/ci/thresholds.py \
+            --coverage-measured javascript)"
+          js_floor="$(python3 scripts/ci/thresholds.py \
+            --coverage-floor javascript)"
           {
             echo '### Coverage'
             echo
             echo "Recorded ratchet (from .github/ci-thresholds.json):" \
-              "measured ${recorded_measured}% / floor ${floor}%"
+              "python measured ${recorded_measured}% / floor ${floor}%," \
+              "javascript measured ${js_measured}% / floor ${js_floor}%"
             echo
             python -m coverage report --format=markdown --precision=1
           } >> "$GITHUB_STEP_SUMMARY"
@@ -270,6 +283,58 @@ jobs:
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
           python -m coverage report "--fail-under=${floor}" --precision=1
 
+      - name: Install c8 (pinned, no package.json, no build step)
+        # zizmor: ignore[adhoc-packages]
+        # Same deliberate no-lockfile install as eslint.yml: a
+        # package.json here would read as the repo having adopted a build
+        # step, which it has not. The package IS pinned to an exact
+        # version, so the risk the audit targets — an unpinned install
+        # drifting under CI — does not apply.
+        run: npm install --no-save --no-package-lock --no-audit --no-fund c8@10.1.3
+
+      - name: JavaScript coverage gate
+        # The front-end half of the same ratchet (issue #266). Coverage
+        # comes from the node-executing tests: NODE_V8_COVERAGE captures
+        # every node subprocess this step's pytest run spawns, and c8
+        # folds them into per-file line coverage over src/**/*.js — the
+        # files node actually executes. The .jsx panels are
+        # boundary-excluded: node parses no JSX, and the parity tests
+        # eval only extracted fragments, which V8 attributes to the eval,
+        # not the source file. The floor is the committed javascript
+        # record, same rules as python: seeded 1.5 under measured, never
+        # lowered, raised on master by ratchet.py --language javascript.
+        id: jscov
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        env:
+          NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
+        run: |
+          rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
+          python -m pytest tests/test_breakdown_exact_rate.py \
+            tests/test_ctx_turn_parity.py \
+            tests/test_dashboard_binning.py \
+            tests/test_empty_usage_parity.py \
+            tests/test_model_colors.py \
+            tests/test_parse_non_object.py \
+            tests/test_parser_js_lanes.py \
+            tests/test_parser_js_mirror.py \
+            tests/test_parser_js_pricing_loader.py \
+            tests/test_parser_js_user_prompt.py \
+            tests/test_pricing_data.py \
+            tests/test_prompt_gate_whitespace.py \
+            tests/test_provider_rate_refresh.py \
+            tests/test_time_series_geometry.py \
+            tests/test_transcript_fetch_error.py \
+            tests/test_vbar_label_geometry.py -q --no-header
+          floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
+          npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
+            --reporter=text --reporter=json-summary \
+            --include 'src/**/*.js' --check-coverage --lines "$floor"
+          js_measured="$(node -e 'console.log(
+            require("./coverage/coverage-summary.json").total.lines.pct.toFixed(1))')"
+          echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"
+          echo "JavaScript coverage measured ${js_measured}% " \
+            "against floor ${floor}%"
+
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: this step fails on any file that
@@ -282,16 +347,27 @@ jobs:
       - name: Ratchet the thresholds
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
-        # be able to write it. The ratchet raises the coverage floor when
-        # this run justifies it, and --tighten follows shrunk files down;
-        # growth is never written here, the step above stays its gate.
+        # be able to write it. The ratchet raises either coverage floor
+        # (python from the full suite, javascript from the JS gate step)
+        # when this run justifies it, and --tighten follows shrunk files
+        # down; growth is never written here, the gate steps stay its
+        # gate.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
+                && steps.jscov.outcome == 'success'
                 && github.event_name == 'push'
                 && github.ref == 'refs/heads/master' }}
+        # JS_MEASURED travels by env, not by template expansion, so the
+        # run block carries no injection surface (zizmor
+        # template-injection): it is a toFixed(1) number the JS gate step
+        # itself printed.
+        env:
+          JS_MEASURED: ${{ steps.jscov.outputs.js_measured }}
         run: |
           measured="$(python -m coverage report --format=total --precision=1)"
           python3 scripts/ci/ratchet.py --measured "${measured}"
+          python3 scripts/ci/ratchet.py --language javascript \
+            --measured "${JS_MEASURED}"
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
           if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
@@ -305,7 +381,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Coverage ${measured}% and unchanged module sizes" \
+            echo "Python coverage ${measured}%, JavaScript coverage" \
+              "${JS_MEASURED}% and unchanged module sizes" \
               "justify no raise."
           fi
 
