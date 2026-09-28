@@ -209,7 +209,8 @@ def test_terminate_shards_signals_whole_process_groups(monkeypatch) -> None:
     the snapshot tree after its removal."""
     kills: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "killpg",
-                        lambda pid, sig: kills.append((pid, sig)))
+                        lambda pid, sig: kills.append((pid, sig)),
+                        raising=False)
     children = [_FakeShardChild(4242), _FakeShardChild(4243)]
 
     # pylint: disable-next=protected-access
@@ -227,7 +228,8 @@ def test_terminate_shards_escalates_to_sigkill_when_a_child_hangs(
     whole group and is then reaped; SIGTERM always went first."""
     kills: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "killpg",
-                        lambda pid, sig: kills.append((pid, sig)))
+                        lambda pid, sig: kills.append((pid, sig)),
+                        raising=False)
     child = _FakeShardChild(4244, hang=True)
 
     # pylint: disable-next=protected-access
@@ -265,6 +267,34 @@ def test_install_and_restore_round_trips_the_handlers() -> None:
         restore()
     for sig, handler in previous.items():
         assert signal.getsignal(sig) == handler
+
+
+@pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"),
+                    reason="needs POSIX signal masking")
+def test_installing_the_handlers_unblocks_the_inherited_mask() -> None:
+    """(review round 1) A shard child inherits the parent's blocked
+    spawn-window mask across fork/exec; installing the handlers MUST
+    unblock the signals or both the child's handler and the parent's
+    SIGTERM teardown stage are dead letters — every interrupted run
+    would pay the full grace and escalate to SIGKILL. Fails on the
+    broken shape: signal.signal installs a disposition, never a mask
+    change."""
+    saved = signal.pthread_sigmask(
+        signal.SIG_BLOCK, set(fuzz_sharding.interrupt_signals()))
+    try:
+        restore = fuzz_sharding.install_interrupt_handlers()
+        try:
+            blocked_now = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            assert not (set(fuzz_sharding.interrupt_signals())
+                        & blocked_now)
+            # And the handlers are live on top of the unblocked mask.
+            with pytest.raises(SystemExit) as exit_info:
+                os.kill(os.getpid(), signal.SIGTERM)
+            assert exit_info.value.code == 128 + signal.SIGTERM
+        finally:
+            restore()
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, saved)
 
 
 @pytest.mark.parametrize("signame", ["SIGTERM", "SIGINT", "SIGHUP"])
@@ -324,23 +354,35 @@ def _git_commit_all(repo: Path) -> None:
 
 
 def _procs_referencing(token: str) -> list[int]:
-    """Live PIDs whose cmdline or cwd references `token` (Linux /proc;
-    empty everywhere else). Zombie entries and races are skipped."""
-    if not Path("/proc").is_dir():
-        return []
-    found: list[int] = []
-    for entry in os.scandir("/proc"):
-        if not entry.name.isdigit():
-            continue
-        try:
-            cmdline = Path(entry.path, "cmdline").read_bytes()
-            cwd = os.readlink(str(Path(entry.path, "cwd")))
-        except OSError:
-            continue
-        if (token.encode() in cmdline
-                or cwd == token or cwd.startswith(token + "/")):
-            found.append(int(entry.name))
-    return found
+    """Live PIDs whose cmdline or cwd references `token`. Linux reads
+    /proc (cmdline AND cwd, so a grandchild whose own argv names
+    nothing is still seen); other POSIX platforms read `ps`, which
+    sees command lines only; Windows sees nothing."""
+    if sys.platform == "linux":
+        if not Path("/proc").is_dir():
+            return []
+        found: list[int] = []
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                cmdline = Path(entry.path, "cmdline").read_bytes()
+                cwd = os.readlink(str(Path(entry.path, "cwd")))
+            except OSError:
+                continue
+            if (token.encode() in cmdline
+                    or cwd == token or cwd.startswith(token + "/")):
+                found.append(int(entry.name))
+        return found
+    if os.name == "posix":
+        listing = subprocess.run(["ps", "-axo", "pid=,command="],
+                                 capture_output=True, text=True,
+                                 check=False).stdout
+        return [int(fields[0]) for fields in
+                (line.split(maxsplit=1) for line in listing.splitlines())
+                if len(fields) == 2 and token in fields[1]
+                and fields[0].isdigit()]
+    return []
 
 
 @pytest.mark.skipif(os.name != "posix",
@@ -362,9 +404,12 @@ def test_a_sigterm_during_a_sharded_run_removes_the_snapshots_and_shards(
     with subprocess.Popen(
         [sys.executable,
          str(repo / "scripts" / "ci" / "fuzz_test_data.py"),
-         "--iterations", "200", "--jobs", "2", "--seed", "1",
+         "--iterations", "2000", "--jobs", "2", "--seed", "1",
          "--artifact-dir", str(artifacts)],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    ) as proc:
         try:
             deadline = time.monotonic() + 90
             snaps: list[Path] = []

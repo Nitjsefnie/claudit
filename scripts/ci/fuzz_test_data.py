@@ -58,8 +58,6 @@ PRICING_REL = Path("src") / "pricing.json"
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 NOTE = "sv-test-data fuzz: independent field draws"
 TAIL_LINES = 30
-# The only names pruned from the collection-root union: never tests.
-PRUNED_TEST_DIRS = frozenset({"__pycache__", ".pytest_cache"})
 DEFAULT_ITERATIONS = 200
 OFFSET_CHANCE = 0.25
 # Believable timezone offsets; (0, 0) is the +00:00 spelling, which

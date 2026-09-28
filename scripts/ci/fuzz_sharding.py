@@ -54,8 +54,17 @@ def install_interrupt_handlers() -> Callable[[], None]:
     main's `finally` cleanup — the pricing baseline restore, the
     snapshot-tree removal — runs on an interrupted run, where SIGTERM's
     default disposition killed the process with no unwinding at all
-    (issue #331). Returns the restore callable; call it when the run
-    ends."""
+    (issue #331).
+
+    The interrupt signals are UNBLOCKED first: a shard child inherits
+    the parent's blocked spawn-window mask across fork/exec, and a
+    handler installed over a blocked signal is a dead letter — the
+    parent's SIGTERM teardown stage could never fire and every
+    interrupted run would escalate to SIGKILL. Returns the restore
+    callable; call it when the run ends."""
+    if hasattr(signal, "pthread_sigmask"):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, interrupt_signals())
+
     def raise_exit(signum: int, _frame: FrameType | None) -> None:
         raise SystemExit(128 + signum)
 
@@ -97,8 +106,14 @@ def _terminate_shards(
     """Signal each live shard's whole process GROUP, then reap: one
     killpg reaches the shard child and the suite child it is running,
     so no orphan outlives the run and nothing recreates the snapshot
-    tree after its removal. SIGKILL after the grace only where SIGTERM
-    was not enough. The interrupt signals stay blocked throughout."""
+    tree after its removal. The SIGTERM stage is the graceful path — a
+    shard child runs with the signals unblocked (see
+    install_interrupt_handlers), so its own handler raises SystemExit,
+    whose unwind through run_suite's subprocess.run kills the suite
+    child (run() kills the child on ANY exception, bare except); the
+    grandchild is in the child's group either way. SIGKILL after the
+    grace only where SIGTERM was not enough. The interrupt signals
+    stay blocked throughout."""
     with _blocked_signals():
         for _shard_dir, _result_file, child in pending:
             if child.poll() is not None:
