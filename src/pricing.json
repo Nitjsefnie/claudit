@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T05:54:22Z",
+  "provider_rates_fetched": "2026-09-28T06:53:45Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -790,6 +790,14 @@
           "from": "2026-09-28T00:52:31Z",
           "output": 0.468,
           "read": 0.00234
+        },
+        {
+          "create_1h": 0.080535,
+          "create_5m": 0.080535,
+          "fresh": 0.080535,
+          "from": "2026-09-28T06:53:45Z",
+          "output": 0.31014,
+          "read": 0.0015507
         }
       ],
       "NextBit": [
@@ -1076,6 +1084,14 @@
           "from": "2026-09-28T05:54:22Z",
           "output": 0.6,
           "read": 0.034
+        },
+        {
+          "create_1h": 0.0295,
+          "create_5m": 0.0295,
+          "fresh": 0.0295,
+          "from": "2026-09-28T06:53:45Z",
+          "output": 0.6,
+          "read": 0.029
         }
       ]
     },
@@ -2590,6 +2606,14 @@
           "from": "2026-09-28T04:53:53Z",
           "output": 4.2,
           "read": 0.2518
+        },
+        {
+          "create_1h": 0.2266,
+          "create_5m": 0.2266,
+          "fresh": 0.2266,
+          "from": "2026-09-28T06:53:45Z",
+          "output": 4.2,
+          "read": 0.2261
         }
       ]
     },
@@ -2614,6 +2638,16 @@
           "from": null,
           "output": 0.28,
           "read": 0.0028
+        }
+      ],
+      "Relace": [
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-28T06:53:45Z",
+          "output": 0.14,
+          "read": 0.007
         }
       ],
       "Xiaomi": [
@@ -2896,6 +2930,14 @@
           "from": "2026-09-28T05:54:22Z",
           "output": 1.2,
           "read": 0.0838
+        },
+        {
+          "create_1h": 0.442,
+          "create_5m": 0.442,
+          "fresh": 0.442,
+          "from": "2026-09-28T06:53:45Z",
+          "output": 3.2784,
+          "read": 0.1842
         }
       ],
       "InferenceNet": [
@@ -2918,6 +2960,15 @@
           "note": "35% off",
           "output": 1.898,
           "read": 0.091
+        },
+        {
+          "create_1h": 0.4235,
+          "create_5m": 0.4235,
+          "fresh": 0.4235,
+          "from": "2026-09-28T06:53:45Z",
+          "note": "45% off",
+          "output": 1.606,
+          "read": 0.077
         }
       ],
       "Makora": [
@@ -3167,6 +3218,14 @@
           "create_5m": 0.365,
           "fresh": 0.365,
           "from": "2026-09-28T05:54:22Z",
+          "output": 4.4,
+          "read": 0.26
+        },
+        {
+          "create_1h": 0.325,
+          "create_5m": 0.325,
+          "fresh": 0.325,
+          "from": "2026-09-28T06:53:45Z",
           "output": 4.4,
           "read": 0.26
         }
@@ -3774,6 +3833,14 @@
           "create_5m": 0.7,
           "fresh": 0.7,
           "from": "2026-09-28T05:54:22Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 1.0,
+          "create_5m": 1.0,
+          "fresh": 1.0,
+          "from": "2026-09-28T06:53:45Z",
           "output": 0.5,
           "read": 0.03
         }
