@@ -16,6 +16,7 @@ from backend import db, r2
 from backend.api_common import (Phases, _parse_range, fold_per_model,
                                 fold_per_model_provider, rate_epoch_sql)
 from backend.cache import cache_response
+from backend.rate_boundaries import rate_boundaries
 
 router = APIRouter()
 
@@ -52,10 +53,44 @@ def _cache_canon_source(project: str | None, model: str | None,
 
 
 def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
-    """per_model + the three top-10 queries against one connection."""
+    """Read pair boundaries, then run the per-model and top-10 queries."""
+    pairs = ph.execute(
+        "rate_pairs", c,
+        "SELECT DISTINCT model, provider FROM usage_rollup",
+    ).fetchall()
+    pairs = [(model or "unknown", provider or "") for model, provider in pairs]
+    pair_bounds = {
+        pair: rate_boundaries(*pair) for pair in pairs
+    }
+    pair_models = [model for model, _ in pairs]
+    pair_providers = [provider for _, provider in pairs]
+    boundary_lists = [
+        ",".join(boundary.isoformat() for boundary in pair_bounds[pair])
+        for pair in pairs
+    ]
+
     epoch_expr, epoch_params = rate_epoch_sql("ts")
+    per_model_source = canon_src.replace(
+        "FROM records",
+        "FROM records LEFT JOIN rate_boundaries AS rate_bounds "
+        "ON rate_bounds.pair_model = "
+        "COALESCE(NULLIF(records.model, ''), 'unknown') "
+        "AND rate_bounds.pair_provider = COALESCE(records.provider, '')",
+        1,
+    )
     per_model_rows = ph.execute(
         "per_model", c, f"""
+        WITH rate_boundaries AS (
+            SELECT supplied.model AS pair_model,
+                   supplied.provider AS pair_provider,
+                   CASE WHEN supplied.boundary_list = ''
+                        THEN '{{}}'::timestamptz[]
+                        ELSE string_to_array(supplied.boundary_list, ',')
+                             ::timestamptz[]
+                   END AS boundaries
+            FROM unnest(%s::text[], %s::text[], %s::text[])
+                 AS supplied(model, provider, boundary_list)
+        )
         SELECT model,
                provider,
                ({epoch_expr})              AS rate_epoch,
@@ -68,11 +103,11 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
                SUM(eph5_tokens)            AS eph5,
                SUM(eph1h_tokens)           AS eph1h,
                SUM(cost_usd)               AS cost_total
-        {canon_src}
+        {per_model_source}
         GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE)
         ORDER BY cost_total DESC
         """,
-        epoch_params + canon_args,
+        [pair_models, pair_providers, boundary_lists] + epoch_params + canon_args,
     ).fetchall()
 
     top_output = ph.execute(
@@ -116,7 +151,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) -> tuple:
         canon_args,
     ).fetchall()
 
-    return per_model_rows, top_output, top_create, top_read
+    return per_model_rows, top_output, top_create, top_read, pair_bounds
 
 
 def _session_total(per_model: list) -> dict:
@@ -202,12 +237,13 @@ def cache_view(
 
     ph = Phases("cache_view")
     with db.viz_conn() as c:
-        per_model_rows, top_output, top_create, top_read = _cache_queries(
+        per_model_rows, top_output, top_create, top_read, pair_bounds = _cache_queries(
             c, ph, canon_src, canon_args
         )
 
-    per_model = fold_per_model(per_model_rows)
-    per_model_provider = fold_per_model_provider(per_model_rows)
+    per_model = fold_per_model(per_model_rows, pair_bounds=pair_bounds)
+    per_model_provider = fold_per_model_provider(
+        per_model_rows, pair_bounds=pair_bounds)
     ph.done(models=len(per_model))
 
     return {
