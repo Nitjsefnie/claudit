@@ -7,10 +7,13 @@ import json
 import shutil
 import subprocess
 import sys
+import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+
+import pytest
 
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
@@ -221,22 +224,31 @@ def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path,
     assert f"sampled   {HOST}" in out
 
 
-def test_log_fetch_failure_samples_every_host_without_refusing_the_run(tmp_path, capsys):
-    other = "Other"
-    rows = {HOST: [_entry(None, RATE_A)], other: [_entry(None, RATE_B)]}
+@pytest.mark.parametrize("failure", ["timeout", "http_error"])
+def test_log_fetch_failure_samples_moved_price_without_refusing_the_run(
+        tmp_path, capsys, failure):
     states = [("2030-12-31T23:00:00Z", RATE_A)]
+    version = 71
 
     def fail_log():
-        raise TimeoutError("synthetic timeout")
+        if failure == "timeout":
+            raise TimeoutError("synthetic timeout")
+        raise urllib.error.HTTPError(
+            "https://example.invalid/listed-pricing", 503,
+            "synthetic HTTP failure", None, None)
 
-    rc, out, err, pricing_path, _ = _run(
-        tmp_path, capsys, history=states, hosts=rows, log_fetch=fail_log)
+    rc, out, err, pricing_path, constants_path = _run(
+        tmp_path, capsys, history=states, endpoint_rates=RATE_C,
+        log_fetch=fail_log, version=version)
 
     assert rc == 0 and not err
     assert f"listed-pricing log unavailable for {MODEL}" in out
-    assert f"sampled   {other}, {HOST}" in out
+    assert f"sampled   {HOST}" in out
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
-    assert len(saved["providers"][MODEL]) == 2
+    assert saved["providers"][MODEL][HOST] == [
+        _entry(None, RATE_A), _entry(STAMP, RATE_C)]
+    assert f'PRICING_VERSION = "{version + 1}"' in constants_path.read_text(
+        encoding="utf-8")
 
 
 def test_missing_canonical_slug_samples_every_host_without_refusal(tmp_path, capsys):
