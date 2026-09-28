@@ -439,7 +439,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-28T13:53:36Z",
+  "provider_rates_fetched": "2026-09-28T14:54:00Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -755,6 +755,14 @@
           "from": null,
           "output": 1.2,
           "read": 0.006
+        },
+        {
+          "create_1h": 0.24,
+          "create_5m": 0.24,
+          "fresh": 0.24,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.96,
+          "read": 0.0048
         }
       ],
       "Modal": [
@@ -977,6 +985,14 @@
           "from": "2026-09-28T13:53:36Z",
           "output": 0.6,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.035,
+          "create_5m": 0.035,
+          "fresh": 0.035,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.6,
+          "read": 0.01
         }
       ],
       "Sail Research": [
@@ -1034,6 +1050,15 @@
           "note": "40.5% off",
           "output": 0.714,
           "read": 0.00357
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "50% off",
+          "output": 0.6,
+          "read": 0.003
         }
       ],
       "Together": [
@@ -1274,6 +1299,15 @@
           "note": "40.1% off",
           "output": 0.16772,
           "read": 0.016772
+        },
+        {
+          "create_1h": 0.07924,
+          "create_5m": 0.07924,
+          "fresh": 0.07924,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "43.4% off",
+          "output": 0.15848,
+          "read": 0.015848
         }
       ],
       "DeepInfra": [
@@ -1491,6 +1525,15 @@
           "note": "41.1% off",
           "output": 0.16492,
           "read": 0.016492
+        },
+        {
+          "create_1h": 0.07784,
+          "create_5m": 0.07784,
+          "fresh": 0.07784,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "44.4% off",
+          "output": 0.15568,
+          "read": 0.015568
         }
       ],
       "Venice": [
@@ -1771,6 +1814,14 @@
           "from": "2026-09-28T11:53:34Z",
           "output": 0.3795,
           "read": 0.027
+        },
+        {
+          "create_1h": 0.065,
+          "create_5m": 0.065,
+          "fresh": 0.065,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.3795,
+          "read": 0.027
         }
       ],
       "Makora": [
@@ -1781,6 +1832,14 @@
           "from": null,
           "output": 0.195,
           "read": 0.0196
+        },
+        {
+          "create_1h": 0.072,
+          "create_5m": 0.072,
+          "fresh": 0.072,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.156,
+          "read": 0.01568
         }
       ],
       "Mancer 2": [
@@ -2134,6 +2193,14 @@
           "from": "2026-09-28T12:53:47Z",
           "output": 0.35,
           "read": 0.0531
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.35,
+          "read": 0.0531
         }
       ]
     },
@@ -2193,6 +2260,15 @@
           "note": "43.8% off",
           "output": 1.89956,
           "read": 0.07868
+        },
+        {
+          "create_1h": 0.69966,
+          "create_5m": 0.69966,
+          "fresh": 0.69966,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "58.6% off",
+          "output": 1.39932,
+          "read": 0.05796
         }
       ],
       "Cloudflare": [
@@ -2266,6 +2342,16 @@
           "read": 0.1
         }
       ],
+      "Relace": [
+        {
+          "create_1h": 0.7,
+          "create_5m": 0.7,
+          "fresh": 0.7,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 1.4,
+          "read": 0.07
+        }
+      ],
       "SiliconFlow": [
         {
           "create_1h": 1.50162,
@@ -2321,6 +2407,15 @@
           "note": "45.51% off",
           "output": 1.896252,
           "read": 0.0790105
+        },
+        {
+          "create_1h": 0.783,
+          "create_5m": 0.783,
+          "fresh": 0.783,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "55% off",
+          "output": 1.566,
+          "read": 0.06525
         }
       ],
       "Venice": [
@@ -2922,6 +3017,14 @@
           "from": "2026-09-28T13:53:36Z",
           "output": 0.28,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 1.28,
+          "read": 0.04
         }
       ],
       "Xiaomi": [
@@ -3036,6 +3139,15 @@
           "from": "2026-09-27T23:54:10Z",
           "output": 4.4,
           "read": 0.26
+        },
+        {
+          "create_1h": 1.3986,
+          "create_5m": 1.3986,
+          "fresh": 1.3986,
+          "from": "2026-09-28T14:54:00Z",
+          "note": "0.1% off",
+          "output": 4.3956,
+          "read": 0.25974
         }
       ],
       "BaseTen": [
@@ -3244,6 +3356,14 @@
           "from": "2026-09-28T10:54:08Z",
           "output": 2.5425,
           "read": 0.1637
+        },
+        {
+          "create_1h": 0.3215,
+          "create_5m": 0.3215,
+          "fresh": 0.3215,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 2.5425,
+          "read": 0.159
         }
       ],
       "InferenceNet": [
@@ -3285,6 +3405,14 @@
           "from": null,
           "output": 4.2,
           "read": 0.19
+        },
+        {
+          "create_1h": 0.84,
+          "create_5m": 0.84,
+          "fresh": 0.84,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 3.36,
+          "read": 0.152
         }
       ],
       "Mistral": [
@@ -3598,6 +3726,14 @@
           "from": "2026-09-28T11:53:34Z",
           "output": 4.4,
           "read": 0.26
+        },
+        {
+          "create_1h": 0.415,
+          "create_5m": 0.415,
+          "fresh": 0.415,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 4.4,
+          "read": 0.26
         }
       ],
       "Z.AI": [
@@ -3781,6 +3917,14 @@
           "from": "2026-09-28T12:53:47Z",
           "output": 0.45,
           "read": 0.06
+        },
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": "2026-09-28T14:54:00Z",
+          "output": 0.45,
+          "read": 0.04
         }
       ],
       "InferenceNet": [
