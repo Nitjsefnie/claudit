@@ -59,11 +59,22 @@ def export_filename(rng: str, project: str | None) -> str:
     return f"{name}_{proj_slug}_{rng}.png"
 
 
+async def _reap(proc: asyncio.subprocess.Process) -> None:
+    """Kill a running child and wait until its process has been reaped."""
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    await proc.wait()
+
+
 async def _render_export(argv: list[str], out_path: str) -> None:
     """Run the plot subprocess, bounded by _EXPORT_TIMEOUT_S. Raises
     HTTPException(503) on timeout or when the interpreter died of a missing
     module (an EXPORT_PYTHON environment problem), HTTPException(500) on
-    any other non-zero exit."""
+    any other non-zero exit. The child is killed and reaped on timeout,
+    cancellation, or another exception from the wait."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
@@ -72,9 +83,11 @@ async def _render_export(argv: list[str], out_path: str) -> None:
     try:
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXPORT_TIMEOUT_S)
     except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+        await _reap(proc)
         raise HTTPException(503, "export render timed out") from None
+    except BaseException:
+        await _reap(proc)
+        raise
     if proc.returncode != 0:
         text = (stderr or b"").decode("utf-8", "replace")
         tail = text[-500:]
