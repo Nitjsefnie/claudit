@@ -88,6 +88,11 @@ def _record_render_exit(
     return processes, returncodes
 
 
+def _assert_render_reaped(returncodes: list[int | None]) -> None:
+    assert returncodes, "render exited before the renderer process was captured"
+    assert returncodes[-1] is not None, "renderer was not reaped when the render exited"
+
+
 def _hold_initial_communicate(
     monkeypatch: pytest.MonkeyPatch,
     communicate_started: asyncio.Event,
@@ -286,12 +291,13 @@ def test_cancelled_render_reaps_child_and_prevents_output(tmp_path, monkeypatch)
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
                 _renderer_argv(marker, out_path, release), str(out_path)))
             pid = await _wait_for_started(marker, task)
+            await _wait_for_process(processes)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "cancelled render task")
 
             output_appeared = await _release_and_observe(release, out_path)
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             child_alive = _process_is_alive(pid)
             assert child_alive is not True and not output_appeared, (
                 f"child_alive_immediately_after_cancel={child_alive}; "
@@ -321,7 +327,7 @@ def test_cancelled_render_drains_flooded_stdout_before_reaping(tmp_path, monkeyp
                 await _await_bounded(task, "cancelled flooded render task")
 
             output_appeared = await _release_and_observe(release, out_path)
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             child_alive = _process_is_alive(pid)
             assert child_alive is not True and not output_appeared, (
                 f"child_alive_after_flood_cancel={child_alive}; "
@@ -351,12 +357,13 @@ def test_cancelled_handler_unlinks_temp_png_after_reaping_child(tmp_path, monkey
             pid = await _wait_for_started(marker, task)
             assert captured_paths
             out_path = Path(captured_paths[0])
+            await _wait_for_process(processes)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "cancelled handler task")
 
             output_appeared = await _release_and_observe(release, out_path)
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             child_alive = _process_is_alive(pid)
             assert not api_export._export_lock.locked()  # pylint: disable=protected-access
             assert child_alive is not True and not output_appeared, (
@@ -388,7 +395,7 @@ def test_export_timeout_still_returns_503_and_reaps_child(tmp_path, monkeypatch)
             assert excinfo.value.detail == "export render timed out"
             assert processes
             pid = processes[0].pid
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
 
             child_alive = _process_is_alive(pid)
             assert child_alive is not True and not output_appeared, (
@@ -420,7 +427,7 @@ def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypat
             output_appeared = await _release_and_observe(release, out_path)
             assert excinfo.value.status_code == 503
             assert excinfo.value.detail == "export render timed out"
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             assert not output_appeared
         finally:
             await _cleanup_test(task, processes, release, (release_communicate,))
@@ -437,6 +444,16 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
     processes, returncodes = _record_render_exit(monkeypatch)
     reap_calls = _gate_reap_wait(monkeypatch, reap_started, release_reap)
 
+    original_create = api_export.asyncio.create_subprocess_exec
+
+    # The render timeout starts after this wrapper returns.
+    async def create_after_started(*args: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+        proc = await original_create(*args, **kwargs)
+        await _wait_for_started(marker)
+        return proc
+
+    monkeypatch.setattr(api_export.asyncio, "create_subprocess_exec", create_after_started)
+
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
         try:
@@ -444,6 +461,7 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
                 _renderer_argv(marker, tmp_path / "out.png", release),
                 str(tmp_path / "out.png")))
             proc = await _wait_for_process(processes)
+            await _wait_for_started(marker, task)
             await _await_bounded(reap_started.wait(), "timeout reap wait start")
             assert reap_calls == [proc]
             task.cancel()
@@ -455,7 +473,7 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "cancelled timeout reap task")
             output_appeared = await _release_and_observe(release, tmp_path / "out.png")
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             child_alive = _process_is_alive(proc.pid)
             assert child_alive is not True and not output_appeared, (
                 f"child_alive_after_timeout_cancel={child_alive}; "
@@ -561,7 +579,7 @@ def test_pipe_read_error_still_reaps_child_and_preserves_error(tmp_path, monkeyp
             with pytest.raises(OSError, match="synthetic pipe read failure"):
                 await _await_bounded(task, "render after pipe read error")
 
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             output_appeared = await _release_and_observe(release, out_path)
             assert not output_appeared
         finally:
@@ -600,7 +618,7 @@ def test_second_cancel_during_reap_still_waits_for_child(tmp_path, monkeypatch):
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "second-cancel reap task")
             output_appeared = await _release_and_observe(release, out_path)
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             child_alive = _process_is_alive(pid)
             assert child_alive is not True and not output_appeared, (
                 f"child_alive_after_second_cancel={child_alive}; "
@@ -637,7 +655,7 @@ def test_process_lookup_race_during_kill_still_reaps_child(tmp_path, monkeypatch
 
             output_appeared = await _release_and_observe(release, out_path)
             assert proc.returncode is not None
-            assert returncodes and returncodes[-1] is not None
+            _assert_render_reaped(returncodes)
             assert _process_is_alive(pid) is not True and not output_appeared
         finally:
             await _cleanup_test(task, processes, release)
