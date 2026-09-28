@@ -194,8 +194,12 @@ backend/          — FastAPI application
                     commits incomplete before mutation, and marks complete only after run
                     finalization succeeds with the scope used by rollups.
   ingest_fetch.py — Bounded fetch/parse worker-pool helpers used by the
-                    walk. Re-exported through ingest so tests can keep
-                    patching its established seams.
+                    walk, the cooperative-abort state, and the two ingest
+                    pipelines (issue #309): the in-process thread pipeline
+                    and the process pool (forked parse children, persist
+                    threads; INGEST_PARSE_PROCESSES /
+                    INGEST_PERSIST_THREADS). Re-exported through ingest so
+                    tests can keep patching its established seams.
   ingest_rollup_state.py — Suppression, canonical-flag updates and
                     teammate resolution, with dirty-scope support.
   ingest_rollup_hourly.py — The seven hour-keyed aggregate rebuilds;
