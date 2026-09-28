@@ -64,14 +64,34 @@ def _matching_brace(src: str, start: int) -> int:
 
 
 def _extract_function(src: str, name: str) -> str:
-    """Extract one async function by balancing its JavaScript braces."""
+    """Extract a named function by balancing its JavaScript braces."""
     match = re.search(
-        rf"async function {re.escape(name)}\s*\([^)]*\)\s*\{{", src
+        rf"(?:async\s+)?function {re.escape(name)}\s*\([^)]*\)\s*\{{", src
     )
-    assert match, f"could not locate `async function {name}` in app.jsx"
-    brace_start = src.index("{", match.start(), match.end())
+    assert match, f"could not locate `function {name}` in app.jsx"
+    brace_start = match.end() - 1
     end = _matching_brace(src, brace_start)
     return src[match.start():end]
+
+
+def _extract_arrow_body(src: str, name: str) -> str:
+    """Extract the block body of a named object-property arrow callback."""
+    match = re.search(
+        rf"\b{re.escape(name)}\s*:\s*(?:\(\s*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{{",
+        src,
+    )
+    assert match, f"could not locate the `{name}` callback"
+    brace_start = match.end() - 1
+    return src[brace_start:_matching_brace(src, brace_start)]
+
+
+def _run_node(script: str) -> subprocess.CompletedProcess[str]:
+    if shutil.which("node") is None:
+        raise RuntimeError("node is not installed")
+    return subprocess.run(
+        ["node", "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=60, check=False,
+    )
 
 
 def test_fetch_transcript_text_reports_http_errors_and_returns_success_body():
@@ -87,11 +107,11 @@ const assert = require('assert');
   await assert.rejects(
     fetchTranscriptText('missing', async () => new Response(
       '{{"detail":"session not found"}}', {{status: 404}})),
-    err => err instanceof Error && err.message.includes('404') &&
-      err.message.includes('session not found'));
+    err => err instanceof Error && err.message ===
+      'HTTP 404: session not found');
   await assert.rejects(
     fetchTranscriptText('broken', async () => new Response('internal', {{status: 500}})),
-    err => err instanceof Error && err.message.includes('500'));
+    err => err instanceof Error && err.message === 'HTTP 500');
   await assert.rejects(
     fetchTranscriptText('offline', async () => {{ throw new Error('network down'); }}),
     /network down/);
@@ -104,31 +124,207 @@ const assert = require('assert');
   process.exitCode = 1;
 }});
 """
-    proc = subprocess.run(
-        ["node", "-"], input=script, capture_output=True, text=True,
-        encoding="utf-8", timeout=60, check=False,
-    )
+    proc = _run_node(script)
     assert proc.returncode == 0, proc.stderr
 
 
-def test_load_from_backend_uses_checked_transcript_fetch():
+def test_transcript_loader_starts_synchronously_and_parses_successful_text():
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+
+    src = APP.read_text(encoding="utf-8")
+    loader = _extract_function(src, "makeTranscriptLoader")
+    script = f"""
+{loader}
+const assert = require('assert');
+(async () => {{
+  const events = [];
+  let resolveFetch;
+  const load = makeTranscriptLoader({{
+    fetchText: sessionId => {{
+      events.push(['fetch', sessionId]);
+      return new Promise(resolve => {{ resolveFetch = resolve; }});
+    }},
+    parse: text => {{ events.push(['parse', text]); return {{parsed: text.toUpperCase()}}; }},
+    onStart: () => events.push(['start']),
+    onSuccess: tx => events.push(['success', tx]),
+    onError: message => events.push(['error', message]),
+  }});
+
+  const pending = load('chosen');
+  assert.deepStrictEqual(events, [['start'], ['fetch', 'chosen']]);
+  resolveFetch('fetched body');
+  await pending;
+  assert.deepStrictEqual(events, [
+    ['start'], ['fetch', 'chosen'], ['parse', 'fetched body'],
+    ['success', {{parsed: 'FETCHED BODY'}}],
+  ]);
+}})().catch(err => {{
+  console.error(err);
+  process.exitCode = 1;
+}});
+"""
+    proc = _run_node(script)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_transcript_loader_reports_http_error_without_parsing():
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+
+    src = APP.read_text(encoding="utf-8")
+    loader = _extract_function(src, "makeTranscriptLoader")
+    fetch = _extract_function(src, "fetchTranscriptText")
+    script = f"""
+{fetch}
+{loader}
+const assert = require('assert');
+(async () => {{
+  const events = [];
+  let parseCalls = 0;
+  const load = makeTranscriptLoader({{
+    fetchText: sessionId => fetchTranscriptText(sessionId, async (url, options) => {{
+      assert.strictEqual(url, '/api/sessions/missing/transcript');
+      assert.deepStrictEqual(options, {{credentials: 'same-origin'}});
+      return new Response('{{"detail":"session not found"}}', {{status: 404}});
+    }}),
+    parse: text => {{ parseCalls++; return text; }},
+    onStart: () => events.push(['start']),
+    onSuccess: tx => events.push(['success', tx]),
+    onError: message => events.push(['error', message]),
+  }});
+
+  await load('missing');
+  assert.strictEqual(parseCalls, 0);
+  assert.deepStrictEqual(events, [
+    ['start'], ['error', 'HTTP 404: session not found'],
+  ]);
+}})().catch(err => {{
+  console.error(err);
+  process.exitCode = 1;
+}});
+"""
+    proc = _run_node(script)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_transcript_loader_ignores_superseded_success_and_failure():
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+
+    src = APP.read_text(encoding="utf-8")
+    loader = _extract_function(src, "makeTranscriptLoader")
+    script = f"""
+{loader}
+const assert = require('assert');
+function deferred() {{
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {{ resolve = res; reject = rej; }});
+  return {{promise, resolve, reject}};
+}}
+(async () => {{
+  const pending = {{A: deferred(), B: deferred()}};
+  const events = [];
+  const load = makeTranscriptLoader({{
+    fetchText: sessionId => pending[sessionId].promise,
+    parse: text => ({{parsed: text}}),
+    onStart: () => events.push('start'),
+    onSuccess: tx => events.push(['success', tx.parsed]),
+    onError: message => events.push(['error', message]),
+  }});
+
+  const first = load('A');
+  const second = load('B');
+  assert.deepStrictEqual(events, ['start', 'start']);
+  pending.B.resolve('B body');
+  await second;
+  pending.A.reject(new Error('A failed late'));
+  await first;
+  assert.deepStrictEqual(events, ['start', 'start', ['success', 'B body']]);
+
+  const successPending = {{A: deferred(), B: deferred()}};
+  const successes = [];
+  const loadSuccess = makeTranscriptLoader({{
+    fetchText: sessionId => successPending[sessionId].promise,
+    parse: text => ({{parsed: text}}),
+    onStart: () => {{}},
+    onSuccess: tx => successes.push(tx.parsed),
+    onError: message => assert.fail(message),
+  }});
+  const slowSuccess = loadSuccess('A');
+  const fastSuccess = loadSuccess('B');
+  successPending.B.resolve('B body');
+  await fastSuccess;
+  successPending.A.resolve('A body');
+  await slowSuccess;
+  assert.deepStrictEqual(successes, ['B body']);
+}})().catch(err => {{
+  console.error(err);
+  process.exitCode = 1;
+}});
+"""
+    proc = _run_node(script)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_load_from_backend_uses_loader_without_fetching_directly():
     src = APP.read_text(encoding="utf-8")
     load = _extract_function(src, "loadFromBackend")
-    assert re.search(r"fetchTranscriptText\s*\(\s*sessionId\s*\)", load), (
-        "loadFromBackend must pass the response text from the checked helper "
-        "to parseTranscript"
+    assert re.search(r"transcriptLoaderRef\s*\.\s*current\s*\(\s*sessionId\s*\)", load), (
+        "loadFromBackend must start the shared transcript loader"
     )
-    assert "r.text()" not in load, (
-        "loadFromBackend must not parse text from an unchecked response"
+    assert not re.search(r"\bfetch\s*\(", load), (
+        "loadFromBackend must not make an unchecked transcript request"
+    )
+    assert ".text()" not in load, (
+        "loadFromBackend must not parse a second unchecked response body"
+    )
+    assert re.search(r"fetchText\s*:\s*fetchTranscriptText", src), (
+        "the shared loader must use the checked transcript fetch helper"
     )
 
+    assert re.search(
+        r"const\s+transcriptLoaderRef\s*=\s*useRef\s*\(\s*null\s*\)", src
+    ), "the transcript loader must survive App renders"
+    assert re.search(
+        r"if\s*\(\s*!transcriptLoaderRef\s*\.\s*current\s*\)\s*\{\s*"
+        r"transcriptLoaderRef\s*\.\s*current\s*=\s*makeTranscriptLoader",
+        src,
+    ), "the loader should be initialized once per App instance"
 
-def test_session_route_shows_transcript_fetch_error_in_place_of_session_view():
+
+def test_transcript_loader_callbacks_keep_inspector_load_lifecycle():
     src = APP.read_text(encoding="utf-8")
-    match = re.search(r"\{route === 'session' && \((.*?)\)\}", src, re.S)
+    on_start = _extract_arrow_body(src, "onStart")
+    on_success = _extract_arrow_body(src, "onSuccess")
+    on_error = _extract_arrow_body(src, "onError")
+
+    assert re.search(r"setTx\s*\(\s*null\s*\)", on_start), (
+        "starting a load must clear the previous transcript"
+    )
+    assert re.search(r"setTranscriptError\s*\(\s*['\"]['\"]\s*\)", on_start), (
+        "starting a load must clear the previous error"
+    )
+    assert re.search(r"setTx\s*\(\s*tx\s*\)", on_success)
+    assert re.search(r"setFilename\s*\(\s*transcriptSessionIdRef\s*\.\s*current\s*\)", on_success)
+    assert re.search(r"setUseSynth\s*\(\s*false\s*\)", on_success)
+    assert re.search(r"setRoute\s*\(\s*['\"]session['\"]\s*\)", on_success)
+    assert re.search(r"setTranscriptError\s*\(\s*message\s*\)", on_error)
+    assert re.search(r"setRoute\s*\(\s*['\"]session['\"]\s*\)", on_error), (
+        "the error callback must route to the Inspector"
+    )
+    assert re.search(r"console\.error\s*\(\s*['\"]transcript fetch failed['\"]", on_error)
+
+
+def test_session_route_shows_error_before_session_view_and_ignores_reformatting():
+    src = APP.read_text(encoding="utf-8")
+    match = re.search(r"\{\s*route\s*===\s*'session'\s*&&\s*(\(.*?\))\s*\}", src, re.S)
     assert match, "could not locate the Inspector route render branch"
-    branch = match.group(1)
-    assert 'className="err"' in branch
-    assert "transcript fetch failed" in branch
-    assert "transcriptError" in branch
-    assert "SessionView" in branch
+    branch = re.sub(r"\s+", " ", match.group(1)).strip()
+    assert re.search(
+        r"\(\s*transcriptError\s*\?\s*<div\s+className=\"err\">"
+        r"\s*transcript fetch failed:\s*\{transcriptError\}\s*</div>\s*"
+        r":\s*<SessionView\b",
+        branch,
+    ), "the error element must render for transcriptError, before the normal SessionView branch"
