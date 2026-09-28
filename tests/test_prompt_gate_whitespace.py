@@ -69,9 +69,10 @@ def _node_prompt_results(transcripts: dict[str, str]) -> dict:
       }}
       console.log(JSON.stringify(out));
     """
+    # The generated sweep exceeds Windows' command-line length limit.
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
+        ["node", "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=60, check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
@@ -162,6 +163,25 @@ def test_browser_prompt_gate_matches_backend_whitespace_fixtures():
         assert backend_lines, name
         assert got[name]["lines"] == backend_lines, name
         assert got[name]["userMsgs"] == parsed["prompt_count"], name
+
+
+def test_node_prompt_program_keeps_large_payload_off_argv(monkeypatch):
+    """A Windows-sized transcript is sent as stdin, not command arguments."""
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["input"] = kwargs.get("input")
+        return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    transcript = _make_transcript(["x" * 40_000])
+    assert len(transcript) > 32_767
+
+    assert _node_prompt_results({"sweep": transcript}) == {}
+
+    assert sum(len(arg) for arg in captured["args"]) < 1000
+    assert json.dumps({"sweep": transcript}) in captured["input"]
 
 
 def test_browser_prompt_gate_matches_generated_whitespace_sweep():
