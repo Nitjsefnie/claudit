@@ -37,6 +37,8 @@ def _install_rate_table(monkeypatch, dated_fixture):
         "model_only_second": datetime(2027, 4, 1, tzinfo=UTC),
         "free_start": datetime(2027, 5, 1, tzinfo=UTC),
         "free_cutover": datetime(2027, 6, 1, tzinfo=UTC),
+        "exact_variant_cutover": datetime(2027, 2, 1, tzinfo=UTC),
+        "bare_cutover": datetime(2027, 4, 1, tzinfo=UTC),
     }
     rates = {
         name: _rates(fresh) for name, fresh in {
@@ -46,7 +48,9 @@ def _install_rate_table(monkeypatch, dated_fixture):
             "variant_before": 37, "variant_list": 17,
             "free_before": 41, "free_list": 23,
             "model_only_before": 43, "model_only_middle": 47,
-            "model_only_list": 53, "tier": 59,
+            "model_only_list": 53, "exact_variant_before": 67,
+            "exact_variant_list": 71, "bare_before": 73,
+            "bare_list": 79, "tier": 59,
         }.items()
     }
 
@@ -68,6 +72,8 @@ def _install_rate_table(monkeypatch, dated_fixture):
         ("acme/snapshot-0731", main_host): rates["perma_list"],
         ("acme/variant-9", main_host): rates["variant_list"],
         ("acme/free-9", main_host): rates["free_list"],
+        ("acme/exact:nitro", main_host): rates["exact_variant_list"],
+        ("acme/exact", main_host): rates["bare_list"],
     }
     provider_dated = {
         (model, main_host): [(times["provider_cutover"],
@@ -80,6 +86,10 @@ def _install_rate_table(monkeypatch, dated_fixture):
             (times["variant_cutover"], rates["variant_before"])],
         ("acme/free-9", main_host): [
             (times["free_cutover"], rates["free_before"])],
+        ("acme/exact:nitro", main_host): [
+            (times["exact_variant_cutover"], rates["exact_variant_before"])],
+        ("acme/exact", main_host): [
+            (times["bare_cutover"], rates["bare_before"])],
     }
     provider_starts = {
         (model, main_host): times["provider_start"],
@@ -110,6 +120,12 @@ def _install_rate_table(monkeypatch, dated_fixture):
         "variant": ("acme/variant-9:nitro", main_host),
         "variant_boundaries": [times["variant_cutover"]],
         "free": ("acme/free-9:free", main_host),
+        "exact_variant": ("acme/exact:nitro", main_host),
+        "exact_variant_boundaries": [times["exact_variant_cutover"]],
+        "exact_variant_rates": [rates["exact_variant_before"],
+                                rates["exact_variant_list"]],
+        "bare": ("acme/exact", main_host),
+        "bare_boundaries": [times["bare_cutover"]],
         "model_only": ("acme/model-only-9", "NoProviderRow"),
         "model_only_boundaries": [times["model_only_first"],
                                   times["model_only_second"]],
@@ -143,7 +159,8 @@ def test_rate_boundaries_partition_every_synthetic_resolution(
     table = _install_rate_table(monkeypatch, synthetic_dated_rate)
     rate_boundaries = _rate_boundaries_function()
     pairs = [table["main"], table["perma"], table["variant"], table["free"],
-             table["model_only"], table["tier"]]
+             table["exact_variant"], table["bare"], table["model_only"],
+             table["tier"]]
 
     for model, provider in pairs:
         boundaries = rate_boundaries(model, provider)
@@ -165,6 +182,17 @@ def test_rate_boundaries_partition_every_synthetic_resolution(
     assert rate_boundaries(*table["perma"]) == table["perma_boundaries"]
     assert rate_boundaries(*table["variant"]) == table["variant_boundaries"]
     assert rate_boundaries(*table["free"]) == []
+    assert rate_boundaries(*table["exact_variant"]) == \
+        table["exact_variant_boundaries"]
+    assert rate_boundaries(*table["bare"]) == table["bare_boundaries"]
+    exact_cutover = table["exact_variant_boundaries"][0]
+    exact_rates = table["exact_variant_rates"]
+    assert pricing.resolve(
+        table["exact_variant"][0], exact_cutover - timedelta(microseconds=1),
+        table["exact_variant"][1]).rates == exact_rates[0]
+    assert pricing.resolve(
+        table["exact_variant"][0], exact_cutover,
+        table["exact_variant"][1]).rates == exact_rates[1]
     assert rate_boundaries(*table["model_only"]) == table["model_only_boundaries"]
     assert rate_boundaries(*table["tier"]) == []
 
