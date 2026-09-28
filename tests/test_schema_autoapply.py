@@ -14,12 +14,14 @@ from contextlib import nullcontext
 
 import pytest
 
-from test_api import _app_with_data_fixture
+from test_api import (  # pylint: disable=unused-import
+    _app_with_fresh_data_fixture,
+)
 
 from backend import app as app_mod
 from backend import db
 
-__all__ = ["_app_with_data_fixture"]
+__all__ = ["_app_with_fresh_data_fixture"]
 
 
 def _columns(table: str) -> set[str]:
@@ -30,7 +32,7 @@ def _columns(table: str) -> set[str]:
         ).fetchall()}
 
 
-def test_apply_schema_restores_a_dropped_column(app_with_data):
+def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
     """The #43 reproduction: a DB missing a column the code writes is
     repaired at startup instead of failing at the next ingest."""
     with db.viz_conn() as c:
@@ -43,7 +45,7 @@ def test_apply_schema_restores_a_dropped_column(app_with_data):
     assert "error_kind" in _columns("tool_uses")
 
 
-def test_apply_schema_restores_a_dropped_rollup(app_with_data):
+def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):
     """Whole relations come back too, not only columns."""
     with db.viz_conn() as c:
         c.execute("DROP TABLE IF EXISTS dispatch_rollup")
@@ -57,7 +59,7 @@ def test_apply_schema_restores_a_dropped_rollup(app_with_data):
     assert row is not None and row[0] is not None
 
 
-def test_apply_schema_creates_user_session(app_with_data):
+def test_apply_schema_creates_user_session(app_with_fresh_data):
     """Issues #94/#108: the per-user session-secret table is part of the
     startup-applied schema, and re-applying leaves its rows alone."""
     with db.viz_conn() as c:
@@ -76,7 +78,9 @@ def test_apply_schema_creates_user_session(app_with_data):
     assert row is not None and row[0] == "pre-existing"
 
 
-def test_apply_schema_widens_an_integer_user_session_user_id(app_with_data):
+def test_apply_schema_widens_an_integer_user_session_user_id(
+    app_with_fresh_data,
+):
     """Issue #185: a DB created while `user_id` was INTEGER is widened to
     BIGINT at startup — the live databases were hotfixed by hand, so the
     DO block must be a no-op there too — and re-applying on an
@@ -110,7 +114,7 @@ def test_apply_schema_widens_an_integer_user_session_user_id(app_with_data):
         c.commit()
 
 
-def test_apply_schema_is_idempotent_and_preserves_data(app_with_data):
+def test_apply_schema_is_idempotent_and_preserves_data(app_with_fresh_data):
     """Re-applying on every boot must not disturb existing rows."""
     with db.viz_conn() as c:
         before = c.execute("SELECT COUNT(*) FROM records").fetchone()
