@@ -9,8 +9,11 @@ or shrink the file. A stale entry goes away rather than being kept:
 naming a file that is gone is deleted by hand.
 
 Scope is every tracked ``*.py`` under ``backend/``, ``scripts/`` and
-``tests/``. A ``tests/`` prefix is a test file (ceiling 700 lines);
-everything else is production (ceiling 500 lines).
+``tests/``, plus every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file
+(issue #266: the shipped JavaScript front end joins the ratchet). A
+``tests/`` prefix is a test file (ceiling 700 lines); everything else is
+production (ceiling 500 lines), so a front-end file prices against 500
+like any other production source.
 
   python3 scripts/ci/size_baseline.py
   python3 scripts/ci/size_baseline.py --tighten
@@ -33,8 +36,11 @@ else:
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_CEILING = 500
 TEST_CEILING = 700
-# Scope: tracked Python modules under these directory prefixes only.
+# Scope: tracked Python modules under these directory prefixes, plus the
+# shipped front end under src/ (git pathspec globs; ``*`` matches ``/``,
+# so src/*.js covers src/views/*.js too).
 TRACKED_PREFIXES = ('backend/', 'scripts/', 'tests/')
+TRACKED_SRC_GLOBS = ('src/*.js', 'src/*.jsx')
 
 GROWTH_REMEDY = (
     'A recorded number is never raised by hand and no entry is ever added '
@@ -56,16 +62,19 @@ def ceiling_for(rel):
 
 
 def tracked_sizes(root=ROOT):
-    """Return tracked Python module line counts within TRACKED_PREFIXES."""
+    """Return tracked module line counts: Python within TRACKED_PREFIXES
+    and JavaScript under src/ (TRACKED_SRC_GLOBS)."""
     listed = subprocess.run(
-        ['git', '-C', str(root), 'ls-files', '-z', '*.py'],
+        ['git', '-C', str(root), 'ls-files', '-z', '*.py',
+         *TRACKED_SRC_GLOBS],
         capture_output=True, check=True, timeout=30)
     sizes = {}
     for raw in listed.stdout.split(b'\0'):
         if not raw:
             continue
         rel = raw.decode('utf-8', 'surrogateescape')
-        if not rel.startswith(TRACKED_PREFIXES):
+        if not (rel.startswith(TRACKED_PREFIXES)
+                or _in_src_scope(rel)):
             continue
         path = root / rel
         if not path.is_file():
@@ -73,6 +82,11 @@ def tracked_sizes(root=ROOT):
         with open(path, 'rb') as handle:
             sizes[rel] = sum(1 for _ in handle)
     return sizes
+
+
+def _in_src_scope(rel):
+    """Whether a path is a src/ JavaScript file the ratchet caps."""
+    return rel.startswith('src/') and rel.endswith(('.js', '.jsx'))
 
 
 def violations(sizes, baseline):

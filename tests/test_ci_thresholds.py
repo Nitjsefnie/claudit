@@ -50,6 +50,10 @@ def _document(measured="92.6", floor="91.1", baseline=None):
                 "measured": Decimal(measured),
                 "floor": Decimal(floor),
             },
+            "javascript": {
+                "measured": Decimal("50.0"),
+                "floor": Decimal("48.5"),
+            },
         },
         "module_size_baseline": baseline or {},
     }
@@ -69,6 +73,25 @@ def test_committed_document_loads():
     assert isinstance(record["measured"], Decimal)
     assert isinstance(record["floor"], Decimal)
     assert record["floor"] == record["measured"] - GAP
+    js_record = doc["coverage"]["javascript"]
+    assert isinstance(js_record["measured"], Decimal)
+    assert isinstance(js_record["floor"], Decimal)
+    assert js_record["floor"] == js_record["measured"] - GAP
+
+
+def test_javascript_coverage_language_accepted(tmp_path):
+    # A javascript record carries the same shape and validation as a
+    # python one: exactly one decimal place, floor exactly the gap below.
+    target = tmp_path / "ci-thresholds.json"
+    doc = _document()
+    doc["coverage"]["javascript"] = {
+        "measured": Decimal("71.3"),
+        "floor": Decimal("69.8"),
+    }
+    thresholds.write(target, doc)
+    loaded = thresholds.load(target)
+    assert loaded["coverage"]["javascript"]["measured"] == Decimal("71.3")
+    assert loaded["coverage"]["javascript"]["floor"] == Decimal("69.8")
 
 
 def test_normalised_document_keeps_exact_values():
@@ -101,9 +124,19 @@ def test_unknown_top_level_key_refused(tmp_path):
 def test_unknown_coverage_language_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["coverage"]["javascript"] = {"measured": 50.0, "floor": 48.5}
+    payload["coverage"]["ruby"] = {"measured": 50.0, "floor": 48.5}
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="unknown coverage language"):
+        thresholds.load(target)
+
+
+def test_missing_javascript_coverage_language_refused(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["coverage"]["javascript"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError,
+                       match="missing coverage language: javascript"):
         thresholds.load(target)
 
 
