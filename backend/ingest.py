@@ -694,9 +694,8 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     # clients so the dashboard re-fetches. invalidate(), not clear(): entries
     # stay servable while stale (clear() dropped every reader onto the 8s+
     # uncached path; the refetch refreshes them in the background). The gate
-    # adds the derived-state count (issues #256, #341): a reprice-, purge-
-    # or alias-fold-only run changes stored data without touching a file.
-    # Threadsafe; aborted runs skip.
+    # adds the derived-state count (issues #256, #341): a reprice-, purge- or
+    # alias-fold-only run changes stored data without touching a file. Threadsafe; aborted runs skip.
     if fatal is None and not aborted and any((inserted, reparsed, deleted, changed)):
         with _timed_step("notify"):
             cache.response_cache.invalidate()
