@@ -324,6 +324,17 @@
         "read": 0.2
       }
     ],
+    "gpt-6-1-sol": [
+      {
+        "create_1h": 2.5,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": null,
+        "note": "Cache writes at 1.25x uncached input whatever the TTL; reads at 0.05x - the official cached-input price halves the older gpt-6 rows' 0.1x.",
+        "output": 10.0,
+        "read": 0.1
+      }
+    ],
     "gpt-6-astra": [
       {
         "create_1h": 12.5,
