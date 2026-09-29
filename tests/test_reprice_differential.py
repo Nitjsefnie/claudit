@@ -225,6 +225,12 @@ _SCHED_A_RATES = {"fresh": 0.75, "create_5m": 0.9375, "create_1h": 1.5,
 _SCHED_B_RATES = {"fresh": 0.25, "create_5m": 0.3125, "create_1h": 0.5,
                   "read": 0.025, "output": 1.25}
 
+# The meter model, bound like _SEED_MODEL: a string constant naming a
+# live rate row inside a pricing call is what the pinned-version guard
+# flags; a module constant passed as a variable is the sanctioned shape
+# (SV-TEST-DATA).
+_METER_MODEL = "gpt-5.6-sol"
+
 # One fixed tally for every seeded row: unsplit_create = 2000-250-500.
 _TOKENS = (1000, 2000, 3000, 100, 250, 500)
 _TALLY = {"fresh": 1000, "output": 100, "eph5": 250, "eph1h": 500,
@@ -360,18 +366,18 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
         dict(row("claude-opus-4-7", _SEED_TS), fp=None),        # NULL fp
         # A consistent TRUE flag needs a tally the derivation agrees is
         # above the threshold; FALSE and the #249 NULL keep any tally.
-        row("gpt-5.6-sol", _SEED_TS, fresh=300_000, flag=True,
+        row(_METER_MODEL, _SEED_TS, fresh=300_000, flag=True,
             cost=round(pricing.compute_cost(
-                "gpt-5.6-sol", fresh=300_000, output=100, eph5=250,
+                _METER_MODEL, fresh=300_000, output=100, eph5=250,
                 eph1h=500, unsplit_create=1250, read=3000, ts=_SEED_TS,
                 long_context=True, provider=None), 6),
-            fp=fp("gpt-5.6-sol")),                              # meter TRUE
-        row("gpt-5.6-sol", _SEED_TS, flag=False,
-            cost=cost("gpt-5.6-sol", _SEED_TS),
-            fp=fp("gpt-5.6-sol")),                              # meter FALSE
-        row("gpt-5.6-sol", _SEED_TS, flag=None,
-            cost=cost("gpt-5.6-sol", _SEED_TS),
-            fp=fp("gpt-5.6-sol")),                              # #249 NULL
+            fp=fp(_METER_MODEL)),                               # meter TRUE
+        row(_METER_MODEL, _SEED_TS, flag=False,
+            cost=cost(_METER_MODEL, _SEED_TS),
+            fp=fp(_METER_MODEL)),                               # meter FALSE
+        row(_METER_MODEL, _SEED_TS, flag=None,
+            cost=cost(_METER_MODEL, _SEED_TS),
+            fp=fp(_METER_MODEL)),                               # #249 NULL
         row("gpt-9:free", _SEED_TS, cost=0.0,
             fp=fp("gpt-9:free")),                               # free
         row("claude-opus-99", _SEED_TS),                        # tier
