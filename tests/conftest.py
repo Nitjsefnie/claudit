@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import psycopg
 import pytest
 
-from backend import cache, pricing
+from backend import cache, pricing, rate_fingerprint
 from tests import scratch_db
 
 # An exported DATABASE_URL_VIZ wins; fixtures that create their own
@@ -182,12 +182,16 @@ def _isolate_transcript_cache(monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_match_key_cache():
     """pricing._match_key memoizes per normalised id against the rate
-    table loaded at import (issue #350). Tests patch MODEL_RATES with
-    synthetic rows; a cached entry computed under a patch must never
-    outlive it, so every test starts and ends with an empty cache."""
+    table loaded at import (issue #350), and rate_fingerprint memoizes
+    per pair against the same tables (issue #351). Tests patch the
+    tables with synthetic rows; a cached entry computed under a patch
+    must never outlive it, so every test starts and ends with empty
+    caches."""
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    rate_fingerprint.clear_fingerprint_cache()
     yield
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    rate_fingerprint.clear_fingerprint_cache()
 
 
 def pytest_collection_modifyitems(config, items):
