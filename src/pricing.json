@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T10:53:49Z",
+  "provider_rates_fetched": "2026-09-29T11:53:41Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2574,6 +2574,14 @@
           "create_5m": 0.0649,
           "fresh": 0.0649,
           "from": "2026-09-29T09:30:24Z",
+          "output": 0.7,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-29T11:40:30Z",
           "output": 0.7,
           "read": 0.045
         }
@@ -14233,6 +14241,14 @@
           "from": "2026-09-29T08:06:14Z",
           "output": 0.7946,
           "read": 0.027
+        },
+        {
+          "create_1h": 0.056,
+          "create_5m": 0.056,
+          "fresh": 0.056,
+          "from": "2026-09-29T11:15:25Z",
+          "output": 0.65,
+          "read": 0.027
         }
       ],
       "Makora": [
@@ -15658,6 +15674,14 @@
           "create_5m": 0.0179,
           "fresh": 0.0179,
           "from": "2026-09-29T07:36:15Z",
+          "output": 0.528,
+          "read": 0.0056
+        },
+        {
+          "create_1h": 0.021,
+          "create_5m": 0.021,
+          "fresh": 0.021,
+          "from": "2026-09-29T11:25:24Z",
           "output": 0.528,
           "read": 0.0056
         }
@@ -17279,6 +17303,14 @@
           "from": "2026-09-29T09:10:25Z",
           "output": 0.35,
           "read": 0.0531
+        },
+        {
+          "create_1h": 0.0549,
+          "create_5m": 0.0549,
+          "fresh": 0.0549,
+          "from": "2026-09-29T11:25:24Z",
+          "output": 0.35,
+          "read": 0.0439
         }
       ]
     },
@@ -31322,6 +31354,15 @@
           "note": "36% off",
           "output": 1.9584,
           "read": 0.07488
+        },
+        {
+          "create_1h": 0.096,
+          "create_5m": 0.096,
+          "fresh": 0.096,
+          "from": "2026-09-29T11:05:51Z",
+          "note": "36% off",
+          "output": 1.9584,
+          "read": 0.07488
         }
       ],
       "NextBit": [
@@ -36214,6 +36255,14 @@
           "from": "2026-09-29T08:26:10Z",
           "output": 3.14,
           "read": 0.1836
+        },
+        {
+          "create_1h": 0.31,
+          "create_5m": 0.31,
+          "fresh": 0.31,
+          "from": "2026-09-29T11:01:05Z",
+          "output": 2.6167,
+          "read": 0.1836
         }
       ],
       "InferenceNet": [
@@ -39301,6 +39350,14 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": "2026-09-29T07:56:16Z",
+          "output": 0.45,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-29T11:01:06Z",
           "output": 0.45,
           "read": 0.03
         }
