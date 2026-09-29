@@ -1,8 +1,9 @@
 """The response-cache invalidation / ingest_done broadcast gate of
-run_ingest_locked (issue #256): an ingest whose only data change comes
-from the derived-state phases — the reprice pass after a PRICING_VERSION
-bump, or the suppression purge — must gate exactly like a run that
-inserted, reparsed or deleted a file.
+run_ingest_locked (issues #256 and #341): an ingest whose only data
+change comes from the derived-state phases — the reprice pass after a
+PRICING_VERSION bump, the suppression purge, or the project_aliases
+fold — must gate exactly like a run that inserted, reparsed or deleted
+a file.
 
 Split from test_ingest.py's planned additions: that module sits at its
 committed size-baseline entry (957), so new tests live here and borrow
@@ -132,13 +133,43 @@ def test_a_tool_use_only_purge_invalidates_and_broadcasts(
         f"got broadcasts={broadcasts!r}, cache_entry={cache_entry!r}")
 
 
+def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
+        fresh_db: str, mini_r2_env: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #341: an ingest whose only data change is the project_aliases
+    fold must mark the response cache stale and broadcast ingest_done —
+    the fold re-keys stored identity without inserting, reparsing or
+    deleting a file, so the walk-level counts all stay zero."""
+    assert ingest.run_ingest_locked("manual")["error"] is None
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO project_aliases(pattern, project_id, note) "
+            "VALUES ('projA%', 'projB', 'issue 341')")
+        c.commit()
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projA'") > 0, (
+            "the mini mirror must carry files the alias moves")
+    broadcasts = _prime_and_spy("alias-fold-only-key", monkeypatch)
+
+    summary = ingest.run_ingest_locked("manual")
+
+    assert summary["error"] is None
+    assert (summary["inserted"], summary["reparsed"],
+            summary["deleted"]) == (0, 0, 0), (
+        "the run must have changed data ONLY through the alias fold")
+    assert broadcasts, "an alias-fold-only run must broadcast ingest_done"
+    assert cache.response_cache.get_entry("alias-fold-only-key") == (
+        {"v": "old"}, True), "an alias-fold-only run must mark responses stale"
+
+
 def test_a_no_op_ingest_stays_quiet(
         fresh_db: str, mini_r2_env: Path,
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Issue #256's flip side: a run that changes nothing stays quiet.
     The rollup rebuilds rewrite their whole derived table every run, so
-    their row counts must NOT gate the invalidation — only the four
-    record-mutating phases do."""
+    their row counts must NOT gate the invalidation — only the five
+    record-mutating phases do (suppression, reprice, the alias fold,
+    canonical flags, teammate resolution)."""
     assert ingest.run_ingest_locked("manual")["error"] is None
     broadcasts = _prime_and_spy("no-op-key", monkeypatch)
 
