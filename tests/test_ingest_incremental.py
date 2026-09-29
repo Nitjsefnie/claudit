@@ -1,6 +1,8 @@
 """Incremental derived-state equivalence and scope selection tests."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import json
 import logging
 from pathlib import Path
@@ -12,6 +14,15 @@ from test_ingest import (  # pylint: disable=unused-import
     _mini_r2_env_fixture as ingest_mini_r2_env,
 )
 from backend import constants, db, ingest, pricing, timing
+
+# Synthetic rates, deliberately unlike any real price (SV-TEST-DATA):
+# the simulated pricing bump the reprice-gate tests apply before their
+# second ingest. Mutating BOTH tables replaces the whole row whatever
+# the tree's data, so the move survives the perturbed-data CI leg.
+_BUMP_RATES = {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
+               "read": 0.9, "output": 19.0}
+UTC = timezone.utc
+
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PARSER_FIXTURES = _ROOT / "fixtures" / "parser"
@@ -272,8 +283,15 @@ def test_reprice_changes_force_full_rebuild(fresh_db, mini_r2_env,
     assert ingest.run_ingest(trigger="manual")["error"] is None
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES,
-        "claude-opus-4-7": {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
-                            "read": 0.9, "output": 19.0},
+        "claude-opus-4-7": _BUMP_RATES,
+    })
+    monkeypatch.setattr(pricing, "DATED_RATES", {
+        **pricing.DATED_RATES,
+        # The window covers every fixture timestamp, so the synthetic
+        # vector applies on the dated path too — replacing the whole row
+        # in BOTH tables is what makes the move perturbation-proof (the
+        # perturbed tree appends dated entries to every row).
+        "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
     })
     monkeypatch.setattr(constants, "PRICING_VERSION",
                         str(int(constants.PRICING_VERSION) + 1))

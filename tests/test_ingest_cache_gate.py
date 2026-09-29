@@ -11,6 +11,8 @@ its fixtures, the way test_ingest_fetch.py already does.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,14 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import cache, constants, db, ingest, pricing
+
+# Synthetic rates, deliberately unlike any real price (SV-TEST-DATA):
+# the simulated pricing bump the reprice-gate tests apply before their
+# second ingest. Mutating BOTH tables replaces the whole row whatever
+# the tree's data, so the move survives the perturbed-data CI leg.
+_BUMP_RATES = {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
+               "read": 0.9, "output": 19.0}
+UTC = timezone.utc
 
 
 def _prime_and_spy(
@@ -49,8 +59,15 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
     # something to reprice.
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES,
-        "claude-opus-4-7": {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
-                            "read": 0.9, "output": 19.0},
+        "claude-opus-4-7": _BUMP_RATES,
+    })
+    monkeypatch.setattr(pricing, "DATED_RATES", {
+        **pricing.DATED_RATES,
+        # The window covers every fixture timestamp, so the synthetic
+        # vector applies on the dated path too — replacing the whole row
+        # in BOTH tables is what makes the move perturbation-proof (the
+        # perturbed tree appends dated entries to every row).
+        "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
     })
     monkeypatch.setattr(constants, "PRICING_VERSION",
                         str(int(constants.PRICING_VERSION) + 1))

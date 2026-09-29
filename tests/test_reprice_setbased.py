@@ -11,6 +11,7 @@ invalidates nothing).
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import pytest
@@ -179,8 +180,6 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
 
         def __getattr__(self, name):
             return getattr(self._conn, name)
-
-    import contextlib
 
     @contextlib.contextmanager
     def spy_viz_conn():
