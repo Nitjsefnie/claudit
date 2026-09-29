@@ -266,6 +266,25 @@ def test_the_longest_matching_key_wins_in_the_browser():
     assert got == [key for _, key in cases]
 
 
+@needs_node
+def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
+    """issue #357: the dotted transcript id and its dashed form both hit
+    the new exact key in the browser too — never the shorter gpt-6-sol
+    row — at the rates the committed file defines, priced identically on
+    both sides. The ids are literals in a plain list, not rate-call
+    arguments, so no row value is pinned."""
+    ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
+    got = _node(PARSER_JS, f"""
+      const ids = {json.dumps(ids)};
+      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
+    """)
+    assert [(g["kind"], g["key"]) for g in got] == [
+        ("exact", "gpt-6-1-sol"), ("exact", "gpt-6-1-sol"),
+        ("exact", "gpt-6-sol")]
+    for g, w in zip(got, (pricing.resolve(m) for m in ids), strict=True):
+        assert _js_rates(g["rates"]) == w.rates
+
+
 def test_the_file_is_in_canonical_layout():
     """Sorted keys, two-space indent, one field per line: the layout
     json.dumps(doc, indent=2, sort_keys=True) writes, so an automated

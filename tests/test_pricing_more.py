@@ -1,4 +1,5 @@
-"""Synthetic model-resolution tests moved out of test_pricing.py."""
+"""Model-resolution tests moved out of test_pricing.py (synthetic rows,
+plus live-table exact-key checks in the style the live table allows)."""
 from __future__ import annotations
 
 import pytest
@@ -68,3 +69,20 @@ def test_match_key_memoizes_per_normalised_id() -> None:
     assert first is None, "no table key prefixes a synthetic norm"
     assert norm in pricing._MATCH_KEY_CACHE  # pylint: disable=protected-access
     assert pricing._match_key(norm) is first  # pylint: disable=protected-access
+
+
+def test_gpt_6_1_sol_resolves_exact_distinct_from_gpt_6_sol():
+    """Dotted and dashed GPT-6.1 Sol ids fold to their own row (issue
+    #357): before it landed, the dotted id resolved kind='default' at the
+    generic rates. The shorter gpt-6-sol key cannot absorb it —
+    _match_key needs the key to be a literal prefix and 'gpt-6-1-sol'
+    diverges from 'gpt-6-sol' at the version digit. The live table check
+    pins only exact-key resolution."""
+    sol = pricing.resolve("gpt-6.1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
+    dashed = pricing.resolve("gpt-6-1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
+    shorter = pricing.resolve("gpt-6-sol")  # sv-test-data: allow (structure: exact table key survives appends)
+    assert sol.kind == dashed.kind == "exact"
+    assert sol.key == dashed.key == "gpt-6-1-sol"
+    assert shorter.key == "gpt-6-sol"
+    assert set(sol.rates) == set(pricing.RATE_FIELDS)
+    assert sol.rates is not shorter.rates
