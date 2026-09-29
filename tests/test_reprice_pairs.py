@@ -58,6 +58,12 @@ UTC = timezone.utc
 _MOVED_RATES = {"fresh": 8.5, "create_5m": 10.625, "create_1h": 17.0,
                 "read": 0.85, "output": 42.5}
 
+# The second pair of the moved-pair test, bound like _SEED_MODEL: the
+# pinned-version guard flags a string constant naming a live rate row
+# inside a pricing call, but a module constant passed as a variable is
+# the sanctioned shape (SV-TEST-DATA).
+_B_PAIR_MODEL = "claude-sonnet-4-5"
+
 
 def _seed_block(c, model: str, first_line: int, count: int, *,
                 fp: str | None,
@@ -286,14 +292,14 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
     Python."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
     fp_a = rate_fingerprint.pair_fingerprint(_SEED_MODEL, None)
-    fp_b = rate_fingerprint.pair_fingerprint("claude-sonnet-4-5", None)
+    fp_b = rate_fingerprint.pair_fingerprint(_B_PAIR_MODEL, None)
     cost_a = _seeded_cost()
     cost_b = round(pricing.compute_cost(
-        "claude-sonnet-4-5", **_SEED_INPUTS, ts=_SEED_TS,
+        _B_PAIR_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
         long_context=False, provider=None), 6)
     with db.viz_conn() as c:
         _seed_block(c, _SEED_MODEL, 1, 5, fp=fp_a, cost=cost_a)
-        _seed_block(c, "claude-sonnet-4-5", 11, 5, fp=fp_b, cost=cost_b)
+        _seed_block(c, _B_PAIR_MODEL, 11, 5, fp=fp_b, cost=cost_b)
         c.commit()
 
     # The mutation pair A's rows were priced under no longer describe:
@@ -323,7 +329,7 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
             assert float(row_cost) == cost_b, "pair B's cost is untouched"
         assert version == constants.PRICING_VERSION
         assert fingerprint == rate_fingerprint.pair_fingerprint(
-            _SEED_MODEL if line_num <= 5 else "claude-sonnet-4-5", None)
+            _SEED_MODEL if line_num <= 5 else _B_PAIR_MODEL, None)
 
 
 def test_null_fingerprint_recomputes_once_then_goes_clean(
@@ -411,8 +417,9 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
         assert ingest_reprice.reprice_stale() == 0
 
     timing_line = _timing_line(caplog)
-    # The KWARG clean=N (rowcount), not the clean=Nms phase mark.
-    clean_m = re.search(r"\bclean=(\d+)(?!ms)", timing_line)
+    # clean_rows=N is the kwarg rowcount; the phase mark spells
+    # clean=Nms and must never read as the rowcount.
+    clean_m = re.search(r"\bclean_rows=(\d+)", timing_line)
     assert clean_m and clean_m.group(1) == "1", (
         f"only the one plain-digit <= V row SQL-restamps: {timing_line}")
 

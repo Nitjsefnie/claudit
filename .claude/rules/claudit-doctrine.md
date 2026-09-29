@@ -795,7 +795,7 @@ the pricing modules' source (`backend/rate_fingerprint.py`), so an
 edited entry, a correction, a schedule change or a logic change all
 move it while an untouched pair's stands still; the recomputation for
 matching rows is the identity by construction and reads zero rows into
-Python. The SQL restamp set is exactly `{plain-digit versions <= V}`,
+Python. The SQL restamp set is exactly `{1-9-digit plain-digit versions <= V}`,
 a subset of the keyset path's (Python's `int()` parses spellings the
 SQL cast refuses), and the guard still protects newer-version rows on
 both paths. NULL fp is the conservative stale shape (pre-feature rows,

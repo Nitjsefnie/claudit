@@ -202,7 +202,9 @@ def _stored_pricing_version_is_newer(stored: str | None,
 
 def _record_updates(row: _StaleRow) -> dict:
     """The columns one record's reprice writes, from its stored values —
-    THE one assembly point.
+    THE one assembly point. The frozen differential
+    (tests/test_reprice_differential.py) imports this unchanged, so an
+    edit here moves BOTH passes and blinds the differential.
 
     cost_usd and the long-context flag together (issue #194): for the
     meter's models the flag is a pure function of stored columns —
@@ -249,7 +251,8 @@ def _record_updates(row: _StaleRow) -> dict:
 
 def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
     """Whether recomputing the row yielded its stored state, so only the
-    staleness marker needs advancing.
+    staleness marker needs advancing. Also imported unchanged by the
+    frozen differential — see _record_updates.
 
     The stored cost is NUMERIC(12,6): the old pass wrote
     round(cost, 6) into it, and reading that value back through
@@ -281,7 +284,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     pass nothing, which prices the whole table in one go.
 
     With CLAUDIT_TIMING on, the pass emits one TIMING line whose marks
-    (select, fetch, recompute, restamp, moved, commit) accumulate across
+    (select, fetch, pairs, clean, recompute, restamp, moved,
+    commit) accumulate across
     batches and must account for the measured total — the gap is the
     unattributed residue. Python CPU time rides the same line.
     """
@@ -414,7 +418,7 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
             for label, seconds in marks.items():
                 ph.mark(label, seconds)
             ph.done(batches=batches, rows=rows_seen, changed=changed,
-                    clean=clean, outcome=outcome,
+                    clean_rows=clean, outcome=outcome,
                     cpu=f"{time.process_time() - cpu0:.1f}s")
     log.info(
         "reprice: %d record(s) repriced (rate-derived data changed), "

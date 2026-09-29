@@ -22,7 +22,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
 )
 
-from backend import cache, constants, db, ingest, pricing
+from backend import (cache, constants, db, ingest, pricing,
+                     rate_fingerprint)
 
 # Synthetic rates, deliberately unlike any real price (SV-TEST-DATA):
 # the simulated pricing bump the reprice-gate tests apply before their
@@ -69,6 +70,12 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
         # perturbed tree appends dated entries to every row).
         "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
     })
+    # The fingerprints the first ingest stamped came from the
+    # pre-mutation tables (rate_fingerprint memoizes per pair, and the
+    # production tables are immutable per process — the established
+    # in-test pattern is an explicit clear at the mutation site, as in
+    # the parity test).
+    rate_fingerprint.clear_fingerprint_cache()
     monkeypatch.setattr(constants, "PRICING_VERSION",
                         str(int(constants.PRICING_VERSION) + 1))
     broadcasts = _prime_and_spy("reprice-only-key", monkeypatch)
