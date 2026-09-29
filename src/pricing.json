@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T18:53:44Z",
+  "provider_rates_fetched": "2026-09-29T19:53:45Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -866,6 +866,49 @@
           "from": "2026-09-29T05:51:18Z",
           "output": 0.45,
           "read": 0.02
+        }
+      ],
+      "Io Net": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-10T15:45:37Z",
+          "output": 0.6,
+          "read": 0.003
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-10T16:00:33Z",
+          "output": 1.2,
+          "read": 0.003
+        },
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": "2026-09-11T06:15:42Z",
+          "output": 1.2,
+          "read": 0.003
+        },
+        {
+          "create_1h": 0.285,
+          "create_5m": 0.285,
+          "fresh": 0.285,
+          "from": "2026-09-14T05:55:44Z",
+          "note": "5% off",
+          "output": 1.14,
+          "read": 0.00285
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.25,
+          "from": "2026-09-29T19:29:49Z",
+          "output": 1.0,
+          "read": 0.03
         }
       ],
       "Ionstream": [
@@ -2638,6 +2681,14 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": "2026-09-29T17:55:19Z",
+          "output": 0.44,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0833,
+          "create_5m": 0.0833,
+          "fresh": 0.0833,
+          "from": "2026-09-29T19:05:26Z",
           "output": 0.44,
           "read": 0.045
         }
@@ -29839,6 +29890,15 @@
           "note": "46.68% off",
           "output": 1.855536,
           "read": 0.077314
+        },
+        {
+          "create_1h": 0.924462,
+          "create_5m": 0.924462,
+          "fresh": 0.924462,
+          "from": "2026-09-29T18:55:17Z",
+          "note": "46.87% off",
+          "output": 1.848924,
+          "read": 0.0770385
         }
       ],
       "Venice": [
@@ -36897,6 +36957,14 @@
           "from": "2026-09-29T18:10:35Z",
           "output": 3.0,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.19,
+          "create_5m": 0.19,
+          "fresh": 0.19,
+          "from": "2026-09-29T19:10:29Z",
+          "output": 3.0,
+          "read": 0.18
         }
       ],
       "Io Net": [
@@ -38160,6 +38228,14 @@
           "create_5m": 0.2737,
           "fresh": 0.2737,
           "from": "2026-09-29T18:25:30Z",
+          "output": 2.992,
+          "read": 0.1955
+        },
+        {
+          "create_1h": 1.19,
+          "create_5m": 1.19,
+          "fresh": 1.19,
+          "from": "2026-09-29T19:00:25Z",
           "output": 2.992,
           "read": 0.1955
         }
@@ -39550,6 +39626,14 @@
           "fresh": 0.2219,
           "from": "2026-09-29T18:53:44Z",
           "output": 3.39,
+          "read": 0.1775
+        },
+        {
+          "create_1h": 0.2219,
+          "create_5m": 0.2219,
+          "fresh": 0.2219,
+          "from": "2026-09-29T19:53:45Z",
+          "output": 2.99,
           "read": 0.1775
         }
       ],
