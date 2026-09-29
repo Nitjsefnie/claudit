@@ -317,7 +317,7 @@ def test_a_paid_window_over_a_free_default_does_not_scale_alike():
     free = dict.fromkeys(RATE_FIELDS, 0.0)
 
     def listing(window: dict) -> object:
-        return refresh.Listing("h", "[]", free, [{"rates": window}], Decimal(0))
+        return refresh.Listing("h", {}, free, [{"rates": window}], Decimal(0))
     # pylint: disable=protected-access
     assert refresh._scales_alike(listing(free))
     assert not refresh._scales_alike(listing({**free, "output": 1.0}))

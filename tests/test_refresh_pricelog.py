@@ -254,12 +254,16 @@ def test_scheduled_endpoint_or_series_is_sampled(scheduled: str):
     assert match["Wafer"].reason
 
 
-def test_cheapest_resolution_is_always_sampled():
+@pytest.mark.parametrize("pin", [
+    {"select": "cheapest"},
+    {"tag": "wafer/fp8", "select": "cheapest"},
+], ids=["bare", "tag-and-cheapest"])
+def test_cheapest_resolution_is_always_sampled(pin):
     rates = _rates(0.3, 0.8)
     match = _joined([_endpoint("Wafer", "wafer/fp8", rates),
                      _endpoint("Wafer", "wafer/fp8", _rates(0.4, 0.9))],
                     [_series(rates=rates), _series(rates=_rates(0.4, 0.9))],
-                    resolutions={"Wafer": {"select": "cheapest"}})
+                    resolutions={"Wafer": pin})
 
     assert match["Wafer"].entries is None
     assert match["Wafer"].reason

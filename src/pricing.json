@@ -398,8 +398,12 @@
         "id": "deepseek/deepseek-v4.1-flash",
         "resolve": {
           "BaseTen": {
+            "ignore": [
+              "max_completion_tokens"
+            ],
             "select": "cheapest",
-            "why": "BaseTen lists this model twice under one tag, quantization and limits, with nothing but the price to tell them apart: a global endpoint and a US in-region one. The account's keys reach only the global data region, and a region-premium twin is the dearer one (here cache read 0.03 against 0.007)."
+            "tag": "baseten/fp8",
+            "why": "BaseTen lists one deepseek-v4.1-flash offering twice under baseten/fp8 - the global endpoint the account reaches and a dearer US in-region twin (cache read 0.007 against 0.03 per million) - alike in everything else but a 1-token max_completion_tokens listing artifact (32767 against 32768), recorded here as ignored. baseten/fast is a separate tier under its own tag, excluded by the pin. Pinned to baseten/fp8 and taking the cheaper: the keys reach only the global data region, so the cheap-read twin is the one the account is billed by."
           }
         }
       },
