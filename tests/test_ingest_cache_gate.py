@@ -149,6 +149,11 @@ def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
         assert _scalar(
             c, "SELECT COUNT(*) FROM files WHERE project_id = 'projA'") > 0, (
             "the mini mirror must carry files the alias moves")
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
+               "AND session_id = 'sess-A'") == 0, (
+            "the mirror must not already carry sess-A under projB — "
+            "the fold is what puts it there")
     broadcasts = _prime_and_spy("alias-fold-only-key", monkeypatch)
 
     summary = ingest.run_ingest_locked("manual")
@@ -162,8 +167,12 @@ def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
         {"v": "old"}, True), "an alias-fold-only run must mark responses stale"
     with db.viz_conn() as c:
         assert _scalar(
-            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB'") > 0, (
-            "the fold must move the files TO the alias target")
+            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
+               "AND session_id = 'sess-A'") > 0, (
+            "the fold must move sess-A's files TO the alias target projB")
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projA'") == 0, (
+            "the fold must empty the source project projA")
 
 
 def test_a_no_op_ingest_stays_quiet(
