@@ -53,3 +53,15 @@ updates:
       prefix: "ci"
     labels:
       - dependencies
+    # github/codeql-action/init and .../analyze are separate dependencies to
+    # Dependabot, so ungrouped it files ONE HALF-BUMP PR PER PIN — and a tree
+    # whose init and analyze pins disagree fails every CodeQL run at SARIF
+    # processing with "Error when processing the SARIF file" (issue #335:
+    # every action-pin bump PR since 4.37.7 went red). The group is what
+    # keeps both pins in one atomic PR; the in-tree tripwire is
+    # tests/test_ci_workflows.py.
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
