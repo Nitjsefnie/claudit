@@ -2,15 +2,16 @@
 
 github/codeql-action/init and github/codeql-action/analyze must run the same
 version inside one workflow run: the action records its version at init and
-refuses a later step at a different one — "Loaded a configuration file for
-version 'X', but running version 'Y'" — which fails every CodeQL run of the
-tree at SARIF processing ("Error when processing the SARIF file", PR #62).
-Dependabot names the two subpaths as separate dependencies, so ungrouped it
-files one half-bump PR per pin, and each half fails CI on its own (#25/#26,
-#31/#32, #38/#39, #50/#51, #62/#63 — four of the five pairs were closed
-unmerged). The dependabot.yml groups block keeps the pins in one atomic PR;
-these tests are the in-tree layer that fails if a single-pin bump ever
-lands, and that fails loudly if the group is ever removed.
+refuses a later step at a different one — PR #62's analyze log records
+exactly that refusal ("Loaded a configuration file for version '4.38.1',
+but running version '4.37.7'") — which fails every CodeQL run of the tree
+at SARIF processing ("Error when processing the SARIF file"). Dependabot
+names the two subpaths as separate dependencies, so ungrouped it files one
+half-bump PR per pin, and each half fails CI on its own (#25/#26, #31/#32,
+#38/#39, #50/#51, #62/#63 — four of the five pairs were closed unmerged).
+The dependabot.yml groups block keeps the pins in one atomic PR; these
+tests are the in-tree layer that fails if a single-pin bump ever lands,
+and that fails loudly if the group is ever removed.
 
 The workflows and dependabot.yml are asserted on their YAML-DECODED
 structure, the way Dependabot itself reads them — a regex over the raw text
@@ -78,13 +79,16 @@ def test_codeql_action_pin_comments_are_immutable_release_tags() -> None:
     assert set(comments) == {"init", "analyze"}, (
         f"expected the init and analyze pin comments, found {sorted(comments)}"
     )
-    # a floating major tag (# v4) decays when upstream re-points it, so
-    # each comment must name an immutable vX.Y.Z release tag
+    # a floating major tag (# v4) decays when upstream re-points it, so each
+    # comment must name a release tag of the immutable vX.Y.Z SHAPE. The
+    # shape is the convention this gate enforces; a release's actual
+    # immutability (its `immutable` flag) is verified reviewer-side, never
+    # by a name pattern.
     bad = {
         c for c in comments.values()
         if not re.fullmatch(r"v\d+\.\d+\.\d+", c)
     }
-    assert not bad, f"pin comments are not immutable release tags: {sorted(bad)}"
+    assert not bad, f"pin comments are not vX.Y.Z release tags: {sorted(bad)}"
     assert len(set(comments.values())) == 1, (
         f"pin comments disagree across steps: {sorted(comments.values())}"
     )
