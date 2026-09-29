@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T20:53:39Z",
+  "provider_rates_fetched": "2026-09-29T21:26:25Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -29976,6 +29976,15 @@
           "note": "47.17% off",
           "output": 1.838484,
           "read": 0.0766035
+        },
+        {
+          "create_1h": 0.915936,
+          "create_5m": 0.915936,
+          "fresh": 0.915936,
+          "from": "2026-09-29T20:55:30Z",
+          "note": "47.36% off",
+          "output": 1.831872,
+          "read": 0.076328
         }
       ],
       "Venice": [
@@ -38381,6 +38390,14 @@
           "from": "2026-09-29T20:10:30Z",
           "output": 2.992,
           "read": 0.1955
+        },
+        {
+          "create_1h": 0.1428,
+          "create_5m": 0.1428,
+          "fresh": 0.1428,
+          "from": "2026-09-29T20:55:31Z",
+          "output": 2.992,
+          "read": 0.1955
         }
       ],
       "Novita": [
@@ -39778,6 +39795,14 @@
           "from": "2026-09-29T19:53:45Z",
           "output": 2.99,
           "read": 0.1775
+        },
+        {
+          "create_1h": 0.2663,
+          "create_5m": 0.2663,
+          "fresh": 0.2663,
+          "from": "2026-09-29T21:26:25Z",
+          "output": 2.99,
+          "read": 0.213
         }
       ],
       "Z.AI": [
