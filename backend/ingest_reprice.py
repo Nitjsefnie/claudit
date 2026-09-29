@@ -144,7 +144,11 @@ _SQL_STALE_PAIRS = """
 # this exact set — {plain-digit versions <= V} — is left for the
 # keyset path, whose _stored_pricing_version_is_newer decides it
 # exactly as before. That set is a subset of the keyset path's restamp
-# set, and a test pins the odd spellings row by row.
+# set, and a test pins the odd spellings row by row. The digit run is
+# bounded at 9: the cast is int4, so a longer plain-digit value (past
+# any reachable PRICING_VERSION) would abort the whole statement with
+# integer-out-of-range where the guard must merely skip it — bound it
+# out of the set-based statement and the Python path decides it.
 _SQL_CLEAN_RESTAMP = """
     UPDATE records r
        SET pricing_version = %s
@@ -153,7 +157,7 @@ _SQL_CLEAN_RESTAMP = """
        AND COALESCE(r.provider, '') = d.p
        AND r.rate_fingerprint = d.f
        AND r.pricing_version IS DISTINCT FROM %s
-       AND r.pricing_version ~ '^[0-9]+$'
+       AND r.pricing_version ~ '^[0-9]{1,9}$'
        AND r.pricing_version::int <= %s
 """
 

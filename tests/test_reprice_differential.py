@@ -447,7 +447,7 @@ def test_legacy_and_pair_qualified_pass_agree(
 
     with db.viz_conn() as c:
         start = _snapshot(c)
-    assert _legacy_reprice_stale() >= 0
+    _legacy_reprice_stale()
     with db.viz_conn() as c:
         legacy_snapshot = _snapshot(c)
 
