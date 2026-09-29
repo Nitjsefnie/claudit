@@ -380,7 +380,7 @@ _tls = threading.local()
 
 
 def _boto_client():
-    """Per-thread cached S3 client.
+    """Per-thread cached S3 client, stamped with its creating process.
 
     Rebuilding this per object cost ~5ms of botocore setup each time AND
     threw away the underlying connection pool, so every GET paid a fresh
@@ -388,9 +388,21 @@ def _boto_client():
     thread-local rather than module-global because botocore clients are
     only documented thread-safe for method calls, and a private client per
     worker also gives each its own connection pool.
+
+    The stamp is the fork guard (issue #338): a fork-context pool child
+    inherits the forking thread's thread-local — the client the ingest
+    listing built, still holding its open TLS sockets. A child that reused
+    it would read and write the same SSL streams the parent and the other
+    children use, corrupting every one of them (`ssl.SSLError: record
+    layer failure`), so a cached client whose stamp is not this process's
+    pid is treated as absent: the child keeps the inherited client only as
+    an unreachable reference and builds its own. Never close the inherited
+    one — a close could write to the shared streams; the duplicated
+    descriptors are simply dropped. The stamp lives in the thread-local
+    beside the client, never as an attribute on the botocore object.
     """
     client = getattr(_tls, "client", None)
-    if client is not None:
+    if client is not None and getattr(_tls, "pid", None) == os.getpid():
         return client
 
     endpoint = os.environ["R2_ENDPOINT"]
@@ -403,4 +415,5 @@ def _boto_client():
         config=Config(max_pool_connections=32, retries={"max_attempts": 3}),
     )
     _tls.client = client
+    _tls.pid = os.getpid()
     return client

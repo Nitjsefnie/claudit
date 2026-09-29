@@ -1,7 +1,9 @@
 import errno
 import lzma
+import multiprocessing
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -247,3 +249,112 @@ def test_list_keys_skips_a_file_that_vanished_mid_walk(mini_r2):
     keys = [o.key for o in r2.list_keys()]
     assert "claude/proj-a/sess-1/gone.jsonl" not in keys
     assert "claude/proj-a/sess-1/sess-1.jsonl" in keys
+
+
+# ---------------------------------------------------------------------------
+# The cached S3 client must not cross a fork (issue #338): the ingest
+# thread builds its client for the listing, then the process-pool
+# pipeline forks children that inherit the forking thread's thread-local
+# — the same client object, and with it the same open TLS sockets. Two
+# processes reading one SSL stream corrupt each other's records
+# (ssl.SSLError: record layer failure), so every forked child must build
+# its own client. No network: the probe compares object identity and the
+# creator stamp inside a fork-context child, over a fixture mirror env.
+# ---------------------------------------------------------------------------
+
+
+_FORK_REF: dict = {}
+
+
+def _fork_client_probe(conn) -> None:
+    """Run in a forked child: report what `_boto_client()` returns.
+
+    `_FORK_REF` is a module global, so the fork — not pickling — hands
+    the child the parent's client reference, and the identity comparison
+    stays in-process where `is` means the same object.
+    """
+    client = r2._boto_client()  # pylint: disable=protected-access
+    conn.send({
+        "same_object": client is _FORK_REF.get("client"),
+        # The creator stamp lives in the thread-local beside the client.
+        "creator_pid": getattr(r2._tls, "pid", None),  # pylint: disable=protected-access
+        "child_pid": os.getpid(),
+    })
+    conn.close()
+
+
+class TestBotoClientFork:
+    @pytest.fixture(name="tls_state")
+    def _tls_state_fixture(self):
+        """Snapshot/restore this thread's cached-client state so the
+        test's client never leaks into another test, and point
+        R2_ENDPOINT at a well-formed, never-dialed URL: `_boto_client`
+        refuses the suite's `file://` endpoint at construction, and the
+        endpoint is only ever dialed by an actual GET, which no test
+        here performs."""
+        keys = ("client", "pid")
+        saved = {k: getattr(r2._tls, k, None) for k in keys}  # pylint: disable=protected-access
+        had = {k: hasattr(r2._tls, k) for k in keys}  # pylint: disable=protected-access
+        saved_endpoint = os.environ["R2_ENDPOINT"]
+        os.environ["R2_ENDPOINT"] = "https://r2.invalid/s3"
+        yield
+        os.environ["R2_ENDPOINT"] = saved_endpoint
+        for k in keys:
+            if had[k]:
+                setattr(r2._tls, k, saved[k])  # pylint: disable=protected-access
+            else:
+                try:
+                    delattr(r2._tls, k)  # pylint: disable=protected-access
+                except AttributeError:
+                    pass
+
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="the fork-context parse pool deploys on Linux; macOS has "
+               "os.fork but forking this multithreaded suite process "
+               "segfaults inside botocore client construction in the "
+               "child (observed exitcode -11 on the CI runners), so the "
+               "pin runs where the hazard is real; Windows skips for "
+               "want of os.fork",
+    )
+    @pytest.mark.usefixtures("tls_state")
+    def test_forked_child_builds_its_own_client(self):
+        # The ingest thread's shape, exactly: the listing builds the
+        # client in this thread; the pool then forks children from it.
+        parent_client = r2._boto_client()  # pylint: disable=protected-access
+        _FORK_REF["client"] = parent_client
+        ctx = multiprocessing.get_context("fork")
+        recv, send = ctx.Pipe(duplex=False)
+        child = ctx.Process(target=_fork_client_probe, args=(send,))
+        try:
+            child.start()
+            child.join(timeout=60)
+            if not recv.poll():
+                pytest.fail(
+                    f"probe child sent nothing (exitcode={child.exitcode})")
+            report = recv.recv()
+        finally:
+            # A timed-out child must not outlive the test: kill and reap
+            # it here, where the join's timeout already proved the wait
+            # bounded, so the teardown itself cannot hang.
+            if child.is_alive():
+                child.kill()
+                child.join(timeout=10)
+            _FORK_REF.clear()
+            send.close()
+            recv.close()
+        assert child.exitcode == 0, child.exitcode
+        assert report["child_pid"] != os.getpid()
+        assert report["same_object"] is False, report
+        assert report["creator_pid"] == report["child_pid"], report
+        # The parent's cache keeps its own client: the keep-alive pool
+        # survives for the listing and any parent-side fetch.
+        assert r2._boto_client() is parent_client  # pylint: disable=protected-access
+
+    @pytest.mark.usefixtures("tls_state")
+    def test_cached_client_carries_its_creator_pid(self):
+        """The stamp is what lets a forked child tell an inherited client
+        from its own; assert it in-process so the fork test's identity
+        check has a visible, non-network second witness."""
+        r2._boto_client()  # pylint: disable=protected-access
+        assert getattr(r2._tls, "pid", None) == os.getpid()  # pylint: disable=protected-access
