@@ -22,9 +22,10 @@ recomputed state equals its stored state is only re-stamped with the
 current PRICING_VERSION (one UPDATE joining unnest() over the batch's
 keys), and a row whose cost or long-context flag moved is written by
 one UPDATE ... FROM unnest(...) carrying the batch's recomputed values.
-Neither write re-states one row per statement; the hourly PRICING
-bumps that move no stored pair's rates restamp the whole table in a
-few statements instead of one UPDATE per row.
+Neither write re-states one row per statement: a batch's rows cost
+at most two UPDATE statements however large REPRICE_BATCH is, so the
+hourly PRICING bumps that move no stored pair's rates issue O(batches)
+statements instead of one UPDATE per row.
 
 The return count is rows whose rate-derived data CHANGED — the restamp
 advances the staleness marker without touching user-visible state, so

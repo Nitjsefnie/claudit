@@ -135,3 +135,73 @@ def test_reprice_split_survives_the_keyset_and_shutdown(fresh_db,
         "persist (restamped and repriced rows alike)")
     assert versions[6] == "0", (
         "rows the aborted pass never reached stay stale")
+
+
+def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
+    """The mechanism half of issue #339: each batch's rows travel in at
+    most two set-based UPDATE statements (restamp + reprice), and no
+    per-row executemany stream returns. A regression to one statement
+    per row — the shape this issue removed — would keep every semantic
+    test green, so the write shape itself is pinned here: statement
+    count stays O(batches), never O(rows)."""
+    calls: list[str] = []
+    real_viz_conn = db.viz_conn
+
+    class _SpyCursor:
+        def __init__(self, cur):
+            self._cur = cur
+
+        def execute(self, sql, params=None):
+            calls.append(sql.split("(")[0].split()[0].lower())
+            return self._cur.execute(sql, params)
+
+        def executemany(self, sql, params_seq):
+            calls.append("executemany")
+            return self._cur.executemany(sql, params_seq)
+
+        def __getattr__(self, name):
+            return getattr(self._cur, name)
+
+    class _SpyConn:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, params=None):
+            calls.append(sql.split("(")[0].split()[0].lower())
+            return self._conn.execute(sql, params)
+
+        def executemany(self, sql, params_seq):
+            calls.append("executemany")
+            return self._conn.executemany(sql, params_seq)
+
+        def cursor(self):
+            return _SpyCursor(self._conn.cursor())
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def spy_viz_conn():
+        with real_viz_conn() as conn:
+            yield _SpyConn(conn)
+
+    monkeypatch.setattr(ingest_reprice.db, "viz_conn", spy_viz_conn)
+
+    with db.viz_conn() as c:
+        # five stale rows: two already correct (restamp), three moved
+        for line_num in range(1, 6):
+            correct = line_num in (1, 2)
+            _seed(c, _FILE_KEY, line_num, pricing_version="0",
+                  cost_usd=_seeded_cost() if correct else 0.5)
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 3
+
+    assert "executemany" not in calls, (
+        "the per-row executemany stream must not return")
+    update_calls = calls.count("update")
+    assert update_calls <= 2, (
+        f"{update_calls} UPDATE statements for one batch; the pass must "
+        "write set-based (at most one restamp + one reprice)")
