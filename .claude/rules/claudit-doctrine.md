@@ -780,8 +780,8 @@ run takes a full derived rebuild, since repricing can move rollups
 outside the dirty files. No endpoint, panel or rollup
 reads `pricing_version`. The recomputed state is `cost_usd` and the Codex
 long-context flag (`records.long_context`), re-derived from the same
-columns under the same switch. The completion marker follows the
-finalization rule in SV-ROLLUP.
+columns under the same switch. The completion marker follows
+SV-SCHEMA-AUTOAPPLY.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
