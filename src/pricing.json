@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T08:56:58Z",
+  "provider_rates_fetched": "2026-09-29T09:54:08Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2209,6 +2209,15 @@
           "note": "40.5% off",
           "output": 0.714,
           "read": 0.00357
+        },
+        {
+          "create_1h": 0.165,
+          "create_5m": 0.165,
+          "fresh": 0.165,
+          "from": "2026-09-29T09:00:25Z",
+          "note": "45% off",
+          "output": 0.66,
+          "read": 0.0033
         }
       ],
       "Together": [
@@ -2549,6 +2558,22 @@
           "create_5m": 0.0649,
           "fresh": 0.0649,
           "from": "2026-09-29T07:56:17Z",
+          "output": 0.7,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-29T09:20:27Z",
+          "output": 0.7,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0649,
+          "create_5m": 0.0649,
+          "fresh": 0.0649,
+          "from": "2026-09-29T09:30:24Z",
           "output": 0.7,
           "read": 0.045
         }
@@ -17237,6 +17262,14 @@
           "from": "2026-09-29T07:26:20Z",
           "output": 0.35,
           "read": 0.0439
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-29T09:10:25Z",
+          "output": 0.35,
+          "read": 0.0531
         }
       ]
     },
@@ -31674,6 +31707,14 @@
           "from": "2026-09-29T03:46:09Z",
           "output": 3.5,
           "read": 0.25
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-09-29T09:05:25Z",
+          "output": 3.5,
+          "read": 0.15
         }
       ],
       "Sail Research": [
@@ -39732,6 +39773,15 @@
           "note": "25% off",
           "output": 0.375,
           "read": 0.0225
+        },
+        {
+          "create_1h": 0.084,
+          "create_5m": 0.084,
+          "fresh": 0.084,
+          "from": "2026-09-29T09:15:49Z",
+          "note": "44% off",
+          "output": 0.28,
+          "read": 0.0168
         }
       ],
       "OpenInference": [
