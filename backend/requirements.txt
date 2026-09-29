@@ -7,7 +7,7 @@
 # is whatever pip resolves under fastapi's `starlette>=0.46.0` floor, so it
 # moves with time; nothing here records a snapshot of it.
 fastapi==0.141.1
-uvicorn[standard]==0.53.0
+uvicorn[standard]==0.54.0
 psycopg[pool,binary]==3.3.6
 boto3==1.43.99
 orjson==3.12.0
