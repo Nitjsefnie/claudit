@@ -302,10 +302,19 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
         _seed_block(c, _B_PAIR_MODEL, 11, 5, fp=fp_b, cost=cost_b)
         c.commit()
 
-    # The mutation pair A's rows were priced under no longer describe:
-    # a window now covers their ts, so both cost and fingerprint move.
+    # The mutation pair A's rows were priced under no longer describes:
+    # the moved pair's WHOLE rows are replaced in BOTH tables with one
+    # dated window that covers the seeded ts (end 2099-01-01, the
+    # cache-gate test's spelling), dict-additive so no other pair's
+    # resolution reads this patch. A's move is then self-contained —
+    # it dominates whatever live or perturbed rows the tables carry —
+    # and pair B stays untouched under any table content.
     monkeypatch.setattr(pricing, "DATED_RATES", {
-        _SEED_MODEL: [(datetime(2027, 1, 1, tzinfo=UTC), _MOVED_RATES)]})
+        **pricing.DATED_RATES,
+        _SEED_MODEL: [(datetime(2099, 1, 1, tzinfo=UTC), _MOVED_RATES)]})
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES,
+        _SEED_MODEL: dict(_MOVED_RATES)})
     rate_fingerprint.clear_fingerprint_cache()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
