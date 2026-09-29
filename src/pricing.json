@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T15:54:06Z",
+  "provider_rates_fetched": "2026-09-29T16:32:44Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2598,6 +2598,14 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": "2026-09-29T12:26:46Z",
+          "output": 0.7,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0649,
+          "create_5m": 0.0649,
+          "fresh": 0.0649,
+          "from": "2026-09-29T16:10:26Z",
           "output": 0.7,
           "read": 0.045
         }
@@ -30993,6 +31001,15 @@
           "note": "64.1% off",
           "output": 1.42164,
           "read": 0.015078
+        },
+        {
+          "create_1h": 0.47256,
+          "create_5m": 0.47256,
+          "fresh": 0.47256,
+          "from": "2026-09-29T16:05:25Z",
+          "note": "64.2% off",
+          "output": 1.41768,
+          "read": 0.015036
         }
       ],
       "Cloudflare": [
@@ -34349,6 +34366,14 @@
           "from": "2026-09-29T14:04:31Z",
           "output": 4.2,
           "read": 0.3799
+        },
+        {
+          "create_1h": 0.4721,
+          "create_5m": 0.4721,
+          "fresh": 0.4721,
+          "from": "2026-09-29T16:32:44Z",
+          "output": 4.2,
+          "read": 0.3776
         }
       ]
     },
@@ -36694,6 +36719,22 @@
           "fresh": 0.612,
           "from": "2026-09-29T15:35:36Z",
           "note": "31.999999999999995% off",
+          "output": 2.04,
+          "read": 0.102
+        },
+        {
+          "create_1h": 0.9,
+          "create_5m": 0.9,
+          "fresh": 0.9,
+          "from": "2026-09-29T15:55:13Z",
+          "output": 3.0,
+          "read": 0.15
+        },
+        {
+          "create_1h": 0.19,
+          "create_5m": 0.19,
+          "fresh": 0.19,
+          "from": "2026-09-29T15:55:17Z",
           "output": 2.04,
           "read": 0.102
         }
