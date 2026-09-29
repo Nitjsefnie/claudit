@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T14:54:27Z",
+  "provider_rates_fetched": "2026-09-29T15:54:06Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -890,6 +890,14 @@
           "create_5m": 0.28,
           "fresh": 0.28,
           "from": "2026-09-28T15:10:50Z",
+          "output": 1.15,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.145,
+          "create_5m": 0.145,
+          "fresh": 0.145,
+          "from": "2026-09-29T15:05:35Z",
           "output": 1.15,
           "read": 0.005
         }
@@ -30976,6 +30984,15 @@
           "note": "63.7% off",
           "output": 1.43748,
           "read": 0.015246
+        },
+        {
+          "create_1h": 0.47388,
+          "create_5m": 0.47388,
+          "fresh": 0.47388,
+          "from": "2026-09-29T15:35:34Z",
+          "note": "64.1% off",
+          "output": 1.42164,
+          "read": 0.015078
         }
       ],
       "Cloudflare": [
@@ -31674,6 +31691,15 @@
           "note": "36% off",
           "output": 1.9584,
           "read": 0.07488
+        },
+        {
+          "create_1h": 0.608,
+          "create_5m": 0.608,
+          "fresh": 0.608,
+          "from": "2026-09-29T15:35:37Z",
+          "note": "36% off",
+          "output": 1.9584,
+          "read": 0.08832
         }
       ],
       "NextBit": [
@@ -36661,6 +36687,15 @@
           "note": "23.999999999999988% off",
           "output": 2.28,
           "read": 0.114
+        },
+        {
+          "create_1h": 0.612,
+          "create_5m": 0.612,
+          "fresh": 0.612,
+          "from": "2026-09-29T15:35:36Z",
+          "note": "31.999999999999995% off",
+          "output": 2.04,
+          "read": 0.102
         }
       ],
       "Io Net": [
@@ -38381,6 +38416,15 @@
           "note": "60% off",
           "output": 1.76,
           "read": 0.104
+        },
+        {
+          "create_1h": 0.98,
+          "create_5m": 0.98,
+          "fresh": 0.98,
+          "from": "2026-09-29T14:55:21Z",
+          "note": "30% off",
+          "output": 3.08,
+          "read": 0.182
         }
       ],
       "PrimeIntellect": [
@@ -39266,6 +39310,14 @@
           "from": "2026-09-29T13:53:59Z",
           "output": 4.4,
           "read": 0.148
+        },
+        {
+          "create_1h": 0.2219,
+          "create_5m": 0.2219,
+          "fresh": 0.2219,
+          "from": "2026-09-29T15:54:06Z",
+          "output": 4.4,
+          "read": 0.1775
         }
       ],
       "Z.AI": [
