@@ -11,14 +11,27 @@ The pass recomputes RATE-DERIVED STORED STATE keyed off pricing_version
 staleness: cost_usd AND records.long_context (a rate-derived flag,
 issue #194). For the meter's models the flag is a pure function of
 stored columns, and it rides the SAME selection as the cost. The
-per-row update is therefore assembled in one place (_record_updates),
-and the UPDATE's SET list is generated from _SET_COLUMNS, so a flag
-column joins the batch without reworking the batching, the keyset or
-the guard.
+per-row update is assembled in one place (_record_updates), so a flag
+column rides the same selection, guard and keyset as the cost.
 
-Batching: REPRICE_BATCH rows per transaction, keyset-paginated on
-(file_key, line_num), one commit per batch — a failure's blast radius is
-one batch, and OFFSET pagination (which would rescan) is never used.
+Batching (issue #339): REPRICE_BATCH rows per transaction, keyset-
+paginated on (file_key, line_num), one commit per batch — a failure's
+blast radius is one batch, and OFFSET pagination (which would rescan)
+is never used. Each batch's rows are written SET-BASED: a row whose
+recomputed state equals its stored state is only re-stamped with the
+current PRICING_VERSION (one UPDATE joining unnest() over the batch's
+keys), and a row whose cost or long-context flag moved is written by
+one UPDATE ... FROM unnest(...) carrying the batch's recomputed values.
+Neither write re-states one row per statement; the hourly PRICING
+bumps that move no stored pair's rates restamp the whole table in a
+few statements instead of one UPDATE per row.
+
+The return count is rows whose rate-derived data CHANGED — the restamp
+advances the staleness marker without touching user-visible state, so
+the ingest's promote_full, response-cache invalidation and ingest_done
+broadcast (which key on this count) fire only when repricing moved a
+cost or a flag. Rows written, changed or merely restamped, still all
+carry the current version on success.
 
 Rollback guard, mirroring ingest._stored_version_is_newer (issue #118):
 a stored pricing_version that parses as an int and is GREATER than
@@ -31,6 +44,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from typing import NamedTuple
 
 from backend import constants, db, pricing
@@ -56,15 +70,10 @@ class IngestAborted(Exception):
 # it (monkeypatch the module attribute).
 REPRICE_BATCH = 20_000
 
-# The columns a repriced row's SET list carries. Identifiers only — the
-# SQL text is assembled from these once at import; values always travel
-# as %s/%(name)s parameters.
-_SET_COLUMNS: tuple[str, ...] = ("cost_usd", "long_context", "pricing_version")
-
 _SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
-           ts, long_context, provider, pricing_version
+           ts, long_context, provider, cost_usd, pricing_version
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -72,11 +81,26 @@ _SELECT_SQL = """
      LIMIT %s
 """
 
-_UPDATE_SQL = (
-    "UPDATE records SET "
-    + ", ".join(f"{column} = %({column})s" for column in _SET_COLUMNS)
-    + " WHERE file_key = %(file_key)s AND line_num = %(line_num)s"
-)
+# A batch's unchanged rows: the staleness marker is the only stored
+# state that moved, so one statement advances it for the whole set.
+_SQL_RESTAMP = """
+    UPDATE records r
+       SET pricing_version = %s
+      FROM unnest(%s::text[], %s::bigint[]) AS d(k, n)
+     WHERE r.file_key = d.k
+       AND r.line_num = d.n
+"""
+
+# A batch's moved rows: recomputed values travel as arrays, one
+# statement writes the whole set through the same PK join.
+_SQL_REPRICE = """
+    UPDATE records r
+       SET cost_usd = d.cost, long_context = d.flag, pricing_version = %s
+      FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[])
+           AS d(k, n, cost, flag)
+     WHERE r.file_key = d.k
+       AND r.line_num = d.n
+"""
 
 
 class _StaleRow(NamedTuple):
@@ -94,6 +118,7 @@ class _StaleRow(NamedTuple):
     ts: datetime | None
     long_context: bool | None
     provider: str | None
+    cost_usd: Decimal
     pricing_version: str | None
 
 
@@ -162,13 +187,30 @@ def _record_updates(row: _StaleRow) -> dict:
     }
 
 
+def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
+    """Whether recomputing the row yielded its stored state, so only the
+    staleness marker needs advancing.
+
+    The stored cost is NUMERIC(12,6): the old pass wrote
+    round(cost, 6) into it, and reading that value back through
+    float() yields the same double the round produced, so the equality
+    is exact for every row this pass (or its predecessor) wrote.
+    """
+    return (float(row.cost_usd) == updates["cost_usd"]
+            and row.long_context == updates["long_context"])
+
+
 def reprice_stale(should_stop: Callable[[], bool | None] | None = None
                   ) -> int:
-    """Recompute cost_usd for every stale record; return the count.
+    """Recompute cost_usd for every stale record; return the count whose
+    rate-derived data CHANGED.
 
-    The keyset cursor advances to the last row of each batch whether the
-    row was updated or skipped by the rollback guard, so the pass always
-    terminates and a guard skip never spins.
+    Each batch computes its rows' updates, splits them into an unchanged
+    restamp set and a changed reprice set, and writes both set-based in
+    the batch's transaction. The keyset cursor advances to the last row
+    of each batch whether the row was restamped, repriced or skipped by
+    the rollback guard, so the pass always terminates and a guard skip
+    never spins.
 
     should_stop, when given, is consulted at the top of every batch
     iteration: a truthy return — or an exception it raises — unwinds the
@@ -178,7 +220,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None
     passes its _check_shutdown, which raises; direct and test callers
     pass nothing, which prices the whole table in one go.
     """
-    repriced = 0
+    changed = 0
+    restamped = 0
     skipped = 0
     after_key: tuple[str, int] = ("", 0)
     while True:
@@ -193,26 +236,42 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None
             if not raw_rows:
                 break
             rows = [_StaleRow(*raw) for raw in raw_rows]
-            updates = []
+            restamp_keys: list[tuple[str, int]] = []
+            moved: list[tuple[str, int, float, bool | None]] = []
             for row in rows:
                 if _stored_pricing_version_is_newer(
                         row.pricing_version, constants.PRICING_VERSION):
                     skipped += 1
                     continue
-                updates.append({
-                    **_record_updates(row),
-                    "file_key": row.file_key,
-                    "line_num": row.line_num,
-                })
-            if updates:
-                with c.cursor() as cur:
-                    cur.executemany(_UPDATE_SQL, updates)
+                updates = _record_updates(row)
+                if _row_is_unchanged(row, updates):
+                    restamp_keys.append((row.file_key, row.line_num))
+                else:
+                    moved.append((row.file_key, row.line_num,
+                                  updates["cost_usd"],
+                                  updates["long_context"]))
+            if restamp_keys:
+                c.execute(_SQL_RESTAMP,
+                          (constants.PRICING_VERSION,
+                           [k for k, _ in restamp_keys],
+                           [n for _, n in restamp_keys]))
+            if moved:
+                c.execute(_SQL_REPRICE,
+                          (constants.PRICING_VERSION,
+                           [r[0] for r in moved],
+                           [r[1] for r in moved],
+                           [r[2] for r in moved],
+                           [r[3] for r in moved]))
             c.commit()
-        repriced += len(updates)
+        changed += len(moved)
+        restamped += len(restamp_keys)
         last = rows[-1]
         after_key = (last.file_key, last.line_num)
+    log.info(
+        "reprice: %d record(s) repriced (rate-derived data changed), "
+        "%d restamped only", changed, restamped)
     if skipped:
         log.info(
             "reprice: skipped %d record(s) priced by a NEWER "
             "PRICING_VERSION (rollback guard)", skipped)
-    return repriced
+    return changed

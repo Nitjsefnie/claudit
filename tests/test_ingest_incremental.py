@@ -11,7 +11,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture as ingest_fresh_db_fixture,
     _mini_r2_env_fixture as ingest_mini_r2_env,
 )
-from backend import constants, db, ingest, timing
+from backend import constants, db, ingest, pricing, timing
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PARSER_FIXTURES = _ROOT / "fixtures" / "parser"
@@ -265,14 +265,18 @@ def test_dirty_file_threshold_forces_full(fresh_db, mini_r2_env,
 
 def test_reprice_changes_force_full_rebuild(fresh_db, mini_r2_env,
                                             monkeypatch, caplog):
+    # Issue #339: only rows whose rate-derived data moved count as
+    # reprice changes, so the simulated bump mutates the loaded rate
+    # tables (a restamp-only bump would rebuild nothing).
     monkeypatch.setattr(timing, "TIMING_ON", True)
     assert ingest.run_ingest(trigger="manual")["error"] is None
-    with db.viz_conn() as conn:
-        conn.execute(
-            "UPDATE records SET pricing_version = 'stale' "
-            "WHERE file_key = (SELECT file_key FROM records LIMIT 1)"
-        )
-        conn.commit()
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES,
+        "claude-opus-4-7": {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
+                            "read": 0.9, "output": 19.0},
+    })
+    monkeypatch.setattr(constants, "PRICING_VERSION",
+                        str(int(constants.PRICING_VERSION) + 1))
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         result = ingest.run_ingest(trigger="manual")

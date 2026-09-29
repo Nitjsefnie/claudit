@@ -20,7 +20,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
 )
 
-from backend import cache, db, ingest
+from backend import cache, constants, db, ingest, pricing
 
 
 def _prime_and_spy(
@@ -44,9 +44,16 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
     dashboard must never serve the previous numbers after records
     changed."""
     assert ingest.run_ingest_locked("manual")["error"] is None
-    with db.viz_conn() as c:
-        c.execute("UPDATE records SET pricing_version = '0'")
-        c.commit()
+    # Issue #339: a restamp-only bump changes no data and must stay
+    # quiet; the simulated bump moves real rates so the reprice pass has
+    # something to reprice.
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES,
+        "claude-opus-4-7": {"fresh": 9.0, "create_5m": 9.5, "create_1h": 9.75,
+                            "read": 0.9, "output": 19.0},
+    })
+    monkeypatch.setattr(constants, "PRICING_VERSION",
+                        str(int(constants.PRICING_VERSION) + 1))
     broadcasts = _prime_and_spy("reprice-only-key", monkeypatch)
 
     summary = ingest.run_ingest_locked("manual")
