@@ -346,7 +346,9 @@ derived rebuild, no reparse). A full rebuild also runs when the state is
 missing or incomplete (marker lifecycle: SV-SCHEMA-AUTOAPPLY), the last
 full rebuild is over 24 hours old, dirty files exceed the smaller of
 2,000 or 20% of the stored corpus, a lane identity rekey moves files, or
-repricing changes any row. After an out-of-band mutation of `records`,
+repricing changes any row's rate-derived data (a
+restamp-only pass changes nothing user-visible, issue #339). After an
+out-of-band mutation of `records`,
 `tool_uses` or `files`, run `DELETE FROM ingest_derived_state`; the next
 ingest rebuilds fully.
 
@@ -763,16 +765,23 @@ records whose `pricing_version` differs from `constants.PRICING_VERSION`
 (NULL is stale), from stored columns only — the same
 `pricing.compute_cost` the parser runs, over each row's own tokens and
 `ts` — so a rate change never refetches R2. Rows update in batched
-transactions; a stored version that parses as an int NEWER than the
-binary's is skipped, never overwritten. It runs in
+transactions. Each batch recomputes its rows, writes rows whose cost or
+flag moved in one set-based UPDATE, and re-stamps the rest with the
+current version in one set-based UPDATE (issue #339) — a restamp
+advances the staleness marker only, so the pass's count, and every gate
+that reads it (full-rebuild promotion, response-cache invalidation,
+ingest_done), tracks rows whose rate-derived data actually changed. A
+stored version that parses as an int NEWER than the binary's is
+skipped, never overwritten. It runs in
 `_rebuild_derived_state` between suppression and the canonical pass; a
 reparse stamps the current version, so fresh rows never reprice. If it
-changes any row, the run takes a full derived rebuild, since repricing
-can move rollups outside the dirty files. No endpoint, panel or rollup
+changes any row (a cost or a flag moved — a restamp changes none), the
+run takes a full derived rebuild, since repricing can move rollups
+outside the dirty files. No endpoint, panel or rollup
 reads `pricing_version`. The recomputed state is `cost_usd` and the Codex
 long-context flag (`records.long_context`), re-derived from the same
-columns under the same switch. The completion marker follows
-SV-SCHEMA-AUTOAPPLY.
+columns under the same switch. The completion marker follows the
+finalization rule in SV-ROLLUP.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
