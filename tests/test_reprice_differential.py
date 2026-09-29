@@ -17,6 +17,12 @@ SV-CI-RATCHETS test ceiling once the differential landed.
 """
 from __future__ import annotations
 
+# duplicate-code at module scope: the frozen pre-#351 pass
+# resembles the live one on purpose - the similarity IS the
+# freeze the differential rests on (R0801 is only suppressible
+# at module level).
+# pylint: disable=duplicate-code
+
 import logging
 import time
 from collections.abc import Callable
@@ -106,7 +112,9 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
     shared _StaleRow carries the field), and the module-level SQL
     constants, logger and REPRICE_BATCH/IngestAborted references
     resolve to the parity module's locals and backend.ingest_reprice's
-    surviving names."""
+    surviving names. duplicate-code is disabled because the frozen
+    body resembling the live pass is the point: the similarity IS the
+    freeze."""
     ph = timing.Phases("reprice", logger=log, account=True) \
         if timing.TIMING_ON else None
     marks: dict[str, float] = {}
