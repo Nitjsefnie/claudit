@@ -360,9 +360,12 @@ def _odd_spellings() -> list[tuple[str | None, bool]]:
     restampable): the SQL restamp set is exactly {plain-digit versions
     <= V}; every other spelling reaches the keyset path, whose guard
     decides it exactly as before. All derived from the committed
-    constant (never a literal, issue #198); the last entry is the trap
-    — a version Python's int() parses GREATER than the binary's behind
-    a sign the SQL cast refuses."""
+    constant (never a literal, issue #198). Two traps: a version
+    Python's int() parses GREATER than the binary's behind a sign the
+    SQL cast refuses, and a plain-digit string too long for the SQL
+    cast's int4 — the regex bound keeps it OUT of the set-based
+    statement (an unbounded digit run would abort the whole UPDATE
+    with integer-out-of-range where the guard must merely skip it)."""
     current = constants.PRICING_VERSION
     newer = str(int(current) + 1)
     return [
@@ -373,18 +376,19 @@ def _odd_spellings() -> list[tuple[str | None, bool]]:
         (f" {current} ", True),           # whitespace-padded current
         (f"{int(current):04d}", True),    # plain digits <= V: the SQL set
         (f"+{newer}", False),             # int()-GREATER behind a sign
+        ("9" * 14, False),                # plain digits, int4-overflowing
     ]
 
 
 def _seed_spellings(c) -> list[tuple[str | None, bool]]:
-    """Seed the odd spellings as one row each; the trap row carries the
-    0.5 sentinel so its survival is observable."""
+    """Seed the odd spellings as one row each; every guarded row
+    carries the 0.5 sentinel so its survival is observable."""
     spellings = _odd_spellings()
     fp = rate_fingerprint.pair_fingerprint(_SEED_MODEL, None)
     cost = _seeded_cost()
-    for offset, (version, _restampable) in enumerate(spellings):
+    for offset, (version, restampable) in enumerate(spellings):
         _seed(c, _FILE_KEY, offset + 1, pricing_version=version,
-              cost_usd=0.5 if version == spellings[-1][0] else cost,
+              cost_usd=0.5 if not restampable else cost,
               rate_fingerprint=fp)
     return spellings
 
