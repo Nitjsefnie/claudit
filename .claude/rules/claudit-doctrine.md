@@ -4,1117 +4,916 @@ Local rules for the claudit repo.
 
 ## Parser-spec ownership (SV-PARSER-SPEC)
 
-This rule is the parse spec. The backend `backend/parse.py` and the
-in-browser `src/parser.js` both implement it, and the parser fixtures
-(`fixtures/parser/`, driven by `tests/test_parse.py`) pin its behaviour.
-Keep both implementations in lockstep on:
+This rule is the parse spec. `backend/parse.py` and the in-browser
+`src/parser.js` implement it; `fixtures/parser/` (driven by
+`tests/test_parse.py`) pins it. Keep both in lockstep on:
 
-- Per-file requestId `_merge_usage_max` during ingest (Phase 1,
-  persisted into `records`)
-- Cross-file UUID dedup, resolved at INGEST into `records.is_canonical`
-  (see SV-CANONICAL-FLAG). The winner is exactly what
-  `DISTINCT ON (uuid) ORDER BY uuid, file_key` picks at read time;
-  there is no persisted Phase 2 rollup.
-- `<task-notification>` ref detection for sub-agent jsonls
-- Sidecar `data/subagents/agent-*.jsonl` resolution
-- Context turns: backend `_build_ctx_turns` / browser `computeTurnStats` use
-  line order, keep pre-prompt turns, take last usage, and drop zero /
+- Per-file requestId `_merge_usage_max` at ingest (Phase 1, persisted
+  into `records`).
+- Cross-file UUID dedup, resolved at ingest into `records.is_canonical`
+  (SV-CANONICAL-FLAG): the winner is what
+  `DISTINCT ON (uuid) ORDER BY uuid, file_key` picks. No persisted
+  Phase 2 rollup.
+- `<task-notification>` ref detection for sub-agent jsonls.
+- Sidecar `data/subagents/agent-*.jsonl` resolution.
+- Context turns: backend `_build_ctx_turns` / browser `computeTurnStats`
+  use line order, keep pre-prompt turns, take last usage, and drop zero /
   implausible context.
 - Rate resolution (normalisation, key matching, window selection) over
-  the tables both sides read from `src/pricing.json` (SV-RATE-DATA)
+  `src/pricing.json` (SV-RATE-DATA).
 
-**Lane parsers are in their own lockstep pair.** `parse_file()` sniffs
-each blob's format and dispatches Codex rollouts and the two Kimi wire
-formats to `backend/parse_codex.py` / `backend/parse_kimi.py`
-(format-independent machinery in `backend/parse_common.py`, adapted to
-claudit's columns by `backend/parse_lanes.py`). Their browser mirror is
-`src/parser-lanes.js`: changing HOW a lane format parses — record
-identity, cumulative-token differencing, the long-context decision,
-model attribution, tool-result settling — in the backend REQUIRES the
-same change there, or the Inspector shows different numbers than the
-database stores. The node parity tests (`tests/test_parser_js_lanes.py`)
-fail on drift; so does the lane browser test when
+**Lane parsers are a second lockstep pair.** `parse_file()` sniffs the
+format and dispatches Codex rollouts and both Kimi wire formats to
+`backend/parse_codex.py` / `backend/parse_kimi.py` (shared machinery in
+`backend/parse_common.py`, adapted to claudit's columns by
+`backend/parse_lanes.py`). Their browser mirror is `src/parser-lanes.js`:
+a backend change to HOW a lane parses — record identity,
+cumulative-token differencing, the long-context decision, model
+attribution, tool-result settling — REQUIRES the same change there, or
+the Inspector disagrees with the database. `tests/test_parser_js_lanes.py`
+fails on drift; the lane browser test fails when
 `window.LONG_CONTEXT_THRESHOLD` / `LONG_CONTEXT_INPUT_MULT` /
 `LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`.
 
-Resolve any discrepancy against this spec and the parser fixtures, not
-by picking whichever side looks right: fix the implementation that
-departs from them. If the spec itself has a real bug, change it here,
-in both implementations, and add a fixture that pins the corrected
-behaviour in the same commit; don't quietly fork the semantics between
-them.
+Resolve a discrepancy against this spec and the fixtures: fix the side
+that departs. If the spec itself is wrong, change it here, in both
+implementations, and add a pinning fixture, all in one commit.
 
 ## Cost accounting is split TTL, always (SV-COST-SPLIT)
 
-Every place this repo computes cost from `usage` records MUST split
-`cache_creation` into `ephemeral_5m` and `ephemeral_1h` and apply the
-correct multiplier:
+Every cost computed from `usage` MUST split `cache_creation` into
+`ephemeral_5m` (1.25× base input) and `ephemeral_1h` (2× base input).
+Tokens with no `ephemeral_*` split are charged at the **1h rate**: 1h is
+the norm (main sessions write 98.7% of their cache at 1h; 5m is the
+subagent exception; a provider reporting no TTL has every reason to keep
+its cache long too). Every site that prices or decomposes cost follows
+this — `pricing.compute_cost`, the `/api/cache` fold
+(`api_common._accumulate_buckets`), both browser sites in `src/app.jsx` —
+or a breakdown stops summing to its stored total.
 
-- 5m write: 1.25× base input rate
-- 1h write: 2× base input rate
-- Tokens with no `ephemeral_*` split are charged at the **1h rate** —
-  the undeclared TTL is assumed to be the norm, and the norm is 1h
-  (main sessions write 98.7% of their cache at 1h; 5m is the subagent
-  exception; a token-plan provider reporting no TTL has every reason
-  to keep its cache long as well). Every place that prices or
-  decomposes cost follows this one rule — `pricing.compute_cost`, the
-  `/api/cache` bucket fold (`api_common._accumulate_buckets`) and both
-  browser sites in `src/app.jsx` — or a breakdown stops summing to its
-  stored total.
-
-Single-rate `cache_create` cost is BANNED. If a rate change reprices
-stored records, bump `PRICING_VERSION` in `backend/constants.py` so
-the next ingest reprices them in place — no reparse, no R2 fetch
-(SV-REPRICE).
+Single-rate `cache_create` cost is BANNED. A rate change that reprices
+stored records bumps `PRICING_VERSION` in `backend/constants.py`; the
+next ingest reprices in place — no reparse, no R2 fetch (SV-REPRICE).
 
 ## Backend is the ONLY load path (SV-NO-LOCAL-UPLOAD)
 
-Supersedes the retired SV-IN-BROWSER-FALLBACK. There is no way to feed
-a transcript in from the browser — no drag-drop target, no
-`FileReader`, no zip expansion, no JSZip dependency — and no upload
-endpoint and no server-side parsing of operator-supplied jsonls. The
-only jsonls the app reads come from R2, owned by the same operator. Do
-not reintroduce any of them, and do not add a file picker as a
-"convenience" — an ingress path is exactly what was cut.
+No browser ingress for transcripts — no drag-drop, `FileReader`, zip
+expansion or JSZip — no upload endpoint, and no server-side parsing of
+operator-supplied jsonls. The only jsonls read come from R2, owned by
+the same operator. Reintroduce none of them, file picker included.
 
-`src/parser.js` is NOT dead code and must stay. It still serves two
-live consumers: `loadFromBackend()` parses the bytes from
+`src/parser.js` is NOT dead code: `loadFromBackend()` parses
 `/api/sessions/{id}/transcript` client-side via `parseTranscript` +
-`computeSessionStats`, and the Token Breakdown panel prices rows
-through `window.rateForModel`. It reads its rates from
-`src/pricing.json`, the file the backend loads (SV-RATE-DATA), and
-resolves them by SV-PARSER-SPEC.
+`computeSessionStats`, and the Token Breakdown panel prices rows via
+`window.rateForModel`. It reads rates from `src/pricing.json`
+(SV-RATE-DATA) and resolves them per SV-PARSER-SPEC.
 
 ## Bundle distribution NOT applicable (SV-NO-BUNDLE)
 
-claudit does not ship via `claude-setup.zip`. Distribution path is
-git (this repo) + `pip install -r backend/requirements.txt`.
+claudit does not ship via `claude-setup.zip`; it ships via git +
+`pip install -r backend/requirements.txt`.
 
 ## Test fixtures stay small (SV-FIXTURE-SIZE)
 
-`fixtures/parser/*.jsonl` are hand-crafted single-record samples, each
-under 1 KB. `fixtures/codex/` are ported verbatim from the public
-codexmeter repo and are EXEMPT from that cap (a grep of the directory
-must stay clean of real paths, ids and secrets before committing).
-`fixtures/r2_mini/` is the end-to-end mini mirror (2 projects, 4
-sessions, 1 sidecar, 1 cross-session shared uuid). Don't grow any of
-these by accident — larger samples stay out of the repository, in a
-local mirror outside the working tree that `R2_ENDPOINT` points at.
+- `fixtures/parser/*.jsonl`: hand-crafted single-record samples, each
+  under 1 KB.
+- `fixtures/codex/`: ported verbatim from the public codexmeter repo;
+  EXEMPT from the cap, but grep it clean of real paths, ids and secrets
+  before committing.
+- `fixtures/r2_mini/`: the end-to-end mini mirror (2 projects, 4
+  sessions, 1 sidecar, 1 cross-session shared uuid).
+
+Don't grow them. Larger samples stay in a local mirror outside the
+working tree, reached via `R2_ENDPOINT`.
 
 ## Develop against the full corpus, never the local tree (SV-FULL-CORPUS)
 
-Any measurement, probe, or panel prototype reads the R2 corpus (or a
-full local mirror of it), NOT the live session tree Claude Code keeps
-in its own config directory. That tree is pruned by Claude Code:
-recent sessions survive, long-finished ones are gone, lately-touched
-projects are over-represented — a small, BIASED sample. A behavioural
-rate derived from it is a rate over that sample, and nothing in the
-number says so; a prototype that samples the local tree can report a
-clean zero for behaviour abundant in the corpus, which reads as "no
-signal here" and kills the panel.
+Measurements, probes and panel prototypes read the R2 corpus (or a full
+mirror), NEVER Claude Code's live session tree. That tree is pruned —
+old sessions gone, recently touched projects over-represented — so a
+rate derived from it is silently biased, and a prototype can report a
+clean zero for behaviour abundant in the corpus.
 
 Use `backend/r2.py` (`list_keys` / `get_stream`) so a probe honours
-`R2_ENDPOINT` and works against either the bucket or a `file://`
-mirror. Stratify and say the sample size in the output; never present
-a corpus-wide claim from an unstated subset.
+`R2_ENDPOINT` (bucket or `file://` mirror). Stratify and state the
+sample size; never present a corpus-wide claim from an unstated subset.
 
 ## No external parser, vendored or invoked (SV-READ-ONLY-CANONICAL)
 
-claudit's parsing is self-contained. The backend never invokes, imports
-or shells out to a parser or script from outside this repository, and
-no copy, symlink or hardlink of an external script is committed here.
-The in-repo parsers implement SV-PARSER-SPEC; a drift between them is
-fixed in this repository.
+Parsing is self-contained: the backend never invokes, imports or shells
+out to a parser or script outside this repository, and no copy, symlink
+or hardlink of one is committed. Drift between the in-repo parsers is
+fixed here (SV-PARSER-SPEC).
 
 ## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
 
-`db.apply_schema()` runs `backend/schema.sql` on every boot, before
-`schema_check()`, under a Postgres advisory lock so concurrent boots
-do not race the same DDL. The file is idempotent by construction,
-which is what makes this safe to repeat. The manual `psql ... -f
-backend/schema.sql` step is not load-bearing: a deploy that pulls code
-writing a new column converges the database instead of aborting every
-ingest with `UndefinedColumn` while the dashboard serves stale
-aggregates.
+`db.apply_schema()` runs the idempotent `backend/schema.sql` on every
+boot, before `schema_check()`, under a Postgres advisory lock. A manual
+`psql -f backend/schema.sql` is not load-bearing: a deploy that adds a
+column converges the database instead of failing every ingest with
+`UndefinedColumn`.
 
-`ingest_derived_state` is also created with `CREATE TABLE IF NOT EXISTS`.
-Ingest commits `complete = FALSE` before it mutates `files`, `records` or
-`tool_uses`. It marks the fingerprint complete only after every derived
-phase, `_close_run`, notification and `warm_common` have succeeded. The
-full-rebuild time advances only when the scope was full as the first
-hour-keyed rollup began. A later promotion leaves the marker incomplete;
-an aborted, failed or interrupted run does too, forcing a full derived
-rebuild on the next run. The marker is derived metadata and an older
-binary may ignore it.
+`ingest_derived_state` is likewise `CREATE TABLE IF NOT EXISTS`. Ingest
+commits `complete = FALSE` before mutating `files`, `records` or
+`tool_uses`, and marks the fingerprint complete only after every derived
+phase, `_close_run`, notification and `warm_common` succeed. The
+full-rebuild time (`last_full_at`) advances only if the scope was full
+when the first hour-keyed rollup began. A later promotion, or an
+aborted, failed or interrupted run, leaves the marker incomplete, forcing
+a full derived rebuild next run. Older binaries may ignore the marker.
 
-Consequence: ROLLBACK IS ONE-DIRECTIONAL — restarting an older binary
-leaves it against a newer schema. That is acceptable because every
-migration is additive and nullable, with TWO allowed exceptions, both
-guarded and idempotent:
+ROLLBACK IS ONE-DIRECTIONAL — an older binary runs against a newer
+schema. That is safe because every migration is additive and nullable,
+with TWO guarded, idempotent exceptions:
 
-- schema.sql's DO block that swaps `usage_rollup`'s primary key to
-  widen the grain (adding `long_context`, then `provider`): the table
-  is derived, DELETE+INSERT-rebuilt state, the swap only widens the
-  key, and an older binary's named-column INSERT still satisfies it.
-- schema.sql's guarded int→bigint widening of `user_session.user_id`:
-  `user_session` is NOT derived state, but the widening is inert for
-  an older binary — it only ever wrote values that fit INTEGER, and it
-  reads user ids into Python ints indifferent to the column's width.
+- The DO block swapping `usage_rollup`'s primary key to widen the grain
+  (`long_context`, then `provider`): the table is derived,
+  DELETE+INSERT-rebuilt state, the swap only widens, and an older
+  binary's named-column INSERT still satisfies it.
+- The int→bigint widening of `user_session.user_id`: not derived state,
+  but inert for older binaries — they only wrote INTEGER-sized values and
+  read ids into Python ints.
 
-An older binary's READS ignore what they do not know, and its INGEST
-path is guarded: a file whose stored parser_version is newer than the
-binary's own is never reparsed, so the newer binary's column values
-survive a rollback instead of being NULLed by the older binary's
-wholesale re-INSERT (the guard does not repair erasure already done by
-binaries OLDER than itself). Apart from these two, any migration that
-DROPS or retypes a column breaks this property and needs a different
-mechanism, not a quiet exception.
+Older binaries' READS ignore unknown columns, and their INGEST never
+reparses a file whose stored `parser_version` is newer than their own,
+so newer column values survive a rollback (erasure already done by even
+older binaries is not repaired). Any other migration that DROPS or
+retypes a column needs a different mechanism, not a quiet exception.
 
 ## Schema fail-fast (SV-SCHEMA-FAIL-FAST)
 
-`backend/db.schema_check()` runs at every server startup. It verifies
-(a) `claudit.files` exists and (b) the auth DB's `users.config` is a
-JSONB column. Either failure aborts startup with a clear error rather
-than silently degrading to a broken auth flow at first login.
+`backend/db.schema_check()` runs at every startup and aborts with a
+clear error unless (a) `claudit.files` exists and (b) the auth DB's
+`users.config` is JSONB — instead of breaking auth at first login.
 
 ## Per-file files+records contract (SV-FILES-RECORDS)
 
 Stored file identity is BUCKET-QUALIFIED: `files.file_key` is
-`<bucket>/<object-key>`, where the bucket is one of the names in
-`R2_BUCKET` (several buckets may be configured, joined by `+`). The
-bucket segment travels with every stored row and every read:
-transcript and sidecar serving derive it from the stored `file_key`,
-never from the request, and `r2._configured` refuses a bucket not
-named in `R2_BUCKET`. The bucket segment is INTERNAL and never leaves
-the server: every file_key carried in an API response body goes
-through `r2.public_key`, which strips the leading bucket segment
-(returned unchanged when the first segment is not a configured
-bucket). psql analyses over `records`/`tool_uses` key on the same
-shape (a `file_key` LIKE filter starts with the bucket).
+`<bucket>/<object-key>`, the bucket one of `R2_BUCKET`'s names (several
+joined by `+`). Transcript and sidecar serving derive the bucket from
+the stored `file_key`, never the request; `r2._configured` refuses an
+unconfigured bucket. The bucket segment never leaves the server: every
+`file_key` in an API response goes through `r2.public_key`, which strips
+it (unchanged when the first segment is not a configured bucket). psql
+`file_key LIKE` filters over `records`/`tool_uses` start with the bucket.
 
-The same object key in TWO configured buckets is TWO files but one
-project and session: the rows dedup naturally by uuid where the format
-supports it (Claude, Codex), and a read that must pick one main file
-for a session id picks an arbitrary one. With the planned `codex+kimi`
-pairing this needs no handling; any pairing that puts the same session
-id in two configured buckets and a format without cross-file uuids
-(kimi-code, legacy Kimi) into both will double-count at the session
-level. Project identity follows the directory, not the lane: a lane
-project whose project.json marker named a directory is keyed by that
-directory's Claude slug (`key_layout.project_slug`) — the same id a
-Claude-layout bucket derives for it — so one directory is ONE project
-across buckets, while a lane project read without a marker keeps its
-hash. Both routes meet on `key_layout.canonical_project_id`: a Windows
-slug (a drive letter followed by `--`, what `C:\` / `C:/` slug to) is
-case-folded to lowercase because Windows paths are case-insensitive —
-one Windows directory is ONE project whichever casing each session
-carried — while a POSIX slug (always starts with `-`) stays
-case-sensitive and is never folded.
+The same object key in two buckets is two files but one project and
+session: rows dedup by uuid where the format has them (Claude, Codex),
+and a read picking one main file per session id picks arbitrarily. The
+planned `codex+kimi` pairing needs no handling; the same session id in
+two buckets with a uuid-less format (kimi-code, legacy Kimi) double-counts
+at session level.
 
-The schema is per-file, not per-session. Two tables hold the parse
-output (see `backend/schema.sql`):
+Project identity follows the directory, not the lane: a lane project
+whose project.json marker names a directory is keyed by that directory's
+Claude slug (`key_layout.project_slug`), so one directory is ONE project
+across buckets; without a marker it keeps its hash. Both routes meet in
+`key_layout.canonical_project_id`: a Windows slug (drive letter then
+`--`) is lowercased, since Windows paths are case-insensitive; a POSIX
+slug (starts with `-`) is never folded.
+
+The schema is per-file, not per-session (see `backend/schema.sql`):
 
 - `files(file_key PK, project_id, session_id, is_main, r2_etag,
   r2_size_bytes, r2_last_modified, parsed_at, parser_version,
-  ctx_turns JSONB, turn_count)` — one row per ingested JSONL, with
-  the context-growth trace inlined as `ctx_turns`.
+  ctx_turns JSONB, turn_count)` — one row per ingested JSONL, with the
+  context-growth trace inlined as `ctx_turns`.
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
   reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
   turn_flags, turn_tool_results, long_context, provider)`
-  PK `(file_key, line_num)` — one row per usage-bearing line AFTER
-  per-file Phase 1 max-merge for matching `request_id`.
+  PK `(file_key, line_num)` — one row per usage-bearing line after
+  per-file Phase 1 max-merge on `request_id`.
 
-Cross-file uuid dedup is resolved at INGEST into `records.is_canonical`
-(SV-CANONICAL-FLAG below). There is no persisted `record_uuids` or
-`session_requests` table — both were dropped in R1 along with the
-per-session rollup, the materialized hourly view, and the `sessions`
-table. Reintroducing a persisted rollup or any cross-session table
-requires a new migration, not a quiet code change.
+Cross-file dedup lives in `records.is_canonical` (SV-CANONICAL-FLAG).
+There is no `record_uuids`, `session_requests`, per-session rollup,
+materialized hourly view or `sessions` table. Reintroducing a persisted
+rollup or any cross-session table requires a new migration, not a quiet
+code change.
 
 ## Dedup is a flag, not a read-time sort (SV-CANONICAL-FLAG)
 
-`records.is_canonical` marks the row that
-`DISTINCT ON (r.uuid) ORDER BY r.uuid, r.file_key` selects at read
-time. `line_num` breaks ties within a `file_key`. Rows with a NULL
-`uuid` are legacy records kept verbatim and are always canonical.
+`records.is_canonical` marks the row
+`DISTINCT ON (r.uuid) ORDER BY r.uuid, r.file_key` would select;
+`line_num` breaks ties within a `file_key`. NULL-`uuid` rows (legacy)
+are always canonical.
 
-Read endpoints MUST filter `WHERE is_canonical` and MUST NOT
-reintroduce `DISTINCT ON (uuid)`: `records` is immutable between
-hourly ingests, and a read-time sort would re-sort the whole table per
-read to drop the ~3.5% duplicates.
+Reads MUST filter `WHERE is_canonical` and MUST NOT reintroduce
+`DISTINCT ON (uuid)`: that re-sorts the whole table per read to drop
+~3.5% duplicates.
 
 `ingest.recompute_canonical()` runs after EVERY successful ingest. A
 full rebuild ranks the full tables; an incremental run ranks only UUIDs
 and tool-use ids contributed by dirty files before or after mutation, so
-deleting a former winner still promotes the next row. NULL-identity rows
-of dirty files are set canonical. The UPDATE only touches rows whose
-flag actually flips, and every flipped row adds its project-hour to the
-rollup scope through the UTC-instant normalizer, so both folds of a
-repeated local hour remain distinct. A freshly-migrated DB has the
-column defaulted to TRUE across the board. The column defaults to TRUE so a
-migrated-but-not-yet-recomputed DB over-counts rather than silently
-dropping rows.
+deleting a former winner still promotes the next row. Dirty files'
+NULL-identity rows are set canonical. The UPDATE touches only rows whose
+flag flips, and each flip adds its project-hour to the rollup scope via
+the UTC-instant normalizer, so both folds of a repeated local hour stay
+distinct. The column defaults to TRUE, so a migrated-but-unrecomputed DB
+over-counts rather than drops rows.
 
-Changing the winner rule means changing BOTH `recompute_canonical()`
-and `src/parser.js` semantics in lockstep (SV-PARSER-SPEC).
+Changing the winner rule changes `recompute_canonical()` and
+`src/parser.js` in lockstep (SV-PARSER-SPEC).
 
-`tool_uses.is_canonical` is the same rule keyed on `tool_use_id` (the
-block's globally unique id), set in the same pass — a compaction
-sidecar (`agent-acompact-*`) replays the main file's assistant lines,
-tool_use blocks included. Rows with a NULL `tool_use_id` are always
-canonical. Every rollup and live read over `tool_uses` MUST filter
+`tool_uses.is_canonical` is the same rule keyed on `tool_use_id`, set in
+the same pass — a compaction sidecar (`agent-acompact-*`) replays the
+main file's tool_use blocks. NULL-`tool_use_id` rows are canonical.
+Every rollup and live read over `tool_uses` MUST filter
 `tu.is_canonical`.
 
 ## Foreign models are purged, not filtered (SV-SUPPRESSED-MODELS)
 
 `suppressed_models(pattern, note, added_at)` lists models whose records
 must not count. `ingest.purge_suppressed()` runs FIRST in
-`_rebuild_derived_state()` — before the canonical pass — and DELETEs
-matching `records` plus the `tool_uses` whose own `model` matches (and,
-for rows stored before `tool_uses.model` existed, those on a matching
-record's line).
+`_rebuild_derived_state()`, before the canonical pass, and DELETEs
+matching `records` plus `tool_uses` whose own `model` matches (and, for
+rows predating `tool_uses.model`, those on a matching record's line).
 
-Suppression is a delete, not a read-time predicate: every read path
-and every rollup already treats `records` as the truth, and the
-`tool_uses` half matches on the call's own `tool_uses.model` — not a
-join to `records` on `(file_key, line_num)` — because most calls sit
-on a line with no record (a Claude tool_use usually follows its
-requestId's merged record, and a lane call never shares a line with
-one), so a call left behind would keep counting under the suppressed
-model. A full rebuild checks every row; an incremental run checks only
-dirty files because an unchanged suppression fingerprint means prior
+It is a delete, not a read-time predicate: every read and rollup treats
+`records` as the truth. The `tool_uses` half matches the call's own
+`model`, not a join on `(file_key, line_num)`, because most calls sit on
+lines with no record (a Claude tool_use usually follows its requestId's
+merged record; a lane call never shares a line with one) and would keep
+counting. A full rebuild checks every row; an incremental run checks
+only dirty files, since an unchanged suppression fingerprint means
 stored rows were already purged.
 
-Patterns are matched `model ILIKE pattern`, so `glm-%` covers a family
-and a bare model id still matches exactly. The table ships EMPTY and
-must stay that way in `schema.sql`: the same codebase is deployed over
-the `zai` bucket as glmmeter, where `glm-%` would suppress everything.
-Populate per deploy. Why it exists: resuming a session on the other
-lane interleaves that provider's assistant entries into a transcript
-this bucket already owns — real usage, but not ours, and priced
-against our table it invents a cost. A change to this table changes the
-derived-state fingerprint and forces a full rebuild. Removing a pattern
-brings the rows back only on a reparse (bump `PARSER_VERSION`); a full
-derived rebuild cannot restore rows that suppression already deleted.
+Matching is `model ILIKE pattern`: `glm-%` covers a family, a bare id
+matches exactly. The table ships EMPTY in `schema.sql` and must stay so —
+the same code runs as glmmeter over the `zai` bucket, where `glm-%`
+would suppress everything. Populate per deploy. Purpose: resuming a
+session on the other lane interleaves that provider's entries into a
+transcript this bucket owns — real usage, but not ours, and priced
+against our table it invents cost. Editing the table changes the
+derived-state fingerprint (full rebuild). Removing a pattern restores
+rows only on reparse (bump `PARSER_VERSION`); a derived rebuild cannot
+restore deleted rows.
 
-`files.models` lists every model that answered in the file, recorded
-at parse time and so surviving the purge: it is the only trace that a
-session switched lanes, and an analysis over `records` that must skip
-mixed-lane sessions joins it against `suppressed_models`.
+`files.models` lists every model that answered in the file, recorded at
+parse time so it survives the purge — the only trace of a lane switch.
+An analysis that must skip mixed-lane sessions joins it against
+`suppressed_models`.
 
 ## Project aliases fold identity at ingest (SV-PROJECT-ALIASES)
 
 `project_aliases(pattern, project_id, note, added_at)` ships EMPTY in
-`schema.sql` and is populated per deploy like `suppressed_models`. Both
-`project_aliases` and `suppressed_models` are bucket-external state the
-operator must back up and restore across a rebuild.
+`schema.sql` and is populated per deploy. It and `suppressed_models` are
+bucket-external state the operator backs up and restores across a
+rebuild.
 
-Patterns use case-sensitive SQL `LIKE`: `%` and `_` are wildcards, with
-no `ESCAPE` clause, because POSIX project slugs are case-sensitive. The
-first match wins in lexicographic `pattern` order (the PRIMARY KEY).
-Each pass resolves every stored id once against the pre-fold id set;
-aliases do not chain within a pass. A target that is itself matched
-advances one hop per pass. Repeated passes converge without duplicating
-or losing files while the alias set is acyclic on the ids it matches.
-A cyclic alias set is an operator error: folded ids advance around the
-cycle on successive ingests; fix the table. A pass with no matching
-source ids moves nothing. A project whose id equals its matched target
-is never moved or deleted.
-Every project id named as an alias target is labelled with its own id on
-every ingest, regardless of paths recorded by its folded files;
-non-target projects keep their existing labels.
+Patterns are case-sensitive SQL `LIKE` (`%`, `_` wildcards, no
+`ESCAPE`), because POSIX slugs are case-sensitive. The first match in
+lexicographic `pattern` order (the PRIMARY KEY) wins. Each pass resolves
+every stored id once against the pre-fold id set; aliases do not chain
+within a pass, so a matched target advances one hop per pass. Repeated
+passes converge without duplicating or losing files while the alias set
+is acyclic on the ids it matches; a cycle is an operator error (folded
+ids rotate on each ingest) — fix the table. A pass with no matching
+source ids moves nothing; a project whose id equals its target is never
+moved or deleted. Every alias-target id is labelled with its own id on
+every ingest, regardless of its folded files' paths; other projects keep
+their labels.
 
-The fold runs at ingest before rollups rebuild, so every rollup and read
-path — `/api/projects` included — sees only the target id. Adding or
-editing a row changes the derived-state fingerprint and forces a full
-rebuild on the next ingest; the rekey needs no reparse, no R2 fetch and
-no `PARSER_VERSION` bump. With an unchanged alias table, a fold does not
-by itself force a full rebuild: moved files join the dirty scope, and
-their source and target project-hour instants are both UTC-normalized and
-replaced. The
-zero-argument `rekey_folded_projects()` reports moved file keys to the
-active scope itself, preserving the ingest phase's monkeypatch seam.
-Deleting a
-row stops folding new files. Already-folded rows stay at the target
-only until another identity pass re-keys them: a reparse derives the
-raw id from the object key, while marker-backed lane files re-converge
-on the next ingest to the marker slug's bounded alias-chain destination
-(after deletion, the chain resolves under the remaining aliases — with
-all alias rows gone, that is the marker slug); the walk stops at an
-unmatched id, before a revisited id, or at eight hops, so a stopped walk
-may return an id that still matches an alias.
-`/api/projects` keeps its existing inner-join behavior: a
-project whose files carry zero usage records is not listed (pinned by
-test).
+The fold runs at ingest before rollups rebuild, so every read path —
+`/api/projects` included — sees only the target. Adding or editing a row
+changes the derived-state fingerprint: full rebuild next ingest, with no
+reparse, R2 fetch or `PARSER_VERSION` bump. With an unchanged table, a
+fold alone does not force a full rebuild: moved files join the dirty
+scope, and both source and target project-hour instants are
+UTC-normalized and replaced. The zero-argument `rekey_folded_projects()`
+reports moved keys to the active scope itself, preserving the ingest
+phase's monkeypatch seam.
+
+Deleting a row stops folding new files. Already-folded rows stay at the
+target until another identity pass re-keys them: a reparse derives the
+raw id from the object key; marker-backed lane files re-converge next
+ingest to the marker slug's bounded alias-chain destination under the
+remaining aliases (with none left, the marker slug). The walk stops at
+an unmatched id, before a revisited id, or at eight hops, so it may
+return an id that still matches an alias.
+
+`/api/projects` keeps its inner join: a project whose files carry zero
+usage records is not listed (pinned by test).
 
 ## A token type may be a SUBSET (SV-SUBSET-TOKENS)
 
-`records.thinking_tokens` is part of `output_tokens`, not a sixth
-slice of the billed partition: the API reports it under
-`usage.output_tokens_details`, and `pricing` never sees it — the
-output rate already covers those tokens. It is declared in
-`api_dashboard.TOKEN_TYPE_FIELDS` anyway, because that tuple drives
-zero-suppression and panel order, and a subset needs both. What it
-must NEVER do is enter an arithmetic total: not `t.total` in
-`src/app.jsx`, not the Token Breakdown rows (which partition the
-billed tokens and price each one), not a cost computation.
-`usage_rollup` carries the column so the panel reads a pre-aggregate
-like every other series; it is summed, never added to the others.
+`records.thinking_tokens` is part of `output_tokens`, not a sixth billed
+slice: the API reports it under `usage.output_tokens_details`, and
+`pricing` never sees it. It is in `api_dashboard.TOKEN_TYPE_FIELDS`
+because that tuple drives zero-suppression and panel order. It must
+NEVER enter an arithmetic total: not `t.total` in `src/app.jsx`, not the
+Token Breakdown rows, not a cost. `usage_rollup` carries it as a
+pre-aggregate — summed, never added to the other types.
 
 ## Aggregates are precomputed at ingest (SV-ROLLUP)
 
 `usage_rollup` holds pre-summed usage at grain
-`(session_id, hour, model, provider, is_main, long_context)`, rebuilt
-by `ingest.rebuild_rollup()` after every successful ingest (AFTER
-`recompute_canonical()` — it reads `is_canonical`).
+`(session_id, hour, model, provider, is_main, long_context)`, rebuilt by
+`ingest.rebuild_rollup()` after every successful ingest, AFTER
+`recompute_canonical()` (it reads `is_canonical`).
 
-Each run's derived scope tracks dirty file keys, affected record UUIDs
-and tool-use ids, plus the union of dirty `(project_id, hour)` keys from
+A run's derived scope is the dirty file keys, affected record UUIDs and
+tool-use ids, and the union of dirty `(project_id, hour)` keys from
 `records` and `tool_uses`. Ingest captures old contributions before
-reparse or orphan deletion and current contributions after persistence
-and identity moves. Scope stores every hour as a UTC-aware instant before
-set insertion, preserving distinct fall-back folds; full rebuild grouping
-continues to use `date_trunc` in the database session timezone. The seven
-hour-keyed rollups delete by exact `(project_id, hour)` instant equality.
-Their scoped source query joins per-project, merged and disjoint widened UTC
-intervals to the source timestamp index in a materialized candidate CTE,
-then requires each candidate's own `(project_id,
-date_trunc('hour', ts))` key to match a dirty instant exactly. The intervals
-cannot multiply a source row, and the exact membership keeps candidates out
-of clean output groups. `latency_rollup` replaces
-whole affected display buckets, for each dirty project and the all-projects
-row, because its percentiles need the whole bucket population. Latency
-buckets are epoch-aligned; each dirty-hour instant therefore replaces every
-bucket overlapping `[hour, hour + 2 hours)`, including the all-projects row.
-Tied outlier latencies order by `file_key, line_num`
-for repeatable output. A latency-bearing row with NULL `ts` forces a full
-rebuild. Teammate resolution still runs its full query each time; changed
-files add their record hours to the scope because `agent_rollup` reads
-`files.agent_type`.
+reparse or orphan deletion, and current ones after persistence and
+identity moves. Scope stores every hour as a UTC-aware instant, so
+distinct fall-back folds survive; full-rebuild grouping uses
+`date_trunc` in the DB session timezone. The seven hour-keyed rollups
+delete by exact `(project_id, hour)` instant equality. Their scoped
+source query joins per-project, merged, disjoint, widened UTC intervals
+to the source timestamp index in a materialized candidate CTE, then
+requires each candidate's own `(project_id, date_trunc('hour', ts))` to
+match a dirty instant exactly: intervals cannot multiply a row, and
+exact membership keeps candidates out of clean groups.
+
+`latency_rollup` replaces whole affected display buckets for each dirty
+project and the all-projects row, because percentiles need the whole
+population. Buckets are epoch-aligned; each dirty-hour instant replaces
+every bucket overlapping `[hour, hour + 2 hours)`. Tied outlier
+latencies order by `file_key, line_num`. A latency-bearing row with NULL
+`ts` forces a full rebuild. Teammate resolution runs its full query every
+time; changed files add their record hours to the scope because
+`agent_rollup` reads `files.agent_type`.
 
 `ingest_derived_state` stores the fingerprint of the last completed
-derived semantics and the time of the last full rebuild. The fingerprint
-covers `constants.DERIVED_STATE_VERSION`, `PARSER_VERSION`,
-`PRICING_VERSION`, latency/context bucket constants and the default agent
-type, plus the ordered contents of `suppressed_models` and
-`project_aliases`. Bump `DERIVED_STATE_VERSION` whenever rollup SQL
-semantics change; it forces a full derived rebuild without reparsing.
-Full rebuilds are also required when state is missing or incomplete, the
-last full rebuild is older than 24 hours, the dirty-file set exceeds the
-smaller of 2,000 files or 20% of the stored corpus, a lane identity rekey
-moves files, or repricing changes any row. An unchanged alias fold joins
-the moved files to the dirty scope; an alias-table edit changes the
-fingerprint and takes the full path. The incomplete marker is committed
-before source-row mutation. The marker becomes complete only after the
-derived phases, run close, notification and common-cache warm succeed; a
-promotion after hourly rollups begin leaves it incomplete. The next run
-then takes the full path. `last_full_at` advances only if rollups began
-in full scope. For an out-of-band mutation of `records`, `tool_uses` or
-`files`, delete the singleton row with `DELETE FROM ingest_derived_state`;
-the next ingest performs a full rebuild.
+derived semantics and the last full-rebuild time. The fingerprint covers
+`constants.DERIVED_STATE_VERSION`, `PARSER_VERSION`, `PRICING_VERSION`,
+the latency/context bucket constants, the default agent type, and the
+ordered contents of `suppressed_models` and `project_aliases`. Bump
+`DERIVED_STATE_VERSION` whenever rollup SQL semantics change (full
+derived rebuild, no reparse). A full rebuild also runs when the state is
+missing or incomplete (marker lifecycle: SV-SCHEMA-AUTOAPPLY), the last
+full rebuild is over 24 hours old, dirty files exceed the smaller of
+2,000 or 20% of the stored corpus, a lane identity rekey moves files, or
+repricing changes any row. After an out-of-band mutation of `records`,
+`tool_uses` or `files`, run `DELETE FROM ingest_derived_state`; the next
+ingest rebuilds fully.
 
-The grain is load-bearing, do not "simplify" it:
+The grain is load-bearing; do not "simplify" it:
 
-- **Keyed by HOUR, not by session.** A range filter sums only the
-  in-range hours; a session-grained table would count a session
-  straddling the boundary whole.
-- **Carries MODEL.** A session's dominant model is
-  `argmax(SUM(requests))` over the in-range rows — exactly what
-  `MODE() WITHIN GROUP` computed from raw records.
-- **Carries `long_context`.** A re-derived per-component cost cannot
-  apply the Codex long-context meter to a row whose tokens already
-  summed across both meters — the flag is part of the grain so each
-  row prices by its own meter and the breakdown reconciles with
-  `cost_usd` (SV-DATED-RATES).
-- **Carries `provider`** (`''` for a record that named none): one
-  model prices differently per serving host (SV-PROVIDER-RATES), so a
-  row that summed two hosts' tokens could not be re-priced to its
-  stored cost.
-- **Carries `first_ts`/`last_ts`.** Burn-rate span is
-  `MAX(last_ts) - MIN(first_ts)`, which composes; a stored duration
-  would not.
+- **HOUR, not session.** A range sums only in-range hours; a session
+  grain would count a boundary-straddling session whole.
+- **MODEL.** A session's dominant model is `argmax(SUM(requests))` over
+  in-range rows — what `MODE() WITHIN GROUP` gave over raw records.
+- **`long_context`.** Each row prices by its own meter, so a re-derived
+  breakdown reconciles with `cost_usd` (SV-DATED-RATES); a row summed
+  across both meters could not.
+- **`provider`** (`''` when none): one model prices differently per host
+  (SV-PROVIDER-RATES).
+- **`first_ts`/`last_ts`.** Burn-rate span `MAX(last_ts) - MIN(first_ts)`
+  composes; a stored duration would not.
 
 Only pure sums/counts/min/max may be served from it. **`PERCENTILE_CONT`
-does not compose** — p50/p90 of a union of hours is not derivable from
-per-hour p50/p90 — so `response_sizes` stays a live pass over
-`records`. Do not "optimise" it onto the rollup.
+does not compose**, so `response_sizes` stays a live pass over
+`records`.
 
-The rollup is only valid for display buckets ≥ 1 hour. `/api/dashboard`
-gates on `bucket_s >= 3600` and otherwise reads a live subquery shaped
-with the same column names, so both paths share one set of queries.
-The 24h view buckets at 5 minutes and takes the live path.
+The rollup is valid only for display buckets ≥ 1 hour: `/api/dashboard`
+uses it when `bucket_s >= 3600`, otherwise a live subquery with the same
+column names, so both paths share one query set. The 24h view (5-minute
+buckets) is live.
 
-It is derived state: anything that mutates `records` outside ingest
-must rebuild or clear it, or reads serve a stale pre-aggregate. Totals
-are verified equal to the equivalent `records` aggregate (requests,
-tokens, cost, distinct sessions) — keep that true.
+It is derived state: anything mutating `records` outside ingest must
+rebuild or clear it. Its totals (requests, tokens, cost, distinct
+sessions) equal the `records` aggregate — keep that true.
 
-`ctx_cost_rollup` is the third of the composable kind, grain
-`(hour, project_id, model, ctx_bucket)` holding `requests`,
-`total_tokens` and `cost_usd`. It exists because `usage_rollup` CANNOT
-serve a cost-by-context panel: that grain sums fresh/create/read
-across a whole (session, hour, model), which destroys the PER-CALL
-window size the x-axis is made of; the stored columns are pure sums
-and compose across hours, projects and models alike. `total_tokens` is
-what the tokens variant of the panel charts — the same bars measured
-before the rate, the only measure a free lane has.
+`ctx_cost_rollup`, grain `(hour, project_id, model, ctx_bucket)` holding
+`requests`, `total_tokens` and `cost_usd`, serves cost-by-context:
+`usage_rollup` sums tokens per (session, hour, model), destroying the
+per-call window size the x-axis needs. Its columns are pure sums.
+`total_tokens` drives the panel's tokens variant — the only measure a
+free lane has.
 
-A cost panel is HIDDEN when the range cost nothing, never drawn as a
-row of zeros — Cost by Model, Cost by Agent Type, Cost by Context
-Size, the cost half of Token Breakdown, the total-cost card and the
-heatmap's cost metric all gate on there being cost in view. Their
-tokens counterparts do not: a free lane still processes tokens, and
-that is what it has to show.
+A cost panel is HIDDEN when the range cost nothing, never drawn as zeros:
+Cost by Model, Cost by Agent Type, Cost by Context Size, Token
+Breakdown's cost half, the total-cost card and the heatmap's cost metric.
+Their tokens counterparts always show.
 
 Its bucket edges (`constants.CTX_BUCKET_WIDTH` / `CTX_BUCKET_MAX`) are
-baked into stored rows exactly like `LATENCY_BUCKETS`: a read cannot
-re-bucket to a different width, so changing either constant requires a
-rollup rebuild. It does NOT require a `PARSER_VERSION` bump — the
-context size is derived from stored `records` columns
-(`fresh + cache_creation + cache_read`), not from a reparse.
+baked into stored rows like `LATENCY_BUCKETS`: changing either needs a
+rollup rebuild, not a `PARSER_VERSION` bump (context size derives from
+stored `fresh + cache_creation + cache_read`).
 
-`records` cascades from `files`; `files` cascades from `projects`.
-Reparse is idempotent: deleting a file's `records` rows and
-re-inserting on the next ingest leaves the table byte-identical.
+`records` cascades from `files`, `files` from `projects`. Reparse is
+idempotent: deleting a file's `records` and re-ingesting leaves the
+table byte-identical.
 
 ## Failure causes and dispatches are stored, not re-derived (SV-WHY-COLUMNS)
 
-`tool_uses.is_error` says THAT a call failed. Four columns say why,
-and what a dispatch asked for:
+`tool_uses.is_error` says THAT a call failed. Four columns say why, and
+what a dispatch asked for:
 
 - `error_kind` — `rejected` | `tool_error` | `failed`, NULL unless the
-  call errored. HARNESS-GENERIC by rule: a PreToolUse hook denial
-  carries the DEPLOY's wording, so it lands in `failed`. Do NOT add a
-  kind for a particular operator's hooks — that couples a general tool
-  to one setup. `tool_error` means the call RAN: a `<tool_use_error>`
-  wrapper, or a Bash result opening `Exit code N` (the harness's own
-  wording for a nonzero exit). `rejected`/`failed` mean it never ran,
-  so those rows carry no `write_targets` and no churn. The lane wires
-  carry no status field, so the lane classifier decides from the
-  failure text: an errored lane result that is not a recognizable
-  rejection is `tool_error` (the call ran and reported failure), and
-  an errored result with no readable text stays `failed` — no evidence
-  it ran. Non-errored calls keep NULL.
-- `error_text` — leading `parse.ERROR_TEXT_MAX` chars of the failed
-  result. Grouping on it is how hook denials get separated from real
-  failures, which is why the parser needs no hook vocabulary.
-- `agent_type` / `agent_model` — read off an `Agent`/`Task` call's
-  arguments, and on the lanes off a Codex `spawn_agent` /
-  `multi_agent_v1__spawn_agent` call's arguments and a Kimi `Agent`
-  call's (`subagent_type`, `model`). `files.agent_type` records what
-  RAN and exists only when the subagent wrote a JSONL; these record
-  what was ASKED for, so a dispatch that produced no file is still
-  attributable. A Codex dispatch's prompt shape
-  (`dispatch_prompt_chars`, `dispatch_brief_ref`) stays NULL: its
-  `message` is encrypted, so neither its length nor a brief path
-  inside it means anything.
+  call errored. HARNESS-GENERIC: a PreToolUse hook denial carries the
+  deploy's wording, so it lands in `failed`; never add a kind for one
+  operator's hooks. `tool_error` means the call RAN (a
+  `<tool_use_error>` wrapper, or a Bash result opening `Exit code N`).
+  `rejected`/`failed` never ran, so they carry no `write_targets` and no
+  churn. Lane wires have no status field, so the lane classifier reads
+  the failure text: errored and not a recognizable rejection →
+  `tool_error`; errored with no readable text → `failed`.
+- `error_text` — the first `parse.ERROR_TEXT_MAX` chars of the failed
+  result. Grouping on it separates hook denials from real failures, so
+  the parser needs no hook vocabulary.
+- `agent_type` / `agent_model` — from `Agent`/`Task` call arguments, a
+  Codex `spawn_agent` / `multi_agent_v1__spawn_agent` call's arguments,
+  and a Kimi `Agent` call's (`subagent_type`, `model`).
+  `files.agent_type` records what RAN (only when the subagent wrote a
+  JSONL); these record what was ASKED, so a fileless dispatch is still
+  attributable. Codex dispatches keep `dispatch_prompt_chars` /
+  `dispatch_brief_ref` NULL: their `message` is encrypted.
 
-`tool_error_rollup` and `dispatch_rollup` carry the composable halves
-(pure counts). `error_text` is deliberately NOT in either grain —
-unbounded cardinality does not belong in a rollup.
+`tool_error_rollup` and `dispatch_rollup` carry the composable counts.
+`error_text` never enters a rollup grain (unbounded cardinality).
 
 ## Bash line churn is an estimate from command text (SV-BASH-CHURN)
 
-Keep available payload counts for heredocs, patches, Python edits and literal
-printf/echo/sed output. Python replacements and Edit calls count ONE occurrence,
-diffed: `bash_churn.replace_churn` line-diffs old against new so context
-repeated on both sides (an anchor re-emitted after an insertion) is not churn,
-and a payload ending mid-line changes that whole line — git's count for the
-same file change. No match multiplication; a successful exit does not prove
-that a line changed. For a recognized Bash file write with unknown addition
-size, use one added line per CALL only if no additions were already counted.
-Known-empty operations and whole-line deletions add zero; removing text from
-inside a line modifies that line (+1/-1). Do not infer old contents
-for copies/overwrites, invent paths for unresolved targets, execute recorded
-commands or infer writes from opaque script names or arbitrary object methods.
-Read-only calls, null sinks and rejected/unlaunched/failed writes do not gain
-fallback churn. Preserve the existing heredoc-write-before-later-error rule.
+Count payload lines for heredocs, patches, Python edits and literal
+printf/echo/sed output. Python replacements and Edit calls count ONE
+occurrence, diffed: `bash_churn.replace_churn` line-diffs old against
+new, so context repeated on both sides is not churn, and a payload
+ending mid-line changes that whole line (git's count). No match
+multiplication; a successful exit does not prove a line changed. A
+recognized Bash file write of unknown addition size counts one added
+line per CALL, only if no additions were already counted. Known-empty
+operations and whole-line deletions add zero; removing text inside a
+line is +1/-1. Never infer old contents for copies/overwrites, invent
+paths for unresolved targets, execute recorded commands, or infer writes
+from opaque script names or arbitrary object methods. Read-only calls,
+null sinks and rejected/unlaunched/failed writes get no fallback churn.
+Keep the existing heredoc-write-before-later-error rule.
 
-A heredoc inside `for x in W1 W2 …; do … done` runs once per iteration, and
-when every word is literal the count is in the text: its churn is multiplied
-by the product of its enclosing literal loops (`bash_loops.heredoc_repeats`).
-An unknowable count — a runtime word (`$x`, `$(…)`, an unquoted glob, `"$@"`),
-a bare `for NAME`, `while`/`until`/`select`, or a command the tokenizer
-rejects — counts ONE iteration, the floor. Only heredoc bodies repeat this
-way; `echo`/`printf` effects and `python -c` inside a loop still count once.
-Write targets are unchanged: a path built from the loop variable is a runtime
-path and still yields nothing.
+A heredoc inside `for x in W1 W2 …; do … done` whose words are all
+literal has its churn multiplied by the product of its enclosing literal
+loops (`bash_loops.heredoc_repeats`). An unknowable count — a runtime
+word (`$x`, `$(…)`, an unquoted glob, `"$@"`), a bare `for NAME`,
+`while`/`until`/`select`, or a command the tokenizer rejects — counts
+ONE. Only heredoc bodies repeat; `echo`/`printf` and `python -c` in a
+loop count once. Write targets are unchanged: a path built from the loop
+variable is a runtime path and yields nothing.
 
 ## Context intake is stored per call (SV-CONTEXT-INTAKE)
 
-Five columns on `tool_uses` record what a call put INTO the context
-window and whether it had already been put there:
+Five `tool_uses` columns record what a call put INTO the context window
+and whether it was already there:
 
-- `result_chars` — size of the tool_result, IMAGES INCLUDED — an image
-  block's base64 payload is the largest thing a result can carry.
-  Recorded for errored calls too: a failure occupies the window like a
-  success does.
-- `read_targets` / `write_targets` — TEXT[] because one call can name
+- `result_chars` — tool_result size, IMAGES INCLUDED (base64 is the
+  largest payload a result carries); recorded for errored calls too.
+- `read_targets` / `write_targets` — TEXT[], since one call can name
   several files (`cat a b`, `diff a b`).
-- `read_kind` — `whole` | `slice`. LOAD-BEARING, not decorative:
-  `grep -n x big.py` and `cat big.py` both name one file and only the
-  second put it in context; score them alike and grep-then-narrow
-  ranks as MORE wasteful than one indiscriminate `cat`.
-- `is_reread` — resolved at parse time by `parse._resolve_rereads`,
-  NULL for anything that is not a settled whole-file read.
+- `read_kind` — `whole` | `slice`. LOAD-BEARING: `grep -n x big.py` and
+  `cat big.py` name one file but only the second loads it; scoring them
+  alike ranks grep-then-narrow as MORE wasteful than a blind `cat`.
+- `is_reread` — set by `parse._resolve_rereads`; NULL unless a settled
+  whole-file read.
 
 Targets come from tool arguments for `Read`/`Edit`/`Write` and from
-COMMAND TEXT for `Bash` (`backend/bash_reads.py`) — the Bash half is
-not an extra, because measured over the corpus, Bash is ~79% of the
-read surface under bypass permissions. Write targets from Bash text
-cover `>`/`>>`/`tee`, `sed -i` (a WRITE, never a slice read — its
-script operand is never a file either), and the paths a `python3`
-`-`/`-c` body opens for writing (`bash_churn.python_write_paths`).
-`$VAR` is expanded only when the same command assigns it
-(`S=/tmp/s && cat > $S/f`); any `$` that survives means a runtime
-path, and the token yields nothing. Heredoc bodies are stripped before
-the scan — a docstring naming `INDEX.md` read nothing.
+COMMAND TEXT for `Bash` (`backend/bash_reads.py`) — Bash is ~79% of the
+corpus's read surface under bypass permissions. Bash write targets cover
+`>`/`>>`/`tee`, `sed -i` (a WRITE, never a slice read; its script
+operand is never a file), and paths a `python3` `-`/`-c` body opens for
+writing (`bash_churn.python_write_paths`). `$VAR` expands only when the
+same command assigns it (`S=/tmp/s && cat > $S/f`); any surviving `$`
+means a runtime path, which yields nothing. Heredoc bodies are stripped
+before the scan.
 
-`is_reread` is deliberately CONSERVATIVE — a floor, not an estimate.
-It excludes slices (different halves of a file are not redundant),
-reads after a write to the same path (the bytes changed), errored
-reads (they returned a failure, not the file), and partial overlap
-(`cat a b` after only `a` still brought `b` in).
+`is_reread` is a CONSERVATIVE floor. It excludes slices, reads after a
+write to the same path, errored reads, and partial overlap (`cat a b`
+after only `a`). Scope is ONE jsonl, where a session's context restarts.
 
-Scope is ONE jsonl, because that is where a session's context
-restarts.
-
-These are psql-only, exactly like `error_text`: no endpoint, no panel,
-no rollup — `read_targets` is unbounded cardinality, the same reason
-`error_text` stays out of `tool_error_rollup`. **Do not add a panel
-for this** — duplicate NON-IMAGE whole reads are ~0.5% of all result
-bytes and the raw total sits in a handful of image-heavy sessions, so
-a chart would chart an outlier as a trend. The data is for querying:
+These are psql-only, like `error_text`: no endpoint, panel or rollup
+(`read_targets` is unbounded). **Do not add a panel** — duplicate
+non-image whole reads are ~0.5% of result bytes and the raw total sits
+in a few image-heavy sessions, so a chart would show an outlier as a
+trend. Query it:
 
     SELECT sum(result_chars) FROM tool_uses WHERE is_reread;
 
 ## The parser and pricing versions are code, never the environment (SV-PARSER-VERSION)
 
-`constants.PARSER_VERSION` invalidates stored PARSE results: bumping
-it reparses every stored file, each object fetched from R2 again. It
-lives in code so the bump travels in the same commit as the change
-that needs it; do not reintroduce an env override.
-
-Stored PRICES are invalidated by a second switch,
-`constants.PRICING_VERSION`: bumping it reprices every stale record in
-place from its stored token columns — batched, the same
-`pricing.compute_cost` the parser runs, no R2 fetch (SV-REPRICE). A
-rate-data change bumps PRICING_VERSION; a parse-semantics change bumps
-PARSER_VERSION. Neither is an env var.
+`constants.PARSER_VERSION` invalidates stored PARSE results: bumping it
+reparses every stored file, refetching each from R2.
+`constants.PRICING_VERSION` invalidates stored PRICES: bumping it
+reprices stale records in place from their stored tokens via
+`pricing.compute_cost`, batched, no R2 fetch (SV-REPRICE). A
+parse-semantics change bumps PARSER_VERSION; a rate-data change bumps
+PRICING_VERSION. Both live in code so the bump ships in the same commit
+as its cause; never reintroduce an env override.
 
 ## Rates are a function of (model, timestamp) (SV-DATED-RATES)
 
-`pricing.rate_for(model, ts)` — a model may carry dated overrides in
-`DATED_RATES`, a list of `(end_exclusive_utc, rates)` windows per
-exact model key, derived from the row's history in `src/pricing.json`
-(SV-RATE-DATA). Cost must be computed against the timestamp of the
-request being priced, never the time of rendering. `parse.py` passes
-each record's own `ts`; omitting `ts` yields LIST price (conservative
-— never silently applies a discount).
-The read-time fold honors the same rule: `rate_epoch_sql` maps a NULL ts
-to the list-price epoch -1, whose representative instant is None, so its
-buckets price at exactly what persist and reprice used.
-The cache view's range predicate admits a NULL-ts record in every range —
-there is no timestamp to filter by — so the record its stored cost describes
-is the record the fold decomposes.
+`pricing.rate_for(model, ts)`: a model may carry dated overrides in
+`DATED_RATES`, `(end_exclusive_utc, rates)` windows per exact model key,
+derived from its history in `src/pricing.json` (SV-RATE-DATA). Price at
+the request's timestamp, never render time: `parse.py` passes each
+record's own `ts`; omitting `ts` yields LIST price (never a silent
+discount). The read-time fold agrees: `rate_epoch_sql` maps a NULL ts to
+epoch -1, whose representative instant is None, pricing exactly as
+persist and reprice did. The cache view's range predicate admits a
+NULL-ts record in every range, so the fold decomposes the same record its
+stored cost describes.
 
-A window (a superseded history entry) is NEVER dropped once it has
-expired. Every `PRICING_VERSION` bump reprices every record from its
-stored columns through these windows (SV-REPRICE — a record stamped by
-a newer binary is skipped by the rollback guard), and a record from
-inside the window must come out at the price in force then; removing
-the window silently reprices that history at list on the next reprice.
-The machinery is tested through the `synthetic_dated_rate` fixture in
-`tests/conftest.py` rather than only the live entries, so the path
-cannot rot whenever the table happens to be empty.
+An expired window is NEVER dropped. Every `PRICING_VERSION` bump
+reprices every record through the windows (SV-REPRICE; a record stamped
+by a newer binary is skipped), so removing a window reprices its history
+at list. The machinery is tested through `tests/conftest.py`'s
+`synthetic_dated_rate` fixture, not only live entries, so it cannot rot
+while the table is empty.
 
-Any read path that RE-DERIVES rates from summed tokens must group each
-record by ITS OWN rate epochs — the instants at which
-`pricing.resolve(model, ts, provider)` can change for that record's
-(model, provider), which `rate_boundaries` lists — AND by
-`COALESCE(long_context, FALSE)` — the Codex meter multiplies a
-record's whole input side by 2 and its output by 1.5, and a fold that
-forgot the flag prices a long-context record at the flat rate, so its
-breakdown drifts from the `SUM(cost_usd)` total it claims to
-decompose. Totals themselves always come from the stored per-record
-`cost_usd` — do not recompute them at read time.
+A read path that RE-DERIVES rates from summed tokens must group each
+record by ITS OWN rate epochs — the instants where
+`pricing.resolve(model, ts, provider)` can change for its (model,
+provider), listed by `rate_boundaries` — AND by
+`COALESCE(long_context, FALSE)` (the Codex meter multiplies the whole
+input side by 2 and output by 1.5; a fold ignoring it drifts from
+`SUM(cost_usd)`). Totals always come from stored `cost_usd`; never
+recompute them at read time.
 
-The epochs are per (model, provider), never the global
-`pricing.RATE_EPOCHS` list. A log-backed provider row (SV-RATE-REFRESH)
-adds a boundary for every price change its host lists — about four
-thousand at the backfill and about a thousand a week after it — and a
-fold over the global list splits every record at every other row's
-changes: on a restore of the all-lanes meter, `/api/cache?range=all`
-took minutes per query with a `CASE` per boundary and about 21 s with
-`width_bucket` over the global list at 4,049 boundaries, against about
-9 s at 59. So the cache view reads the distinct (model, provider) pairs
-from `usage_rollup`, joins each record to its pair's own boundary array
-and takes `width_bucket` over it; the group count is then the number of
-epochs a pair's own records span, whatever the file holds. A record
-whose pair `usage_rollup` does not list (one an ingest wrote before its
-rollup rebuild) falls back to the global list: exact, only slower.
+Epochs are per (model, provider), never the global
+`pricing.RATE_EPOCHS`: a log-backed provider row (SV-RATE-REFRESH) adds
+thousands of boundaries, and a fold over the global list splits every
+record at every other row's changes (`/api/cache?range=all`: ~21 s at
+4,049 global boundaries vs ~9 s at 59). So the cache view reads the
+distinct (model, provider) pairs from `usage_rollup`, joins each record
+to its pair's boundary array, and takes `width_bucket` over it. A pair
+`usage_rollup` does not list yet (ingested before its rollup rebuild)
+falls back to the global list: exact, only slower.
 
 ## Rates are data in one file (SV-RATE-DATA)
 
-Every rate lives in `src/pricing.json`: `models` (normalised model key
-→ history), `providers` (normalised model → provider → history),
+Every rate lives in `src/pricing.json`: `models` (normalised key →
+history), `providers` (normalised model → provider → history),
 `provider_rates_fetched`, and `openrouter` (the account's data region
 and each provider-table model's OpenRouter id, SV-RATE-REFRESH).
 `backend/pricing.py` and `src/parser.js` hold logic only and both read
-that file — the backend at import, the browser synchronously before
-first use (node reads it beside the module); the browser fetches the
-URL `public/index.html` names in the parser.js tag's `data-pricing`,
-cache-busted like every `/src` asset. It sits under `src/` because
-that is the directory the app serves to the browser. No rate literal
-belongs in either source file.
+it — the backend at import, the browser synchronously before first use
+(node reads it beside the module). The browser fetches the URL in the
+parser.js tag's `data-pricing` in `public/index.html`, cache-busted like
+every `/src` asset; the file sits in `src/` because that is what the app
+serves. No rate literal belongs in either source file.
 
-Each row's history is an append-only list, oldest first. Every entry
-carries the five rates (`fresh`, `create_5m`, `create_1h`, `read`,
-`output`), each a finite non-negative number, and an optional string
-`note`. A model row's first entry has `from: null`: it covers all of
-time. A provider row's may instead name the instant the row begins;
-before it, a record from that host prices by the model alone, and the
-start joins `RATE_EPOCHS`. Every other `from` is spelled exactly
-`YYYY-MM-DDTHH:MM:SS` followed by `Z` or `±HH:MM`, every field in
-range (a real calendar day, hour 0-23, minute and second 0-59, offset
-under 24:00), strictly after its predecessor's. The newest entry is
-the list price; each earlier entry applies until its successor's
-`from` — the SV-DATED-RATES window shape. So a price change is
-recorded by APPENDING `{"from": T, ...}`; an existing entry is never
-edited or removed, except when entries misstate the prices or the
-instants they record: a seeded price that was wrong, or sampled entries
-dated at their detection time where OpenRouter's log records the real
-change points (the one-time backfill of SV-RATE-REFRESH). That
-correction happens only in a human commit that bumps
-`PRICING_VERSION`, which reprices stored records from their stored
-columns — no reparse needed, since no stored token column changes.
-Both loaders refuse a file that breaks these rules, naming the row;
-the browser's refusal, like any failure to load the file, throws an
-error naming `pricing.json`.
+Each row's history is append-only, oldest first. Every entry carries five
+finite non-negative rates (`fresh`, `create_5m`, `create_1h`, `read`,
+`output`) and an optional string `note`. A model row's first entry has
+`from: null` (all of time). A provider row's first may name its start
+instant; before it, that host's records price by the model alone, and
+the start joins `RATE_EPOCHS`. Every other `from` is exactly
+`YYYY-MM-DDTHH:MM:SS` plus `Z` or `±HH:MM`, every field in range (a real
+calendar day, hour 0-23, minute/second 0-59, offset under 24:00),
+strictly after its predecessor. The newest entry is the list price; each
+earlier one applies until its successor's `from` (SV-DATED-RATES).
 
-A provider entry may also carry a weekly UTC `schedule`: a list of
-windows `{days?, start?, end?, rates}`.
-- `days` is a list of distinct lowercase weekday names; absent means
-  every day.
-- `start` and `end` are HHMM times from 0 to 2359, both or neither
-  (neither means the whole day), end-exclusive, and wrapping past
-  midnight when `start` is later than `end`. Each is a JSON integer: a
-  spelling with a fraction or an exponent (`1400.0`) is refused on
-  both sides. A wrapped window's `days` are the record's own UTC
+A price change APPENDS `{"from": T, ...}`. An entry is never edited or
+removed, except to correct a misstated price or instant (a wrong seeded
+price; sampled entries dated at detection where OpenRouter's log has the
+real change points — the SV-RATE-REFRESH backfill), and only in a human
+commit that bumps `PRICING_VERSION`, which reprices from stored columns
+with no reparse. Both loaders refuse a rule-breaking file, naming the
+row; the browser throws an error naming `pricing.json` on any load
+failure.
+
+A provider entry may carry a weekly UTC `schedule`: a list of windows
+`{days?, start?, end?, rates}`.
+
+- `days`: distinct lowercase weekday names; absent means every day.
+- `start`/`end`: HHMM JSON integers 0–2359, both or neither (neither is
+  the whole day), end-exclusive, wrapping past midnight when `start` is
+  later than `end`. A fraction or exponent spelling (`1400.0`) is refused
+  on both sides. A wrapped window's `days` are the record's own UTC
   weekday, not the day the window opened.
-- `rates` are the five rates.
+- `rates`: the five rates.
 
 Both loaders price a record by its UTC weekday and time: the first
-window it falls in, else the entry's own rates, which are also the
-price when there is no timestamp. Windows repeat weekly, so they are
-not rate epochs. The browser prices each record at its own time,
-exactly. A read-time fold that re-derives cost from summed tokens
-(`api_common`) cannot: a scheduled row's buckets take their split from
-the rates at the epoch's representative time, scaled to the row's
-stored `cost_usd`. Its total is therefore always exact, and its split
-is exact whenever every window scales all five rates alike, as the
-live schedules do.
+window it falls in, else the entry's own rates (also the price with no
+timestamp). Windows repeat weekly, so they are not rate epochs. The
+browser prices each record exactly. The read-time fold (`api_common`)
+cannot: a scheduled row's buckets take their split from the rates at the
+epoch's representative time, scaled to stored `cost_usd`. The total is
+always exact; the split is exact when every window scales all five rates
+alike, as the live schedules do.
 
-The file stays in the layout `json.dumps(doc, indent=2, sort_keys=True)`
-writes, so any writer reproduces it and a one-rate change is a one-line
-diff. File order never decides which key a model id matches — the
-LONGEST matching key wins; it only breaks a family-fallback tie
-between equal versions, where the first key in file order wins.
+The file keeps the `json.dumps(doc, indent=2, sort_keys=True)` layout,
+so any writer reproduces it and a one-rate change is a one-line diff.
+File order never decides key matching — the LONGEST matching key wins;
+order only breaks a family-fallback tie between equal versions (first
+key wins).
 
 ## Provider rates refresh from OpenRouter (SV-RATE-REFRESH)
 
 `.github/workflows/refresh-pricing.yml` runs
-`scripts/ci/refresh_provider_rates.py` hourly, and identically on
-dispatch, and commits to `master` as `github-actions[bot]` only after
-the full suite passes on the new data. A hand edit to a provider row
-keeps the same rules:
+`scripts/ci/refresh_provider_rates.py` hourly (identically on dispatch)
+and commits to `master` as `github-actions[bot]` only after the full
+suite passes on the new data. A hand edit to a provider row follows the
+same rules:
 
-- A moved price is an entry APPENDED to the row, never an edit or a
-  deletion. On a log-backed row (below) it is dated by the change
-  point OpenRouter's own log records; on a sampled row it is dated at
-  the detection time, and a sampled host seen for the first time gets
-  a row that begins then (a log-backed one gets its whole log). A host no longer listed keeps its row untouched
-  and is reported.
-- Normalisation: OpenRouter's USD per token becomes USD per million.
-  The listed price already has any promotional discount applied; the
-  discount is the entry's `note` (`N% off`), never a rate. Cache
-  writes take the listed write price when it is nonzero, the input
-  rate otherwise; no listed cache-read price is 0. Endpoints of one
-  host at one price are one row.
+- A moved price is an APPENDED entry, never an edit or deletion. A
+  log-backed row dates it at OpenRouter's recorded change point; a
+  sampled row at detection time. A first-seen sampled host gets a row
+  beginning then; a first-seen log-backed host gets its whole log. A
+  host no longer listed keeps its row untouched and is reported.
+- Normalisation: USD per token becomes USD per million. The listed price
+  already has any promotional discount applied; the discount goes in
+  `note` (`N% off`), never a rate. Cache writes take the listed write
+  price when nonzero, else the input rate; an unlisted cache-read price
+  is 0. Endpoints of one host at one price are one row.
 - The account is billed only by endpoints in its data region,
-  `openrouter.data_region`: `global`, or a lowercase region code.
-  - **Reading a tag.** An endpoint tag is `host` or
-    `host/<suffix>[/<suffix>...]`. A suffix is a region when it is a
-    known region code (`us`, `eu`, `uk`, `ca`, `ap`, `asia` and the
-    others the script lists), alone or as `<region>-<area>` or
-    `<region>-<area>-<n>`, in any case (`us-east-1`). A suffix that is
+  `openrouter.data_region`: `global` or a lowercase region code.
+  - An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`. A suffix
+    is a region when it is a known region code (`us`, `eu`, `uk`, `ca`,
+    `ap`, `asia` and the others the script lists), alone or as
+    `<region>-<area>[-<n>]`, in any case (`us-east-1`). A suffix that is
     neither a region nor a known quantization (`fp4`, `fp8`, `nvfp4`,
-    `bf16` and the others) is logged in the run's notices, and it
-    refuses nothing.
-  - **Which endpoints count.** `global` takes the endpoints no region
-    suffix names.
-  - **A host outside the region.** A host whose only endpoints lie
-    outside the region is not listed for the account, and so is
-    reported as vanished.
-- Endpoints are grouped by host before any is read, so a malformed
-  endpoint refuses only its host.
+    `bf16`, …) is logged in the run's notices and refuses nothing.
+  - `global` takes the endpoints with no region suffix.
+  - A host whose endpoints all lie outside the region is not listed for
+    the account, so it is reported as vanished.
+- Endpoints are grouped by host first, so a malformed endpoint refuses
+  only its host.
 - **Schedules.** A host's `pricing.overrides` (weekly `utc_days` /
-  `utc_start` / `utc_end` windows, each with the prices it overrides)
-  become its entry's `schedule`. A change to the default rates or to
-  the schedule, which is compared as a whole, is a move, and the whole
-  entry is appended.
-  - **The default.** OpenRouter lists a scheduled host's top-level
-    price as the window active at the fetch, not as a stable default.
-    So the entry's default rates come from the top-level price only
-    when the fetch falls outside every window of the fetched schedule.
-    Inside one, the row's stored default is kept and only the schedule
-    is compared, so a schedule covering the whole week never moves its
-    default. A host seen for the first time inside a window is REFUSED
-    unless its schedule covers every instant of the week: then the entry
-    default can price no record, so the row starts with the listed top-level
-    price as its default and the run reports the seeding in a notice;
-    otherwise the listed top-level price is the active window's, and
-    starting the row with it would misprice every outside-window record,
-    so the next fetch outside every window starts the row.
-  - **A price a window does not name** is the entry's default: the
-    top-level price outside every window, the kept default inside one.
-  - **An uneven schedule is reported.** An appended entry whose
-    windows do not each scale all five default rates by one factor is
-    reported in the run's notices ("non-uniform schedule"), because
-    the read-time fold's Token Breakdown split is then approximate
-    (SV-RATE-DATA).
-- **Log-backed rows: a move is dated by OpenRouter's own change log.**
-  OpenRouter keeps a per-endpoint price history that its model pages
-  read and its documented API does not carry:
-  `https://openrouter.ai/api/frontend/v1/stats/listed-pricing?permaslug=<canonical_slug>&variant=standard&shape=v4&range=all`,
-  where `canonical_slug` is the model's field in `/api/v1/models`. For
-  each listed endpoint it returns `endpointId`, `providerName`,
-  `providerSlug` and, per field (`input`, `output`, `cacheRead`,
-  `cacheWrite`, `discount`), the change points `{at, value}` in USD per
-  million, discount applied, since the endpoint was first listed. The
-  refresh fetches it with `range=all` on every run, for every tracked
+  `utc_start` / `utc_end` windows with the prices they override) become
+  its entry's `schedule`. A change to the default rates or to the
+  schedule (compared whole) is a move, and the whole entry is appended.
+  - **The default.** OpenRouter lists a scheduled host's top-level price
+    as the window active at fetch time. So the default comes from the
+    top-level price only when the fetch is outside every window; inside
+    one, the stored default is kept and only the schedule is compared (a
+    whole-week schedule never moves its default). A first-seen host
+    fetched inside a window is REFUSED unless its schedule covers every
+    instant of the week — then the default prices nothing, so the row
+    starts with the listed top-level price and a notice reports the
+    seeding; otherwise the next fetch outside every window starts the
+    row.
+  - A price a window does not name is the entry default (top-level
+    outside every window, the kept default inside one).
+  - An appended entry whose windows do not each scale all five default
+    rates by one factor is reported as a "non-uniform schedule" notice:
+    the fold's Token Breakdown split is then approximate (SV-RATE-DATA).
+- **Log-backed rows are dated by OpenRouter's own change log**, a
+  per-endpoint price history its model pages read and its documented API
+  lacks:
+  `https://openrouter.ai/api/frontend/v1/stats/listed-pricing?permaslug=<canonical_slug>&variant=standard&shape=v4&range=all`
+  (`canonical_slug` from `/api/v1/models`). Per listed endpoint it
+  returns `endpointId`, `providerName`, `providerSlug` and, per field
+  (`input`, `output`, `cacheRead`, `cacheWrite`, `discount`), change
+  points `{at, value}` in USD per million, discount applied, since first
+  listing. Every run fetches it with `range=all` for every tracked
   model, beside the endpoints listing.
-  - **The endpoint a log series is.** A series carries no tag, so it is
-    joined to the listing: a host is log-backed only when all its listed
-    endpoints share one tag prefix (the part before the first `/`) that
-    no other host of the model uses, the log has exactly one series for
-    each of those endpoints, the current state of each series (its
-    newest rates, normalised as below) equals the listed price of
-    exactly one endpoint and no two series match one endpoint, no
-    endpoint or series carries a schedule (`pricing.overrides`, or a
-    series `schedule`), the host has no `cheapest` resolution, and the
-    data-region filter or the tag pin then selects exactly ONE endpoint.
-    The row's history is that endpoint's series. Anything else — two
-    endpoints of one host at one current price, a series with no listed
-    endpoint, a host shared by two prefixes — is ambiguous, and the host
-    is sampled as below, never guessed.
-  - **Change points to entries.** A series' state at an instant is the
-    newest value of each field at or before it, and exists once both
-    `input` and `output` have a point. Each instant at which
-    the five rates change — normalised exactly as the listing is: cache
-    read `null` or absent is 0, cache write `null`, absent or 0 is the
-    input rate, values rounded to 10 decimal places — is one entry
-    whose `from` is that instant truncated to whole seconds (points in
-    one second collapse to the second's last state). A change of the
-    discount alone is not an entry; an entry's `note` is the discount in
-    force at its `from`. An `input` or `output` that is `null` is not a
-    price, and the host is sampled.
-  - **The hourly run appends.** For a log-backed host with a row, every
-    entry whose `from` is strictly after the row's newest entry's `from`
-    and whose rates differ from the entry before it is appended, oldest
-    first, so a flip that came and went between two runs is recorded as
-    the two moves it was. A host seen for the first time gets the whole
-    series as its row, beginning at the series' first change point. The
-    log never rewrites an existing entry in the hourly run.
-  - **The log must agree with the listing.** The series' newest state
-    must equal the host's listed price fetched in the same run; when it
-    does not (a move between the two requests, say), the host is sampled
-    this run and the notice says so.
+  - **Joining series to endpoints.** A series carries no tag. A host is
+    log-backed only when: all its endpoints share one tag prefix (before
+    the first `/`) no other host of the model uses; the log has exactly
+    one series per such endpoint; each series' current state (newest
+    rates, normalised below) equals exactly one endpoint's listed price,
+    no two series matching one endpoint; no endpoint or series carries a
+    schedule (`pricing.overrides` or a series `schedule`); the host has
+    no `cheapest` resolution; and the data-region filter or tag pin
+    selects exactly ONE endpoint. The row's history is that endpoint's
+    series. Anything else is ambiguous, and the host is sampled, never
+    guessed.
+  - **Change points to entries.** A series' state at an instant is each
+    field's newest value at or before it, and exists once `input` and
+    `output` both have a point. Each instant at which the five rates
+    change — normalised like the listing: cache read null/absent is 0,
+    cache write null/absent/0 is the input rate, values rounded to 10
+    decimal places — is one entry, `from` truncated to whole seconds
+    (points in one second collapse to its last state). A discount-only
+    change is not an entry; `note` is the discount in force at `from`. A
+    `null` `input` or `output` is not a price: the host is sampled.
+  - **Hourly append.** For a log-backed host with a row, every entry
+    whose `from` is after the row's newest `from` and whose rates differ
+    from its predecessor is appended, oldest first, so a flip between
+    runs is recorded as its two moves. A first-seen host gets the whole
+    series from its first change point. The hourly run never rewrites an
+    entry.
+  - **The log must match the listing.** The series' newest state must
+    equal the listed price fetched in the same run; otherwise the host is
+    sampled this run, with a notice.
   - **Sampled rows.** A host the log does not back, and every host of a
-    model whose log fetch fails — an HTTP error, a timeout, a
-    `canonical_slug` missing from `/api/v1/models`, or a response whose
-    shape the reader does not recognise — is refreshed exactly as
-    before: a moved price is a new entry dated at the detection time,
-    and the alternation rule below applies. A failed or unrecognised log
-    is never a guess and never a refusal: the run reports a
-    "listed-pricing log unavailable" notice naming the model and the
-    reason, and stays green. A host the log does not back is listed in
-    the run's report with the reason, not in its notices: such a host is
-    sampled every hour, and a notice would repeat in every commit.
-- **The one-time backfill rewrites log-backed rows.**
+    model whose log fetch fails (HTTP error, timeout, `canonical_slug`
+    missing from `/api/v1/models`, unrecognised shape), refreshes by
+    sampling: a move is an entry dated at detection, under the
+    alternation rule below. A failed log never guesses or refuses: a
+    "listed-pricing log unavailable" notice names the model and reason,
+    and the run stays green. A host the log does not back goes in the
+    run's report with the reason, not its notices (it would repeat in
+    every commit).
+- **The one-time backfill.**
   `scripts/ci/backfill_provider_rates.py --as-of <instant>` replaces
-  the history of every row the log backs at that run with the log's
-  entries up to `--as-of`, keeping the row's start: when the old row's
-  first `from` is earlier than the log's first change point (`null`
-  included), the rewritten row's first entry takes the old `from`. Rows
-  the log does not back are left untouched and listed. It is a
-  SV-RATE-DATA correction — the sampled entries misdated real moves and
-  missed the ones between two runs — so it lands only in a human-reviewed
-  commit that bumps `PRICING_VERSION` and names the invocation and the
-  entries each row gained. The hourly run never rewrites.
-- **An alternating price is reported, not appended — on a sampled row
-  only.** A log-backed row needs no such guard: every entry is a change
-  point the host really listed, at its own time, so a flip-flop is
-  recorded as the moves it was and a lasting return to an earlier price
-  is simply the next entry. On a sampled row, when the
-  incoming listing and the row's newest entry both carry no schedule
-  and the listed rates equal those of an entry whose `from` is within
-  the last 7 days — measured against the detection time, never wall
-  clock — and which is not the newest entry, the run reports an
-  "alternating price" notice naming the host and that entry, and
-  appends nothing and bumps nothing. A first move away from a stable
-  price never matches, since nothing recent matches; the flip back
-  does. A genuine return to an older price is recorded by
-  hand-appending an entry, which the next run then compares against.
-- **Refused as not modelled.** An override kind the script does not
-  model (a `min_prompt_tokens` tier, say) refuses its host. So does
-  any other pricing key listed at a nonzero price, such as a
-  per-request fee.
-- A run that appends bumps `PRICING_VERSION` to one past whatever
-  `backend/constants.py` holds — never a literal — in the same
-  commit: a record at or after an appended entry's `from` that was
-  ingested before the commit reached the deploy was priced at the old
-  rate. It also moves `provider_rates_fetched`. A run that appends
-  nothing writes nothing. Every appended entry adds a rate epoch
-  (SV-DATED-RATES); the read-time fold groups a record only by its own
-  row's epochs, so the file's growth does not grow any other row's
-  groups.
-- Ambiguity is never a guess. Each of these refuses the host, or the
-  model, it concerns, whose rows stay untouched:
-  - a host with two endpoints inside the data region at different
-    prices (quantization variants, say) and no resolution, named by
-    tag;
-  - a resolution that no longer applies: a pinned tag not listed, or
-    twins under `cheapest` that differ in more than price, tie in
-    price order, or have flipped order;
+  every log-backed row's history with the log's entries up to
+  `--as-of`, keeping the row's start: when the old first `from` (`null`
+  included) precedes the log's first change point, the new first entry
+  takes it. Unbacked rows are left untouched and listed. It is an
+  SV-RATE-DATA correction, landing only in a human-reviewed commit that
+  bumps `PRICING_VERSION` and names the invocation and each row's added
+  entries.
+- **Alternating prices are reported, not appended — sampled rows only.**
+  A log-backed row needs no guard: every entry is a real change point. On
+  a sampled row, when neither the listing nor the newest entry has a
+  schedule and the listed rates equal a non-newest entry whose `from` is
+  within 7 days of the detection time (never wall clock), the run
+  reports an "alternating price" notice naming host and entry, and
+  appends and bumps nothing. A first move away never matches; the flip
+  back does. A genuine return to an older price is hand-appended, and the
+  next run compares against it.
+- **Unmodelled pricing refuses the host:** an override kind the script
+  does not model (e.g. a `min_prompt_tokens` tier), or any other pricing
+  key at a nonzero price (e.g. a per-request fee).
+- A run that appends bumps `PRICING_VERSION` to one past the value in
+  `backend/constants.py` — never a literal — in the same commit (records
+  at or after a new `from` ingested before the deploy were priced at the
+  old rate), and moves `provider_rates_fetched`. A run that appends
+  nothing writes nothing. A new entry adds a rate epoch only to its own
+  row's grouping (SV-DATED-RATES).
+- Ambiguity is never guessed. Each of these refuses its host or model,
+  leaving its rows untouched:
+  - a host with two in-region endpoints at different prices (e.g.
+    quantization variants) and no resolution, named by tag;
+  - a stale resolution: a pinned tag not listed, or `cheapest` twins
+    that differ beyond price, tie in price order, or have flipped order;
   - a resolution keyed on anything else, a price included;
   - an unrecognised response shape;
   - a tracked model with no endpoints, or none in the data region.
 
-  A refusal blocks only itself. Every other move is still appended,
-  tested and committed with the `PRICING_VERSION` bump, and then the
-  run exits nonzero, so it is red and its summary names each refused
-  host. A detection time not after a row's newest entry is the one
-  refusal that writes nothing at all: the loaders refuse the whole
-  file.
+  A refusal blocks only itself: every other move is appended, tested and
+  committed with the bump, then the run exits nonzero, naming each
+  refused host. The exception: a detection time not after a row's newest
+  entry writes nothing at all, since the loaders would refuse the file.
 
-  The fix is a human decision recorded as data, in
-  `openrouter.models.<model>.resolve.<host>`, with a `why`. There are
-  two forms:
+  The fix is a human decision recorded in
+  `openrouter.models.<model>.resolve.<host>`, with a `why`:
   - `{"tag": ...}` takes that tag's endpoint, whatever its region.
-  - `{"select": "cheapest"}` takes the cheaper of endpoints identical
-    in tag, quantization and limits. It compares cache read, then
-    input, then output. Region-premium twins are the dearer ones, so
-    under `data_region` `global` the cheaper twin is the one the
-    account reaches. The order survives a price moving and breaks only
-    when it flips. Such twins have no identity but their price, so a
-    flip is seen when the twin still listed at the row's price is no
-    longer the cheaper, and that is refused.
+  - `{"select": "cheapest"}` takes the cheaper of endpoints identical in
+    tag, quantization and limits, comparing cache read, then input, then
+    output. Region-premium twins are dearer, so under `global` the
+    cheaper twin is the one the account reaches. The order survives
+    price moves and breaks only when it flips; twins have no identity
+    but price, so a flip is seen when the twin still at the row's price
+    is no longer cheaper, and is refused. A tracked twin crossing the
+    other between runs is indistinguishable from a genuine move and
+    shows as a rise (unless the other fell simultaneously), so every
+    rise of a `cheapest` row is appended and reported as a "possible
+    twin switch".
 
-    A tracked twin whose own price crosses the other's between two
-    runs cannot be told from a genuine move. The other twin was the
-    dearer one, so such a switch shows as the row's price rising,
-    unless the other fell at the same time. So every rise of a
-    `cheapest` row is appended and reported in the run's notices as a
-    "possible twin switch" for a human to check.
-
-  A resolution is never a price value: a pin on a price stops matching
-  the moment that price moves.
+  A resolution is never a price value: a price pin breaks the moment the
+  price moves.
 
 ## The reprice pass recomputes stored prices in place (SV-REPRICE)
 
 `backend/ingest_reprice.py` recomputes rate-derived STORED state for
-records whose stored `pricing_version` differs from
-`constants.PRICING_VERSION` (NULL counts as stale). The recomputation
-reads stored columns only — the same `pricing.compute_cost` the parser
-runs, over each row's own tokens and `ts` — so a rate change never
-refetches R2. Rows update in batched transactions, and a stored
-version that parses as an int NEWER than the binary's own is skipped,
-never overwritten — an older binary must not clobber semantics it
-cannot reproduce. The pass runs in `_rebuild_derived_state` between
-suppression and the canonical pass, and a reparse stamps the current
-version at persist, so freshly parsed rows never reprice. When it changes
-any row, that run uses a full derived rebuild because repricing can
-change rollup values outside the otherwise dirty files. No endpoint,
-panel or rollup reads `pricing_version` — the pass changes what the
-stored numbers SAY, not who serves them. `cost_usd` and the Codex
-long-context meter (`records.long_context`) are both the recomputed
-state; the flag is re-derived from the same stored columns the cost
-reads, and rides the same staleness switch.
-The completion marker follows the finalization rule in SV-ROLLUP.
+records whose `pricing_version` differs from `constants.PRICING_VERSION`
+(NULL is stale), from stored columns only — the same
+`pricing.compute_cost` the parser runs, over each row's own tokens and
+`ts` — so a rate change never refetches R2. Rows update in batched
+transactions; a stored version that parses as an int NEWER than the
+binary's is skipped, never overwritten. It runs in
+`_rebuild_derived_state` between suppression and the canonical pass; a
+reparse stamps the current version, so fresh rows never reprice. If it
+changes any row, the run takes a full derived rebuild, since repricing
+can move rollups outside the dirty files. No endpoint, panel or rollup
+reads `pricing_version`. The recomputed state is `cost_usd` and the Codex
+long-context flag (`records.long_context`), re-derived from the same
+columns under the same switch. The completion marker follows
+SV-SCHEMA-AUTOAPPLY.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
 `APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` are config, and config is
-hostile input. Brand values are injected through three different
-escaping contexts, each with its own function (html + script payload in
-`backend/branding.py`, the export-filename slug in
-`backend/api_export.py`) — use the right one and never
-hand-concatenate a brand value into a page:
+hostile input. Each injection context has its own function (html and
+script payload in `backend/branding.py`, the export-filename slug in
+`backend/api_export.py`); never hand-concatenate a brand value into a
+page:
 
-- HTML text/attribute contexts (title, meta, logo, sign-in page): the
-  html-escape path. `<title>` and `<meta>` are replaced before the
-  injected script block in `public/index.html`, so the `count=1`
-  substitutions hit the real elements.
-- The `window.BRAND` script payload: script-context escaping, which
-  additionally neutralises `</script>`, `<!--` and the U+2028/U+2029
-  line separators (raw U+2028/2029 are a syntax error in the JS string
-  grammar, and `<!--` opens a bypass into the legacy HTML-like
-  comment).
+- HTML text/attributes (title, meta, logo, sign-in page): html-escape.
+  `<title>` and `<meta>` are replaced before the injected script block
+  in `public/index.html`, so the `count=1` substitutions hit the real
+  elements.
+- The `window.BRAND` script payload: script-context escaping, which also
+  neutralises `</script>`, `<!--` and U+2028/U+2029 (raw ones are a JS
+  string syntax error; `<!--` opens a legacy HTML-like comment).
 - The export-PNG `Content-Disposition` filename: slugified to
-  `[A-Za-z0-9._-]`, so header characters and path separators cannot
-  survive.
+  `[A-Za-z0-9._-]`.
 
-A new surface that echoes a brand value MUST route through one of
-these functions — not a copy, not a new escape, and never
-`f"{value}"`.
+A new surface echoing a brand value MUST route through one of these —
+not a copy, not a new escape, never `f"{value}"`.
 
 ## The first boot of this build over an existing DB re-keys every file (SV-REKEY-CUTOVER)
 
-The re-key fires on the first boot of THIS BUILD over ANY database
-created by an earlier build, whatever `R2_BUCKET` says: this build's
-`r2.list_keys` yields bucket-qualified keys, so the run re-keys stored
-identity from the bare object key to `<bucket>/<object-key>`, deleting
-each old row and re-inserting it under its new key. Adding a bucket to
-`R2_BUCKET` on an already-migrated deploy re-keys nothing. One-time,
-converging, and with known windows that close when the first clean run
-finishes — plan the cutover around them (run off-peak, watch `/health`
-until the run completes):
+The first boot of THIS BUILD over ANY database from an earlier build
+re-keys stored identity from the bare object key to
+`<bucket>/<object-key>`, whatever `R2_BUCKET` says, deleting and
+re-inserting each row. Adding a bucket on an already-migrated deploy
+re-keys nothing. It is one-time and converging, with windows that close
+when the first clean run finishes — run it off-peak and watch `/health`:
 
-- (a) for the duration of the run, new rows (default `is_canonical=TRUE`)
-  and not-yet-swept old rows are BOTH canonical, so live reads
-  double-count; kimi-code and legacy tool ids are `file_key`-scoped
-  and cannot dedup at all in that window.
-- (b) a fatal mid-run leaves the double-count in place until the next
-  clean run rebuilds derived state.
-- (c) a transcript or sidecar request for a still-unswept old row
-  errors (its `-root-x`-style key names a bucket that is no longer
-  configured).
-- (d) a per-object fetch failure during the run drops that file's rows
-  until the next hourly run.
+- (a) during the run, new rows (default canonical) and unswept old rows
+  are both canonical, so reads double-count; kimi-code and legacy tool
+  ids are `file_key`-scoped and cannot dedup at all.
+- (b) a fatal mid-run keeps the double-count until the next clean run.
+- (c) a transcript or sidecar request for an unswept old row errors (its
+  key names an unconfigured bucket).
+- (d) a per-object fetch failure drops that file's rows until the next
+  hourly run.
 
-A fresh DB has no such windows.
+A fresh DB has none of these.
 
 ## Rates may be keyed by serving host (SV-PROVIDER-RATES)
 
-An OpenRouter record names the host that served it as
-`message.provider`, stored on `records.provider`. `pricing.resolve(model,
-ts, provider)` prices it from `PROVIDER_RATES[(normalised model,
-provider)]` when that row exists (a dated permaslug such as
-`-20260731` folds to its `-0731` slug), and otherwise by the model
-alone. A record with NO provider (every other lane) always prices by
-the model alone: the z.ai subscription's GLM must never take an
-OpenRouter host's rate. Free ids (`:free`, `stealth/`) stay zero ahead
-of both.
+An OpenRouter record names its serving host in `message.provider`,
+stored as `records.provider`. `pricing.resolve(model, ts, provider)`
+uses `PROVIDER_RATES[(normalised model, provider)]` when that row exists
+(a dated permaslug such as `-20260731` folds to its `-0731` slug), else
+the model alone. A record with NO provider (every other lane) always
+prices by the model alone: z.ai's GLM must never take an OpenRouter
+host's rate. Free ids (`:free`, `stealth/`) stay zero ahead of both.
 
-Provider rows follow SV-DATED-RATES: dated windows live in
-`PROVIDER_DATED_RATES`, their boundaries join `RATE_EPOCHS`, and every
-fold that re-derives rates groups by provider as well as epoch. Both
-sides read the rows from `src/pricing.json` (`window.providerRates` in
-the browser).
+Provider rows follow SV-DATED-RATES: windows in `PROVIDER_DATED_RATES`,
+boundaries joining `RATE_EPOCHS`, and every re-deriving fold groups by
+provider as well as epoch. Both sides read them from `src/pricing.json`
+(`window.providerRates` in the browser).
 
 ## Model resolution flags estimates (SV-RATE-ESTIMATES)
 
 `pricing.resolve()` returns `kind`: `exact` | `tier` | `default`.
 
-- Model ids are normalised first: provider/region prefixes stripped
+- Ids are normalised first: provider/region prefixes stripped
   (`us.anthropic.`, `anthropic/`) and `.` → `-`, so `claude-opus-4.8`
-  resolves the same as `claude-opus-4-8`.
-- An EXACT match allows only a dated-snapshot (`-20250514`) or bracket
-  (`[1m]`) suffix after a table key. A short version suffix must NOT
-  match a shorter key — billing `claude-opus-4-9` at a shorter key's
-  retired rate is a silent 3x overcount.
-- Unmatched Claude models fall back to their family's
-  current-generation LIST rates and are flagged `tier`; anything else
-  is `default`. Non-exact resolutions surface as `estimated_rate` in
-  the API so a guessed figure is never presented as fact.
+  resolves like `claude-opus-4-8`.
+- EXACT allows only a dated-snapshot (`-20250514`) or bracket (`[1m]`)
+  suffix after a key. A short version suffix must NOT match a shorter
+  key (billing `claude-opus-4-9` at a shorter key's retired rate is a
+  silent 3x overcount).
+- Unmatched Claude models fall back to their family's current-generation
+  LIST rates as `tier`; anything else is `default`. Non-exact results
+  surface as `estimated_rate` in the API, so a guess is never presented
+  as fact.
 
-Never invent a rate for a variant we have no published price for
-(e.g. `-fast`): let it fall back and be flagged.
+Never invent a rate for an unpriced variant (e.g. `-fast`): let it fall
+back and be flagged.
 
 ## CI thresholds are self-raising ratchets (SV-CI-RATCHETS)
 
-Coverage and module size are governed by committed data in
-`.github/ci-thresholds.json`, validated by `scripts/ci/thresholds.py`
-and enforced in `tests.yml` — not by hand-set numbers in a workflow.
+Coverage and module size are governed by `.github/ci-thresholds.json`,
+validated by `scripts/ci/thresholds.py` and enforced in `tests.yml` —
+never hand-set numbers in a workflow.
 
-- Coverage: the document records `measured` and `floor` per language
-  (`python` and `javascript`); `floor = measured − 1.5` (the fixed
-  gap). On a `master` push, `scripts/ci/ratchet.py` raises a
-  calibration only when the run's measurement beats its recorded
-  `measured` by more than the hysteresis (1.5). The floor is never
-  lowered by hand — not to turn a red build green, not for any other
-  reason.
-- The python measurement is the full pytest run (`--cov=backend`). The
-  javascript measurement runs the node-executing tests under
-  `NODE_V8_COVERAGE` and folds them with c8 over `src/**/*.js` — the
-  boundary is the files node actually executes. The `.jsx` panels are
-  outside it: node parses no JSX, and the parity tests exercise them
-  only through eval'd fragments that V8 attributes to the eval, not
-  the source file. Both languages gate against their own committed
-  floor in `tests.yml`, and each is raised on master by
-  `ratchet.py --language <language>`.
+- Coverage: per language (`python`, `javascript`), `measured` and
+  `floor = measured − 1.5`. On a `master` push,
+  `scripts/ci/ratchet.py --language <language>` raises a calibration
+  only when the run beats `measured` by more than the 1.5 hysteresis.
+  Never lower a floor by hand, for any reason.
+- Python measures the full pytest run (`--cov=backend`). JavaScript runs
+  the node-executing tests under `NODE_V8_COVERAGE`, folded with c8 over
+  `src/**/*.js` — the files node executes. `.jsx` panels are outside it:
+  node parses no JSX, and parity tests' eval'd fragments are attributed
+  to the eval. Each language gates against its own floor in `tests.yml`.
 - Module size (`module_size_baseline`): every tracked `*.py` under
-  `backend/`, `scripts/`, `tests/`, plus every tracked
-  `src/**/*.js(x)` file, is capped per file (production 500 / test
-  700; a `src/` file is production) by `scripts/ci/size_baseline.py`,
-  which replaces pylint's flat `max-module-lines`. Entries are never
-  added or raised by hand — a file that outgrows its entry is fixed by
-  moving code into a new module. CI tightens an entry as its file
-  shrinks and drops it once the file is back under the ceiling. The
-  `src/` family joined in issue #266: its five then-over-ceiling files
-  were seeded once, at their current line counts, through the loader's
-  own writer — the one sanctioned seeding event for a new family; the
-  never-added-or-raised rule applies to every later run exactly as for
-  Python.
-- Coverage numbers carry exactly one decimal place (`92.0`, never
-  `92` or `92.00`) — the canonical spelling the ratchet writes,
-  `coverage --precision=1` measures for python and the JS gate's
-  `toFixed(1)` reads for javascript. The published document is always
-  the loader's canonical bytes; never hand-edit it.
-- The bot commit that raises/tightens on master touches only the data
-  file and must not re-trigger workflows: every gate workflow's push
-  trigger (including `version-guard.yml`) ignores
-  `.github/ci-thresholds.json`. When adding a gate workflow, carry the
-  exemption over.
+  `backend/`, `scripts/`, `tests/` and every tracked `src/**/*.js(x)` is
+  capped per file (production 500 / test 700; `src/` is production) by
+  `scripts/ci/size_baseline.py`, replacing pylint's `max-module-lines`.
+  Entries are never added or raised by hand — an outgrown file moves code
+  into a new module. CI tightens an entry as its file shrinks and drops
+  it once back under the ceiling. A new file family may be seeded exactly
+  once, at current line counts, through the loader's own writer (as
+  `src/` was); every later run follows the rule unchanged.
+- Coverage numbers carry exactly one decimal (`92.0`, never `92` or
+  `92.00`) — what the ratchet writes, `coverage --precision=1` measures
+  and the JS gate's `toFixed(1)` reads. The document is always the
+  loader's canonical bytes; never hand-edit it.
+- The bot's raise/tighten commit on master touches only the data file
+  and must not re-trigger workflows: every gate workflow's push trigger
+  (`version-guard.yml` included) ignores `.github/ci-thresholds.json`. A
+  new gate workflow carries the exemption over.
 
 ## Tests never pin repository-managed data (SV-TEST-DATA)
 
 A test NEVER depends on data the repository changes by design — the
 rate rows in `src/pricing.json`, the committed `PARSER_VERSION` /
-`PRICING_VERSION` / `MARKER_READER_VERSION`, or the set of hosts and
-models the refresh maintains (SV-RATE-REFRESH). A test asserts against
-synthetic data it controls, or against values derived from the current
-ones at run time (`str(int(constants.PRICING_VERSION) + 1)`), so the
-suite stays green whatever the committed value has moved to. An
-expectation compared after rounding is exact only when it is computed
-by the same algorithm over the same values in the same order as the
-code under test; otherwise the tolerance covers one unit in the
-rounded place (plus the accumulated rounding the code applies). One more
-shape is legitimate: a literal rate vector pinned at a FIXED PAST
-instant inside a dated window that has already closed — SV-RATE-DATA
-makes closed windows immutable, so the pin is refresh- and
-perturbation-invariant by construction, and it is the only way
-end-exclusivity and promotion boundaries get tested against known
-vectors. Stamping the test's reference instant before every appended
-cutover (a fixed past `from`, strictly before the seeded data) is what
-keeps such a pin valid; `tests/test_provider_pricing.py`'s SEEDED
-comment is the exemplar.
+`PRICING_VERSION` / `MARKER_READER_VERSION`, or the host/model set the
+refresh maintains (SV-RATE-REFRESH). Assert against synthetic data, or
+values derived at run time (`str(int(constants.PRICING_VERSION) + 1)`).
+A rounded expectation is exact only when computed by the same algorithm
+over the same values in the same order as the code under test;
+otherwise tolerate one unit in the rounded place (plus the code's
+accumulated rounding).
 
-Enforcement is mechanical, two halves. The perturbed-data CI leg runs
-the suite against a tree whose rate rows each gain five appended
-entries per run — ×2, ×0.37, a per-row irregular factor, five
-independent per-field factors, and a single-field move, in
-seeded-shuffled row order — and whose version constants are bumped
-(`scripts/ci/perturb_test_data.py`), so a hidden dependency fails as a
-test failure, never as a broken refresh. The guard half,
-`tests/test_no_pinned_version_literals.py`, scans `tests/` for a
-literal assigned to one of the three constants, and for the live-row
-shapes: a read of the committed pricing document
-(`pricing.PRICING_JSON`), a module-level bind of the `pricing.json`
-path, and a `rate_for` / `resolve` / `compute_cost` call naming a live
-model or host. An inline `# sv-test-data: allow` comment with a reason
-excuses a site, and a marker whose site is gone fails the guard as
-rot.
+One more legitimate shape: a literal rate vector pinned at a FIXED PAST
+instant inside an already-closed dated window. Closed windows are
+immutable (SV-RATE-DATA), so the pin is refresh- and
+perturbation-invariant; it is the only way to test end-exclusivity and
+promotion boundaries against known vectors. Stamp the reference instant
+before every appended cutover (a fixed past `from`, strictly before the
+seeded data); `tests/test_provider_pricing.py`'s SEEDED comment is the
+exemplar.
+
+Enforcement has two halves. The perturbed-data CI leg
+(`scripts/ci/perturb_test_data.py`) runs the suite on a tree where each
+rate row gains five appended entries per run — ×2, ×0.37, a per-row
+irregular factor, five independent per-field factors, and a single-field
+move, in seeded-shuffled row order — and the version constants are
+bumped, so a hidden dependency fails as a test, not as a broken refresh.
+The guard, `tests/test_no_pinned_version_literals.py`, scans `tests/`
+for a literal assigned to any of the three constants and for live-row
+shapes: a read of the committed document (`pricing.PRICING_JSON`), a
+module-level bind of the `pricing.json` path, and a `rate_for` /
+`resolve` / `compute_cost` call naming a live model or host. An inline
+`# sv-test-data: allow` comment with a reason excuses a site; a marker
+whose site is gone fails the guard as rot.
