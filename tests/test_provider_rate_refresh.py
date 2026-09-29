@@ -60,6 +60,21 @@ def _load():
 refresh = _load()
 
 
+def _load_prices():
+    """Import scripts/ci/refresh_prices.py by path, the same way: its pure
+    helpers (tag_region, covers_week) are under test beside the run's."""
+    path = ROOT / "scripts" / "ci" / "refresh_prices.py"
+    spec = importlib.util.spec_from_file_location("refresh_prices", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["refresh_prices"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+refresh_prices = _load_prices()
+
+
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
     rows first seen by a refresh or reserved for test-data fuzzing dropped."""
@@ -498,9 +513,7 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
     ("", None),
 ])
 def test_the_region_a_tag_names(tag, region):
-    # tag_region lives in refresh_prices; reach it through the script's own
-    # import, the way every other helper is reached here.
-    assert refresh.refresh_prices.tag_region(tag) == region
+    assert refresh_prices.tag_region(tag) == region
 
 
 def _novita_region_twin(run: Run) -> dict:
