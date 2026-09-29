@@ -84,7 +84,9 @@ def _payloads(doc: dict) -> dict:
     """Every tracked model's endpoints payload, reproducing the newest
     entry of every provider row; a pinned host is listed under its pin's
     tag, as it is live. BaseTen's deepseek-v4.1-flash lists its two
-    endpoints as OpenRouter does: same tag, quantization, cache 0.007/0.03."""
+    endpoints as OpenRouter does: same tag and quantization, cache 0.007/0.03,
+    and the 1-token max_completion_tokens artifact (32767/32768) the recorded
+    resolution ignores."""
     out = {}
     for key, hosts in doc["providers"].items():
         pinned = {host: pin["tag"] for host, pin in
@@ -101,8 +103,11 @@ def _payloads(doc: dict) -> dict:
             for endpoint in endpoints:
                 if endpoint["provider_name"] == "BaseTen":
                     endpoint["tag"] = "baseten/fp8"
+                    endpoint["max_completion_tokens"] = 32767
             us_region = {**hosts["BaseTen"][-1], "read": 0.03}
-            endpoints.append(_endpoint("BaseTen", us_region, tag="baseten/fp8"))
+            us_twin = _endpoint("BaseTen", us_region, tag="baseten/fp8")
+            us_twin["max_completion_tokens"] = 32768
+            endpoints.append(us_twin)
         model_id = doc["openrouter"]["models"][key]["id"]
         out[model_id] = {"data": {"id": model_id, "name": model_id,
                                   "endpoints": endpoints}}
@@ -493,7 +498,9 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
     ("", None),
 ])
 def test_the_region_a_tag_names(tag, region):
-    assert refresh.tag_region(tag) == region
+    # tag_region lives in refresh_prices; reach it through the script's own
+    # import, the way every other helper is reached here.
+    assert refresh.refresh_prices.tag_region(tag) == region
 
 
 def _novita_region_twin(run: Run) -> dict:

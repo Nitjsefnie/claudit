@@ -338,7 +338,7 @@ def test_report_lists_each_sampled_host_with_a_short_reason():
 
 def test_sampled_schedule_change_keeps_the_original_report_text():
     listing = refresh.Listing(
-        "wafer/fp8", "wafer", RATE_A, [{"rates": RATE_A}], Decimal(0))
+        "wafer/fp8", {}, RATE_A, [{"rates": RATE_A}], Decimal(0))
     move = refresh.Move(MODEL, HOST, {**RATE_A, "schedule": []}, listing)
     result = refresh.Result({}, [move], [], [], [], {})
 
