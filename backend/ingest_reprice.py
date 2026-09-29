@@ -27,6 +27,17 @@ at most two UPDATE statements however large REPRICE_BATCH is, so the
 hourly PRICING bumps that move no stored pair's rates issue O(batches)
 statements instead of one UPDATE per row.
 
+Pair-qualified staleness (issue #351): before the keyset loop, one
+DISTINCT scan classifies the stale (model, provider) pairs, and ONE
+set-based UPDATE restamps every stale row whose stored rate_fingerprint
+equals its pair's current fingerprint — the fingerprint covers every
+rate input resolve() consults plus the pricing modules' source, so the
+recomputation for those rows is the identity and reading them into
+Python would spend ~20us per row advancing a marker. The keyset loop
+then sees only rows whose pair's rate data moved (or whose version
+spelling the SQL guard cannot prove safe), reads them, recomputes,
+and stamps the current fingerprint beside the version.
+
 The return count is rows whose rate-derived data CHANGED — the restamp
 advances the staleness marker without touching user-visible state, so
 the ingest's promote_full, response-cache invalidation and ingest_done
@@ -49,7 +60,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import NamedTuple
 
-from backend import constants, db, pricing, timing
+from backend import constants, db, pricing, rate_fingerprint, timing
 
 log = logging.getLogger("claudit.ingest")
 
@@ -75,7 +86,8 @@ REPRICE_BATCH = 20_000
 _SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
-           ts, long_context, provider, cost_usd, pricing_version
+           ts, long_context, provider, cost_usd, pricing_version,
+           rate_fingerprint
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -85,23 +97,64 @@ _SELECT_SQL = """
 
 # A batch's unchanged rows: the staleness marker is the only stored
 # state that moved, so one statement advances it for the whole set.
+# Issue #351: the row's rate fingerprint rides the same write, so a
+# row restamped by the keyset path carries the fingerprint of the
+# tables its cost was priced under, and the next run can prove it
+# clean set-based.
 _SQL_RESTAMP = """
     UPDATE records r
-       SET pricing_version = %s
-      FROM unnest(%s::text[], %s::bigint[]) AS d(k, n)
+       SET pricing_version = %s, rate_fingerprint = d.f
+      FROM unnest(%s::text[], %s::bigint[], %s::text[]) AS d(k, n, f)
      WHERE r.file_key = d.k
        AND r.line_num = d.n
 """
 
 # A batch's moved rows: recomputed values travel as arrays, one
-# statement writes the whole set through the same PK join.
+# statement writes the whole set through the same PK join. The new
+# fingerprint rides beside the version, exactly as persist stamps it.
 _SQL_REPRICE = """
     UPDATE records r
-       SET cost_usd = d.cost, long_context = d.flag, pricing_version = %s
-      FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[])
-           AS d(k, n, cost, flag)
+       SET cost_usd = d.cost, long_context = d.flag,
+           pricing_version = %s, rate_fingerprint = d.f
+      FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[],
+                  %s::text[]) AS d(k, n, cost, flag, f)
      WHERE r.file_key = d.k
        AND r.line_num = d.n
+"""
+
+
+# Phase A's classification: the stale (model, provider) pairs — few
+# rows, one DISTINCT scan over two narrow columns (measured ~0.3-0.5 s
+# at 1.33M rows on the 8-index production shape). Everything the clean
+# restamp needs rides this scan; when the table has no stale rows, the
+# keyset loop's first empty select already returns immediately.
+_SQL_STALE_PAIRS = """
+    SELECT DISTINCT model, COALESCE(provider, '') FROM records
+     WHERE pricing_version IS DISTINCT FROM %s
+"""
+
+# Phase A's clean restamp: rows whose stored rate_fingerprint equals
+# their pair's CURRENT fingerprint are stale only in the marker — the
+# fingerprint covers every rate input resolve() consults plus the
+# pricing modules' source (backend/rate_fingerprint.py), so their
+# recomputed cost IS their stored cost by construction and only the
+# marker needs advancing. The rollback guard admits ONLY plain-digit
+# versions at or below the binary's: Python's int() parses spellings
+# the SQL cast refuses (+5, ' 12 ', 1_0), so every stale row outside
+# this exact set — {plain-digit versions <= V} — is left for the
+# keyset path, whose _stored_pricing_version_is_newer decides it
+# exactly as before. That set is a subset of the keyset path's restamp
+# set, and a test pins the odd spellings row by row.
+_SQL_CLEAN_RESTAMP = """
+    UPDATE records r
+       SET pricing_version = %s
+      FROM unnest(%s::text[], %s::text[], %s::text[]) AS d(m, p, f)
+     WHERE r.model = d.m
+       AND COALESCE(r.provider, '') = d.p
+       AND r.rate_fingerprint = d.f
+       AND r.pricing_version IS DISTINCT FROM %s
+       AND r.pricing_version ~ '^[0-9]+$'
+       AND r.pricing_version::int <= %s
 """
 
 
@@ -122,6 +175,7 @@ class _StaleRow(NamedTuple):
     provider: str | None
     cost_usd: Decimal
     pricing_version: str | None
+    rate_fingerprint: str | None
 
 
 def _stored_pricing_version_is_newer(stored: str | None,
@@ -239,8 +293,41 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     skipped = 0
     batches = 0
     rows_seen = 0
+    clean = 0
     after_key: tuple[str, int] = ("", 0)
     try:
+        # Phase A (issue #351): classify the stale (model, provider)
+        # pairs — few rows, one DISTINCT scan — then restamp, in ONE
+        # set-based statement, every stale row whose stored fingerprint
+        # still equals its pair's current fingerprint: the fp covers
+        # every rate input resolve() consults plus the pricing modules'
+        # source, so its recomputed cost IS its stored cost by
+        # construction and only the marker needs advancing. The keyset
+        # loop below then reads only the rows a fingerprint change or
+        # an unprovable version spelling left behind.
+        t0 = time.perf_counter()
+        with db.viz_conn() as c:
+            triples = [
+                (model, provider,
+                 rate_fingerprint.pair_fingerprint(
+                     model, None if provider == "" else provider))
+                for model, provider in c.execute(
+                    _SQL_STALE_PAIRS,
+                    (constants.PRICING_VERSION,)).fetchall()]
+            fp_done = time.perf_counter()
+            if triples:
+                clean = c.execute(
+                    _SQL_CLEAN_RESTAMP,
+                    (constants.PRICING_VERSION,
+                     [m for m, _, _ in triples],
+                     [p for _, p, _ in triples],
+                     [f for _, _, f in triples],
+                     constants.PRICING_VERSION,
+                     int(constants.PRICING_VERSION))).rowcount
+            c.commit()
+        if ph is not None:
+            marks["pairs"] = fp_done - t0
+            marks["clean"] = time.perf_counter() - fp_done
         while True:
             if should_stop is not None and should_stop():
                 outcome = "aborted"
@@ -265,20 +352,23 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                 rows_seen += len(raw_rows)
                 t0 = time.perf_counter()
                 rows = [_StaleRow(*raw) for raw in raw_rows]
-                restamp_keys: list[tuple[str, int]] = []
-                moved: list[tuple[str, int, float, bool | None]] = []
+                restamp_keys: list[tuple[str, int, str]] = []
+                moved: list[tuple[str, int, float, bool | None, str]] = []
                 for row in rows:
                     if _stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
                         skipped += 1
                         continue
+                    row_fp = rate_fingerprint.pair_fingerprint(row.model,
+                                                               row.provider)
                     updates = _record_updates(row)
                     if _row_is_unchanged(row, updates):
-                        restamp_keys.append((row.file_key, row.line_num))
+                        restamp_keys.append((row.file_key, row.line_num,
+                                             row_fp))
                     else:
                         moved.append((row.file_key, row.line_num,
                                       updates["cost_usd"],
-                                      updates["long_context"]))
+                                      updates["long_context"], row_fp))
                 if ph is not None:
                     marks["recompute"] = (marks.get("recompute", 0.0)
                                           + time.perf_counter() - t0)
@@ -286,8 +376,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                 if restamp_keys:
                     c.execute(_SQL_RESTAMP,
                               (constants.PRICING_VERSION,
-                               [k for k, _ in restamp_keys],
-                               [n for _, n in restamp_keys]))
+                               [k for k, _, _ in restamp_keys],
+                               [n for _, n, _ in restamp_keys],
+                               [f for _, _, f in restamp_keys]))
                 if ph is not None:
                     marks["restamp"] = (marks.get("restamp", 0.0)
                                         + time.perf_counter() - t0)
@@ -298,7 +389,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                                [r[0] for r in moved],
                                [r[1] for r in moved],
                                [r[2] for r in moved],
-                               [r[3] for r in moved]))
+                               [r[3] for r in moved],
+                               [r[4] for r in moved]))
                 if ph is not None:
                     marks["moved"] = (marks.get("moved", 0.0)
                                       + time.perf_counter() - t0)
@@ -318,10 +410,11 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
             for label, seconds in marks.items():
                 ph.mark(label, seconds)
             ph.done(batches=batches, rows=rows_seen, changed=changed,
-                    outcome=outcome, cpu=f"{time.process_time() - cpu0:.1f}s")
+                    clean=clean, outcome=outcome,
+                    cpu=f"{time.process_time() - cpu0:.1f}s")
     log.info(
         "reprice: %d record(s) repriced (rate-derived data changed), "
-        "%d restamped only", changed, restamped)
+        "%d restamped only", changed, restamped + clean)
     if skipped:
         log.info(
             "reprice: skipped %d record(s) priced by a NEWER "

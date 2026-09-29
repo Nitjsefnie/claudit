@@ -105,7 +105,7 @@ def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
             "SELECT file_key, line_num, model, fresh_tokens, "
             "cache_creation_tokens, cache_read_tokens, output_tokens, "
             "eph5_tokens, eph1h_tokens, ts, long_context, provider, "
-            "cost_usd, pricing_version FROM records "
+            "cost_usd, pricing_version, rate_fingerprint FROM records "
             "WHERE file_key = %s ORDER BY line_num", (_FILE_KEY,)).fetchall()
     assert len(raw) == 3
     for tup in raw:
@@ -152,7 +152,9 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
     per-row executemany stream returns. A regression to one statement
     per row — the shape this issue removed — would keep every semantic
     test green, so the write shape itself is pinned here: statement
-    count stays O(batches), never O(rows)."""
+    count stays O(batches), never O(rows). Issue #351 adds ONE more
+    UPDATE in front of the loop — the pair-qualified clean restamp —
+    so the whole-pass bound moves from two to three, deliberately."""
     calls: list[str] = []
     real_viz_conn = db.viz_conn
 
@@ -209,9 +211,10 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
     assert "executemany" not in calls, (
         "the per-row executemany stream must not return")
     update_calls = calls.count("update")
-    assert update_calls <= 2, (
-        f"{update_calls} UPDATE statements for one batch; the pass must "
-        "write set-based (at most one restamp + one reprice)")
+    assert update_calls <= 3, (
+        f"{update_calls} UPDATE statements for the whole pass; the pass "
+        "must write set-based (at most one pair-qualified clean restamp "
+        "+ one restamp + one reprice per batch)")
 
 
 def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
@@ -219,7 +222,10 @@ def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
     """CLAUDIT_TIMING gives the pass a phase split (issue #350): one
     account=True TIMING line per run whose select/recompute/restamp/
     moved/commit marks must sum to the measured total — the gap is the
-    unattributed residue, so the instrument accounts for the whole."""
+    unattributed residue, so the instrument accounts for the whole.
+    Issue #351 adds the pair-qualified clean restamp's own marks:
+    pairs (the DISTINCT pair scan and the fingerprinting) and clean
+    (its set-based restamp)."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
     with db.viz_conn() as c:
         _seed(c, _FILE_KEY, 1, pricing_version="0",
@@ -235,7 +241,7 @@ def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
     assert len(lines) == 1, "exactly one TIMING line per pass"
     line = lines[0]
     for phase in ("select", "fetch", "recompute", "restamp", "moved",
-                  "commit"):
+                  "commit", "pairs", "clean"):
         assert re.search(rf"\b{phase}=\d+ms", line), f"missing {phase}"
     total_m = re.search(r"\btotal=(\d+)ms", line)
     sum_m = re.search(r"\bsum=(\d+)ms", line)
