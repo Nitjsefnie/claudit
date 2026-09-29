@@ -313,6 +313,10 @@ def test_cheapest_applies_only_to_otherwise_identical_twins(
                  id="ignore-unknown-field"),
     pytest.param({"tag": "baseten/fp8", "ignore": ["max_completion_tokens"], "why": "x"},
                  id="ignore-without-cheapest"),
+    pytest.param({}, id="empty"),
+    pytest.param({"why": "x"}, id="why-only"),
+    pytest.param("cheapest", id="not-an-object"),
+    pytest.param({"tag": 5, "why": "x"}, id="tag-not-a-string"),
 ])
 def test_a_malformed_order_override_is_refused(tmp_path, capsys, pin):
     run = Run(tmp_path)
@@ -340,6 +344,21 @@ def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
     assert entry == {"from": STAMP, "fresh": 0.28, "create_5m": 0.28,
                      "create_1h": 0.28, "read": 0.007, "output": 1.2}
     assert "possible twin switch" not in out
+
+
+@pytest.mark.parametrize("field, value", [
+    pytest.param("quantization", "fp4", id="quantization"),
+    pytest.param("context_length", 65536, id="context-length"),
+    pytest.param("max_prompt_tokens", 4096, id="max-prompt"),
+])
+def test_a_recorded_ignore_ignores_only_its_named_fields(
+        tmp_path, capsys, field, value):
+    """The live resolution ignores max_completion_tokens alone: any other
+    identity field differing still refuses under it."""
+    run = Run(tmp_path)
+    _, dearer = _baseten_twins(run)
+    dearer[field] = value
+    _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
 def test_cheapest_without_a_recorded_ignore_refuses_differing_twins(
