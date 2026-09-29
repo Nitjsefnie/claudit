@@ -108,6 +108,10 @@ backend/          — FastAPI application
                     Logic only (SV-RATE-DATA, SV-PROVIDER-RATES)
   pricing_load.py — Loads src/pricing.json's rate tables, checked, at
                     import; pricing.py re-exports them (SV-RATE-DATA)
+  rate_fingerprint.py — Per-(model, provider) digest of the rate data
+                    resolve() consults, plus the pricing modules'
+                    source; the reprice pass's clean restamp proves a
+                    row clean from it (SV-REPRICE)
   ingest.py       — R2 walk, reparse decision, two-phase persistence,
                     ingest_done SSE
   ingest_walk.py  — Project identity and stored-version helpers

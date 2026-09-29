@@ -182,7 +182,8 @@ The schema is per-file, not per-session (see `backend/schema.sql`):
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
   reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
-  turn_flags, turn_tool_results, long_context, provider)`
+  turn_flags, turn_tool_results, long_context, provider,
+  pricing_version, rate_fingerprint)`
   PK `(file_key, line_num)` — one row per usage-bearing line after
   per-file Phase 1 max-merge on `request_id`.
 
@@ -783,6 +784,25 @@ reads `pricing_version`. The recomputed state is `cost_usd` and the Codex
 long-context flag (`records.long_context`), re-derived from the same
 columns under the same switch. The completion marker follows
 SV-SCHEMA-AUTOAPPLY.
+
+Pair-qualified staleness (issue #351): before the keyset loop, the pass
+classifies the stale `(model, provider)` pairs with one DISTINCT scan
+and SQL-restamps, in one set-based UPDATE, every stale row whose stored
+`rate_fingerprint` equals its pair's CURRENT fingerprint — the fp
+covers every rate input `pricing.resolve()` consults (both resolution
+branches, windows, schedules, start, tier, default, free shape) plus
+the pricing modules' source (`backend/rate_fingerprint.py`), so an
+edited entry, a correction, a schedule change or a logic change all
+move it while an untouched pair's stands still; the recomputation for
+matching rows is the identity by construction and reads zero rows into
+Python. The SQL restamp set is exactly `{plain-digit versions <= V}`,
+a subset of the keyset path's (Python's `int()` parses spellings the
+SQL cast refuses), and the guard still protects newer-version rows on
+both paths. NULL fp is the conservative stale shape (pre-feature rows,
+older binaries): one recompute, then clean. An out-of-band mutation of
+cost-relevant columns sets `rate_fingerprint` NULL alongside
+`DELETE FROM ingest_derived_state`. A PRICING_VERSION bump that moved
+no pair's data restamps only.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
