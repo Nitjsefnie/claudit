@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T21:26:25Z",
+  "provider_rates_fetched": "2026-09-29T21:53:48Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -942,6 +942,14 @@
           "fresh": 0.145,
           "from": "2026-09-29T15:05:35Z",
           "output": 1.15,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.145,
+          "create_5m": 0.145,
+          "fresh": 0.145,
+          "from": "2026-09-29T21:35:49Z",
+          "output": 1.0,
           "read": 0.005
         }
       ],
@@ -37109,6 +37117,14 @@
           "from": "2026-09-29T19:10:29Z",
           "output": 3.0,
           "read": 0.18
+        },
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": "2026-09-29T21:26:00Z",
+          "output": 3.0,
+          "read": 0.135
         }
       ],
       "Io Net": [
@@ -38396,6 +38412,14 @@
           "create_5m": 0.1428,
           "fresh": 0.1428,
           "from": "2026-09-29T20:55:31Z",
+          "output": 2.992,
+          "read": 0.1955
+        },
+        {
+          "create_1h": 0.119,
+          "create_5m": 0.119,
+          "fresh": 0.119,
+          "from": "2026-09-29T21:53:48Z",
           "output": 2.992,
           "read": 0.1955
         }
