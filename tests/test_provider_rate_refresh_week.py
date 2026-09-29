@@ -9,7 +9,7 @@ import pytest
 from backend import pricing
 from tests.refresh_fixture_builders import _endpoint, _overrides, _per_token
 from tests.test_provider_rate_refresh import (
-    GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, refresh)
+    GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, refresh, refresh_prices)
 
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _NO_SATURDAY = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday"]
@@ -149,7 +149,7 @@ def test_a_seeded_default_cannot_price_any_minute_of_the_week(
     ],
 )
 def test_covers_week_checks_every_week_minute(schedule: list, expected: bool) -> None:
-    assert refresh.refresh_prices.covers_week(schedule) is expected
+    assert refresh_prices.covers_week(schedule) is expected
 
 
 def test_first_seen_override_with_explicit_null_days_stores_days_absent(
