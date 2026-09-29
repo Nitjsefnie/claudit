@@ -756,6 +756,17 @@ same rules:
     shows as a rise (unless the other fell simultaneously), so every
     rise of a `cheapest` row is appended and reported as a "possible
     twin switch".
+  - The two combine, the tag narrowing first, whatever the region. The
+    choice may record `"ignore": [fields]`: non-tag identity fields
+    (quantization, context_length, max_completion_tokens,
+    max_prompt_tokens) that a recorded human decision has found to be one
+    offering's listing artifact, so `cheapest` compares the rest; the
+    tag, the price order and every flip and tie refusal stay. Without
+    the record the artifact refuses like any other difference.
+  - A log-backed host resolves through the same shapes: `select`:
+    `cheapest` has no stable endpoint identity and stays sampled; a tag
+    (with or without a recorded ignore) selects by it, and must name
+    exactly one endpoint.
 
   A resolution is never a price value: a price pin breaks the moment the
   price moves.

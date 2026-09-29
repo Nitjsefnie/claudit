@@ -149,7 +149,7 @@ def test_a_seeded_default_cannot_price_any_minute_of_the_week(
     ],
 )
 def test_covers_week_checks_every_week_minute(schedule: list, expected: bool) -> None:
-    assert refresh.covers_week(schedule) is expected
+    assert refresh.refresh_prices.covers_week(schedule) is expected
 
 
 def test_first_seen_override_with_explicit_null_days_stores_days_absent(

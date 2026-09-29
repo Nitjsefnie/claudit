@@ -204,7 +204,9 @@ def test_baseten_is_resolved_by_price_order_as_data():
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     pin = doc["openrouter"]["models"][V41]["resolve"]["BaseTen"]
     assert pin["select"] == "cheapest" and pin["why"]
-    assert set(pin) == {"select", "why"}
+    assert set(pin) == {"tag", "select", "ignore", "why"}
+    assert pin["tag"] == "baseten/fp8"
+    assert pin["ignore"] == ["max_completion_tokens"]
 
 
 def test_identical_twins_without_an_override_are_refused(tmp_path, capsys):
@@ -282,29 +284,73 @@ def test_a_tie_between_different_prices_is_refused(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("field, value", [
-    pytest.param("tag", "baseten/fp4", id="tag"),
     pytest.param("quantization", "fp4", id="quantization"),
     pytest.param("context_length", 65536, id="context-length"),
     pytest.param("max_completion_tokens", 1024, id="max-completion"),
 ])
 def test_cheapest_applies_only_to_otherwise_identical_twins(
         tmp_path, capsys, field, value):
+    """The recorded ignore covers only its named fields; under a pin with no
+    recorded ignore every identity field is compared."""
     run = Run(tmp_path)
-    _, dearer = _baseten_twins(run)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        {"resolve": {"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
+                                 "why": "synthetic twin check"}}}))
+    cheaper, dearer = _baseten_twins(run)
+    cheaper["max_completion_tokens"] = dearer["max_completion_tokens"]
     dearer[field] = value
     _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
 @pytest.mark.parametrize("pin", [
     pytest.param({"select": "dearest", "why": "x"}, id="unknown-select"),
-    pytest.param({"select": "cheapest", "tag": "baseten/fp8", "why": "x"},
-                 id="select-and-tag"),
+    pytest.param({"select": "cheapest", "ignore": [], "why": "x"}, id="ignore-empty"),
+    pytest.param({"select": "cheapest", "ignore": ["tag"], "why": "x"},
+                 id="ignore-names-tag"),
+    pytest.param({"select": "cheapest", "ignore": "max_completion_tokens", "why": "x"},
+                 id="ignore-not-a-list"),
+    pytest.param({"select": "cheapest", "ignore": ["nope"], "why": "x"},
+                 id="ignore-unknown-field"),
+    pytest.param({"tag": "baseten/fp8", "ignore": ["max_completion_tokens"], "why": "x"},
+                 id="ignore-without-cheapest"),
 ])
 def test_a_malformed_order_override_is_refused(tmp_path, capsys, pin):
     run = Run(tmp_path)
     run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
         {"resolve": {"BaseTen": pin}}))
     _refused(run, capsys, f"{V41} via BaseTen", "a resolution is keyed on")
+
+
+def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
+        tmp_path, capsys):
+    """Issue #355's live shape: the baseten/fp8 twins differ by a 1-token
+    max_completion_tokens listing artifact and baseten/fast lists a sibling
+    tier under its own tag. The recorded resolution narrows by tag, takes the
+    cheaper twin, and the sibling's price never lands."""
+    run = Run(tmp_path)
+    cheaper, _ = _baseten_twins(run)
+    fast = _endpoint("BaseTen", {"fresh": 0.6, "read": 0.001, "output": 2.4},
+                     tag="baseten/fast")
+    fast["quantization"] = "fp32"
+    run.endpoints(V41).append(fast)
+    cheaper["pricing"]["prompt"] = _per_token(0.28)
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    entry = run.doc()["providers"][V41]["BaseTen"][-1]
+    assert entry == {"from": STAMP, "fresh": 0.28, "create_5m": 0.28,
+                     "create_1h": 0.28, "read": 0.007, "output": 1.2}
+    assert "possible twin switch" not in out
+
+
+def test_cheapest_without_a_recorded_ignore_refuses_differing_twins(
+        tmp_path, capsys):
+    """Without the recorded ignore the artifact itself refuses: the twins are
+    not identical in tag, quantization and limits."""
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        {"resolve": {"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
+                                 "why": "synthetic twin check"}}}))
+    _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
 @pytest.mark.parametrize("damage", [
