@@ -165,6 +165,32 @@ def _stored_rows() -> list:
             "FROM records").fetchall()
 
 
+def _assert_reprice_parity(blobs: dict, before: dict, next_version: str,
+                           repriced: int) -> None:
+    """Every stored row equals the reparse of the same bytes under the
+    loaded tables, a repriced row carries the new version, and the
+    pass's changed count is exactly the rows whose cost moved (issue
+    #339: tallies that price identically under the mutated tables are
+    restamped, not rewritten)."""
+    expected = _reparse_costs(blobs)
+    rows = _stored_rows()
+    assert len(rows) == len(expected), (
+        "every stored row must have a reparse counterpart")
+    moved = 0
+    for row in rows:
+        assert row[3] == next_version, "a repriced row carries the new version"
+        assert (row[0], row[1]) in expected
+        assert float(row[2]) == pytest.approx(
+            expected[(row[0], row[1])], abs=1e-9)
+        moved += float(row[2]) != before[(row[0], row[1])]
+    assert moved > 0, (
+        "the mutated rates must actually move costs, or the parity "
+        "assertion proves nothing")
+    assert repriced == moved, (
+        "the pass's changed count must be exactly the rows whose cost "
+        "moved under the mutated tables")
+
+
 def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     """THE PROOF (issue #193): reprice == full reparse. Ingest the mini
     mirror plus codex lane files, MUTATE the loaded rate tables, bump
@@ -231,24 +257,14 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     # stale whatever the tree carries.
     next_version = str(int(constants.PRICING_VERSION) + 1)
     monkeypatch.setattr(constants, "PRICING_VERSION", next_version)
-    assert ingest.reprice_stale() == total
+    # Issue #339: the count is rows whose rate-derived data moved, not
+    # every stale row — tallies that price identically under the mutated
+    # tables (zero-token rows) are restamped, not rewritten. The proof
+    # below asserts the count equals the rows the parity diff observes
+    # moving.
+    repriced = ingest.reprice_stale()
 
-    expected = _reparse_costs(blobs)
-    rows = _stored_rows()
-    assert len(rows) == len(expected), (
-        "every stored row must have a reparse counterpart")
-    # (file_key, line_num, cost_usd, pricing_version), indexed: keeping
-    # the loop's local count under pylint's gate for a test this size.
-    moved = 0
-    for row in rows:
-        assert row[3] == next_version, "a repriced row carries the new version"
-        assert (row[0], row[1]) in expected
-        assert float(row[2]) == pytest.approx(
-            expected[(row[0], row[1])], abs=1e-9)
-        moved += float(row[2]) != before[(row[0], row[1])]
-    assert moved > 0, (
-        "the mutated rates must actually move costs, or the parity "
-        "assertion proves nothing")
+    _assert_reprice_parity(blobs, before, next_version, repriced)
 
     with db.viz_conn() as c:
         assert c.execute(
