@@ -160,6 +160,10 @@ def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
     assert broadcasts, "an alias-fold-only run must broadcast ingest_done"
     assert cache.response_cache.get_entry("alias-fold-only-key") == (
         {"v": "old"}, True), "an alias-fold-only run must mark responses stale"
+    with db.viz_conn() as c:
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB'") > 0, (
+            "the fold must move the files TO the alias target")
 
 
 def test_a_no_op_ingest_stays_quiet(
