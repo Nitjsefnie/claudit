@@ -31,7 +31,14 @@ from test_ingest import (  # pylint: disable=unused-import
     _mini_r2_env_fixture,
 )
 
-from backend import constants, db, ingest, ingest_reprice, pricing
+from backend import (
+    constants,
+    db,
+    ingest,
+    ingest_reprice,
+    pricing,
+    rate_fingerprint,
+)
 
 UTC = timezone.utc
 
@@ -120,6 +127,62 @@ def test_pricing_version_column_is_nullable_migration(fresh_db, mini_r2_env):
         "pre-migration rows must read NULL, not be backfilled")
 
 
+def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
+    """Issue #351: persist stamps each record's rate fingerprint beside
+    its pricing_version — the fingerprint of the pair its stored cost
+    was computed under, so a later reprice can recognise rows whose
+    pair's rate data has not moved."""
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT model, provider, rate_fingerprint, pricing_version "
+            "FROM records").fetchall()
+    assert rows, "the mirror must produce records, or this proves nothing"
+    for model, provider, fingerprint, version in rows:
+        assert fingerprint == rate_fingerprint.pair_fingerprint(model,
+                                                                provider), (
+            f"{model!r} via {provider!r} must carry its pair's fingerprint")
+        assert version == constants.PRICING_VERSION
+
+
+def test_rate_fingerprint_column_is_nullable_migration(fresh_db, mini_r2_env):
+    """The rate_fingerprint migration mirrors pricing_version's
+    (SV-SCHEMA-AUTOAPPLY): additive and nullable, existing rows keep
+    their place reading NULL — the conservative stale shape the reprice
+    pass recomputes once before stamping."""
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    with db.viz_conn() as c:
+        c.execute(
+            "ALTER TABLE records DROP COLUMN IF EXISTS rate_fingerprint")
+        c.commit()
+
+    with db.viz_conn() as c:
+        before = c.execute("SELECT COUNT(*) FROM records").fetchone()
+    assert before is not None and before[0] > 0, (
+        "the mirror must produce records, or this proves nothing")
+
+    db.apply_schema()
+
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'records' "
+            "AND column_name = 'rate_fingerprint'").fetchone()
+        assert row is not None and row[0] == "YES", (
+            "schema.sql must add rate_fingerprint and admit NULL")
+        after, nulls = _pair(
+            c,
+            "SELECT COUNT(*), COUNT(*) FILTER ("
+            "WHERE rate_fingerprint IS NULL) FROM records")
+    assert after == before[0], "the migration must not disturb existing rows"
+    assert nulls == after, (
+        "pre-migration rows must read NULL, not be backfilled")
+
+
 def _seed_parents(c, file_key: str) -> None:
     """The project+file rows every seeded record needs (idempotent)."""
     c.execute(
@@ -140,22 +203,28 @@ def _seed_parents(c, file_key: str) -> None:
 
 def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
           cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
-          provider: str | None = None) -> None:
+          provider: str | None = None,
+          rate_fingerprint: str | None = None) -> None:  # pylint: disable=redefined-outer-name
     """One record row under seeded project+file parents, with a fixed
     token tally (_SEED_TOKENS) a test prices through compute_cost.
 
     cost_usd is a sentinel far from any computed value, so "untouched"
-    is observable.
+    is observable. rate_fingerprint seeds the pair fingerprint the
+    reprice pass compares against (issue #351); None inserts NULL, the
+    pre-feature shape. The parameter is the stored column's own name,
+    hence the shadow of the module import of the same name.
     """
     _seed_parents(c, file_key)
     fresh, create, read, output, eph5, eph1h = _SEED_TOKENS
     c.execute(
         "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
         "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, provider, pricing_version) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "eph5_tokens, eph1h_tokens, cost_usd, provider, pricing_version, "
+        "rate_fingerprint) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (file_key, line_num, ts, model, fresh, create, read,
-         output, eph5, eph1h, cost_usd, provider, pricing_version),
+         output, eph5, eph1h, cost_usd, provider, pricing_version,
+         rate_fingerprint),
     )
 
 

@@ -195,6 +195,16 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS provider TEXT;
 -- machinery, treated as stale and repriced. Additive and nullable
 -- (SV-SCHEMA-AUTOAPPLY), and no reparse and no R2 refetch.
 ALTER TABLE records ADD COLUMN IF NOT EXISTS pricing_version TEXT;
+-- 2026-09-29 (issue #351): pair-qualified reprice staleness. A row's
+-- rate_fingerprint is the pair fingerprint (backend/rate_fingerprint.py)
+-- of the rate data its stored cost was computed under; the reprice pass
+-- restamps rows whose stored fingerprint equals the CURRENT fingerprint
+-- of their (model, provider) pair set-based in SQL, and recomputes the
+-- rest. Additive and nullable (SV-SCHEMA-AUTOAPPLY): pre-feature rows
+-- read NULL and take the conservative recompute path once; older
+-- binaries ignore the column and leave it NULL (rollback stays
+-- one-directional).
+ALTER TABLE records ADD COLUMN IF NOT EXISTS rate_fingerprint TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
