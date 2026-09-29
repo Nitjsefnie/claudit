@@ -763,10 +763,10 @@ same rules:
     offering's listing artifact, so `cheapest` compares the rest; the
     tag, the price order and every flip and tie refusal stay. Without
     the record the artifact refuses like any other difference.
-  - A log-backed host resolves through the same shapes: `select`:
-    `cheapest` has no stable endpoint identity and stays sampled; a tag
-    (with or without a recorded ignore) selects by it, and must name
-    exactly one endpoint.
+  - A log-backed host resolves through the same shapes: a pin carrying
+    `select`: `cheapest` — alone, with a tag, or with a recorded ignore —
+    has no stable endpoint identity and stays sampled; a bare tag pin
+    selects by it, and must name exactly one endpoint.
 
   A resolution is never a price value: a price pin breaks the moment the
   price moves.
