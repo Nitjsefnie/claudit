@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T03:54:02Z",
+  "provider_rates_fetched": "2026-09-29T04:53:34Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2485,6 +2485,14 @@
           "from": "2026-09-29T03:54:02Z",
           "output": 0.7,
           "read": 0.016
+        },
+        {
+          "create_1h": 0.0539,
+          "create_5m": 0.0539,
+          "fresh": 0.0539,
+          "from": "2026-09-29T04:53:34Z",
+          "output": 0.7,
+          "read": 0.0431
         }
       ]
     },
@@ -7687,6 +7695,22 @@
           "from": "2026-09-29T03:41:07Z",
           "output": 0.4,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.012,
+          "create_5m": 0.012,
+          "fresh": 0.012,
+          "from": "2026-09-29T03:56:07Z",
+          "output": 0.4,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.012,
+          "create_5m": 0.012,
+          "fresh": 0.012,
+          "from": "2026-09-29T04:31:27Z",
+          "output": 0.5,
+          "read": 0.01
         }
       ],
       "Parasail": [
@@ -15199,6 +15223,14 @@
           "from": "2026-09-29T03:26:04Z",
           "output": 0.4,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.012,
+          "create_5m": 0.012,
+          "fresh": 0.012,
+          "from": "2026-09-29T04:31:27Z",
+          "output": 0.5,
+          "read": 0.01
         }
       ],
       "Parasail": [
@@ -17033,6 +17065,14 @@
           "create_5m": 0.072,
           "fresh": 0.072,
           "from": "2026-09-29T03:21:21Z",
+          "output": 0.35,
+          "read": 0.0531
+        },
+        {
+          "create_1h": 0.09,
+          "create_5m": 0.09,
+          "fresh": 0.09,
+          "from": "2026-09-29T03:56:07Z",
           "output": 0.35,
           "read": 0.0531
         }
@@ -30817,6 +30857,15 @@
           "note": "10% off",
           "output": 3.15,
           "read": 0.099
+        },
+        {
+          "create_1h": 0.63,
+          "create_5m": 0.63,
+          "fresh": 0.63,
+          "from": "2026-09-29T04:41:07Z",
+          "note": "10% off",
+          "output": 3.15,
+          "read": 0.081
         }
       ],
       "Ionstream": [
@@ -31048,6 +31097,15 @@
           "create_5m": 0.22592,
           "fresh": 0.22592,
           "from": "2026-09-29T00:36:03Z",
+          "note": "36% off",
+          "output": 1.9584,
+          "read": 0.07488
+        },
+        {
+          "create_1h": 0.15808,
+          "create_5m": 0.15808,
+          "fresh": 0.15808,
+          "from": "2026-09-29T04:36:05Z",
           "note": "36% off",
           "output": 1.9584,
           "read": 0.07488
@@ -31437,6 +31495,14 @@
           "from": "2026-09-28T10:16:13Z",
           "output": 3.5,
           "read": 0.1
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.25,
+          "from": "2026-09-29T03:46:09Z",
+          "output": 3.5,
+          "read": 0.25
         }
       ],
       "Sail Research": [
@@ -33760,6 +33826,14 @@
           "from": "2026-09-28T14:35:45Z",
           "output": 1.28,
           "read": 0.04
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-29T04:31:28Z",
+          "output": 1.28,
+          "read": 0.08
         }
       ],
       "Venice": [
@@ -35870,6 +35944,14 @@
           "from": "2026-09-29T02:46:09Z",
           "output": 3.14,
           "read": 0.1609
+        },
+        {
+          "create_1h": 0.329,
+          "create_5m": 0.329,
+          "fresh": 0.329,
+          "from": "2026-09-29T04:36:04Z",
+          "output": 3.14,
+          "read": 0.1893
         }
       ],
       "InferenceNet": [
@@ -37947,6 +38029,14 @@
           "from": "2026-09-29T02:36:02Z",
           "output": 4.0,
           "read": 0.195
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-09-29T04:16:08Z",
+          "output": 4.0,
+          "read": 0.2
         }
       ],
       "Sail Research": [
@@ -38461,6 +38551,14 @@
           "create_5m": 0.2949,
           "fresh": 0.2949,
           "from": "2026-09-28T22:38:11Z",
+          "output": 4.4,
+          "read": 0.2359
+        },
+        {
+          "create_1h": 0.4247,
+          "create_5m": 0.4247,
+          "fresh": 0.4247,
+          "from": "2026-09-29T04:53:34Z",
           "output": 4.4,
           "read": 0.2359
         }
@@ -39504,6 +39602,22 @@
           "from": "2026-09-29T02:36:03Z",
           "output": 0.5,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-29T03:46:09Z",
+          "output": 0.3,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-09-29T04:16:07Z",
+          "output": 0.3,
+          "read": 0.01
         }
       ],
       "Parasail": [
@@ -39820,6 +39934,14 @@
           "from": "2026-09-29T00:31:16Z",
           "output": 0.5,
           "read": 0.015
+        },
+        {
+          "create_1h": 0.025,
+          "create_5m": 0.025,
+          "fresh": 0.025,
+          "from": "2026-09-29T03:46:10Z",
+          "output": 0.5,
+          "read": 0.025
         }
       ],
       "Sail Research": [
