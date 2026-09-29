@@ -234,7 +234,8 @@ def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
              if record.getMessage().startswith("TIMING reprice")]
     assert len(lines) == 1, "exactly one TIMING line per pass"
     line = lines[0]
-    for phase in ("select", "recompute", "restamp", "moved", "commit"):
+    for phase in ("select", "fetch", "recompute", "restamp", "moved",
+                  "commit"):
         assert re.search(rf"\b{phase}=\d+ms", line), f"missing {phase}"
     total_m = re.search(r"\btotal=(\d+)ms", line)
     sum_m = re.search(r"\bsum=(\d+)ms", line)
@@ -271,5 +272,8 @@ def test_reprice_table_stores_at_fillfactor_50():
     every startup applies it (SV-SCHEMA-AUTOAPPLY) and an existing
     deploy compacts once with `VACUUM FULL records`."""
     schema = (Path(db.__file__).parent / "schema.sql").read_text()
-    assert re.search(r"ALTER TABLE records SET \(fillfactor = 50\);",
-                     schema), "records must store at fillfactor 50"
+    assert re.findall(r"ALTER TABLE records SET \(fillfactor = (\d+)\);",
+                      schema) == ["50"], (
+        "records must store at fillfactor 50, stated exactly once - "
+        "PostgreSQL applies the LAST assignment, so a second, later or "
+        "conflicting line would win silently over the pinned one")

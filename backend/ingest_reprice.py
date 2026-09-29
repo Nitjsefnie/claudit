@@ -231,7 +231,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
         if timing.TIMING_ON else None
     marks: dict[str, float] = {}
     cpu0 = time.process_time()
-    outcome = "complete"
+    # "failed" until the pass finishes normally: an unexpected exception
+    # (a DB error) must not land in the TIMING line labelled complete.
+    outcome = "failed"
     changed = 0
     restamped = 0
     skipped = 0
@@ -310,6 +312,7 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
             batches += 1
             last = rows[-1]
             after_key = (last.file_key, last.line_num)
+        outcome = "complete"
     finally:
         if ph is not None:
             for label, seconds in marks.items():
