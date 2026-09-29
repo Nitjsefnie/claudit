@@ -105,6 +105,18 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   reply_latency_s NUMERIC(10,3);
 
+-- Issue #350: the reprice pass rewrites every stale row on every
+-- PRICING_VERSION bump. At the default fillfactor (100) the pages are
+-- full, so each rewrite spills a new tuple version plus entries into
+-- ALL eight indexes -- measured 57.6s and 2.66 GB WAL per full-table
+-- restamp on a 1.33M-row fixture, and the update is never HOT. At 50
+-- a page absorbs its rows' rewrites in place (HOT): 12.2s and 499 MB
+-- on the same fixture, stable across consecutive bump cycles, and the
+-- heap stays compact instead of bloating ~25%. One-time compaction on
+-- existing deploys (the setting only shapes future page use):
+-- `VACUUM FULL records` -- it holds ACCESS EXCLUSIVE, so off-peak.
+ALTER TABLE records SET (fillfactor = 50);
+
 -- Cross-file uuid dedup, resolved at INGEST instead of on every read.
 -- `records` is immutable between ingests, but every read endpoint was
 -- re-running DISTINCT ON (uuid) over the whole table -- a 296k-row sort

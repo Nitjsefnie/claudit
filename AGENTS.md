@@ -104,9 +104,10 @@ backend/          — FastAPI application
                     the paths they write. Needs-to-run → 0, never guessed
   bash_churn_errors.py — Whether a heredoc write survives a later
                     stage's failure
-  pricing.py      — Loads src/pricing.json; resolves model and
-                    (model, provider) rates. Logic only (SV-RATE-DATA,
-                    SV-PROVIDER-RATES)
+  pricing.py      — Resolves model and (model, provider) rates.
+                    Logic only (SV-RATE-DATA, SV-PROVIDER-RATES)
+  pricing_load.py — Loads src/pricing.json's rate tables, checked, at
+                    import; pricing.py re-exports them (SV-RATE-DATA)
   ingest.py       — R2 walk, reparse decision, two-phase persistence,
                     ingest_done SSE
   ingest_walk.py  — Project identity and stored-version helpers

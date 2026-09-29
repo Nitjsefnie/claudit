@@ -25,9 +25,12 @@ _INGEST_PHASES = (
 
 
 def _timing_lines(caplog):
+    # The pass-internal TIMING lines (the reprice pass emits its own,
+    # issue #350) are distinct instruments; these tests read the run-level
+    # ingest line only.
     return [record.getMessage() for record in caplog.records
             if record.name == "claudit.ingest"
-            and record.getMessage().startswith("TIMING ")]
+            and record.getMessage().startswith("TIMING ingest ")]
 
 
 def _assert_phase_line(line):

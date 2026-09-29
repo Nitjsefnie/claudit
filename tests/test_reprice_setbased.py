@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
+from pathlib import Path
 
 import pytest
 
@@ -24,7 +26,13 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from test_reprice import _FILE_KEY, _seed, _seeded_cost, _rows
 
-from backend import constants, db, ingest, ingest_reprice
+from backend import (
+    constants,
+    db,
+    ingest,
+    ingest_reprice,
+    timing,
+)
 
 
 def test_reprice_reports_only_rows_whose_data_changed(fresh_db):
@@ -204,3 +212,64 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
     assert update_calls <= 2, (
         f"{update_calls} UPDATE statements for one batch; the pass must "
         "write set-based (at most one restamp + one reprice)")
+
+
+def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
+                                                 caplog):
+    """CLAUDIT_TIMING gives the pass a phase split (issue #350): one
+    account=True TIMING line per run whose select/recompute/restamp/
+    moved/commit marks must sum to the measured total — the gap is the
+    unattributed residue, so the instrument accounts for the whole."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version="0",
+              cost_usd=_seeded_cost())
+        _seed(c, _FILE_KEY, 2, pricing_version="0")
+        c.commit()
+
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        assert ingest_reprice.reprice_stale() == 1
+
+    lines = [record.getMessage() for record in caplog.records
+             if record.getMessage().startswith("TIMING reprice")]
+    assert len(lines) == 1, "exactly one TIMING line per pass"
+    line = lines[0]
+    for phase in ("select", "recompute", "restamp", "moved", "commit"):
+        assert re.search(rf"\b{phase}=\d+ms", line), f"missing {phase}"
+    total_m = re.search(r"\btotal=(\d+)ms", line)
+    sum_m = re.search(r"\bsum=(\d+)ms", line)
+    assert total_m and sum_m
+    total = float(total_m.group(1))
+    summed = float(sum_m.group(1))
+    assert "gap=" in line and "cpu=" in line
+    assert summed <= total, "phases cannot sum to more than the pass"
+
+
+def test_reprice_pass_emits_no_timing_when_off(fresh_db, caplog):
+    """With CLAUDIT_TIMING unset the pass is instrumentation-free: no
+    TIMING line reaches the log."""
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version="0")
+        c.commit()
+
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        assert ingest_reprice.reprice_stale() == 1
+
+    assert not [record.getMessage() for record in caplog.records
+                if record.getMessage().startswith("TIMING reprice")]
+
+
+def test_reprice_table_stores_at_fillfactor_50():
+    """Issue #350's write fix is the storage shape, not the statement:
+    the restamp UPDATE rewrites every stale row, and a page at the
+    default fillfactor cannot hold its rows' new versions, so every
+    rewrite is non-HOT — new heap tuples plus entries in all eight
+    indexes, 57.6s and 2.66 GB WAL per full-table restamp measured on a
+    1.33M-row fixture. At 50 a page absorbs its rows' rewrites in place:
+    12.2s and 499 MB, stable across consecutive bump cycles. CI-scale
+    tables never fill their pages, so the suite pins the source line;
+    every startup applies it (SV-SCHEMA-AUTOAPPLY) and an existing
+    deploy compacts once with `VACUUM FULL records`."""
+    schema = (Path(db.__file__).parent / "schema.sql").read_text()
+    assert re.search(r"ALTER TABLE records SET \(fillfactor = 50\);",
+                     schema), "records must store at fillfactor 50"

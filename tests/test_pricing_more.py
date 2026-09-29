@@ -55,3 +55,16 @@ def test_opus_5_5_suffix_and_provider_aliases_keep_their_synthetic_row(
     older = pricing.resolve(older_key)
     assert older.rates is rows[older_key]
     assert older.rates is not rows[newer_key]
+
+
+def test_match_key_memoizes_per_normalised_id() -> None:
+    """Issue #350: the reprice pass matches keys for over a million rows
+    naming few distinct models, so the longest-key scan is memoized per
+    norm — the second call is a dict hit with the same answer. A norm
+    matching nothing caches that too; the conftest autouse fixture keeps
+    every test's entries out of every other's."""
+    norm = "synthetic-norm-issue-350"
+    first = pricing._match_key(norm)  # pylint: disable=protected-access
+    assert first is None, "no table key prefixes a synthetic norm"
+    assert norm in pricing._MATCH_KEY_CACHE  # pylint: disable=protected-access
+    assert pricing._match_key(norm) is first  # pylint: disable=protected-access

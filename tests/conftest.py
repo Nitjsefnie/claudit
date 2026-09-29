@@ -179,6 +179,17 @@ def _isolate_transcript_cache(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _fresh_match_key_cache():
+    """pricing._match_key memoizes per normalised id against the rate
+    table loaded at import (issue #350). Tests patch MODEL_RATES with
+    synthetic rows; a cached entry computed under a patch must never
+    outlive it, so every test starts and ends with an empty cache."""
+    pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    yield
+    pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+
+
 def pytest_collection_modifyitems(config, items):
     # The mechanical db/portable split (issue #27): every test whose
     # fixture closure reaches a registered DB fixture is marked `db`, so
