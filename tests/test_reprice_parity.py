@@ -30,7 +30,14 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from test_reprice import _pair
 
-from backend import constants, db, ingest, parse, pricing
+from backend import (
+    constants,
+    db,
+    ingest,
+    parse,
+    pricing,
+    rate_fingerprint,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -248,6 +255,13 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
         "claude-sonnet-4-5": [(datetime(2099, 1, 1, tzinfo=UTC),
                                _WINDOW_RATES)],
     })
+    # The fingerprints the mirror ingest just stamped came from the
+    # pre-mutation tables (rate_fingerprint memoizes per pair; the
+    # production tables are immutable at runtime, but this test is not
+    # production). Empty the memo so the pass fingerprints the pairs
+    # under the mutated tables — the same discipline the fingerprint
+    # tests follow of clearing both caches around a table patch.
+    rate_fingerprint.clear_fingerprint_cache()
     before = _stored_costs()
 
     # One past the tree's own version (derived, issue #198): the refresh
