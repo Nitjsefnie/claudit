@@ -186,7 +186,11 @@ def _fresh_match_key_cache():
     per pair against the same tables (issue #351). Tests patch the
     tables with synthetic rows; a cached entry computed under a patch
     must never outlive it, so every test starts and ends with empty
-    caches."""
+    caches. A test that patches the tables MID-TEST (after an ingest
+    has already stamped fingerprints) must clear the fingerprint memo
+    itself at the mutation site — without it the pass reads pre-patch
+    fps and fails conservative-but-confusing (see the parity and
+    cache-gate tests)."""
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
     rate_fingerprint.clear_fingerprint_cache()
     yield
