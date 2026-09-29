@@ -449,7 +449,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T02:36:02Z",
+  "provider_rates_fetched": "2026-09-29T02:53:42Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1774,6 +1774,14 @@
           "from": "2026-09-26T19:41:24Z",
           "output": 0.5,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-29T02:36:04Z",
+          "output": 0.5,
+          "read": 0.01
         }
       ],
       "Parasail": [
@@ -1977,6 +1985,14 @@
           "from": "2026-09-29T00:41:06Z",
           "output": 0.6,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-09-29T02:36:05Z",
+          "output": 0.6,
+          "read": 0.02
         }
       ],
       "Sail Research": [
@@ -15674,6 +15690,14 @@
           "from": "2026-09-28T23:41:08Z",
           "output": 0.32,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.018,
+          "create_5m": 0.018,
+          "fresh": 0.018,
+          "from": "2026-09-29T02:41:09Z",
+          "output": 0.32,
+          "read": 0.018
         }
       ],
       "Sail Research": [
@@ -35750,6 +35774,14 @@
           "from": "2026-09-29T02:36:02Z",
           "output": 3.34,
           "read": 0.1643
+        },
+        {
+          "create_1h": 0.3115,
+          "create_5m": 0.3115,
+          "fresh": 0.3115,
+          "from": "2026-09-29T02:46:09Z",
+          "output": 3.14,
+          "read": 0.1609
         }
       ],
       "InferenceNet": [
@@ -39376,6 +39408,14 @@
           "from": "2026-09-26T00:25:58Z",
           "output": 0.5,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-09-29T02:36:03Z",
+          "output": 0.5,
+          "read": 0.01
         }
       ],
       "Parasail": [
