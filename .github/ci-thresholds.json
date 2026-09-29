@@ -18,7 +18,6 @@
     "backend/parse.py": 880,
     "backend/parse_codex.py": 716,
     "backend/parse_kimi.py": 565,
-    "backend/pricing.py": 561,
     "scripts/ci/refresh_provider_rates.py": 528,
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1425,

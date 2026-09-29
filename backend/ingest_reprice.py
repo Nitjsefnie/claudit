@@ -43,12 +43,13 @@ updated — they are counted, logged, and the keyset advances past them.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from typing import NamedTuple
 
-from backend import constants, db, pricing
+from backend import constants, db, pricing, timing
 
 log = logging.getLogger("claudit.ingest")
 
@@ -201,7 +202,7 @@ def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
             and row.long_context == updates["long_context"])
 
 
-def reprice_stale(should_stop: Callable[[], bool | None] | None = None
+def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
                   ) -> int:
     """Recompute cost_usd for every stale record; return the count whose
     rate-derived data CHANGED.
@@ -220,54 +221,101 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None
     ingest stop contract, issue #103 — no new recovery logic). ingest
     passes its _check_shutdown, which raises; direct and test callers
     pass nothing, which prices the whole table in one go.
+
+    With CLAUDIT_TIMING on, the pass emits one TIMING line whose marks
+    (select, fetch, recompute, restamp, moved, commit) accumulate across
+    batches and must account for the measured total — the gap is the
+    unattributed residue. Python CPU time rides the same line.
     """
+    ph = timing.Phases("reprice", logger=log, account=True) \
+        if timing.TIMING_ON else None
+    marks: dict[str, float] = {}
+    cpu0 = time.process_time()
+    outcome = "complete"
     changed = 0
     restamped = 0
     skipped = 0
+    batches = 0
+    rows_seen = 0
     after_key: tuple[str, int] = ("", 0)
-    while True:
-        if should_stop is not None and should_stop():
-            raise IngestAborted("shutdown requested")
-        with db.viz_conn() as c:
-            raw_rows = c.execute(
-                _SELECT_SQL,
-                (after_key[0], after_key[1], constants.PRICING_VERSION,
-                 REPRICE_BATCH),
-            ).fetchall()
-            if not raw_rows:
-                break
-            rows = [_StaleRow(*raw) for raw in raw_rows]
-            restamp_keys: list[tuple[str, int]] = []
-            moved: list[tuple[str, int, float, bool | None]] = []
-            for row in rows:
-                if _stored_pricing_version_is_newer(
-                        row.pricing_version, constants.PRICING_VERSION):
-                    skipped += 1
-                    continue
-                updates = _record_updates(row)
-                if _row_is_unchanged(row, updates):
-                    restamp_keys.append((row.file_key, row.line_num))
-                else:
-                    moved.append((row.file_key, row.line_num,
-                                  updates["cost_usd"],
-                                  updates["long_context"]))
-            if restamp_keys:
-                c.execute(_SQL_RESTAMP,
-                          (constants.PRICING_VERSION,
-                           [k for k, _ in restamp_keys],
-                           [n for _, n in restamp_keys]))
-            if moved:
-                c.execute(_SQL_REPRICE,
-                          (constants.PRICING_VERSION,
-                           [r[0] for r in moved],
-                           [r[1] for r in moved],
-                           [r[2] for r in moved],
-                           [r[3] for r in moved]))
-            c.commit()
-        changed += len(moved)
-        restamped += len(restamp_keys)
-        last = rows[-1]
-        after_key = (last.file_key, last.line_num)
+    try:
+        while True:
+            if should_stop is not None and should_stop():
+                outcome = "aborted"
+                raise IngestAborted("shutdown requested")
+            with db.viz_conn() as c:
+                t0 = time.perf_counter()
+                cur = c.execute(
+                    _SELECT_SQL,
+                    (after_key[0], after_key[1], constants.PRICING_VERSION,
+                     REPRICE_BATCH),
+                )
+                if ph is not None:
+                    marks["select"] = (
+                        marks.get("select", 0.0) + time.perf_counter() - t0)
+                t0 = time.perf_counter()
+                raw_rows = cur.fetchall()
+                if ph is not None:
+                    marks["fetch"] = (
+                        marks.get("fetch", 0.0) + time.perf_counter() - t0)
+                if not raw_rows:
+                    break
+                rows_seen += len(raw_rows)
+                t0 = time.perf_counter()
+                rows = [_StaleRow(*raw) for raw in raw_rows]
+                restamp_keys: list[tuple[str, int]] = []
+                moved: list[tuple[str, int, float, bool | None]] = []
+                for row in rows:
+                    if _stored_pricing_version_is_newer(
+                            row.pricing_version, constants.PRICING_VERSION):
+                        skipped += 1
+                        continue
+                    updates = _record_updates(row)
+                    if _row_is_unchanged(row, updates):
+                        restamp_keys.append((row.file_key, row.line_num))
+                    else:
+                        moved.append((row.file_key, row.line_num,
+                                      updates["cost_usd"],
+                                      updates["long_context"]))
+                if ph is not None:
+                    marks["recompute"] = (marks.get("recompute", 0.0)
+                                          + time.perf_counter() - t0)
+                t0 = time.perf_counter()
+                if restamp_keys:
+                    c.execute(_SQL_RESTAMP,
+                              (constants.PRICING_VERSION,
+                               [k for k, _ in restamp_keys],
+                               [n for _, n in restamp_keys]))
+                if ph is not None:
+                    marks["restamp"] = (marks.get("restamp", 0.0)
+                                        + time.perf_counter() - t0)
+                t0 = time.perf_counter()
+                if moved:
+                    c.execute(_SQL_REPRICE,
+                              (constants.PRICING_VERSION,
+                               [r[0] for r in moved],
+                               [r[1] for r in moved],
+                               [r[2] for r in moved],
+                               [r[3] for r in moved]))
+                if ph is not None:
+                    marks["moved"] = (marks.get("moved", 0.0)
+                                      + time.perf_counter() - t0)
+                t0 = time.perf_counter()
+                c.commit()
+                if ph is not None:
+                    marks["commit"] = (marks.get("commit", 0.0)
+                                       + time.perf_counter() - t0)
+            changed += len(moved)
+            restamped += len(restamp_keys)
+            batches += 1
+            last = rows[-1]
+            after_key = (last.file_key, last.line_num)
+    finally:
+        if ph is not None:
+            for label, seconds in marks.items():
+                ph.mark(label, seconds)
+            ph.done(batches=batches, rows=rows_seen, changed=changed,
+                    outcome=outcome, cpu=f"{time.process_time() - cpu0:.1f}s")
     log.info(
         "reprice: %d record(s) repriced (rate-derived data changed), "
         "%d restamped only", changed, restamped)
