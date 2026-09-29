@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from backend import constants, db, key_layout, parse, r2
+from backend import constants, db, key_layout, parse, r2, rate_fingerprint
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:
@@ -213,7 +213,10 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # pricing_version is NOT a record field: it is stamped here, at
             # persist time, from constants.PRICING_VERSION, so every reparse
             # re-stamps the version its freshly computed cost_usd was
-            # priced under (issue #193).
+            # priced under (issue #193). rate_fingerprint rides the same
+            # stamping: the pair fingerprint of the rate data this cost
+            # was computed under (issue #351), so a later reprice pass can
+            # recognise rows whose pair's rates have not moved.
             for rec in parsed["records"]:
                 rec.update({k: rec.get(k) for k in ("long_context", "provider")})
             cur.executemany(
@@ -242,7 +245,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   turn_tool_results,
                   long_context,
                   provider,
-                  pricing_version)
+                  pricing_version,
+                  rate_fingerprint)
                 VALUES (
                   %(file_key)s,
                   %(line_num)s,
@@ -267,10 +271,13 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(turn_tool_results)s,
                   %(long_context)s,
                   %(provider)s,
-                  %(pricing_version)s)
+                  %(pricing_version)s,
+                  %(rate_fingerprint)s)
                 """,
                 (
-                    {**rec, "pricing_version": constants.PRICING_VERSION}
+                    {**rec, "pricing_version": constants.PRICING_VERSION,
+                     "rate_fingerprint": rate_fingerprint.pair_fingerprint(
+                         rec["model"], rec.get("provider"))}
                     for rec in parsed["records"]
                 ),
             )
