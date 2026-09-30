@@ -16,6 +16,9 @@ from backend import auth
 from backend import login as login_mod
 from backend import session as session_mod
 from tests import scratch_db
+from tests.test_login_a11y import (
+    _assert_generic_failure,
+)
 
 _ORIGIN = {"Origin": "http://testserver"}
 
@@ -31,21 +34,6 @@ def _post_login(client, user_id, password, follow_redirects=False):
         headers=_ORIGIN,
         follow_redirects=follow_redirects,
     )
-
-
-# The generic failure body is the FULL sign-in page (#395): 401,
-# text/html, the error announced in the role=alert element. Every
-# credential failure answers the same status and the same bytes (#109).
-_GENERIC_401 = "Invalid credentials."
-
-
-def _assert_generic_failure(response):
-    assert response.status_code == 401
-    assert response.headers["content-type"].startswith("text/html")
-    assert (f'<div class="err" role="alert">{_GENERIC_401}</div>'
-            in response.text), (
-        "a credential failure did not answer the generic sign-in page "
-        "with its message announced")
 
 
 def _clear_user_config_cache():
