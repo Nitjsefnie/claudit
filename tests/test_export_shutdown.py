@@ -54,13 +54,19 @@ _SESSION_SECRET = "unit-test-session-secret"
 _MARKER_ENV = "CLAUDIT_EXPORT_TEST_MARKER"
 _RELEASE_ENV = "CLAUDIT_EXPORT_TEST_RELEASE"
 
-# The stand-in renderer runs as `#!<python> <standin> <plot script> -o <out>`:
-# the shebang interpreter receives the stand-in file as its script, then the
-# plot script path and the render argv behind it. It records its pid, stalls
-# until the release file appears (or its deadline passes) and only then
-# writes the PNG — so a leaked child is visible and never self-cleans.
+# The stand-in renderer runs as
+# `#!<python> <standin> <plot script> --output=<out>`: the shebang
+# interpreter receives the stand-in file as its script, then the plot
+# script path and the render argv behind it. It reads the output path
+# from the --output= element (the shape build_export_argv emits since
+# issue #380) and dies loudly if that element is absent, so an argv
+# shape regression fails here instead of silently skipping the render.
+# It records its pid, stalls until the release file appears (or its
+# deadline passes) and only then writes the PNG — so a leaked child is
+# visible and never self-cleans.
 _STANDIN_SOURCE = f"""import os, sys, time
-out = sys.argv[sys.argv.index("-o") + 1]
+out = next(a for a in sys.argv
+           if a.startswith("--output=")).split("=", 1)[1]
 marker = os.environ[{_MARKER_ENV!r}]
 release = os.environ[{_RELEASE_ENV!r}]
 with open(marker, "w") as fh:
