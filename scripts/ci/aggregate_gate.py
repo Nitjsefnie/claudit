@@ -17,13 +17,18 @@ needs document the workflow passes in as JSON:
 
 SUPERSESSION IS NOT THIS MODULE'S DECISION. ci-gate's concurrency group
 is one per pull request, or per pushed commit SHA on a push (issue
-#358), so a newer push starts its own run and never cancels the older
-one — a superseded run never exists to leave a stale aggregate behind.
-A cancel is therefore always DELIBERATE: it leaves that run's aggregate
-cancelled, which a required-check ruleset treats as never-green,
-exactly as a failure does. So this module treats a cancelled leg as a
-failure without querying for a newer run; nothing cancels a run
-behind its back.
+#358), so a newer push starts its own run and the group itself never
+cancels the older one — the ordinary two-push supersession cancel
+cannot leave a stale aggregate behind. One residual lives one level
+down: the legs' per-ref groups hold at most one PENDING run, so a third
+concurrent master push cancels a merely-queued leg, and that middle
+run's aggregate folds red here (needs three master runs overlapping;
+fails closed; the next push re-verifies it — see the workflow's
+SUPERSESSION block). Beyond that residual, a run-level cancel is
+always DELIBERATE: it leaves that run's aggregate cancelled, which a
+required-check ruleset treats as never-green, exactly as a failure
+does. So this module treats a cancelled leg as a failure without
+querying for a newer run.
 
 The verdict and a per-leg table go to the step summary; the exit code
 is the gate.

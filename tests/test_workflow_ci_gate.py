@@ -136,8 +136,11 @@ def test_master_push_runs_get_a_per_sha_concurrency_group():
     # superseded commit, which release.yml's waiter then refuses (a
     # VERSION commit raced by a bot push could not release). Scoping the
     # push side of the group to the commit SHA gives every master push
-    # its own run nothing cancels: its aggregate is its own verdict, and
-    # release.yml waits on a run that completes. Pull requests keep the
+    # its own run the gate's group never cancels, and release.yml waits
+    # on a run that completes. One residual remains one level down: the
+    # legs' per-ref groups hold at most one pending run, so a third
+    # concurrent master push still cancels a merely-queued leg (see the
+    # workflow's SUPERSESSION block). Pull requests keep the
     # per-number group (a head push cancels the stale run), and a
     # deliberate cancel still reads never-green (the fold treats a
     # cancelled leg as a failure).
