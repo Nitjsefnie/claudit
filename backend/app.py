@@ -20,6 +20,8 @@ from starlette.responses import (
     JSONResponse,
     Response,
 )
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend import db
 
@@ -154,6 +156,51 @@ class _SelectiveGZip(GZipMiddleware):
         await super().__call__(scope, receive, send)
 
 
+class _SecurityHeaders:
+    """Framing protection and nosniff on every response (issue #369).
+
+    Framing protection (``Content-Security-Policy: frame-ancestors
+    'none'`` plus ``X-Frame-Options: DENY``) rides on text/html —
+    browsers frame documents and ignore the headers on other types, so
+    the sign-in page, the dashboard and any HTML error page all pass
+    through here whatever their status. ``X-Content-Type-Options:
+    nosniff`` rides on EVERY response: every content type the app
+    serves is correct, so it costs nothing, and it stops a
+    MIME-confused response from being reinterpreted as script or style.
+    Headers are only filled in when absent, so an endpoint's own
+    security headers and the PNG export's Content-Disposition are never
+    clobbered. Added OUTSIDE the auth middleware: the 302 that
+    middleware generates itself for an unauthenticated page load never
+    passes an inner layer, so an inner placement would miss it.
+    """
+
+    def __init__(self, asgi_app: ASGIApp) -> None:
+        self.app = asgi_app
+
+    async def __call__(self, scope: Scope, receive: Receive,
+                       send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        await self.app(scope, receive, self._wrap_send(send))
+
+    def _wrap_send(self, send: Send) -> Send:
+        async def wrapped_send(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                ctype = headers.get("content-type", "")
+                if ctype.split(";")[0].strip().lower() == "text/html":
+                    if not headers.get("content-security-policy"):
+                        headers["content-security-policy"] = (
+                            "frame-ancestors 'none'")
+                    if not headers.get("x-frame-options"):
+                        headers["x-frame-options"] = "DENY"
+                if not headers.get("x-content-type-options"):
+                    headers["x-content-type-options"] = "nosniff"
+            await send(message)
+        return wrapped_send
+
+
 # The origin was serving /api/dashboard uncompressed — ~3.2 MB per cold
 # request, which the CDN then had to pull in full before it could
 # compress and serve it on. The body is JSON and compresses ~5x.
@@ -161,6 +208,10 @@ class _SelectiveGZip(GZipMiddleware):
 # where framing would cost more than it saves.
 app.add_middleware(_SelectiveGZip, minimum_size=1024)
 app.middleware("http")(session.auth_middleware)
+# Added LAST so it is the outermost middleware: the auth middleware's
+# own redirect for an unauthenticated page load never passes an inner
+# layer, so only an outer placement protects every response.
+app.add_middleware(_SecurityHeaders)
 app.include_router(login.router)
 app.include_router(api.router)
 
