@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
@@ -32,6 +33,8 @@ MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
 SLUG = "synthetic/canonical-model"
 AS_OF = "2031-01-01T00:15:00Z"
+# After every fixture series point, so the join reads each series whole.
+NOW = datetime(2031, 1, 1, 0, 30, tzinfo=timezone.utc)
 RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
           "read": 0.01, "output": 0.8}
 RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
@@ -75,6 +78,7 @@ class BackfillCase:
     as_of: str
     args: list[str]
     new_hosts: list[str]
+    now: datetime = NOW
 
 
 class BackfillFetches:
@@ -125,7 +129,8 @@ def _run_case(tmp_path: Path, capsys, case: BackfillCase):
     fetches = BackfillFetches(endpoints, log)
     rc = backfill.main(["--as-of", case.as_of, *case.args], fetch=fetches.fetch_endpoints,
                        fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
-                       pricing_path=pricing_path, constants_path=constants_path)
+                       pricing_path=pricing_path, constants_path=constants_path,
+                       now=case.now)
     out, err = capsys.readouterr()
     return rc, out, err, pricing_path, constants_path, original
 
@@ -209,3 +214,19 @@ def test_backfill_dry_run_writes_nothing_and_reports_entry_counts(tmp_path, caps
     assert pricing_path.read_text(encoding="utf-8") == original
     assert constants_path.read_text(encoding="utf-8") == 'PRICING_VERSION = "31"\n'
     assert "Wafer: 3 → 2 entries" in out
+
+
+def test_backfill_leaves_a_row_backed_only_by_a_future_point_untouched(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2099-01-01T00:00:00Z", RATE_C)]
+    old = [_entry(None, RATE_A)]
+
+    rc, out, err, pricing_path, _, original = _run(
+        tmp_path, capsys, {"Wafer": old}, states)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL]["Wafer"] == old
+    assert "untouched Wafer" in out
+    assert "latest log state disagrees with the listed price" in out
+    assert pricing_path.read_text(encoding="utf-8") == original

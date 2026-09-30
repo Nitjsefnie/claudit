@@ -694,9 +694,13 @@ same rules:
     runs is recorded as its two moves. A first-seen host gets the whole
     series from its first change point. The hourly run never rewrites an
     entry.
-  - **The log must match the listing.** The series' newest state must
-    equal the listed price fetched in the same run; otherwise the host is
-    sampled this run, with a notice.
+  - **The log must match the listing.** The series' state at the fetch
+    instant must equal the listed price fetched in the same run: the run
+    reads each series truncated at that instant, so a point dated after it
+    — an announced change not yet in force — never backs a row or enters
+    its history, and lands when a later fetch instant passes it (the log
+    is refetched in full each run). Otherwise the host is sampled this
+    run, with a notice.
   - **Sampled rows.** A host the log does not back, and every host of a
     model whose log fetch fails (HTTP error, timeout, `canonical_slug`
     missing from `/api/v1/models`, unrecognised shape), refreshes by
@@ -745,8 +749,9 @@ same rules:
 
   A refusal blocks only itself: every other move is appended, tested and
   committed with the bump, then the run exits nonzero, naming each
-  refused host. The exception: a detection time not after a row's newest
-  entry writes nothing at all, since the loaders would refuse the file.
+  refused host. A detection time not after a row's newest entry leaves
+  that host untouched with a notice — appending after it would refuse the
+  file — and blocks nothing else.
 
   The fix is a human decision recorded in
   `openrouter.models.<model>.resolve.<host>`, with a `why`:

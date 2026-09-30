@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable
 
 import refresh_pricelog
@@ -59,13 +60,15 @@ def classify_log_rows(
         model: str, payload: object, rows: dict[str, Any], hosts: dict,
         read: refresh_pricelog.LogRead, region: str | None, resolutions: dict,
         append_logged: Callable[[str, dict, str, Any, list[dict]], Any],
-        same_rates: Callable[[dict, dict], bool]) -> LogRows:
-    """Split listed hosts into log-backed appends and sampled rows."""
+        same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
+    """Split listed hosts into log-backed appends and sampled rows; `at` is
+    the fetch instant, at which each log series is read."""
     if read.series is None:
         return _unavailable_log_rows(
             model, rows, read.reason or "listed-pricing log is unavailable")
     try:
-        joined = refresh_pricelog.join_listed_pricing(payload, read.series, region, resolutions)
+        joined = refresh_pricelog.join_listed_pricing(
+            payload, read.series, region, resolutions, at)
     except refresh_pricelog.PriceLogError as exc:
         return _unavailable_log_rows(model, rows, str(exc))
     return _append_joined_rows(

@@ -11,7 +11,7 @@ import json
 import math
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
@@ -454,15 +454,34 @@ def _endpoint_groups(
     return by_host, invalid, owners
 
 
+def _series_in_force(series: PriceSeries, at: datetime) -> PriceSeries:
+    """The series without points dated after the fetch instant `at`.
+
+    A point after `at` is not yet in force: the listed price the series must
+    match is the one at `at`, and a not-yet-in-force change never enters a
+    row's history. The log is refetched in full every run, so the change
+    lands when a later fetch instant passes it.
+    """
+    return replace(
+        series,
+        fields={field: tuple(point for point in points if point.at <= at)
+                for field, points in series.fields.items()})
+
+
 def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
-                        region: str | None, resolutions: dict) -> dict[str, HostLog]:
-    """Join log histories to only the hosts with one provable endpoint."""
+                        region: str | None, resolutions: dict,
+                        at: datetime) -> dict[str, HostLog]:
+    """Join log histories to only the hosts with one provable endpoint.
+
+    `at` is the fetch instant: each series is read truncated to it, so a
+    point dated after the fetch (an announced change not yet in force)
+    never backs a row or enters its history."""
     data = endpoint_payload.get("data") if isinstance(endpoint_payload, dict) else None
     raw_endpoints = data.get("endpoints") if isinstance(data, dict) else None
     if not isinstance(raw_endpoints, list):
         raise PriceLogError("endpoint response has no data.endpoints list")
     by_host, invalid, owners = _endpoint_groups(raw_endpoints)
-    series_by_prefix = _series_prefixes(series)
+    series_by_prefix = _series_prefixes([_series_in_force(item, at) for item in series])
     matched: dict[str, HostLog] = {}
     for host, endpoints in by_host.items():
         if host in invalid:
