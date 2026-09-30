@@ -106,7 +106,7 @@ def test_legend_rows_never_dim_their_text():
     unchecked. The dimming must not touch the row's text: any `opacity`
     on the row <label> is banned outright, because no opacity over
     --bg-card keeps --muted at 4.5:1 (full opacity computes 4.84:1; even
-    0.95 drops to 4.51:1 and 0.9 to 3.9:1)."""
+    0.95 drops to 4.51:1 and 0.9 to 4.15:1)."""
     rows = _checkbox_rows()
     assert len(rows) == 1, (
         f"expected the 1 shared LegendCheckboxRow in "
