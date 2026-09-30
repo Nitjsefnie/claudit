@@ -13,10 +13,10 @@ log = logging.getLogger("claudit.ingest")
 def _delete_orphans(seen_keys: set[str]) -> int:
     """Drop files rows whose R2 key is gone. CASCADE drops records.
 
-    Each deleted row's r2_etag is evicted from the transcript cache after
-    the delete commits (issue #269): the cached bytes are keyed by etag
-    (api_sessions), so a deleted transcript must not stay readable from
-    the cache.
+    Each deleted row's cached transcript bytes are evicted after the
+    delete commits (issue #269): the cache is keyed by
+    cache.transcript_key(file_key, r2_etag) (issue #375), so a deleted
+    transcript must not stay readable from the cache.
     """
     _set_progress(phase="orphans")
     with db.viz_conn() as c, c.cursor() as cur:
@@ -47,8 +47,8 @@ def _delete_orphans(seen_keys: set[str]) -> int:
         doomed_rows = cur.fetchall()
         deleted = len(doomed_rows)
         c.commit()
-    for _file_key, etag in doomed_rows:
-        cache.transcript_cache.evict(etag)
+    for file_key, etag in doomed_rows:
+        cache.transcript_cache.evict(cache.transcript_key(file_key, etag))
     evicted = len(doomed_rows)
     if evicted:
         log.info(

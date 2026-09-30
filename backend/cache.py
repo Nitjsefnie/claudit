@@ -1,5 +1,5 @@
 """In-process caches:
-  - transcript LRU keyed by r2_etag, 256 MB, 20-min idle eviction
+  - transcript LRU keyed by (file_key, etag), 256 MB, 20-min idle eviction
   - response cache with stale-while-revalidate for the heavy read endpoints
 """
 from __future__ import annotations
@@ -66,10 +66,11 @@ class _IdleLRU:
     def evict(self, key: str) -> None:
         """Drop one entry outright, fixing the byte/entry accounting.
 
-        The orphan sweep calls this for each deleted file's etag (issue
-        #269): the transcript bytes are keyed by r2_etag, so a file
-        deleted from the bucket must not stay readable from the cache
-        once its DB rows are gone. A missing key is a no-op.
+        The orphan sweep calls this for each deleted file's composite
+        key from `transcript_key` (issue #269): the transcript bytes are
+        keyed by (file_key, etag), so a file deleted from the bucket
+        must not stay readable from the cache once its DB rows are gone.
+        A missing key is a no-op.
         """
         with self._guard:
             item = self._items.pop(key, None)
@@ -87,6 +88,24 @@ class _IdleLRU:
 
 
 transcript_cache = _IdleLRU(max_bytes=256 * 1024 * 1024, idle_seconds=1200)
+
+
+def transcript_key(file_key: str, etag: str) -> str:
+    """The transcript-cache key for one stored object (issue #375).
+
+    The key must identify the OBJECT, never the validator alone: in
+    file:// mode the etag is sha1 over mtime and size alone
+    (r2._list_keys_file), so two transcripts of equal size and mtime
+    share an etag, and an etag-only key served one session's transcript
+    for another. The bucket-qualified file key supplies the object
+    identity; the etag stays in the key as the validator, so an object
+    replaced under its key (new etag → new key) cannot serve its
+    predecessor's stale bytes.
+
+    The `:` separator is unambiguous: an etag never contains one (hex,
+    or hex with a `-N` multipart suffix).
+    """
+    return f"{file_key}:{etag}"
 
 
 class _TTLCache:

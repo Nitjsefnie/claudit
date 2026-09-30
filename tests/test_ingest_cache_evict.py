@@ -30,18 +30,20 @@ def _mini_r2_env_fixture(monkeypatch):
 def test_orphan_sweep_evicts_deleted_file_from_transcript_cache(
         fresh_db, mini_r2_env):
     """Issue #269: the sweep that drops a deleted file's rows must also
-    evict its cached transcript bytes — they are keyed by r2_etag
-    (api_sessions), so without the eviction the raw transcript stays
-    served from cache after its source object is deleted. A survivor's
-    entry is untouched."""
+    evict its cached transcript bytes — they are keyed by
+    cache.transcript_key(file_key, r2_etag) (issues #269, #375), so
+    without the eviction the raw transcript stays served from cache
+    after its source object is deleted. A survivor's entry is
+    untouched."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
             "SELECT file_key, r2_etag FROM files "
             "WHERE file_key LIKE '%sess-B.jsonl' "
             "OR file_key LIKE '%sess-A.jsonl'").fetchall()
-    etags = {Path(fk).name: etag for fk, etag in rows}
-    doomed, survivor = etags["sess-B.jsonl"], etags["sess-A.jsonl"]
+    keys = {Path(fk).name: cache.transcript_key(fk, etag)
+            for fk, etag in rows}
+    doomed, survivor = keys["sess-B.jsonl"], keys["sess-A.jsonl"]
     assert doomed != survivor
     cache.transcript_cache.put(doomed, b'{"doomed": true}\n')
     cache.transcript_cache.put(survivor, b'{"survivor": true}\n')
@@ -61,19 +63,20 @@ def test_full_scope_orphan_sweep_evicts_cached_transcripts(
     transcript bytes go with it."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
-        etags = [
-            row[0] for row in c.execute(
-                "SELECT r2_etag FROM files").fetchall()
+        keys = [
+            cache.transcript_key(fk, etag)
+            for fk, etag in c.execute(
+                "SELECT file_key, r2_etag FROM files").fetchall()
         ]
-    assert len(etags) == 5
-    assert len(set(etags)) == 5
-    for etag in etags:
-        cache.transcript_cache.put(etag, b'{"body": true}\n')
+    assert len(keys) == 5
+    assert len(set(keys)) == 5
+    for key in keys:
+        cache.transcript_cache.put(key, b'{"body": true}\n')
 
     for p in mini_r2_env.rglob("*.jsonl"):
         p.unlink()
     result = ingest.run_ingest(trigger="manual")
     assert result["deleted"] == 5
 
-    for etag in etags:
-        assert cache.transcript_cache.get(etag) is None
+    for key in keys:
+        assert cache.transcript_cache.get(key) is None
