@@ -512,10 +512,12 @@ def test_inspector_keys_drive_the_click_selection_path():
     assert "setSelected" in handler, (
         "the timeline key handler bypasses setSelected -- it does not "
         "drive the same selection path the row click uses")
-    assert "visible.length - 1" in handler, (
-        "the arrow move is not clamped against the last visible row -- "
-        "the selection cannot traverse to every row, including the "
-        "second of two identical entries")
+    assert handler.count(
+        "window.moveTimelineIndex(activeIdx, visible.length,") == 2, (
+        "the arrow moves no longer clamp against the last visible row "
+        "through the shared move helper at the clamped index -- the "
+        "selection cannot traverse to every row, including the second "
+        "of two identical entries")
     assert "revealRow(" in handler, (
         "the arrow moves no longer reveal the active row -- focus stays "
         "on the container, so the browser does not scroll the active "

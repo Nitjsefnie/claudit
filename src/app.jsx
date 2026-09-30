@@ -1294,15 +1294,14 @@ function SessionView({ tx }) {
     return true;
   });
 
-  const sel = visible[selected] || null;
-
-  // The transcript listbox's active option. Selection follows focus:
-  // ArrowUp/Down move it, Enter/Space re-assert it through the same
-  // setSelected call the row click uses, and clamping against the
-  // filtered row count keeps the selection recoverable when a search or
-  // filter shrinks the timeline under the current index.
+  // The transcript listbox's one clamped index (issue #364): the detail
+  // row, the selected row, the arrow moves and the active option ALL
+  // derive from it, so after a search or filter shrinks the timeline
+  // under the stored index they still agree — on the last visible row —
+  // and ArrowUp moves from THAT row, as a click would.
   const rowId = (idx) => `${viewId}-trow-${idx}`;
-  const activeIdx = Math.min(selected, visible.length - 1);
+  const activeIdx = window.activeTimelineIndex(selected, visible.length);
+  const sel = visible[activeIdx] || null;
   // With focus parked on the container (aria-activedescendant), the
   // browser does not scroll the active option into view; do it here so
   // an arrow move past the viewport stays visible.
@@ -1313,12 +1312,12 @@ function SessionView({ tx }) {
   const onTimelineKeyDown = (ev) => {
     if (ev.key === 'ArrowDown') {
       ev.preventDefault();
-      const next = Math.min(visible.length - 1, selected + 1);
+      const next = window.moveTimelineIndex(activeIdx, visible.length, 1);
       setSelected(next);
       revealRow(next);
     } else if (ev.key === 'ArrowUp') {
       ev.preventDefault();
-      const next = Math.max(0, selected - 1);
+      const next = window.moveTimelineIndex(activeIdx, visible.length, -1);
       setSelected(next);
       revealRow(next);
     } else if (ev.key === 'Enter' || ev.key === ' ') {
@@ -1365,7 +1364,7 @@ function SessionView({ tx }) {
             onKeyDown={onTimelineKeyDown}>
             {visible.map((e, idx) => (
               <TimelineRow key={e.line + ':' + idx} rowId={rowId(idx)} e={e} dense={dense}
-                selected={idx === selected} onClick={() => setSelected(idx)} />
+                selected={idx === activeIdx} onClick={() => setSelected(idx)} />
             ))}
           </div>
         </aside>
