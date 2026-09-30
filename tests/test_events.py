@@ -98,6 +98,7 @@ async def test_lifespan_keeps_shutdown_request_when_wait_times_out(monkeypatch):
     # must not leak into other tests.
     monkeypatch.setattr(app_mod.ingest, "_SHUTDOWN", threading.Event())
     monkeypatch.setattr(app_mod.ingest, "wait_for_run", lambda _t: False)
+    monkeypatch.setattr(app_mod.ingest, "close_open_run", lambda: None)
     cleared = []
     monkeypatch.setattr(
         app_mod.ingest, "clear_shutdown", lambda: cleared.append("clear")
@@ -466,3 +467,52 @@ async def test_event_stream_shutdown_ends_the_stream(monkeypatch):
     with pytest.raises(StopAsyncIteration):
         await _next_chunk(body_after)
     assert events._subscribers == set()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_lifespan_cancels_statements_and_closes_the_open_run(monkeypatch):
+    """Teardown (issue #372) cancels in-flight viz statements right after
+    the abort request so a run stuck inside a long single-statement phase
+    stops within the bounded wait, and — only when the wait times out —
+    closes the open ingest_runs row as the fallback abort."""
+    calls: list = []
+    _stub_lifespan_env(monkeypatch, calls)
+    monkeypatch.setattr(app_mod.db, "cancel_viz_queries",
+                        lambda: calls.append("cancel"))
+    monkeypatch.setattr(app_mod.ingest, "close_open_run",
+                        lambda: calls.append("close_row"))
+    monkeypatch.setattr(app_mod.ingest, "_SHUTDOWN", threading.Event())
+    monkeypatch.setattr(app_mod.ingest, "wait_for_run", lambda _t: False)
+    monkeypatch.setattr(
+        app_mod.ingest, "clear_shutdown", lambda: cleared.append("clear"))
+    cleared: list = []
+
+    async with app_mod.lifespan(FastAPI()):
+        pass
+
+    assert "cancel" in calls
+    assert "close_row" in calls
+    # Cancel rides the abort request; the fallback close rides the timeout.
+    assert calls.index("cancel") < calls.index("close_row")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_fallback_close_needs_a_timed_out_wait(monkeypatch):
+    """A run the bounded wait freed closes its own row; teardown must not
+    write the fallback close on top of a successful wait."""
+    calls: list = []
+    _stub_lifespan_env(monkeypatch, calls)
+    monkeypatch.setattr(app_mod.db, "cancel_viz_queries",
+                        lambda: calls.append("cancel"))
+    monkeypatch.setattr(app_mod.ingest, "close_open_run",
+                        lambda: calls.append("close_row"))
+    monkeypatch.setattr(app_mod.ingest, "_SHUTDOWN", threading.Event())
+    monkeypatch.setattr(app_mod.ingest, "wait_for_run", lambda _t: True)
+    monkeypatch.setattr(
+        app_mod.ingest, "clear_shutdown", lambda: calls.append("clear"))
+
+    async with app_mod.lifespan(FastAPI()):
+        pass
+
+    assert "cancel" in calls
+    assert "close_row" not in calls, calls

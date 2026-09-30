@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 import types
 from contextlib import closing, contextmanager
 
@@ -408,3 +409,196 @@ def test_wait_for_run(fresh_db, mini_r2_env):
 
     assert seen["first"].get("skipped") is not True, seen
     assert ingest.wait_for_run(0.1) is True, "the run released the lock"
+
+
+# ---------------------------------------------------------------------------
+# The lost-lock guard (issue #374) and the cancel-during-shutdown abort
+# (issue #372): a run whose lock session the server ends mid-run, or whose
+# in-flight statement the lifespan teardown cancels, must unwind as an
+# abort — the row closed with the cause named — never continuing unlocked
+# or lingering unfinished.
+# ---------------------------------------------------------------------------
+
+
+def _advisory_holder_pid() -> int:
+    """The pid of the backend holding the ingest advisory lock."""
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                 autocommit=True)) as probe:
+        row = probe.execute(  # pylint: disable=no-member
+            "SELECT pid FROM pg_locks WHERE locktype = 'advisory' "
+            "AND classid = %s AND objid = %s",
+            ((ingest._INGEST_LOCK_KEY >> 32) & 0xFFFFFFFF,  # pylint: disable=protected-access
+             ingest._INGEST_LOCK_KEY & 0xFFFFFFFF)  # pylint: disable=protected-access
+        ).fetchone()
+    assert row is not None, "the run must hold the advisory lock"
+    return row[0]
+
+
+def test_bounded_step_notices_a_dead_lock_session(fresh_db, mini_r2_env):
+    """A bounded step after the lock session died must unwind the run via
+    IngestAborted naming the lost lock — a session the server ends
+    (pg_terminate_backend, a database restart) releases the db-wide lock,
+    and a run that kept going unlocked would race a second instance."""
+    with ingest._db_run_lock() as acquired:  # pylint: disable=protected-access
+        assert acquired is True
+        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                     autocommit=True)) as killer:
+            killer.execute(  # pylint: disable=no-member
+                "SELECT pg_terminate_backend(%s)",
+                (_advisory_holder_pid(),))
+        with pytest.raises(ingest.IngestAborted, match="lost ingest lock"):
+            ingest._check_shutdown()  # pylint: disable=protected-access
+    _wait_db_lock_free()
+
+
+def test_lost_lock_session_aborts_the_run(fresh_db, mini_r2_env, monkeypatch):
+    """End-to-end: a phase kills the lock session mid-run; the next bounded
+    step aborts the run, the row closes with the cause named, and the lock
+    is free again for another instance."""
+    def kill_lock_session() -> int:
+        pid = _advisory_holder_pid()
+        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+                                     autocommit=True)) as killer:
+            killer.execute(  # pylint: disable=no-member
+                "SELECT pg_terminate_backend(%s)", (pid,))
+        return 0
+
+    monkeypatch.setattr(ingest, "purge_suppressed", kill_lock_session)
+    summary = ingest.run_ingest("manual")
+
+    assert summary["aborted"] is True, summary
+    assert "lost ingest lock" in summary["error"], summary
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            (summary["id"],)).fetchone()
+    assert row is not None and row[0] is not None, (
+        "a run that lost its lock must still close its row")
+    assert "lost ingest lock" in row[1], row[1]
+    _wait_db_lock_free()
+
+
+def test_cancelled_statement_during_shutdown_closes_aborted(
+        fresh_db, mini_r2_env, monkeypatch):
+    """Teardown cancels the statement a long single-statement phase is
+    stuck in (issue #372); the driver surfaces the server's cancel as
+    QueryCanceled. With the shutdown request in force that cancel IS the
+    abort arriving, so the run closes 'aborted' — never 'fatal' — and
+    later rebuilds are skipped."""
+    def cancelled_rollup():
+        ingest._SHUTDOWN.set()  # pylint: disable=protected-access
+        raise psycopg.errors.QueryCanceled(
+            "canceling statement due to user request")
+
+    monkeypatch.setattr(ingest, "rebuild_rollup", cancelled_rollup)
+    later: list[int] = []
+    monkeypatch.setattr(ingest, "rebuild_tool_rollup",
+                        lambda: later.append(1))
+    try:
+        summary = ingest.run_ingest_locked("manual")
+    finally:
+        ingest._SHUTDOWN.clear()  # pylint: disable=protected-access
+
+    assert summary["aborted"] is True, summary
+    assert "aborted" in summary["error"], summary
+    assert not later, "rebuilds after the cancelled statement must be skipped"
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            (summary["id"],)).fetchone()
+    assert row is not None and row[0] is not None, (
+        "a cancelled run must still close its row")
+    assert "aborted" in row[1], row[1]
+
+
+def test_close_open_run_closes_the_row_teardown_could_not_free(fresh_db):
+    """The fallback behind the bounded wait (issue #372): when a run is
+    stuck beyond it, teardown closes the open row itself, so a stop never
+    leaves finished_at NULL. Only a still-open row is written — the run
+    thread's own close, either side of ours, wins."""
+    run_id = ingest._open_run(  # pylint: disable=protected-access
+        datetime.now(timezone.utc), "manual")
+    ingest._set_progress(run_id=run_id)  # pylint: disable=protected-access
+    try:
+        assert ingest.close_open_run() is True
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+                (run_id,)).fetchone()
+        assert row is not None and row[0] is not None
+        assert row[1] == "aborted: shutdown requested"
+
+        with db.viz_conn() as c:
+            c.execute(  # pylint: disable=no-member
+                "UPDATE ingest_runs SET error = 'closed by the run' "
+                "WHERE id = %s", (run_id,))
+            c.commit()
+        assert ingest.close_open_run() is False
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT error FROM ingest_runs WHERE id = %s",
+                (run_id,)).fetchone()
+        assert row is not None and row[0] == "closed by the run"
+    finally:
+        ingest._set_progress(run_id=None)  # pylint: disable=protected-access
+
+
+def test_close_open_run_without_an_open_run_is_a_noop(fresh_db):
+    """No run in flight: nothing to close, nothing written."""
+    ingest._set_progress(run_id=None)  # pylint: disable=protected-access
+    assert ingest.close_open_run() is False
+
+
+# ---------------------------------------------------------------------------
+# Teardown cancellation (issue #372): the bounded steps cannot fire while a
+# run sits inside one long single-statement phase, so teardown cancels the
+# statement server-side; the driver raises QueryCanceled and the run
+# classifies it as the abort. The fallback row close behind the bounded
+# wait is pinned above.
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_viz_queries_interrupts_an_inflight_statement(fresh_db):
+    """A statement in flight on a checked-out viz connection is cancelled
+    by db.cancel_viz_queries(); the caller sees QueryCanceled, not a
+    completed sleep."""
+    outcome: dict = {}
+
+    def sleeper():
+        try:
+            with db.viz_conn() as c:
+                c.execute("SELECT pg_sleep(120)")
+            outcome["completed"] = True
+        except psycopg.errors.QueryCanceled:
+            outcome["cancelled"] = True
+        except Exception as exc:  # noqa: BLE001
+            outcome["error"] = repr(exc)
+        finally:
+            outcome["done"].set()
+
+    outcome["done"] = threading.Event()
+    outcome["done"].clear()
+    worker = threading.Thread(target=sleeper)
+    worker.start()
+    assert outcome["done"].wait(timeout=30) is False, (
+        f"pg_sleep finished on its own: {outcome}")
+
+    # The synchronisation point is the server, not a sleep: wait until
+    # pg_stat_activity shows the sleep executing, then cancel.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE query LIKE '%pg_sleep%' AND state = 'active'"
+            ).fetchone()
+        if row and row[0]:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("pg_sleep never reached the server")
+
+    db.cancel_viz_queries()
+    assert outcome["done"].wait(timeout=30) is True
+    assert outcome.get("cancelled"), outcome
+    worker.join(timeout=5)

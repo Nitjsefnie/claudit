@@ -7,8 +7,14 @@ crossed pylint's line budget.
 from __future__ import annotations
 
 import lzma
+import multiprocessing
+import os
+import signal
 import threading
+import time
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 import pytest
 from fastapi import FastAPI
@@ -18,7 +24,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import api, app as app_mod, constants, db, events, ingest, ingest_runs
+from backend import api, app as app_mod, constants, db, events, ingest, ingest_fetch, ingest_runs
 
 # failed_keys is the PUBLIC key form returned for authenticated triage.
 _FLAKY_PUBLIC_KEY = _FLAKY_KEY.split("/", 1)[1]
@@ -412,3 +418,61 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
         rollup = _scalar(c, "SELECT COUNT(*) FROM usage_rollup")
     assert stored == 0
     assert rollup > 0, "derived state must still be rebuilt"
+
+
+# ------------------------------------------ parse-worker signal hygiene (#373)
+
+def _worker_report():
+    """Run inside the forked worker: its handlers and parent pid."""
+    return (signal.getsignal(signal.SIGTERM),
+            signal.getsignal(signal.SIGINT),
+            os.getppid())
+
+
+def _fork_pool(**kwargs):
+    """A one-worker fork pool with the production initializer wired."""
+    return ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("fork"),
+        initializer=ingest_fetch.parse_worker_init,
+        **kwargs)
+
+
+def test_parse_worker_init_restores_default_signal_disposition():
+    """A forked parse worker inherits uvicorn's SIGTERM handler, which only
+    sets a flag the worker never checks — so it ignored SIGTERM and could
+    outlive the service holding its port, DB sessions and the ingest lock
+    (issue #373). The initializer must restore SIG_DFL and must run under
+    a parent that is still alive."""
+    with _fork_pool(initargs=(os.getpid(),)) as pool:
+        handler, int_handler, ppid = pool.submit(
+            _worker_report).result(timeout=60)
+    assert handler is signal.SIG_DFL
+    assert int_handler is signal.SIG_DFL
+    assert ppid == os.getpid()
+
+
+def test_parse_worker_dies_on_sigterm():
+    """SIG_DFL means a systemd control-group stop — SIGTERM to the cgroup —
+    kills a worker outright instead of leaving it parsing in the background."""
+    with _fork_pool(initargs=(os.getpid(),)) as pool:
+        worker_pid = pool.submit(os.getpid).result(timeout=60)
+        os.kill(worker_pid, signal.SIGTERM)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(worker_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("a parse worker survived SIGTERM")
+
+
+def test_parse_worker_exits_when_the_parent_is_already_gone():
+    """PDEATHSIG is armed after fork, so a parent dying in that window
+    would leave an orphan; the initializer's ppid check closes the race by
+    exiting any worker whose parent is not the one that forked it."""
+    with _fork_pool(initargs=(-1,)) as pool:
+        with pytest.raises(BrokenProcessPool):
+            pool.submit(int).result(timeout=60)

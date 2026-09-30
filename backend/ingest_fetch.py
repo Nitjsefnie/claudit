@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import os
+import signal
 import time
 import lzma
 from collections.abc import Callable, Iterator
@@ -20,6 +21,7 @@ from concurrent.futures.process import BrokenProcessPool, ProcessPoolExecutor
 from botocore.exceptions import BotoCoreError, ClientError
 
 from backend import agent_sidecar, db, parse, r2
+from backend.ingest_reprice import IngestAborted
 from backend.ingest_scope import capture_and_add, capture_contributions, current_scope
 from backend.ingest_progress import _set_progress
 from backend.ingest_timing import _RUN_TIMING, _RunTiming
@@ -203,6 +205,40 @@ def persist_thread_count() -> int:
         return 4
 
 
+def parse_worker_init(parent_pid: int) -> None:
+    """Keep a forked parse worker from outliving the service (issue #373).
+
+    A fork inherits uvicorn's SIGTERM handler, which only sets a flag the
+    worker never checks — so a worker ignored SIGTERM and survived the
+    service, holding its port, database sessions and the ingest advisory
+    lock until killed by hand. Three defences, each best-effort so a
+    worker on a platform missing one still parses:
+
+    - SIGTERM/SIGINT restored to SIG_DFL: a systemd control-group stop
+      (SIGTERM to the cgroup) kills the worker outright;
+    - the parent-death signal (prctl PR_SET_PDEATHSIG, SIGKILL): the
+      worker dies with the process even when nothing sent it a SIGTERM
+      (a bare uvicorn whose supervisor kills the main PID only);
+    - the ppid check: PDEATHSIG is armed after fork, so a parent that
+      died inside that window left an orphan — a worker whose parent is
+      not the one that forked it exits immediately.
+    """
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, signal.SIG_DFL)
+        except (OSError, ValueError):  # pragma: no cover - no signal context
+            pass
+    try:
+        import ctypes  # pylint: disable=import-outside-toplevel
+
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(
+            1, signal.SIGKILL, 0, 0, 0)  # 1 = PR_SET_PDEATHSIG
+    except Exception:  # noqa: BLE001  - best-effort; non-Linux or no libc
+        pass
+    if os.getppid() != parent_pid:
+        os._exit(0)
+
+
 def pipeline_threads(todo: list[tuple], parser_version: str,
                      failed: list[tuple[str, str]],
                      current: _RunTiming | None, scope,
@@ -371,7 +407,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     completion, persist the drain after it — disjoint, so the TIMING
     line's sum never exceeds its total.
     """
-    # pylint: disable=too-many-locals,too-many-branches
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     inserted = 0
     reparsed = 0
     vanished = 0
@@ -404,45 +440,58 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     # accepted here because children log at most a few lines per run.
     with ProcessPoolExecutor(
             max_workers=processes,
-            mp_context=multiprocessing.get_context("fork")) as parse_pool, \
+            mp_context=multiprocessing.get_context("fork"),
+            initializer=parse_worker_init,
+            initargs=(os.getpid(),)) as parse_pool, \
             ThreadPoolExecutor(max_workers=persist_workers) as persist_pool:
         # The previous chunk's (persist futures, stored map), drained while
         # this chunk's parses run — the drain costs no parse throughput.
         pending: tuple[dict, dict] | None = None
-        for start in range(0, len(todo), chunk):
-            # Checked BEFORE the previous chunk's drain: on abort the
-            # in-flight persists still execute during the with-block
-            # shutdown and land in the DB, but their counts are never
-            # booked — the run closes aborted with partial counts, which
-            # is the documented abort contract; the next run converges.
-            check_shutdown()
-            items = todo[start:start + chunk]
-            stored_by_key = {o.key: stored for o, _p, stored in items}
-            persist_futures: dict = {}
-            parse_futures = {parse_pool.submit(parse_wire, it, parse_call): it
-                             for it in items}
+        try:
+            for start in range(0, len(todo), chunk):
+                # Checked BEFORE the previous chunk's drain: on abort the
+                # in-flight persists still execute during the with-block
+                # shutdown and land in the DB, but their counts are never
+                # booked — the run closes aborted with partial counts, which
+                # is the documented abort contract; the next run converges.
+                check_shutdown()
+                items = todo[start:start + chunk]
+                stored_by_key = {o.key: stored for o, _p, stored in items}
+                persist_futures: dict = {}
+                parse_futures = {
+                    parse_pool.submit(parse_wire, it, parse_call): it
+                    for it in items}
+                if pending is not None:
+                    drain(*pending)
+                pending = None
+                for item, parsed, exc in resolve_futures(parse_futures):
+                    obj, proj, _stored = item
+                    if current is not None:
+                        current.last_parse_done = time.perf_counter()
+                    if exc is not None:
+                        if isinstance(exc, VanishedObject):
+                            log.info(
+                                "ingest: %s vanished between list and fetch",
+                                obj.key)
+                            seen_keys.discard(obj.key)
+                            vanished += 1
+                        else:
+                            record_failure(failed, obj.key, exc)
+                        continue
+                    if scope is not None and not scope.full:
+                        scope.add_contributions(old_contributions, {obj.key})
+                    persist_futures[persist_pool.submit(
+                        persist_call, obj, proj, parsed, parser_version,
+                        current)] = obj
+                pending = (persist_futures, stored_by_key)
             if pending is not None:
                 drain(*pending)
-            pending = None
-            for item, parsed, exc in resolve_futures(parse_futures):
-                obj, proj, _stored = item
-                if current is not None:
-                    current.last_parse_done = time.perf_counter()
-                if exc is not None:
-                    if isinstance(exc, VanishedObject):
-                        log.info("ingest: %s vanished between list and fetch",
-                                 obj.key)
-                        seen_keys.discard(obj.key)
-                        vanished += 1
-                    else:
-                        record_failure(failed, obj.key, exc)
-                    continue
-                if scope is not None and not scope.full:
-                    scope.add_contributions(old_contributions, {obj.key})
-                persist_futures[persist_pool.submit(
-                    persist_call, obj, proj, parsed, parser_version,
-                    current)] = obj
-            pending = (persist_futures, stored_by_key)
-        if pending is not None:
-            drain(*pending)
+        except IngestAborted:
+            # Abort mid-chunk: drop the queued parses and let the pools
+            # stop behind their current items. The workers themselves die
+            # on the service's stop (parse_worker_init); the run closes
+            # aborted and the next run converges.
+            parse_pool.shutdown(wait=False, cancel_futures=True)
+            persist_pool.shutdown(wait=False, cancel_futures=True)
+            raise
     return inserted, reparsed, vanished
