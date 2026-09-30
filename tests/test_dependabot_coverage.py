@@ -31,6 +31,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from tests import git_meta
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 
@@ -285,6 +287,7 @@ def test_no_requirements_file_has_two_owners():
     backend/requirements.txt, which is how boto3's bump opened twice
     (#164 from /backend, #165 from the root, 16 seconds apart).
     """
+    git_meta.require_own_git_metadata(REPO_ROOT)
     owners = _pip_coverage_owners()
     duplicates = {path: labels for path, labels in owners.items()
                   if len(labels) > 1}
@@ -303,6 +306,7 @@ def test_every_requirements_file_is_covered():
     files. Also pins discovery against coming back empty by asserting
     the exact expected set.
     """
+    git_meta.require_own_git_metadata(REPO_ROOT)
     requirements = _tracked_requirements()
     assert set(requirements) == EXPECTED_REQUIREMENTS_FILES, (
         f"git ls-files discovery returned {sorted(requirements)}, not the "
