@@ -282,11 +282,13 @@ def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
 
 def test_the_pytest_job_pushes_nothing_and_carries_the_key_never():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
-    lines = [line for line in raw.splitlines()
-             if "MASTER_PUSH_DEPLOY_KEY" in line]
-    assert len(lines) == 1, lines
-    assert lines[0].strip() == (
-        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    # The only load site in the whole file is the ratchet-push step's env
+    # mapping: the secret is wired exactly once.
+    env_lines = [line.strip() for line in raw.splitlines()
+                 if "secrets.MASTER_PUSH_DEPLOY_KEY" in line]
+    assert env_lines == [
+        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"]
+    assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 1
     pytest_job = _tests_workflow()["jobs"]["pytest"]
     for step in pytest_job.get("steps") or []:
         assert "git push" not in (step.get("run") or ""), step.get("name")
