@@ -762,8 +762,6 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
         </div>
       </div>
       <nav className="topnav">
-        {/* aria-current exposes the active page beyond the .on class
-            (issue #395): exactly one button carries it at a time. */}
         <button aria-current={route === 'dashboard' ? 'page' : undefined} className={'navbtn ' + (route === 'dashboard' ? 'on' : '')} onClick={() => setRoute('dashboard')}>Overview</button>
         {!isGuest && (
           <button aria-current={route === 'sessions' ? 'page' : undefined} className={'navbtn ' + (route === 'sessions' ? 'on' : '')} onClick={() => setRoute('sessions')}>Sessions</button>

@@ -75,12 +75,12 @@ def _panel_src(name: str, src: str) -> str:
 
 
 def _checkbox_rows() -> list[tuple[str, str]]:
-    """The legend checkbox rows as (label tag, input tag) pairs.
+    """The legend row component's (label tag, input tag) pair.
 
-    A row's input is the first child of its <label>, so the row is
-    located from the input: the label opening tag that immediately
-    precedes it, with no markup between the label tag's end and the
-    input tag's start."""
+    The six legend rows are one shared component, so exactly one row
+    shape exists in the file; the six <LegendCheckboxRow> call sites are
+    counted separately (a future row hand-rolls it and the guard
+    fires)."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
     rows = []
     for m in re.finditer(r'<input type="checkbox"', src):
@@ -89,11 +89,12 @@ def _checkbox_rows() -> list[tuple[str, str]]:
         between = src[open_lt + len(label_tag):m.start()]
         if not between.strip():
             rows.append((label_tag, _jsx_opening_tag(src, m.start())))
-        else:
-            # The checkbox is not its label's first child; it is not one
-            # of the legend rows this guard pins.
-            continue
     return rows
+
+
+def _legend_call_sites() -> int:
+    return _strip_line_comments(EXTRA.read_text(encoding="utf-8")).count(
+        "<LegendCheckboxRow")
 
 
 # -- Finding 4: legend text is never dimmed below AA -------------------
@@ -103,36 +104,41 @@ def test_legend_rows_never_dim_their_text():
     the label carried `opacity: checked ? 1 : 0.6`, compositing --muted
     (4.84:1 at full strength) below the AA floor whenever a series was
     unchecked. The dimming must not touch the row's text: any `opacity`
-    binding on the row <label> is banned outright, because no opacity
-    over --bg-card keeps --muted at 4.5:1 (full opacity computes 4.84:1;
-    even 0.95 drops to 4.51:1 and 0.9 to 3.9:1).
-    """
+    on the row <label> is banned outright, because no opacity over
+    --bg-card keeps --muted at 4.5:1 (full opacity computes 4.84:1; even
+    0.95 drops to 4.51:1 and 0.9 to 3.9:1)."""
     rows = _checkbox_rows()
-    assert len(rows) == 6, (
-        f"expected the 6 legend checkbox rows in "
-        f"dashboard-charts-extra.jsx, found {len(rows)} -- the guard "
-        f"would pass vacuously")
-    for label_tag, _ in rows:
-        assert "opacity" not in label_tag, (
-            f"a legend row label dims its text: {label_tag.strip()!r} -- "
-            f"no opacity over --bg-card keeps --muted at 4.5:1; dim the "
-            f"swatch (non-text) or nothing at all")
+    assert len(rows) == 1, (
+        f"expected the 1 shared LegendCheckboxRow in "
+        f"dashboard-charts-extra.jsx, found {len(rows)} -- a hand-rolled "
+        f"legend row appeared; reuse the shared component")
+    (label_tag, _), = rows
+    assert "opacity" not in label_tag, (
+        f"a legend row label dims its text: {label_tag.strip()!r} -- "
+        f"no opacity over --bg-card keeps --muted at 4.5:1; the dimming "
+        f"belongs on the swatch (non-text)")
+    assert _legend_call_sites() == 6, (
+        f"{_legend_call_sites()} of the 6 legend rows use the shared "
+        f"LegendCheckboxRow -- the guard would pass vacuously if a site "
+        f"hand-rolled its label")
 
 
 def test_legend_rows_keep_a_nontext_state_affordance():
     """The affordance the label opacity provided (which series are
     toggled on) survives on the swatch -- a non-text element the AA
     contrast floor does not reach -- rather than on the text."""
-    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    rows = _checkbox_rows()
-    assert rows, "no legend checkbox rows -- the guard would pass vacuously"
+    body = _panel_src("LegendCheckboxRow",
+                      _strip_line_comments(EXTRA.read_text(encoding="utf-8")))
     dimmed = re.findall(
-        r"background: [\w_]+, display: 'inline-block', borderRadius: 2,\s*"
-        r"opacity: checked \? 1 : 0\.45", src)
-    assert len(dimmed) == len(rows), (
-        f"{len(dimmed)} of {len(rows)} legend swatches carry the "
-        f"non-text dimming -- move the label's old opacity there")
+        r"background: color, display: 'inline-block', borderRadius: 2, "
+        r"opacity: checked \? 1 : 0\.45", body)
+    assert len(dimmed) == 1, (
+        "the shared legend row's swatch carries no non-text state "
+        "dimming -- the affordance the old label opacity provided is "
+        "gone, or moved back onto text")
 
+
+# -- Finding 4: legend text is never dimmed below AA -------------------
 
 # -- Finding 5: checkbox targets are at least 24x24 --------------------
 
@@ -140,11 +146,13 @@ def test_legend_checkboxes_meet_the_24px_target_floor():
     """The legend checkboxes rendered at the browser default 13x13
     (axe target-size); the input's own box is the hit target, so each
     carries an explicit 24x24."""
-    rows = _checkbox_rows()
-    assert len(rows) == 6, (
-        f"expected the 6 legend checkbox rows, found {len(rows)} -- the "
-        f"guard would pass vacuously")
-    for _, input_tag in rows:
+    assert len(_checkbox_rows()) == 1, (
+        "expected the 1 shared LegendCheckboxRow -- a hand-rolled legend "
+        "row appeared; reuse the shared component")
+    assert _legend_call_sites() == 6, (
+        f"{_legend_call_sites()} of the 6 legend rows use the shared "
+        f"component -- the guard would pass vacuously")
+    for _, input_tag in _checkbox_rows():
         w = re.search(r"width: (\d+)", input_tag)
         h = re.search(r"height: (\d+)", input_tag)
         assert w and h, (
