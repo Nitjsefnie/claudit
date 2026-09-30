@@ -176,8 +176,15 @@ async def reap_live_renders(budget_s: float) -> None:
             try:
                 await asyncio.wait_for(proc.wait(), timeout=remaining)
             except asyncio.TimeoutError:
+                # Reported the same way as the out-of-budget skip below:
+                # this one line is the only signal that a render child
+                # outlived the reap, and an earlier child eating the whole
+                # budget is exactly the case issue #414 is about.
                 print(f"[export] render child {proc.pid} still unreaped at "
                       "shutdown", file=sys.stderr)
+        else:
+            print(f"[export] render child {proc.pid} not reaped: the render "
+                  "reap ran out of its share of the stop budget", file=sys.stderr)
         try:
             os.unlink(out_path)
         except OSError:

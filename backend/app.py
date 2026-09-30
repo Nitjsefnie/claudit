@@ -92,10 +92,6 @@ async def lifespan(fastapi_app: FastAPI):
     # bounded step (issue #372), so cancel the statements in flight: the
     # driver raises QueryCanceled, which the run classifies as the abort.
     db.cancel_viz_queries()
-    # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
-    # instead of waiting for the (never-ending) heartbeat response.
-    events.signal_shutdown()
-    sched.shutdown(wait=False)
     # Reap live export renders (issue #363): uvicorn cancels the
     # in-flight export task at the graceful-shutdown deadline and then
     # re-raises the captured SIGTERM right after lifespan shutdown, so
@@ -103,8 +99,15 @@ async def lifespan(fastapi_app: FastAPI):
     # the one teardown uvicorn waits for — so it draws from the stop budget
     # like every other term, and as a WHOLE rather than per live child: it
     # runs ahead of the bounded wait, and a per-child bound is drawn once
-    # per child (issue #414).
+    # per child (issue #414). It runs immediately after the abort, keeping
+    # only the two statements that can be skipped by a raising neighbour
+    # between `yield` and it (the #363 guarantee), and the reap itself is
+    # bounded, so nothing it does can strand the wait behind it.
     await api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S)
+    # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
+    # instead of waiting for the (never-ending) heartbeat response.
+    events.signal_shutdown()
+    sched.shutdown(wait=False)
     # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
     # normally sub-second) plus uvicorn's own graceful window and the reap
     # above stays inside the unit's TimeoutStopSec: the wait is DERIVED
