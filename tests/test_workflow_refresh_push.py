@@ -112,11 +112,13 @@ def test_refresh_job_outputs_feed_the_push_gate():
 
 def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     raw = WORKFLOW.read_text(encoding="utf-8")
-    lines = [line for line in raw.splitlines()
-             if "MASTER_PUSH_DEPLOY_KEY" in line]
-    assert len(lines) == 1, lines
-    assert lines[0].strip() == (
-        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    # The only load site in the whole file is the push step's env mapping:
+    # the secret is wired exactly once.
+    env_lines = [line.strip() for line in raw.splitlines()
+                 if "secrets.MASTER_PUSH_DEPLOY_KEY" in line]
+    assert env_lines == [
+        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"]
+    assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 1
     for job_id in ("refresh", "verdict"):
         for step in (_job(job_id).get("steps") or []):
             blob = repr(step.get("env") or {}) + (step.get("run") or "")
@@ -196,8 +198,10 @@ def test_push_run_block_pins_the_order_and_never_forces_or_tokens():
             '"$RUNNER_TEMP/push-repo/backend/constants.py"' in run)
     assert ('git -C "$RUNNER_TEMP/push-repo" '
             'add src/pricing.json backend/constants.py' in run)
-    assert "git config user.name 'github-actions[bot]'" in run
-    assert f"git config user.email '{BOT_EMAIL}'" in run
+    assert ("git -C \"$RUNNER_TEMP/push-repo\" "
+            "config user.name 'github-actions[bot]'" in run)
+    assert (f'git -C "$RUNNER_TEMP/push-repo" '
+            f"config user.email '{BOT_EMAIL}'" in run)
     assert ('git -C "$RUNNER_TEMP/push-repo" '
             'commit -F "$RUNNER_TEMP/push-data/commit-msg.txt"' in run)
     assert 'git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master' in run
@@ -277,13 +281,20 @@ def _peer_move(scratch: Path, mark: str) -> str:
 
 def _git_shim() -> str:
     # Every git call passes through to the real git; the FAKE switches
-    # bend only `git push`, which is the race surface.
+    # bend only `git push`, which is the race surface. The push step
+    # invokes `git -C <dir> push`, so the subcommand sits after the -C
+    # pair.
     return r"""#!/usr/bin/env bash
 set -eu
-if [ "${FAKE_FAIL_GIT_PUSH:-0}" -eq 1 ] && [ "${1:-}" = "push" ]; then
+if [ "${1:-}" = "-C" ]; then
+  sub="${3:-}"
+else
+  sub="${1:-}"
+fi
+if [ "${FAKE_FAIL_GIT_PUSH:-0}" -eq 1 ] && [ "$sub" = "push" ]; then
   exit 1
 fi
-if [ "${FAKE_RACE_PUSH:-0}" -eq 1 ] && [ "${1:-}" = "push" ]; then
+if [ "${FAKE_RACE_PUSH:-0}" -eq 1 ] && [ "$sub" = "push" ]; then
   (
     cd "$FAKE_PEER" || exit 1
     echo race >> README.md
@@ -402,13 +413,14 @@ def _env(scratch: Path,
 
 def _stage_push_data(scratch: Path) -> str:
     """Pre-place the staging directory the download action would have
-    produced, and return the tested base (the remote tip)."""
-    origin = scratch / "origin"
+    produced, with the CHANGED data a refresh run detected, and return
+    the tested base (the remote tip)."""
     data = scratch / "runner-temp" / "push-data"
     data.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(origin / "src" / "pricing.json", data / "pricing.json")
-    shutil.copyfile(origin / "backend" / "constants.py",
-                    data / "constants.py")
+    (data / "pricing.json").write_text(
+        '{\n  "refreshed": true\n', encoding="utf-8")
+    (data / "constants.py").write_text(
+        'PRICING_VERSION = "7"\n', encoding="utf-8")
     (data / "commit-msg.txt").write_text(
         "refresh report, invocation 1\n", encoding="utf-8")
     base = _sha(scratch / "remote.git", "master")
@@ -508,7 +520,7 @@ def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
     assert "rejected while master stood still" not in proc.stderr
     authors = _git(bare, "log", "--format=%ae",
                    "master").stdout.splitlines()
-    assert authors == ["bot@example.invalid"], authors
+    assert BOT_EMAIL not in authors, authors
     assert base != peer_full
 
 

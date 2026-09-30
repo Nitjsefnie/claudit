@@ -15,10 +15,16 @@ name: refresh-pricing
 # unless it appends: the fetch stamp in the JSON moves only with the data,
 # so a quiet hour leaves the tree clean and commits nothing.
 #
-# THE SUITE RUNS BEFORE THE COMMIT, NOT AFTER. The suite gates this push, so a
-# failing suite leaves the last good data on master. The deploy-key push
-# starts workflow runs, unlike a GITHUB_TOKEN push; ci-gate then gives this
-# commit a real aggregate verdict on master's tip.
+# THE SUITE GATES THE PUSH. The suite runs in the keyless refresh job and
+# only a green run stages the tested data; the data travels to the push
+# job as an artifact. The push job runs no test, dependency or upstream
+# code — no checkout, no pip, no npm — and stops its ssh-agent when the
+# step ends. The deploy key lives in the master-push environment,
+# reachable only from master. The push starts workflow runs, unlike a
+# GITHUB_TOKEN push, so ci-gate gives this commit a real aggregate
+# verdict on master's tip. A push refused because master moved is
+# dropped with a notice; the next hourly run re-fetches, re-tests and
+# lands it.
 #
 # Only endpoints in the account's data region count; a region-tagged one
 # (`host/us`) is not one it is billed by. These designed signals refuse the
@@ -32,7 +38,7 @@ name: refresh-pricing
 #   - a tracked model with no endpoints (a broken fetch looks exactly like
 #     that).
 # A refusal blocks only itself: every other move is still tested and
-# committed, then the run goes red. A red run here means read the named
+# published, then the run goes red. A red run here means read the named
 # host's endpoints by hand and record the decision as data, not retry.
 
 on:
@@ -58,13 +64,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read  # the master push authenticates with the deploy key
+      contents: read  # nothing here pushes; this job only reads the tree
 
     services:
       postgres:
-        # The suite's database, as in tests.yml, but pinned by digest: this job
-        # receives a write deploy key in its push step, so the image it runs
-        # must be the one reviewed.
+        # The suite's database, as in tests.yml, but pinned by digest: this
+        # job produces the data the push job publishes, so the image the
+        # measurements come from must be the reviewed one.
         # The service starts on every run, quiet ones included; a job cannot
         # start a service part-way.
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
@@ -86,11 +92,15 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
 
+    outputs:
+      moved: ${{ steps.moved.outputs.moved }}
+      fetch_rc: ${{ steps.fetch.outputs.rc }}
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The push at the end uses an explicit remote URL instead, so the
-          # token never sits in .git/config for later steps to reuse.
+          # No step in this job pushes; persist-credentials: false keeps
+          # the token out of .git/config for any later step to reuse.
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -106,8 +116,8 @@ jobs:
         # request, and two requests per tracked model. A refused host blocks
         # only itself: the script still
         # writes every other move and exits nonzero, so this step records the
-        # code instead of failing, the moves are tested and committed, and the
-        # last step turns the run red.
+        # code instead of failing, the moves are tested here and pushed by
+        # the push job, and the verdict job turns the run red.
         run: |
           rc=0
           python3 scripts/ci/refresh_provider_rates.py \
@@ -159,96 +169,126 @@ jobs:
         if: steps.moved.outputs.moved == 'true'
         run: python -m pytest tests/ -q --tb=short -ra
 
-      - name: Commit and push, retrying when master moved
+      - name: Stage the tested data
         if: steps.moved.outputs.moved == 'true'
-        id: push
-        # The message is the script's own report under a subject naming the
-        # counts. Master can move between this run's checkout and its push —
-        # a PR merged in that window refused run 36271055836's push, and the
-        # move waited for the next hourly run (#224) — so a refused push is
-        # retried, not abandoned: fetch the new master, RESET to it, re-run
-        # the fetch-and-append script against the fetched tree (the bump and
-        # the appended entries are recomputed there, never a textual rebase
-        # of the first tree — SV-RATE-REFRESH), re-run the suite, push again.
-        # At most three pushes; exhausted, the run goes red and lands
-        # nothing. Every push is HEAD:master from a commit whose parent is a
-        # fetched master tip, so each push is a plain fast-forward — the
-        # master ruleset forbids force. This push authenticates with the
-        # MASTER_PUSH_DEPLOY_KEY deploy key, the bypass actor for the coming
-        # required-check ruleset. Deploy-key pushes start workflow runs,
-        # unlike GITHUB_TOKEN pushes; that is intended so this hourly pricing
-        # commit carries a real aggregate verdict on master's tip. The push
-        # remote is a test seam: the default is the GitHub SSH URL, and the
-        # workflow never sets it.
+        # The artifact is the tested state: the two data files, the commit
+        # message the script wrote, and the master tip the suite ran on —
+        # the push job's base check compares that tip against master's now.
+        run: |
+          mkdir -p "$RUNNER_TEMP/push-data"
+          cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"
+          cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"
+          cp "$RUNNER_TEMP/commit-msg.txt" "$RUNNER_TEMP/push-data/commit-msg.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"
+
+      - name: Upload the tested data
+        if: steps.moved.outputs.moved == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pricing-refresh
+          path: ${{ runner.temp }}/push-data
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    # The only job that loads the deploy key. No third-party or
+    # upstream-derived code runs here before or while the key is loaded:
+    # no repo checkout, no pip, no npm, no test suite, no
+    # upstream-response parsing. The pinned download action is the only
+    # action, and it runs before the key is loaded.
+    needs: refresh
+    if: needs.refresh.outputs.moved == 'true'
+    environment: master-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read  # the push authenticates with the deploy key
+    steps:
+      - name: Download the tested data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pricing-refresh
+          path: ${{ runner.temp }}/push-data
+
+      - name: Push the tested tree to master
         env:
           MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
         run: |
-          echo "rc=0" >> "$GITHUB_OUTPUT"
-          if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
-            eval "$(ssh-agent -s)" >/dev/null
-            ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
-            mkdir -p ~/.ssh
-            # GitHub SSH host keys, published by GitHub's Meta endpoint:
-            # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
-            printf '%s\n' \
-              'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
-              'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
-              >> ~/.ssh/known_hosts
-            export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          # Fail closed when the environment is missing its secret: with no key
+          # there is nothing to authenticate the push with, and the fallback must
+          # never be a token.
+          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
+            exit 1
           fi
+          eval "$(ssh-agent -s)" >/dev/null
+          # The agent is stopped when this step ends, whatever its outcome: the
+          # key never outlives the step that loaded it.
+          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
+          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          mkdir -p ~/.ssh
+          # GitHub SSH host keys, published by GitHub's Meta endpoint:
+          # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
           remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/pricing.json backend/constants.py
-          git commit -F "$RUNNER_TEMP/commit-msg.txt"
-          attempts=3
-          if git push "$remote" HEAD:master; then
+          base="$(cat "$RUNNER_TEMP/push-data/base.txt")"
+          fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
+          if [ "$fetched" != "$base" ]; then
+            echo "::notice::master moved under the run (tested base $base, current tip $fetched); the next hourly run re-fetches, re-tests and lands it"
+            {
+              echo "### Dropped: master moved under the run"
+              echo
+              echo "The tested base $base is no longer master's tip ($fetched)."
+              echo "The next hourly run re-fetches on the new tip, re-runs the suite"
+              echo "in the keyless refresh job, and lands the data there."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          for attempt in $(seq 2 "$attempts"); do
-            echo "::notice::push refused; recomputing on the fetched master (attempt $attempt of $attempts)"
-            git fetch "$remote" master
-            git reset --hard FETCH_HEAD
-            rc=0
-            python3 scripts/ci/refresh_provider_rates.py \
-              --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
-              > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?
-            echo "rc=$rc" >> "$GITHUB_OUTPUT"
-            cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
+          git init -q "$RUNNER_TEMP/push-repo"
+          git -C "$RUNNER_TEMP/push-repo" remote add origin "$remote"
+          git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+          git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
+          mkdir -p "$RUNNER_TEMP/push-repo/src" "$RUNNER_TEMP/push-repo/backend"
+          cp "$RUNNER_TEMP/push-data/pricing.json" "$RUNNER_TEMP/push-repo/src/pricing.json"
+          cp "$RUNNER_TEMP/push-data/constants.py" "$RUNNER_TEMP/push-repo/backend/constants.py"
+          git -C "$RUNNER_TEMP/push-repo" add src/pricing.json backend/constants.py
+          git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$RUNNER_TEMP/push-repo" commit -F "$RUNNER_TEMP/push-data/commit-msg.txt"
+          if ! git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
+            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            if [ "$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/push-repo" rev-parse FETCH_HEAD)" ]; then
+              echo "the push was rejected while master stood still" >&2
+              exit 1
+            fi
+            echo "::notice::master moved before the push landed; the next hourly run re-fetches, re-tests and lands it"
             {
-              echo
-              echo "### Attempt $attempt of $attempts: master moved before the push; recomputed on the fetched master"
-              echo
-              echo '```'
-              cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
-              echo '```'
+              echo "### Dropped: master moved before the push landed"
+              echo "The next hourly run re-fetches on the new tip, re-runs the suite"
+              echo "in the keyless refresh job, and lands the data there."
             } >> "$GITHUB_STEP_SUMMARY"
-            if git diff --quiet -- src/pricing.json backend/constants.py; then
-              # The fetched master already carries everything this run
-              # detected: nothing of ours is left to land, and HEAD already
-              # is the fetched master.
-              exit 0
-            fi
-            python -m pytest tests/ -q --tb=short -ra
-            git add src/pricing.json backend/constants.py
-            git commit -F "$RUNNER_TEMP/commit-msg.txt"
-            if git push "$remote" HEAD:master; then
-              exit 0
-            fi
-          done
-          echo "the push exhausted its $attempts attempts; master kept moving under the run" >&2
-          exit 1
+          fi
 
+  verdict:
+    # always() is load-bearing: it is what turns a refusal RED even when
+    # nothing moved and the push job skipped. The empty-check keeps a
+    # branch dispatch — where the refresh job skipped — green.
+    needs: [refresh, push]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
       - name: Fail on a refusal
-        # After the commit: the moves that could be made are on master, and
-        # the red run is the signal that a host needs a human decision. The
-        # retried recomputation records its own script rc on the push step,
-        # so a refusal found there turns the run red too.
-        if: steps.fetch.outputs.rc != '0' || steps.push.outputs.rc == '1'
         env:
-          FETCH_RC: ${{ steps.fetch.outputs.rc }}
-          RETRY_RC: ${{ steps.push.outputs.rc }}
+          FETCH_RC: ${{ needs.refresh.outputs.fetch_rc }}
         run: |
-          echo "refresh_provider_rates exited $FETCH_RC on the first fetch and $RETRY_RC on the retried recompute; the summary names each refused host."
-          exit 1
+          if [ -n "$FETCH_RC" ] && [ "$FETCH_RC" != "0" ]; then
+            echo "refresh_provider_rates exited $FETCH_RC on its fetch; the refresh job's step summary names each refused host." >&2
+            exit 1
+          fi

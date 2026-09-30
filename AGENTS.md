@@ -295,11 +295,13 @@ expensive legs by classification and still pass. The per-workflow table
 is in CONTRIBUTING.md; two behaviours documented only here: `speed.yml`
 skips green while no release exists (master pushes and dispatches only),
 and `refresh-pricing.yml` deliberately keeps its no-cache setup despite
-the pip-cache rule. Both master-writing bots push with the
-`MASTER_PUSH_DEPLOY_KEY` deploy key (the bypass actor for the coming
-required-check ruleset). Deploy-key pushes start workflows, so the
-hourly pricing commit gets an aggregate verdict on master; the ratchet
-commit stays silent because ci-gate ignores `.github/ci-thresholds.json`.
+the pip-cache rule. The master-push deploy key lives in the `master-push`
+GitHub environment, reachable only from master; each bot's push runs in
+its own key-only job that receives the tested data as an artifact, runs
+no test/dependency/upstream code, and stops its ssh-agent after the
+push. Deploy-key pushes start workflows, so the hourly pricing commit
+gets a real aggregate verdict on master's tip; the ratchet commit stays
+silent because ci-gate ignores `.github/ci-thresholds.json`.
 
 Run these locally before pushing — CI is the backstop:
 
