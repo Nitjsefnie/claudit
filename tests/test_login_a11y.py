@@ -13,6 +13,7 @@ Findings 1-3 of the axe-core audit:
    enumeration, issue #109).
 """
 import re
+import secrets
 from html.parser import HTMLParser
 
 import pytest
@@ -64,8 +65,6 @@ def _fake_user_fixture(monkeypatch):
 
 @pytest.fixture(name="fake_session_store")
 def _fake_session_store_fixture(monkeypatch):
-    import secrets
-
     rows: dict[int, tuple[str, int, str | None]] = {}
 
     def get_or_create(user_id, cred_fp):
@@ -141,7 +140,7 @@ def test_signin_labels_are_bound_to_their_inputs(app):
     by_id = {i["id"] for i in scan.inputs}
     for want in ("Username", "Password"):
         label = next(
-            (l for l in scan.labels if want in l["text"]), None)
+            (lab for lab in scan.labels if want in lab["text"]), None)
         assert label is not None, f"no {want!r} label on the sign-in page"
         assert label["for"], (
             f"the {want!r} label names no input (no for attribute) — the "
@@ -156,7 +155,8 @@ def test_label_association_survives_onto_failed_signins(app, fake_user):
     bound too (the fix for finding 3 must not regress finding 1)."""
     scan = _scan(_post_login(TestClient(app), 12345, "wrong").text)
     for want in ("Username", "Password"):
-        label = next((l for l in scan.labels if want in l["text"]), None)
+        label = next(
+            (lab for lab in scan.labels if want in lab["text"]), None)
         assert label is not None and label["for"], (
             f"the {want!r} label on the failure page names no input")
 
