@@ -20,7 +20,7 @@
     "backend/parse_kimi.py": 565,
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1424,
-    "src/dashboard-charts-extra.jsx": 3511,
+    "src/dashboard-charts-extra.jsx": 3495,
     "src/dashboard-charts.jsx": 1331,
     "src/parser-lanes.js": 722,
     "src/parser.js": 1024
