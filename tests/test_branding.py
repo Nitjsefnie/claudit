@@ -80,12 +80,14 @@ def test_default_page_differs_from_template_only_by_injections(page_client):
         payload = line[1:]
         if line.startswith("+"):
             assert any(k in payload for k in (
-                "window.BACKEND_URL = '/';", "window.BRAND = {", "?v="
+                "window.BACKEND_URL = '/';", "window.BRAND = {", "?v=",
+                '<script nonce="'
             )), f"unexpected served-line change: {payload}"
         else:
             assert any(k in payload for k in (
                 "window.BACKEND_URL = window.BACKEND_URL",
-                'href="/app.css"', 'src="/src/'
+                'href="/app.css"', 'src="/src/', 'src="https://unpkg.com/',
+                '<script type="text/babel">'
             )), f"unexpected template-line change: {payload}"
 
 
@@ -122,11 +124,16 @@ def test_brand_payload_cannot_close_its_script_tag(page_client, monkeypatch):
 
 
 def test_brand_rides_the_existing_injection_script(page_client):
-    served = page_client.get("/").text
+    resp = page_client.get("/")
+    served = resp.text
     # The guest cookie the fixture set: IS_GUEST comes out true, and
-    # window.BRAND rides the SAME <script> line as BACKEND_URL/IS_GUEST.
+    # window.BRAND rides the SAME <script> line as BACKEND_URL/IS_GUEST,
+    # which now also carries the response's CSP nonce.
+    nonce = re.search(r"'nonce-([^']+)'",
+                      resp.headers["content-security-policy"]).group(1)
     assert (
-        "<script>window.BACKEND_URL = '/'; window.IS_GUEST = true; "
+        f'<script nonce="{nonce}">window.BACKEND_URL = \'/\'; '
+        "window.IS_GUEST = true; "
         "window.BRAND = {" in served
     )
 
