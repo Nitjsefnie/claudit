@@ -16,6 +16,7 @@ unidentified catch-all).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -609,3 +610,46 @@ def test_browser_inspector_turn_cost_applies_the_long_context_meter():
     got = json.loads(proc.stdout)
     assert got["turns"] == 1
     assert got["cost"] == pytest.approx(expected)
+
+
+# --------------------------------------------------------------------------
+# Offset-less timestamps are UTC (issue #376, SV-PARSER-SPEC): the shared
+# backend rule lives in parse_common._to_dt, so every lane inherits it;
+# the browser's lane parser must stamp the same text the same way.
+# --------------------------------------------------------------------------
+
+_NAIVE_LANE_BLOB = (
+    b'{"type": "metadata", "protocol_version": "1.10"}\n'
+    b'{"timestamp": "2026-09-10T00:30:00", "message": {"type": '
+    b'"StatusUpdate", "payload": {"context_tokens": 10, "token_usage": '
+    b'{"input_other": 10, "output": 2, "input_cache_read": 0, '
+    b'"input_cache_creation": 0}, "message_id": "scripted-1"}}}\n'
+)
+
+
+def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
+    """A legacy-kimi line whose timestamp carries no offset prices and
+    stores as the UTC reading of its wall clock (backend), and the
+    browser records the same instant — not the viewer's local one."""
+    out = parse.parse_file("sessions/p/s/naive.jsonl", _NAIVE_LANE_BLOB)
+    assert len(out["records"]) == 1
+    assert out["records"][0]["ts"] == datetime(
+        2026, 9, 10, 0, 30, tzinfo=UTC)
+
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(PARSER_JS)!r});
+      const {{ events, meta }} = window.parseTranscriptLanes(
+        {json.dumps(_NAIVE_LANE_BLOB.decode())});
+      const usage = meta.find((m) => m.type === 'assistant_usage');
+      console.log(JSON.stringify({{ usageTs: usage && usage.ts }}));
+    """
+    env = {**os.environ, "TZ": "Europe/Berlin"}
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        env=env, check=False,  # Return code checked by hand on the next line.
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["usageTs"] == "2026-09-10T00:30:00.000Z"

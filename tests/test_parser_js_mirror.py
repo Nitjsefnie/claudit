@@ -8,6 +8,7 @@ no-toolchain rule. That both sides derive the same tables from the file is
 pinned in test_pricing_data.py.
 """
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -439,3 +440,72 @@ def test_parser_js_prompt_gate_matches_backend():
     assert got["interrupt_list_content.jsonl"]["userMsgs"] == (
         interrupt["prompt_count"])
     assert got["interrupt_list_content.jsonl"]["lines"] == [1]
+
+
+# --------------------------------------------------------------------------
+# Offset-less timestamps are UTC (issue #376, SV-PARSER-SPEC): the
+# backend stamps a naive ISO timestamp UTC at parse (parse_common._to_dt);
+# the browser must read the same text the same way, or the Inspector
+# prices and displays a different instant than the database stores.
+# --------------------------------------------------------------------------
+
+_NAIVE_TS_LINES = [
+    {"type": "user", "timestamp": "2026-09-10T00:29:00", "uuid": "u",
+     "message": {"role": "user", "content": "hi"}},
+    {"type": "assistant", "timestamp": "2026-09-10T00:30:00", "uuid": "a",
+     "requestId": "req-376",
+     "message": {"id": "msg_376", "role": "assistant",
+                 "model": "claude-opus-4-7",
+                 "content": [{"type": "text", "text": "naive"}],
+                 "stop_reason": "end_turn",
+                 "usage": {"input_tokens": 10, "output_tokens": 1,
+                           "cache_creation_input_tokens": 0,
+                           "cache_read_input_tokens": 0}}},
+]
+
+# Synthetic rates (SV-TEST-DATA): a window ending at the cutover prices
+# the naive text's LOCAL reading (22:30Z the day before, in Europe/
+# Berlin) differently from its UTC reading (00:30Z), so a cost equality
+# below cannot pass by accident.
+_CHEAP_JS_376 = {"fresh": 0.5, "c5": 0.625, "c1h": 1.0, "read": 0.05,
+                 "out": 2.5}
+_OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
+                "out": 45.0}
+
+
+def test_parser_js_reads_an_offset_less_timestamp_as_utc():
+    """parseTranscript stamps a naive ISO timestamp UTC at capture, and
+    the stamped record prices exactly like its Z-bearing twin — under a
+    non-UTC node zone, where an unstamped string would read 22:30Z."""
+    script = f"""
+      global.window = {{}};
+      require({str(PARSER_JS)!r});
+      window.datedRates['claude-opus-4-7'] = [
+        {{ endExclusive: Date.parse('2026-09-10T00:00:00Z'),
+           rates: {json.dumps(_CHEAP_JS_376)} }}];
+      window.modelRates['claude-opus-4-7'] = {json.dumps(_OPUS_JS_376)};
+      const text = {json.dumps("\n".join(json.dumps(line) for line in _NAIVE_TS_LINES))};
+      const {{ events, meta }} = window.parseTranscript(text);
+      const usage = meta.find((m) => m.type === 'assistant_usage');
+      const zTwins = meta.map((m) => ({{ ...m, ts: m.ts + 'Z' }}));
+      console.log(JSON.stringify({{
+        firstEventTs: events.find((e) => e.ts).ts,
+        usageTs: usage.ts,
+        cost: window.computeSessionStats([], [usage]).cost,
+        zCost: window.computeSessionStats([], zTwins).cost,
+      }}));
+    """
+    env = {**os.environ, "TZ": "Europe/Berlin"}
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        env=env, check=False,  # Return code checked by hand on the next line.
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["usageTs"] == "2026-09-10T00:30:00Z", (
+        "the capture must stamp the naive string UTC")
+    assert got["firstEventTs"] == "2026-09-10T00:29:00Z", (
+        "every event rides the stamped ts, display included")
+    assert got["cost"] == got["zCost"], (
+        "the naive text must price as its UTC reading, not the viewer's "
+        "local one")

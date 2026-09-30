@@ -6,6 +6,7 @@ Cross-file uuid dedup happens at query time; costs come from
 pricing.MODEL_RATES.
 """
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 
@@ -277,6 +278,20 @@ def test_mixed_dated_and_undated_records_sort_undated_first():
         ("", 10),
         ("2026-05-07T10:00:02+00:00", 20),
     ]
+
+
+def test_naive_timestamp_is_stored_and_priced_as_utc():
+    """An offset-less timestamp is UTC (issue #376): the same instant is
+    priced and stored, so a reprice of the stored row prices what a
+    reparse of the raw text prices. Before the normalisation the parser
+    handed a naive datetime to pricing (UTC) AND to the driver (the
+    session zone), so the two could disagree across a rate cutover."""
+    out = parse.parse_file(
+        "k/sess-naive/sess-naive.jsonl", _read("naive_timestamp.jsonl")
+    )
+    assert len(out["records"]) == 1
+    assert out["records"][0]["ts"] == datetime(
+        2026, 9, 10, 0, 30, tzinfo=timezone.utc)
 
 
 def test_reply_latency_terminated_by_list_form_interrupt():

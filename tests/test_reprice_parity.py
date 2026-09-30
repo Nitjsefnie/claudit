@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from psycopg import sql
 
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
@@ -29,6 +30,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from test_reprice import _pair
+from tests import scratch_db
 
 from backend import (
     constants,
@@ -293,3 +295,93 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
         ).fetchall() == [(1,)], (
             "the reprice keeps a Claude-format bare-meter-model record's NULL "
             "flag (issue #249): a reparse stores NULL, so reprice must too")
+
+
+# Rates deliberately unlike any real price (SV-TEST-DATA). E2 prices the
+# post-cutover side through the list row; CHEAP376 is the window the
+# reprice pass must consult only BEFORE the cutover.
+_E2_376 = {"fresh": 9.0, "create_5m": 11.25, "create_1h": 18.0,
+           "read": 0.9, "output": 45.0}
+_CHEAP376 = {"fresh": 0.5, "create_5m": 0.625, "create_1h": 1.0,
+             "read": 0.05, "output": 2.5}
+_OPUS376 = "claude-opus-4-7"
+_CUTOVER_376 = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
+
+
+def test_reprice_matches_reparse_for_offset_less_timestamps(
+        fresh_db, tmp_path, monkeypatch):
+    """Issue #376: an offset-less record timestamp is UTC — the SAME
+    instant is priced and stored — so a reprice of the stored row prices
+    what a reparse of the raw text prices, even in a non-UTC session
+    zone with a rate cutover between the two interpretations. Before the
+    parse-side normalisation the parser priced the naive text as UTC but
+    the driver stored it in the session zone; after a PRICING_VERSION
+    bump the reprice then stored the cutover's other side, which no
+    reparse reproduces."""
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    sess = tmp_path / "r2" / "claude" / "issue376" / "sess376"
+    sess.mkdir(parents=True)
+    sess.joinpath("sess376.jsonl").write_bytes(
+        b'{"type":"user","timestamp":"2026-09-10T00:29:00","uuid":"u376",'
+        b'"message":{"role":"user","content":"hi"}}\n'
+        b'{"type":"assistant","timestamp":"2026-09-10T00:30:00",'
+        b'"uuid":"a376","requestId":"req-376",'
+        b'"message":{"id":"msg_376","role":"assistant","model":'
+        b'"claude-opus-4-7","content":[{"type":"text","text":"naive"}],'
+        b'"stop_reason":"end_turn",'
+        b'"usage":{"input_tokens":10,"output_tokens":1,'
+        b'"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n')
+    # The session zone is non-UTC BEFORE the ingest: the naive-ts bug is
+    # a session-zone interpretation, invisible in a UTC test cluster.
+    with scratch_db.admin_connection() as admin:
+        admin.execute(sql.SQL(
+            "ALTER DATABASE {} SET timezone = 'Europe/Berlin'").format(
+                sql.Identifier(fresh_db)))
+    db.reset_viz_pool()
+    assert ingest.run_ingest(trigger="manual")["error"] is None
+
+    with db.viz_conn() as c:
+        stored_utc_wall = c.execute(
+            "SELECT ts AT TIME ZONE 'UTC' FROM records").fetchall()
+    assert stored_utc_wall == [(datetime(2026, 9, 10, 0, 30),)], (
+        f"the stored instant must be the UTC reading of the raw text: "
+        f"{stored_utc_wall}")
+
+    # Move the pair AFTER the ingest (the #249 route: a rate change with
+    # its bump), so the reprice pass must RECOMPUTE from the stored
+    # instant instead of proving the row clean by fingerprint: a window
+    # appears that ends at the cutover, and the list row moves with it.
+    monkeypatch.setattr(pricing, "DATED_RATES", {
+        **pricing.DATED_RATES,
+        _OPUS376: [(_CUTOVER_376, _CHEAP376)]})
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES,
+        _OPUS376: _E2_376})
+    rate_fingerprint.clear_fingerprint_cache()
+
+    expected = _reparse_costs({
+        "claude/issue376/sess376/sess376.jsonl":
+            sess.joinpath("sess376.jsonl").read_bytes()})
+    assert list(expected.values()) == [round(pricing.compute_cost(
+        _OPUS376, fresh=10, output=1, eph5=0, eph1h=0, unsplit_create=0,
+        read=0, ts=datetime(2026, 9, 10, 0, 30, tzinfo=UTC),
+        long_context=False, provider=None), 6)]
+
+    before = _stored_costs()
+    next_version = str(int(constants.PRICING_VERSION) + 1)
+    monkeypatch.setattr(constants, "PRICING_VERSION", next_version)
+    assert ingest.reprice_stale() == 1, (
+        "the moved pair must actually reprice, or the parity assertion "
+        "proves nothing")
+
+    stored = _stored_costs()
+    assert stored == expected, (
+        "the reprice must store what a reparse of the same bytes prices "
+        "(issue #376)")
+    assert stored != before, (
+        "the window must move the cost, or the cutover sits between the "
+        "two interpretations")
+    with db.viz_conn() as c:
+        assert c.execute(
+            "SELECT COUNT(*) FROM records WHERE pricing_version = %s",
+            (next_version,)).fetchall() == [(1,)]

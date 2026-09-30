@@ -17,11 +17,9 @@
 // consumer treats them as falsy already.
 
 // Codex bills a request whose prompt exceeds this many tokens on its
-// long-context meter (2x input-side, 1.5x output — applied by
-// src/parser.js's cost path and app.jsx's Token Breakdown off the
-// row's long_context flag). Mirror pricing.LONG_CONTEXT_THRESHOLD and
-// the LONG_CONTEXT_*_MULT pair;
-// tests/test_parser_js_lanes.py asserts all three agree.
+// long-context meter (2x input-side, 1.5x output — applied by parser.js's
+// cost path and app.jsx's Token Breakdown off the row's long_context flag).
+// Mirror pricing.LONG_CONTEXT_THRESHOLD/_MULT; the lanes test pins all three.
 window.LONG_CONTEXT_THRESHOLD = 272000;
 window.LONG_CONTEXT_INPUT_MULT = 2.0;
 window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
@@ -40,11 +38,13 @@ function laneIsPlainObject(v) {
 
 // Any timestamp the lane formats carry -> an ISO string ('' when absent or
 // unparsable). Numbers are epoch SECONDS (legacy Kimi); strings (Codex,
-// legacy ISO variants) go through Date.parse. kimi-code's epoch-ms `time`
-// is converted by its caller before reaching this.
+// legacy ISO variants) go through Date.parse — an offset-less ISO string
+// stamped UTC first (issue #376, mirrors parse_common._to_dt: unstamped,
+// Date.parse reads the viewer's zone); kimi-code's epoch-ms `time` is
+// converted by its caller upstream.
 function laneToIso(ts) {
   if (ts == null || ts === '') return '';
-  const ms = typeof ts === 'number' ? ts * 1000 : Date.parse(ts);
+  const ms = typeof ts === 'number' ? ts * 1000 : Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts) ? ts + 'Z' : ts);
   return Number.isNaN(ms) ? '' : new Date(ms).toISOString();
 }
 
@@ -203,7 +203,7 @@ function parseLaneLegacy(blob) {
     if (typeof ts === 'number') {
       epochSec = ts;
     } else if (ts) {
-      const ms = Date.parse(ts);
+      const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts) ? ts + 'Z' : ts);
       epochSec = Number.isNaN(ms) ? null : ms / 1000;
     } else {
       epochSec = null;

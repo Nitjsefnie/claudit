@@ -39,15 +39,14 @@ window.usageCtxInput = usageCtxInput;
 // prompt (issue #213) — deny-by-default, so an unknown future harness tag
 // is excluded without a parser change; only wrappers around human text
 // are kept (<pasted_content> wraps a human paste, which IS a prompt).
-// Mirrors backend/parse.py:_is_prompt_text (SV-PARSER-SPEC). A text
-// failing the gate is not pushed as a user_message event at all, so the
-// userMsgs stat, the ctx-turn boundaries in context-growth-view.jsx and
-// the prompt lists in app.jsx all skip it the way backend prompt_count
-// does. The interrupt marker mirrors backend/constants.INTERRUPT_MARKER,
-// which the backend also denies before a text can anchor or count.
-// This escaped whitespace class mirrors backend/prompt_gate.py verbatim.
-// JS \s and trim() use a different Unicode repertoire and would drift from
-// the backend's stored prompt counts.
+// Mirrors backend/parse.py:_is_prompt_text (SV-PARSER-SPEC). A text failing
+// the gate is not pushed as a user_message event at all, so the userMsgs
+// stat, the ctx-turn boundaries in context-growth-view.jsx and the prompt
+// lists in app.jsx all skip it the way backend prompt_count does. The
+// interrupt marker mirrors backend/constants.INTERRUPT_MARKER, which the
+// backend also denies before a text can anchor or count. This escaped
+// whitespace class mirrors backend/prompt_gate.py verbatim: JS \s and
+// trim() use a different Unicode repertoire and would drift.
 const PROMPT_WS_CLASS = String.raw`\x09-\x0d\x1c-\x1f\x20\x85\xa0\u1680` +
   String.raw`\u2000-\u200a\u2028\u2029\u202f\u205f\u3000`;
 const PROMPT_WS_RE = new RegExp('^[' + PROMPT_WS_CLASS + ']+');
@@ -257,7 +256,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
       }
     }
 
-    const ts = obj.timestamp || '';
+    // An offset-less ISO timestamp is UTC (issue #376, mirrors parse_common._to_dt): unstamped, Date.parse reads the viewer's zone.
+    let ts = obj.timestamp || '';
+    if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts)) ts += 'Z';
     const msgType = obj.type || '';
 
     if (msgType === 'progress' || msgType === 'file-history-snapshot') continue;
@@ -398,9 +399,8 @@ const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 // fractional start anywhere else (a future openrouter.start, a window's
 // rates object) parses untouched. A shape the scan cannot spell-check past
 // (a leading zero, a bare minus) bails it silently and JSON.parse names
-// that shape — most malformed tails leave the error to JSON.parse; only a
-// structural-mismatch tail reached after a collected offense throws the
-// spelling error first.
+// that shape: most malformed tails leave the error to JSON.parse; only a
+// structural-mismatch tail reached after a collected offense throws first.
 function _checkHhmmSpelling(text) {
   const offenses = [];
   let pos = 0;
