@@ -11,6 +11,9 @@ its fixtures, the way test_ingest_fetch.py already does.
 """
 from __future__ import annotations
 
+import json
+import lzma
+
 from datetime import datetime, timezone
 
 from pathlib import Path
@@ -19,7 +22,7 @@ import pytest
 
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
-    _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
+    _FIX_ROOT, _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
 )
 
 from backend import (cache, constants, db, ingest, pricing,
@@ -225,3 +228,91 @@ def test_a_no_op_ingest_stays_quiet(
     assert not broadcasts, "a no-op run must not broadcast ingest_done"
     assert cache.response_cache.get_entry("no-op-key") == (
         {"v": "old"}, False), "a no-op run must leave responses fresh"
+
+
+# --------------------------------------------------------------------------
+# Issue #370: identity changes that bypass the walk-level counts must
+# reach the same gate. A lane re-key moves files' project id without
+# inserting, reparsing or deleting anything; the fold pass's label reset
+# changes what /api/projects displays. Either alone must invalidate and
+# broadcast, or the cached project list and dashboards keep the old
+# project for up to an hour.
+
+def test_a_lane_marker_rekey_only_ingest_invalidates_and_broadcasts(
+        fresh_db, tmp_path, monkeypatch) -> None:
+    """A lane project's marker landing for a previously hash-keyed
+    project re-keys stored rows onto the slug with every walk-level
+    count at zero — yet identity changed, so the gate must fire."""
+    proj = "8805b8ac99ad"
+    slug = "-home-me-lanework"
+    bucket = tmp_path / "r2" / "claude"
+    lane = bucket / "sessions" / proj / "01a0-uuid"
+    lane.mkdir(parents=True)
+    (lane / "wire.jsonl.xz").write_bytes(
+        lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
+    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+
+    # Run 1: no marker — the lane project keys by its bare hash.
+    assert ingest.run_ingest_locked("manual")["error"] is None
+    with db.viz_conn() as c:
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = %s",
+            (proj,)) > 0
+    broadcasts = _prime_and_spy("lane-rekey-key", monkeypatch)
+
+    # The marker lands; NO etag changes, so nothing reparses.
+    (bucket / "sessions" / proj / "project.json").write_text(
+        json.dumps({"path": "/home/me/lanework"}))
+    summary = ingest.run_ingest_locked("manual")
+
+    assert summary["error"] is None
+    assert (summary["inserted"], summary["reparsed"],
+            summary["deleted"]) == (0, 0, 0), (
+        "the run must have changed identity ONLY through the lane re-key")
+    assert broadcasts, "a lane-re-key-only run must broadcast ingest_done"
+    assert cache.response_cache.get_entry("lane-rekey-key") == (
+        {"v": "old"}, True), "a lane-re-key-only run must mark responses stale"
+    with db.viz_conn() as c:
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = %s",
+            (slug,)) > 0, "the marker slug now holds the files"
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM files WHERE project_id = %s",
+            (proj,)) == 0, "the hash holds nothing after the re-key"
+
+
+def test_a_relabel_only_alias_pass_invalidates_and_broadcasts(
+        fresh_db: str, mini_r2_env: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fold pass relabels every alias target with its own id on every
+    run; a pass whose ONLY change is that relabel changes what
+    /api/projects displays and must gate exactly like a fold that moves
+    files."""
+    assert ingest.run_ingest_locked("manual")["error"] is None
+    with db.viz_conn() as c:
+        c.execute("UPDATE projects SET display_name = 'Drifted label' "
+                  "WHERE project_id = 'projA'")
+        c.execute(
+            "INSERT INTO project_aliases(pattern, project_id, note) "
+            "VALUES ('relabel-370-no-match-%', 'projA', 'issue 370')")
+        c.commit()
+        assert _scalar(
+            c, "SELECT COUNT(*) FROM projects WHERE project_id = 'projA' "
+               "AND display_name <> project_id") == 1, (
+            "the seeded target must carry a drifted display_name")
+    broadcasts = _prime_and_spy("relabel-only-key", monkeypatch)
+
+    summary = ingest.run_ingest_locked("manual")
+
+    assert summary["error"] is None
+    assert (summary["inserted"], summary["reparsed"],
+            summary["deleted"]) == (0, 0, 0), (
+        "the run must have changed data ONLY through the label reset")
+    assert broadcasts, "a relabel-only alias pass must broadcast ingest_done"
+    assert cache.response_cache.get_entry("relabel-only-key") == (
+        {"v": "old"}, True), "a relabel-only pass must mark responses stale"
+    with db.viz_conn() as c:
+        assert _scalar(
+            c, "SELECT display_name FROM projects "
+               "WHERE project_id = 'projA'") == "projA", (
+            "the fold relabels its target with the target id")

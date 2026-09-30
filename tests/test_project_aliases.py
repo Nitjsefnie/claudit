@@ -252,7 +252,9 @@ def test_fold_labels_existing_target_with_its_id(fresh_db):
         c.commit()
     _alias("-tmp-acme-wt-%", target)
 
-    assert project_aliases.rekey_folded_projects() == 1
+    # 1 re-key + the target's own label reset (issue #370): the return is
+    # the rows the pass changed, not only the re-keyed ids.
+    assert project_aliases.rekey_folded_projects() == 2
     with db.viz_conn() as c:
         label = _scalar(
             c, "SELECT display_name FROM projects WHERE project_id = %s",
@@ -272,7 +274,9 @@ def test_fold_relabels_target_when_there_are_no_moves(fresh_db):
     _alias("-tmp-acme-wt-%", target)
 
     assert _pairs() == {}
-    assert project_aliases.rekey_folded_projects() == 0
+    # Issue #370: the relabel is a real change — the pass returns it, so a
+    # relabel-only run gates the response-cache invalidation like a fold.
+    assert project_aliases.rekey_folded_projects() == 1
     with db.viz_conn() as c:
         label = _scalar(
             c, "SELECT display_name FROM projects WHERE project_id = %s",
