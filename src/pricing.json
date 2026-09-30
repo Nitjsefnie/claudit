@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T20:53:40Z",
+  "provider_rates_fetched": "2026-09-30T21:53:45Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1951,6 +1951,14 @@
           "create_5m": 0.078,
           "fresh": 0.078,
           "from": "2026-09-30T07:40:59Z",
+          "output": 0.504,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.0525,
+          "create_5m": 0.0525,
+          "fresh": 0.0525,
+          "from": "2026-09-30T21:25:52Z",
           "output": 0.504,
           "read": 0.01
         }
@@ -35760,6 +35768,14 @@
           "from": "2026-09-30T15:11:03Z",
           "output": 3.49,
           "read": 0.4747
+        },
+        {
+          "create_1h": 0.3949,
+          "create_5m": 0.3949,
+          "fresh": 0.3949,
+          "from": "2026-09-30T21:53:45Z",
+          "output": 3.49,
+          "read": 0.3947
         }
       ]
     },
@@ -35776,6 +35792,16 @@
       ]
     },
     "xiaomi/mimo-v2-6-flash": {
+      "Darkbloom": [
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-30T20:52:35Z",
+          "output": 0.28,
+          "read": 0.002
+        }
+      ],
       "DeepInfra": [
         {
           "create_1h": 0.14,
@@ -38305,6 +38331,30 @@
           "from": "2026-09-30T20:10:51Z",
           "output": 4.0,
           "read": 0.25
+        },
+        {
+          "create_1h": 0.26,
+          "create_5m": 0.26,
+          "fresh": 0.26,
+          "from": "2026-09-30T20:55:50Z",
+          "output": 4.0,
+          "read": 0.22
+        },
+        {
+          "create_1h": 0.28,
+          "create_5m": 0.28,
+          "fresh": 0.28,
+          "from": "2026-09-30T21:11:10Z",
+          "output": 4.0,
+          "read": 0.235
+        },
+        {
+          "create_1h": 0.26,
+          "create_5m": 0.26,
+          "fresh": 0.26,
+          "from": "2026-09-30T21:30:57Z",
+          "output": 4.0,
+          "read": 0.22
         }
       ],
       "Io Net": [
@@ -39656,6 +39706,22 @@
           "create_5m": 0.1428,
           "fresh": 0.1428,
           "from": "2026-09-30T07:10:59Z",
+          "output": 2.694296,
+          "read": 0.185725
+        },
+        {
+          "create_1h": 0.357,
+          "create_5m": 0.357,
+          "fresh": 0.357,
+          "from": "2026-09-30T21:25:51Z",
+          "output": 2.694296,
+          "read": 0.185725
+        },
+        {
+          "create_1h": 1.19,
+          "create_5m": 1.19,
+          "fresh": 1.19,
+          "from": "2026-09-30T21:30:58Z",
           "output": 2.694296,
           "read": 0.185725
         }
