@@ -12,6 +12,8 @@ src/pricing.json rows.
 """
 from __future__ import annotations
 
+import importlib
+import inspect
 import re
 from datetime import datetime, timezone
 
@@ -279,3 +281,46 @@ def test_memo_and_cache_clear(rate_tables, monkeypatch):
     assert not memo, "clear_fingerprint_cache empties the memo"
     assert rate_fingerprint.pair_fingerprint(_AFFECTED_MODEL, None) != first, (
         "after the clear, the patched table's fingerprint is served")
+
+
+# --------------------------------------------------------------------------
+# The reprice pass's own derivation is hashed (issue #377): a logic
+# change to ANY module the pass computes stored state from must move
+# the fingerprint, so the #249 route (rule change shipped with a
+# PRICING_VERSION bump) can never reprice nothing.
+# --------------------------------------------------------------------------
+
+def test_every_reprice_derivation_module_is_hashed():
+    """The digest covers the pricing modules AND the reprice pass
+    itself: _record_updates is part of the derivation (the long-context
+    re-derivation rule and the unsplit arithmetic live there), so its
+    module's source is inside the logic hash."""
+    names = {m.__name__ for m in rate_fingerprint.hashed_modules()}
+    assert names == {"backend.pricing", "backend.pricing_load",
+                     "backend.long_context", "backend.ingest_reprice"}
+
+
+def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
+    """A source edit to the reprice pass moves every pair fingerprint:
+    the digest is computed over the pass's module too, so an edit is
+    visible to the clean restamp even though the rate tables stand
+    still. Simulates the edit by mutating what inspect.getsource
+    reports for the pass's module and recomputing the digest the way
+    import does."""
+    model = "fp377-model"
+    before = rate_fingerprint.pair_fingerprint(model, None)
+    real_getsource = inspect.getsource
+
+    def _mutated(module):
+        text = real_getsource(module)
+        if module.__name__ == "backend.ingest_reprice":
+            text += "\n# simulated rule edit (issue #377)\n"
+        return text
+
+    monkeypatch.setattr(inspect, "getsource", _mutated)
+    importlib.reload(rate_fingerprint)
+    after = rate_fingerprint.pair_fingerprint(model, None)
+    monkeypatch.undo()
+    importlib.reload(rate_fingerprint)
+    assert after != before, (
+        "editing the reprice pass's source must move the fingerprint")

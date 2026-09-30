@@ -31,9 +31,10 @@ Pair-qualified staleness (issue #351): before the keyset loop, one
 DISTINCT scan classifies the stale (model, provider) pairs, and ONE
 set-based UPDATE restamps every stale row whose stored rate_fingerprint
 equals its pair's current fingerprint — the fingerprint covers every
-rate input resolve() consults plus the pricing modules' source, so the
-recomputation for those rows is the identity and reading them into
-Python would spend ~20us per row advancing a marker. The keyset loop
+rate input resolve() consults plus the source of the pricing modules
+and of this pass (rate_fingerprint.hashed_modules), so the recomputation
+for those rows is the identity and reading them into Python would spend
+~20us per row advancing a marker. The keyset loop
 then sees only rows whose pair's rate data moved (or whose version
 spelling the SQL guard cannot prove safe), reads them, recomputes,
 and stamps the current fingerprint beside the version.
