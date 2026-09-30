@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,22 +166,63 @@ class _SelectiveGZip(GZipMiddleware):
         await super().__call__(scope, receive, send)
 
 
-class _SecurityHeaders:
-    """Framing protection and nosniff on every response (issue #369).
+# The document policy both HTML surfaces get, instantiated per response
+# with a fresh style nonce. Measured against the real sign-in and
+# dashboard pages loading under it with zero violations (issue #384):
+# - script-src: unpkg.com carries the pinned, SRI-hashed React,
+#   ReactDOM and Babel builds (SRI pins their bytes independently of the
+#   host allowance); /src/* is 'self'. In-browser Babel 7.29 standalone
+#   executes compiled output as injected, nonce-less inline <script>
+#   elements (babel.min.js builds them with createElement("script") and
+#   contains no new Function), so 'unsafe-inline' is unavoidable: the
+#   compiled text varies per file and per Babel version, so neither a
+#   nonce nor per-script hashes can cover it. 'unsafe-eval' is NOT
+#   required — zero eval refusals were recorded. The one server-injected
+#   inline script (window.BACKEND_URL / IS_GUEST / BRAND) rides the same
+#   allowance; a nonce on it would be dead text while 'unsafe-inline'
+#   must stay for Babel.
+# - style-src: the Google Fonts stylesheet host, and the sign-in page's
+#   inline <style> block by the per-response nonce — no 'unsafe-inline'
+#   in style-src. React sets styles through CSSOM, which CSP does not
+#   govern.
+# - font-src: the Google Fonts binary host.
+# - connect-src 'self': /api/* fetches, the SSE stream and Babel's XHR
+#   fetches of the text/babel scripts are all same-origin.
+# - img-src 'self': favicons and panel images; no data: URIs are used.
+# - default-src 'none', base-uri 'none', form-action 'self' and
+#   frame-ancestors 'none' are the deny-by-default floor (#369).
+_CSP_TEMPLATE = (
+    "default-src 'none'; "
+    "script-src 'self' https://unpkg.com 'unsafe-inline'; "
+    "style-src 'self' https://fonts.googleapis.com 'nonce-{nonce}'; "
+    "font-src https://fonts.gstatic.com; "
+    "connect-src 'self'; "
+    "img-src 'self'; "
+    "base-uri 'none'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
 
-    Framing protection (``Content-Security-Policy: frame-ancestors
-    'none'`` plus ``X-Frame-Options: DENY``) rides on text/html —
-    browsers frame documents and ignore the headers on other types, so
-    the sign-in page, the dashboard and any HTML error page all pass
-    through here whatever their status. ``X-Content-Type-Options:
-    nosniff`` rides on EVERY response: every content type the app
-    serves is correct, so it costs nothing, and it stops a
-    MIME-confused response from being reinterpreted as script or style.
-    Headers are only filled in when absent, so an endpoint's own
-    security headers and the PNG export's Content-Disposition are never
-    clobbered. Added OUTSIDE the auth middleware: the 302 that
-    middleware generates itself for an unauthenticated page load never
-    passes an inner layer, so an inner placement would miss it.
+
+class _SecurityHeaders:
+    """Full document CSP, framing protection and nosniff (#369, #384).
+
+    The document policy (_CSP_TEMPLATE, instantiated with a fresh
+    per-response nonce) plus framing protection (``X-Frame-Options:
+    DENY``) ride on text/html — browsers apply the CSP and frame
+    documents and ignore the headers on other types, so the sign-in
+    page, the dashboard and any HTML error page all pass through here
+    whatever their status. ``X-Content-Type-Options: nosniff`` rides on
+    EVERY response: every content type the app serves is correct, so it
+    costs nothing, and it stops a MIME-confused response from being
+    reinterpreted as script or style. Headers are only filled in when
+    absent, so an endpoint's own security headers and the PNG export's
+    Content-Disposition are never clobbered. Added OUTSIDE the auth
+    middleware: the 302 that middleware generates itself for an
+    unauthenticated page load never passes an inner layer, so an inner
+    placement would miss it, and the nonce it stashes in
+    ``scope.state.csp_nonce`` is what the sign-in page puts on its
+    inline style block.
     """
 
     def __init__(self, asgi_app: ASGIApp) -> None:
@@ -191,9 +233,11 @@ class _SecurityHeaders:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        await self.app(scope, receive, self._wrap_send(send))
+        nonce = secrets.token_urlsafe(16)
+        scope.setdefault("state", {})["csp_nonce"] = nonce
+        await self.app(scope, receive, self._wrap_send(nonce, send))
 
-    def _wrap_send(self, send: Send) -> Send:
+    def _wrap_send(self, nonce: str, send: Send) -> Send:
         async def wrapped_send(message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
@@ -201,7 +245,7 @@ class _SecurityHeaders:
                 if ctype.split(";")[0].strip().lower() == "text/html":
                     if not headers.get("content-security-policy"):
                         headers["content-security-policy"] = (
-                            "frame-ancestors 'none'")
+                            _CSP_TEMPLATE.format(nonce=nonce))
                     if not headers.get("x-frame-options"):
                         headers["x-frame-options"] = "DENY"
                 if not headers.get("x-content-type-options"):
