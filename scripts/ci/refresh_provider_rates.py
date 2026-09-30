@@ -34,7 +34,9 @@ These refuse the host or model they concern, which appends nothing:
 
 Every other sampled move is still written, then the script exits nonzero
 naming each refusal. A detection time not after a sampled row's newest
-entry writes nothing at all. The one-time, human-reviewed history rewrite
+entry leaves that host untouched with a notice; appending after it would
+refuse the file, and one host's damage never blocks the others. The
+one-time, human-reviewed history rewrite
 lives in backfill_provider_rates.py.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
@@ -101,7 +103,10 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
     """Append each moved price (a rate or the schedule, compared as a
     whole) to its row, and start a row for each new host, in place; the
     moves made, with an alternating price's notice appended to `notices`
-    instead of an entry to the row (SV-RATE-REFRESH)."""
+    instead of an entry to the row (SV-RATE-REFRESH). A host whose newest
+    entry is dated at or after the detection instant is left untouched with
+    a notice: appending after it would refuse the file, and one host's
+    damage never blocks the other hosts (SV-RATE-REFRESH)."""
     moves = []
     for host, listing in rows.items():
         history = hosts.get(host)
@@ -112,6 +117,13 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
         newest = history[-1]
         if ({f: newest[f] for f in RATE_FIELDS} == listing.rates
                 and newest.get("schedule") == listing.schedule):
+            continue
+        newest_from = newest.get("from")
+        if newest_from is not None and _price_instant(
+                newest_from, f"{model} via {host}") >= at:
+            notices.append(
+                f"{model} via {host}: the stored newest entry is dated {newest_from}, "
+                "not before the detection instant; the host was left untouched")
             continue
         notice = refresh_alternation.notice(
             history, listing.rates, listing.schedule, newest, at,
@@ -246,7 +258,7 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
         return ModelResult([], [], [str(exc)], [], {})
     logged = refresh_logrun.classify_log_rows(
         model, listed.payload, listed.rows, hosts, read, context.region,
-        source.get("resolve", {}), _append_logged, _same_rates)
+        source.get("resolve", {}), _append_logged, _same_rates, context.at)
     moves = logged.moves + _append(
         model, hosts, logged.sampled_rows, context.stamp, context.at, listed.notices)
     notices = listed.notices + logged.notices

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -78,11 +79,17 @@ def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False) -> d
     return {"provider_name": host, "tag": tag, "pricing": pricing}
 
 
+# After every fixture series point, so the default join reads each series whole.
+_FETCH_AT = datetime(2026, 9, 15, tzinfo=timezone.utc)
+
+
 def _joined(endpoints: list[dict], series: list[dict], *, region: str | None = None,
-            resolutions: dict | None = None) -> dict:
+            resolutions: dict | None = None,
+            at: datetime | None = None) -> dict:
     parsed = pricelog.read_log_payload(_payload(*series))
     listing = {"data": {"endpoints": endpoints}}
-    return pricelog.join_listed_pricing(listing, parsed, region, resolutions or {})
+    return pricelog.join_listed_pricing(
+        listing, parsed, region, resolutions or {}, at or _FETCH_AT)
 
 
 def _entries(item: dict) -> list[dict]:
@@ -278,3 +285,47 @@ def test_tag_pin_selects_one_endpoint_for_log_backed_history():
 
     assert match["Wafer"].entries is not None
     assert match["Wafer"].entries[0]["fresh"] == 0.3
+
+
+def _with_future_point(item: dict, announced: dict) -> dict:
+    for field, value in (("input", announced["fresh"]),
+                         ("output", announced["output"]),
+                         ("cacheRead", announced["read"]), ("cacheWrite", 0)):
+        item[field].append(_point("2099-01-01T00:00:00Z", value))
+    return item
+
+
+def test_a_point_after_the_fetch_instant_is_dropped_for_that_run():
+    listed, announced = _rates(0.3, 0.8), _rates(0.2, 0.7)
+    item = _with_future_point(_series(rates=listed), announced)
+
+    match = _joined([_endpoint("Wafer", "wafer/fp8", listed)], [item],
+                    at=datetime(2026, 9, 16, tzinfo=timezone.utc))
+
+    entries = match["Wafer"].entries
+    assert entries is not None
+    assert [entry["from"] for entry in entries] == ["2026-09-01T00:00:00Z"]
+
+
+def test_a_listing_at_the_series_future_state_disagrees_at_the_fetch_instant():
+    listed, announced = _rates(0.3, 0.8), _rates(0.2, 0.7)
+    item = _with_future_point(_series(rates=listed), announced)
+
+    match = _joined([_endpoint("Wafer", "wafer/fp8", announced)], [item],
+                    at=datetime(2026, 9, 16, tzinfo=timezone.utc))
+
+    assert match["Wafer"].entries is None
+    assert "disagrees" in match["Wafer"].reason
+
+
+def test_a_series_entirely_after_the_fetch_instant_has_no_state_in_force():
+    announced = _rates(0.2, 0.7)
+    item = _series(rates=announced)
+    for field in ("input", "output", "cacheRead", "cacheWrite"):
+        item[field] = [_point("2099-01-01T00:00:00Z", item[field][0]["value"])]
+
+    match = _joined([_endpoint("Wafer", "wafer/fp8", announced)], [item],
+                    at=datetime(2026, 9, 16, tzinfo=timezone.utc))
+
+    assert match["Wafer"].entries is None
+    assert match["Wafer"].reason

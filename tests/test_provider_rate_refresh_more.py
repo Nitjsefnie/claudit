@@ -414,14 +414,15 @@ def test_no_endpoints_for_a_tracked_model_is_refused(tmp_path, capsys):
     _refused(run, capsys, GLM)
 
 
-def test_a_detection_time_not_after_the_row_is_refused(tmp_path, capsys):
+def test_a_detection_time_not_after_the_row_leaves_its_host_untouched(tmp_path, capsys):
     run = Run(tmp_path)
     _move_openinference(run)
     assert run(capsys)[0] == 0
     run.endpoint(GLM, "OpenInference")["pricing"]["prompt"] = "0.00000008"
     before = run.snapshot()
-    rc, _, err = run(capsys, now=NOW - timedelta(days=1))
-    assert rc != 0 and "OpenInference" in err
+    rc, out, err = run(capsys, now=NOW - timedelta(days=1))
+    assert rc == 0 and not err
+    assert "not before the detection instant" in out
     assert run.snapshot() == before
 
 

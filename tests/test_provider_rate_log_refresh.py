@@ -383,3 +383,74 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
             cwd=browser_dir, capture_output=True, text=True, timeout=60, check=False)
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout) == [0.3, 0.2, 0.3]
+
+
+def test_a_future_log_point_is_sampled_not_committed_as_the_newest_entry(
+        tmp_path, capsys):
+    states = [("2030-01-01T00:00:00Z", RATE_A),
+              ("2099-01-01T00:00:00Z", RATE_B)]
+
+    rc, out, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states, endpoint_rates=RATE_B)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [
+        _entry(None, RATE_A), _entry(STAMP, RATE_B)]
+    assert "disagrees" in out
+
+
+def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
+        tmp_path, capsys):
+    row = [_entry(None, RATE_A), _entry("2099-01-01T00:00:00Z", RATE_B)]
+
+    def fail_log():
+        raise urllib.error.HTTPError(
+            "https://example.invalid/listed-pricing", 503,
+            "synthetic HTTP failure", Message(), None)
+
+    endpoint_payload = {"data": {"endpoints": [
+        _endpoint(HOST, RATE_C), fixture_endpoint("Ancient", RATE_C, tag="ancient/fp8")]}}
+    fetches = RefreshFetches(endpoint_payload, {"data": {"series": []}}, fail_log, None)
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    pricing_path.write_text(
+        json.dumps(_doc({HOST: row}), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    constants_path.write_text('PRICING_VERSION = "13"\n', encoding="utf-8")
+
+    rc = refresh.main([], fetch=fetches.fetch_endpoints,
+                      fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
+                      now=datetime(2031, 1, 1, 1, 30, tzinfo=timezone.utc),
+                      pricing_path=pricing_path, constants_path=constants_path)
+    out, err = capsys.readouterr()
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == row
+    assert saved["providers"][MODEL]["Ancient"] == [
+        _entry("2031-01-01T01:30:00Z", RATE_C)]
+    assert "not before the detection instant" in out
+    assert "listed-pricing log unavailable for synthetic/model" in out
+
+
+def test_a_consistent_future_change_stays_log_backed_and_waits_for_its_instant(
+        tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2099-01-01T00:00:00Z", RATE_C)]
+
+    rc, _, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states, endpoint_rates=RATE_A)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A)]
+    assert saved["provider_rates_fetched"] == "2026-01-01T00:00:00Z"
+
+    later = datetime(2099, 1, 1, 0, 30, tzinfo=timezone.utc)
+    rc, _, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states, endpoint_rates=RATE_C, now=later)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [
+        _entry(None, RATE_A), _entry(states[1][0], RATE_C)]
