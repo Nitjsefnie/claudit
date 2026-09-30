@@ -377,12 +377,13 @@ def test_wrong_password_at_target_spends_nothing_extra(
 
 
 def test_malformed_user_id_is_still_400(app, fake_user):
-    """The malformed-id 400 reveals nothing about accounts and stays."""
+    """The malformed-id 400 stays, on the full sign-in page (#427)."""
     client = TestClient(app)
     for bad in ("abc", "", "0", "-3"):
         r = _post_login(client, bad, "bad id")
         assert r.status_code == 400
-        assert r.text == "Invalid user ID"
+        assert r.headers["content-type"].startswith("text/html")
+        assert '<div class="err" role="alert">Invalid user ID</div>' in r.text
 
 
 def test_rate_limit_after_5_failures(app, fake_user):

@@ -205,6 +205,50 @@ def test_non_string_credential_material_is_generic_and_normalizes_from_zero(
     assert calls == [0]
 
 
+def test_malformed_user_id_renders_full_signin_page(app, monkeypatch):
+    """The malformed-id 400 is the FULL sign-in page (#427): the fixed
+    text announced in its role=alert, the form back to retry from, and
+    the body byte-identical across every malformed shape. It costs no
+    query, no PBKDF2 run and no limiter accounting, answering before
+    all three.
+    """
+    loads: list[int] = []
+    verified: list[str] = []
+    normalized: list[str] = []
+    monkeypatch.setattr(session_mod, "load_user_config", loads.append)
+    monkeypatch.setattr(
+        auth,
+        "verify_web_password",
+        lambda config, password: verified.append(password),
+    )
+    monkeypatch.setattr(
+        auth,
+        "normalize_verification_timing",
+        lambda password, spent: normalized.append(password),
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    bodies = []
+    for bad in ("abc", "", "0", "-5"):
+        response = _post_login(client, bad, "pw")
+        assert response.status_code == 400
+        assert response.headers["content-type"].startswith("text/html")
+        bodies.append(response.text)
+    assert len(set(bodies)) == 1
+    expected = client.get("/login").text.replace(
+        '<div class="err" role="alert"></div>',
+        '<div class="err" role="alert">Invalid user ID</div>',
+    )
+    assert bodies[0] == expected
+    assert not loads
+    assert not verified
+    assert not normalized
+    assert not login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
+    assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
+
+
 def test_password_change_relogin_does_not_resurrect_old_cookie(
     app, fake_user, fake_session_store
 ):
