@@ -17,6 +17,8 @@ from pathlib import Path
 
 from backend import constants
 
+from tests import git_meta
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_PATH = REPO_ROOT / "VERSION"
@@ -57,6 +59,7 @@ def test_version_is_not_tracked_as_ignored():
     # The deny-by-default .gitignore names files back one at a time. A
     # VERSION that git cannot see would let release.yml tag a version the
     # repo never records.
+    git_meta.require_own_git_metadata(REPO_ROOT)
     proc = subprocess.run(
         ["git", "check-ignore", "-q", "VERSION"],
         cwd=REPO_ROOT, check=False,

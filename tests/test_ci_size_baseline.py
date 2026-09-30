@@ -12,6 +12,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from tests import git_meta
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -182,6 +184,7 @@ def test_main_tighten_noop_explains(tmp_path, capsys, monkeypatch):
 
 
 def test_tracked_sizes_scope_and_counts():
+    git_meta.require_own_git_metadata(REPO_ROOT)
     size_baseline = _size_baseline()
     sizes = size_baseline.tracked_sizes()
     assert sizes, "tracked_sizes found no modules"
@@ -197,6 +200,7 @@ def test_tracked_sizes_cover_src_javascript():
     # The shipped JS/JSX front end is in the size ratchet's scope: every
     # tracked src/**/*.js(x) file is counted, priced against the
     # production ceiling, and src/pricing.json is not (it is data).
+    git_meta.require_own_git_metadata(REPO_ROOT)
     size_baseline = _size_baseline()
     sizes = size_baseline.tracked_sizes()
     for rel in ("src/parser.js", "src/parser-lanes.js",
@@ -210,6 +214,7 @@ def test_tracked_sizes_cover_src_javascript():
 
 
 def test_committed_document_matches_tree():
+    git_meta.require_own_git_metadata(REPO_ROOT)
     thresholds = _thresholds()
     size_baseline = _size_baseline()
     doc = thresholds.load(THRESHOLDS_PATH)

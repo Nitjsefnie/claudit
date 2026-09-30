@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from tests import git_meta
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
 
@@ -262,6 +264,7 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     # drift. The bytes come from git, not the working-tree file: a
     # Windows autocrlf checkout delivers CRLF on disk, and the pin has
     # to hold on every platform's checkout.
+    git_meta.require_own_git_metadata(REPO_ROOT)
     doc = thresholds.load(THRESHOLDS_PATH)
     target = tmp_path / "canonical.json"
     thresholds.write(target, doc)
