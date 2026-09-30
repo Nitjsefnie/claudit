@@ -360,3 +360,70 @@ def test_same_key_retry_after_failed_compute_reclaims_lock(monkeypatch):
             endpoint(rng="invalid")
         assert len(c._key_locks) == 0  # pylint: disable=protected-access
         assert len(c._items) == 0  # pylint: disable=protected-access
+
+
+# --------------------------------------------------------------------------
+# Issue #371: an entry whose compute straddles an invalidate() must be
+# STORED stale, so the next read refreshes it instead of serving
+# pre-ingest data as current until the TTL expires.
+
+def test_put_with_an_older_generation_is_stored_stale():
+    """put() stamps the generation the compute SAW, not the one current
+    when it returned; the default stays the put-time generation."""
+    c = _TTLCache(ttl_seconds=60)
+    c.invalidate()
+    c.put("k", {"v": 1}, generation=0)
+    assert c.get_entry("k") == ({"v": 1}, True), (
+        "an entry from the pre-invalidate generation is born stale")
+    c.put("k", {"v": 2})
+    assert c.get_entry("k") == ({"v": 2}, False)
+
+
+def test_inline_miss_across_an_invalidate_is_stored_stale(monkeypatch):
+    """A compute that starts before the ingest's invalidate() and returns
+    after it must not be stored fresh: the wrapper captures the
+    generation before calling the endpoint and stamps the entry with it."""
+    c = _TTLCache(ttl_seconds=3600)
+    monkeypatch.setattr(cache_mod, "response_cache", c)
+    calls = []
+
+    @cache_response
+    def endpoint() -> dict:
+        calls.append(1)
+        c.invalidate()  # the ingest finishes mid-compute
+        return {"v": "old"}
+
+    assert endpoint() == {"v": "old"}
+    key = endpoint.__qualname__ + ":[]"
+    assert c.get_entry(key) == ({"v": "old"}, True), (
+        "an entry computed across the invalidation is born stale")
+
+
+def test_background_refresh_across_an_invalidate_is_stored_stale(monkeypatch):
+    """The same race on the stale-while-revalidate path: a refresh whose
+    compute straddles an invalidate() is stored stale, and the served
+    value stays the stale one."""
+    class _InlinePool:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+
+    c = _TTLCache(ttl_seconds=3600)
+    monkeypatch.setattr(cache_mod, "response_cache", c)
+    monkeypatch.setattr(cache_mod, "_refresh_pool", _InlinePool())
+    calls = []
+
+    @cache_response
+    def endpoint(rng: str = "30d", fresh: int = 0) -> dict:
+        calls.append(1)
+        if len(calls) == 2:
+            c.invalidate()  # the ingest finishes mid-refresh
+        return {"n": len(calls)}
+
+    assert endpoint(rng="30d", fresh=0) == {"n": 1}
+    c.invalidate()  # mark the entry stale
+    assert endpoint(rng="30d", fresh=0) == {"n": 1}, (
+        "the stale value is still served while the refresh runs")
+    key = endpoint.__qualname__ + ":" + repr(
+        sorted({"rng": "30d", "fresh": 0}.items()))
+    assert c.get_entry(key) == ({"n": 2}, True), (
+        "a refresh that computed across the invalidation is born stale")
