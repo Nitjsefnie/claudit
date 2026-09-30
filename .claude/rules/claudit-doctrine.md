@@ -823,9 +823,10 @@ no pair's data restamps only.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
-`APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` are config, and config is
-hostile input. Each injection context has its own function (html and
-script payload in `backend/branding.py`, the export-filename slug in
+`APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` / `APP_PRIVACY_NOTICE_URL`
+are config, and config is hostile input. Each injection context has its
+own function (html and script payload and the URL-attribute allow-list
+in `backend/branding.py`, the export-filename slug in
 `backend/api_export.py`); never hand-concatenate a brand value into a
 page:
 
@@ -836,6 +837,16 @@ page:
 - The `window.BRAND` script payload: script-context escaping, which also
   neutralises `</script>`, `<!--` and U+2028/U+2029 (raw ones are a JS
   string syntax error; `<!--` opens a legacy HTML-like comment).
+- A URL attribute (the sign-in page's privacy-notice `href`):
+  `branding.url_attr` — an ALLOW-LIST, never a `javascript:` deny-list:
+  after stripping the leading/trailing C0-controls-and-space the URL
+  parser strips, only `http://`/`https://` or a site-relative path
+  (leading `/`, not `//`) is accepted, returned already html-escaped
+  for the double-quoted attribute. A refused value drops the link and
+  logs a warning — a display-only setting must not fail startup, and a
+  silent drop would hide the misconfiguration. Escaping alone cannot
+  make a URL safe: the browser entity-decodes and strips whitespace
+  before it reads the scheme.
 - The export-PNG `Content-Disposition` filename: slugified to
   `[A-Za-z0-9._-]`.
 

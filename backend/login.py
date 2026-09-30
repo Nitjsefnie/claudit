@@ -320,19 +320,21 @@ def _privacy_notice_slots() -> dict[str, str]:
     """The two _LOGIN_HTML slots for the operator's privacy notice
     (issue #270). Empty unless APP_PRIVACY_NOTICE_URL is set, so the
     unset page stays byte-identical to before — no anchor, no empty
-    href, and no styling either. The URL is attribute-escaped with the
-    same function the app_name slot uses (SV-BRAND-ESCAPE)."""
+    href, and no styling either. The URL goes through
+    ``branding.url_attr`` (SV-BRAND-ESCAPE): attribute-escaping alone
+    cannot stop a ``javascript:`` scheme, so a value outside the
+    allow-list drops the link and logs a warning (#365)."""
     url = branding.privacy_notice_url()
     if not url:
+        return {"privacy_link": "", "privacy_css": ""}
+    href = branding.url_attr(url)
+    if href is None:
         return {"privacy_link": "", "privacy_css": ""}
     css = (
         "  .privacy-link { display:block; text-align:center;"
         " margin-top:12px; color:#8aa; font-size:12px; }\n"
     )
-    link = (
-        '<a class="privacy-link" '
-        f'href="{html.escape(url, quote=True)}">Privacy notice</a>\n'
-    )
+    link = f'<a class="privacy-link" href="{href}">Privacy notice</a>\n'
     return {"privacy_link": link, "privacy_css": css}
 
 
