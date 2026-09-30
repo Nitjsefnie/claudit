@@ -285,15 +285,15 @@ jobs:
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
           python -m coverage report "--fail-under=${floor}" --precision=1
 
-      - name: Install c8 (pinned, no package.json, no build step)
+      - name: Install the JS toolchain from the lockfile
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        # zizmor: ignore[adhoc-packages]
-        # Same deliberate no-lockfile install as eslint.yml: a
-        # package.json here would read as the repo having adopted a build
-        # step, which it has not. The package IS pinned to an exact
-        # version, so the risk the audit targets — an unpinned install
-        # drifting under CI — does not apply.
-        run: npm install --no-save --no-package-lock --no-audit --no-fund c8@10.1.3
+        # npm ci, not npm install: it installs package-lock.json exactly, so
+        # the c8 pin in package.json means what it says, and the pin is
+        # visible to Dependabot's npm ecosystem instead of sitting in this
+        # run: line where no update mechanism can see it (issue #361 — the
+        # gate sat on c8 10, two majors behind, until then). Same lockfile
+        # eslint.yml installs from.
+        run: npm ci --no-audit --no-fund
 
       - name: JavaScript coverage gate
         # The front-end half of the same ratchet (issue #266). Coverage

@@ -15,7 +15,7 @@ The panel set is described panel-by-panel in README.md. Lines Added/Deleted is p
 ## Technology stack
 
 - **Backend**: Python 3.13+, FastAPI, Uvicorn, psycopg3 (pooled)
-- **Frontend**: React 18 from CDN, in-browser Babel, vanilla JS/JSX — no webpack, vite or npm install
+- **Frontend**: React 18 from CDN, in-browser Babel, vanilla JS/JSX — no webpack, vite or npm install. The root `package.json` holds the **CI toolchain only** (eslint, eslint-plugin-react, c8, globals — devDependencies, nothing served), so the eslint gate can be pinned somewhere Dependabot sees
 - **Database**: PostgreSQL — `claudit` for app data, an external auth DB for user credentials
 - **Object storage**: Cloudflare R2 via the S3 API, or a local `file://` mirror
 - **Scheduling**: APScheduler (BackgroundScheduler), hourly ingest
@@ -213,7 +213,7 @@ Authoritative in CONTRIBUTING.md: `from __future__ import annotations`
 and type hints; raw parameterised (`%s`) psycopg3 SQL, never
 interpolated, no ORM; ES2020-ish functional React with `window.`
 globals; `snake_case` / `camelCase` / singular SQL table names; lint
-configs `.pylintrc`, `setup.cfg`, `pyrightconfig.json`, `.eslintrc.json`,
+configs `.pylintrc`, `setup.cfg`, `pyrightconfig.json`, `eslint.config.mjs`,
 style opinions off. Parsers skip malformed JSON lines silently
 (`orjson.JSONDecodeError` → `continue`); ingest catches broad
 exceptions, logs to `ingest_runs.error`, never crashes the scheduler.

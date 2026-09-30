@@ -17,7 +17,10 @@
 *
 
 # ---- repository root ------------------------------------------------------
-!/.eslintrc.json
+# eslint.config.mjs is the JS lint gate's config (flat config since issue
+# #361); package.json + package-lock.json are the CI toolchain manifest
+# Dependabot bumps — devDependencies only, no frontend build step.
+!/eslint.config.mjs
 !.gitattributes
 !/.gitignore
 !/.gitleaks.toml
@@ -32,6 +35,8 @@
 !/README.md
 !/SECURITY.md
 !/VERSION
+!/package-lock.json
+!/package.json
 !/pyrightconfig.json
 !/requirements-dev.txt
 !/requirements-test.txt
