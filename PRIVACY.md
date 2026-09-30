@@ -200,7 +200,10 @@ WHERE '<project-slug>' LIKE pattern OR project_id = '<project-slug>';
 ```
 
 (The next ingest takes a full derived rebuild over the alias-table
-change; harmless, since the person's rows are already gone.)
+change; harmless, since the person's rows are already gone. Deleting a
+row whose TARGET was the person's slug also un-folds, on later ingests
+or reparses, files other aliases had folded onto them — their project
+attribution moves back toward their own slugs; no data is deleted.)
 
 ### 4. Verify nothing remains
 
@@ -265,15 +268,17 @@ repository: apply your retention and backup-rotation policy to them.
 Someone who never signed in can still appear inside sessions other
 people wrote: their name or address in message text (which lives only
 in the bucket objects), in `tool_uses.error_text` (the leading 200
-characters of a failed tool result), or in `tool_uses.read_targets` /
-`write_targets` (the file paths a call named). None of it is keyed by
-a user id, and the per-person steps above — keyed by project slug or
-user id — never reach it. Find it by content:
+characters of a failed tool result), in `tool_uses.read_targets` /
+`write_targets` (the file paths a call named), in `tool_uses.dispatch_name`
+(the name a dispatch gave its agent), or in `files.teammate_name` (a
+named teammate's marking). None of it is keyed by a user id, and the
+per-person steps above — keyed by project slug or user id — never
+reach it. Find it by content:
 
 ```sql
 -- Mentions in the database fragments. The needle is whatever
 -- identifies the person (here a hypothetical third.person address and
--- their notes directory). Both queries return candidates to confirm
+-- their notes directory). All of these return candidates to confirm
 -- by opening the transcript, not exact matches.
 SELECT file_key, line_num, idx, error_kind, error_text
 FROM tool_uses WHERE error_text LIKE '%third.person%';
@@ -284,17 +289,24 @@ WHERE EXISTS (SELECT 1 FROM unnest(read_targets) AS r(t)
               WHERE t LIKE '%third.person%')
    OR EXISTS (SELECT 1 FROM unnest(write_targets) AS w(t)
               WHERE t LIKE '%third.person%');
+
+SELECT file_key, line_num, idx, dispatch_name
+FROM tool_uses WHERE dispatch_name LIKE '%third.person%';
+
+SELECT file_key, session_id, teammate_name
+FROM files WHERE teammate_name LIKE '%third.person%';
 ```
 
 The message text itself is only in the objects, so an exhaustive
-search mirrors the bucket and greps:
+search mirrors the bucket and greps (subagent `meta.json` sidecars are
+plain JSON and can name a teammate, so they are searched too):
 
 ```bash
 aws s3 cp s3://<bucket>/ ./mirror/ --recursive    # or any S3 client
-find ./mirror -type f -name '*.jsonl' \
+find ./mirror -type f \( -name '*.jsonl' -o -name 'meta.json' \) \
   -exec grep -l 'third.person' {} +
-find ./mirror -type f -name '*.jsonl.xz' -exec sh -c \
-  'xz -dc "$1" | grep -q "third.person" && echo "$1"' _ {} \;
+find ./mirror -type f \( -name '*.jsonl.xz' -o -name 'meta.json.xz' \) \
+  -exec sh -c 'xz -dc "$1" | grep -q "third.person" && echo "$1"' _ {} \;
 ```
 
 Resolve a hit to its host session and project:
@@ -303,6 +315,13 @@ Resolve a hit to its host session and project:
 SELECT file_key, session_id, project_id
 FROM files WHERE file_key = '<the file_key of a hit>';
 ```
+
+A lane project whose bucket subtree carries no `project.json` marker
+(some legacy lane sessions) has no stored route from the hash segment
+of its keys back to a directory path: the searches above can find its
+files by content, but no query attributes them to a person by name.
+For those sessions the bucket grep is the only content search, and the
+hash prefix of a hit is what names the subtree to erase.
 
 ### What erasing such a mention takes
 
