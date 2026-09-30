@@ -143,8 +143,8 @@ def rekey_folded_projects() -> int:
     targets relabelled — because a relabel-only pass still changes the
     project list a client sees and must gate the response-cache
     invalidation like a pass with moves (issue #370). Moved files are
-    reported to
-    the active incremental scope with their old and new project-hour keys.
+    reported to the active incremental scope with their old and new
+    project-hour keys.
     """
     scope = current_scope()
     moved_files: dict[str, tuple[str, str]] = {}
