@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend import pricing
 from backend.constants import MAX_PLAUSIBLE_CTX
@@ -63,14 +63,20 @@ def iter_lines(blob: bytes) -> Iterator[bytes]:
 
 
 def _to_dt(s: str | float | None):
+    """Every format's timestamp parser; numbers are epoch seconds.
+    A timestamp without a UTC offset is UTC (issue #376) — the same
+    instant must reach pricing and the driver alike."""
     if not s:
         return None
     if isinstance(s, (int, float)):
-        return datetime.fromtimestamp(s, tz=datetime.now().astimezone().tzinfo)
+        return datetime.fromtimestamp(s, tz=timezone.utc)
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 @dataclass
