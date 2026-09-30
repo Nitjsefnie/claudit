@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T09:54:22Z",
+  "provider_rates_fetched": "2026-09-30T10:35:14Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -16204,6 +16204,15 @@
           "from": "2026-09-30T01:10:47Z",
           "output": 1.32,
           "read": 0.028
+        },
+        {
+          "create_1h": 0.308,
+          "create_5m": 0.308,
+          "fresh": 0.308,
+          "from": "2026-09-30T10:06:02Z",
+          "note": "30% off",
+          "output": 0.924,
+          "read": 0.0196
         }
       ],
       "Reka": [
@@ -32803,6 +32812,15 @@
           "from": "2026-09-30T01:10:48Z",
           "output": 4.36,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.957,
+          "create_5m": 0.957,
+          "fresh": 0.957,
+          "from": "2026-09-30T10:06:03Z",
+          "note": "34% off",
+          "output": 2.8776,
+          "read": 0.099
         }
       ],
       "Relace": [
@@ -35307,6 +35325,14 @@
           "from": "2026-09-30T09:54:22Z",
           "output": 3.49,
           "read": 0.3547
+        },
+        {
+          "create_1h": 0.4749,
+          "create_5m": 0.4749,
+          "fresh": 0.4749,
+          "from": "2026-09-30T10:16:05Z",
+          "output": 3.49,
+          "read": 0.4747
         }
       ]
     },
@@ -37769,6 +37795,14 @@
           "from": "2026-09-29T21:26:00Z",
           "output": 3.0,
           "read": 0.135
+        },
+        {
+          "create_1h": 0.16,
+          "create_5m": 0.16,
+          "fresh": 0.16,
+          "from": "2026-09-30T10:20:58Z",
+          "output": 3.0,
+          "read": 0.155
         }
       ],
       "Io Net": [
@@ -41103,6 +41137,14 @@
           "from": "2026-09-30T08:01:22Z",
           "output": 0.45,
           "read": 0.06
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-09-30T09:55:57Z",
+          "output": 0.45,
+          "read": 0.08
         }
       ],
       "InferenceNet": [
@@ -42194,6 +42236,15 @@
           "note": "15% off",
           "output": 0.425,
           "read": 0.0255
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-30T10:16:05Z",
+          "note": "20% off",
+          "output": 0.4,
+          "read": 0.024
         }
       ],
       "Together": [
