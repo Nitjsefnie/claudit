@@ -9,9 +9,15 @@
 # PR gets a CI run the moment it opens and the suite's verdict is on the PR
 # before a human reads it.
 #
-# There is no npm entry: the frontend has no package.json on purpose (see
-# eslint.yml), so eslint's pins live inside that workflow and Dependabot
-# cannot see them. Bump them by hand when the github-actions PRs land.
+# The npm entry below owns package.json + package-lock.json: the CI
+# toolchain (eslint, eslint-plugin-react, c8) and nothing else. The frontend
+# still has no npm dependency and no build step (see CONTRIBUTING.md and
+# eslint.yml) — that manifest is private, carries devDependencies only, and
+# nothing in the served app reads it. It exists because the pins used to sit
+# inside a workflow `run:` line, where no update mechanism can see them, and
+# the gate drifted onto an npm-deprecated eslint 8 release line (issue #361).
+# A `dependencies` block here would be the bundler creep CONTRIBUTING.md
+# forbids; tests/test_js_toolchain.py fails if one appears.
 
 version: 2
 updates:
@@ -35,6 +41,32 @@ updates:
       prefix: "deps"
     labels:
       - dependencies
+
+  # The CI toolchain only: eslint (the JS lint gate), eslint-plugin-react and
+  # globals (what eslint.config.mjs reads), c8 (the JS coverage fold). One
+  # grouped PR per run, for the same reason the actions entry is grouped — a
+  # toolchain that half-moves is a lockfile that does not install, and the
+  # grouping keeps eslint, its plugin and its config's `globals` dependency
+  # reviewed as one change. Dependabot rewrites package.json and
+  # package-lock.json in the same PR, so the pin and the tree it resolves to
+  # can never disagree.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "04:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dependencies
+    groups:
+      js-toolchain:
+        applies-to: version-updates
+        patterns:
+          - "*"
 
   # The workflows pin every action to a commit SHA with the version in a
   # trailing comment. A SHA pin does not move at all — which is the point,

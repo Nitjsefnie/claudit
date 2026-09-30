@@ -53,7 +53,10 @@ The rules that reject the most patches, in order:
 
 Do not "helpfully" add a bundler, an npm dependency, or a build step. The
 frontend transpiles in the browser on purpose; that is a design decision,
-not an oversight.
+not an oversight. The root `package.json` is the **CI toolchain only** —
+eslint, eslint-plugin-react, c8, `globals`, devDependencies and nothing
+else, installed with `npm ci` and read by nothing the app serves. Adding a
+runtime `dependencies` block there is the creep this paragraph forbids.
 
 **Scope.** claudit exposes usage *statistics* — it does not analyse session
 quality, review "what went wrong", or run an AI auditor/chatbot over your
@@ -134,6 +137,11 @@ pyright                                                        # types
 npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx'           # eslint
 python3 scripts/ci/smoke.py                                    # smoke
 ```
+
+The eslint line needs the node toolchain installed first — `npm ci`, the
+same command both JS gates run. It installs `package.json`'s pinned
+devDependencies (and only those) from `package-lock.json`; nothing it
+puts in `node_modules` is served, built or shipped.
 
 Use `-co --exclude-standard`, not a bare `git ls-files`. CI lints the
 committed tree so its own plain `git ls-files` is right *there*; locally
@@ -261,7 +269,7 @@ row's history; never edit an existing one.
 - **Naming** — `snake_case` in Python, `camelCase` in JS, singular SQL
   table names.
 - Lint config lives in `.pylintrc`, `setup.cfg`, `pyrightconfig.json`
-  and `.eslintrc.json`, and CI enforces all four. Formatting opinions
+  and `eslint.config.mjs`, and CI enforces all four. Formatting opinions
   (line length in particular) are switched off on purpose — match the
   surrounding file for style, and treat anything the linters do flag
   as a real finding.
