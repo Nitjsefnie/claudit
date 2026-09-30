@@ -39,8 +39,9 @@ concurrency:
   # Push and pull_request runs of this workflow arrive as ci-gate legs
   # and join this group under the caller's event, alongside the weekly
   # cron (grouped on refs/heads/master, never cancelled) and any
-  # standalone dispatch on the same ref. ci-gate's own group owns
-  # supersession for the aggregate.
+  # standalone dispatch on the same ref. Master-push legs of concurrent
+  # ci-gate runs queue here — ci-gate's own push groups are per-SHA
+  # (issue #358).
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

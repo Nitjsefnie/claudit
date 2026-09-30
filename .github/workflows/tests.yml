@@ -23,11 +23,12 @@ permissions:
 concurrency:
   # Push and pull_request runs of this workflow arrive as ci-gate legs,
   # and they join this group under the caller's event: a master-push
-  # leg occupies tests-refs/heads/master, queued against any standalone
-  # dispatch on the ref, and a pull-request leg gets cancel-in-progress
-  # — matching ci-gate's own group, which owns supersession for the
-  # aggregate. Direct workflow_dispatch runs of this file queue on
-  # their ref likewise.
+  # leg occupies tests-refs/heads/master, queued against any other
+  # master run's tests leg — ci-gate's own push groups are per-SHA
+  # (issue #358), so this queue is what serializes concurrent master
+  # runs and their ratchet pushes — and a pull-request leg gets
+  # cancel-in-progress. Direct workflow_dispatch runs of this file
+  # queue on their ref likewise.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

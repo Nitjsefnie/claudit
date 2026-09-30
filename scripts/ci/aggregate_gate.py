@@ -15,17 +15,15 @@ needs document the workflow passes in as JSON:
 - a leg the document lacks at all fails it too, so the fold and the
   workflow cannot silently disagree about what a complete run covers.
 
-SUPERSESSION IS NOT THIS MODULE'S DECISION. The workflow's concurrency
-group (one per pull request or branch, `cancel-in-progress`) means a
-run superseded by a newer push is cancelled WHOLE — its aggregate never
-reports, and the newer run's aggregate is the verdict that exists.
-That is the rule "a run cancelled because a newer run superseded it
-gates nothing": no stale red aggregate is ever left behind to read. A
-DELIBERATE cancel of a still-current run leaves that run's aggregate
-cancelled as well, which a required-check ruleset treats as
-never-green, exactly as a failure does. So this module treats a
-cancelled leg as a failure without querying for a newer run; the
-concurrency group already answered it.
+SUPERSESSION IS NOT THIS MODULE'S DECISION. ci-gate's concurrency group
+is one per pull request, or per pushed commit SHA on a push (issue
+#358), so a newer push starts its own run and never cancels the older
+one — a superseded run never exists to leave a stale aggregate behind.
+A cancel is therefore always DELIBERATE: it leaves that run's aggregate
+cancelled, which a required-check ruleset treats as never-green,
+exactly as a failure does. So this module treats a cancelled leg as a
+failure without querying for a newer run; nothing cancels a run
+behind its back.
 
 The verdict and a per-leg table go to the step summary; the exit code
 is the gate.
