@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T12:54:07Z",
+  "provider_rates_fetched": "2026-09-30T13:49:43Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -920,6 +920,14 @@
           "create_5m": 0.04,
           "fresh": 0.04,
           "from": "2026-09-30T05:16:11Z",
+          "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.069,
+          "create_5m": 0.069,
+          "fresh": 0.069,
+          "from": "2026-09-30T13:26:03Z",
           "output": 0.6,
           "read": 0.02
         }
@@ -7327,6 +7335,24 @@
           "note": "42.2% off",
           "output": 0.16184,
           "read": 0.016184
+        },
+        {
+          "create_1h": 0.08008,
+          "create_5m": 0.08008,
+          "fresh": 0.08008,
+          "from": "2026-09-30T13:20:58Z",
+          "note": "42.8% off",
+          "output": 0.16016,
+          "read": 0.016016
+        },
+        {
+          "create_1h": 0.07924,
+          "create_5m": 0.07924,
+          "fresh": 0.07924,
+          "from": "2026-09-30T13:36:04Z",
+          "note": "43.4% off",
+          "output": 0.15848,
+          "read": 0.015848
         }
       ],
       "DeepInfra": [
@@ -8374,6 +8400,14 @@
           "fresh": 0.005,
           "from": "2026-09-30T12:41:03Z",
           "output": 0.158835,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.005,
+          "create_5m": 0.005,
+          "fresh": 0.005,
+          "from": "2026-09-30T13:49:43Z",
+          "output": 0.156895,
           "read": 0.005
         }
       ],
@@ -13085,6 +13119,15 @@
           "note": "42.7% off",
           "output": 0.16044,
           "read": 0.016044
+        },
+        {
+          "create_1h": 0.07854,
+          "create_5m": 0.07854,
+          "fresh": 0.07854,
+          "from": "2026-09-30T13:49:43Z",
+          "note": "43.9% off",
+          "output": 0.15708,
+          "read": 0.015708
         }
       ],
       "Venice": [
@@ -42919,6 +42962,14 @@
           "create_5m": 0.75,
           "fresh": 0.75,
           "from": "2026-09-30T11:36:03Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.1449,
+          "create_5m": 0.1449,
+          "fresh": 0.1449,
+          "from": "2026-09-30T13:20:58Z",
           "output": 0.5,
           "read": 0.03
         }
