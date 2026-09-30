@@ -286,7 +286,7 @@ def _collect_todo(existing: dict, parser_version: str,
     """Walk the bucket: count objects, remember live keys, and queue the
     files whose etag/parser_version says they need (re)parsing.
 
-    Returns (listed, todo, seen_keys, newer). todo holds (obj, proj,
+    Returns (listed, todo, seen_keys, newer, moved). todo holds (obj, proj,
     stored) per file needing work, fetched+parsed later on a pool. newer
     counts the files NOT queued because their stored parser_version is
     newer than this binary's own — a rollback's older binary must not
@@ -339,7 +339,7 @@ def _collect_todo(existing: dict, parser_version: str,
     current = _RUN_TIMING.get()
     if current is not None:
         current.todo = len(todo)
-    return listed, todo, seen_keys, newer
+    return listed, todo, seen_keys, newer, moved
 
 
 def _fetch_parse_persist(todo: list[tuple], parser_version: str,
@@ -429,7 +429,7 @@ def _walk_and_persist(parser_version: str,
                       ) -> tuple[int, int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
 
-    Returns (listed, inserted, reparsed, deleted, vanished, newer).
+    Returns the six walk counts plus the lane re-key's moved-file count (#370).
     Exceptions propagate to run_ingest_locked, which books them as the
     run-level `fatal` — except IngestAborted, which closes the run as
     aborted.
@@ -439,7 +439,7 @@ def _walk_and_persist(parser_version: str,
     existing_seconds = time.perf_counter() - existing_started
     # Defer its mark to preserve the walk's reported order without moving SQL.
     try:
-        listed, todo, seen_keys, newer = _collect_todo(
+        listed, todo, seen_keys, newer, lane_moved = _collect_todo(
             existing, parser_version, failed
         )
     finally:
@@ -457,7 +457,7 @@ def _walk_and_persist(parser_version: str,
     if (scope := current_scope()) is not None:
         scope.check_dirty_threshold(scope.dirty_files)
         scope.check_latency_null()
-    return listed, inserted, reparsed, deleted, vanished, newer
+    return listed, inserted, reparsed, deleted, vanished, newer, lane_moved
 
 
 def run_ingest_locked(trigger: str) -> dict:
@@ -518,7 +518,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         started = datetime.now(timezone.utc)
         run_id = _open_run(started, trigger)
         _set_progress(phase="listing", done=0, total=0, run_id=run_id, started_at=started.isoformat())
-        listed = inserted = reparsed = deleted = vanished = newer = changed = 0
+        listed = inserted = reparsed = deleted = vanished = newer = changed = lane_moved = 0
         # Per-object failures (qualified key, message). Counted in `error`,
         # whose public /health surface cannot carry keys (issue #253).
         # Retained for `_record_failure` logs and the authenticated
@@ -538,7 +538,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         with _timed_step("scope"):
             scope = begin_scope()
         _record_scope("full" if scope.full else "incremental")
-        listed, inserted, reparsed, deleted, vanished, newer = (
+        listed, inserted, reparsed, deleted, vanished, newer, lane_moved = (
             _walk_and_persist(constants.PARSER_VERSION, failed))
     except IngestAborted as exc:
         abort_msg = str(exc) or "shutdown requested"
@@ -611,6 +611,8 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
                 fatal = f"{type(e).__name__}: details are in the server log"
                 err = fatal
 
+    changed += lane_moved  # a lane re-key (#370) counts at the gate like a derived phase
+
     with _timed_step("close_run"):
         finished = datetime.now(timezone.utc)
         _close_run(run_id, finished, listed, reparsed, inserted, deleted,
@@ -658,11 +660,8 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
             mark_complete()
     if (current := _RUN_TIMING.get()) is not None:
         current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
+        current.changed = changed
     return summary
-
-
-def _is_missing(exc: BaseException) -> bool:
-    return ingest_fetch.is_missing(exc)
 
 
 def _fetch_with_retry(key: str) -> bytes:

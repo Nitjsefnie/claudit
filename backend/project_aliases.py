@@ -139,7 +139,11 @@ def rekey_folded_projects() -> int:
     the table. A pass that changes nothing moves 0. Needs no reparse,
     no R2 fetch, and no PARSER_VERSION bump:
     only stored identity moves; token columns and costs are untouched.
-    Returns the number of project ids re-keyed. Moved files are reported to
+    Returns the rows the pass changed — project ids re-keyed plus alias
+    targets relabelled — because a relabel-only pass still changes the
+    project list a client sees and must gate the response-cache
+    invalidation like a pass with moves (issue #370). Moved files are
+    reported to
     the active incremental scope with their old and new project-hour keys.
     """
     scope = current_scope()
@@ -221,4 +225,4 @@ def rekey_folded_projects() -> int:
     if relabeled:
         log.info("rekey_folded_projects: %d alias target label(s) reset",
                  relabeled)
-    return len(moves)
+    return len(moves) + relabeled
