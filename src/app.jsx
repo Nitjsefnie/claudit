@@ -218,6 +218,8 @@ function App() {
   const [synth, setSynth] = useState(null);
   const [useSynth, setUseSynth] = useState(true);
   const [backendDash, setBackendDash] = useState(null);
+  // The request's own state, tracked apart from its data (#394).
+  const [dashFetch, setDashFetch] = useState(() => window.dashboardFetch.start());
   const [projects, setProjects] = useState(null);
   const [activeProject, setActiveProject] = useState('');
   const [activeRange, setActiveRange] = useState('all');
@@ -338,15 +340,17 @@ function App() {
   // not a failure — it applies nothing and leaves the pending
   // announcement line for the run that replaced it; a real failure
   // still drops that line.
+  // A superseded run writes nothing: neither its data nor its state.
   useEffect(() => {
     if (!backendOn) return;
     const run = mintRunSignal();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
-    fetch(`/api/dashboard?range=${activeRange}${q}`, { credentials: 'same-origin', signal: run.signal })
-      .then(r => r.json())
+    setDashFetch(window.dashboardFetch.start());
+    window.dashboardFetch.load(`/api/dashboard?range=${activeRange}${q}`, { signal: run.signal })
       .then(b => {
         if (!run.isCurrent()) return;
         setBackendDash(b);
+        setDashFetch(window.dashboardFetch.loaded());
         // Announce only once the refetch the event asked for has
         // landed: the live region must never describe a load that is
         // still in flight.
@@ -365,6 +369,7 @@ function App() {
         // must not survive to mislabel the NEXT successful
         // announcement -- drop it and wait for the next event.
         refreshRef.current = null;
+        setDashFetch(window.dashboardFetch.failed(err && err.message));
       });
     return run.abort;
   }, [backendOn, activeProject, activeRange, dashNonce]);
@@ -417,11 +422,9 @@ function App() {
       {backendOn && (
         <RangePicker active={activeRange} onChange={setActiveRange} />
       )}
-      {/* Mounted as soon as the backend is known, not when its data lands:
-          Dashboard hosts four self-fetching panels whose requests must go
-          out in parallel with /api/dashboard. It renders a loading summary
-          until `synth` arrives. */}
-      {route === 'dashboard' && (dashData || backendOn) && <Dashboard synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} />}
+      {/* Mounted as soon as the backend is known: Dashboard's four
+          self-fetching panels must go out in parallel, not after. */}
+      {route === 'dashboard' && (dashData || backendOn) && <Dashboard synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} dashFetch={dashFetch} />}
       {route === 'sessions' && dashData && (
         <window.SessionsList
           synth={dashData}
@@ -931,7 +934,7 @@ function TokenBreakdownPanel({ events }) {
   );
 }
 
-function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce }) {
+function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch }) {
   // `synth` is null until /api/dashboard lands. Render anyway: the four
   // backend panels below (Tool Usage, Reply Latency, Tool Error Rate,
   // Activity Heatmap) each fetch their OWN endpoint on mount, and gating
@@ -1038,15 +1041,12 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // surface, so each one is dropped rather than drawn empty.
   const hasCost = totals.cost > 0;
 
+  // Loading/empty/error come from the state, never from a null shape (#394).
+  const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
     <div className="dashboard">
-      {!hasData && (
-        <div className="dash-summary">
-          <Stat label="status" value="loading…" />
-          <Stat label="range" value={activeRange} />
-        </div>
-      )}
-      {hasData && (
+      <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
+      {summary.kind === 'data' && (
       <div className="dash-summary">
         <Stat label="window" value={`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`} />
         <Stat label="main sessions with usage" value={(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length))).toLocaleString()} />
