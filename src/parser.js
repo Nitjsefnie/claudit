@@ -258,7 +258,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
 
     // An offset-less ISO timestamp is UTC (issue #376, mirrors parse_common._to_dt): unstamped, Date.parse reads the viewer's zone.
     let ts = obj.timestamp || '';
-    if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts)) ts += 'Z';
+    if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts)) ts += 'Z';
     const msgType = obj.type || '';
 
     if (msgType === 'progress' || msgType === 'file-history-snapshot') continue;
