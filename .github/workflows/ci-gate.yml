@@ -17,23 +17,28 @@ name: ci gate
 #
 # SUPERSESSION AND CANCELLATION. The concurrency group is one per pull
 # request, or per commit SHA on a push (issue #358): a newer push starts
-# its own run instead of cancelling the older one, so a superseded run
-# never exists to leave a stale aggregate behind — before this, a bot
-# push (the hourly pricing refresh, a dependabot merge) landing while a
-# master run was in flight cancelled it whole, yet the aggregate's
-# `if: always()` still ran it, folded the cancelled legs, and recorded a
-# red aggregate on the superseded commit, which release.yml's waiter
-# then refuses — a VERSION commit raced by a bot push could not
-# release. The ten legs keep per-ref groups of their own (the caller's
-# ref), so the legs of two concurrent master runs still queue, which
-# also serializes the tests leg's ratchet push. With nothing left that
-# cancels on a push, a cancel is always DELIBERATE: it leaves that run's
-# aggregate cancelled — folded as a failure by aggregate_gate.py, so a
+# its own run instead of cancelling the older one, so the ordinary
+# two-push supersession cancel cannot leave a stale aggregate behind —
+# before this, a bot push (the hourly pricing refresh, a dependabot
+# merge) landing while a master run was in flight cancelled it whole,
+# yet the aggregate's `if: always()` still ran it, folded the cancelled
+# legs, and recorded a red aggregate on the superseded commit, which
+# release.yml's waiter then refuses — a VERSION commit raced by a bot
+# push could not release. One residual remains, one level down: the ten
+# legs keep per-ref groups of their own (the caller's ref), so the legs
+# of concurrent master runs queue, which also serializes the tests leg's
+# ratchet push — and GitHub keeps at most one PENDING run per group, so
+# a third concurrent master push cancels a merely-queued leg, and that
+# middle run's aggregate folds red. Needs three master runs overlapping
+# (rare at this repo's pace), fails closed, and the next push re-verifies
+# it (below). With the group itself no longer cancelling on a push, a
+# run-level cancel is always DELIBERATE: it leaves that run's aggregate
+# cancelled — folded as a failure by aggregate_gate.py, so a
 # required-check ruleset reads it never-green — and the next push's
-# classifier re-verifies whatever it left unverified, by walking back to
-# the newest master commit whose gate legs actually executed
-# (scripts/ci/classify_changes.py). A cancelled run's CODE is therefore
-# not forgotten either way.
+# classifier re-verifies whatever any cancelled run left unverified, by
+# walking back to the newest master commit whose gate legs actually
+# executed (scripts/ci/classify_changes.py). A cancelled run's CODE is
+# therefore not forgotten either way.
 #
 # TRIGGER OWNERSHIP. The ten gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
