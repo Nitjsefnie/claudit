@@ -77,7 +77,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: speed-${{ github.event.pull_request.number || github.ref }}
+  # One run per pull request, or per pushed commit SHA on a push
+  # (issue #409): on a per-ref push group GitHub keeps at most one
+  # PENDING run, so a third concurrent master push cancelled a
+  # merely-queued leg and that commit's aggregate folded red. PR runs
+  # keep the per-number group and cancel; the caller's event context
+  # is what the expression reads, so a ci-gate push leg keys on its
+  # own commit.
+  group: speed-${{ github.event.pull_request.number
+    || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

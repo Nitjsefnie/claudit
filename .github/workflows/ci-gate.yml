@@ -24,14 +24,17 @@ name: ci gate
 # yet the aggregate's `if: always()` still ran it, folded the cancelled
 # legs, and recorded a red aggregate on the superseded commit, which
 # release.yml's waiter then refuses — a VERSION commit raced by a bot
-# push could not release. One residual remains, one level down: the ten
-# legs keep per-ref groups of their own (the caller's ref), so the legs
-# of concurrent master runs queue, which also serializes the tests leg's
-# ratchet push — and GitHub keeps at most one PENDING run per group, so
-# a third concurrent master push cancels a merely-queued leg, and that
-# middle run's aggregate folds red. Needs three master runs overlapping
-# (rare at this repo's pace), fails closed, and the next push re-verifies
-# it (below). With the group itself no longer cancelling on a push, a
+# push could not release. The legs keep their own groups, and the two
+# long ones — speed and test-data — are per-SHA on a push too (issues
+# #366, #409): each commit carries its own run of them, so no push
+# cancels or pending-supersedes another's. The remaining legs keep
+# per-ref groups (the caller's ref), where concurrent master runs
+# queue — which is what serializes the tests leg's ratchet push — and
+# GitHub keeps at most one PENDING run per group, so a third concurrent
+# master push can still cancel a merely-queued short leg, and that
+# middle run's aggregate folds red. The window is each leg's own
+# duration (minutes for every leg that remains per-ref), it fails
+# closed, and the next push re-verifies it (below). With the group itself no longer cancelling on a push, a
 # run-level cancel is always DELIBERATE: it leaves that run's aggregate
 # cancelled — folded as a failure by aggregate_gate.py, so a
 # required-check ruleset reads it never-green — and the next push's
