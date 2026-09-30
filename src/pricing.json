@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T19:55:51Z",
+  "provider_rates_fetched": "2026-09-30T20:53:40Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -961,6 +961,14 @@
           "fresh": 0.04,
           "from": "2026-09-30T17:05:57Z",
           "output": 0.75,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-30T20:53:40Z",
+          "output": 0.9,
           "read": 0.02
         }
       ],
@@ -38281,6 +38289,22 @@
           "from": "2026-09-30T19:01:08Z",
           "output": 3.4,
           "read": 0.235
+        },
+        {
+          "create_1h": 0.24,
+          "create_5m": 0.24,
+          "fresh": 0.24,
+          "from": "2026-09-30T20:05:56Z",
+          "output": 4.0,
+          "read": 0.235
+        },
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": "2026-09-30T20:10:51Z",
+          "output": 4.0,
+          "read": 0.25
         }
       ],
       "Io Net": [
@@ -41178,6 +41202,14 @@
           "from": "2026-09-30T19:55:51Z",
           "output": 7.61,
           "read": 0.1847
+        },
+        {
+          "create_1h": 0.1849,
+          "create_5m": 0.1849,
+          "fresh": 0.1849,
+          "from": "2026-09-30T20:53:40Z",
+          "output": 9.13,
+          "read": 0.1847
         }
       ],
       "Z.AI": [
@@ -41699,6 +41731,14 @@
           "fresh": 0.1,
           "from": "2026-09-29T22:53:42Z",
           "output": 0.45,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-09-30T20:20:53Z",
+          "output": 0.5,
           "read": 0.03
         }
       ],
