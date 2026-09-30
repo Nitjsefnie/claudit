@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T05:54:00Z",
+  "provider_rates_fetched": "2026-09-30T06:49:56Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -1036,6 +1036,14 @@
           "create_5m": 0.14,
           "fresh": 0.14,
           "from": "2026-09-30T05:06:02Z",
+          "output": 1.15,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.285,
+          "create_5m": 0.285,
+          "fresh": 0.285,
+          "from": "2026-09-30T06:36:04Z",
           "output": 1.15,
           "read": 0.005
         }
@@ -2907,6 +2915,14 @@
           "from": "2026-09-30T05:50:56Z",
           "output": 0.44,
           "read": 0.0359
+        },
+        {
+          "create_1h": 0.0539,
+          "create_5m": 0.0539,
+          "fresh": 0.0539,
+          "from": "2026-09-30T06:20:59Z",
+          "output": 0.44,
+          "read": 0.0431
         }
       ]
     },
@@ -8220,6 +8236,14 @@
           "from": "2026-09-29T07:46:25Z",
           "output": 1.25,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.005,
+          "create_5m": 0.005,
+          "fresh": 0.005,
+          "from": "2026-09-30T06:11:01Z",
+          "output": 1.25,
+          "read": 0.005
         }
       ],
       "Parasail": [
@@ -32344,6 +32368,15 @@
           "note": "36% off",
           "output": 1.85024,
           "read": 0.08832
+        },
+        {
+          "create_1h": 1.24096,
+          "create_5m": 1.24096,
+          "fresh": 1.24096,
+          "from": "2026-09-30T06:36:03Z",
+          "note": "36% off",
+          "output": 1.85024,
+          "read": 0.08832
         }
       ],
       "NextBit": [
@@ -42329,6 +42362,14 @@
           "create_5m": 0.51,
           "fresh": 0.51,
           "from": "2026-09-30T01:51:00Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.61,
+          "create_5m": 0.61,
+          "fresh": 0.61,
+          "from": "2026-09-30T05:55:49Z",
           "output": 0.5,
           "read": 0.03
         }
