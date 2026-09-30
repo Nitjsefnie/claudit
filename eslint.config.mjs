@@ -1,9 +1,27 @@
-// Flat config (ESLint 9+), replacing the deleted .eslintrc.json.
+// Flat config, replacing the deleted .eslintrc.json. ESLint 10 reads no
+// eslintrc file at all — the @eslint/eslintrc dependency 8.57.1 carried is
+// absent from 10.11.0's package.json — so the migration is forced, not a
+// preference.
 //
-// Generated from .eslintrc.json and reviewed by hand: every rule, every
-// global and every parserOption below is the one that file carried, so
-// the gate reports exactly what it reported before (issue #361). See
-// eslint.yml for the derivation of the globals list.
+// Generated from .eslintrc.json and reviewed by hand: every RULE below is
+// the one that file carried, and so is every cross-file global and every
+// parserOption (issue #361). The browser ENVIRONMENT is the one deliberate
+// exception, and it is not the same set:
+//
+//   .eslintrc.json's `env: {browser: true}` expanded through eslint 8.57.1,
+//   which bundles globals@13.24.0 — 763 names. `globals.browser` here is
+//   globals@17.12.0 — 1204. Measured by name in both directions: 464 added
+//   (Navigation, Viewport, Temporal, Highlight, the WebGPU/WebUSB/WebXR
+//   surfaces, `onpaste`, `oncut`, …) and 23 removed (applicationCache,
+//   openDatabase, defaultStatus, AudioWorkletGlobalScope, SVGDiscardElement,
+//   …). `Intl`, the one removed name that is not a browser API, is supplied
+//   by ecmaVersion on both sides. OffscreenCanvas flips read-only.
+//
+// The added names are APIs browsers have shipped since 2022 and the removed
+// ones are APIs browsers have dropped, so for a browser app the new set is
+// the closer fit — but it is a different set, and a lint pass over the union
+// of the two is what shows it. See eslint.yml for the derivation of the
+// cross-file globals list, and PR 424 for the measurement.
 //
 // The three react/* rules stay: eslint-plugin-react 7.37.5 declares a peer
 // range of eslint "^3 || ... || ^9.7", and the only supported line today
@@ -14,10 +32,16 @@ import reactPlugin from 'eslint-plugin-react';
 
 // Cross-file globals: names from public/index.html (React/ReactDOM CDN
 // scripts, BACKEND_URL), every name the src files attach to window, and
-// every top-level `function` declaration in src/**/*.js(x) — the files
-// load as classic scripts, so a top-level function is a global.
-// Derivation is mechanical (grep '^function NAME' over src); extend it the
-// same way when adding files.
+// top-level names one src file uses from another — index.html loads each
+// /src/* as a classic script, so those are globals.
+//
+// This is NOT every top-level declaration in src/: the tree defines 127
+// top-level functions and this names 98, because a name only needs
+// declaring once some other file references it bare. To extend it, add the
+// name a new file needs — the gate tells you which: no-undef reports a
+// cross-file reference this list is missing. tests/test_js_toolchain.py
+// checks the two ends (nothing declared that the tree stopped defining,
+// and the count).
 const CROSS_FILE_GLOBALS = {
   ActivityHeatmapPanel: 'readonly',
   AgentDetail: 'readonly',
@@ -129,8 +153,10 @@ export default [
       sourceType: 'script',
       parserOptions: { ecmaFeatures: { jsx: true } },
       // eslintrc `env: {browser: true, es2024: true}`. Flat config derives
-      // the ES built-ins from ecmaVersion, so the browser set is the part
-      // that has to be named.
+      // the ES built-ins from ecmaVersion — and its ES-2024 set is a superset
+      // of the 28 names eslintrc's `env: {es2024: true}` supplied, so that
+      // half is unchanged. The browser half is the measured difference the
+      // file header describes.
       globals: {
         ...globals.browser,
         ...CROSS_FILE_GLOBALS,

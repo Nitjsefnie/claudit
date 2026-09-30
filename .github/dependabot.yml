@@ -10,7 +10,7 @@
 # before a human reads it.
 #
 # The npm entry below owns package.json + package-lock.json: the CI
-# toolchain (eslint, eslint-plugin-react, c8) and nothing else. The frontend
+# toolchain (eslint, eslint-plugin-react, c8, globals) and nothing else. The frontend
 # still has no npm dependency and no build step (see CONTRIBUTING.md and
 # eslint.yml) — that manifest is private, carries devDependencies only, and
 # nothing in the served app reads it. It exists because the pins used to sit

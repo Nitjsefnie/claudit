@@ -9,13 +9,14 @@ name: eslint
 # sourceType "script", the browser environment, and a globals list derived
 # from public/index.html (React/ReactDOM CDN scripts, BACKEND_URL), every
 # name the src files attach to window (window.X = ... and the
-# Object.assign(window, {...}) block in event-helpers.jsx), AND every
-# top-level `function` declaration in src/**/*.js(x) — the sources load
-# as classic scripts, so a top-level function is a cross-file global
-# without any window assignment. Derivation is mechanical (grep
-# '^function NAME' over src); extend it the same way when adding files.
-# That file replaced .eslintrc.json when eslint 9 stopped reading eslintrc
-# (issue #361); the rule set carried over unchanged.
+# Object.assign(window, {...}) block in event-helpers.jsx), AND top-level
+# names one src file uses from another — the sources load as classic
+# scripts, so those are cross-file globals without any window assignment.
+# That file replaced .eslintrc.json, which eslint 10 no longer reads at all
+# (issue #361). The rule set carried over unchanged; the browser
+# environment did not — globals@17's set is not the one eslint 8 bundled.
+# See eslint.config.mjs's own header for both, and do not restate a
+# derivation here that the config owns.
 #
 # The value here is no-undef / no-unused-vars — an undefined variable in
 # a component should be found by CI, not by a user. Stylistic rules stay
