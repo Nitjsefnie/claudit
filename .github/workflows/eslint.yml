@@ -5,23 +5,30 @@ name: eslint
 # The app deliberately has NO bundler and NO build step — React is loaded
 # via in-browser Babel, and the src files are classic browser scripts that
 # share globals across <script> tags (window.HBar, window.humanCurrency,
-# ...). The checked-in .eslintrc.json reflects that reality:
-# sourceType "script", env browser, and a globals list derived from
-# public/index.html (React/ReactDOM CDN scripts, BACKEND_URL), every
+# ...). The checked-in eslint.config.mjs reflects that reality:
+# sourceType "script", the browser environment, and a globals list derived
+# from public/index.html (React/ReactDOM CDN scripts, BACKEND_URL), every
 # name the src files attach to window (window.X = ... and the
 # Object.assign(window, {...}) block in event-helpers.jsx), AND every
 # top-level `function` declaration in src/**/*.js(x) — the sources load
 # as classic scripts, so a top-level function is a cross-file global
 # without any window assignment. Derivation is mechanical (grep
 # '^function NAME' over src); extend it the same way when adding files.
+# That file replaced .eslintrc.json when eslint 9 stopped reading eslintrc
+# (issue #361); the rule set carried over unchanged.
 #
 # The value here is no-undef / no-unused-vars — an undefined variable in
 # a component should be found by CI, not by a user. Stylistic rules stay
 # off, consistent with the Python gate.
 #
-# There is deliberately NO package.json: versions are pinned right here,
-# installed with --no-save into the (gitignored) node_modules, so the
-# repo does not read as having adopted a build step.
+# The tool versions live in package.json, NOT here: pinned there, they are
+# visible to Dependabot's npm ecosystem, which is what issue #361 was
+# about. An inline `npm install eslint@8.57.1` in a run: line is a pin no
+# update mechanism can see, and that is how the gate sat on an
+# npm-deprecated release line (8.x) for a year. The manifest is
+# private, carries devDependencies only and no scripts beyond `lint`, and
+# nothing in the served app reads it — the frontend still has no npm
+# dependency of its own (CONTRIBUTING.md).
 
 on:
   # Trigger ownership moved to ci-gate.yml (issue #127): push and
@@ -56,18 +63,18 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          # Pinned exactly, as every other version in this repo is: a tool
+          # release must never turn CI red on an unchanged commit (issue
+          # #361). Same value tests.yml's node-executing leg runs on.
+          node-version: "24.17.0"
 
-      - name: Install eslint (pinned, no package.json, no build step)
-        # zizmor: ignore[adhoc-packages]
-        # The finding is "installs a package outside of a lockfile", and the
-        # absence of a lockfile is the deliberate design documented at the
-        # top of this file: a package.json here would read as the repo having
-        # adopted a build step, which it has not. Both packages ARE pinned to
-        # an exact version, so the risk the audit targets — an unpinned
-        # install drifting under CI — does not apply. Revisit if the frontend
-        # ever gains a real toolchain.
-        run: npm install --no-save --no-package-lock --no-audit --no-fund eslint@8.57.1 eslint-plugin-react@7.37.5
+      - name: Install the JS toolchain from the lockfile
+        # npm ci, not npm install: it installs package-lock.json exactly and
+        # refuses to resolve against the registry, so the pins in
+        # package.json mean what they say. No zizmor adhoc-packages
+        # suppression is needed any more — the finding was "installs a
+        # package outside of a lockfile", and there is a lockfile.
+        run: npm ci --no-audit --no-fund
 
       - name: eslint
         run: npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx'
