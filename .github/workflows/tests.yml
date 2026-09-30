@@ -389,8 +389,11 @@ jobs:
                 *) base="$(git rev-parse HEAD^)" ;;
               esac ;;
           esac
-          git show "${base}:.github/ci-thresholds.json"             > "$RUNNER_TEMP/base-thresholds.json"
-          python3 scripts/ci/thresholds_guard.py             --base "$RUNNER_TEMP/base-thresholds.json"             --head .github/ci-thresholds.json
+          git show "${base}:.github/ci-thresholds.json" \
+            > "$RUNNER_TEMP/base-thresholds.json"
+          python3 scripts/ci/thresholds_guard.py \
+            --base "$RUNNER_TEMP/base-thresholds.json" \
+            --head .github/ci-thresholds.json
 
       - name: Ratchet the thresholds
         # Only measurements from a master push may move the recorded
