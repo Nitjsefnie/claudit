@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T15:54:18Z",
+  "provider_rates_fetched": "2026-09-30T16:55:29Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -944,6 +944,14 @@
           "create_5m": 0.03,
           "fresh": 0.03,
           "from": "2026-09-30T15:31:00Z",
+          "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-30T16:05:45Z",
           "output": 0.6,
           "read": 0.02
         }
@@ -23666,6 +23674,15 @@
           "note": "77.7% off",
           "output": 0.75374,
           "read": 0.03122
+        },
+        {
+          "create_1h": 0.36504,
+          "create_5m": 0.36504,
+          "fresh": 0.36504,
+          "from": "2026-09-30T16:35:46Z",
+          "note": "78.4% off",
+          "output": 0.73008,
+          "read": 0.03024
         }
       ],
       "Cloudflare": [
@@ -24865,6 +24882,14 @@
           "from": "2026-09-30T12:16:00Z",
           "output": 3.5,
           "read": 0.377
+        },
+        {
+          "create_1h": 0.366,
+          "create_5m": 0.366,
+          "fresh": 0.366,
+          "from": "2026-09-30T16:01:00Z",
+          "output": 3.5,
+          "read": 0.366
         }
       ],
       "SiliconFlow": [
@@ -38157,6 +38182,14 @@
           "from": "2026-09-30T15:25:58Z",
           "output": 3.4,
           "read": 0.155
+        },
+        {
+          "create_1h": 0.18,
+          "create_5m": 0.18,
+          "fresh": 0.18,
+          "from": "2026-09-30T16:00:58Z",
+          "output": 3.4,
+          "read": 0.175
         }
       ],
       "Io Net": [
@@ -41038,6 +41071,14 @@
           "from": "2026-09-30T15:54:18Z",
           "output": 2.99,
           "read": 0.1547
+        },
+        {
+          "create_1h": 0.1849,
+          "create_5m": 0.1849,
+          "fresh": 0.1849,
+          "from": "2026-09-30T16:55:29Z",
+          "output": 2.99,
+          "read": 0.1847
         }
       ],
       "Z.AI": [
