@@ -10,6 +10,7 @@ The pools never join across DBs.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import threading
@@ -17,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import LiteralString, cast
 
+import psycopg
 from psycopg_pool import ConnectionPool
 
 log = logging.getLogger("claudit.db")
@@ -162,6 +164,28 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 # two backends creating the same index still deadlock against each other.
 _SCHEMA_LOCK_KEY = 0x5356_4D49
 
+# How long the schema transaction waits for ANY single lock — the
+# advisory boot lock and every DDL lock — before giving up (issue #387).
+# A current schema takes no lock on `records` at all (the DDL is skipped
+# by stamp); this bounds only the wait when a migration IS due and some
+# long-running transaction (a psql analysis, a pg_dump) holds a
+# conflicting lock. Without the bound the boot queued forever, and every
+# other reader queued behind it. The value lives in code, never the
+# environment, like every version constant here.
+_SCHEMA_LOCK_TIMEOUT = "5s"
+
+
+def _stamp_version(c) -> str | None:
+    """The schema content stamp this database carries, or None when the
+    DDL cannot be skipped (the stamp table missing — a DB from before
+    issue #387 — or the row cleared to force a re-apply)."""
+    row = c.execute(
+        "SELECT to_regclass('public.schema_stamp')").fetchone()
+    if row is None or row[0] is None:
+        return None
+    have = c.execute("SELECT version FROM schema_stamp").fetchone()
+    return have[0] if have is not None else None
+
 
 def apply_schema() -> None:
     """Apply backend/schema.sql to the app DB at startup.
@@ -171,12 +195,39 @@ def apply_schema() -> None:
     or a guarded DO block that widens usage_rollup's primary key (it
     drops the old constraint only when it does not already carry the
     widened grain, then re-adds it; ADD CONSTRAINT has no IF NOT
-    EXISTS) -- so running it on every boot converges the database onto
-    the shape the running code expects instead of trusting that a human
-    ran psql after deploying (issue #43). Two deploys failed that way in
-    one day: a checkout pulled code writing a new column, the migration
+    EXISTS) -- so running it converges the database onto the shape the
+    running code expects instead of trusting that a human ran psql
+    after deploying (issue #43). Two deploys failed that way in one
+    day: a checkout pulled code writing a new column, the migration
     step was missed, and every ingest then aborted with UndefinedColumn
     while the dashboard kept serving stale aggregates.
+
+    The DDL runs only when it has something to do (issue #387): the
+    file is content-addressed in `schema_stamp` — the sha256 of the
+    file's exact bytes, written by the same transaction as the DDL —
+    and a boot whose stamp already matches takes no lock beyond an
+    ACCESS SHARE on the stamp table itself. That is what keeps a long
+    psql analysis or pg_dump over `records` from hanging a start, and
+    being hung by it: every ADD COLUMN / SET / DO-block statement takes
+    ACCESS EXCLUSIVE before its own IF NOT EXISTS check, even as a
+    no-op — which is why the whole run is skipped rather than
+    pre-checked statement by statement (the pre-checks would duplicate
+    every guard in this file).
+
+    The stamp asserts THIS file ran to completion under these exact
+    bytes; it does not certify later catalog state. An out-of-band
+    schema mutation (a hand-dropped column) needs
+    `DELETE FROM schema_stamp` to force a re-apply — the same
+    convention as DELETE FROM ingest_derived_state after out-of-band
+    record mutations.
+
+    Lock waits are bounded: the migration transaction sets lock_timeout
+    (the advisory boot lock included). On expiry the transaction aborts
+    WHOLE — one transaction, so the DDL prefix and the stamp write are
+    discarded together and no half-applied schema survives — the
+    advisory lock is released, and the boot fails with a clear error.
+    systemd (Restart=always, RestartSec=5) retries the boot until the
+    blocking transaction ends; the first boot after that converges.
 
     Executed through psycopg rather than shelling out to psql: the
     service already holds a connection with the right credentials, and a
@@ -198,27 +249,75 @@ def apply_schema() -> None:
     Reads tolerating a future schema plus the ingest guard are what make
     auto-apply safe, and any migration beyond those -- one that drops or
     retypes a column, or a second exception -- would break it.
+
+    An older binary never touches the stamp row (its code predates the
+    table), so a rollback changes nothing there: the old DDL is an
+    additive subset of the stamped file's, and the next boot of THIS
+    build fast-paths again.
     """
     ddl = SCHEMA_PATH.read_text(encoding="utf-8")
+    stamp = hashlib.sha256(ddl.encode("utf-8")).hexdigest()
     with viz_conn() as c:
-        # Serialize concurrent boots. Session-scoped, released on the
-        # connection returning to the pool at the end of this block.
-        c.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK_KEY,))
-        try:
-            c.execute(sql_text(ddl))
+        if _stamp_version(c) == stamp:
+            # Current: the block exit ends the read transaction. No
+            # DDL, no exclusive lock anywhere (issue #387).
             c.commit()
+            return
+        # A migration is due, or the stamp is missing. Bounded waits:
+        # lock_timeout is transaction-local and covers the advisory
+        # boot lock and every DDL lock.
+        c.execute("SELECT set_config('lock_timeout', %s, true)",
+                  (_SCHEMA_LOCK_TIMEOUT,))
+        locked = False
+        committed = False
+        try:
+            c.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK_KEY,))
+            locked = True
+            if _stamp_version(c) == stamp:
+                # A boot that queued beside us converged the schema
+                # first; its commit is visible here under READ
+                # COMMITTED.
+                return
+            c.execute(sql_text(ddl))
+            c.execute(
+                "INSERT INTO schema_stamp (singleton, version) "
+                "VALUES (TRUE, %s) ON CONFLICT (singleton) DO UPDATE "
+                "SET version = EXCLUDED.version, applied_at = now()",
+                (stamp,))
+            c.commit()
+            committed = True
+        except psycopg.errors.LockNotAvailable as exc:
+            log.error(
+                "schema migration gave up on the %s lock timeout; a "
+                "long-running transaction is blocking startup DDL. The "
+                "transaction aborted whole — nothing applied, the "
+                "advisory lock is released, and systemd restarts the "
+                "boot: %s", _SCHEMA_LOCK_TIMEOUT, exc)
+            raise RuntimeError(
+                "schema migration could not take its locks within "
+                f"{_SCHEMA_LOCK_TIMEOUT} (a long-running transaction "
+                "holds a conflicting lock — end it, or apply "
+                "backend/schema.sql out of band); nothing was applied"
+            ) from exc
         finally:
-            # Issue #154: the unlock (and the commit ending its
-            # transaction) must never mask the DDL's own error — the
-            # diagnosable one. Either failure leaves the lock free or the
-            # boot dead: a dead session's lock died with it, and an unlock
-            # blocked by the failed DDL's aborted transaction accompanies
-            # a migration error that aborts this boot, whose exit takes
-            # every pooled session — lock included — with it.
             try:
-                c.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))
-                c.commit()
-            except Exception as exc:
+                # Roll back before unlocking so the unlock runs outside
+                # an aborted transaction and can actually succeed.
+                if not committed:
+                    c.rollback()
+                if locked:
+                    c.execute("SELECT pg_advisory_unlock(%s)",
+                              (_SCHEMA_LOCK_KEY,))
+                    c.commit()
+            except Exception as exc:  # noqa: BLE001
+                # Issue #154: the unlock (and the commit ending its
+                # transaction) must never mask the DDL's own error — the
+                # diagnosable one. Either failure leaves the lock free or
+                # the boot dead: a dead session's lock died with it, and
+                # an unlock blocked by the failed DDL's aborted
+                # transaction accompanies a migration error that aborts
+                # this boot, whose exit takes every pooled session —
+                # lock included — with it.
                 log.warning(
                     "schema advisory-lock unlock failed; the migration's "
                     "own error, if any, is preserved: %s", exc)

@@ -107,11 +107,23 @@ fixed here (SV-PARSER-SPEC).
 
 ## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
 
-`db.apply_schema()` runs the idempotent `backend/schema.sql` on every
-boot, before `schema_check()`, under a Postgres advisory lock. A manual
+`db.apply_schema()` runs the idempotent `backend/schema.sql` when this
+build's copy differs from what the database last applied —
+content-stamped in `schema_stamp` (the sha256 of the file's exact
+bytes, written by the same transaction as the DDL) — before
+`schema_check()`, under a Postgres advisory lock. A current schema
+takes no DDL and therefore no ACCESS EXCLUSIVE lock anywhere (issue
+#387), so a long reader of `records` can no longer hang a start or
+queue every other reader behind it; when the DDL IS due its lock waits
+are bounded by a transaction-local `lock_timeout`, and an expired wait
+aborts the boot with a logged error (atomic — the DDL and the stamp
+share one transaction), which systemd retries. A manual
 `psql -f backend/schema.sql` is not load-bearing: a deploy that adds a
-column converges the database instead of failing every ingest with
-`UndefinedColumn`.
+column changes the stamp and converges the database instead of failing
+every ingest with `UndefinedColumn`. An out-of-band schema mutation (a
+hand-dropped column) needs `DELETE FROM schema_stamp` to force a
+re-apply — the convention of `DELETE FROM ingest_derived_state` after
+out-of-band record mutations.
 
 `ingest_derived_state` is likewise `CREATE TABLE IF NOT EXISTS`. Ingest
 commits `complete = FALSE` before mutating `files`, `records` or

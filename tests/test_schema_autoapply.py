@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import threading
 import types
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 
+import psycopg
 import pytest
 
 from test_api import (  # pylint: disable=unused-import
@@ -40,6 +43,13 @@ def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
         c.commit()
     assert "error_kind" not in _columns("tool_uses")
 
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so out-of-band schema damage needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+
     db.apply_schema()
 
     assert "error_kind" in _columns("tool_uses")
@@ -49,6 +59,13 @@ def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):
     """Whole relations come back too, not only columns."""
     with db.viz_conn() as c:
         c.execute("DROP TABLE IF EXISTS dispatch_rollup")
+        c.commit()
+
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so out-of-band schema damage needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
         c.commit()
 
     db.apply_schema()
@@ -99,6 +116,13 @@ def test_apply_schema_widens_an_integer_user_session_user_id(
         c.commit()
     assert _user_id_type() == "integer"
 
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so out-of-band schema damage needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+
     db.apply_schema()
     assert _user_id_type() == "bigint"
 
@@ -126,6 +150,111 @@ def test_apply_schema_is_idempotent_and_preserves_data(app_with_fresh_data):
     with db.viz_conn() as c:
         after = c.execute("SELECT COUNT(*) FROM records").fetchone()
     assert after is not None and after[0] == before[0]
+
+
+def test_apply_schema_does_not_block_behind_an_open_reader(
+        app_with_fresh_data):
+    """Issue #387: a start whose schema is already current must neither
+    wait behind nor make others wait behind an open reader of `records`.
+
+    The reader holds ACCESS SHARE on `records`; the unfixed boot's
+    unconditional DDL run requested ACCESS EXCLUSIVE on the same table
+    and queued behind it without limit, and every other reader queued
+    behind the boot. The boot runs on a worker thread, and the test
+    synchronises on the boot's completion — not on any wall-clock
+    margin — so the failure is a named assertion, never a hang.
+    """
+    db.apply_schema()  # bring the fixture DB to this build's schema
+    url = os.environ["DATABASE_URL_VIZ"]
+
+    with closing(psycopg.connect(url)) as blocker, \
+            blocker.cursor() as cur:
+        cur.execute("SELECT count(*) FROM records")  # ACCESS SHARE, held
+        done = threading.Event()
+
+        def _boot():
+            try:
+                db.apply_schema()
+                done.set()
+            except Exception:  # noqa: BLE001
+                pass
+
+        t = threading.Thread(target=_boot, daemon=True)
+        t.start()
+        t.join(timeout=10)
+        assert done.is_set(), (
+            "apply_schema blocked behind an open reader on records "
+            "(issue #387): a current-schema boot still queues on ACCESS "
+            "EXCLUSIVE")
+
+
+def test_apply_schema_blocked_migration_fails_fast_and_atomic(
+        app_with_fresh_data, monkeypatch):
+    """Issue #387: a boot that NEEDS the DDL while a reader holds
+    `records` gives up after the bounded wait with a clear error. The
+    DDL and the stamp write share one transaction, so the abort discards
+    the prefix whole — nothing half-applied, no stamp — and the advisory
+    lock is released for the next boot. A success after the reader
+    releases closes the deadline's positive half: a mutant that refused
+    every migration would fail this."""
+    db.apply_schema()  # current + stamped
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+    url = os.environ["DATABASE_URL_VIZ"]
+
+    with closing(psycopg.connect(url)) as blocker, \
+            blocker.cursor() as cur:
+        cur.execute("SELECT count(*) FROM records")  # ACCESS SHARE, held
+        monkeypatch.setattr(db, "_SCHEMA_LOCK_TIMEOUT", "0.3s")
+        with pytest.raises(RuntimeError, match="lock_timeout|long-running"):
+            db.apply_schema()
+
+    # Atomic: the stamp was never written, so the next boot re-applies.
+    with db.viz_conn() as c:
+        row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
+    assert row is not None and row[0] == 0, (
+        "a failed migration must not leave the stamp behind")
+
+    # The advisory lock is free for the next boot (no pooled-session leak).
+    with closing(psycopg.connect(url)) as other, other.cursor() as cur:
+        free = cur.execute(
+            "SELECT pg_try_advisory_lock(%s)",
+            (db._SCHEMA_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
+    assert free is not None and free[0] is True, (
+        "the advisory lock leaked past the failed boot")
+
+    # And the boot after the reader releases converges (positive half).
+    db.apply_schema()
+    with db.viz_conn() as c:
+        row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
+    assert row is not None and row[0] == 1
+
+
+def test_apply_schema_gives_up_when_another_boot_holds_the_migration_lock(
+        app_with_fresh_data, monkeypatch):
+    """Issue #387: the advisory boot lock is under the same bounded wait
+    as the DDL locks, so a boot queues behind a concurrent migration for
+    lock_timeout, then fails with the same clear error instead of
+    hanging. Success after the holder releases is the positive half."""
+    db.apply_schema()
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+    url = os.environ["DATABASE_URL_VIZ"]
+
+    with closing(psycopg.connect(url)) as other, other.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_lock(%s)",
+            (db._SCHEMA_LOCK_KEY,))  # pylint: disable=protected-access
+        monkeypatch.setattr(db, "_SCHEMA_LOCK_TIMEOUT", "0.3s")
+        with pytest.raises(RuntimeError, match="long-running"):
+            db.apply_schema()
+
+    db.apply_schema()  # positive half: converges once the lock frees
+    with db.viz_conn() as c:
+        row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
+    assert row is not None and row[0] == 1
 
 
 def test_schema_path_is_module_relative():
@@ -192,11 +321,16 @@ class _SchemaConn:
                 and sql.startswith("SELECT pg_advisory_unlock")):
             raise self._fail_unlock_with
         if (self._fail_ddl_with is not None
-                and not sql.startswith("SELECT pg_advisory_")):
+                and sql.startswith("-- claudit schema")):
+            # The DDL is the only statement whose text starts with the
+            # file's own header comment.
             raise self._fail_ddl_with
         return types.SimpleNamespace(fetchone=lambda: (True,))
 
     def commit(self):
+        pass
+
+    def rollback(self):
         pass
 
 
