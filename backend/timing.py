@@ -16,20 +16,27 @@ TIMING_ON = os.environ.get("CLAUDIT_TIMING", "").lower() not in ("", "0", "false
 
 _CLAUDIT_LOGGER = logging.getLogger("claudit")
 
-if TIMING_ON and not _CLAUDIT_LOGGER.handlers:
-    # uvicorn configures its own loggers and leaves the root logger at
-    # WARNING, so a bare log.info() here would go nowhere. Attach our own
-    # handler rather than depending on someone else's logging config.
+if not _CLAUDIT_LOGGER.handlers:
+    # Operational INFO — the reprice summary, the rollback-guard skip
+    # count, rekey and eviction notices (issue #378) — must reach the
+    # service log without any flag. uvicorn configures its own loggers
+    # and leaves the root logger at WARNING, so a bare log.info() here
+    # would go nowhere. Attach our own handler rather than depending on
+    # someone else's logging config.
     #
     # Attached to the "claudit" PARENT, not "claudit.api": ingest logs
     # under "claudit.ingest" and was silently discarded, so
     # recompute_canonical / rebuild_* / warm_common reported nothing and
     # the one place that says what the warmer is doing was invisible.
+    #
+    # CLAUDIT_TIMING gates only the TIMING lines themselves (Phases.done
+    # returns early without it); the logger's handler and level are not
+    # part of that gate. Propagation stays at its default, so a root
+    # handler (pytest's caplog) still sees every record.
     _handler = logging.StreamHandler()
     _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
     _CLAUDIT_LOGGER.addHandler(_handler)
     _CLAUDIT_LOGGER.setLevel(logging.INFO)
-    _CLAUDIT_LOGGER.propagate = False
 
 
 class Phases:
