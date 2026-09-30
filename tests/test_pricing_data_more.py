@@ -134,7 +134,7 @@ def test_the_page_names_the_file_with_its_own_cache_bust():
                        session_mod.make_guest_session_token())
     page = client.get("/").text
     version = int(_pricing_json().stat().st_mtime)
-    tag = re.search(r'<script src="/src/parser\.js[^"]*"[^>]*>', page)
+    tag = re.search(r'<script[^>]*src="/src/parser\.js[^"]*"[^>]*>', page)
     assert tag, page
     assert f'data-pricing="/src/pricing.json?v={version}"' in tag.group(0)
 
