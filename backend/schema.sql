@@ -817,3 +817,18 @@ END $$;
 -- (SV-SCHEMA-AUTOAPPLY), NULL marks rows written before it existed, and
 -- no stored record semantics change, so this needs no PARSER_VERSION bump.
 ALTER TABLE ingest_runs ADD COLUMN IF NOT EXISTS newer INT;
+
+-- 2026-09-30 (issue #387): whether backend/schema.sql has ALREADY been
+-- applied. db.apply_schema() hashes this file's exact bytes and skips
+-- the DDL entirely — no ACCESS EXCLUSIVE lock anywhere — when the
+-- stored stamp equals the file it would run; any edit to the file (a
+-- new column on a deploy) changes the hash and re-applies. The row is
+-- written by the SAME transaction as the DDL, so a half-applied schema
+-- can never be stamped, and is cleared with
+-- `DELETE FROM schema_stamp` to force a re-apply after out-of-band
+-- schema damage (the convention of DELETE FROM ingest_derived_state).
+CREATE TABLE IF NOT EXISTS schema_stamp (
+  singleton   BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  version     TEXT NOT NULL,
+  applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

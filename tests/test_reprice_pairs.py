@@ -155,6 +155,13 @@ def test_rate_fingerprint_column_is_nullable_migration(fresh_db, mini_r2_env):
     assert before is not None and before[0] > 0, (
         "the mirror must produce records, or this proves nothing")
 
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so out-of-band schema damage needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+
     db.apply_schema()
 
     with db.viz_conn() as c:
