@@ -159,7 +159,11 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
 
     assert new_response.status_code == 303
     assert old_response.status_code == 401
-    assert old_response.body == b"Invalid credentials."
+    # The generic failure page (#395): the message announced in its
+    # role=alert element, nothing else about the answer changed.
+    assert old_response.headers["content-type"].startswith("text/html")
+    assert b'<div class="err" role="alert">Invalid credentials.</div>' \
+        in old_response.body
     assert "set-cookie" not in old_response.headers
     assert verified_configs["old"] is old_config
     assert normalization_spent == [600_000]
@@ -195,7 +199,9 @@ def test_non_string_credential_material_is_generic_and_normalizes_from_zero(
     )
 
     assert response.status_code == 401
-    assert response.text == "Invalid credentials."
+    assert response.headers["content-type"].startswith("text/html")
+    assert ('<div class="err" role="alert">Invalid credentials.</div>'
+            in response.text)
     assert calls == [0]
 
 
@@ -628,7 +634,9 @@ def test_verification_worker_exception_returns_generic_failure_and_releases(
     ))
 
     assert response.status_code == 401
-    assert response.body == b"Invalid credentials."
+    assert response.headers["content-type"].startswith("text/html")
+    assert b'<div class="err" role="alert">Invalid credentials.</div>' \
+        in response.body
     assert normalized == [0]
     assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
     assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access

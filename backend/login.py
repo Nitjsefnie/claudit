@@ -3,7 +3,8 @@
 Login UI is inlined HTML (no shared layout chrome — claudit uses
 its own visualizer dark theme). Every credential failure — unknown
 id, no web password configured, wrong password — answers one generic
-401 with an identical body, and every failure costs about one PBKDF2
+401 rendering the FULL sign-in page (issue #395), identical status and
+body across the three shapes, and every failure costs about one PBKDF2
 run at the write count: the real verification where it can run, a
 dummy remainder run on top where it cannot or would run cheaper (a
 legacy 200k hash, a malformed stored hash), so an account id cannot
@@ -57,8 +58,32 @@ _LOGIN_MAX_IP_FAILURES = 20
 _LOGIN_MAX_IP_KEYS = 4096
 
 # One answer for every credential failure — identical status and body
-# for unknown id, no web password and wrong password (issue #109).
+# for unknown id, no web password and wrong password (issue #109). The
+# body is the FULL sign-in page (issue #395): the error announced in a
+# role=alert element, the form still there to retry from, nothing
+# user-derived echoed back — the byte-identical contract holds.
 _GENERIC_FAILURE_TEXT = "Invalid credentials."
+_GENERIC_LIMIT_TEXT = "Too many login attempts. Try again later."
+
+
+def _login_page_response(err: str, status: int) -> HTMLResponse:
+    """The sign-in page with `err` in its role=alert element.
+
+    A credential failure or rate-limit answer used to be a bare
+    text/plain line — no form to retry from, no page title, no lang
+    (issue #395). Rendering the page keeps the status codes and every
+    limiter semantic; only the body changes. `err` is a server-owned
+    literal, never user input, so nothing from the request is echoed
+    back — that is what keeps the generic bodies byte-identical (#109).
+    """
+    return HTMLResponse(
+        _LOGIN_HTML.format(
+            err=err,
+            app_name=html.escape(branding.brand_name().upper(), quote=True),
+            **_privacy_notice_slots(),
+        ),
+        status_code=status,
+    )
 
 
 def _failure_key(ip: str, uid: int) -> str:
@@ -293,19 +318,22 @@ _LOGIN_HTML = """<!DOCTYPE html>
            font-weight:600; cursor:pointer; }}
   .guest-btn {{ background:#1a1c2e; border:1px solid #25303c; }}
   .guest-btn:hover {{ background:#222640; }}
-  .or {{ text-align:center; color:#556; font-size:11px; margin:16px 0 4px; letter-spacing:.2em; }}
+  /* app.css's --muted (#7a81a8): 4.70:1 over the form card #14181d,
+     above the 4.5:1 AA text floor — #556 computed 2.44:1 (issue #395). */
+  .or {{ text-align:center; color:#7a81a8; font-size:11px; margin:16px 0 4px; letter-spacing:.2em; }}
   .err {{ color:#e76; font-size:12px; min-height:16px; margin-top:8px; }}
 {privacy_css}</style>
 </head><body>
 <form method="post" action="/login">
   <h1>{app_name} · sign in</h1>
-  <label>Username</label>
-  <input name="user_id" required inputmode="numeric" pattern="[0-9]+"
+  <label for="login-user">Username</label>
+  <input id="login-user" name="user_id" required inputmode="numeric" pattern="[0-9]+"
          autocomplete="username">
-  <label>Password</label>
-  <input name="password" type="password" required autocomplete="current-password">
+  <label for="login-password">Password</label>
+  <input id="login-password" name="password" type="password" required
+         autocomplete="current-password">
   <button type="submit">Sign in</button>
-  <div class="err">{err}</div>
+  <div class="err" role="alert">{err}</div>
   <div class="or">or</div>
   <button type="submit" class="guest-btn"
           formaction="/login/guest" formmethod="post" formnovalidate>
@@ -342,11 +370,7 @@ def _privacy_notice_slots() -> dict[str, str]:
 async def login_page(request: Request) -> HTMLResponse:
     # The upper-cased APP_NAME is the page's brand word; html-escaped —
     # every slot is a real HTML context. Default = today's CLAUDIT.
-    return HTMLResponse(_LOGIN_HTML.format(
-        err="",
-        app_name=html.escape(branding.brand_name().upper(), quote=True),
-        **_privacy_notice_slots(),
-    ))
+    return _login_page_response("", 200)
 
 
 @router.post("/login")
@@ -370,10 +394,7 @@ async def login_post(
     pair_limited = _check_login_rate_limit(ip, uid)
     ip_limited = _check_login_ip_rate_limit(ip)
     if pair_limited or ip_limited:
-        return Response(
-            "Too many login attempts. Try again later.",
-            status_code=429, media_type="text/plain",
-        )
+        return _login_page_response(_GENERIC_LIMIT_TEXT, 429)
     # No await may intervene between both checks and reservation: this
     # event-loop turn atomically accounts for the admitted request.
     _reserve_login_attempt(ip, uid)
@@ -388,11 +409,7 @@ async def login_post(
             await _normalize_login_failure(reservation, password, 0)
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return Response(
-                _GENERIC_FAILURE_TEXT,
-                status_code=401,
-                media_type="text/plain",
-            )
+            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
         failure_spent = await _verification_failure_spent(
             reservation, config, password
         )
@@ -407,11 +424,7 @@ async def login_post(
             )
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return Response(
-                _GENERIC_FAILURE_TEXT,
-                status_code=401,
-                media_type="text/plain",
-            )
+            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
 
         # Verification used the config captured before its worker-thread
         # await. The helper performs the fresh read, comparison, bind and
@@ -429,11 +442,7 @@ async def login_post(
             )
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return Response(
-                _GENERIC_FAILURE_TEXT,
-                status_code=401,
-                media_type="text/plain",
-            )
+            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
         response = RedirectResponse("/", status_code=303)
         session_mod.set_session_cookie(response, token)
         return response
