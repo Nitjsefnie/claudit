@@ -67,7 +67,9 @@ _GENERIC_LIMIT_TEXT = "Too many login attempts. Try again later."
 _INVALID_UID_TEXT = "Invalid user ID"
 
 
-def _login_page_response(err: str, status: int) -> HTMLResponse:
+def _login_page_response(
+    request: Request, err: str, status: int
+) -> HTMLResponse:
     """The sign-in page with `err` in its role=alert element.
 
     A credential failure or rate-limit answer used to be a bare
@@ -76,11 +78,20 @@ def _login_page_response(err: str, status: int) -> HTMLResponse:
     limiter semantic; only the body changes. `err` is a server-owned
     literal, never user input, so nothing from the request is echoed
     back — that is what keeps the generic bodies byte-identical (#109).
+
+    The request rides along for its CSP nonce (#384): the inline style
+    block carries it (backend.app._SecurityHeaders stashes
+    scope.state.csp_nonce OUTSIDE the auth middleware, so every request
+    forwarded here has it), and style-src admits the block by nonce
+    instead of 'unsafe-inline'.
     """
+    nonce = getattr(request.state, "csp_nonce", None)
+    nonce_attr = f' nonce="{nonce}"' if nonce else ""
     return HTMLResponse(
         _LOGIN_HTML.format(
             err=err,
             app_name=html.escape(branding.brand_name().upper(), quote=True),
+            style_nonce_attr=nonce_attr,
             **_privacy_notice_slots(),
         ),
         status_code=status,
@@ -303,7 +314,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
 <title>Sign in · {app_name}</title>
-<style>
+<style{style_nonce_attr}>
   body {{ background:#0b0d10; color:#dde; font-family: 'Inter',sans-serif;
          display:flex; align-items:center; justify-content:center;
          min-height:100vh; margin:0; }}
@@ -371,7 +382,7 @@ def _privacy_notice_slots() -> dict[str, str]:
 async def login_page(request: Request) -> HTMLResponse:
     # The upper-cased APP_NAME is the page's brand word; html-escaped —
     # every slot is a real HTML context. Default = today's CLAUDIT.
-    return _login_page_response("", 200)
+    return _login_page_response(request, "", 200)
 
 
 @router.post("/login")
@@ -394,7 +405,7 @@ async def login_post(
     pair_limited = _check_login_rate_limit(ip, uid)
     ip_limited = _check_login_ip_rate_limit(ip)
     if pair_limited or ip_limited:
-        return _login_page_response(_GENERIC_LIMIT_TEXT, 429)
+        return _login_page_response(request, _GENERIC_LIMIT_TEXT, 429)
     # No await may intervene between both checks and reservation: this
     # event-loop turn atomically accounts for the admitted request.
     _reserve_login_attempt(ip, uid)
@@ -409,7 +420,7 @@ async def login_post(
             await _normalize_login_failure(reservation, password, 0)
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
+            return _login_page_response(request, _GENERIC_FAILURE_TEXT, 401)
         failure_spent = await _verification_failure_spent(
             reservation, config, password
         )
@@ -424,7 +435,7 @@ async def login_post(
             )
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
+            return _login_page_response(request, _GENERIC_FAILURE_TEXT, 401)
 
         # Verification used the config captured before its worker-thread
         # await. The helper performs the fresh read, comparison, bind and
@@ -442,7 +453,7 @@ async def login_post(
             )
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
-            return _login_page_response(_GENERIC_FAILURE_TEXT, 401)
+            return _login_page_response(request, _GENERIC_FAILURE_TEXT, 401)
         response = RedirectResponse("/", status_code=303)
         session_mod.set_session_cookie(response, token)
         return response
