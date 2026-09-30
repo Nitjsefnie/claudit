@@ -56,6 +56,8 @@ import pytest
 #                        scratch auth DB per case
 #   twin_app             test_transcript_cache_key; creates its own
 #                        scratch DB in-body (issue #375 fixture)
+#   server               test_export_shutdown; provisions the export-shutdown
+#                        server's viz + auth scratch databases
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -72,6 +74,7 @@ DB_FIXTURES = frozenset({
     "auth_env",
     "projects_client",
     "twin_app",
+    "server",
 })
 
 
