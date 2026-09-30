@@ -141,9 +141,11 @@ def test_master_push_runs_get_a_per_sha_concurrency_group():
     # VERSION commit raced by a bot push could not release). Scoping the
     # push side of the group to the commit SHA gives every master push
     # its own run the gate's group never cancels, and release.yml waits
-    # on a run that completes. One residual remains one level down: the
-    # legs' per-ref groups hold at most one pending run, so a third
-    # concurrent master push still cancels a merely-queued leg (see the
+    # on a run that completes. The two long legs are per-SHA on a push
+    # too (issues #366, #409), pinned by tests/test_workflow_concurrency.py.
+    # One residual remains one level down: the remaining per-ref leg
+    # groups hold at most one pending run, so a third concurrent master
+    # push can still cancel a merely-queued short leg (see the
     # workflow's SUPERSESSION block). Pull requests keep the
     # per-number group (a head push cancels the stale run), and a
     # deliberate cancel still reads never-green (the fold treats a
