@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-29T23:54:30Z",
+  "provider_rates_fetched": "2026-09-30T00:53:48Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2736,6 +2736,14 @@
           "create_5m": 0.0649,
           "fresh": 0.0649,
           "from": "2026-09-29T23:35:56Z",
+          "output": 0.44,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-09-30T00:05:46Z",
           "output": 0.44,
           "read": 0.045
         }
@@ -34970,6 +34978,14 @@
           "from": "2026-09-29T04:31:28Z",
           "output": 1.28,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-30T00:25:47Z",
+          "output": 1.28,
+          "read": 0.04
         }
       ],
       "Venice": [
@@ -38586,6 +38602,14 @@
           "from": "2026-09-29T21:53:48Z",
           "output": 2.992,
           "read": 0.1955
+        },
+        {
+          "create_1h": 0.5355,
+          "create_5m": 0.5355,
+          "fresh": 0.5355,
+          "from": "2026-09-30T00:53:48Z",
+          "output": 2.992,
+          "read": 0.1955
         }
       ],
       "Novita": [
@@ -41869,6 +41893,22 @@
           "create_5m": 0.51,
           "fresh": 0.51,
           "from": "2026-09-29T22:53:42Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.61,
+          "create_5m": 0.61,
+          "fresh": 0.61,
+          "from": "2026-09-30T00:05:47Z",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.43,
+          "create_5m": 0.43,
+          "fresh": 0.43,
+          "from": "2026-09-30T00:30:48Z",
           "output": 0.5,
           "read": 0.03
         }
