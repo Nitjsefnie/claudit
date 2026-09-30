@@ -44,7 +44,7 @@ function laneIsPlainObject(v) {
 // converted by its caller upstream.
 function laneToIso(ts) {
   if (ts == null || ts === '') return '';
-  const ms = typeof ts === 'number' ? ts * 1000 : Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts) ? ts + 'Z' : ts);
+  const ms = typeof ts === 'number' ? ts * 1000 : Date.parse(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts) ? ts + 'Z' : ts);
   return Number.isNaN(ms) ? '' : new Date(ms).toISOString();
 }
 
@@ -203,7 +203,7 @@ function parseLaneLegacy(blob) {
     if (typeof ts === 'number') {
       epochSec = ts;
     } else if (ts) {
-      const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts) ? ts + 'Z' : ts);
+      const ms = Date.parse(laneToIso(ts));
       epochSec = Number.isNaN(ms) ? null : ms / 1000;
     } else {
       epochSec = null;

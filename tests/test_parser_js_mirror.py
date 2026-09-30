@@ -452,7 +452,7 @@ def test_parser_js_prompt_gate_matches_backend():
 _NAIVE_TS_LINES = [
     {"type": "user", "timestamp": "2026-09-10T00:29:00", "uuid": "u",
      "message": {"role": "user", "content": "hi"}},
-    {"type": "assistant", "timestamp": "2026-09-10T00:30:00", "uuid": "a",
+    {"type": "assistant", "timestamp": "2026-09-10 00:30:00", "uuid": "a",
      "requestId": "req-376",
      "message": {"id": "msg_376", "role": "assistant",
                  "model": "claude-opus-4-7",
@@ -474,9 +474,11 @@ _OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
 
 
 def test_parser_js_reads_an_offset_less_timestamp_as_utc():
-    """parseTranscript stamps a naive ISO timestamp UTC at capture, and
-    the stamped record prices exactly like its Z-bearing twin — under a
-    non-UTC node zone, where an unstamped string would read 22:30Z."""
+    """parseTranscript stamps a naive ISO timestamp UTC at capture (the
+    T-form and, since Python's fromisoformat reads it naive too, the
+    space-separated form), and the stamped record prices exactly like
+    the explicit-Z spelling — under a non-UTC node zone, where an
+    unstamped string would read 22:30Z."""
     script = f"""
       global.window = {{}};
       require({str(PARSER_JS)!r});
@@ -487,7 +489,12 @@ def test_parser_js_reads_an_offset_less_timestamp_as_utc():
       const text = {json.dumps("\n".join(json.dumps(line) for line in _NAIVE_TS_LINES))};
       const {{ events, meta }} = window.parseTranscript(text);
       const usage = meta.find((m) => m.type === 'assistant_usage');
-      const zTwins = meta.map((m) => ({{ ...m, ts: m.ts + 'Z' }}));
+      // The explicit-Z spelling of the fixture's raw wall clock, built
+      // here as a literal — never from the stamped string, so the
+      // equality below compares two independent readings of one
+      // instant (appending to an already-stamped ts would be the
+      // identity and prove nothing).
+      const zTwins = meta.map((m) => ({{ ...m, ts: '2026-09-10T00:30:00Z' }}));
       console.log(JSON.stringify({{
         firstEventTs: events.find((e) => e.ts).ts,
         usageTs: usage.ts,
@@ -502,8 +509,8 @@ def test_parser_js_reads_an_offset_less_timestamp_as_utc():
     )
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
-    assert got["usageTs"] == "2026-09-10T00:30:00Z", (
-        "the capture must stamp the naive string UTC")
+    assert got["usageTs"] == "2026-09-10 00:30:00Z", (
+        "the capture must stamp the naive string UTC, spelling preserved")
     assert got["firstEventTs"] == "2026-09-10T00:29:00Z", (
         "every event rides the stamped ts, display included")
     assert got["cost"] == got["zCost"], (
