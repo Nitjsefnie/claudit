@@ -137,12 +137,18 @@ INTERRUPT_MARKER = "[Request interrupted by user"
 # file to pin both ends: the numbers here and the unit must agree, and
 # the wait the teardown actually uses must leave SHUTDOWN_MARGIN_S spare
 # for the fallback's single-row UPDATE and the tail of the teardown.
+#
+# What this budget does NOT cover: the teardown steps that run BEFORE the
+# wait spend the window it leaves behind — the export reap above all,
+# which bounds itself per live render child rather than out of these
+# numbers. A stop arriving with several live renders is the reap's own
+# arithmetic, not this one.
 SHUTDOWN_GRACEFUL_S = 5.0
 SHUTDOWN_STOP_BUDGET_S = 10.0
-# Spare for the fallback close itself, the statements cancelled alongside
-# it, and a stop that lands while the teardown is already part-way
-# through. Generous on purpose: the fallback is one UPDATE, and being
-# early costs nothing — the run's own close wins either way.
+# Spare for the fallback close itself and the tail of the teardown after
+# it, so a stop landing while the teardown is already part-way through
+# still lands the row. Generous on purpose: the fallback is one UPDATE,
+# and being early costs nothing — the run's own close wins either way.
 SHUTDOWN_MARGIN_S = 2.0
 # What the teardown may spend waiting for the in-flight run. A run's
 # abort unwind is one fetch chunk plus one final transaction, normally
