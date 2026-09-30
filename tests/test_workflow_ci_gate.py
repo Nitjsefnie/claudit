@@ -127,6 +127,27 @@ def test_every_leg_is_conditioned_on_the_docs_only_output():
         assert "needs.classify.outputs.docs_only != 'true'" in gate, leg
 
 
+def test_master_push_runs_get_a_per_sha_concurrency_group():
+    # Issue #358: on a per-ref group with cancel-in-progress, a bot push
+    # (the hourly pricing refresh, a dependabot merge) landing while a
+    # master run was in flight cancelled it whole — but the aggregate
+    # carries `if: always()`, so the cancelled run's aggregate still ran,
+    # folded the cancelled legs, and recorded a red `aggregate` on the
+    # superseded commit, which release.yml's waiter then refuses (a
+    # VERSION commit raced by a bot push could not release). Scoping the
+    # push side of the group to the commit SHA gives every master push
+    # its own run nothing cancels: its aggregate is its own verdict, and
+    # release.yml waits on a run that completes. Pull requests keep the
+    # per-number group (a head push cancels the stale run), and a
+    # deliberate cancel still reads never-green (the fold treats a
+    # cancelled leg as a failure).
+    group = _ci_gate()["concurrency"]["group"]
+    assert group == (
+        "ci-gate-${{ github.event.pull_request.number "
+        "|| (github.event_name == 'push' && github.sha) || github.ref }}")
+    assert _ci_gate()["concurrency"]["cancel-in-progress"] == "true"
+
+
 def test_classify_job_outputs_docs_only():
     outputs = _ci_gate()["jobs"]["classify"].get("outputs") or {}
     assert "docs_only" in outputs
