@@ -91,10 +91,20 @@ EXPECTED_CROSS_FILE_GLOBALS = 98
 # ignored") — loud, but only after it has stopped linting the panels.
 EXPECTED_LINT_GLOBS = ["**/*.js", "**/*.jsx"]
 
-# `npm install|ci ... <pkg>@<version>` — the shape issue #361 is about. An
-# inline `@version` is invisible to every update mechanism, so a workflow
-# carrying one is the regression, whichever tool it names.
-_INLINE_NPM_PIN = re.compile(r"npm\s+(?:install|ci|add)\b[^\n]*@\d")
+# An inline `<pkg>@<version>` on any npm command a workflow runs — the shape
+# issue #361 is about, and it is invisible to every update mechanism. The
+# command names are the ecosystem's own spellings, all of them: `install`, the
+# `npm i` short form, `ci`, `add`, and `npx pkg@version` (which downloads
+# without touching the manifest, so a bump of it is even less visible). A body
+# is joined across backslash-continuations first, because splitting one install
+# across two lines is the same regression one line lower.
+_INLINE_NPM_PIN = re.compile(r"(?:\bnpm\s+(?:install|i|ci|add)\b|\bnpx\b)[^\n]*@\d")
+_LINE_CONTINUATION = re.compile(r"\\\s*\n")
+
+
+def _run_bodies(doc: dict) -> list[str]:
+    """Every `run:` body, continuation-joined, the way the shell reads it."""
+    return [_LINE_CONTINUATION.sub(" ", run) for run in _step_runs(doc)]
 
 
 def _package() -> dict:
@@ -143,14 +153,19 @@ def _flat_rules() -> dict:
 
 
 def test_ci_tools_are_pinned_to_exact_versions() -> None:
-    """No range, no tilde, no caret: a release cannot move CI under us."""
+    r"""No range, no tilde, no caret: a release cannot move CI under us.
+
+    Equality against the expected map does the whole job — every value it
+    accepts is an exact `\d+.\d+.\d+` by construction, so a separate shape
+    loop would be a second guard that cannot fail. Editing
+    EXPECTED_DEV_DEPENDENCIES to a range is a reviewed diff, and the
+    environment assertions below are what make the `globals` entry there
+    load-bearing.
+    """
     dev = _package().get("devDependencies") or {}
     assert dev == EXPECTED_DEV_DEPENDENCIES, (
         "package.json devDependencies drifted from the pinned toolchain: "
         f"{dev!r} (expected {EXPECTED_DEV_DEPENDENCIES!r})")
-    for name, version in dev.items():
-        assert re.fullmatch(r"\d+\.\d+\.\d+", version), (
-            f"{name} is pinned to {version!r}, not an exact version")
 
 
 def test_manifest_is_private_and_carries_no_runtime_dependencies() -> None:
@@ -204,6 +219,16 @@ def test_the_lockfile_is_committed_and_matches_the_manifest() -> None:
         "package-lock.json's root devDependencies differ from "
         "package.json's; npm ci refuses a lockfile out of step with the "
         "manifest it was resolved from")
+    # The root block is what Dependabot edits; the resolved node entries are
+    # what npm actually installs. A lockfile whose root names one version and
+    # whose node resolves another is the drift `npm ci` refuses — asserted
+    # here so the refusal is a review finding rather than a red gate.
+    for name, version in _package()["devDependencies"].items():
+        node = (lock.get("packages") or {}).get(f"node_modules/{name}") or {}
+        assert node.get("version") == version, (
+            f"package-lock.json resolves {name} to {node.get('version')!r}, "
+            f"not the pinned {version!r}; npm ci installs the resolved node, "
+            "not the root block's pin")
 
 
 def test_exactly_one_npm_entry_owns_the_manifest() -> None:
@@ -224,11 +249,18 @@ def test_exactly_one_npm_entry_owns_the_manifest() -> None:
 
 
 def test_no_workflow_pins_an_npm_package_inline() -> None:
-    """The shape issue #361 is about, wherever it reappears."""
+    """The shape issue #361 is about, wherever it reappears.
+
+    Every workflow, both extensions: `.github/workflows` holds `*.yml` today
+    and nothing stops the next workflow arriving as `*.yaml`, where a
+    `*.yml`-only glob would read the tree as clean.
+    """
     offenders = []
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+    paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    assert paths, "no workflow found; the scan would pass on an empty tree"
+    for path in paths:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        for run in _step_runs(doc):
+        for run in _run_bodies(doc):
             for match in _INLINE_NPM_PIN.finditer(run):
                 offenders.append(f"{path.name}: {match.group(0).strip()}")
     assert not offenders, (
@@ -237,16 +269,20 @@ def test_no_workflow_pins_an_npm_package_inline() -> None:
 
 
 def test_both_js_gates_install_from_the_lockfile() -> None:
-    """`npm ci`, not `npm install`.
+    """`npm ci` as the step's own command, not a word somewhere in it.
 
     `npm install` resolves against the registry and can rewrite the tree
     under a pinned manifest; `npm ci` installs the lockfile exactly, which
-    is what makes the pin in package.json mean something.
+    is what makes the pin in package.json mean something. Matching the whole
+    body for the substring would be satisfied by a comment or an `echo` in an
+    unrelated step, so this reads the first command of the run.
     """
     for name in ("eslint.yml", "tests.yml"):
-        runs = _step_runs(_workflow(name))
-        assert any("npm ci" in run for run in runs), (
-            f"{name} has no `npm ci` step; the toolchain must be installed "
+        commands = []
+        for run in _run_bodies(_workflow(name)):
+            commands += [line.strip() for line in run.splitlines() if line.strip()]
+        assert any(re.match(r"^npm\s+ci\b", command) for command in commands), (
+            f"{name} has no `npm ci` command; the toolchain must be installed "
             "from package-lock.json, not resolved at run time")
 
 
