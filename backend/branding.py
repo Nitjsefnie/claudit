@@ -6,7 +6,7 @@ kimimeter); which name the UI shows comes from the environment, never
 from the code. Defaults reproduce today's claudit strings exactly, so a
 deploy that sets none of them is byte-identical to before.
 
-Two escaping contexts, deliberately different (SV-BRAND-ESCAPE):
+Three escaping contexts, deliberately different (SV-BRAND-ESCAPE):
 - HTML text/attribute contexts — the page <title>, the meta description,
   the login heading — take ``html.escape``-ed values.
 - The window.BRAND payload lives inside a <script> element, where
@@ -18,13 +18,23 @@ Two escaping contexts, deliberately different (SV-BRAND-ESCAPE):
   starts script-hiding content in legacy parsing), and the raw
   U+2028/U+2029 line separators, which are line terminators to a JS
   string literal despite being ordinary whitespace to JSON.
+- A URL attribute — the sign-in page's privacy-notice ``href`` — is an
+  allow-list, not an escape: html-escaping keeps ``javascript:``
+  runnable, because the browser entity-decodes and strips whitespace
+  BEFORE it parses the scheme. ``url_attr`` accepts only http/https
+  URLs and site-relative paths, returns the value already
+  html-escaped for a double-quoted attribute, and refuses anything
+  else: the link is dropped and a warning logged.
 """
 from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import re
+
+log = logging.getLogger("claudit.branding")
 
 DEFAULT_NAME = "claudit"
 DEFAULT_TITLE = "claudit · Claude Code Usage Dashboard"
@@ -58,6 +68,43 @@ def brand_description() -> str:
 
 def privacy_notice_url() -> str:
     return _branded("APP_PRIVACY_NOTICE_URL", "")
+
+
+_C0_SPACE = "".join(map(chr, range(0x21)))  # C0 controls + space
+_URL_ATTR_RE = re.compile(r"(?:https?://|/(?!/))")
+
+
+def url_attr(url: str) -> str | None:
+    """The value for a URL-bearing HTML attribute — the sign-in page's
+    privacy-notice ``href`` (issue #365) — or None when refused.
+
+    An allow-list, never a ``javascript:`` deny-list: html-escaping
+    alone cannot make an href safe, because the browser decodes
+    entities and strips whitespace BEFORE it parses the scheme. After
+    stripping the leading/trailing C0-controls-and-space the URL parser
+    strips, the value must be an ``http://``/``https://`` URL or a
+    site-relative path (leading ``/``, not ``//`` — that is
+    scheme-relative). A tab or newline INSIDE the value is removed by
+    the URL parser but not here, so ``jav\\tascript:`` is refused too:
+    over-refusing a config value is safe and visible, under-refusing
+    is XSS.
+
+    A refused value drops the link — a display-only setting must not
+    take the service down at startup — and logs a warning, so the
+    operator sees the misconfiguration (SV-BRAND-ESCAPE).
+    """
+    value = url.strip(_C0_SPACE)
+    if not value:
+        return None
+    if not _URL_ATTR_RE.match(value):
+        log.warning(
+            "refusing %r as a URL attribute (SV-BRAND-ESCAPE): only "
+            "http:// and https:// URLs and site-relative paths "
+            "(leading /) are allowed; dropping the link",
+            value,
+        )
+        return None
+    return html.escape(value, quote=True)
 
 
 def brand() -> dict[str, str]:

@@ -11,6 +11,7 @@ escaped at the JS level, so it cannot close the <script> it lives in.
 from __future__ import annotations
 
 import difflib
+import logging
 import os
 import re
 import subprocess
@@ -175,6 +176,58 @@ def test_login_page_escapes_the_name(login_client, monkeypatch):
     html = login_client.get("/login").text
     assert "<title>Sign in · A&lt;B&gt;&amp;&quot;C</title>" in html
     assert "<h1>A&lt;B&gt;&amp;&quot;C · sign in</h1>" in html
+
+
+# ---------------------------------------------------------------------------
+# URL-attribute context (the privacy-notice href, #365)
+# ---------------------------------------------------------------------------
+
+
+def test_url_attr_allows_only_http_https_and_site_relative():
+    assert branding.url_attr("https://ex.example/privacy") == (
+        "https://ex.example/privacy")
+    assert branding.url_attr("http://ex.example/privacy") == (
+        "http://ex.example/privacy")
+    assert branding.url_attr("/privacy") == "/privacy"
+
+
+def test_url_attr_escapes_the_accepted_value_for_the_attribute():
+    """The function owns the whole context: an accepted value comes back
+    ready to drop into a double-quoted attribute, `&` and `"` included."""
+    assert branding.url_attr('https://ex.example/p?x=1&z="q"') == (
+        'https://ex.example/p?x=1&amp;z=&quot;q&quot;')
+
+
+@pytest.mark.parametrize("value", [
+    "javascript:alert(document.domain)",
+    "JaVaScRiPt:alert(document.domain)",
+    " javascript:alert(document.domain)",
+    "\tjavascript:alert(document.domain)",
+    "\x01javascript:alert(document.domain)",
+    "jav\tascript:alert(document.domain)",
+    "&#x6A;avascript:alert(document.domain)",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+    "vbscript:MsgBox",
+    "//evil.example/steal",
+])
+def test_url_attr_refuses_every_non_allowlisted_shape(value):
+    """#365: an allow-list, not a javascript: deny-list. Refused in every
+    spelling a browser normalises — mixed case, leading whitespace and
+    C0 controls the URL parser strips, an inner tab it removes, an HTML
+    entity the attribute parser decodes before the URL parser runs —
+    plus data: and vbscript:, and the scheme-relative `//` shape."""
+    assert branding.url_attr(value) is None
+
+
+def test_url_attr_refusal_is_visible_to_the_operator(caplog):
+    """A refused value drops the link AND logs a warning: a silent drop
+    would hide the operator's misconfiguration."""
+    with caplog.at_level(logging.WARNING, logger="claudit.branding"):
+        assert branding.url_attr("javascript:alert(1)") is None
+    assert any(
+        "javascript:alert(1)" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------

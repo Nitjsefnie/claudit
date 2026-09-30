@@ -45,6 +45,30 @@ def test_login_page_renders_escaped_privacy_link(app, monkeypatch):
     ) in body
 
 
+def test_login_page_refuses_a_hostile_privacy_url(app, monkeypatch):
+    """#365: attribute-escaping alone cannot make an href safe — the
+    browser entity-decodes and whitespace-strips BEFORE it parses the
+    scheme, so `javascript:` survives html.escape. Every non-allowlisted
+    shape must drop the link entirely: no anchor, no empty href, no
+    privacy styling."""
+    hostile = [
+        "javascript:alert(document.domain)",
+        "JaVaScRiPt:alert(document.domain)",
+        " javascript:alert(document.domain)",
+        "\tjavascript:alert(document.domain)",
+        "\x01javascript:alert(document.domain)",
+        "jav\tascript:alert(document.domain)",
+        "&#x6A;avascript:alert(document.domain)",
+        "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+        "vbscript:MsgBox",
+        "//evil.example/steal",
+    ]
+    for url in hostile:
+        monkeypatch.setenv("APP_PRIVACY_NOTICE_URL", url)
+        body = TestClient(app).get("/login").text
+        assert "privacy-link" not in body, f"rendered {url!r} as a link"
+
+
 def test_login_page_privacy_link_label_is_present(app, monkeypatch):
     """#270: the rendered link reads exactly 'Privacy notice'."""
     monkeypatch.setenv("APP_PRIVACY_NOTICE_URL", "https://ex.example/privacy")
