@@ -64,6 +64,7 @@ _LOGIN_MAX_IP_KEYS = 4096
 # user-derived echoed back — the byte-identical contract holds.
 _GENERIC_FAILURE_TEXT = "Invalid credentials."
 _GENERIC_LIMIT_TEXT = "Too many login attempts. Try again later."
+_INVALID_UID_TEXT = "Invalid user ID"
 
 
 def _login_page_response(err: str, status: int) -> HTMLResponse:
@@ -387,10 +388,9 @@ async def login_post(
     if uid <= 0:
         # Malformed input reveals nothing about accounts — uid 0 is the
         # guest sentinel — and it costs no query and no PBKDF2, so it
-        # answers before the limiter with its own fixed text.
-        return Response(
-            "Invalid user ID", status_code=400, media_type="text/plain"
-        )
+        # answers before the limiter with its own fixed text, on the
+        # full sign-in page like every other failure (#427).
+        return _login_page_response(_INVALID_UID_TEXT, 400)
     pair_limited = _check_login_rate_limit(ip, uid)
     ip_limited = _check_login_ip_rate_limit(ip)
     if pair_limited or ip_limited:
