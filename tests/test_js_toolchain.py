@@ -9,8 +9,10 @@ straight over — the drift the issue describes.
 
 The fix moves the toolchain to a committed `package.json` + `package-lock.json`
 installed with `npm ci`, adds the npm entry to dependabot.yml so a bump opens
-a PR, and migrates `.eslintrc.json` to `eslint.config.mjs` (ESLint 9+ reads
-no eslintrc). These tests pin the properties that made the drift invisible:
+a PR, and migrates `.eslintrc.json` to `eslint.config.mjs` (ESLint 10 reads
+no eslintrc: the `@eslint/eslintrc` dependency 8.57.1 carried is absent from
+10.11.0's package.json). These tests pin the properties that made the drift
+invisible:
 
 - every tool version is an EXACT pin (the repo's standing pin doctrine), the
   manifest is private and carries no runtime `dependencies` — the frontend
@@ -21,8 +23,12 @@ no eslintrc). These tests pin the properties that made the drift invisible:
 - no workflow pins an npm package inline again — the shape that hid the
   stale pins for a year;
 - the flat config carries the five rules `.eslintrc.json` carried, with the
-  one option ESLint 9 changed spelled out, so the gate cannot silently widen
-  or narrow;
+  one option ESLint 9 changed spelled out;
+- the flat config still reads its environment, parser options and cross-file
+  globals from where `.eslintrc.json` left them. The ONE deliberate
+  behavioural difference in the migration is the browser environment, and
+  pinning `globals` to an exact version is what pins it: a bump that moves
+  the set has to be a reviewed diff, not a silent widening;
 - the JS coverage gate still folds with c8 and still reads one decimal off
   `total.lines.pct`, against the committed javascript floor.
 
@@ -73,8 +79,16 @@ EXPECTED_RULES = {
     "react/jsx-uses-react": "error",
 }
 
+# How many names the config declares as cross-file globals. The count, not
+# the list: every name is checked against the tree by
+# `test_flat_config_keeps_the_cross_file_globals`, so a stale one fails there
+# and a dropped or added one fails here.
+EXPECTED_CROSS_FILE_GLOBALS = 98
+
 # `.jsx` is not a default lint target in flat config, so the files glob has
-# to name it or every panel goes unlinted silently.
+# to name it or the gate's own `src/**/*.jsx` argument matches nothing and
+# eslint exits 2 ("all of the files matching the glob pattern … are
+# ignored") — loud, but only after it has stopped linting the panels.
 EXPECTED_LINT_GLOBS = ["**/*.js", "**/*.jsx"]
 
 # `npm install|ci ... <pkg>@<version>` — the shape issue #361 is about. An
@@ -254,18 +268,131 @@ def test_eslint_runs_through_npx_no_install() -> None:
 
 
 def test_flat_config_keeps_the_eslintrc_rule_set() -> None:
-    """Identical coverage, rule for rule, after the flat-config migration."""
+    """The same five rules, with the same options, as `.eslintrc.json`.
+
+    Read from the source by a line regex, so it proves what that reader can
+    see: the first four-space `rules:` block, and only the entries shaped
+    `'name': value,`. A spread, a second config object, or a double-quoted
+    key would change the resolved rule set without changing what this reads.
+    `tests/test_js_toolchain.py` cannot close that gap without node, which
+    this suite does not require; the eslint gate over `src/**` is the
+    backstop. The browser ENVIRONMENT is pinned separately, and is the one
+    deliberate difference from `.eslintrc.json`.
+    """
     rules = _flat_rules()
     assert rules == EXPECTED_RULES, (
         "the flat config's rule set drifted from the one .eslintrc.json "
         f"carried: {rules!r} (expected {EXPECTED_RULES!r})")
 
 
+def test_flat_config_still_supplies_the_browser_environment() -> None:
+    """`no-undef` has to know which names need no declaration.
+
+    `.eslintrc.json` got that from `env: {browser: true}`, which eslint
+    8.57.1 expanded through the globals@13.24.0 it bundles. The flat config
+    gets it from `globals.browser` at whatever version is pinned — 17.12.0
+    today, a DIFFERENT set: 464 names added, 23 removed, measured by name in
+    both directions (see the config's own header).
+
+    So the environment is pinned TRANSITIVELY, and that is worth pinning
+    explicitly: the exact-version assertion in
+    `test_ci_tools_are_pinned_to_exact_versions` is what freezes the set,
+    and this test is what fails if a `globals` bump moves it. A Dependabot PR
+    that changes these 1204 names is a change a reviewer should read, not one
+    that arrives silently with a green gate.
+    """
+    text = FLAT_CONFIG.read_text(encoding="utf-8")
+    assert "...globals.browser" in text, (
+        f"{FLAT_CONFIG.name} no longer spreads globals.browser into "
+        "languageOptions.globals; every browser global becomes an undefined "
+        "identifier and the gate reports the whole tree")
+    assert EXPECTED_DEV_DEPENDENCIES["globals"], (
+        "the globals pin is gone, so the browser environment above is "
+        "whatever npm resolves at install time")
+
+
+def test_flat_config_keeps_the_parser_options() -> None:
+    """`sourceType`, `ecmaVersion` and JSX parsing, all three load-bearing.
+
+    Flat config's defaults are not eslintrc's: `sourceType` defaults to
+    `module`, so a config that drops it parses every classic script in
+    `src/` as a module. JSX parsing is off unless `ecmaFeatures.jsx` is set,
+    and `ecmaVersion` is what supplies the ES built-ins (it is also what
+    keeps `Intl` defined, the one browser-set name this migration drops).
+    """
+    text = FLAT_CONFIG.read_text(encoding="utf-8")
+    for pattern, what in (
+        (r"ecmaVersion:\s*2024", "ecmaVersion 2024 (the ES built-ins)"),
+        (r"sourceType:\s*'script'", "sourceType 'script' (src/ are classic scripts)"),
+        (r"ecmaFeatures:\s*\{\s*jsx:\s*true\s*\}", "ecmaFeatures.jsx (every panel is .jsx)"),
+    ):
+        assert re.search(pattern, text), (
+            f"{FLAT_CONFIG.name} no longer sets {what}; flat config's default "
+            "differs from eslintrc's, so dropping it changes what the gate parses")
+
+
+def _declared_cross_file_globals() -> set[str]:
+    text = FLAT_CONFIG.read_text(encoding="utf-8")
+    block = re.search(r"const CROSS_FILE_GLOBALS = \{(.*?)^\};", text, re.S | re.M)
+    assert block, (
+        f"{FLAT_CONFIG.name}: no CROSS_FILE_GLOBALS block; the names the src "
+        "tree defines for itself would be undefined identifiers")
+    return set(re.findall(r"^\s*'?([A-Za-z_$][\w$]*)'?:", block.group(1), re.M))
+
+
+def _names_the_tree_defines() -> set[str]:
+    """Every name `src/` or `public/index.html` defines at the top level.
+
+    `index.html` loads each `/src/*` file as a classic script, so a top-level
+    `function`, `const`, `let` or `var` there is a global, and so is anything
+    a file assigns to `window`. React and ReactDOM come from the CDN tags.
+    """
+    defined: set[str] = set()
+    sources = list((REPO_ROOT / "src").rglob("*.js")) \
+        + list((REPO_ROOT / "src").rglob("*.jsx")) \
+        + [REPO_ROOT / "public" / "index.html"]
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        defined |= set(re.findall(r"^function ([A-Za-z_$][\w$]*)", text, re.M))
+        defined |= set(re.findall(r"^(?:const|let|var)\s+([A-Za-z_$][\w$]*)", text, re.M))
+        defined |= set(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=", text))
+    return defined | {"React", "ReactDOM"}
+
+
+def test_flat_config_keeps_the_cross_file_globals() -> None:
+    """The list names nothing the tree stopped defining, and misses nothing.
+
+    Two properties, both derived from the tree rather than restated here: no
+    name is declared that `src/` or `public/index.html` no longer defines
+    (a stale one is dead weight the next reader cannot check), and the list
+    is exactly EXPECTED_CROSS_FILE_GLOBALS long — so a name dropped from the
+    config fails on the count, and a name added to it fails on the count too.
+
+    The list is a hand-maintained declaration, not a mechanical projection of
+    the tree: `src/` defines 127 top-level functions and CROSS_FILE_GLOBALS
+    names 98, because a name only needs declaring once another file
+    references it bare. The enforcement is the gate — `no-undef` reports a
+    cross-file reference the list is missing — not this test, which checks
+    the list's two ends rather than the whole resolution.
+    """
+    declared = _declared_cross_file_globals()
+    stale = sorted(declared - _names_the_tree_defines())
+    assert not stale, (
+        "CROSS_FILE_GLOBALS declares names nothing in src/ or "
+        f"public/index.html defines any more: {stale}")
+    assert len(declared) == EXPECTED_CROSS_FILE_GLOBALS, (
+        f"CROSS_FILE_GLOBALS holds {len(declared)} names, not "
+        f"{EXPECTED_CROSS_FILE_GLOBALS}; adding or dropping a cross-file "
+        "global changes what no-undef accepts across the whole tree, so it "
+        "belongs in a reviewed diff")
+
+
 def test_flat_config_lints_js_and_jsx() -> None:
     """Flat config lints only .js/.cjs/.mjs by default.
 
-    Every panel is .jsx, so an unlisted extension would leave the whole
-    panel half of the tree unlinted and still report a clean run.
+    Every panel is .jsx, so an unlisted extension leaves the whole panel
+    half of the tree unlinted; the gate then fails on its own `src/**/*.jsx`
+    argument with exit 2 rather than reporting a clean run.
     """
     text = FLAT_CONFIG.read_text(encoding="utf-8")
     match = re.search(r"^\s{4}files: \[(.*?)\],", text, re.M)
@@ -273,8 +400,8 @@ def test_flat_config_lints_js_and_jsx() -> None:
     globs = re.findall(r"'([^']+)'", match.group(1))
     assert globs == EXPECTED_LINT_GLOBS, (
         f"the files glob is {globs!r}, not {EXPECTED_LINT_GLOBS!r}; .jsx "
-        "is not a default flat-config target, so dropping it un-lints every "
-        "panel silently")
+        "is not a default flat-config target, so dropping it stops the gate "
+        "linting every panel")
 
 
 def test_js_coverage_gate_still_reports_one_decimal() -> None:
