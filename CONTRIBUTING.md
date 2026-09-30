@@ -95,6 +95,15 @@ python3 -m pytest tests/test_pricing.py -v
 python3 -m pytest tests/ -q -m "not db" # portable subset — no database needed
 ```
 
+The portable subset needs no database, but a handful of its tests read
+the tree's own git metadata (the module-size baseline and Dependabot
+coverage counts discover files with `git ls-files`; the thresholds
+document's byte-canonicality pin reads `HEAD` via `git cat-file`; the
+`.gitignore`/VERSION pin runs `git check-ignore`). From a plain source
+archive — a tree with no git metadata of its own, including one
+unpacked inside another git checkout — those tests **skip** with a
+reason naming that; run them from a git checkout for full coverage.
+
 The `db` marker splits the suite for CI's portability matrix (Linux,
 macOS and Windows × Python 3.13/3.14 run everything that needs no
 PostgreSQL). It is applied mechanically, derived from fixture usage —
