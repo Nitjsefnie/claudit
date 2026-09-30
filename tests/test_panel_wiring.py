@@ -489,6 +489,8 @@ def _app() -> str:
 def _dashboard_effect(src: str) -> str:
     """The /api/dashboard effect's body: the four statements that own the
     Overview's fetch state and the supersede guard in each handler."""
+    assert "window.dashboardFetch.load(" in src, (
+        "app.jsx no longer drives the Overview's state through the module")
     i = src.index("window.dashboardFetch.load(`")
     return src[src.rindex("useEffect(", 0, i):src.index(
         "}, [backendOn, activeProject, activeRange, dashNonce]);", i)]
@@ -519,6 +521,16 @@ def test_dashboard_fetch_state_is_written_at_every_outcome():
     failed = body.find("setDashFetch(window.dashboardFetch.failed(")
     assert failed > landed, (
         "a failed request is not recorded as an error")
+    # Membership in the handler that PRODUCES the outcome, not merely
+    # presence somewhere in the effect: an error write parked in the
+    # success handler never runs, so a failed request records nothing and
+    # the Overview sits on "loading…" forever -- this issue's symptom.
+    then_part, catch_part = body.split(".catch(", 1)
+    assert "setDashFetch(window.dashboardFetch.loaded());" in then_part, (
+        "the ready write is not in the handler a landed response reaches")
+    assert "setDashFetch(window.dashboardFetch.failed(" in catch_part, (
+        "the error write is not in the failure handler, so a rejected "
+        "request records nothing")
 
 
 def test_every_dashboard_handler_respects_the_supersede_guard():
