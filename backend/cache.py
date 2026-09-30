@@ -191,9 +191,32 @@ class _TTLCache:
         entry = self.get_entry(key)
         return None if entry is None else entry[0]
 
-    def put(self, key: str, value: Any) -> None:
+    def current_generation(self) -> int:
+        """The generation a compute starting now must stamp its entry with.
+
+        An entry stamped with anything older reads stale on its first
+        get_entry, because invalidate() fired while it was computing —
+        its value was derived from pre-ingest data (issue #371).
+        """
         with self._guard:
-            self._items[key] = (value, time.time(), self._generation)
+            return self._generation
+
+    def put(self, key: str, value: Any,
+            generation: int | None = None) -> None:
+        """Store an entry, stamped with the generation the COMPUTE saw.
+
+        The optional `generation` is the value current_generation()
+        returned before the compute started (issue #371): an invalidate()
+        that lands mid-compute leaves the entry stamped with the older
+        generation, so it reads stale immediately instead of presenting
+        pre-ingest data as fresh until the TTL expires. None stamps the
+        generation current at put time (direct puts of a value just
+        read under the current generation).
+        """
+        with self._guard:
+            self._items[key] = (
+                value, time.time(),
+                self._generation if generation is None else generation)
             cap = self.max_entries
             if cap is not None and len(self._items) > cap:
                 self._evict_over_cap(len(self._items) - cap)
@@ -253,7 +276,10 @@ def _schedule_refresh(key: str, fn: Callable[..., dict], kwargs: dict[str, Any])
 
     def _run() -> None:
         try:
-            response_cache.put(key, fn(**kwargs))
+            # Capture BEFORE the compute: an invalidate() landing mid-run
+            # must leave the entry born stale (issue #371).
+            generation = response_cache.current_generation()
+            response_cache.put(key, fn(**kwargs), generation=generation)
         except Exception:
             # A failed refresh leaves the stale entry in place, which is
             # the whole point — better stale than a 500 or an 8s wait.
@@ -340,8 +366,11 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
                 entry = response_cache.get_entry(key)
                 if entry is not None:
                     return entry[0]
+                # Capture BEFORE the compute (issue #371): an invalidate()
+                # landing mid-compute must leave the entry born stale.
+                generation = response_cache.current_generation()
                 result = fn(**kwargs)
-                response_cache.put(key, result)
+                response_cache.put(key, result, generation=generation)
                 return result
         except BaseException:  # noqa: BLE001
             response_cache.reclaim_failed_lock(key)
