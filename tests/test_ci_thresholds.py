@@ -58,6 +58,7 @@ def _document(measured="92.6", floor="91.1", baseline=None):
             },
         },
         "module_size_baseline": baseline or {},
+        "pylint_suppression_baseline": {},
     }
 
 
@@ -318,3 +319,35 @@ def test_check_cli_rejects_broken_document(tmp_path):
         capture_output=True, text=True)
     assert result.returncode == 1
     assert "schema_version" in result.stderr
+
+
+def test_missing_suppression_member_refused(tmp_path):
+    # The suppression baseline is a required member: a document that
+    # omits it (or a hand-deleted member) is refused outright.
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["pylint_suppression_baseline"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing field"):
+        thresholds.load(target)
+
+
+def test_suppression_member_entries_validated_like_size_entries(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["pylint_suppression_baseline"] = {"backend/api.py": 0}
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="positive integer"):
+        thresholds.load(target)
+
+
+def test_committed_suppression_member_loads():
+    # The committed document carries the suppression baseline, and every
+    # seed is a positive count a production file really has.
+    doc = thresholds.load(THRESHOLDS_PATH)
+    baseline = doc["pylint_suppression_baseline"]
+    assert baseline, "the suppression baseline seeded empty"
+    for path, count in baseline.items():
+        assert path.startswith(("backend/", "scripts/"))
+        assert not path.startswith("tests/")
+        assert count > 0

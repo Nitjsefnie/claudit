@@ -22,8 +22,11 @@ _SCHEMA_VERSION = 1
 # over backend/, javascript from the node-executing tests over the src
 # files they load (src/**/*.js; node parses no JSX).
 COVERAGE_LANGUAGES = ('python', 'javascript')
-_BASELINE_FIELDS = ('module_size_baseline',)
-_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *_BASELINE_FIELDS)
+# Every only-shrinks baseline member: recorded numbers never rise and
+# entries are never hand-added (SV-CI-RATCHETS); the direction guard
+# (thresholds_guard.py) enforces the rule against the base document.
+BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline')
+_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *BASELINE_MEMBERS)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
     'thresholds': 'field: {field}',
@@ -165,7 +168,7 @@ def normalise(data):
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
     }
-    for member in _BASELINE_FIELDS:
+    for member in BASELINE_MEMBERS:
         normalised[member] = _baseline(data[member], member)
     return normalised
 

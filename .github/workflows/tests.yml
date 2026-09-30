@@ -350,6 +350,48 @@ jobs:
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/size_baseline.py
 
+      - name: Pylint suppression baseline
+        # The same only-shrinks ratchet for inline complexity
+        # suppressions (issue #389): a file's per-file count of
+        # too-many-* disable comments never rises past its recorded
+        # count, and an unrecorded file stays at zero. Runs on every
+        # event so pull requests are gated too; master additionally
+        # tightens entries below.
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        run: python3 scripts/ci/suppression_baseline.py
+
+      - name: Threshold direction guard
+        # The bots are the only writers the ratchet data needs (issue
+        # #388): compared against the base document, a lowered coverage
+        # value, a raised entry, or an entry added under the frozen core
+        # families fails here, so the never-raise/never-lower rule no
+        # longer depends on review. Legal moves are exactly the bots'
+        # (a raise, a tighten) plus the two sanctioned seeds: a
+        # brand-new member's entries (#389) and a new measured family's
+        # one-time seed (#393). Runs on pull_request (merge base) and
+        # push (the pushed-to parent); workflow_dispatch has no base
+        # and skips — a branch without a PR is a smoke run, the PR is
+        # the gate.
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+        env:
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request)
+              git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
+              base="$(git merge-base HEAD FETCH_HEAD)" ;;
+            push)
+              case "$BEFORE" in
+                *[!0]*) base="$BEFORE" ;;
+                *) base="$(git rev-parse HEAD^)" ;;
+              esac ;;
+          esac
+          git show "${base}:.github/ci-thresholds.json"             > "$RUNNER_TEMP/base-thresholds.json"
+          python3 scripts/ci/thresholds_guard.py             --base "$RUNNER_TEMP/base-thresholds.json"             --head .github/ci-thresholds.json
+
       - name: Ratchet the thresholds
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
@@ -375,6 +417,7 @@ jobs:
           python3 scripts/ci/ratchet.py --language javascript \
             --measured "${JS_MEASURED}"
           python3 scripts/ci/size_baseline.py --tighten
+          python3 scripts/ci/suppression_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
           if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
