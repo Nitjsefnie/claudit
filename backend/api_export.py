@@ -28,6 +28,18 @@ _EXPORT_SCRIPT = str(Path(__file__).resolve().parents[1] / "scripts/plots/ccusag
 _EXPORT_TIMEOUT_S = 120
 _export_lock = asyncio.Semaphore(1)
 
+# Live renders: spawned process -> its mkstemp output path, from spawn
+# until the render completes or is reaped. The lifespan shutdown consults
+# it (issue #363): uvicorn's cancellation of the in-flight request task
+# cannot be relied on to unwind the handler's own cleanup before the
+# process exits.
+_live_renders: dict[asyncio.subprocess.Process, str] = {}
+# How long the shutdown reap waits for a killed child to be reaped. The
+# kill is SIGKILL, so the wait is normally instant; the bound only bites
+# when the process is wedged, and the lifespan has its own overall budget
+# (TimeoutStopSec) to respect.
+_SHUTDOWN_REAP_WAIT_S = 5.0
+
 # A plot child that dies with this in its stderr is almost always the
 # EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
 # not backend/requirements.txt) or psycopg — an environment problem, not a
@@ -98,30 +110,64 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    _live_renders[proc] = out_path
     try:
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXPORT_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        cancelled = await _reap(proc)
-        if cancelled:
-            raise asyncio.CancelledError() from None
-        raise HTTPException(503, "export render timed out") from None
-    except BaseException:
-        await _reap(proc)
-        raise
-    if proc.returncode != 0:
-        text = (stderr or b"").decode("utf-8", "replace")
-        tail = text[-500:]
-        print(f"[export] render failed (rc={proc.returncode}): {tail}", file=sys.stderr)
-        if _MISSING_MODULE_RE.search(text):
-            raise HTTPException(
-                503,
-                f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
-                "is missing a Python module (ModuleNotFoundError) — point "
-                "EXPORT_PYTHON at an interpreter with backend/requirements.txt "
-                "and requirements-dev.txt installed (matplotlib and psycopg "
-                "must both be importable)",
-            )
-        raise HTTPException(500, "export render failed")
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXPORT_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            cancelled = await _reap(proc)
+            if cancelled:
+                raise asyncio.CancelledError() from None
+            raise HTTPException(503, "export render timed out") from None
+        except BaseException:
+            await _reap(proc)
+            raise
+        if proc.returncode != 0:
+            text = (stderr or b"").decode("utf-8", "replace")
+            tail = text[-500:]
+            print(f"[export] render failed (rc={proc.returncode}): {tail}", file=sys.stderr)
+            if _MISSING_MODULE_RE.search(text):
+                raise HTTPException(
+                    503,
+                    f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
+                    "is missing a Python module (ModuleNotFoundError) — point "
+                    "EXPORT_PYTHON at an interpreter with backend/requirements.txt "
+                    "and requirements-dev.txt installed (matplotlib and psycopg "
+                    "must both be importable)",
+                )
+            raise HTTPException(500, "export render failed")
+    finally:
+        _live_renders.pop(proc, None)
+
+
+async def reap_live_renders() -> None:
+    """Kill every live render child and unlink its output.
+
+    Called from the lifespan shutdown handler (issue #363): uvicorn
+    cancels the in-flight export task at the graceful-shutdown deadline,
+    awaits the lifespan shutdown, then re-raises the captured SIGTERM —
+    so the handler's own cleanup races process death and can lose, and
+    even where it wins, `_reap`'s pipe drain can block forever when the
+    renderer's own child inherits its pipes. The kill here is
+    synchronous and the wait is bounded; the pipes are deliberately not
+    drained — the process is exiting, and a drain waits for an EOF an
+    orphaned grandchild may never deliver."""
+    for proc, out_path in list(_live_renders.items()):
+        _live_renders.pop(proc, None)
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_SHUTDOWN_REAP_WAIT_S)
+        except asyncio.TimeoutError:
+            print(f"[export] render child {proc.pid} still unreaped at "
+                  "shutdown", file=sys.stderr)
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
 
 
 @router.get("/export")
