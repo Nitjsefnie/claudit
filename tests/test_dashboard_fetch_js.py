@@ -151,7 +151,7 @@ def test_load_carries_the_run_signal_and_credentials():
           signal: seen.signal, creds: seen.credentials})));
     """)
     assert out["signal"] == "SIG"
-    assert out["creds"] == "same-origin"
+    assert out.get("creds") == "same-origin"
 
 
 def test_load_raises_naming_the_status_on_a_500_text_body():

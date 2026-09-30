@@ -1041,7 +1041,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // surface, so each one is dropped rather than drawn empty.
   const hasCost = totals.cost > 0;
 
-  // Loading/empty/error come from the state, never from a null shape (#394).
+  // Loading/empty/error are told apart by the state, not the shape (#394).
   const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
     <div className="dashboard">
