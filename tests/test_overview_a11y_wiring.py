@@ -112,7 +112,9 @@ def test_legend_rows_never_dim_their_text():
         f"expected the 1 shared LegendCheckboxRow in "
         f"dashboard-charts-extra.jsx, found {len(rows)} -- a hand-rolled "
         f"legend row appeared; reuse the shared component")
-    (label_tag, _), = rows
+    # rows[0] after the length assert: the same single row, without the
+    # sequence-balance inference pylint cannot make over the helper.
+    label_tag, _ = rows[0]
     assert "opacity" not in label_tag, (
         f"a legend row label dims its text: {label_tag.strip()!r} -- "
         f"no opacity over --bg-card keeps --muted at 4.5:1; the dimming "
@@ -286,7 +288,7 @@ def test_context_growth_cells_fit_a_320_card():
         f"than the 250px a 320 px card holds, so the first paint "
         f"overflows the viewport")
     row_m = re.search(r"display: 'flex'[^;{}]*gap: 12,", parent)
-    assert row_m, f"the sub-panel row moved; relocate this guard"
+    assert row_m, "the sub-panel row moved; relocate this guard"
     assert "flexWrap: 'wrap'" in row_m.group(0), (
         "the sub-panel row does not wrap -- two cells cannot share the "
         "row at 320 px, so they overflow the viewport")
