@@ -112,10 +112,17 @@ def test_core_family_entry_added_fails(tmp_path):
     # The audit's exploit shape: a new 900-line backend file seeds itself
     # a 900-line entry. The original families are frozen at the guard's
     # landing — an addition under them is a hand-add and always fails.
+    # The added path is IN the measured set on purpose: the core rule
+    # must be the only thing that can go red here — a fixture missing
+    # the tree would let the "added, unmeasured" backstop mask its
+    # deletion green.
     base = _document(baseline={"backend/api.py": 986})
     head = _document(
         baseline={"backend/api.py": 986, "backend/audit_new_big.py": 900})
-    assert _guard_result(tmp_path, base, head) == 1
+    assert _guard_result(
+        tmp_path, base, head,
+        tracked={"backend/api.py": 986,
+                 "backend/audit_new_big.py": 900}) == 1
 
 
 def test_non_core_entry_added_outside_the_measured_set_fails(tmp_path):
@@ -159,10 +166,14 @@ def test_new_member_seeded_is_clean(tmp_path):
 def test_suppression_entry_added_after_landing_fails(tmp_path):
     # Once the member exists in the base, a new suppression site is a
     # hand-add under a frozen family: reduce the complexity instead.
+    # The added path sits in the measured set so the frozen-core rule,
+    # not the unmeasured backstop, is what fails this case.
     base = _document(suppression={"backend/ingest.py": 2})
     head = _document(
         suppression={"backend/ingest.py": 2, "backend/new.py": 1})
-    assert _guard_result(tmp_path, base, head) == 1
+    assert _guard_result(
+        tmp_path, base, head,
+        tracked={"backend/ingest.py": 675, "backend/new.py": 100}) == 1
 
 
 def test_suppression_entry_raised_fails(tmp_path):
