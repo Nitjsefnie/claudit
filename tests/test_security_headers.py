@@ -19,7 +19,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import _SecurityHeaders, app
+from backend.app import _CSP_TEMPLATE, _SecurityHeaders, app
 
 
 @pytest.fixture(name="guest_client")
@@ -37,7 +37,7 @@ def _guest_client_fixture():
 def test_login_page_sends_framing_protection_and_nosniff():
     resp = TestClient(app).get("/login")
     assert resp.status_code == 200
-    assert resp.headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
     assert resp.headers["x-frame-options"] == "DENY"
     assert resp.headers["x-content-type-options"] == "nosniff"
 
@@ -45,7 +45,7 @@ def test_login_page_sends_framing_protection_and_nosniff():
 def test_dashboard_sends_framing_protection_and_nosniff(guest_client):
     resp = guest_client.get("/")
     assert resp.status_code == 200
-    assert resp.headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
     assert resp.headers["x-frame-options"] == "DENY"
     assert resp.headers["x-content-type-options"] == "nosniff"
 
@@ -129,8 +129,8 @@ def test_html_error_page_gets_framing_headers():
     sent = _drive(status=404,
                   raw_headers=[(b"content-type", b"text/html; charset=utf-8")],
                   body_chunks=[b"<html></html>"])
-    assert _header_values(sent, "content-security-policy") == [
-        "frame-ancestors 'none'"]
+    assert "frame-ancestors 'none'" in _header_values(
+        sent, "content-security-policy")[0]
     assert _header_values(sent, "x-frame-options") == ["DENY"]
     assert _header_values(sent, "x-content-type-options") == ["nosniff"]
 
@@ -144,6 +144,124 @@ def test_existing_headers_are_not_clobbered():
                                (b"x-frame-options", b"SAMEORIGIN")],
                   body_chunks=[b"<html></html>"])
     assert _header_values(sent, "x-frame-options") == ["SAMEORIGIN"]
-    assert _header_values(sent, "content-security-policy") == [
-        "frame-ancestors 'none'"]
+    assert "frame-ancestors 'none'" in _header_values(
+        sent, "content-security-policy")[0]
     assert _header_values(sent, "x-content-type-options") == ["nosniff"]
+
+
+# --- full script-src policy (issue #384) ------------------------------------
+
+# Every directive the app needs, pinned one by one. The evidence for each
+# lives in the PR for #384; the short form: the unpkg scripts are admitted by
+# host (SRI pins their bytes independently), Babel 7.29 standalone runs its
+# compiled output as injected nonce-less inline <script> elements (no
+# new Function in babel.min.js), so 'unsafe-inline' in script-src is
+# unavoidable — a nonce or hashes cannot cover compiler output that varies
+# per file and per Babel version, and 'unsafe-eval' is NOT required. The
+# sign-in page's inline style block is the only inline style, admitted by the
+# response's nonce; React's CSSOM styling is not CSP-governed. fetch/XHR/SSE
+# are same-origin; the Google Fonts pair needs one style host and one font
+# host. default-src 'none', base-uri 'none' and form-action 'self' are the
+# deny-by-default floor; frame-ancestors 'none' stays from #369.
+_EXPECTED_CSP_DIRECTIVES = {
+    "default-src": "'none'",
+    "script-src": "'self' https://unpkg.com 'unsafe-inline'",
+    "font-src": "https://fonts.gstatic.com",
+    "connect-src": "'self'",
+    "img-src": "'self'",
+    "base-uri": "'none'",
+    "form-action": "'self'",
+    "frame-ancestors": "'none'",
+}
+
+
+def _csp_directives(policy: str) -> dict:
+    out = {}
+    for part in policy.split(";"):
+        part = part.strip()
+        if part:
+            name, value = part.split(" ", 1)
+            out[name] = value
+    return out
+
+
+def test_login_csp_pins_every_directive():
+    resp = TestClient(app).get("/login")
+    assert resp.status_code == 200
+    directives = _csp_directives(resp.headers["content-security-policy"])
+    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {"style-src"}
+    for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
+        assert directives[name] == expected, name
+    # The style nonce is a per-response token, not a fixed string.
+    assert directives["style-src"].startswith(
+        "'self' https://fonts.googleapis.com 'nonce-")
+    assert directives["style-src"].endswith("'")
+
+
+def test_dashboard_csp_pins_every_directive(guest_client):
+    resp = guest_client.get("/")
+    assert resp.status_code == 200
+    directives = _csp_directives(resp.headers["content-security-policy"])
+    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {"style-src"}
+    for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
+        assert directives[name] == expected, name
+
+
+def test_login_inline_style_carries_the_header_nonce():
+    """style-src admits the sign-in page's inline style block by the same
+    per-response nonce the header carries — no 'unsafe-inline' in
+    style-src."""
+    resp = TestClient(app).get("/login")
+    policy = resp.headers["content-security-policy"]
+    nonce = _csp_directives(policy)["style-src"].split("'nonce-")[1][:-1]
+    assert f'<style nonce="{nonce}">' in resp.text
+
+
+def test_csp_nonce_differs_per_response():
+    a = TestClient(app).get("/login").headers["content-security-policy"]
+    b = TestClient(app).get("/login").headers["content-security-policy"]
+    assert a != b
+
+
+def test_html_error_page_carries_the_full_policy():
+    sent = _drive(status=404,
+                  raw_headers=[(b"content-type", b"text/html; charset=utf-8")],
+                  body_chunks=[b"<html></html>"])
+    policy = _header_values(sent, "content-security-policy")[0]
+    directives = _csp_directives(policy)
+    assert directives["script-src"] == (
+        "'self' https://unpkg.com 'unsafe-inline'")
+    assert directives["style-src"].startswith("'self' https://fonts.googleapis.com 'nonce-")
+    assert "'nonce-" in directives["style-src"]
+    assert directives["frame-ancestors"] == "'none'"
+
+
+def test_middleware_nonce_reaches_the_scope_state():
+    """The nonce in the header is the one the middleware stashed in
+    scope.state — the channel the sign-in page reads to nonce its style
+    block."""
+    scope: dict = {"type": "http", "method": "GET", "path": "/login"}
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def downstream(scp, recv, snd):
+        # Echo the stash into a header so the read is load-bearing: it
+        # must have happened before this response starts.
+        echo = scp["state"]["csp_nonce"]
+        await snd({"type": "http.response.start", "status": 200,
+                   "headers": [(b"content-type", b"text/html"),
+                               (b"x-probe-nonce", echo.encode())]})
+
+    asyncio.run(_SecurityHeaders(downstream)(scope, receive, send))
+    policy = _header_values(sent, "content-security-policy")[0]
+    # The header carries exactly the template instantiated with the
+    # nonce the HTML producers find in scope.state — the same one the
+    # downstream app echoed.
+    echoed = _header_values(sent, "x-probe-nonce")[0]
+    assert policy == _CSP_TEMPLATE.format(nonce=echoed)
+    assert echoed == scope["state"]["csp_nonce"]
