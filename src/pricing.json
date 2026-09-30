@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T04:54:27Z",
+  "provider_rates_fetched": "2026-09-30T05:54:00Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -905,6 +905,14 @@
           "from": "2026-09-30T03:46:14Z",
           "output": 0.6,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-09-30T05:16:11Z",
+          "output": 0.6,
+          "read": 0.02
         }
       ],
       "Io Net": [
@@ -1020,6 +1028,14 @@
           "create_5m": 0.282,
           "fresh": 0.282,
           "from": "2026-09-30T02:05:48Z",
+          "output": 1.15,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": "2026-09-30T05:06:02Z",
           "output": 1.15,
           "read": 0.005
         }
@@ -2181,6 +2197,14 @@
           "from": "2026-09-30T04:35:52Z",
           "output": 0.6,
           "read": 0.04
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-09-30T05:10:48Z",
+          "output": 0.6,
+          "read": 0.02
         }
       ],
       "Sail Research": [
@@ -2867,6 +2891,22 @@
           "from": "2026-09-30T04:46:02Z",
           "output": 0.44,
           "read": 0.0199
+        },
+        {
+          "create_1h": 0.049,
+          "create_5m": 0.049,
+          "fresh": 0.049,
+          "from": "2026-09-30T05:06:04Z",
+          "output": 0.44,
+          "read": 0.0392
+        },
+        {
+          "create_1h": 0.0449,
+          "create_5m": 0.0449,
+          "fresh": 0.0449,
+          "from": "2026-09-30T05:50:56Z",
+          "output": 0.44,
+          "read": 0.0359
         }
       ]
     },
@@ -32739,6 +32779,22 @@
           "from": "2026-09-30T03:56:04Z",
           "output": 3.5,
           "read": 0.3
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.25,
+          "from": "2026-09-30T04:55:48Z",
+          "output": 3.5,
+          "read": 0.25
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-09-30T05:25:47Z",
+          "output": 3.5,
+          "read": 0.2
         }
       ],
       "Sail Research": [
@@ -35089,6 +35145,14 @@
           "from": "2026-09-30T04:35:54Z",
           "output": 3.49,
           "read": 0.2359
+        },
+        {
+          "create_1h": 0.2449,
+          "create_5m": 0.2449,
+          "fresh": 0.2449,
+          "from": "2026-09-30T05:10:49Z",
+          "output": 3.49,
+          "read": 0.1959
         }
       ]
     },
@@ -38870,6 +38934,14 @@
           "from": "2026-09-30T03:21:09Z",
           "output": 2.694296,
           "read": 0.1955
+        },
+        {
+          "create_1h": 0.476,
+          "create_5m": 0.476,
+          "fresh": 0.476,
+          "from": "2026-09-30T05:06:03Z",
+          "output": 2.694296,
+          "read": 0.1955
         }
       ],
       "Novita": [
@@ -39350,6 +39422,22 @@
           "note": "30% off",
           "output": 3.08,
           "read": 0.182
+        },
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": "2026-09-30T05:16:09Z",
+          "output": 4.4,
+          "read": 0.26
+        },
+        {
+          "create_1h": 0.56,
+          "create_5m": 0.56,
+          "fresh": 0.56,
+          "from": "2026-09-30T05:16:11Z",
+          "output": 3.4,
+          "read": 0.18
         }
       ],
       "PrimeIntellect": [
@@ -39726,6 +39814,14 @@
           "fresh": 0.12,
           "from": "2026-09-30T00:55:47Z",
           "output": 1.5,
+          "read": 0.12
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-30T04:55:48Z",
+          "output": 4.0,
           "read": 0.12
         }
       ],
@@ -41778,6 +41874,14 @@
           "from": "2026-09-29T03:46:10Z",
           "output": 0.5,
           "read": 0.025
+        },
+        {
+          "create_1h": 0.035,
+          "create_5m": 0.035,
+          "fresh": 0.035,
+          "from": "2026-09-30T05:35:59Z",
+          "output": 0.5,
+          "read": 0.035
         }
       ],
       "Sail Research": [
