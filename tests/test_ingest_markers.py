@@ -317,6 +317,13 @@ def test_startup_schema_creates_the_marker_table(fresh_db):
         c.execute("DROP TABLE lane_markers")
         c.commit()
 
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so out-of-band schema damage needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+
     db.apply_schema()
 
     with db.viz_conn() as c:
