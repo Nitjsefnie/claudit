@@ -762,15 +762,17 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
         </div>
       </div>
       <nav className="topnav">
-        <button className={'navbtn ' + (route === 'dashboard' ? 'on' : '')} onClick={() => setRoute('dashboard')}>Overview</button>
+        {/* aria-current exposes the active page beyond the .on class
+            (issue #395): exactly one button carries it at a time. */}
+        <button aria-current={route === 'dashboard' ? 'page' : undefined} className={'navbtn ' + (route === 'dashboard' ? 'on' : '')} onClick={() => setRoute('dashboard')}>Overview</button>
         {!isGuest && (
-          <button className={'navbtn ' + (route === 'sessions' ? 'on' : '')} onClick={() => setRoute('sessions')}>Sessions</button>
+          <button aria-current={route === 'sessions' ? 'page' : undefined} className={'navbtn ' + (route === 'sessions' ? 'on' : '')} onClick={() => setRoute('sessions')}>Sessions</button>
         )}
         {backendOn && (
-          <button className={'navbtn ' + (route === 'cache' ? 'on' : '')} onClick={() => setRoute('cache')}>Cache</button>
+          <button aria-current={route === 'cache' ? 'page' : undefined} className={'navbtn ' + (route === 'cache' ? 'on' : '')} onClick={() => setRoute('cache')}>Cache</button>
         )}
         {!isGuest && (
-          <button className={'navbtn ' + (route === 'session' ? 'on' : '')} onClick={() => setRoute('session')}>Inspector</button>
+          <button aria-current={route === 'session' ? 'page' : undefined} className={'navbtn ' + (route === 'session' ? 'on' : '')} onClick={() => setRoute('session')}>Inspector</button>
         )}
       </nav>
       <div className="topbar-right">
@@ -900,7 +902,7 @@ function TokenBreakdownPanel({ events }) {
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-        gap: 8, padding: '8px 14px 0',
+        flexWrap: 'wrap', gap: 8, padding: '8px 14px 0',
         fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
       }}>
         <span>model:</span>

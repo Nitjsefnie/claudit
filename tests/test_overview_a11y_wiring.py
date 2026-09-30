@@ -127,7 +127,7 @@ def test_legend_rows_keep_a_nontext_state_affordance():
     rows = _checkbox_rows()
     assert rows, "no legend checkbox rows -- the guard would pass vacuously"
     dimmed = re.findall(
-        r"background: [\w_]+, display: 'inline-block', borderRadius: 2, "
+        r"background: [\w_]+, display: 'inline-block', borderRadius: 2,\s*"
         r"opacity: checked \? 1 : 0\.45", src)
     assert len(dimmed) == len(rows), (
         f"{len(dimmed)} of {len(rows)} legend swatches carry the "
@@ -197,11 +197,8 @@ def test_panel_toolbars_wrap_below_320():
     scrollWidth 539 (measured, signed-in, headless Chromium): the page
     scrolled horizontally. Each toolbar and its header row must wrap."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    for panel, toolbar_anchor in (
-        ("ToolUsagePanel", "display: 'inline-flex', alignItems: 'center', gap: 6"),
-        ("ActivityHeatmapPanel", "display: 'inline-flex', alignItems: 'center', gap: 6"),
-        ("ToolErrorRatePanel", "display: 'inline-flex', alignItems: 'center', gap: 6"),
-    ):
+    for panel in ("ToolUsagePanel", "ActivityHeatmapPanel",
+                  "CostByContextPanel"):
         body = _panel_src(panel, src)
         assert _has_flexwrap(body), (
             f"{panel} carries no flexWrap: 'wrap' anywhere -- one of its "
@@ -210,13 +207,16 @@ def test_panel_toolbars_wrap_below_320():
         # and the toolbar itself.
         header_m = re.search(
             r"borderBottom: `1px solid \$\{TH_X\.border\}`, display: 'flex'"
-            r", alignItems: 'center', gap: 16", body)
+            r", alignItems: 'center', gap: 16[^}]*", body)
         assert header_m, (
             f"{panel}'s header row moved -- relocate this guard with it")
         assert _has_flexwrap(header_m.group(0)), (
             f"{panel}'s header row does not wrap -- the toolbar cannot "
             f"drop below the title and overflows 320 px")
-        tool_m = re.search(re.escape(toolbar_anchor) + r"[^}]*", body)
+        # The panel's model-select toolbar: the inline-flex row holding
+        # the toggle buttons and the filter.
+        tool_m = re.search(
+            r"display: 'inline-flex'[^{}]*gap: 6,[^{}]*", body)
         assert tool_m, (
             f"{panel}'s toolbar moved -- relocate this guard with it")
         assert "flexWrap: 'wrap'" in tool_m.group(0), (
@@ -226,41 +226,62 @@ def test_panel_toolbars_wrap_below_320():
     # app.jsx with the same defect.
     app = _strip_line_comments(APP.read_text(encoding="utf-8"))
     body = _panel_src("TokenBreakdownPanel", app)
-    m = re.search(r"justifyContent: 'flex-end',\s*\n?\s*gap: 8", body)
-    assert m, "TokenBreakdownPanel's filter row moved; relocate this guard"
-    wrap_m = re.search(
+    row_m = re.search(
         r"display: 'flex', alignItems: 'center', justifyContent: "
-        r"'flex-end',\s*\n?\s*gap: 8, padding: '8px 14px 0',\s*\n?"
-        r"\s*flexWrap: 'wrap'", body)
-    assert wrap_m, (
+        r"'flex-end'[^{}]*", body)
+    assert row_m, "TokenBreakdownPanel's filter row moved; relocate this guard"
+    assert "flexWrap: 'wrap'" in row_m.group(0), (
         "TokenBreakdownPanel's model filter row does not wrap -- it "
         "overflows 320 px on a phone-width window")
 
 
 def test_context_growth_cells_fit_a_320_card():
-    """ContextGrowthPanel lays its per-model sub-panels out in a flex row
-    of fixed-width cells. The 280px floor exceeded the 250px a 320 px
-    card can hold (320 - 44 page padding - 2 border - 24 row padding)
-    and the row refused to wrap, so the svg boxes scrolled the page.
-    The floor must fit the card and the row must wrap."""
+    """ContextGrowthPanel lays its per-model sub-panels out in flex rows
+    of fixed-hint cells. Two mechanisms failed at 320 px (measured live,
+    headless Chromium: scrollWidth 367 with the page scrolling
+    horizontally): the cell shrank (flex 1, minWidth 0) while its svg
+    kept the parent's pre-computed cellW, and the rows refused a
+    second line. The cell must size its svg to its OWN measured box
+    through a ResizeObserver, flex with a basis that wraps, and the
+    parent's initial-cell floor must fit what a 320 px card holds."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    body = _panel_src("ContextGrowthPanel", src)
-    m = re.search(r"const cellW = Math\.max\((\d+),", body)
-    assert m, "ContextGrowthPanel's cellW floor moved; relocate this guard"
-    floor = int(m.group(1))
+    body = _panel_src("ContextSubPanel", src)
+    assert "React.useRef(null)" in body and "ResizeObserver(" in body, (
+        "ContextSubPanel no longer measures its own box -- the svg "
+        "width comes from somewhere else; relocate this guard with it")
+    m = re.search(r"const w = Math\.max\((\d+),\s*\n?\s*"
+                  r"(?:Math\.round\()?ownW", body)
+    assert m, (
+        "ContextSubPanel's svg width is not driven by its own measured "
+        "box (ownW) -- a prop-sized svg overflows the flexed cell at "
+        "320 px")
+    assert int(m.group(1)) <= 250, (
+        f"ContextSubPanel's width floor is {m.group(1)}px -- wider than "
+        f"what a 320 px card's cell can hold")
+    root_m = re.search(r"flex: '1 1 (\d+)px', minWidth: 0", body)
+    assert root_m, (
+        "the sub-panel cell lost its wrap-friendly flex basis -- two "
+        "cells never move to a second line and shrink to nothing at "
+        "320 px")
+    assert int(root_m.group(1)) <= 250, (
+        f"the flex basis is {root_m.group(1)}px -- wider than the whole "
+        f"320 px card, so a cell could never fit its row")
+    # The parent's initial hint and the wrapping row it lays the cells
+    # into.
+    parent = _panel_src("ContextGrowthPanel", src)
+    hint = re.search(r"const cellW = Math\.max\((\d+),", parent)
+    assert hint, "ContextGrowthPanel's cellW floor moved; relocate this guard"
     # 320 viewport - 44px .dashboard side padding - 2px card border
-    # - 24px row padding = 250px of card the cell must fit into.
-    assert floor <= 320 - 44 - 2 - 24, (
-        f"ContextGrowthPanel's cell floor is {floor}px -- wider than the "
-        f"250px a 320 px card holds, so the sub-panel svgs overflow the "
-        f"viewport")
-    row_m = re.search(
-        r"display: 'flex', gap: 12,\s*\n\s*padding:", body)
-    assert row_m, "the sub-panel row moved; relocate this guard"
-    row_src = body[row_m.start():row_m.start() + 200]
-    assert "flexWrap: 'wrap'" in row_src, (
-        "the sub-panel row does not wrap -- two 250px cells cannot share "
-        "a 250px row, so they overflow the viewport")
+    # - the row's larger 24px padding = 250px, the widest initial cell.
+    assert int(hint.group(1)) <= 320 - 44 - 2 - 24, (
+        f"ContextGrowthPanel's cell floor is {hint.group(1)}px -- wider "
+        f"than the 250px a 320 px card holds, so the first paint "
+        f"overflows the viewport")
+    row_m = re.search(r"display: 'flex'[^;{}]*gap: 12,", parent)
+    assert row_m, f"the sub-panel row moved; relocate this guard"
+    assert "flexWrap: 'wrap'" in row_m.group(0), (
+        "the sub-panel row does not wrap -- two cells cannot share the "
+        "row at 320 px, so they overflow the viewport")
 
 
 def test_topbar_stacks_instead_of_overflowing():

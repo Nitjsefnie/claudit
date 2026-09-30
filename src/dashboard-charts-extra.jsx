@@ -464,11 +464,26 @@ function perTurnStats(sessions) {
   return { turns, median, p25, p75, p90, count, maxT };
 }
 
-function ContextSubPanel({ title, sessions, color, cap, w, h }) {
+function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
   const ref = React.useRef(null);
   const [tip, setTip] = React.useState(null);
   const legRef = React.useRef(null);
   const [legendAdv, setLegendAdv] = React.useState(0);
+
+  // The svg sizes to the cell's OWN measured box, never to the width the
+  // parent passes in. The cell flexes (flex 1 1 240px, minWidth 0), so at
+  // phone widths it is far narrower than the parent's pre-computed
+  // cellW — a prop-sized svg overflowed it and scrolled the Overview
+  // horizontally at 320 px (issue #395). The floor keeps the chart
+  // readable if the observer has not fired yet.
+  const [ownW, setOwnW] = React.useState(0);
+  React.useEffect(() => {
+    if (!ref.current) return undefined;
+    const ro = new ResizeObserver(es => setOwnW(es[0].contentRect.width));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  const w = Math.max(120, Math.round(ownW || wProp));
 
   // Advance of the 8.5px legend mono, measured from a rendered label. See the
   // axis-gutter note in dashboard-charts.jsx: predicted advances disagree
@@ -573,7 +588,7 @@ function ContextSubPanel({ title, sessions, color, cap, w, h }) {
     + `files; longest ${longest} turns, max context ${humanFmt_X(maxCtx)}.`);
   return (
     <div ref={ref} style={{
-      position: 'relative', flex: 1, minWidth: 0,
+      position: 'relative', flex: '1 1 240px', minWidth: 0,
       border: `1px solid ${TH_X.border}`, borderRadius: 4,
       background: TH_X.bgAxes,
     }}
@@ -893,8 +908,11 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
 
   // Two cells + 24px row padding + 12px gap + 2px border per cell.
   // (w-16)/2 overflowed the card by ~20px and showed up as horizontal
-  // bleed whenever the window was resized.
-  const cellW = Math.max(280, (w - 24 - 12 - 4) / 2);
+  // bleed whenever the window was resized. The floor stays under what a
+  // 320px window can hold (320 - 44 page padding - 2 border - 24 row
+  // padding = 250px): a higher floor scrolled the page horizontally
+  // (issue #395); below it the wrapped row stacks the cells instead.
+  const cellW = Math.max(200, (w - 24 - 12 - 4) / 2);
   const cellH = 230;
   const cmpW = w;
   const cmpH = 240;
@@ -935,15 +953,20 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
         {models.map(m => {
           const c = (window.modelColors && window.modelColors[m.model]) || '#888';
           const checked = sel.has(m.model);
+          // Row shape shared by every legend row in this file: the state
+          // dimming lives on the SWATCH, never on the label — a label
+          // opacity composited --muted to 2.51:1 over --bg-card, below
+          // the AA floor (issue #395) — and the checkbox carries an
+          // explicit 24x24 target (the default renders 13x13).
           return (
             <label key={m.model} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(m.model)}
-                style={{ accentColor: c, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.model}</span>
               <span style={{ color: TH_X.textDim }}>({m.count})</span>
             </label>
@@ -962,7 +985,7 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
           out as a 2-column grid with gaps between cells. */}
       {rows.map((rowModels, ri) => (
         <div key={ri} style={{
-          display: 'flex', gap: 12,
+          display: 'flex', flexWrap: 'wrap', gap: 12,
           padding: ri === 0 ? '12px 12px 6px' : '6px 12px',
           order: 4 + ri,
         }}>
@@ -1441,12 +1464,12 @@ function ResponseSizesPanel({ data, bucketS }) {
           return (
             <label key={m.key} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(m.key)}
-                style={{ accentColor: c, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.key}</span>
               <span style={{ color: TH_X.textDim }}>({m.n.toLocaleString()})</span>
             </label>
@@ -1615,7 +1638,9 @@ function ToolErrorRatePanel({ project, range, nonce }) {
   }, [byModel]);
 
   // Two cells + 16px row padding + 8px gap + 2px border per cell.
-  const cellW = Math.max(280, (w - 16 - 8 - 4) / 2);
+  // Floor under what a 320px window holds (issue #395), as in
+  // ContextGrowthPanel: a higher floor scrolled the page horizontally.
+  const cellW = Math.max(200, (w - 16 - 8 - 4) / 2);
   const cellH = 230;
 
   // Pair sub-panels into rows of 2.
@@ -1645,7 +1670,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
       {rows.map((row, ri) => (
         <div key={ri} style={{
-          display: 'flex', gap: 8, padding: 8,
+          display: 'flex', flexWrap: 'wrap', gap: 8, padding: 8,
           borderTop: ri === 0 ? `1px solid ${TH_X.border}` : 'none',
         }}>
           {row.map(m => (
@@ -1916,12 +1941,12 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
           return (
             <label key={k} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(k)}
-                style={{ accentColor: c, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>{labelFor(k)}</span>
               <span style={{ color: TH_X.textDim }}>({totalForKey.toLocaleString()})</span>
             </label>
@@ -2234,7 +2259,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       borderRadius: 4, padding: 0, position: 'relative',
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
             Tool Usage Ratio over Time
@@ -2243,7 +2268,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
             stacked share of tool calls per day · top-{TOP_N}-at-any-bucket promoted to own band · {showOther ? `${otherTools.length} smaller tools collapsed into Other (hover to expand)` : 'no Other bucket'}
           </div>
         </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
+        <div style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           <button
             type="button"
             onClick={() => {
@@ -2306,12 +2331,12 @@ function ToolUsagePanel({ models, project, range, nonce }) {
           return (
             <label key={tool} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(tool)}
-                style={{ accentColor: c, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>{tool}</span>
               <span style={{ color: TH_X.textDim }}>({(totalsByTool.get(tool) || 0).toLocaleString()})</span>
             </label>
@@ -2322,12 +2347,12 @@ function ToolUsagePanel({ models, project, range, nonce }) {
           return (
             <label style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle('__OTHER__')}
-                style={{ accentColor: _OTHER_COLOR, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: _OTHER_COLOR, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: _OTHER_COLOR, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: _OTHER_COLOR, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>Other</span>
               <span style={{ color: TH_X.textDim }}>({otherTools.length} tools)</span>
             </label>
@@ -2607,7 +2632,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       borderRadius: 4, padding: 0, position: 'relative',
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
             Reply Latency over Time
@@ -2616,7 +2641,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
             user msg → first assistant event · per-(bucket, model) p10–p90 band, median line, top/bottom-1% outlier dots (bucket n ≥ 100) · log y
           </div>
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
+        <label style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           model:
           <select aria-label="Reply Latency model filter"
             value={activeModel}
@@ -2649,12 +2674,12 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
           return (
             <label key={m.key} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none',
-              opacity: checked ? 1 : 0.6,
+              cursor: 'pointer', userSelect: 'none'
             }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(m.key)}
-                style={{ accentColor: c, margin: 0 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2 }} />
+                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
+              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
+                       opacity: checked ? 1 : 0.45 }} />
               <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.key}</span>
               <span style={{ color: TH_X.textDim }}>({m.n.toLocaleString()})</span>
             </label>
@@ -2916,7 +2941,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
       borderRadius: 4, padding: 0, position: 'relative',
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
             Activity Heatmap
@@ -2925,7 +2950,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
             {mspec.label} by weekday × hour · Europe/Prague (CET/CEST, DST-aware)
           </div>
         </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
+        <div style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           {metricOpts.map(m => (
             <button key={m.key} type="button" onClick={() => setMetric(m.key)}
               style={{
@@ -3258,7 +3283,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     }}
     onMouseMove={onMove}
     onMouseLeave={() => setTip(null)}>
-      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
             {isTokens ? 'Tokens by Context Size' : 'Cost by Context Size'}
@@ -3270,7 +3295,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
               : ''}
           </div>
         </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
+        <div style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim }}>
           <span>model:</span>
           <select aria-label="Cost by Context Size model filter"
             value={activeModel}
