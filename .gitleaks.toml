@@ -69,3 +69,27 @@ description = "issues #263/#319: the pre-rename mythos own-row identity assert (
 ruleID = "generic-api-key"
 regexTarget = "line"
 regexes = ['assert mythos\.key == "claude-mythos-5-1"']
+# Issue #359: the new workflow-shape test pins that both bot push steps carry
+# GitHub's PUBLISHED SSH host keys for github.com verbatim - the exact values
+# GitHub's Meta endpoint publishes
+# (https://docs.github.com/en/rest/meta/meta#get-github-meta-information), as
+# module constants so an assertion can compare against them. They are public
+# host keys, not credentials: a host key's private half never exists on the
+# client side, and both values appear unflagged inside the workflows
+# themselves (there the line shape is a printf argument, not an assignment).
+# generic-api-key fires on the assignment shape's entropy, not on a secret.
+# Same scoping convention as the entries above: ruleID generic-api-key only,
+# regexTarget line, no paths condition, and the same accepted residual - a
+# real secret appended to an excused line would share the finding. Each
+# regex matches its assignment line up to the constant's closing quote,
+# which a TOML literal cannot carry; the quote and the quote mark before it
+# add nothing an attacker-controlled value could hide behind, because the
+# line still ends inside the string literal.
+[[allowlists]]
+description = "issue #359: the public GitHub host-key constants in tests/test_workflow_refresh_push.py"
+ruleID = "generic-api-key"
+regexTarget = "line"
+regexes = [
+  'ED25519_HOST_KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl',
+  'RSA_HOST_KEY = "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt\+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6\+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR\+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL\+38TGxkxCflmO\+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw\+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk\+S4dhPeAUC5y\+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn\+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i\+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp\+S5hpQs\+p1vN1/wsjk=',
+]
