@@ -87,6 +87,22 @@ def _fake_session_store_fixture(monkeypatch):
     return rows
 
 
+# The generic failure body is the FULL sign-in page (#395): 401,
+# text/html, the error announced in the role=alert element. Every
+# credential failure answers the same status and the same bytes (#109),
+# so the older suites assert through this one helper.
+_GENERIC_401 = "Invalid credentials."
+
+
+def _assert_generic_failure(response):
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("text/html")
+    assert (f'<div class="err" role="alert">{_GENERIC_401}</div>'
+            in response.text), (
+        "a credential failure did not answer the generic sign-in page "
+        "with its message announced")
+
+
 def _post_login(client, user_id, password):
     return client.post(
         "/login",

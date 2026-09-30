@@ -953,23 +953,9 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
         {models.map(m => {
           const c = (window.modelColors && window.modelColors[m.model]) || '#888';
           const checked = sel.has(m.model);
-          // Row shape shared by every legend row in this file: the state
-          // dimming lives on the SWATCH, never on the label — a label
-          // opacity composited --muted to 2.51:1 over --bg-card, below
-          // the AA floor (issue #395) — and the checkbox carries an
-          // explicit 24x24 target (the default renders 13x13).
           return (
-            <label key={m.model} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(m.model)}
-                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.model}</span>
-              <span style={{ color: TH_X.textDim }}>({m.count})</span>
-            </label>
+            <LegendCheckboxRow key={m.model} id={m.model} color={c} checked={checked}
+              onToggle={toggle} name={m.model} count={m.count} />
           );
         })}
         {!models.length && <span>no sessions in range</span>}
@@ -1462,17 +1448,8 @@ function ResponseSizesPanel({ data, bucketS }) {
           const c = (window.modelColors && window.modelColors[m.key]) || '#888';
           const checked = sel.has(m.key);
           return (
-            <label key={m.key} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(m.key)}
-                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.key}</span>
-              <span style={{ color: TH_X.textDim }}>({m.n.toLocaleString()})</span>
-            </label>
+            <LegendCheckboxRow key={m.key} id={m.key} color={c} checked={checked}
+              onToggle={toggle} name={m.key} count={m.n.toLocaleString()} />
           );
         })}
         {!series.length && <span>no responses in range</span>}
@@ -1570,6 +1547,23 @@ const _OTHER_COLOR = '#5a627a';
 // Aggregate + top-3 tools by n_total over the visible range.
 // Numerator = n_error, denominator = n_total over settled calls
 // (is_error IS NOT NULL); unmatched calls excluded by the API.
+// Shared by every legend checkbox row in this file -- the model, tool
+// and series pickers. The state dimming lives on the SWATCH, never on
+// the label: a label opacity composited --muted to 2.51:1 over
+// --bg-card, below the AA floor (issue #395). The checkbox carries an
+// explicit 24x24 target; the browser default renders 13x13.
+function LegendCheckboxRow({ id, color, checked, onToggle, name, count }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none' }}>
+      <input type="checkbox" checked={checked} onChange={() => onToggle(id)}
+        style={{ accentColor: color, margin: 0, width: 24, height: 24 }} />
+      <span style={{ width: 10, height: 10, background: color, display: 'inline-block', borderRadius: 2, opacity: checked ? 1 : 0.45 }} />
+      <span style={{ color: TH_X.text, fontWeight: 600 }}>{name}</span>
+      <span style={{ color: TH_X.textDim }}>({count})</span>
+    </label>
+  );
+}
+
 function ToolErrorRatePanel({ project, range, nonce }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(1200);
@@ -1939,17 +1933,8 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
               ? otherTools.reduce((s, t) => s + (modelData.totalsByTool.get(t) || 0), 0)
               : (modelData.totalsByTool.get(k) || 0);
           return (
-            <label key={k} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(k)}
-                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>{labelFor(k)}</span>
-              <span style={{ color: TH_X.textDim }}>({totalForKey.toLocaleString()})</span>
-            </label>
+            <LegendCheckboxRow key={k} id={k} color={c} checked={checked}
+              onToggle={toggle} name={labelFor(k)} count={totalForKey.toLocaleString()} />
           );
         })}
       </div>
@@ -2329,33 +2314,16 @@ function ToolUsagePanel({ models, project, range, nonce }) {
           const c = _toolColor(tool);
           const checked = sel.has(tool);
           return (
-            <label key={tool} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(tool)}
-                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>{tool}</span>
-              <span style={{ color: TH_X.textDim }}>({(totalsByTool.get(tool) || 0).toLocaleString()})</span>
-            </label>
+            <LegendCheckboxRow key={tool} id={tool} color={c} checked={checked}
+              onToggle={toggle} name={tool} count={(totalsByTool.get(tool) || 0).toLocaleString()} />
           );
         })}
         {otherTools.length > 0 && (() => {
           const checked = sel.has('__OTHER__');
           return (
-            <label style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle('__OTHER__')}
-                style={{ accentColor: _OTHER_COLOR, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: _OTHER_COLOR, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>Other</span>
-              <span style={{ color: TH_X.textDim }}>({otherTools.length} tools)</span>
-            </label>
+            <LegendCheckboxRow id="__OTHER__" color={_OTHER_COLOR}
+              checked={checked} onToggle={toggle} name="Other"
+              count={`${otherTools.length} tools`} />
           );
         })()}
         {!promotedList.length && <span>no tool data in range</span>}
@@ -2672,17 +2640,8 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
           const c = (window.modelColors && window.modelColors[m.key]) || '#888';
           const checked = sel.has(m.key);
           return (
-            <label key={m.key} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', userSelect: 'none'
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(m.key)}
-                style={{ accentColor: c, margin: 0, width: 24, height: 24 }} />
-              <span style={{ width: 10, height: 10, background: c, display: 'inline-block', borderRadius: 2,
-                       opacity: checked ? 1 : 0.45 }} />
-              <span style={{ color: TH_X.text, fontWeight: 600 }}>{m.key}</span>
-              <span style={{ color: TH_X.textDim }}>({m.n.toLocaleString()})</span>
-            </label>
+            <LegendCheckboxRow key={m.key} id={m.key} color={c} checked={checked}
+              onToggle={toggle} name={m.key} count={m.n.toLocaleString()} />
           );
         })}
         {!series.length && <span>no reply-latency data in range</span>}
