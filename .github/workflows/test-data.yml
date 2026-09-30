@@ -24,7 +24,8 @@ permissions:
 
 concurrency:
   # Push and pull_request runs arrive as ci-gate legs under the caller's
-  # event, matching ci-gate's own group; direct dispatch runs queue on
+  # event; the legs of concurrent master runs queue here — ci-gate's own
+  # push groups are per-SHA (issue #358). Direct dispatch runs queue on
   # their ref likewise.
   group: test-data-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
