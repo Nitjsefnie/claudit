@@ -114,7 +114,9 @@ async def lifespan(fastapi_app: FastAPI):
         # The fallback behind the bounded wait (issue #372): close the
         # open run's row, so the stop never leaves finished_at NULL. The
         # wait is sized to fit before systemd's SIGKILL, so this write
-        # lands; the straggler it outlasted is what gets killed.
+        # lands and the straggler it outlasted is what gets killed —
+        # unless the export reap above already spent the margin, which
+        # bounds itself per live render child.
         ingest.close_open_run()
         log.warning(
             "ingest still running after the shutdown wait; its row is closed "
