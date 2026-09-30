@@ -602,3 +602,53 @@ def test_cancel_viz_queries_interrupts_an_inflight_statement(fresh_db):
     assert outcome["done"].wait(timeout=30) is True
     assert outcome.get("cancelled"), outcome
     worker.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# Pins for the guards the round-2 review flagged as unpinned: the
+# QueryCanceled classification must key on the shutdown request (a cancel
+# from any other source is a fatal, not an abort), and the lock guard's
+# lock-gone-but-session-alive branch is the one issue #374 exists for.
+# ---------------------------------------------------------------------------
+
+
+def test_querycanceled_without_a_shutdown_is_a_fatal(
+        fresh_db, mini_r2_env, monkeypatch):
+    """A QueryCanceled that did not arrive from teardown is run trouble, not
+    an abort: classifying every cancel as the shutdown's would misfile a
+    statement_timeout or an operator cancel as 'aborted: shutdown
+    requested'. With the event clear the run must close fatal."""
+    def cancelled_rollup():
+        raise psycopg.errors.QueryCanceled(
+            "canceling statement due to statement timeout")
+
+    monkeypatch.setattr(ingest, "rebuild_rollup", cancelled_rollup)
+    summary = ingest.run_ingest_locked("manual")
+
+    assert summary["aborted"] is False, summary
+    assert "QueryCanceled" in summary["error"], summary
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            (summary["id"],)).fetchone()
+    assert row is not None and row[0] is not None
+    assert "QueryCanceled" in row[1], row[1]
+
+
+def test_lock_gone_with_a_live_session_aborts(fresh_db):
+    """The pg_locks branch: a session that is alive but no longer holds the
+    advisory lock must abort the run exactly like a dead one — a live
+    session that lost the lock is the unlocked continuation issue #374
+    forbids. The holder here is armed with a connection that never took
+    the lock."""
+    from backend import ingest_lockwatch  # pylint: disable=import-outside-toplevel
+
+    conn = psycopg.connect(os.environ["DATABASE_URL_VIZ"], autocommit=True)
+    key = ingest._INGEST_LOCK_KEY  # pylint: disable=protected-access
+    ingest_lockwatch.hold(conn, key)
+    try:
+        with pytest.raises(ingest.IngestAborted, match="lost ingest lock"):
+            ingest._check_shutdown()  # pylint: disable=protected-access
+    finally:
+        ingest_lockwatch.release()  # pylint: disable=protected-access
+        conn.close()  # pylint: disable=no-member
