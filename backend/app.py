@@ -80,31 +80,37 @@ async def lifespan(fastapi_app: FastAPI):
 
     yield
 
-    # Reap live export renders (issue #363): uvicorn cancels the
-    # in-flight export task at the graceful-shutdown deadline and then
-    # re-raises the captured SIGTERM right after lifespan shutdown, so
-    # the handler's own cleanup races process death and can lose. This
-    # is the one teardown uvicorn waits for.
-    await api_export.reap_live_renders()
-    # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
-    # instead of waiting for the (never-ending) heartbeat response.
-    events.signal_shutdown()
     # Abort any in-flight ingest cooperatively (issue #103): the run stops
     # at its next bounded step, closes its ingest_runs row as aborted, and
     # skips the rebuild, the broadcast and the warm — the next successful
-    # run rebuilds all derived state.
+    # run rebuilds all derived state. Signalled FIRST, before anything
+    # that can spend time: the reap below is dead time for the run, and a
+    # run told to stop at once is already unwinding while it runs, rather
+    # than starting to unwind after it (issue #414).
     ingest.request_shutdown()
     # A run stuck inside a long single-statement phase cannot reach a
     # bounded step (issue #372), so cancel the statements in flight: the
     # driver raises QueryCanceled, which the run classifies as the abort.
     db.cancel_viz_queries()
+    # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
+    # instead of waiting for the (never-ending) heartbeat response.
+    events.signal_shutdown()
     sched.shutdown(wait=False)
+    # Reap live export renders (issue #363): uvicorn cancels the
+    # in-flight export task at the graceful-shutdown deadline and then
+    # re-raises the captured SIGTERM right after lifespan shutdown, so
+    # the handler's own cleanup races process death and can lose. This is
+    # the one teardown uvicorn waits for — so it draws from the stop budget
+    # like every other term, and as a WHOLE rather than per live child: it
+    # runs ahead of the bounded wait, and a per-child bound is drawn once
+    # per child (issue #414).
+    await api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S)
     # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
-    # normally sub-second) plus uvicorn's own graceful window stays inside
-    # the unit's TimeoutStopSec: the wait is DERIVED from both numbers, so
-    # it cannot be sized past what is left of the stop budget. A wait
-    # beyond it lost the race to systemd's SIGKILL every time, and the
-    # fallback below never ran (issue #410).
+    # normally sub-second) plus uvicorn's own graceful window and the reap
+    # above stays inside the unit's TimeoutStopSec: the wait is DERIVED
+    # from all three, so it cannot be sized past what is left of the stop
+    # budget. A wait beyond it lost the race to systemd's SIGKILL every
+    # time, and the fallback below never ran (issue #410).
     # Revoke the request only when the wait succeeded: with a straggler
     # still unwinding past the timeout, revoking would let it run to
     # completion instead of aborting at its next bounded step.
@@ -116,9 +122,9 @@ async def lifespan(fastapi_app: FastAPI):
         # The fallback behind the bounded wait (issue #372): close the
         # open run's row, so the stop never leaves finished_at NULL. The
         # wait is sized to fit before systemd's SIGKILL, so this write
-        # lands and the straggler it outlasted is what gets killed —
-        # unless the export reap above already spent the margin, which
-        # bounds itself per live render child.
+        # lands and the straggler it outlasted is what gets killed: the
+        # reap ahead of it draws from the same derived budget rather than
+        # from a window of its own.
         ingest.close_open_run()
         log.warning(
             "ingest still running after the shutdown wait; its row is closed "
