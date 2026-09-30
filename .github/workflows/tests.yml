@@ -8,10 +8,6 @@ on:
   # run possible for a branch without a PR that only wants this
   # workflow's own verdict.
   workflow_call:
-    secrets:
-      MASTER_PUSH_DEPLOY_KEY:
-        required: false
-        description: write deploy key the ratchet push authenticates with
   workflow_dispatch:
 
 # Least privilege: every job here only reads the tree. Without an
@@ -40,17 +36,23 @@ jobs:
     permissions:
       # The job reads contents for the suite and writes only the
       # informational patch-coverage comment on a pull request (issue
-      # #129). The master ratchet push uses MASTER_PUSH_DEPLOY_KEY, not a
-      # write-scoped GITHUB_TOKEN.
+      # #129). The ratchet push moved to the ratchet-push job below,
+      # which takes the deploy key from the master-push environment.
       contents: read
       pull-requests: write
+
+    outputs:
+      ratchet_changed: ${{ steps.ratchet.outputs.changed }}
 
     services:
       postgres:
         # The suite does not use a single fixed database: fixtures create
         # and drop run-named ones (tests/scratch_db.py), so the role needs
         # CREATEDB — the stock `postgres` superuser has it.
-        image: postgres:16
+        # Pinned by digest, as in refresh-pricing.yml: the ratchet-push job
+        # below receives the deploy key, so the image the measurements come
+        # from must be the reviewed one.
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -82,9 +84,8 @@ jobs:
           # reason speed.yml fetches everything). The repo's history is
           # small; the fetch is seconds.
           fetch-depth: 0
-          # The master-only ratchet commit uses a step-scoped deploy key.
-          # persist-credentials: false keeps the job token out of
-          # .git/config for any later step to reuse.
+          # No step in this job pushes; persist-credentials: false keeps
+          # the job token out of .git/config for any later step to reuse.
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -391,54 +392,105 @@ jobs:
               "justify no raise."
           fi
 
-      - name: Commit the ratchet
-        # Runs only when the step above changed the data file. This push
-        # authenticates with the MASTER_PUSH_DEPLOY_KEY deploy key, the
-        # bypass actor for the coming required-check ruleset. Deploy-key
-        # pushes start workflow runs (unlike GITHUB_TOKEN pushes), which is
-        # intended for the hourly pricing commit to get a real aggregate
-        # verdict on master's tip. This ratchet commit stays silent only
-        # because ci-gate's push trigger paths-ignores
-        # .github/ci-thresholds.json.
-        if: ${{ !cancelled() && steps.ratchet.outputs.changed == 'true' }}
+      - name: Stage the ratchet data
+        # The artifact is the tested state: the measured thresholds file
+        # and the master tip the measurements come from — the push job's
+        # base check compares that tip against master's now.
+        if: steps.ratchet.outputs.changed == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/ratchet-data"
+          cp .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"
+          git rev-parse HEAD > "$RUNNER_TEMP/ratchet-data/base.txt"
+
+      - name: Upload the ratchet data
+        if: steps.ratchet.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ratchet-push
+          path: ${{ runner.temp }}/ratchet-data
+          if-no-files-found: error
+          retention-days: 1
+
+  ratchet-push:
+    # The only job that loads the deploy key. No third-party or
+    # upstream-derived code runs here before or while the key is loaded:
+    # no repo checkout, no pip, no npm, no test suite, no
+    # upstream-response parsing. The pinned download action is the only
+    # action, and it runs before the key is loaded.
+    needs: pytest
+    if: needs.pytest.outputs.ratchet_changed == 'true'
+    environment: master-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read  # the push authenticates with the deploy key
+    steps:
+      - name: Download the ratchet data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ratchet-push
+          path: ${{ runner.temp }}/ratchet-data
+
+      - name: Push the ratchet commit to master
         env:
           MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
         run: |
-          if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
-            eval "$(ssh-agent -s)" >/dev/null
-            ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
-            mkdir -p ~/.ssh
-            # GitHub SSH host keys, published by GitHub's Meta endpoint:
-            # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
-            printf '%s\n' \
-              'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
-              'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
-              >> ~/.ssh/known_hosts
-            export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
-          fi
-          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
-          git config user.name 'github-actions[bot]'
-          git config user.email \
-            '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/ci-thresholds.json
-          git commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten size baseline (automated)' \
-            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
-          if git push "$remote" HEAD:master; then
-            exit 0
-          fi
-          # A rejected push usually means master moved while this run was
-          # going; failing the job for that would turn `tests` red for an
-          # ordinary concurrent push. Distinguish it: if the remote still
-          # points at this commit's parent, the race explanation is wrong
-          # and the push failed for a real reason.
-          git fetch --quiet "$remote" master
-          if [ "$(git rev-parse HEAD^)" = "$(git rev-parse FETCH_HEAD)" ]; then
-            echo "the ratchet push was rejected while master stood still" >&2
+          # Fail closed when the environment is missing its secret: with no key
+          # there is nothing to authenticate the push with, and the fallback must
+          # never be a token.
+          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
             exit 1
           fi
-          echo 'Master moved while this run measured; the next push raises instead.' \
-            >> "$GITHUB_STEP_SUMMARY"
+          eval "$(ssh-agent -s)" >/dev/null
+          # The agent is stopped when this step ends, whatever its outcome: the
+          # key never outlives the step that loaded it.
+          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
+          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          mkdir -p ~/.ssh
+          # GitHub SSH host keys, published by GitHub's Meta endpoint:
+          # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
+          fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
+          if [ "$fetched" != "$base" ]; then
+            echo "::notice::Master moved while this run measured; the next push raises instead"
+            {
+              echo "### Dropped: master moved while this run measured"
+              echo
+              echo "The measured base $base is no longer master's tip ($fetched);"
+              echo "this run's raise is dropped and the next master push raises instead."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git init -q "$RUNNER_TEMP/ratchet-repo"
+          git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
+          git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
+          git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
+          cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
+          git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/ratchet-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten size baseline (automated)' \
+            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
+          if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
+            git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
+            if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then
+              echo "the ratchet push was rejected while master stood still" >&2
+              exit 1
+            fi
+            echo "::notice::Master moved while this run measured; the next push raises instead"
+            {
+              echo "### Dropped: master moved while this run measured"
+              echo "This run's raise is dropped; the next master push raises instead."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   pytest-portable:
     # The same suite minus every test that touches PostgreSQL, run where

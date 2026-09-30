@@ -67,8 +67,9 @@ on:
   workflow_dispatch:
 
 # Read-only at workflow level. Tests needs pull-requests: write for its
-# informational PR comment; its master ratchet push uses
-# MASTER_PUSH_DEPLOY_KEY. CodeQL needs security-events: write for SARIF
+# informational PR comment; its ratchet push is the callee's ratchet-push
+# job, which takes the deploy key from the master-push environment, not
+# from a forwarded secret. CodeQL needs security-events: write for SARIF
 # upload. Deploy-key pushes start workflows, unlike GITHUB_TOKEN pushes:
 # the hourly pricing commit intentionally gets an aggregate verdict on
 # master's tip, while the ratchet commit stays silent because this trigger
@@ -127,13 +128,11 @@ jobs:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
     uses: ./.github/workflows/tests.yml
-    secrets:
-      MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
     permissions:
       # The callee's pytest job reads contents and posts the informational
-      # patch-coverage comment on a pull request (issue #129). The master
-      # thresholds commit authenticates through MASTER_PUSH_DEPLOY_KEY;
-      # the deploy-key push does not need contents: write. The caller
+      # patch-coverage comment on a pull request (issue #129). The callee's
+      # ratchet-push job takes the deploy key from the master-push
+      # environment directly, so no secret is forwarded here. The caller
       # grants only the scopes needed to read contents and post that comment.
       contents: read
       pull-requests: write
