@@ -449,3 +449,61 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
                 f"{version!r} parses GREATER than the current version, so "
                 "both the SQL restamp and the keyset guard must leave it")
             assert float(row_cost) == 0.5, "its sentinel survives"
+
+
+# --------------------------------------------------------------------------
+# Issue #377: a change to the reprice pass's OWN long-context rule,
+# shipped with a PRICING_VERSION bump, must reprice: the fingerprint
+# covers the pass's derivation, so the rule edit moves the pair's
+# fingerprint and the clean restamp cannot claim the rows.
+# --------------------------------------------------------------------------
+
+_METER_377 = "gpt-5.6-sol"
+
+
+def test_long_context_rule_change_shipped_with_a_bump_reprices(
+        fresh_db, monkeypatch):
+    """The #249 route end to end: the rule change (threshold collapsed
+    to 1) rides its PRICING_VERSION bump, and the rule edit moves the
+    pair's fingerprint — simulated at the seam the pass reads it
+    through — so every stale row of the pair reaches Python, is
+    recomputed under the new rule, and comes out repriced (flag moved),
+    not clean-restamped."""
+    cost = round(pricing.compute_cost(
+        _METER_377, **_SEED_INPUTS, ts=_SEED_TS,
+        long_context=False, provider=None), 6)
+    # flag FALSE explicitly: the meter re-derivation keeps a NULL flag
+    # whatever the rule does (issue #249), so a NULL-seeded row would
+    # prove nothing.
+    with db.viz_conn() as c:
+        _seed_parents(c, _FILE_KEY)
+        c.execute(
+            "INSERT INTO records (file_key, line_num, ts, model, "
+            "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
+            "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, provider, "
+            "long_context, pricing_version, rate_fingerprint) "
+            "SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500, %s, "
+            "NULL, FALSE, '0', %s FROM generate_series(1, 3) AS i",
+            (_FILE_KEY, _SEED_TS, _METER_377, cost,
+             rate_fingerprint.pair_fingerprint(_METER_377, None)))
+        c.commit()
+
+    real_fp = rate_fingerprint.pair_fingerprint
+
+    def _moved(model, provider=None):
+        if model == _METER_377 and provider is None:
+            return "0" * 64  # the digest an edit to the rule would produce
+        return real_fp(model, provider)
+
+    monkeypatch.setattr(rate_fingerprint, "pair_fingerprint", _moved)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
+    monkeypatch.setattr(
+        constants, "PRICING_VERSION", str(int(constants.PRICING_VERSION) + 1))
+
+    assert ingest_reprice.reprice_stale() == 3
+    with db.viz_conn() as c:
+        flags = c.execute(
+            "SELECT bool_and(long_context) FROM records").fetchone()
+    assert flags is not None and flags[0], (
+        "every row must come out under the changed rule (flag moved "
+        "FALSE -> TRUE)")
