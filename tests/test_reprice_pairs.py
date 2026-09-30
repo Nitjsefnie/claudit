@@ -514,3 +514,133 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
     assert flags is not None and flags[0], (
         "every row must come out under the changed rule (flag moved "
         "FALSE -> TRUE)")
+
+
+# --------------------------------------------------------------------------
+# Issue #400: when Phase A's clean restamp covered every stale row the
+# pairs scan counted (clean == stale_total), the keyset loop (Phase B)
+# is skipped outright — its terminating SELECT walks the entire PK
+# index only to prove emptiness (measured 3.6 s at production shape,
+# up to 66.9 s under load). The scan that feeds the restamp already
+# counts the stale rows, so the skip is exact: every row shape the SQL
+# set cannot restamp leaves clean < stale_total and Phase B runs as
+# before.
+# --------------------------------------------------------------------------
+
+_KEYSET_POISON = "SENTINEL-phase-b-keyset-select (issue #400)"
+
+
+def _sentinel_recorder(monkeypatch) -> None:
+    """Swap the keyset SELECT's SQL for a poison token the SQL recorder
+    turns into a failure: the test dies the instant Phase B starts."""
+    monkeypatch.setattr(ingest_reprice, "_SELECT_SQL", _KEYSET_POISON)
+    real_viz_conn = db.viz_conn
+
+    @contextlib.contextmanager
+    def spy_viz_conn():
+        with real_viz_conn() as conn:
+            class _SpyConn:
+                def execute(self, sql, params=None):
+                    if str(sql) == _KEYSET_POISON:
+                        raise AssertionError(
+                            "Phase B's keyset SELECT ran — the issue #400 "
+                            "skip did not fire")
+                    return conn.execute(sql, params)
+
+                def __getattr__(self, name):
+                    return getattr(conn, name)
+
+            yield _SpyConn()
+
+    monkeypatch.setattr(ingest_reprice.db, "viz_conn", spy_viz_conn)
+
+
+def _seed_skip_fixture(c, *, with_escapee: bool) -> None:
+    """Two clean-restampable pairs × 10k rows (fp stamped, plain-digit
+    stale version, cost exact); `with_escapee` adds one row the SQL
+    restamp set refuses — a sign-prefixed version Python's int() parses
+    below V — the discriminating escapee that must keep Phase B alive."""
+    pairs = [(_SEED_MODEL, None), (_B_PAIR_MODEL, None)]
+    _seed_parents(c, _FILE_KEY)
+    line = 1
+    for model, provider in pairs:
+        _seed_block(
+            c, model, line, 10_000,
+            fp=rate_fingerprint.pair_fingerprint(model, provider),
+            cost=round(pricing.compute_cost(
+                model, **_SEED_INPUTS, ts=_SEED_TS, long_context=False,
+                provider=provider), 6),
+            provider=provider)
+        line += 10_000
+    if with_escapee:
+        _seed(c, _FILE_KEY, line,
+              pricing_version=f"+{int(constants.PRICING_VERSION) - 1}",
+              cost_usd=_seeded_cost(),
+              rate_fingerprint=rate_fingerprint.pair_fingerprint(
+                  _SEED_MODEL, None))
+
+
+def test_phase_b_skipped_when_every_stale_row_clean_restamps(
+        fresh_db, monkeypatch, caplog):
+    """THE skip pin (issue #400): every stale row clean-restampable →
+    the pass returns 0, every row ends at the current version, and the
+    keyset SELECT provably never executes — the poisoned _SELECT_SQL
+    sentinel fails the test the moment Phase B starts (delete the skip
+    and this test is red for exactly that reason)."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    with db.viz_conn() as c:
+        _seed_skip_fixture(c, with_escapee=False)
+        c.commit()
+
+    _sentinel_recorder(monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        assert ingest_reprice.reprice_stale() == 0
+
+    timing_line = _timing_line(caplog)
+    assert not re.search(r"\bselect=\d", timing_line), (
+        f"Phase B must be skipped outright when the clean restamp "
+        f"covered every stale row: {timing_line}")
+    assert re.search(r"\brows=0\b", timing_line)
+    assert re.search(r"\bclean_rows=20000\b", timing_line)
+    with db.viz_conn() as c:
+        stale = c.execute(
+            "SELECT COUNT(*) FROM records WHERE pricing_version "
+            "IS DISTINCT FROM %s", (constants.PRICING_VERSION,)).fetchone()
+    assert stale is not None and stale[0] == 0, (
+        "every stale row ends at the current version")
+
+
+def test_phase_b_runs_while_any_row_escapes_the_sql_set(
+        fresh_db, monkeypatch, caplog):
+    """The skip's discriminating guard: one row whose stored version the
+    SQL restamp set refuses (sign-prefixed `+N`, int()-parsable below V)
+    leaves clean < the scan's stale count, so Phase B runs — the keyset
+    SELECT is observed, the escapee is restamped by the Python path, and
+    the clean rows still restamp. Without this test a skip that
+    over-fired could silently eat Phase B forever: the escapee would
+    stay stale with every other pin still green."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    with db.viz_conn() as c:
+        _seed_skip_fixture(c, with_escapee=True)
+        c.commit()
+
+    sqls = _sql_recorder(monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        assert ingest_reprice.reprice_stale() == 0
+
+    keyset_runs = sum(1 for sql in sqls
+                      if sql == ingest_reprice._SELECT_SQL)  # pylint: disable=protected-access
+    assert keyset_runs >= 1, (
+        "Phase B must still run when a row escapes the SQL restamp set")
+    timing_line = _timing_line(caplog)
+    assert re.search(r"\brows=1\b", timing_line), (
+        f"only the escapee may reach Python: {timing_line}")
+    assert re.search(r"\bclean_rows=20000\b", timing_line)
+    with db.viz_conn() as c:
+        stale = c.execute(
+            "SELECT COUNT(*) FROM records WHERE pricing_version "
+            "IS DISTINCT FROM %s", (constants.PRICING_VERSION,)).fetchone()
+    assert stale is not None and stale[0] == 0, (
+        "the escapee ends at the current version like the clean rows")
