@@ -167,24 +167,26 @@ class _SelectiveGZip(GZipMiddleware):
 
 
 # The document policy both HTML surfaces get, instantiated per response
-# with a fresh style nonce. Measured against the real sign-in and
-# dashboard pages loading under it with zero violations (issue #384):
+# with a fresh nonce. Measured against the real sign-in and dashboard
+# pages loading under it with zero violations and panels rendering
+# (issue #384):
 # - script-src: unpkg.com carries the pinned, SRI-hashed React,
 #   ReactDOM and Babel builds (SRI pins their bytes independently of the
-#   host allowance); /src/* is 'self'. In-browser Babel 7.29 standalone
-#   executes compiled output as injected, nonce-less inline <script>
-#   elements (babel.min.js builds them with createElement("script") and
-#   contains no new Function), so 'unsafe-inline' is unavoidable: the
-#   compiled text varies per file and per Babel version, so neither a
-#   nonce nor per-script hashes can cover it. 'unsafe-eval' is NOT
-#   required — zero eval refusals were recorded. The one server-injected
-#   inline script (window.BACKEND_URL / IS_GUEST / BRAND) rides the same
-#   allowance; a nonce on it would be dead text while 'unsafe-inline'
-#   must stay for Babel.
+#   host allowance); /src/* is 'self'; every <script> tag the dashboard
+#   serves carries the response's nonce (root_index injects it), which
+#   is what admits in-browser Babel: babel.min.js 7.29.0 reads each
+#   text/babel source tag's nonce and sets it on the inline script
+#   element it generates for the compiled output (`nonce:d.nonce` →
+#   `t.nonce&&(r.nonce=t.nonce)`, verified in the pinned bytes), so one
+#   per-response nonce covers the whole pipeline. The compiled text
+#   itself varies per file and per Babel version, so hashes cannot cover
+#   it; 'unsafe-eval' is NOT required (no new Function in the pinned
+#   bytes; zero eval refusals recorded). A Babel bump re-pins the SRI
+#   hash by hand — re-check the propagation there.
 # - style-src: the Google Fonts stylesheet host, and the sign-in page's
-#   inline <style> block by the per-response nonce — no 'unsafe-inline'
-#   in style-src. React sets styles through CSSOM, which CSP does not
-#   govern.
+#   inline <style> block by the same per-response nonce — no
+#   'unsafe-inline' anywhere in the policy. React sets styles through
+#   CSSOM, which CSP does not govern.
 # - font-src: the Google Fonts binary host.
 # - connect-src 'self': /api/* fetches, the SSE stream and Babel's XHR
 #   fetches of the text/babel scripts are all same-origin.
@@ -193,7 +195,7 @@ class _SelectiveGZip(GZipMiddleware):
 #   frame-ancestors 'none' are the deny-by-default floor (#369).
 _CSP_TEMPLATE = (
     "default-src 'none'; "
-    "script-src 'self' https://unpkg.com 'unsafe-inline'; "
+    "script-src 'self' https://unpkg.com 'nonce-{nonce}'; "
     "style-src 'self' https://fonts.googleapis.com 'nonce-{nonce}'; "
     "font-src https://fonts.gstatic.com; "
     "connect-src 'self'; "
@@ -397,6 +399,16 @@ async def root_index(request: Request) -> Response:
         return m.group(0).replace(path, f"{path}?v={v}")
 
     html = re.sub(r'(?:src|data-pricing)="(/src/[^"?]+)"', _bust_src, html)
+    # Every <script> tag carries the response's CSP nonce (kept LAST so
+    # it sees the final HTML). The two inline scripts are admitted by it
+    # directly, and Babel standalone propagates a text/babel source
+    # tag's nonce onto the inline script element it generates for the
+    # compiled output (see _CSP_TEMPLATE), so script-src needs no
+    # 'unsafe-inline'. The unpkg tags need no nonce (host + SRI admit
+    # them); marking them is harmless.
+    nonce = getattr(request.state, "csp_nonce", None)
+    if nonce:
+        html = html.replace("<script", f'<script nonce="{nonce}"')
     return HTMLResponse(html)
 
 
