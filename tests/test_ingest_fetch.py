@@ -10,6 +10,7 @@ import lzma
 import multiprocessing
 import os
 import signal
+import types
 import threading
 import time
 from collections import Counter
@@ -422,6 +423,11 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 
 # ------------------------------------------ parse-worker signal hygiene (#373)
 
+def _noop_parse(key, _sidecar_key=None):
+    """A parse unit with no side effects, for pipeline plumbing tests."""
+    return {}
+
+
 def _worker_report():
     """Run inside the forked worker: its handlers and parent pid."""
     return (signal.getsignal(signal.SIGTERM),
@@ -438,6 +444,8 @@ def _fork_pool(**kwargs):
         **kwargs)
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"),
+                    reason="the parse pool is fork-based")
 def test_parse_worker_init_restores_default_signal_disposition():
     """A forked parse worker inherits uvicorn's SIGTERM handler, which only
     sets a flag the worker never checks — so it ignored SIGTERM and could
@@ -452,6 +460,8 @@ def test_parse_worker_init_restores_default_signal_disposition():
     assert ppid == os.getpid()
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"),
+                    reason="the parse pool is fork-based")
 def test_parse_worker_dies_on_sigterm():
     """SIG_DFL means a systemd control-group stop — SIGTERM to the cgroup —
     kills a worker outright instead of leaving it parsing in the background."""
@@ -469,6 +479,8 @@ def test_parse_worker_dies_on_sigterm():
             pytest.fail("a parse worker survived SIGTERM")
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"),
+                    reason="the parse pool is fork-based")
 def test_parse_worker_exits_when_the_parent_is_already_gone():
     """PDEATHSIG is armed after fork, so a parent dying in that window
     would leave an orphan; the initializer's ppid check closes the race by
@@ -476,3 +488,77 @@ def test_parse_worker_exits_when_the_parent_is_already_gone():
     with _fork_pool(initargs=(-1,)) as pool:
         with pytest.raises(BrokenProcessPool):
             pool.submit(int).result(timeout=60)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"),
+                    reason="the parse pool is fork-based")
+def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
+                                               monkeypatch):
+    """An abort must drop the QUEUED work, not only stop taking new chunks:
+    a pipeline_pool abort fires at a chunk top, when the PREVIOUS chunk's
+    persists are still queued. The queued persists here park on an event
+    that the test sets only after pipeline_pool has returned — so draining
+    instead of cancelling would deadlock the abort unwind instead of
+    letting it finish, which is the failure this pin reports. The persist
+    in flight must complete (the oracle is live); the queued ones must
+    never run."""
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    release_queued = threading.Event()
+    persisted: list[str] = []
+
+    def persist_call(obj, _proj, _parsed, _version, _current):
+        if obj.key.endswith("first-0.jsonl"):
+            entered_first.set()
+            release_first.wait(timeout=60)
+            persisted.append(obj.key)
+        else:
+            # A queued persist that ran instead of being cancelled parks
+            # here, so the unwind cannot finish while it waits.
+            release_queued.wait(timeout=60)
+            persisted.append(obj.key)
+
+    checks = iter([False, True])  # first chunk top passes, second aborts
+
+    def check_shutdown():
+        if next(checks):
+            raise ingest_fetch.IngestAborted("shutdown requested")
+
+    monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
+    monkeypatch.setattr(ingest_fetch, "persist_thread_count", lambda: 1)
+    todo = [(types.SimpleNamespace(key=f"chunk/first-{i}.jsonl",
+                                   sidecar_key=None), None, None)
+            for i in range(5)]  # chunk is processes*4 = 4: 4 + 1 items
+    box: dict = {}
+
+    def run():
+        try:
+            box["r"] = ingest_fetch.pipeline_pool(
+                todo, "v", [], None, None, {}, set(), set(),
+                _noop_parse, persist_call, check_shutdown)
+        except BaseException as exc:  # noqa: BLE001
+            box["exc"] = exc
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    assert entered_first.wait(timeout=30), "the first persist never entered"
+    # The canceller reaches the queue within moments of the abort (the
+    # chunk-top raise precedes the in-flight persist's release), while the
+    # in-flight persist parks the only pool worker, so the queue is frozen
+    # until this release: waiting here is what makes the cancellation
+    # deterministic instead of a dequeue race.
+    worker.join(timeout=5)
+    assert worker.is_alive(), (
+        "the unwind finished without the in-flight persist (it must wait "
+        "for it)")
+    release_first.set()
+    worker.join(timeout=60)
+    if worker.is_alive():
+        release_queued.set()
+        worker.join(timeout=60)
+        pytest.fail("the abort waited on the queued persists "
+                    "(the cancel_futures shutdowns are missing)")
+    release_queued.set()  # anything not cancelled would now run and record
+    assert isinstance(box.get("exc"), ingest_fetch.IngestAborted), box
+    assert persisted == ["chunk/first-0.jsonl"], (
+        f"queued persists survived the abort: {persisted}")
