@@ -31,7 +31,7 @@ db.load_dotenv(str(_REPO_ROOT / ".env"))
 # These imports follow dotenv loading because some modules capture settings
 # while they are imported (for example, EXPORT_PYTHON and CLAUDIT_TIMING).
 # pylint: disable=wrong-import-position
-from backend import api, constants, events, ingest, login, r2, session  # noqa: E402
+from backend import api, api_export, constants, events, ingest, login, r2, session  # noqa: E402
 from backend import branding  # noqa: E402
 # pylint: enable=wrong-import-position
 
@@ -78,6 +78,12 @@ async def lifespan(fastapi_app: FastAPI):
 
     yield
 
+    # Reap live export renders (issue #363): uvicorn cancels the
+    # in-flight export task at the graceful-shutdown deadline and then
+    # re-raises the captured SIGTERM right after lifespan shutdown, so
+    # the handler's own cleanup races process death and can lose. This
+    # is the one teardown uvicorn waits for.
+    await api_export.reap_live_renders()
     # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
     # instead of waiting for the (never-ending) heartbeat response.
     events.signal_shutdown()
