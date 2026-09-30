@@ -110,16 +110,18 @@ class BackfillContext:
     fetch: FetchEndpoints
     logs: dict[str, refresh_pricelog.LogRead]
     as_of: str
+    now: datetime
 
 
 def _join_model_log(payload: object, log: refresh_pricelog.LogRead,
-                    region: str | None, resolutions: dict) -> tuple[dict, str]:
+                    region: str | None, resolutions: dict,
+                    now: datetime) -> tuple[dict, str]:
     if log.series is None:
         reason = log.reason or "listed-pricing log unavailable"
         return {}, f"listed-pricing log unavailable: {reason}"
     try:
         return (refresh_pricelog.join_listed_pricing(
-            payload, log.series, region, resolutions), "")
+            payload, log.series, region, resolutions, now), "")
     except refresh_pricelog.PriceLogError as exc:
         return {}, f"listed-pricing log unavailable: {exc}"
 
@@ -132,7 +134,7 @@ def _listed_model(model: str, source: dict, old_hosts: dict, region: str | None,
         model, payload, region, source.get("resolve", {}),
         {host: _entry_rates(history[-1]) for host, history in old_hosts.items()}, now)
     matched, unavailable = _join_model_log(
-        payload, log, region, source.get("resolve", {}))
+        payload, log, region, source.get("resolve", {}), now)
     return ModelListing(payload, rows, refused, matched, unavailable), None
 
 
@@ -182,7 +184,7 @@ def _backfill_model(context: BackfillContext, model: str, source: dict,
     try:
         listing, error = _listed_model(
             model, source, old_hosts, context.region, context.fetch, context.logs[model],
-            datetime.now(timezone.utc))
+            context.now)
     except hourly.RefreshError as exc:
         listing, error = None, f"endpoint listing unavailable: {exc}"
     if listing is None:
@@ -214,12 +216,18 @@ def _backfill_models(context: BackfillContext,
 
 
 def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
-             fetch_models: FetchModels, fetch_log: FetchLog) -> tuple[dict, dict[str, list[str]], bool]:
-    """Build the reviewed historical file and per-host report lines."""
+             fetch_models: FetchModels, fetch_log: FetchLog,
+             now: datetime | None = None) -> tuple[dict, dict[str, list[str]], bool]:
+    """Build the reviewed historical file and per-host report lines.
+
+    `now` is the instant the listing and log describe; it defaults to the
+    wall clock and bounds how far a series is read, exactly as in the
+    hourly refresh."""
     tracked, region = hourly._sources(doc)  # pylint: disable=protected-access
     result = copy.deepcopy(doc)
     logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
-    context = BackfillContext(doc, result, region, fetch, logs, as_of)
+    context = BackfillContext(doc, result, region, fetch, logs, as_of,
+                              now or datetime.now(timezone.utc))
     reports, rewrote = _backfill_models(context, tracked)
     if rewrote:
         result["provider_rates_fetched"] = as_of
@@ -230,11 +238,13 @@ def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
 def main(argv: list[str] | None = None, *, fetch: FetchEndpoints = refresh_pricelog.fetch_endpoints,
          fetch_models: FetchModels = refresh_pricelog.fetch_models,
          fetch_log: FetchLog = refresh_pricelog.fetch_listed_pricing,
-         pricing_path: Path = PRICING_JSON, constants_path: Path = CONSTANTS_PY) -> int:
+         pricing_path: Path = PRICING_JSON, constants_path: Path = CONSTANTS_PY,
+         now: datetime | None = None) -> int:
     args = _arguments(argv)
     try:
         doc = json.loads(pricing_path.read_text(encoding="utf-8"))
-        result, reports, rewrote = backfill(doc, fetch, args.as_of, fetch_models, fetch_log)
+        result, reports, rewrote = backfill(doc, fetch, args.as_of, fetch_models,
+                                            fetch_log, now)
         constants = constants_path.read_text(encoding="utf-8")
         if rewrote:
             constants = hourly.bump_pricing_version(constants)
