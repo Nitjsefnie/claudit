@@ -1,10 +1,13 @@
-"""Security headers on every response (issue #369).
+"""Security headers on every response (issues #369, #384).
 
-Framing protection (`Content-Security-Policy: frame-ancestors 'none'`
-plus `X-Frame-Options: DENY`) rides on text/html; `X-Content-Type-Options:
-nosniff` rides on every response, because every content type the app
-serves is correct and the header only stops a MIME-confused response
-from being reinterpreted as script or style.
+The document CSP (_CSP_TEMPLATE: script-src over 'self', the unpkg CDN
+and the response nonce; style-src over the Google Fonts stylesheet host
+and the response nonce; the deny-by-default floor) plus framing
+protection (`X-Frame-Options: DENY`, frame-ancestors 'none' in the
+policy) ride on text/html; `X-Content-Type-Options: nosniff` rides on
+every response, because every content type the app serves is correct
+and the header only stops a MIME-confused response from being
+reinterpreted as script or style.
 
 The integration tests drive the real `backend.app.app`, so the
 middleware placement is under test too: the headers must reach the
@@ -153,19 +156,23 @@ def test_existing_headers_are_not_clobbered():
 
 # Every directive the app needs, pinned one by one. The evidence for each
 # lives in the PR for #384; the short form: the unpkg scripts are admitted by
-# host (SRI pins their bytes independently), Babel 7.29 standalone runs its
-# compiled output as injected nonce-less inline <script> elements (no
-# new Function in babel.min.js), so 'unsafe-inline' in script-src is
-# unavoidable — a nonce or hashes cannot cover compiler output that varies
-# per file and per Babel version, and 'unsafe-eval' is NOT required. The
-# sign-in page's inline style block is the only inline style, admitted by the
-# response's nonce; React's CSSOM styling is not CSP-governed. fetch/XHR/SSE
-# are same-origin; the Google Fonts pair needs one style host and one font
-# host. default-src 'none', base-uri 'none' and form-action 'self' are the
-# deny-by-default floor; frame-ancestors 'none' stays from #369.
+# host (SRI pins their bytes independently); every <script> tag the dashboard
+# serves carries the response's nonce, and Babel standalone propagates a
+# text/babel source tag's nonce onto the inline script element it generates
+# for the compiled output (verified in the pinned 7.29.0 bytes), so the whole
+# in-browser pipeline admits under script-src's one nonce with NO
+# 'unsafe-inline' anywhere in the policy (hashes cannot cover compiler output
+# that varies per file and per Babel version; 'unsafe-eval' is not required —
+# no new Function in the pinned bytes). The sign-in page's inline style block
+# is the only inline style, admitted by the response's nonce; React's CSSOM
+# styling is not CSP-governed. fetch/XHR/SSE are same-origin; the Google
+# Fonts pair needs one style host and one font host. default-src 'none',
+# base-uri 'none' and form-action 'self' are the deny-by-default floor;
+# frame-ancestors 'none' stays from #369. The two nonce-shaped directives
+# (script-src, style-src) are pinned against the body nonce by the page
+# tests, not by this fixed-value table.
 _EXPECTED_CSP_DIRECTIVES = {
     "default-src": "'none'",
-    "script-src": "'self' https://unpkg.com 'unsafe-inline'",
     "font-src": "https://fonts.gstatic.com",
     "connect-src": "'self'",
     "img-src": "'self'",
@@ -188,23 +195,48 @@ def _csp_directives(policy: str) -> dict:
 def test_login_csp_pins_every_directive():
     resp = TestClient(app).get("/login")
     assert resp.status_code == 200
-    directives = _csp_directives(resp.headers["content-security-policy"])
-    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {"style-src"}
+    policy = resp.headers["content-security-policy"]
+    directives = _csp_directives(policy)
+    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {
+        "script-src", "style-src"}
     for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
         assert directives[name] == expected, name
-    # The style nonce is a per-response token, not a fixed string.
-    assert directives["style-src"].startswith(
-        "'self' https://fonts.googleapis.com 'nonce-")
-    assert directives["style-src"].endswith("'")
+    # Both nonce-shaped directives carry the response's one token, and
+    # no 'unsafe-inline' snuck back into the policy.
+    nonce = directives["style-src"].split("'nonce-")[1][:-1]
+    assert directives["style-src"] == (
+        f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
+    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
+    assert "'unsafe-inline'" not in policy
 
 
 def test_dashboard_csp_pins_every_directive(guest_client):
     resp = guest_client.get("/")
     assert resp.status_code == 200
-    directives = _csp_directives(resp.headers["content-security-policy"])
-    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {"style-src"}
+    policy = resp.headers["content-security-policy"]
+    directives = _csp_directives(policy)
+    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {
+        "script-src", "style-src"}
     for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
         assert directives[name] == expected, name
+    nonce = directives["style-src"].split("'nonce-")[1][:-1]
+    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
+    assert directives["style-src"] == (
+        f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
+    assert "'unsafe-inline'" not in policy
+
+
+def test_dashboard_script_tags_all_carry_the_header_nonce(guest_client):
+    """Babel admits only through the propagated nonce, so EVERY script
+    tag the page serves must be nonced with the header's token — a
+    nonce-less tag would be blocked at load."""
+    resp = guest_client.get("/")
+    nonce = _csp_directives(
+        resp.headers["content-security-policy"])["style-src"].split(
+        "'nonce-")[1][:-1]
+    body = resp.text
+    assert body.count("<script") == body.count(f'<script nonce="{nonce}"')
+    assert body.count("<script") >= 14  # 3 CDN + 1 injected + 11 text/babel
 
 
 def test_login_inline_style_carries_the_header_nonce():
@@ -229,10 +261,10 @@ def test_html_error_page_carries_the_full_policy():
                   body_chunks=[b"<html></html>"])
     policy = _header_values(sent, "content-security-policy")[0]
     directives = _csp_directives(policy)
-    assert directives["script-src"] == (
-        "'self' https://unpkg.com 'unsafe-inline'")
-    assert directives["style-src"].startswith("'self' https://fonts.googleapis.com 'nonce-")
-    assert "'nonce-" in directives["style-src"]
+    nonce = directives["style-src"].split("'nonce-")[1][:-1]
+    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
+    assert directives["style-src"] == (
+        f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
     assert directives["frame-ancestors"] == "'none'"
 
 
