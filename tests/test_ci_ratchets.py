@@ -60,6 +60,7 @@ def _document(measured="92.6", floor="91.1"):
             },
         },
         "module_size_baseline": {},
+        "pylint_suppression_baseline": {},
     }
 
 

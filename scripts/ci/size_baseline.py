@@ -9,11 +9,14 @@ or shrink the file. A stale entry goes away rather than being kept:
 naming a file that is gone is deleted by hand.
 
 Scope is every tracked ``*.py`` under ``backend/``, ``scripts/`` and
-``tests/``, plus every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file
-(issue #266: the shipped JavaScript front end joins the ratchet). A
+``tests/``, every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file
+(issue #266: the shipped JavaScript front end joins the ratchet), and
+the shipped SQL, CSS and workflow-YAML sources (issue #393:
+``backend/*.sql``, ``public/*.css`` and the ``.github/workflows/``
+YAML all join the ratchet the same way). A
 ``tests/`` prefix is a test file (ceiling 700 lines); everything else is
-production (ceiling 500 lines), so a front-end file prices against 500
-like any other production source.
+production (ceiling 500 lines), so a front-end, stylesheet, schema
+or workflow file prices against 500 like any other production source.
 
   python3 scripts/ci/size_baseline.py
   python3 scripts/ci/size_baseline.py --tighten
@@ -36,11 +39,15 @@ else:
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_CEILING = 500
 TEST_CEILING = 700
-# Scope: tracked Python modules under these directory prefixes, plus the
-# shipped front end under src/ (git pathspec globs; ``*`` matches ``/``,
-# so src/*.js covers src/views/*.js too).
+# Scope: tracked Python modules under these directory prefixes, the
+# shipped front end under src/, and the shipped SQL / CSS / workflow
+# YAML families (git pathspec globs; ``*`` matches ``/``, so src/*.js
+# covers src/views/*.js too).
 TRACKED_PREFIXES = ('backend/', 'scripts/', 'tests/')
 TRACKED_SRC_GLOBS = ('src/*.js', 'src/*.jsx')
+TRACKED_FAMILY_GLOBS = ('backend/*.sql', 'public/*.css',
+                        '.github/workflows/*.yml',
+                        '.github/workflows/*.yaml')
 
 GROWTH_REMEDY = (
     'A recorded number is never raised by hand and no entry is ever added '
@@ -66,7 +73,7 @@ def tracked_sizes(root=ROOT):
     and JavaScript under src/ (TRACKED_SRC_GLOBS)."""
     listed = subprocess.run(
         ['git', '-C', str(root), 'ls-files', '-z', '*.py',
-         *TRACKED_SRC_GLOBS],
+         *TRACKED_SRC_GLOBS, *TRACKED_FAMILY_GLOBS],
         capture_output=True, check=True, timeout=30)
     sizes = {}
     for raw in listed.stdout.split(b'\0'):
@@ -74,7 +81,7 @@ def tracked_sizes(root=ROOT):
             continue
         rel = raw.decode('utf-8', 'surrogateescape')
         if not (rel.startswith(TRACKED_PREFIXES)
-                or _in_src_scope(rel)):
+                or _in_src_scope(rel) or _in_family_scope(rel)):
             continue
         path = root / rel
         if not path.is_file():
@@ -87,6 +94,16 @@ def tracked_sizes(root=ROOT):
 def _in_src_scope(rel):
     """Whether a path is a src/ JavaScript file the ratchet caps."""
     return rel.startswith('src/') and rel.endswith(('.js', '.jsx'))
+
+
+def _in_family_scope(rel):
+    """Whether a path is a shipped SQL, CSS or workflow-YAML source the
+    ratchet caps (#393). The thresholds document itself is data, not
+    source, and stays outside."""
+    return (rel.startswith('backend/') and rel.endswith('.sql')
+            or rel.startswith('public/') and rel.endswith('.css')
+            or rel.startswith('.github/workflows/')
+            and rel.endswith(('.yml', '.yaml')))
 
 
 def violations(sizes, baseline):
