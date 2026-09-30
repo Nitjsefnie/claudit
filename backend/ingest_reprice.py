@@ -28,8 +28,9 @@ hourly PRICING bumps that move no stored pair's rates issue O(batches)
 statements instead of one UPDATE per row.
 
 Pair-qualified staleness (issue #351): before the keyset loop, one
-DISTINCT scan classifies the stale (model, provider) pairs, and ONE
-set-based UPDATE restamps every stale row whose stored rate_fingerprint
+GROUP BY scan classifies the stale (model, provider) pairs — counting
+each pair's stale rows (issue #400) — and ONE set-based UPDATE restamps
+every stale row whose stored rate_fingerprint
 equals its pair's current fingerprint — the fingerprint covers every
 rate input resolve() consults plus the source of the pricing modules
 and of this pass (rate_fingerprint.hashed_modules), so the recomputation
@@ -37,7 +38,10 @@ for those rows is the identity and reading them into Python would spend
 ~20us per row advancing a marker. The keyset loop
 then sees only rows whose pair's rate data moved (or whose version
 spelling the SQL guard cannot prove safe), reads them, recomputes,
-and stamps the current fingerprint beside the version.
+and stamps the current fingerprint beside the version; when the
+restamp covered every counted row the loop is skipped outright, since
+its terminating SELECT would otherwise walk the entire PK index only
+to prove emptiness (issue #400).
 
 The return count is rows whose rate-derived data CHANGED — the restamp
 advances the staleness marker without touching user-visible state, so
@@ -124,14 +128,19 @@ _SQL_REPRICE = """
 """
 
 
-# Phase A's classification: the stale (model, provider) pairs — few
-# rows, one DISTINCT scan over two narrow columns (measured ~0.3-0.5 s
-# at 1.33M rows on the 8-index production shape). Everything the clean
-# restamp needs rides this scan; when the table has no stale rows, the
-# keyset loop's first empty select already returns immediately.
+# Phase A's classification: the stale (model, provider) pairs, each
+# with its stale-row count (issue #400) — few rows, one GROUP BY scan
+# over two narrow columns (measured 0.66-1.4 s at 1.375M rows on the
+# 8-index production shape, in every staleness state probed). The
+# count is free on that scan and lets reprice_stale skip the keyset
+# loop outright when the clean restamp covered every stale row — the
+# loop's terminating SELECT otherwise walks the entire PK index just
+# to prove no rows remain (measured 3.6 s at production shape, up to
+# 66.9 s under load).
 _SQL_STALE_PAIRS = """
-    SELECT DISTINCT model, COALESCE(provider, '') FROM records
+    SELECT model, COALESCE(provider, ''), count(*) FROM records
      WHERE pricing_version IS DISTINCT FROM %s
+     GROUP BY 1, 2
 """
 
 # Phase A's clean restamp: rows whose stored rate_fingerprint equals
@@ -274,7 +283,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     the batch's transaction. The keyset cursor advances to the last row
     of each batch whether the row was restamped, repriced or skipped by
     the rollback guard, so the pass always terminates and a guard skip
-    never spins.
+    never spins. The loop runs only while rows remain after Phase A's
+    clean restamp: when the restamp covered every stale row the pairs
+    scan counted, the loop is skipped outright (issue #400).
 
     should_stop, when given, is consulted at the top of every batch
     iteration: a truthy return — or an exception it raises — unwinds the
@@ -288,7 +299,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     (select, fetch, pairs, clean, recompute, restamp, moved,
     commit) accumulate across
     batches and must account for the measured total — the gap is the
-    unattributed residue. Python CPU time rides the same line.
+    unattributed residue. Python CPU time rides the same line. A
+    skipped loop leaves only the pairs/clean marks (issue #400).
     """
     ph = timing.Phases("reprice", logger=log, account=True) \
         if timing.TIMING_ON else None
@@ -306,7 +318,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     after_key: tuple[str, int] = ("", 0)
     try:
         # Phase A (issue #351): classify the stale (model, provider)
-        # pairs — few rows, one DISTINCT scan — then restamp, in ONE
+        # pairs — few rows, one GROUP BY scan that also counts each
+        # pair's stale rows (issue #400) — then restamp, in ONE
         # set-based statement, every stale row whose stored fingerprint
         # still equals its pair's current fingerprint: the fp covers
         # every rate input resolve() consults plus the pricing modules'
@@ -315,14 +328,17 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
         # loop below then reads only the rows a fingerprint change or
         # an unprovable version spelling left behind.
         t0 = time.perf_counter()
+        stale_total = 0
         with db.viz_conn() as c:
+            pair_counts = c.execute(
+                _SQL_STALE_PAIRS,
+                (constants.PRICING_VERSION,)).fetchall()
             triples = [
                 (model, provider,
                  rate_fingerprint.pair_fingerprint(
                      model, None if provider == "" else provider))
-                for model, provider in c.execute(
-                    _SQL_STALE_PAIRS,
-                    (constants.PRICING_VERSION,)).fetchall()]
+                for model, provider, _count in pair_counts]
+            stale_total = sum(count for _, _, count in pair_counts)
             fp_done = time.perf_counter()
             if triples:
                 clean = c.execute(
@@ -337,7 +353,17 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
         if ph is not None:
             marks["pairs"] = fp_done - t0
             marks["clean"] = time.perf_counter() - fp_done
-        while True:
+        # Issue #400: when the clean restamp covered every stale row the
+        # scan counted (clean == stale_total), no stale row remains and
+        # the loop's first SELECT would walk the entire PK index only to
+        # prove emptiness — measured 3.6 s at production shape, up to
+        # 66.9 s under load. The skip is exact: every row the SQL set
+        # cannot restamp — a pair whose fingerprint moved, a NULL or
+        # oddly-spelled version (NULL ~ regex is not TRUE), a plain-digit
+        # version above the binary's, a digit run past the int4 bound —
+        # leaves clean < stale_total, and the loop runs exactly as
+        # before.
+        while clean != stale_total:
             if should_stop is not None and should_stop():
                 outcome = "aborted"
                 raise IngestAborted("shutdown requested")
