@@ -667,3 +667,18 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
     max-height: 45vh;
   }
 }
+
+/* Below ~760px the topbar's three columns (logo + nav + actions) can no
+   longer sit side by side — the grid's min-content overflowed a 320px
+   viewport by ~220px and was the widest horizontal-scroll offender
+   (issue #395). Stack the rows and let each wrap. */
+@media (max-width: 800px) {
+  .topbar {
+    grid-template-columns: 1fr;
+    height: auto;
+    gap: 6px 0;
+    padding: 10px 14px;
+    justify-items: start;
+  }
+  .topnav, .topbar-left, .topbar-right { flex-wrap: wrap; }
+}
