@@ -59,6 +59,7 @@ def _document(baseline=None):
             },
         },
         "module_size_baseline": baseline or {},
+        "pylint_suppression_baseline": {},
     }
 
 
@@ -190,7 +191,8 @@ def test_tracked_sizes_scope_and_counts():
     assert sizes, "tracked_sizes found no modules"
     for rel in sizes:
         assert rel.startswith(
-            ("backend/", "scripts/", "tests/", "src/"))
+            ("backend/", "scripts/", "tests/", "src/", "public/",
+             ".github/"))
     known = REPO_ROOT / "backend" / "api.py"
     assert sizes["backend/api.py"] == len(
         known.read_text(encoding="utf-8").splitlines())
@@ -235,3 +237,39 @@ def test_committed_baseline_seeds_only_over_ceiling_files():
     doc = thresholds.load(THRESHOLDS_PATH)
     for rel, recorded in doc["module_size_baseline"].items():
         assert recorded > size_baseline.ceiling_for(rel)
+
+
+def test_tracked_sizes_cover_sql_css_and_workflow_yaml():
+    # The three families the audit found growing unmeasured (#393): the
+    # shipped schema, the stylesheet and the workflow YAML join the
+    # ratchet, priced against the production ceiling like any other
+    # production source. The thresholds document itself is data, not
+    # source, and stays outside.
+    git_meta.require_own_git_metadata(REPO_ROOT)
+    size_baseline = _size_baseline()
+    sizes = size_baseline.tracked_sizes()
+    for rel in ("backend/schema.sql", "public/app.css",
+                ".github/workflows/tests.yml",
+                ".github/workflows/speed.yml"):
+        assert rel in sizes, f"{rel} is outside the size ratchet"
+        actual = (REPO_ROOT / rel).read_text(
+            encoding="utf-8").splitlines()
+        assert sizes[rel] == len(actual)
+    assert ".github/ci-thresholds.json" not in sizes
+
+
+def test_committed_family_seeds_match_tree_and_only_over_ceiling():
+    # Each seeded family entry equals the file's real line count, and a
+    # family seed exists only where the ceiling alone cannot gate (the
+    # file is over ceiling); under-ceiling files in a new family need no
+    # entry. Pairs with test_committed_baseline_seeds_only_over_ceiling.
+    git_meta.require_own_git_metadata(REPO_ROOT)
+    thresholds = _thresholds()
+    size_baseline = _size_baseline()
+    doc = thresholds.load(THRESHOLDS_PATH)
+    baseline = doc["module_size_baseline"]
+    sizes = size_baseline.tracked_sizes()
+    for rel in ("backend/schema.sql", "public/app.css",
+                ".github/workflows/tests.yml"):
+        assert sizes[rel] == baseline[rel]
+        assert baseline[rel] > size_baseline.ceiling_for(rel)

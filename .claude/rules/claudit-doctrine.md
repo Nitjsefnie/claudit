@@ -941,14 +941,34 @@ never hand-set numbers in a workflow.
   node parses no JSX, and parity tests' eval'd fragments are attributed
   to the eval. Each language gates against its own floor in `tests.yml`.
 - Module size (`module_size_baseline`): every tracked `*.py` under
-  `backend/`, `scripts/`, `tests/` and every tracked `src/**/*.js(x)` is
-  capped per file (production 500 / test 700; `src/` is production) by
+  `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
+  the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
+  `public/*.css`, `.github/workflows/*.yml|yaml`) is capped per file
+  (production 500 / test 700; everything but `tests/` is production) by
   `scripts/ci/size_baseline.py`, replacing pylint's `max-module-lines`.
   Entries are never added or raised by hand — an outgrown file moves code
   into a new module. CI tightens an entry as its file shrinks and drops
   it once back under the ceiling. A new file family may be seeded exactly
   once, at current line counts, through the loader's own writer (as
-  `src/` was); every later run follows the rule unchanged.
+  `src/` was; the SQL/CSS/YAML families seeded in issue #393's change);
+  every later run follows the rule unchanged.
+- Pylint suppressions (`pylint_suppression_baseline`): the per-file count
+  of inline `pylint: disable`/`disable-next` comments naming a
+  complexity check (`too-many-*`) over tracked `*.py` under `backend/`
+  and `scripts/` (`tests/` stays outside), checked and tightened by
+  `scripts/ci/suppression_baseline.py` under the same never-added,
+  never-raised, only-shrinks rules as module size.
+- The direction guard (`scripts/ci/thresholds_guard.py`, a step in
+  `tests.yml`) makes the never-rules mechanical: on every PR and master
+  push it compares the data against the base document and fails on a
+  lowered coverage value, a raised entry, or an added entry under the
+  frozen core families (the Python and src/ JavaScript scope the size
+  ratchet had when the guard landed) or for an unmeasured path. What
+  stays legal is exactly the bots' move set plus the two sanctioned
+  seeds: a raise, a tighten, a brand-new member's entries, and a new
+  measured family's one-time seed. The truth of every seed is pinned by
+  the committed-document-matches-tree tests, which run on the same
+  merge ref.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
   `92.00`) — what the ratchet writes, `coverage --precision=1` measures
   and the JS gate's `toFixed(1)` reads. The document is always the
