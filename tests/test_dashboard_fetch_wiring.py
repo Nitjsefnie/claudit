@@ -118,10 +118,15 @@ def test_each_effect_run_owns_its_request():
     for effect in (_dashboard_effect(), _projects_effect()):
         assert "const run = mintRunSignal();" in effect, (
             "each guarded effect run must mint its own run guard")
-        m = re.search(r"fetch\(`[^`]*`, \{([^}]*)\}\)", effect)
-        assert m, "the effect's fetch call moved"
+        # The two effects issue their request differently since #394: the
+        # dashboard goes through dashboardFetch.load, which checks r.ok,
+        # and the projects list still calls fetch directly. Both must hand
+        # their run's signal to it, so the guard matches either shape.
+        m = re.search(r"(?:fetch|window\.dashboardFetch\.load)"
+                      r"\(`[^`]*`, \{([^}]*)\}\)", effect)
+        assert m, "the effect's request call moved"
         assert "signal: run.signal" in m.group(1), (
-            "the run's fetch must carry its run guard's signal")
+            "the run's request must carry its run guard's signal")
         assert re.search(r"return run\.abort;", effect), (
             "the effect must abort its request in a cleanup, so a dep "
             "change kills the superseded request")
