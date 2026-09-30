@@ -426,7 +426,7 @@ def _rebuild_derived_state() -> int:
 
 def _walk_and_persist(parser_version: str,
                       failed: list[tuple[str, str]]
-                      ) -> tuple[int, int, int, int, int, int]:
+                      ) -> tuple[int, int, int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
 
     Returns the six walk counts plus the lane re-key's moved-file count (#370).
