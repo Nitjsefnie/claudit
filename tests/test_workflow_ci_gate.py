@@ -19,7 +19,10 @@ check still reports. The invariants pinned here:
   the pip-cache shape repo-wide);
 - every step-running job in every workflow declares `timeout-minutes`
   (issue #98: GitHub's default is 360, so an undeclared bound lets a
-  hung step occupy a runner for six hours).
+  hung step occupy a runner for six hours);
+- the deploy key is loaded only by tests.yml's ratchet-push job and
+  refresh-pricing.yml's push job, each of which takes it from the
+  master-push environment rather than a forwarded secret.
 """
 from __future__ import annotations
 
@@ -29,11 +32,14 @@ from pathlib import Path
 
 import yaml
 
+from tests.test_workflow_refresh_push import ED25519_HOST_KEY, RSA_HOST_KEY
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GATE = WORKFLOWS / "ci-gate.yml"
 GATE_FRESHNESS = WORKFLOWS / "gate-freshness.yml"
 TESTS_WORKFLOW = WORKFLOWS / "tests.yml"
+REFRESH_WORKFLOW = WORKFLOWS / "refresh-pricing.yml"
 
 # The ten gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
@@ -58,12 +64,10 @@ def _tests_workflow():
     return _load(TESTS_WORKFLOW)
 
 
-def _ratchet_step():
-    steps = _tests_workflow()["jobs"]["pytest"].get("steps") or []
-    matches = [step for step in steps if step.get("name") == "Commit the ratchet"]
-    assert len(matches) == 1, "expected exactly one ratchet commit step"
-    step, = matches
-    return step
+def _ratchet_push_job():
+    jobs = _tests_workflow()["jobs"]
+    assert set(jobs) == {"pytest", "pytest-portable", "ratchet-push"}
+    return jobs["ratchet-push"]
 
 
 def test_every_reusable_call_points_at_an_existing_callable_workflow():
@@ -175,59 +179,117 @@ def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     assert ".github/ci-thresholds.json" in ignored, ignored
 
 
-def test_ratchet_push_uses_the_deploy_key_over_pinned_github_ssh():
+def _ratchet_push_run() -> str:
+    steps = _ratchet_push_job()["steps"]
+    matches = [step for step in steps
+               if step.get("name") == "Push the ratchet commit to master"]
+    assert len(matches) == 1, "expected exactly one ratchet push step"
+    step, = matches
+    return step["run"]
+
+
+def test_ratchet_push_job_takes_the_key_from_the_master_push_environment():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
     workflow = _tests_workflow()
-    step = _ratchet_step()
-    run = step["run"]
+    job = _ratchet_push_job()
+    run = _ratchet_push_run()
 
-    assert "x-access-token" not in raw
-    assert step["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+    # Job shape: the key-only job sits beside the keyless suite jobs and
+    # receives the tested ratchet data as an artifact.
+    assert job["environment"] == "master-push"
+    assert job["needs"] == "pytest"
+    assert job["if"] == "needs.pytest.outputs.ratchet_changed == 'true'"
+    assert job["timeout-minutes"] == "15"
+    assert job["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["pytest"]["outputs"] == {
+        "ratchet_changed": "${{ steps.ratchet.outputs.changed }}"}
+    steps = job["steps"]
+    assert len(steps) == 2
+    download, push = steps
+    assert download["name"] == "Download the ratchet data"
+    assert download["uses"] == (
+        "actions/download-artifact@"
+        "37930b1c2abaa49bbe596cd826c3c89aef350131")
+    assert download["with"] == {
+        "name": "ratchet-push",
+        "path": "${{ runner.temp }}/ratchet-data",
+    }
+    assert ("actions/download-artifact@"
+            "37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0" in raw)
+    assert push["name"] == "Push the ratchet commit to master"
+    assert push["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
         "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
-    assert "GH_TOKEN" not in step["env"]
-    assert "PUSH_REMOTE" not in step["env"]
-    assert 'remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"' in run
-    assert 'git push "$remote"' in run
-    assert 'git fetch --quiet "$remote" master' in run
-    assert 'if [ -n "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
+    assert "GH_TOKEN" not in push["env"]
+    assert "PUSH_REMOTE" not in push["env"]
+
+    # The key preamble: fail fast on an empty key BEFORE anything else,
+    # stop the agent at the step's end, pin GitHub's SSH host keys.
+    fail_fast = 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then'
+    assert fail_fast in run
+    assert run.index(fail_fast) < run.index("ssh-agent")
+    assert run.index(fail_fast) < run.index("git ls-remote")
+    assert "trap 'kill \"$SSH_AGENT_PID\" 2>/dev/null || true' EXIT" in run
     assert "StrictHostKeyChecking=yes" in run
-    assert (
-        "github.com ssh-ed25519 "
-        "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
-        in run
-    )
-    assert (
-        "github.com ssh-rsa "
-        "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
-        in run
-    )
-    assert "git config user.name 'github-actions[bot]'" in run
-    assert "git config user.email \\" in run
+    assert ED25519_HOST_KEY in run
+    assert RSA_HOST_KEY in run
+    assert 'remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"' in run
+    assert raw.count("PUSH_REMOTE") == 1
+
+    # The push order and its refusals.
+    assert run.index("git ls-remote") < run.index("git init")
+    assert ('cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" '
+            '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"' in run)
+    assert ('git -C "$RUNNER_TEMP/ratchet-repo" '
+            'add .github/ci-thresholds.json' in run)
+    assert ("git -C \"$RUNNER_TEMP/ratchet-repo\" "
+            "config user.name 'github-actions[bot]'" in run)
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
-    assert (
-        "Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>" in run)
-    assert run.index("if [ -n") < run.index("git push")
-    assert run.index("if [ -n") < run.index("git fetch --quiet")
-    assert workflow["jobs"]["pytest"]["permissions"]["contents"] == "read"
-    assert workflow["jobs"]["pytest"]["permissions"]["pull-requests"] == "write"
+    assert ("Ratchet ci-thresholds: raise coverage floor / tighten size "
+            "baseline (automated)" in run)
+    assert "Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>" in run
+    assert 'git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master' in run
+    assert 'git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master' in run
+    assert "the ratchet push was rejected while master stood still" in run
+    assert "rev-parse HEAD^" in run
+    assert "rev-parse FETCH_HEAD" in run
+    assert "--force" not in run
+    assert "GH_TOKEN" not in run
+    assert "x-access-token" not in raw
 
 
-def test_tests_callee_receives_optional_deploy_key_with_read_only_contents():
+def test_no_deploy_key_is_forwarded_to_the_tests_callee():
     doc = _ci_gate()
     tests_call = doc["jobs"]["tests"]
-    assert tests_call["secrets"]["MASTER_PUSH_DEPLOY_KEY"] == (
-        "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    assert "secrets" not in tests_call
     assert tests_call["permissions"] == {
         "contents": "read",
         "pull-requests": "write",
     }
-
     workflow_call = (_tests_workflow().get("on") or {}).get("workflow_call") or {}
-    secret = (workflow_call.get("secrets") or {}).get("MASTER_PUSH_DEPLOY_KEY")
-    assert secret == {
-        "required": "false",
-        "description": "write deploy key the ratchet push authenticates with",
-    }
+    assert "secrets" not in workflow_call
+
+
+def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
+    tests_image = (
+        yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8"))
+        ["jobs"]["pytest"]["services"]["postgres"]["image"])
+    refresh_image = (
+        yaml.safe_load(REFRESH_WORKFLOW.read_text(encoding="utf-8"))
+        ["jobs"]["refresh"]["services"]["postgres"]["image"])
+    assert tests_image == refresh_image
+    assert tests_image.startswith("postgres:16@sha256:")
+
+
+def test_the_pytest_job_pushes_nothing_and_carries_the_key_never():
+    raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
+    lines = [line for line in raw.splitlines()
+             if "MASTER_PUSH_DEPLOY_KEY" in line]
+    assert len(lines) == 1, lines
+    assert lines[0].strip() == (
+        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    pytest_job = _tests_workflow()["jobs"]["pytest"]
+    for step in pytest_job.get("steps") or []:
+        assert "git push" not in (step.get("run") or ""), step.get("name")
 
 
 def test_ci_gate_triggers():
