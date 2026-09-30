@@ -481,24 +481,55 @@ def test_vbar_fmt_is_value_only():
 
 # --- Issue #394: the Overview's fetch state -----------------------------
 
-APP = ROOT / "src" / "app.jsx"
-SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
-FETCH = ROOT / "src" / "dashboard-fetch.js"
-
 
 def _app() -> str:
     return _strip_line_comments(APP.read_text(encoding="utf-8"))
 
 
-def test_dashboard_fetch_is_wired_not_just_written():
-    """src/dashboard-fetch.js carries the state machine and its own node
-    tests, but a correct module nobody calls still renders "loading…"
-    forever. Pin that app.jsx drives the Overview's state through it."""
-    src = _app()
-    calls = len(re.findall(r"window\.dashboardFetch\.\w+", src))
-    assert calls >= 4, (
-        f"app.jsx calls window.dashboardFetch {calls}x -- the Overview's "
-        f"loading/empty/error state is no longer driven by it")
+def _dashboard_effect(src: str) -> str:
+    """The /api/dashboard effect's body: the four statements that own the
+    Overview's fetch state and the supersede guard in each handler."""
+    i = src.index("window.dashboardFetch.load(`")
+    return src[src.rindex("useEffect(", 0, i):src.index(
+        "}, [backendOn, activeProject, activeRange, dashNonce]);", i)]
+
+
+def test_dashboard_fetch_state_is_written_at_every_outcome():
+    """Each of the three outcomes has its OWN write, in order, in the run
+    that produced it.
+
+    A count of the module's call sites satisfies any four of them: a
+    discarded `failed(...)` (the pre-#394 symptom back through a new
+    door), a `loaded()` where the run opens, or no reset at all each
+    leave every other assertion in this file green.
+    """
+    body = _dashboard_effect(_app())
+    opening = body.index("window.dashboardFetch.load(`")
+    reset = body.find("setDashFetch(window.dashboardFetch.start());")
+    assert reset >= 0, (
+        "no run resets the state -- a range change out of the error state "
+        "shows the PREVIOUS range's error for the whole request")
+    assert reset < opening, (
+        "the reset happens after the request goes out, so the in-flight "
+        "request is never marked in-flight")
+    landed = body.find("setDashFetch(window.dashboardFetch.loaded());")
+    assert landed > opening, (
+        "a landed response is not recorded as ready, so an empty range "
+        "keeps the placeholder it was opened with")
+    failed = body.find("setDashFetch(window.dashboardFetch.failed(")
+    assert failed > landed, (
+        "a failed request is not recorded as an error")
+
+
+def test_every_dashboard_handler_respects_the_supersede_guard():
+    """A run superseded by a newer range change writes nothing -- neither
+    its data nor its state. Both handlers must carry the guard."""
+    then_part, catch_part = _dashboard_effect(_app()).split(".catch(", 1)
+    for name, part in (("the success handler", then_part),
+                       ("the failure handler", catch_part)):
+        assert "if (!run.isCurrent()) return;" in part, (
+            f"{name} writes state without checking isCurrent(), so a "
+            f"superseded run overwrites the newer range's state")
 
 
 def test_dashboard_fetch_state_is_declared_and_passed_down():
@@ -506,8 +537,9 @@ def test_dashboard_fetch_state_is_declared_and_passed_down():
     prop the component reads only the data and cannot tell an empty range
     from a pending one."""
     src = _app()
-    assert re.search(r"const \[dashFetch,\s*setDashFetch\]\s*=\s*useState\(", src), (
-        "App no longer holds a dashboard fetch state separate from its data")
+    assert re.search(r"const \[dashFetch,\s*setDashFetch\]\s*=\s*"
+                     r"useState\(\(\) => window\.dashboardFetch\.start\(\)\)", src), (
+        "App no longer opens its dashboard fetch state at `start()`")
     assert re.search(r"<Dashboard\b[^>]*\bdashFetch=\{dashFetch\}", src, re.S), (
         "Dashboard is not handed the fetch state, so it can only see the "
         "data and cannot render an empty or error state")
@@ -517,7 +549,7 @@ def test_dashboard_summary_renders_every_non_data_state():
     """The stat block is gated on the RESOLVED state, and the status
     block renders every other one. Reading a null shape as "still
     loading" instead is the bug (#394)."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _app()
     assert re.search(r"\{summary\.kind === 'data' &&\s*\(", src), (
         "the stat block is no longer gated on the resolved state, so an "
         "empty range renders it exactly like a full one")
@@ -530,9 +562,12 @@ def test_dashboard_summary_renders_every_non_data_state():
     fetch = _strip_line_comments(FETCH.read_text(encoding="utf-8"))
     for kind in ("'loading'", "'empty'", "'error'", "'data'"):
         assert kind in fetch, f"{kind} is no longer a state at all"
-    assert "loading" not in src, (
-        "app.jsx still spells out a loading literal: a null shape must not "
-        "select it, only a loading fetch state may")
+    # Scoped to the component: an unrelated future mention of loading
+    # elsewhere in the shell must not fail a test about this block.
+    body = src[src.index("function Dashboard("):]
+    assert "loading" not in body, (
+        "Dashboard still spells out a loading literal: a null shape must "
+        "not select it, only a loading fetch state may")
 
 
 def test_dashboard_error_state_names_its_status():
@@ -547,9 +582,11 @@ def test_dashboard_error_state_names_its_status():
 
 def test_error_banner_does_not_double_with_the_status_line():
     """With no data the status block already carries the status and its
-    detail; a banner not gated on the data case renders the same failure
-    twice."""
+    detail, so the banner over DATA has to come after that branch --
+    reordering the two double-renders the same failure."""
     status = _strip_line_comments(SUMMARY.read_text(encoding="utf-8"))
-    assert re.search(r"if \(!summary\.error\) return null;", status), (
-        "the error banner is not gated on the data case, so a failed fetch "
-        "with no data renders the status line twice")
+    assert re.search(
+        r"if \(summary\.kind !== 'data'\) \{.*?"
+        r"if \(!summary\.error\) return null;", status, re.S), (
+        "the error banner is not ordered after the no-data branch, so a "
+        "failed fetch with no data renders the status line twice")
