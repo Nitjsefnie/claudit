@@ -464,7 +464,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-09-30T00:53:48Z",
+  "provider_rates_fetched": "2026-09-30T01:19:54Z",
   "providers": {
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
@@ -2744,6 +2744,14 @@
           "create_5m": 0.08,
           "fresh": 0.08,
           "from": "2026-09-30T00:05:46Z",
+          "output": 0.44,
+          "read": 0.045
+        },
+        {
+          "create_1h": 0.0649,
+          "create_5m": 0.0649,
+          "fresh": 0.0649,
+          "from": "2026-09-30T01:01:22Z",
           "output": 0.44,
           "read": 0.045
         }
@@ -15938,6 +15946,14 @@
           "note": "30% off",
           "output": 0.924,
           "read": 0.0196
+        },
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": "2026-09-30T01:10:47Z",
+          "output": 1.32,
+          "read": 0.028
         }
       ],
       "Reka": [
@@ -32469,6 +32485,14 @@
           "note": "34% off",
           "output": 2.8776,
           "read": 0.099
+        },
+        {
+          "create_1h": 1.45,
+          "create_5m": 1.45,
+          "fresh": 1.45,
+          "from": "2026-09-30T01:10:48Z",
+          "output": 4.36,
+          "read": 0.15
         }
       ],
       "Relace": [
@@ -38610,6 +38634,14 @@
           "from": "2026-09-30T00:53:48Z",
           "output": 2.992,
           "read": 0.1955
+        },
+        {
+          "create_1h": 0.238,
+          "create_5m": 0.238,
+          "fresh": 0.238,
+          "from": "2026-09-30T01:01:21Z",
+          "output": 2.992,
+          "read": 0.1955
         }
       ],
       "Novita": [
@@ -39458,6 +39490,14 @@
           "fresh": 0.12,
           "from": "2026-09-29T21:51:01Z",
           "output": 4.0,
+          "read": 0.12
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-09-30T00:55:47Z",
+          "output": 1.5,
           "read": 0.12
         }
       ],
@@ -40868,6 +40908,14 @@
           "fresh": 0.15308,
           "from": "2026-09-29T01:11:04Z",
           "output": 0.53578,
+          "read": 0.04
+        },
+        {
+          "create_1h": 0.17,
+          "create_5m": 0.17,
+          "fresh": 0.17,
+          "from": "2026-09-30T00:46:01Z",
+          "output": 0.49385,
           "read": 0.04
         }
       ],
