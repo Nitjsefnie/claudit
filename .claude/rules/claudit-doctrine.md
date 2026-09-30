@@ -144,7 +144,13 @@ retypes a column needs a different mechanism, not a quiet exception.
 
 `backend/db.schema_check()` runs at every startup and aborts with a
 clear error unless (a) `claudit.files` exists and (b) the auth DB's
-`users.config` is JSONB — instead of breaking auth at first login.
+`users` table carries every column the app reads — `user_id` (an
+integer: the login lookup key) and `config` (JSONB) — each diagnosed
+three ways when not visible (wrong database / missing SELECT grant /
+genuinely absent), instead of breaking auth at first login. The map of
+checked columns is `db.AUTH_COLUMNS`: everything else the login path
+needs is a JSON key inside config, never a column, and the map does not
+grow with one.
 
 ## Per-file files+records contract (SV-FILES-RECORDS)
 

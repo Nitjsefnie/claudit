@@ -8,6 +8,11 @@ reported all three as "no 'config' column" — the live finding was a
 connectable role with no SELECT producing that message against a DB
 where the column exists. These tests pin the discrimination: privilege
 and wrong-DB failures must name their own cause.
+
+Issue #368 widens the check to every auth column the app reads: the
+lookup in backend/session.load_user_config keys on users.user_id and
+reads users.config, so an auth table with another key name (the old
+fixtures built `id`) must abort startup, not 500 at first login.
 """
 from contextlib import closing
 
@@ -70,20 +75,45 @@ def _auth_conn(name: str):
 
 
 def test_happy_path_returns_none(auth_env):
-    """users.config jsonb + SELECT granted -> schema_check() is silent."""
+    """The exact shape the login lookup reads — user_id + jsonb config —
+    passes schema_check() silently."""
     name = auth_env("schema_chk_ok")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY, "
+        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY, "
                   "config jsonb)")
     assert db.schema_check() is None
 
 
 def test_column_absent_reports_missing_column(auth_env):
-    """Genuinely absent column keeps the original message — case (c)."""
+    """Genuinely absent config keeps the original message — case (c)."""
     name = auth_env("schema_chk_nocol")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY)")
+        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY)")
     with pytest.raises(RuntimeError, match=r"no 'config' column"):
+        db.schema_check()
+
+
+def test_user_id_absent_reports_missing_column(auth_env):
+    """An auth table keyed by another name (issue #368's shape: `id`
+    instead of user_id) aborts startup naming the missing key column,
+    instead of passing the check and 500ing every login."""
+    name = auth_env("schema_chk_nouid")
+    with closing(_auth_conn(name)) as c:
+        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY, "
+                  "config jsonb)")
+    with pytest.raises(RuntimeError, match=r"no 'user_id' column"):
+        db.schema_check()
+
+
+def test_user_id_wrong_type_pinned(auth_env):
+    """A non-integer user_id fails the same first login lookup (no
+    `integer = text` operator), so the check pins the type too."""
+    name = auth_env("schema_chk_uidtype")
+    with closing(_auth_conn(name)) as c:
+        c.execute("CREATE TABLE public.users (user_id text PRIMARY KEY, "
+                  "config jsonb)")
+    with pytest.raises(RuntimeError,
+                       match=r"users\.user_id must be an integer type"):
         db.schema_check()
 
 
@@ -91,7 +121,7 @@ def test_wrong_type_reports_jsonb(auth_env):
     """Non-JSONB config keeps the type message."""
     name = auth_env("schema_chk_type")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY, "
+        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY, "
                   "config text)")
     with pytest.raises(RuntimeError, match=r"must be JSONB"):
         db.schema_check()
@@ -103,7 +133,7 @@ def test_missing_select_names_the_grant_not_the_column(auth_env):
     NOT "no 'config' column" (issue #122)."""
     name = auth_env("schema_chk_priv")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY, "
+        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY, "
                   "config jsonb)")
         c.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD 'probe123'")
                   .format(sql.Identifier(_ROLE)))
@@ -120,6 +150,7 @@ def test_missing_select_names_the_grant_not_the_column(auth_env):
         msg = str(excinfo.value)
         assert "SELECT" in msg and _ROLE in msg
         assert "no 'config' column" not in msg
+        assert "no 'user_id'" not in msg
     finally:
         db.reset_auth_pool()
         with closing(_auth_conn("postgres")) as admin:

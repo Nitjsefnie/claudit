@@ -83,11 +83,12 @@ def provision() -> None:
         raise SmokeFailure(str(exc)) from exc
 
     # The auth DB is external in production and this repo owns no schema
-    # for it. schema_check() requires exactly one thing — users.config as
-    # JSONB — so that is exactly what gets built, and nothing more: a
+    # for it. schema_check() requires exactly what the login lookup
+    # reads — users.user_id as an integer (issue #368) and users.config
+    # as JSONB — so that is exactly what gets built, and nothing more: a
     # richer fake would drift from the real table without anyone noticing.
-    log(f"giving {AUTH_DB} the minimal users.config shape")
-    psql(AUTH_DB, "CREATE TABLE users (id BIGINT PRIMARY KEY, "
+    log(f"giving {AUTH_DB} the minimal shape the login lookup reads")
+    psql(AUTH_DB, "CREATE TABLE users (user_id BIGINT PRIMARY KEY, "
                   "config JSONB NOT NULL DEFAULT '{}'::jsonb)")
 
 
