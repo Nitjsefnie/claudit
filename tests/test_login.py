@@ -33,6 +33,21 @@ def _post_login(client, user_id, password, follow_redirects=False):
     )
 
 
+# The generic failure body is the FULL sign-in page (#395): 401,
+# text/html, the error announced in the role=alert element. Every
+# credential failure answers the same status and the same bytes (#109).
+_GENERIC_401 = "Invalid credentials."
+
+
+def _assert_generic_failure(response):
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("text/html")
+    assert (f'<div class="err" role="alert">{_GENERIC_401}</div>'
+            in response.text), (
+        "a credential failure did not answer the generic sign-in page "
+        "with its message announced")
+
+
 def _clear_user_config_cache():
     session_mod._USER_CONFIG_CACHE.clear()  # pylint: disable=protected-access
 
@@ -213,8 +228,7 @@ def test_login_post_without_origin_is_403(app, fake_user):
 def test_wrong_password_is_generic_401(app, fake_user):
     client = TestClient(app)
     r = _post_login(client, 12345, "wrong")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
 
 
 def test_unknown_user_is_generic_401(app, fake_user):
@@ -222,8 +236,7 @@ def test_unknown_user_is_generic_401(app, fake_user):
     not its own status or body (issue #109)."""
     client = TestClient(app)
     r = _post_login(client, 999, "anything")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
 
 
 def test_no_password_user_is_generic_401(app, fake_user):
@@ -231,8 +244,7 @@ def test_no_password_user_is_generic_401(app, fake_user):
     store[777] = {}  # known id, no web password configured
     client = TestClient(app)
     r = _post_login(client, 777, "anything")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
 
 
 def test_all_credential_failures_answer_identically(app, fake_user):
@@ -247,9 +259,10 @@ def test_all_credential_failures_answer_identically(app, fake_user):
         _post_login(client, 12345, "wrong"),    # wrong password
     ]
     statuses = {r.status_code for r in modes}
-    bodies = {r.text for r in modes}
     assert statuses == {401}
-    assert bodies == {"Invalid credentials."}
+    # Byte-identical bodies: any difference enumerates account ids.
+    assert len({r.content for r in modes}) == 1
+    _assert_generic_failure(modes[0])
 
 
 def test_normalization_runs_where_real_one_cannot(
@@ -299,8 +312,7 @@ def test_wrong_password_against_legacy_hash_tops_up(
     )
     client = TestClient(app)
     r = _post_login(client, 555, "wrong")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
     assert calls == [auth.PBKDF2_ITERATIONS]
 
 
@@ -313,8 +325,7 @@ def test_non_hex_legacy_salt_is_generic_and_normalizes_from_zero(
     monkeypatch.setattr(auth, "normalize_verification_timing",
                         lambda password, spent: calls.append(spent))
     response = _post_login(TestClient(app), 558, "anything")
-    assert response.status_code == 401
-    assert response.text == "Invalid credentials."
+    _assert_generic_failure(response)
     assert calls == [0]
 
 
@@ -328,8 +339,7 @@ def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
     )
     client = TestClient(app)
     r = _post_login(client, 999, "anything")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
     assert calls == [0]
 
 
@@ -353,8 +363,7 @@ def test_malformed_hash_failure_normalizes_from_zero(
     )
     client = TestClient(app)
     r = _post_login(client, 556, "anything")
-    assert r.status_code == 401
-    assert r.text == "Invalid credentials."
+    _assert_generic_failure(r)
     assert calls == [0]
 
 
@@ -532,7 +541,9 @@ def test_ip_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch):
     r = _post_login(TestClient(app), 12345, "x")
 
     assert r.status_code == 429
-    assert r.text == "Too many login attempts. Try again later."
+    assert r.headers["content-type"].startswith("text/html")
+    assert ('<div class="err" role="alert">Too many login attempts. '
+            'Try again later.</div>') in r.text
 
 
 def test_successful_login_does_not_write_the_auth_db(
