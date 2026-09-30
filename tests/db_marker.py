@@ -54,6 +54,8 @@ import pytest
 #                        schema to its own scratch viz DB
 #   auth_env             test_db_schema_check; creates its own empty
 #                        scratch auth DB per case
+#   twin_app             test_transcript_cache_key; creates its own
+#                        scratch DB in-body (issue #375 fixture)
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -69,6 +71,7 @@ DB_FIXTURES = frozenset({
     "_viz_ready",
     "auth_env",
     "projects_client",
+    "twin_app",
 })
 
 
