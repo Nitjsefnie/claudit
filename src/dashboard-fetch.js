@@ -39,8 +39,9 @@
   //                        than saying they are stale
   //
   // `hasData` is what the panels actually rendered (backendDashToShape
-  // returns null for a payload with no usable hour buckets), so an empty
-  // range is decided here and never by the payload being null.
+  // returns null for a payload with no usable hour buckets): the shape
+  // answers WHETHER there is data, and the state answers WHICH of the
+  // other three states the caller is in when there is not.
   function summary(state, hasData) {
     if (state && state.status === ERROR) {
       const detail = state.detail;
