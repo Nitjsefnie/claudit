@@ -392,7 +392,7 @@ def test_finished_at_lands_after_the_derived_state_rebuild(
 
     def probe():
         seen["finished_at"] = _last_run_finished_at()
-        real()
+        return real()
 
     monkeypatch.setattr(ingest, "_rebuild_derived_state", probe)
     summary = ingest.run_ingest_locked("manual")
