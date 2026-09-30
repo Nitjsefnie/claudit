@@ -1,15 +1,19 @@
-"""The lifespan teardown's stop budget against the shipped unit (issue #410).
+"""The lifespan teardown's stop budget against the shipped unit (#410, #414).
 
 uvicorn spends `--timeout-graceful-shutdown` draining connections BEFORE the
-lifespan teardown runs, and systemd SIGKILLs at `TimeoutStopSec`. The teardown's
-bounded wait on the in-flight run, plus the fallback row close behind it, has to
-fit in what is left -- a wait sized past it means systemd kills the process
-while the row is still open, which is the finished_at NULL this pins shut.
+lifespan teardown runs, and systemd SIGKILLs at `TimeoutStopSec`. EVERY term
+the teardown can spend -- the render reap (#414), then the bounded wait on the
+in-flight run, then the fallback row close behind it -- has to fit in what is
+left. A term sized past its share means systemd kills the process while the
+row is still open, which is the finished_at NULL this pins shut.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +25,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 import backend.app as app_mod
-from backend import constants, db, ingest
+from backend import api_export, constants, db, ingest
 
 _UNIT = (Path(__file__).resolve().parent.parent
          / "examples" / "claudit.service")
@@ -87,6 +91,47 @@ async def _teardown() -> None:
         pass
 
 
+class _WedgedRender:
+    """A render child the reap's SIGKILL never collects.
+
+    `wait()` is what a killed-but-unreaped child does: it stays pending
+    forever, so the reap's own bounded wait is the only thing that ends it.
+    That is the shape issue #414 is about -- a per-child bound drawn N
+    times is what overran the unit's stop budget.
+    """
+
+    returncode = None
+
+    def __init__(self, pid: int = 4242):
+        self.pid = pid
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
+
+    async def wait(self) -> int:
+        await asyncio.Event().wait()
+        return 0  # pragma: no cover - the await never returns
+
+
+def _wedged_render(pid: int = 4242) -> _WedgedRender:
+    return _WedgedRender(pid)
+
+
+@contextlib.contextmanager
+def _live_renders(children: list):
+    """Register fake children in the module's live-render table, then clear."""
+    for child in children:
+        api_export._live_renders[child] = (  # pylint: disable=protected-access
+            "/nonexistent/claudit-export.png")
+    try:
+        yield
+    finally:
+        for child in children:
+            api_export._live_renders.pop(  # pylint: disable=protected-access
+                child, None)
+
+
 # ---------------------------------------------------------------------------
 # The arithmetic: the wait the teardown actually uses, against the unit that
 # kills the process.
@@ -121,23 +166,97 @@ async def test_teardown_wait_leaves_room_for_the_fallback_close(monkeypatch):
 
 
 def test_stop_budget_constants_match_the_shipped_unit():
-    """The wait is derived from the unit's own numbers, so it can only stay
-    honest while the constants and the unit agree.
+    """Every term is derived from the unit's own numbers, so the split can
+    only stay honest while the constants and the unit agree.
 
     Someone raising TimeoutStopSec, or dropping the graceful flag, must come
-    back here rather than leave the wait sized against a window that moved.
+    back here rather than leave a term sized against a window that moved.
     """
     graceful, stop = _unit_stop_budget()
     assert constants.SHUTDOWN_GRACEFUL_S == graceful, (
         "the graceful window uvicorn spends before the lifespan teardown runs")
     assert constants.SHUTDOWN_STOP_BUDGET_S == stop, "the unit's TimeoutStopSec"
+    assert constants.SHUTDOWN_RENDER_REAP_S > 0, (
+        "the render reap must be positive: a killed child is normally "
+        "reaped instantly, and a zero budget gives up reaping every one")
     assert constants.SHUTDOWN_RUN_WAIT_S > 0, (
         "the wait must be positive: the run it waits for still has to abort "
         "cooperatively and close its own row")
-    assert (constants.SHUTDOWN_GRACEFUL_S + constants.SHUTDOWN_RUN_WAIT_S
-            + constants.SHUTDOWN_MARGIN_S
+    assert (constants.SHUTDOWN_GRACEFUL_S + constants.SHUTDOWN_RENDER_REAP_S
+            + constants.SHUTDOWN_RUN_WAIT_S + constants.SHUTDOWN_MARGIN_S
             <= constants.SHUTDOWN_STOP_BUDGET_S), (
-        "graceful + wait + margin must fit inside TimeoutStopSec")
+        "graceful + render reap + wait + margin must fit inside TimeoutStopSec")
+
+
+@pytest.mark.asyncio
+async def test_the_terms_the_teardown_uses_sum_to_the_stop_budget(monkeypatch):
+    """The budgets the teardown PASSES -- not the ones written down -- must
+    fit the unit's stop budget, the render reap included (#414).
+
+    Captured by running the real lifespan, so a per-child reap budget that
+    is never bounded, a wait sized past what is left, or a term nobody
+    accounted for all fail here no matter where the number is written.
+    """
+    _stub_lifespan(monkeypatch)
+    reaps: list = []
+    waits: list[float] = []
+    order: list[str] = []
+
+    async def fake_reap(budget=None):
+        reaps.append(budget)
+        order.append("reap")
+
+    monkeypatch.setattr(app_mod.api_export, "reap_live_renders", fake_reap)
+    monkeypatch.setattr(app_mod.ingest, "request_shutdown",
+                        lambda: order.append("abort"))
+    monkeypatch.setattr(app_mod.ingest, "wait_for_run",
+                        lambda t: waits.append(t) or order.append("wait") or True)
+
+    await _teardown()
+
+    assert reaps == [constants.SHUTDOWN_RENDER_REAP_S], (
+        f"the teardown reaped with {reaps!r}; the render reap has to draw from "
+        f"the stop budget ({constants.SHUTDOWN_RENDER_REAP_S}s), because it "
+        f"runs ahead of the ingest wait and a budget it keeps for itself "
+        f"starves the row close behind it (issue #414)")
+    assert len(waits) == 1, f"the teardown waited {len(waits)} times"
+    graceful, stop = _unit_stop_budget()
+    spent = graceful + reaps[0] + waits[0] + constants.SHUTDOWN_MARGIN_S
+    assert spent <= stop, (
+        f"uvicorn spends {graceful}s draining, the render reap {reaps[0]}s, "
+        f"the ingest wait {waits[0]}s and the fallback margin "
+        f"{constants.SHUTDOWN_MARGIN_S}s: {spent}s of a TimeoutStopSec={stop}s, "
+        f"so systemd SIGKILLs before the fallback row close lands")
+    assert order == ["abort", "reap", "wait"], (
+        f"the teardown ran {order!r}: the abort is signalled first so the run "
+        f"is unwinding through the reap, not starting to unwind after it — "
+        f"the reap is dead time for the run otherwise (issue #414)")
+
+
+@pytest.mark.asyncio
+async def test_the_reap_bounds_itself_as_a_whole_not_per_child():
+    """`reap_live_renders(budget_s)` bounds the reap as a whole.
+
+    A per-child wait drawn once per live child is what overran the stop
+    budget (issue #414): with three wedged children it spends three times
+    the budget and the ingest row close behind it never runs. Every child
+    must still be KILLED -- that is instant and free -- so only the reaping
+    of a wedged one is what the budget governs.
+    """
+    children = [_wedged_render() for _ in range(3)]
+    with _live_renders(children):
+        started = time.monotonic()
+        # A reap that ignores the budget hangs on the first wedged child;
+        # the ceiling turns that into a failure rather than a hung suite.
+        await asyncio.wait_for(api_export.reap_live_renders(0.2), timeout=5.0)
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 0.2 * 3, (
+        f"three wedged children reaped in {elapsed:.2f}s: the wait is bounded "
+        f"per CHILD, so N live renders spend N times the stop budget's share "
+        f"(issue #414)")
+    assert all(child.killed for child in children), (
+        "every live child must be killed even when the budget is gone")
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +332,58 @@ async def test_a_run_finishing_inside_the_wait_keeps_its_own_close(
     assert row[0] is not None
     assert row[1] is None, f"the run closed clean; {row[1]!r} overwrote it"
     assert row[2] == 2, f"the run's own counters must survive: {row!r}"
+
+
+@pytest.mark.asyncio
+async def test_a_live_render_at_shutdown_still_leaves_the_row_closed(
+        fresh_db, monkeypatch):
+    """The defect of #414, against a real row and real wedged children.
+
+    A run holds the lock and is unwinding, and two render children are live
+    and unreapable when the stop arrives. The teardown must close the row
+    inside the teardown's own share of the stop budget: before the fix the
+    reap waited its per-child bound on EACH of them, so the window the
+    fallback close needs was already gone and systemd SIGKILLed the process
+    with finished_at still NULL.
+    """
+    _stub_lifespan(monkeypatch)
+    run_id = _open_run()
+    # The run is in flight: it holds the lock, so the teardown's real
+    # bounded wait spends its whole timeout and the fallback close runs.
+    # No `with`: the lock is released in the finally below, and the
+    # teardown below is the thing that would have to release it.
+    ingest._RUN_LOCK.acquire()  # pylint: disable=protected-access,consider-using-with
+    children = [_wedged_render(4242), _wedged_render(4243)]
+    # A teardown that never returns is the same defect at its limit — a
+    # reap with no bound at all hangs on the first wedged child — so the
+    # ceiling is enforced here too and reports as a failure, not a hang.
+    ceiling = constants.SHUTDOWN_TEARDOWN_S + 1.0
+    try:
+        with _live_renders(children):
+            started = time.monotonic()
+            try:
+                await asyncio.wait_for(_teardown(), timeout=ceiling)
+            except asyncio.TimeoutError:
+                pytest.fail(
+                    f"the teardown did not return within {ceiling}s: the "
+                    f"render reap is unbounded, so a wedged child keeps the "
+                    f"ingest row close behind it from ever running "
+                    f"(issue #414)")
+            elapsed = time.monotonic() - started
+        row = _row(run_id)
+    finally:
+        ingest._RUN_LOCK.release()  # pylint: disable=protected-access
+        ingest._set_progress(run_id=None)  # pylint: disable=protected-access
+
+    assert row is not None
+    assert row[0] is not None, (
+        "a stop must never leave finished_at NULL, whatever else the process "
+        "was doing when the signal arrived")
+    assert row[1] == "aborted: shutdown requested", row[1]
+    assert elapsed <= constants.SHUTDOWN_TEARDOWN_S, (
+        f"the teardown took {elapsed:.2f}s, over its "
+        f"{constants.SHUTDOWN_TEARDOWN_S}s share of the stop budget: the "
+        f"render reap ran ahead of the row close and spent the window the "
+        f"close needs (issue #414)")
+    assert all(child.killed for child in children), (
+        "the live render children must still be killed")

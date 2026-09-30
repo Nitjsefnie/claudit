@@ -123,35 +123,42 @@ DEFAULT_AGENT_TYPE = "general-purpose"
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
 
-# The service's stop budget, in seconds (issue #410). uvicorn spends
+# The service's stop budget, in seconds (issues #410, #414). uvicorn spends
 # SHUTDOWN_GRACEFUL_S draining connections BEFORE the lifespan teardown
-# runs, and systemd SIGKILLs the process at TimeoutStopSec — so the
-# teardown's bounded wait on an in-flight ingest, plus the row close
-# behind it, has to fit in what is left of that. A wait sized past it
-# loses the race every time: the process is killed with the ingest_runs
-# row still open, which is the finished_at NULL the teardown's fallback
-# exists to prevent.
+# runs, and systemd SIGKILLs the process at TimeoutStopSec. EVERY term the
+# teardown can spend draws from what is left, so no term can spend the
+# window the term after it needs:
+#
+#     graceful  ->  render reap  ->  bounded ingest wait  ->  row close + tail
+#
+# A term sized past its share loses the race every time: the process is
+# killed with the ingest_runs row still open, which is the finished_at NULL
+# the teardown's fallback exists to prevent.
 #
 # Derived from the SHIPPED unit (examples/claudit.service) rather than
-# restated per call site, and tests/test_shutdown_budget.py reads that
-# file to pin both ends: the numbers here and the unit must agree, and
-# the wait the teardown actually uses must leave SHUTDOWN_MARGIN_S spare
-# for the fallback's single-row UPDATE and the tail of the teardown.
-#
-# What this budget does NOT cover: the teardown steps that run BEFORE the
-# wait spend the window it leaves behind — the export reap above all,
-# which bounds itself per live render child rather than out of these
-# numbers. A stop arriving with several live renders is the reap's own
-# arithmetic, not this one.
+# restated per call site, and tests/test_shutdown_budget.py reads that file
+# to pin both ends: the numbers here and the unit must agree, and the
+# budgets the teardown actually PASSES must sum to TimeoutStopSec with
+# SHUTDOWN_MARGIN_S spare for the fallback's single-row UPDATE.
 SHUTDOWN_GRACEFUL_S = 5.0
 SHUTDOWN_STOP_BUDGET_S = 10.0
+# What the teardown may spend once uvicorn's graceful window is done.
+SHUTDOWN_TEARDOWN_S = SHUTDOWN_STOP_BUDGET_S - SHUTDOWN_GRACEFUL_S
 # Spare for the fallback close itself and the tail of the teardown after
 # it, so a stop landing while the teardown is already part-way through
 # still lands the row. Generous on purpose: the fallback is one UPDATE,
 # and being early costs nothing — the run's own close wins either way.
-SHUTDOWN_MARGIN_S = 2.0
-# What the teardown may spend waiting for the in-flight run. A run's
-# abort unwind is one fetch chunk plus one final transaction, normally
+SHUTDOWN_MARGIN_S = 1.5
+# The export-render reap's share, for the reap as a WHOLE — every live
+# child, not one apiece (issue #414). It runs ahead of the bounded ingest
+# wait, and a wait bounded per child is drawn N times over: two wedged
+# children spent 10s of a 5s teardown, so the row close behind it never
+# ran. The kill is SIGKILL, so reaping a child is normally instant; the
+# bound only bites when a child is wedged, and a wedged child is what the
+# stop is about to kill anyway.
+SHUTDOWN_RENDER_REAP_S = 1.5
+# What is left for the bounded wait on the in-flight run. A run's abort
+# unwind is one fetch chunk plus one final transaction, normally
 # sub-second, so this is a bound and not a target.
-SHUTDOWN_RUN_WAIT_S = (SHUTDOWN_STOP_BUDGET_S - SHUTDOWN_GRACEFUL_S
-                       - SHUTDOWN_MARGIN_S)
+SHUTDOWN_RUN_WAIT_S = (SHUTDOWN_TEARDOWN_S - SHUTDOWN_MARGIN_S
+                       - SHUTDOWN_RENDER_REAP_S)

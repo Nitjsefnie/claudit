@@ -29,7 +29,7 @@ from typing import Any, Callable
 import psycopg
 import pytest
 
-from backend import api_export
+from backend import api_export, constants
 from backend import session as session_mod
 from tests import scratch_db
 
@@ -350,8 +350,12 @@ def test_reap_live_renders_kills_child_and_unlinks_output(tmp_path):
             proc = next(iter(api_export._live_renders))  # pylint: disable=protected-access
             assert proc is not None
             assert out_path.exists()
-            await asyncio.wait_for(api_export.reap_live_renders(),
-                                   timeout=_CHILD_DEATH_TIMEOUT_S)
+            # The reap draws from the stop budget the lifespan gives it
+            # (issue #414); here the shipped share, which the child clears
+            # instantly.
+            await asyncio.wait_for(
+                api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S),
+                timeout=_CHILD_DEATH_TIMEOUT_S)
             assert proc.returncode is not None, (
                 "reap left the render child alive")
             assert not out_path.exists(), "reap left the render output"
