@@ -8,11 +8,14 @@ the read-and-recompute half of the pass costs O(changed pairs). The
 soundness contract — equal fingerprints imply equal prices for every
 (tokens, ts, long_context) on the pair — holds because the digest
 covers every input pricing.resolve() consults: the rate tables'
-consulted rows, the resolution's outcome (fold, key, tier, default)
-and the pricing modules' source, so an edited entry, a correction, a
-schedule change or a logic change all change it. All ts-dependence
-lives in the windows/schedules/start fields; rows of a pair with equal
-fingerprints price identically at every timestamp.
+consulted rows, the resolution's outcome (fold, key, tier, default),
+the pricing modules' source AND the reprice pass's own source, whose
+``_record_updates`` is part of the derivation (the long-context
+re-derivation rule and the unsplit arithmetic live there) — so an
+edited entry, a correction, a schedule change, a logic change in the
+pricing modules or in the pass itself all change it (issue #377).
+All ts-dependence lives in the windows/schedules/start fields; rows of
+a pair with equal fingerprints price identically at every timestamp.
 
 The structure is versioned by ``_STRUCTURE_VERSION``: changing its
 shape bumps it, which invalidates every stored fingerprint at once
@@ -35,13 +38,35 @@ from backend.pricing_load import RATE_FIELDS
 # The digest's own version: bump when the structure's shape changes.
 _STRUCTURE_VERSION = 1
 
-# sha256 over the three pricing modules' source, concatenated in this
-# order, computed once at import: any change to resolution or load
-# logic invalidates every stored fingerprint.
+# The modules whose source the logic digest hashes. The reprice pass
+# itself joins them at first use (hashed_modules) — a module-level
+# import would be the cycle ingest_reprice already closes the other way.
 _LOGIC_MODULES = (pricing, pricing_load, long_context)
-_LOGIC = hashlib.sha256(
-    "".join(inspect.getsource(m) for m in _LOGIC_MODULES).encode("utf-8")
-).hexdigest()
+
+# The digest, computed on first use: by then both import directions
+# (rate_fingerprint <-> ingest_reprice) have settled and getsource can
+# read the pass's module.
+_LOGIC_CACHE: list[str] = []
+
+
+def hashed_modules() -> tuple:
+    """The modules whose concatenated source the logic digest hashes:
+    the pricing modules plus the reprice pass (issue #377). The import
+    is call-time: ingest_reprice imports this module, so the edge is
+    the cycle pylint names (R0401) and is only ever walked once both
+    modules are fully initialised."""
+    # pylint: disable-next=import-outside-toplevel,cyclic-import
+    from backend import ingest_reprice
+    return (*_LOGIC_MODULES, ingest_reprice)
+
+
+def _logic() -> str:
+    if not _LOGIC_CACHE:
+        _LOGIC_CACHE.append(hashlib.sha256("".join(
+            inspect.getsource(m) for m in hashed_modules()
+        ).encode("utf-8")).hexdigest())
+    return _LOGIC_CACHE[0]
+
 
 # Memo per (raw model, provider). The rate tables load once at import
 # and are immutable at runtime, so the memo cannot rot in production;
@@ -141,7 +166,7 @@ def _document(model: str, provider: str | None) -> dict:
     norm = pricing._normalise(model)  # pylint: disable=protected-access
     doc: dict = {
         "v": _STRUCTURE_VERSION,
-        "logic": _LOGIC,
+        "logic": _logic(),
         "norm": norm,
         "free": pricing._is_free(model, norm),  # pylint: disable=protected-access
     }
