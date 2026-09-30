@@ -34,11 +34,6 @@ _export_lock = asyncio.Semaphore(1)
 # cannot be relied on to unwind the handler's own cleanup before the
 # process exits.
 _live_renders: dict[asyncio.subprocess.Process, str] = {}
-# How long the shutdown reap waits for a killed child to be reaped. The
-# kill is SIGKILL, so the wait is normally instant; the bound only bites
-# when the process is wedged, and the lifespan has its own overall budget
-# (TimeoutStopSec) to respect.
-_SHUTDOWN_REAP_WAIT_S = 5.0
 
 # A plot child that dies with this in its stderr is almost always the
 # EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
@@ -144,7 +139,7 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         _live_renders.pop(proc, None)
 
 
-async def reap_live_renders() -> None:
+async def reap_live_renders(budget_s: float) -> None:
     """Kill every live render child and unlink its output.
 
     Called from the lifespan shutdown handler (issue #363): uvicorn
@@ -153,9 +148,22 @@ async def reap_live_renders() -> None:
     so the handler's own cleanup races process death and can lose, and
     even where it wins, `_reap`'s pipe drain can block forever when the
     renderer's own child inherits its pipes. The kill here is
-    synchronous and the wait is bounded; the pipes are deliberately not
-    drained — the process is exiting, and a drain waits for an EOF an
-    orphaned grandchild may never deliver."""
+    synchronous; the pipes are deliberately not drained — the process is
+    exiting, and a drain waits for an EOF an orphaned grandchild may
+    never deliver.
+
+    `budget_s` bounds the reap as a WHOLE, on one deadline shared by the
+    live children, rather than once per child (issue #414). The reap runs
+    ahead of the lifespan's bounded ingest wait, so a per-child bound is
+    drawn N times over: a stop arriving with two wedged children spent
+    more than the whole teardown's share of TimeoutStopSec here, and the
+    ingest row close behind it never ran. Every child is killed and
+    unlinked whatever the budget is left of — both are instant — so what
+    runs out is the reaping of a wedged child, which is a process the stop
+    was going to kill regardless. Zero is a legal budget.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, budget_s)
     for proc, out_path in list(_live_renders.items()):
         _live_renders.pop(proc, None)
         if proc.returncode is None:
@@ -163,11 +171,13 @@ async def reap_live_renders() -> None:
                 proc.kill()
             except ProcessLookupError:
                 pass
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=_SHUTDOWN_REAP_WAIT_S)
-        except asyncio.TimeoutError:
-            print(f"[export] render child {proc.pid} still unreaped at "
-                  "shutdown", file=sys.stderr)
+        remaining = deadline - loop.time()
+        if remaining > 0:
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                print(f"[export] render child {proc.pid} still unreaped at "
+                      "shutdown", file=sys.stderr)
         try:
             os.unlink(out_path)
         except OSError:
