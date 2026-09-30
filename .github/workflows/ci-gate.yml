@@ -16,20 +16,24 @@ name: ci gate
 # live in scripts/ci/classify_changes.py.
 #
 # SUPERSESSION AND CANCELLATION. The concurrency group is one per pull
-# request or branch, with cancel-in-progress: a newer push cancels the
-# older run WHOLE, aggregate included — a superseded run's aggregate
-# never reports, and the newer run's aggregate is the verdict that
-# exists. That is how "a run cancelled because a newer run superseded
-# it gates nothing" holds without any run querying for its own
-# supersession: no stale red aggregate is ever left behind to read. A
-# DELIBERATE cancel of a still-current run leaves that run's aggregate
-# cancelled, which a required-check ruleset treats as never-green — the
-# same stance release.yml takes toward a cancelled check on the SHA it
-# is about to tag. A cancelled run's CODE is not forgotten instead: a
-# master push classifies over the range since the last master commit
-# whose gate legs actually executed (scripts/ci/classify_changes.py),
-# so the next push re-verifies whatever a cancelled run left
-# unverified instead of hiding it behind a docs-only classification.
+# request, or per commit SHA on a push (issue #358): a newer push starts
+# its own run instead of cancelling the older one, so a superseded run
+# never exists to leave a stale aggregate behind — before this, a bot
+# push (the hourly pricing refresh, a dependabot merge) landing while a
+# master run was in flight cancelled it whole, yet the aggregate's
+# `if: always()` still ran it, folded the cancelled legs, and recorded a
+# red aggregate on the superseded commit, which release.yml's waiter
+# then refuses — a VERSION commit raced by a bot push could not
+# release. The ten legs keep per-ref groups of their own (the caller's
+# ref), so the legs of two concurrent master runs still queue, which
+# also serializes the tests leg's ratchet push. With nothing left that
+# cancels on a push, a cancel is always DELIBERATE: it leaves that run's
+# aggregate cancelled — folded as a failure by aggregate_gate.py, so a
+# required-check ruleset reads it never-green — and the next push's
+# classifier re-verifies whatever it left unverified, by walking back to
+# the newest master commit whose gate legs actually executed
+# (scripts/ci/classify_changes.py). A cancelled run's CODE is therefore
+# not forgotten either way.
 #
 # TRIGGER OWNERSHIP. The ten gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
@@ -68,7 +72,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-gate-${{ github.event.pull_request.number || github.ref }}
+  # One run per pull request or per pushed commit SHA. See the
+  # SUPERSESSION AND CANCELLATION block above.
+  group: ci-gate-${{ github.event.pull_request.number
+    || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: true
 
 jobs:
