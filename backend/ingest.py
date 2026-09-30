@@ -22,7 +22,6 @@ Per-session work spans TWO transactions:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
@@ -31,17 +30,26 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import partial
-from typing import NamedTuple
 
 import psycopg
 
-from backend import cache, constants, db, events, ingest_fetch, key_layout, lane_markers, lane_projects, parse, r2, timing
+from backend import cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing
 from backend.ingest_fetch import (  # noqa: F401  (re-export)
     parse_process_count, persist_thread_count,
     pipeline_pool as _pipeline_pool, pipeline_threads as _pipeline_threads,
     record_failure as _record_failure, resolve as _resolve, worker_count,
 )
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
+from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _ABORT_ERROR, _close_run, _open_run, close_open_run, failed_public_keys,
+    failure_summary,
+)
+# The listing scan (split for size; the tests reach these through ingest)
+# and the lock-loss guard the bounded steps consult (issue #374).
+from backend.ingest_scan import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _Wire, _fetch_marker, _resolve_project_paths, _scan_objects,
+)
+from backend import ingest_lockwatch
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 from backend.ingest_timing import (  # noqa: F401  (re-export)
     _RUN_TIMING, _RunTiming, _record_phase, _record_scope, _timed_step,
@@ -65,9 +73,6 @@ from backend.ingest_scope import (  # noqa: F401  (re-export)
 from backend.project_aliases import rekey_folded_projects
 # The run-row module owns the public-facing error formatter.
 # These imports preserve the existing `backend.ingest` call surface.
-from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
-    _close_run, _open_run, failed_public_keys, failure_summary,
-)
 from backend.ingest_warm import WARM_RANGES, warm_common  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.ingest_progress import _set_progress, progress_snapshot  # noqa: F401  (re-export)  # pylint: disable=unused-import
 # Orphan sweeps moved to their own module; re-exported so the bare-name
@@ -121,13 +126,26 @@ def clear_shutdown() -> None:
 
 
 def _check_shutdown() -> None:
-    """Raise IngestAborted if shutdown was requested (bounded steps only)."""
+    """Raise IngestAborted if shutdown was requested or the db-wide ingest
+    lock was lost (bounded steps only; issues #103, #374)."""
     if _SHUTDOWN.is_set():
         raise IngestAborted("shutdown requested")
+    ingest_lockwatch.check_lock_alive()
 
 
-# The ingest_runs.error text an aborted run is closed with.
-_ABORT_ERROR = "aborted: shutdown requested"
+def _shutdown_cancel(exc: BaseException) -> bool:
+    """Whether `exc` is a statement the teardown's cancellation ended.
+
+    The bounded steps cannot fire while a run sits inside one long
+    single-statement phase — the clean restamp, a rollup rebuild — so
+    lifespan teardown cancels the pool's in-flight statements after
+    asking the run to stop (issue #372). The driver surfaces the server's
+    cancel as QueryCanceled; with the shutdown request in force that
+    cancel IS the abort arriving, and the run closes as aborted, not
+    fatal.
+    """
+    return (_SHUTDOWN.is_set()
+            and isinstance(exc, psycopg.errors.QueryCanceled))
 
 
 TRANSIENT_FETCH_ERRORS = ingest_fetch.TRANSIENT_FETCH_ERRORS
@@ -184,9 +202,11 @@ def _db_run_lock() -> Iterator[bool]:
         ).fetchone()
         assert row is not None  # SELECT always yields exactly one row
         acquired = bool(row[0])
+        ingest_lockwatch.hold(conn, _INGEST_LOCK_KEY)
         try:
             yield acquired
         finally:
+            ingest_lockwatch.release()
             if acquired:
                 # Issue #154: the unlock must never mask the body's error;
                 # the swallow leaves no stale lock either way — the expected
@@ -259,104 +279,6 @@ def _existing_files() -> dict:
                 "SELECT file_key, r2_etag, parser_version FROM files"
             ).fetchall()
         }
-
-
-class _Wire(NamedTuple):
-    """A listed transcript and its meta.json sidecar. `etag` joins the
-    sidecar's to the transcript's: the sidecar can decide agent_type, so
-    one landing after its transcript (the archiver uploads it second),
-    changing or going away reparses the file, at no extra request. A main
-    transcript has none, so /api/sessions still serves the object's own.
-    """
-
-    key: str
-    etag: str
-    size: int
-    last_modified: datetime
-    sidecar_key: str | None
-
-
-def _fetch_marker(project_id: str, key: str) -> tuple[str, str] | None:
-    """Fetch and parse a sessions/<project>/project.json marker.
-
-    Returns (project_id, path) — the path the project's sessions were
-    run from, which becomes the project's display_name. Runs on a pool
-    thread (via _resolve) and touches no DB connection.
-
-    The GET is retried and its failure PROPAGATES, so the caller books
-    it as a per-object failure like any transcript fetch. Only decode
-    and shape problems are swallowed here: a malformed marker means that
-    project shows its id instead of its path, which is a degrade, not a
-    failed fetch, and no retry would change it.
-    """
-    blob = _fetch_with_retry(key)
-    try:
-        data = json.loads(blob.decode("utf-8"))
-        path = data.get("path")
-        if isinstance(path, str) and path:
-            return (project_id, path)
-    except (ValueError, AttributeError):
-        # ValueError covers UnicodeDecodeError and json.JSONDecodeError;
-        # AttributeError covers a marker whose top level is not an object.
-        pass
-    return None
-
-
-def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
-                           workers: int,
-                           failed: list[tuple[str, str]]) -> dict[str, str]:
-    """Resolve every listed marker's path before the todo loop starts:
-    stored rows for unchanged etags, a GET on the pool for the rest.
-
-    A marker GET is as droppable as a transcript GET, so its failures
-    land in the same `failed` summary; a failed or vanished marker gives
-    no path this run and is not stored, so the next run fetches it again.
-    """
-    project_paths, stale = lane_markers.cached_paths(marker_items)
-    read: dict[str, tuple[str, str | None]] = {}
-    for item, res, exc in _resolve(
-        stale, lambda it: _fetch_marker(it[0], it[1]), workers
-    ):
-        if isinstance(exc, VanishedObject):
-            continue
-        if exc is not None:
-            _record_failure(failed, item[1], exc)
-            continue
-        read[item[1]] = (item[2], res[1] if res is not None else None)
-        if res is not None:
-            project_paths[res[0]] = res[1]
-    lane_markers.save_markers(read, {key for _, key, _ in marker_items})
-    return project_paths
-
-
-def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
-    """One listing pass: transcripts, each paired with the meta.json
-    sidecar listed beside it (_Wire), and lane marker items.
-
-    Markers are fetched afterwards by _resolve_project_paths, sidecars by
-    _fetch_and_parse; the keys the layout rules skip (non-wire files
-    inside sessions/, non-jsonl keys outside) are dropped here.
-    """
-    wire_objs: list = []
-    marker_items: list[tuple[str, str, str]] = []
-    sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
-    with _timed_step("list"):
-        for obj in r2.list_keys():
-            bucket, object_key = r2.split_key(obj.key)
-            marker_project = key_layout.project_marker(object_key)
-            if marker_project is not None:
-                marker_items.append((marker_project, obj.key, obj.etag))
-            elif (stem := key_layout.sidecar_stem(object_key)) is not None:
-                sidecars[(bucket, stem)] = obj
-            elif key_layout.classify(object_key) is not None:
-                wire_objs.append(obj)
-        wires = []
-        for obj in wire_objs:
-            bucket, object_key = r2.split_key(obj.key)
-            side = sidecars.get((bucket, key_layout.transcript_stem(object_key)))
-            wires.append(_Wire(obj.key, obj.etag if side is None else f"{obj.etag}+{side.etag}",
-                               obj.size, obj.last_modified, side.key if side else None))
-    return wires, marker_items
 
 
 def _collect_todo(existing: dict, parser_version: str,
@@ -608,7 +530,9 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         fatal = None
         # A shutdown request honoured mid-run (issue #103). Like `fatal`, it
         # gates the post-passes; unlike it, the row closes saying "aborted".
+        # The cause rides the IngestAborted message (issue #374).
         aborted = False
+        abort_msg = "shutdown requested"
 
     try:
         with _timed_step("scope"):
@@ -616,16 +540,24 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         _record_scope("full" if scope.full else "incremental")
         listed, inserted, reparsed, deleted, vanished, newer = (
             _walk_and_persist(constants.PARSER_VERSION, failed))
-    except IngestAborted:
-        log.warning("ingest (%s): aborted, shutdown requested", trigger)
+    except IngestAborted as exc:
+        abort_msg = str(exc) or "shutdown requested"
+        log.warning("ingest (%s): aborted, %s", trigger, abort_msg)
         aborted = True
     except Exception as e:  # noqa: BLE001
-        # Full exception details go to the logs; only a static type-bearing
-        # message is stored and served by public /health, so a key embedded
-        # in exception text cannot cross the boundary (issue #253). The
-        # logged traceback retains the original message and cause chain.
-        log.exception("ingest (%s): fatal, run aborted", trigger)
-        fatal = f"{type(e).__name__}: details are in the server log"
+        if _shutdown_cancel(e):
+            log.warning(
+                "ingest (%s): aborted, statement cancelled by the shutdown",
+                trigger)
+            aborted = True
+        else:
+            # Full exception details go to the logs; only a static
+            # type-bearing message is stored and served by public /health,
+            # so a key embedded in exception text cannot cross the boundary
+            # (issue #253). The logged traceback retains the original
+            # message and cause chain.
+            log.exception("ingest (%s): fatal, run aborted", trigger)
+            fatal = f"{type(e).__name__}: details are in the server log"
 
     if newer:
         log.warning(
@@ -637,7 +569,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     # details remain in logs and the admin response.
     err: str | None
     if aborted:
-        err = _ABORT_ERROR
+        err = f"aborted: {abort_msg}"
     elif fatal is not None:
         err = fatal
     else:
@@ -658,17 +590,26 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     if fatal is None and not aborted:
         try:
             changed = _rebuild_derived_state()
-        except IngestAborted:
+        except IngestAborted as exc:
+            abort_msg = str(exc) or "shutdown requested"
             log.warning(
-                "ingest (%s): aborted during the derived-state rebuild",
-                trigger)
+                "ingest (%s): aborted during the derived-state rebuild, %s",
+                trigger, abort_msg)
             aborted = True
-            err = _ABORT_ERROR
+            err = f"aborted: {abort_msg}"
         except Exception as e:  # noqa: BLE001
-            log.exception(
-                "ingest (%s): fatal, derived-state rebuild failed", trigger)
-            fatal = f"{type(e).__name__}: details are in the server log"
-            err = fatal
+            if _shutdown_cancel(e):
+                log.warning(
+                    "ingest (%s): aborted during the derived-state "
+                    "rebuild, statement cancelled by the shutdown", trigger)
+                aborted = True
+                err = f"aborted: {abort_msg}"
+            else:
+                log.exception(
+                    "ingest (%s): fatal, derived-state rebuild failed",
+                    trigger)
+                fatal = f"{type(e).__name__}: details are in the server log"
+                err = fatal
 
     with _timed_step("close_run"):
         finished = datetime.now(timezone.utc)

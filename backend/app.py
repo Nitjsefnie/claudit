@@ -86,6 +86,10 @@ async def lifespan(fastapi_app: FastAPI):
     # skips the rebuild, the broadcast and the warm — the next successful
     # run rebuilds all derived state.
     ingest.request_shutdown()
+    # A run stuck inside a long single-statement phase cannot reach a
+    # bounded step (issue #372), so cancel the statements in flight: the
+    # driver raises QueryCanceled, which the run classifies as the abort.
+    db.cancel_viz_queries()
     sched.shutdown(wait=False)
     # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
     # normally sub-second) plus uvicorn's own 5 s graceful window stays
@@ -98,6 +102,9 @@ async def lifespan(fastapi_app: FastAPI):
         # never outlives the teardown it belongs to.
         ingest.clear_shutdown()
     else:
+        # The fallback behind the bounded wait (issue #372): close the
+        # open run's row, so the stop never leaves finished_at NULL.
+        ingest.close_open_run()
         log.warning(
             "ingest still running after the shutdown wait; systemd will "
             "SIGKILL at TimeoutStopSec")

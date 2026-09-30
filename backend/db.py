@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import LiteralString, cast
@@ -22,6 +23,12 @@ log = logging.getLogger("claudit.db")
 
 _VIZ: ConnectionPool | None = None
 _AUTH: ConnectionPool | None = None
+
+# Connections currently checked out of the viz pool, so teardown can
+# cancel a statement that is stuck server-side (issue #372). viz_conn is
+# the single checkout point for both API traffic and ingest phases.
+_VIZ_ACTIVE: set = set()
+_VIZ_ACTIVE_LOCK = threading.Lock()
 
 
 def sql_text(query: str) -> LiteralString:
@@ -108,7 +115,35 @@ def reset_auth_pool() -> None:
 @contextmanager
 def viz_conn():
     with viz_pool().connection() as conn:
-        yield conn
+        with _VIZ_ACTIVE_LOCK:
+            _VIZ_ACTIVE.add(conn)
+        try:
+            yield conn
+        finally:
+            with _VIZ_ACTIVE_LOCK:
+                _VIZ_ACTIVE.discard(conn)
+
+
+def cancel_viz_queries() -> None:
+    """Cancel every statement in flight on a checked-out viz connection.
+
+    Called from lifespan teardown after the abort request (issue #372):
+    the bounded steps cannot fire while a run sits inside one long
+    single-statement phase — the clean restamp, a rollup rebuild — so the
+    cancel is what stops the statement server-side; the driver raises
+    QueryCanceled, which the run classifies as the abort arriving.
+    Cancels API-traffic statements too: at teardown the process is
+    stopping and their requests are doomed with it. Best-effort — a
+    connection already gone, or a cancel refusal, must not break teardown.
+    """
+    with _VIZ_ACTIVE_LOCK:
+        active = list(_VIZ_ACTIVE)
+    for conn in active:
+        try:
+            conn.cancel()
+        except Exception:  # noqa: BLE001
+            log.warning("cancel_viz_queries: cancelling a connection failed",
+                        exc_info=True)
 
 
 @contextmanager

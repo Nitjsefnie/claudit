@@ -8,9 +8,13 @@ new module, and the run row's INSERT and final UPDATE are that piece.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from backend import db, r2
+from backend import db, ingest_progress, r2
+
+# The ingest_runs.error text an aborted run is closed with. The row text
+# spells "aborted: <cause>"; a plain shutdown keeps this exact value.
+_ABORT_ERROR = "aborted: shutdown requested"
 
 
 def failure_summary(failed: list[tuple[str, str]]) -> str | None:
@@ -66,3 +70,27 @@ def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
              run_id),
         )
         c.commit()
+
+
+def close_open_run(err: str = _ABORT_ERROR) -> bool:
+    """Close an open run's row as aborted — the fallback behind lifespan
+    teardown's bounded wait (issue #372).
+
+    A run stuck inside one long single-statement phase cannot reach a
+    bounded step, so a stop that outlives the wait used to exit leaving
+    finished_at NULL (the audit's live rows). Only a still-open row is
+    written: the run thread's own close, either side of this one, wins.
+    Returns whether this call closed the row.
+    """
+    run_id = ingest_progress.progress_snapshot().get("run_id")
+    if run_id is None:
+        return False
+    with db.viz_conn() as c, c.cursor() as cur:
+        cur.execute(
+            "UPDATE ingest_runs SET finished_at = %s, error = %s "
+            "WHERE id = %s AND finished_at IS NULL",
+            (datetime.now(timezone.utc), err, run_id),
+        )
+        closed = bool(cur.rowcount)
+        c.commit()
+    return closed
