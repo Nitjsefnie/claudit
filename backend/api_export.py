@@ -48,16 +48,20 @@ _MISSING_MODULE_RE = re.compile(r"ModuleNotFoundError")
 
 
 def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]:
-    """Construct the argv for the plot subprocess. The child inherits
-    DATABASE_URL_VIZ from the environment, so the DSN is NOT passed on the
-    command line (keeps credentials out of the process list)."""
-    argv = [_EXPORT_PYTHON, _EXPORT_SCRIPT, "-o", out_path]
+    """Construct the argv for the plot subprocess. Every value-taking
+    option rides in --opt=value form — a single argv element — because a
+    project id is a path slug that may start with '-' (every POSIX Claude
+    project), which argparse would read as an option in the two-element
+    space form (issue #380). The child inherits DATABASE_URL_VIZ from the
+    environment, so the DSN is NOT passed on the command line (keeps
+    credentials out of the process list)."""
+    argv = [_EXPORT_PYTHON, _EXPORT_SCRIPT, f"--output={out_path}"]
     if rng == "all":
         argv.append("--all")
     else:
-        argv += ["-p", rng]
+        argv.append(f"--period={rng}")
     if project:
-        argv += ["--project", project]
+        argv.append(f"--project={project}")
     return argv
 
 
