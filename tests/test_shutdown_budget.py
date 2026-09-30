@@ -36,6 +36,16 @@ _UNIT = (Path(__file__).resolve().parent.parent
 # this is the floor below which the shape is wrong, not a second source of truth.
 _MIN_FALLBACK_MARGIN_S = 1.0
 
+# The reap bound test's own arithmetic. A wall-clock bound has TWO margins:
+# the passing path must clear its ceiling, AND the failing (per-child) path
+# must exceed it. So the ceiling is the budget plus slack, never the failing
+# path's cost — a ceiling taken from the mutant spends the red side's whole
+# margin on scheduling jitter and passes on a loaded runner. The slack is
+# sized so three per-child rounds (3 x _REAP_BUDGET_S) still exceed it.
+_REAP_BUDGET_S = 0.2
+_REAP_SLACK_S = 0.3
+_WEDGED_CHILDREN = 3
+
 
 def _unit_text() -> str:
     """The shipped unit, continuations joined so the flags read as one line."""
@@ -118,6 +128,35 @@ def _wedged_render(pid: int = 4242) -> _WedgedRender:
     return _WedgedRender(pid)
 
 
+class _ExitingRender:
+    """A render child that is reaped normally, after a real delay.
+
+    The other half of the deadline from `_WedgedRender`: a child that DOES
+    exit, so a reap that skips the wait entirely is distinguishable from one
+    that waits and is bounded.
+    """
+
+    def __init__(self, delay_s: float, pid: int = 4242):
+        self.pid = pid
+        self.killed = False
+        self.reaped = False
+        self.returncode = None
+        self._delay_s = delay_s
+
+    def kill(self) -> None:
+        self.killed = True
+
+    async def wait(self) -> int:
+        await asyncio.sleep(self._delay_s)
+        self.reaped = True
+        self.returncode = -9
+        return self.returncode
+
+
+def _render_that_exits_after(delay_s: float) -> _ExitingRender:
+    return _ExitingRender(delay_s)
+
+
 @contextlib.contextmanager
 def _live_renders(children: list):
     """Register fake children in the module's live-render table, then clear."""
@@ -140,15 +179,25 @@ def _live_renders(children: list):
 
 @pytest.mark.asyncio
 async def test_teardown_wait_leaves_room_for_the_fallback_close(monkeypatch):
-    """The bounded wait plus uvicorn's graceful window must leave the
-    fallback close inside the unit's TimeoutStopSec.
+    """The bounded wait, plus everything ahead of it, must leave the fallback
+    close inside the unit's TimeoutStopSec.
 
     The wait the teardown passes is captured by running the real lifespan, so
     this fails for a wait sized past the budget no matter where the number is
-    written — a literal in app.py or a derived constant.
+    written — a literal in app.py or a derived constant. The render reap is
+    subtracted too: it runs BETWEEN the graceful window and this wait (that
+    ordering is issue #414), so a wait that fits only by ignoring it is a wait
+    that does not fit.
     """
     _stub_lifespan(monkeypatch)
     used: list[float] = []
+    # None is the unfixed shape: a reap called with no budget at all.
+    reaps: list[float | None] = []
+
+    async def fake_reap(budget=None):
+        reaps.append(budget)
+
+    monkeypatch.setattr(app_mod.api_export, "reap_live_renders", fake_reap)
     monkeypatch.setattr(app_mod.ingest, "wait_for_run",
                         lambda t: used.append(t) or True)
     monkeypatch.setattr(app_mod.ingest, "close_open_run", lambda: None)
@@ -156,13 +205,15 @@ async def test_teardown_wait_leaves_room_for_the_fallback_close(monkeypatch):
     await _teardown()
 
     assert len(used) == 1, f"the teardown waited {len(used)} times"
+    assert len(reaps) == 1 and reaps[0] is not None, (
+        f"the teardown reaped with {reaps!r}; the reap spends this window too")
     graceful, stop = _unit_stop_budget()
-    left = stop - (graceful + used[0])
+    left = stop - (graceful + reaps[0] + used[0])
     assert left >= _MIN_FALLBACK_MARGIN_S, (
         f"uvicorn spends {graceful}s draining before the teardown starts, the "
-        f"teardown then waits {used[0]}s, so only {left}s of the unit's "
-        f"TimeoutStopSec={stop}s is left for the fallback row close — systemd "
-        f"SIGKILLs first and finished_at stays NULL")
+        f"render reap then takes {reaps[0]}s and the teardown waits {used[0]}s, "
+        f"so only {left}s of the unit's TimeoutStopSec={stop}s is left for the "
+        f"fallback row close — systemd SIGKILLs first and finished_at stays NULL")
 
 
 def test_stop_budget_constants_match_the_shipped_unit():
@@ -171,6 +222,12 @@ def test_stop_budget_constants_match_the_shipped_unit():
 
     Someone raising TimeoutStopSec, or dropping the graceful flag, must come
     back here rather than leave a term sized against a window that moved.
+
+    The sum at the end is a TRIPWIRE, not the control on this budget: the wait
+    is derived from the same numbers, so the sum holds by construction and can
+    only fail if a term is hand-edited into a literal. The control is
+    `test_the_terms_the_teardown_uses_sum_to_the_stop_budget`, which checks the
+    values the teardown actually PASSES and so does not cancel.
     """
     graceful, stop = _unit_stop_budget()
     assert constants.SHUTDOWN_GRACEFUL_S == graceful, (
@@ -243,20 +300,46 @@ async def test_the_reap_bounds_itself_as_a_whole_not_per_child():
     must still be KILLED -- that is instant and free -- so only the reaping
     of a wedged one is what the budget governs.
     """
-    children = [_wedged_render() for _ in range(3)]
+    children = [_wedged_render() for _ in range(_WEDGED_CHILDREN)]
     with _live_renders(children):
         started = time.monotonic()
         # A reap that ignores the budget hangs on the first wedged child;
         # the ceiling turns that into a failure rather than a hung suite.
-        await asyncio.wait_for(api_export.reap_live_renders(0.2), timeout=5.0)
+        await asyncio.wait_for(
+            api_export.reap_live_renders(_REAP_BUDGET_S), timeout=5.0)
         elapsed = time.monotonic() - started
 
-    assert elapsed < 0.2 * 3, (
-        f"three wedged children reaped in {elapsed:.2f}s: the wait is bounded "
-        f"per CHILD, so N live renders spend N times the stop budget's share "
-        f"(issue #414)")
+    assert elapsed < _REAP_BUDGET_S + _REAP_SLACK_S, (
+        f"{_WEDGED_CHILDREN} wedged children reaped in {elapsed:.2f}s, over the "
+        f"{_REAP_BUDGET_S + _REAP_SLACK_S:.1f}s ceiling for a whole reap: the "
+        f"wait is bounded per CHILD, so N live renders spend N times the stop "
+        f"budget's share (issue #414)")
     assert all(child.killed for child in children), (
         "every live child must be killed even when the budget is gone")
+
+
+@pytest.mark.asyncio
+async def test_the_reap_actually_waits_for_a_child_it_has_budget_for():
+    """The bound test above is blind to a reap that never reaps at all: kill
+    the children, unlink the outputs, return instantly, and it passes.
+
+    A child whose `wait()` resolves after a real delay, under a budget far
+    longer than that delay, must be waited FOR: the reap returns only once it
+    resolved. The positive half of the deadline, on the same fake the bound
+    test uses.
+    """
+    delay = 0.15
+    child = _render_that_exits_after(delay)
+    with _live_renders([child]):
+        started = time.monotonic()
+        await asyncio.wait_for(
+            api_export.reap_live_renders(10 * delay), timeout=5.0)
+        elapsed = time.monotonic() - started
+
+    assert child.reaped, "the reap returned before the child was reaped"
+    assert elapsed >= delay, (
+        f"the reap returned after {elapsed:.3f}s, less than the {delay}s the "
+        f"child took to exit: it skipped the wait instead of bounding it")
 
 
 # ---------------------------------------------------------------------------
