@@ -129,8 +129,10 @@ def test_brand_rides_the_existing_injection_script(page_client):
     # The guest cookie the fixture set: IS_GUEST comes out true, and
     # window.BRAND rides the SAME <script> line as BACKEND_URL/IS_GUEST,
     # which now also carries the response's CSP nonce.
-    nonce = re.search(r"'nonce-([^']+)'",
-                      resp.headers["content-security-policy"]).group(1)
+    match = re.search(r"'nonce-([^']+)'",
+                      resp.headers["content-security-policy"])
+    assert match
+    nonce = match.group(1)
     assert (
         f'<script nonce="{nonce}">window.BACKEND_URL = \'/\'; '
         "window.IS_GUEST = true; "
