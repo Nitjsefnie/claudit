@@ -24,10 +24,13 @@ permissions:
 
 concurrency:
   # Push and pull_request runs arrive as ci-gate legs under the caller's
-  # event; the legs of concurrent master runs queue here — ci-gate's own
-  # push groups are per-SHA (issue #358). Direct dispatch runs queue on
-  # their ref likewise.
-  group: test-data-${{ github.event.pull_request.number || github.ref }}
+  # event; a push leg keys on its own commit SHA (issue #409), so a newer
+  # master push never cancels or pending-supersedes an older commit's
+  # leg — on a per-ref push group GitHub keeps at most one PENDING run,
+  # which a third concurrent push replaced. Direct dispatch runs queue
+  # on their ref.
+  group: test-data-${{ github.event.pull_request.number
+    || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

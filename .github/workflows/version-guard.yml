@@ -40,9 +40,14 @@ permissions:
   contents: read
 
 concurrency:
-  # A superseded guard run tells nothing: the newest tree is the only
-  # interesting one, whether it is a master push or a fresh PR commit.
-  group: version-guard-${{ github.event.pull_request.number || github.ref }}
+  # One guard run per pull request, or per pushed commit SHA on a push:
+  # a newer master push starts its own guard instead of cancelling the
+  # older commit's, whose conclusion must survive on its SHA —
+  # release.yml's waiter refuses any commit carrying a non-passing
+  # check (issue #366). PR runs keep the per-number group and the
+  # cancel: a fresh PR commit supersedes the stale guard run.
+  group: version-guard-${{ github.event.pull_request.number
+    || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: true
 
 jobs:
