@@ -148,6 +148,8 @@ SHUTDOWN_TEARDOWN_S = SHUTDOWN_STOP_BUDGET_S - SHUTDOWN_GRACEFUL_S
 # it, so a stop landing while the teardown is already part-way through
 # still lands the row. Generous on purpose: the fallback is one UPDATE,
 # and being early costs nothing — the run's own close wins either way.
+# Issue #414 took 0.5s off this to fund the reap share below; it covers one
+# single-row UPDATE and the tail, so it stays far wider than the work.
 SHUTDOWN_MARGIN_S = 1.5
 # The export-render reap's share, for the reap as a WHOLE — every live
 # child, not one apiece (issue #414). It runs ahead of the bounded ingest
@@ -159,6 +161,10 @@ SHUTDOWN_MARGIN_S = 1.5
 SHUTDOWN_RENDER_REAP_S = 1.5
 # What is left for the bounded wait on the in-flight run. A run's abort
 # unwind is one fetch chunk plus one final transaction, normally
-# sub-second, so this is a bound and not a target.
+# sub-second, so this is a bound and not a target — 3.0s before issue
+# #414, 2.0s after, to fund the reap share above. The trade: a run that
+# genuinely needs 2-3s to unwind now loses its own close to the fallback,
+# which closes the same row as aborted — the outcome the fallback exists
+# for, reached a little more often.
 SHUTDOWN_RUN_WAIT_S = (SHUTDOWN_TEARDOWN_S - SHUTDOWN_MARGIN_S
                        - SHUTDOWN_RENDER_REAP_S)
