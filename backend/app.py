@@ -98,22 +98,27 @@ async def lifespan(fastapi_app: FastAPI):
     db.cancel_viz_queries()
     sched.shutdown(wait=False)
     # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
-    # normally sub-second) plus uvicorn's own 5 s graceful window stays
-    # inside TimeoutStopSec=10.
+    # normally sub-second) plus uvicorn's own graceful window stays inside
+    # the unit's TimeoutStopSec: the wait is DERIVED from both numbers, so
+    # it cannot be sized past what is left of the stop budget. A wait
+    # beyond it lost the race to systemd's SIGKILL every time, and the
+    # fallback below never ran (issue #410).
     # Revoke the request only when the wait succeeded: with a straggler
     # still unwinding past the timeout, revoking would let it run to
     # completion instead of aborting at its next bounded step.
-    if ingest.wait_for_run(8.0):
+    if ingest.wait_for_run(constants.SHUTDOWN_RUN_WAIT_S):
         # Nothing can start a run in this process any more, so a shutdown
         # never outlives the teardown it belongs to.
         ingest.clear_shutdown()
     else:
         # The fallback behind the bounded wait (issue #372): close the
-        # open run's row, so the stop never leaves finished_at NULL.
+        # open run's row, so the stop never leaves finished_at NULL. The
+        # wait is sized to fit before systemd's SIGKILL, so this write
+        # lands; the straggler it outlasted is what gets killed.
         ingest.close_open_run()
         log.warning(
-            "ingest still running after the shutdown wait; systemd will "
-            "SIGKILL at TimeoutStopSec")
+            "ingest still running after the shutdown wait; its row is closed "
+            "as aborted and the run is left to the stop")
     events.clear_loop()
 
 
