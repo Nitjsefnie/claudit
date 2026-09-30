@@ -162,6 +162,8 @@ def test_cost_by_context_hover_matches_the_reference():
 
 
 APP = ROOT / "src" / "app.jsx"
+SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
+FETCH = ROOT / "src" / "dashboard-fetch.js"
 
 # Every token/churn panel in the main dash-grid, and the guard that must
 # gate it. An UNGATED panel draws a flat empty plot for any dataset whose
@@ -475,3 +477,79 @@ def test_vbar_fmt_is_value_only():
                 f"({fmt.strip()!r}) -- VBar already prints each "
                 f"bar's share, so it renders twice")
     assert sites >= 1, "no window.VBar call sites found - the guard would pass vacuously"
+
+
+# --- Issue #394: the Overview's fetch state -----------------------------
+
+APP = ROOT / "src" / "app.jsx"
+SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
+FETCH = ROOT / "src" / "dashboard-fetch.js"
+
+
+def _app() -> str:
+    return _strip_line_comments(APP.read_text(encoding="utf-8"))
+
+
+def test_dashboard_fetch_is_wired_not_just_written():
+    """src/dashboard-fetch.js carries the state machine and its own node
+    tests, but a correct module nobody calls still renders "loading…"
+    forever. Pin that app.jsx drives the Overview's state through it."""
+    src = _app()
+    calls = len(re.findall(r"window\.dashboardFetch\.\w+", src))
+    assert calls >= 4, (
+        f"app.jsx calls window.dashboardFetch {calls}x -- the Overview's "
+        f"loading/empty/error state is no longer driven by it")
+
+
+def test_dashboard_fetch_state_is_declared_and_passed_down():
+    """The state lives in App and reaches Dashboard as a prop; without the
+    prop the component reads only the data and cannot tell an empty range
+    from a pending one."""
+    src = _app()
+    assert re.search(r"const \[dashFetch,\s*setDashFetch\]\s*=\s*useState\(", src), (
+        "App no longer holds a dashboard fetch state separate from its data")
+    assert re.search(r"<Dashboard\b[^>]*\bdashFetch=\{dashFetch\}", src, re.S), (
+        "Dashboard is not handed the fetch state, so it can only see the "
+        "data and cannot render an empty or error state")
+
+
+def test_dashboard_summary_renders_every_non_data_state():
+    """The stat block is gated on the RESOLVED state, and the status
+    block renders every other one. Reading a null shape as "still
+    loading" instead is the bug (#394)."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    assert re.search(r"\{summary\.kind === 'data' &&\s*\(", src), (
+        "the stat block is no longer gated on the resolved state, so an "
+        "empty range renders it exactly like a full one")
+    status = _strip_line_comments(SUMMARY.read_text(encoding="utf-8"))
+    assert "if (summary.kind !== 'data')" in status, (
+        "the status block no longer covers the states that carry no data")
+    # The four kinds and their wording live with the transitions, which
+    # node executes (test_dashboard_fetch_js.py); this module only has to
+    # branch on "not data" and "an error over data".
+    fetch = _strip_line_comments(FETCH.read_text(encoding="utf-8"))
+    for kind in ("'loading'", "'empty'", "'error'", "'data'"):
+        assert kind in fetch, f"{kind} is no longer a state at all"
+    assert "loading" not in src, (
+        "app.jsx still spells out a loading literal: a null shape must not "
+        "select it, only a loading fetch state may")
+
+
+def test_dashboard_error_state_names_its_status():
+    """An error the user cannot see is the failure mode: the status is
+    rendered, and so is the detail naming it."""
+    status = _strip_line_comments(SUMMARY.read_text(encoding="utf-8"))
+    assert 'label="status" value="error"' in status, (
+        "the error state shows no status line")
+    assert re.search(r'label="detail"\s+value=\{summary\.detail\}', status), (
+        "the error state names no detail, so a 503 and a 500 look alike")
+
+
+def test_error_banner_does_not_double_with_the_status_line():
+    """With no data the status block already carries the status and its
+    detail; a banner not gated on the data case renders the same failure
+    twice."""
+    status = _strip_line_comments(SUMMARY.read_text(encoding="utf-8"))
+    assert re.search(r"if \(!summary\.error\) return null;", status), (
+        "the error banner is not gated on the data case, so a failed fetch "
+        "with no data renders the status line twice")
