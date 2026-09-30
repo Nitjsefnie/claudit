@@ -189,17 +189,36 @@ def apply_schema() -> None:
                     "own error, if any, is preserved: %s", exc)
 
 
+# The auth-DB columns the application actually reads, with the types it
+# can use: `user_id` keys the login lookup (`session.load_user_config`'s
+# WHERE clause) and `config` is the payload it selects. Everything else
+# the login path needs (`web_password_hash`, `web_password_salt`, ...)
+# is a JSON key INSIDE config, never a column — do not widen this map
+# with one.
+AUTH_COLUMNS: dict[str, tuple[tuple[str, ...], str]] = {
+    "user_id": (
+        ("smallint", "integer", "bigint"),
+        "an integer type (smallint, integer or bigint)",
+    ),
+    "config": (("jsonb",), "JSONB"),
+}
+
+
 def schema_check() -> None:
     """Fail fast at startup if either DB's required shape is missing.
 
     For claudit: 'files' table exists.
-    For the auth DB: 'users' table has a JSONB 'config' column. An empty
-    information_schema probe has three causes, discriminated on the same
-    connection before naming one: (a) no 'users' table visible — the
-    database is wrong or empty; (b) the role holds no SELECT on 'users' —
-    an unprivileged table is invisible in information_schema.columns;
-    (c) the table is visible and readable but lacks 'config' — the column
-    is genuinely absent. Raises RuntimeError on any mismatch.
+    For the auth DB: 'users' carries every column the app reads
+    (AUTH_COLUMNS) with a usable type — user_id an integer, config
+    JSONB (issue #368: a table keyed by another name passed the old
+    check and 500ed every login with UndefinedColumn). An information-
+    schema probe that does not show a column has three causes,
+    discriminated on the same connection before naming one: (a) no
+    'users' table visible — the database is wrong or empty; (b) the
+    role holds no SELECT on 'users' — an unprivileged table is invisible
+    in information_schema.columns; (c) the table is visible and readable
+    but the column is genuinely absent. Raises RuntimeError on any
+    mismatch.
     """
     with viz_conn() as c:
         row = c.execute(
@@ -210,14 +229,16 @@ def schema_check() -> None:
                 "claudit.files missing — run backend/schema.sql"
             )
     with auth_conn() as c:
-        row = c.execute(
-            "SELECT data_type FROM information_schema.columns "
+        found = dict(c.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
             "WHERE table_schema='public' AND table_name='users' "
-            "AND column_name='config'"
-        ).fetchone()
-        if row is None:
-            # An empty probe has three causes (issue #122) — discriminate
-            # on this same connection before naming one.
+            "AND column_name = ANY(%s)",
+            (list(AUTH_COLUMNS),),
+        ).fetchall())
+        missing = [name for name in AUTH_COLUMNS if name not in found]
+        if missing:
+            # An unseen column has three causes (issue #122) —
+            # discriminate on this same connection before naming one.
             exists = c.execute(
                 "SELECT to_regclass('public.users')"
             ).fetchone()
@@ -239,13 +260,20 @@ def schema_check() -> None:
                     "SELECT is invisible in information_schema.columns, "
                     "which is why this looked like a missing column)"
                 )
+            if len(missing) == 1:
+                raise RuntimeError(
+                    f"auth DB users table has no '{missing[0]}' column"
+                )
+            quoted = " and ".join(f"'{name}'" for name in missing)
             raise RuntimeError(
-                "auth DB users table has no 'config' column"
+                f"auth DB users table has no {quoted} columns"
             )
-        if row[0] != "jsonb":
-            raise RuntimeError(
-                f"auth DB users.config must be JSONB, got {row[0]!r}"
-            )
+        for name, (types, expected) in AUTH_COLUMNS.items():
+            if found[name] not in types:
+                raise RuntimeError(
+                    f"auth DB users.{name} must be {expected}, "
+                    f"got {found[name]!r}"
+                )
 
 
 def load_dotenv(path: str = ".env") -> None:
