@@ -32,10 +32,14 @@ def get_transcript(session_id: str) -> Response:
     if row is None:
         raise HTTPException(404, "session not found")
     file_key, etag = row
-    body = cache.transcript_cache.get(etag)
+    # Keyed by the object, not the validator alone (issue #375): a
+    # file:// mirror derives the etag from size+mtime, so two
+    # transcripts of equal size and mtime share one etag.
+    key = cache.transcript_key(file_key, etag)
+    body = cache.transcript_cache.get(key)
     if body is None:
         body = r2.get_object(file_key)
-        cache.transcript_cache.put(etag, body)
+        cache.transcript_cache.put(key, body)
     return Response(
         content=body,
         media_type="application/x-ndjson",
