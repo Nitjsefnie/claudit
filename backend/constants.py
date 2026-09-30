@@ -122,3 +122,30 @@ DEFAULT_AGENT_TYPE = "general-purpose"
 
 # The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
+
+# The service's stop budget, in seconds (issue #410). uvicorn spends
+# SHUTDOWN_GRACEFUL_S draining connections BEFORE the lifespan teardown
+# runs, and systemd SIGKILLs the process at TimeoutStopSec — so the
+# teardown's bounded wait on an in-flight ingest, plus the row close
+# behind it, has to fit in what is left of that. A wait sized past it
+# loses the race every time: the process is killed with the ingest_runs
+# row still open, which is the finished_at NULL the teardown's fallback
+# exists to prevent.
+#
+# Derived from the SHIPPED unit (examples/claudit.service) rather than
+# restated per call site, and tests/test_shutdown_budget.py reads that
+# file to pin both ends: the numbers here and the unit must agree, and
+# the wait the teardown actually uses must leave SHUTDOWN_MARGIN_S spare
+# for the fallback's single-row UPDATE and the tail of the teardown.
+SHUTDOWN_GRACEFUL_S = 5.0
+SHUTDOWN_STOP_BUDGET_S = 10.0
+# Spare for the fallback close itself, the statements cancelled alongside
+# it, and a stop that lands while the teardown is already part-way
+# through. Generous on purpose: the fallback is one UPDATE, and being
+# early costs nothing — the run's own close wins either way.
+SHUTDOWN_MARGIN_S = 2.0
+# What the teardown may spend waiting for the in-flight run. A run's
+# abort unwind is one fetch chunk plus one final transaction, normally
+# sub-second, so this is a bound and not a target.
+SHUTDOWN_RUN_WAIT_S = (SHUTDOWN_STOP_BUDGET_S - SHUTDOWN_GRACEFUL_S
+                       - SHUTDOWN_MARGIN_S)
