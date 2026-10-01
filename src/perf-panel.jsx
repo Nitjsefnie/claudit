@@ -76,6 +76,7 @@ function WebMetricsPanel({ project, range, nonce }) {
   const series = (body && body.series) || [];
   // true only on the live pass; the rollup pass blends per-bucket values.
   const exact = !!(body && body.exact);
+  const since = (body && body.since) || '';
 
   // One row per journey: the names the sink's table admits. A journey
   // with no rows still gets its line, with em dashes throughout, because
@@ -149,6 +150,12 @@ function WebMetricsPanel({ project, range, nonce }) {
             approximate — per-bucket values blended by sample count
           </span>
         )}
+        {/* The window the answer was READ over, which is not always the
+            window asked for: the rollup holds only closed buckets, so a
+            range wider than the raw table is answered over less than it
+            asked for, and `since` is where that shows. The endpoint sends
+            it for exactly this line. */}
+        {since && <span>window from {since}</span>}
       </div>
 
       <div role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
