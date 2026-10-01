@@ -14,8 +14,6 @@ reproducible at all (no database, no network, no wall clock).
 from __future__ import annotations
 
 import importlib.util
-import os
-import subprocess
 import sys
 import time
 from decimal import Decimal
