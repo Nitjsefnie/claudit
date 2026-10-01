@@ -296,7 +296,11 @@ def check_origin(request: Request) -> bool:
     return False
 
 
-_AUTH_PUBLIC_PATHS = {"/health", "/login", "/logout", "/login/guest"}
+# /favicon.ico is public so the icon loads before any sign-in (#448):
+# the browser fetches it on the sign-in page too.
+_AUTH_PUBLIC_PATHS = {
+    "/health", "/login", "/logout", "/login/guest", "/favicon.ico",
+}
 
 
 def _admin_denied(request: Request) -> Response | None:

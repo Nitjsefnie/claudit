@@ -64,7 +64,7 @@ function SessionsList({ synth, onOpen }) {
   return (
     <div className="sessions-page">
       <div className="page-head">
-        <h2>Sessions</h2>
+        <h1>Sessions</h1>
         <div className="sort-row">
           <span className="muted">sort:</span>
           {['recent', 'cost', 'tokens'].map(k =>

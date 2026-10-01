@@ -107,6 +107,7 @@
 /public/*
 !/public/*.css
 !/public/*.html
+!/public/favicon.ico
 
 # ---- scripts/ — repo tooling ----------------------------------------------
 !/scripts/
