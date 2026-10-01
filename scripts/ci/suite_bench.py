@@ -7,13 +7,19 @@ baseline release; a runner's speed varies by roughly a factor of two
 between jobs, so the ratio measured the runners as much as the code.
 This bench replaces that with a committed instruction-count ratchet:
 
-- A COUNT IS EXACT WITHIN ONE ENVIRONMENT STATE. ``sys.monitoring``'s
+- A COUNT IS EXACT WITHIN ONE ENVIRONMENT STATE, AND THE BENCH
+  ESTABLISHES THAT STATE ITSELF. ``sys.monitoring``'s
   INSTRUCTION event fires once per bytecode the interpreter retires;
   the same tree under the same interpreter, libraries and machine
   state retires the same count on a loaded machine and an idle one.
+  The state includes the tree's BYTECODE CACHES: the interpreter
+  compiles a module the first time it imports it and loads the cached
+  bytecode after that, and the two cost about as much again, so the
+  same tree reads 29.1M instructions at collection cold and 14.2M warm.
   One pass over the pinned fixture (``suite_bench_files.txt``), no
-  statistics, no warm-up, ``PYTHONHASHSEED=0`` by re-exec: repeated
-  runs in one state are identical (five-run probes, two seed values).
+  statistics, one collect-only warm-up pass BEFORE the counted window,
+  ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
+  identical (five-run probes, two seed values).
   ACROSS machine families the counts are not portable: within one
   family the observed wobble is <=0.7M in ``run`` and <=0.2M in
   ``residual`` (``collection`` stable in every same-tree observation),
@@ -112,6 +118,49 @@ def read_fixture(path, repo_root) -> list:
     return entries
 
 
+def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
+    """Compile the tree's own modules once, before any count is taken.
+
+    A count must not depend on what the checkout arrived with. The
+    interpreter compiles a module the first time it imports it and
+    loads the cached bytecode after that, and the compile costs about
+    as much again as the load: the same tree measured 29.1M
+    instructions at collection with no caches present and 14.2M with
+    them. The two callers did not agree on that -- ``speed.yml``
+    measures on a fresh checkout and ``tests.yml`` measures after the
+    suite has run in the same working tree -- so the gate read one
+    number and the tighten bot wrote the other into the committed
+    budgets, leaving a ceiling no run could satisfy (issue #496).
+
+    So the bench establishes the state rather than inheriting it: one
+    collect-only pass compiles the fixture's modules, and pytest writes
+    the assertion-rewritten bytecode for the test modules itself, all
+    outside every counted window. Compiling is what this pass is FOR;
+    it is not a warm-up in the statistical sense, and nothing it
+    measures is counted. ``PYTHONDONTWRITEBYTECODE`` is dropped for
+    this child alone -- the counting child keeps it, so the
+    measurement itself still writes nothing into the checkout.
+    """
+    env = dict(os.environ)
+    env.pop('PYTHONDONTWRITEBYTECODE', None)
+    args = [
+        sys.executable, '-m', 'pytest',
+        *[str(path) for path in fixture],
+        '--collect-only', '-q', '--no-header', '--tb=no',
+        '-p', 'no:cacheprovider',
+    ]
+    # A non-zero exit is deliberately not raised here: this pass is
+    # preparation, and the counted run that follows reports an unusable
+    # fixture in its own words, naming the exit code it saw. Both passes
+    # collect the same files with the same interpreter, so a fixture
+    # this one cannot collect, the counted run cannot either.
+    # pylint: disable-next=subprocess-run-check
+    subprocess.run(
+        args, cwd=str(repo_root), env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        check=False)
+
+
 def measure(fixture: list[Path], repo_root: Path) -> Measurement:
     """One pass over the fixture, partitioned, counted, reported.
 
@@ -189,9 +238,10 @@ def _reexec_with_deterministic_hash_seed(argv) -> None:
     The child also runs with PYTHONDONTWRITEBYTECODE: a gate that
     wrote ``__pycache__`` into the checkout would dirty the tree, and
     a compile-on-first-run-then-load split is the one remaining
-    instruction-count wobble. The seed and the gate assume the CI
-    shape -- a fresh checkout, no repository bytecode caches, so every
-    run compiles the tree's own modules identically.
+    instruction-count wobble. ``warm_bytecode_caches`` has already
+    drawn that split OUTSIDE the counted window, so the caches the
+    child loads are the same ones on every run whatever the checkout
+    arrived with.
     """
     if os.environ.get('PYTHONHASHSEED') == '0':
         os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
@@ -233,6 +283,12 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         if args.write is not None:
+            # The counted run must not depend on the caches the checkout
+            # arrived with, and the parent is the only process outside
+            # every counted window: compile the tree here, then hand the
+            # measurement to the deterministic child.
+            warm_bytecode_caches(
+                read_fixture(args.fixture, args.repo_root), args.repo_root)
             _reexec_with_deterministic_hash_seed(sys.argv[1:])
             fixture = read_fixture(args.fixture, args.repo_root)
             measurement = measure(fixture, args.repo_root)

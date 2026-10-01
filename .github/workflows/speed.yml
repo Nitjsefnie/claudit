@@ -186,9 +186,14 @@ jobs:
       - name: Upload the suite measurement
         if: ${{ !cancelled() }}
         # Telemetry only: the gate above reads the same file this
-        # uploads, so a red gate's numbers are always inspectable.
+        # uploads, so a red gate's numbers are always inspectable. Its
+        # OWN name, not tests.yml's `suite-measurement`: both legs ran
+        # in the same ci-gate run and the two uploads collided on one
+        # artifact name, so the tighten bot's download by name took
+        # whichever leg landed second and silently wrote the wrong
+        # measurement into the committed budgets (issue #496).
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: suite-measurement
+          name: suite-speed-measurement
           path: ${{ runner.temp }}/suite-measurement.json
           if-no-files-found: error
