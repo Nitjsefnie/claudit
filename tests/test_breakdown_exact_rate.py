@@ -46,8 +46,24 @@ def _harness() -> str:
                "\nfunction ContextGrowthPanel"),
         _slice("src/app.jsx", "function modelProviderLabel",
                "\nfunction App()"),
+        # The end marker is the next top-level declaration. It used to be
+        # `function tokenPanels`, and issue #436 moved that function to
+        # src/panel-gating.js -- so the slice below now ends at
+        # `backendDashToShape` and the two panel gates are REQUIRED as a
+        # module instead, which is where they live. Both halves of that move
+        # are the lesson of #451: a test that reaches into a file by position
+        # has to be repointed when the code moves, and a test that reaches by
+        # NAME keeps working.
+        # Ends at TopBar, the next top-level declaration, so the slice keeps
+        # BOTH backendAggregateRange and the backendDashToShape it calls and
+        # stops before the first JSX. It used to end at `function tokenPanels`
+        # when that was the next declaration after backendDashToShape;
+        # issue #436 moved tokenPanels to src/panel-gating.js, so the boundary
+        # moved with it. Both halves are the lesson of #451: a test that
+        # reaches into a file by position has to be repointed when the code
+        # moves, and one that reaches by NAME keeps working.
         _slice("src/app.jsx", "function backendAggregateRange",
-               "\nfunction tokenPanels"),
+               "\nfunction TopBar"),
         _slice("src/app.jsx", "function computeTokenBreakdown",
                "\nfunction TokenBreakdownPanel"),
     ]
@@ -55,6 +71,7 @@ def _harness() -> str:
       global.window = {{}};
       require({str(ROOT / 'src' / 'parser-lanes.js')!r});
       require({str(ROOT / 'src' / 'parser.js')!r});
+      require({str(ROOT / 'src' / 'panel-gating.js')!r});
       window.dashboardCol = {{}};
       eval({json.dumps(chr(10).join(parts))});
       window.shortModelName = shortModelName;
