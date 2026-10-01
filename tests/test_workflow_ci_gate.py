@@ -353,14 +353,20 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             "baselines (automated)" in run)
     # The commit names no co-author: a github-actions[bot] commit is
     # authored by no model, so a trailer on it attributes work to a
-    # model that never ran (issue #491). Scoped to the commit
-    # invocation, so its continuations count and an explanatory comment
-    # beside it does not; case-folded, because git's trailer parser
-    # accepts `Co-authored-by:` as readily as the canonical spelling.
-    commit_start = run.index("commit -m")
-    commit_end = run.find("\n          git ", commit_start)
-    commit_cmd = run[commit_start:commit_end if commit_end != -1 else None]
-    assert "co-authored-by" not in commit_cmd.lower()
+    # model that never ran (issue #491). Pinned by ABSENCE from every
+    # non-comment line of the step, case-folded — so a continuation, a
+    # `-m`, a `--trailer`, either case spelling, or a message assembled
+    # into a variable above the commit all fail, while prose that
+    # merely NAMES the absent trailer (the natural place to record why
+    # it is gone) still passes. Scoping to the `-m` arguments instead
+    # let that last form through; slicing the commit invocation cannot
+    # work either, because a YAML block scalar strips the step's indent
+    # and `if ! git ...` does not begin with `git`, so any boundary
+    # wide enough to catch the commit also catches the comment beside
+    # it. A `#` inside a quoted string would read as a comment here.
+    _code = "\n".join(line for line in run.split("\n")
+                      if not line.lstrip().startswith("#"))
+    assert "co-authored-by" not in _code.lower()
     # The suite-cost tighten: a downward-only data operation, then the
     # no-change guard that lets a no-op tighten end the job quietly.
     assert "suite_ratchet.py" in run
