@@ -108,6 +108,9 @@ backend/          — FastAPI application
                     Logic only (SV-RATE-DATA, SV-PROVIDER-RATES)
   pricing_load.py — Loads src/pricing.json's rate tables, checked, at
                     import; pricing.py re-exports them (SV-RATE-DATA)
+  long_context.py — Codex long-context meter constants (threshold,
+                    multipliers, model set); dependency-free; pricing
+                    re-exports as pricing.LONG_CONTEXT_*
   rate_fingerprint.py — Per-(model, provider) digest of the rate data
                     resolve() consults, plus the pricing modules'
                     source; the reprice pass's clean restamp proves a
@@ -132,9 +135,27 @@ backend/          — FastAPI application
   ingest_rollups.py — Derived rebuilds in load-bearing order:
                     suppression, repricing, aliases, canonical flags,
                     teammate resolution, rollups. Re-exports only
+  ingest_reprice.py — The reprice pass: recomputes cost_usd and
+                    records.long_context in place from stored token
+                    columns, no R2 fetch (SV-REPRICE)
+  ingest_orphans.py — Orphan sweeps: file rows whose R2 key is gone,
+                    unreferenced projects
+  ingest_scan.py  — The ingest's listing scan: transcripts paired with
+                    meta.json sidecars (_Wire), lane markers
+  ingest_runs.py  — ingest_runs row lifecycle: open at run start, close
+                    at run end; failure summary for /health
+  ingest_lockwatch.py — Liveness guard for the db-wide ingest advisory
+                    lock; a lost lock aborts the run (issue #374)
+  ingest_warm.py  — Response-cache warming after an ingest or restart
+                    (warm_common, WARM_RANGES)
   r2.py           — S3 client with file:// mirror fallback
   auth.py         — PBKDF2-SHA256 hashing/verification
   login.py        — /login, /logout, /login/guest, rate limiting
+  login_page.py   — The sign-in page's HTML template and response
+                    builder; every slot escaped at its own site, CSP
+                    nonce on the inline style (SV-BRAND-ESCAPE)
+  login_workers.py — Runs login CPU work without releasing its
+                    admission slots early (WorkerReservation)
   session.py      — HMAC session cookies, auth middleware, guest sentinel
   events.py       — Thread-safe SSE broadcaster
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
@@ -155,10 +176,20 @@ src/              — Served at /src/* (in-browser Babel)
   parser-lanes.js — Browser lane parser + window.LONG_CONTEXT_*
                     (SV-PARSER-SPEC lockstep)
   dashboard-binning.js — Bin width, never finer than the server bucket
+  dashboard-fetch.js — The Overview's /api/dashboard request state:
+                    loading / empty / error outcomes (plain JS, so node
+                    can execute it)
+  dashboard-summary.jsx — The Overview's status block: renders the
+                    loading / empty / error outcomes
   dashboard-charts.jsx      — Core SVG panels
   dashboard-charts-extra.jsx — Context growth, cache TTL panels
   context-growth-view.jsx    — Context growth components
   detail-pane.jsx            — Session detail / inspector
+  sessions-list.jsx — Sessions page: sortable table of reconstructed
+                    sessions
+  timeline-selection.js — Shared Inspector timeline-selection: the one
+                    clamped selection index every consumer derives
+                    from
   event-helpers.jsx          — Event formatting helpers
   synthetic-data.js          — Synthetic dashboard data
   views/cache-view.jsx, views/context-growth-view-v2.jsx
