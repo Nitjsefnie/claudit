@@ -36,10 +36,9 @@ REPARSE_COUNT_UNIT = 'bytecode_hundreds_per_file'
 # The reparse bench's calibration: a required member, like a coverage
 # language, because a document without one leaves the bench's gate step
 # with nothing to check the measurement against. Unlike coverage, each
-# of its records is a COST — a phase's share of a pass's own CPU, and
-# the bytecodes that phase retires per file — so its ratchet only ever
-# TIGHTENS (both fields move down) and its gap sits above the measured
-# value rather than below; see _reparse.
+# of its records is a COST, so its ratchet only ever TIGHTENS (both
+# fields move down) and its gap sits above the measured value; see
+# _reparse, and _suite_cost for the same rule stated for suite_cost.
 REPARSE_FAMILY = 'reparse'
 # The two instruments recorded per phase, and why both are here: a share
 # is scale-free inside one run and catches work MOVING between phases; a
@@ -177,10 +176,9 @@ def share_value(value, name):
     """A reparse phase's share: a percent of the pass's own CPU.
 
     The same shape and bounds as a coverage value — a bounded percentage
-    carrying exactly one decimal place, which is what the bench prints
-    and the ratchet writes — read as a share of the run rather than of a
-    corpus. Zero is a real reading (a phase this corpus never reaches,
-    like the sidecar step), not an absence.
+    carrying exactly one decimal place — read as a share of the run
+    rather than of a corpus. Zero is a real reading (a phase this corpus
+    never reaches, like the sidecar step), not an absence.
     """
     return coverage_value(value, name)
 
@@ -190,8 +188,7 @@ def count_value(value, name):
 
     Bounded below only: the number is a count, so it has no natural
     ceiling, and it carries the same one-decimal spelling as every other
-    recorded number. Zero is a real reading (a phase this corpus never
-    reaches), not an absence.
+    recorded number. Zero is a real reading, not an absence.
     """
     result = _number(value, name)
     if result < 0:
@@ -296,25 +293,19 @@ def _suite_cost(family):
             raise ValueError(f'{prefix}.floor must be above measured')
         if floor - measured != CALIBRATION_GAP:
             raise ValueError(f'{prefix} calibration gap must be 1.5')
-        normalised[phase] = {
-            'measured': measured,
-            'floor': floor,
-        }
+        normalised[phase] = {'measured': measured, 'floor': floor}
     return normalised
 
 
 def _reparse(family):
     """Validate the reparse bench's per-phase calibrations.
 
-    One record per phase of the pass, each a percent SHARE of that run's
-    own CPU. The gap sits ABOVE the measured value here, the mirror of
-    the coverage family, because a share is a cost and not a quality: a
-    run passes while its share stays at or below the recorded floor, so
-    the floor is the ceiling the recorded share may be exceeded by.
-    Writing it the coverage way round (floor = measured - gap) would put
-    the ceiling BELOW the measurement that recorded it, and every later
-    run at that measurement would fail a gate no change could satisfy.
-    Same fixed 1.5 yardstick, same recorded meaning.
+    Two records per phase — a percent share of the pass's own CPU and a
+    bytecode count — each with its gap ABOVE the measured value, because
+    a cost's floor is the ceiling it may be exceeded by. Writing it the
+    coverage way round (floor = measured - gap) would put the ceiling
+    BELOW the measurement that recorded it, and every later run at that
+    measurement would fail a gate no change could satisfy.
     """
     _required_fields(family, REPARSE_PHASES, REPARSE_FAMILY)
     validate = {'share': share_value, 'bytecodes': count_value}
