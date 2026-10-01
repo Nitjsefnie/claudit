@@ -427,6 +427,17 @@ def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     # a relative path); refused anyway, because the rule is positional
     # and a value this shape reaches in one browser may not in another.
     "\\evil.example/steal",
+    # #450: the same ride with a character the parser REMOVES rather than
+    # one it rewrites. A tab, LF or CR is stripped from anywhere in the
+    # value, so `/\t/evil.example` is `//evil.example` by the time the
+    # browser resolves it — the `//` this guard already refused, spelled
+    # across a removed character.
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
+    "/\t//evil.example",
+    "/\n//evil.example",
+    "/\r//evil.example",
     # ... and the same ride on the http(s) branch's authority.
     "https://\\evil.example",
     "https:///\\evil.example",
@@ -476,40 +487,55 @@ def test_url_attr_accepts_a_backslash_percent_encoded():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_every_accepted_site_relative_url_resolves_same_origin():
-    """#438, the property the site-relative branch exists to provide:
-    whatever `url_attr` hands back goes into an href, and a browser
-    resolves it against this origin. Each value below is measured
-    through node's own WHATWG URL parser — the implementation this check
-    models — so a shape the repo reasons about wrongly fails here instead
-    of in a browser.
+def test_every_accepted_site_relative_url_resolves_same_origin(caplog):
+    """#438 / #450, the property the site-relative branch exists to
+    provide: whatever `url_attr` hands back goes into an href, and a
+    browser resolves it against this origin.
 
-    These are the values this suite enumerates, NOT the whole class: a
-    property test that claimed the class would need the class derived,
-    and the tab-stripped spelling `/\t/evil.example` is a member neither
-    list below reaches (filed as its own issue). The oracle is still
-    sound for what it enumerates — it comes from node, independently of
-    `branding`, so it can contradict the repo's own belief — and both
-    directions bite: refuse-everything and accept-everything mutants
-    each fail this file.
+    The negative space is DERIVED, not written out. Two character sets
+    ride the front of the path — every C0 control and space the parser
+    removes or percent-encodes, plus the `/` and the backslash it
+    rewrites to a separator — crossed with every position the escape
+    can sit in. The
+    whole class is measured in node's own WHATWG parser, the
+    implementation this check models, so a shape the repo reasons about
+    wrongly fails here instead of in a browser. A hand-written list can
+    only ever be as complete as the person who wrote it, and two of the
+    three escapes in this file's history (the backslash, then the
+    tab-separated `//`) were exactly the members a hand-written list
+    missed.
 
-    The refused shapes are the other half: each resolves OFF this origin,
-    which is why it must be refused (and over-refusing a config value is
-    safe and visible — a dropped link, never a page pointing at someone
-    else's host)."""
+    A browser that cannot parse a value at all is not a leak — the
+    anchor goes nowhere — so only a value that parses to a DIFFERENT
+    origin fails. The oracle comes from node, independently of
+    `branding`, so it can contradict the repo's own belief, and both
+    extremes bite: a refuse-everything and an accept-everything mutant
+    each fail this file."""
     base = "https://op.example/dashboard"
     origin = "https://op.example"
-    offsite = [
-        "/\\evil.example", "/\\\\evil.example", "/\t\\evil.example",
-        "https://\\evil.example", "https:///\\evil.example",
-        "//evil.example", "javascript:alert(1)",
-    ]
-    candidates = _SITE_RELATIVE_URLS + offsite
+    # The class is thousands of refusals by design; the warnings they
+    # log are asserted separately, once, on one value.
+    caplog.set_level(logging.ERROR, logger="claudit.branding")
+    seps = [chr(i) for i in range(0x21)] + ["\\", "/", "//"]
+    class_values = {
+        pre + s1 + s2 + "evil.example" + tail
+        for pre in ("/", "/a", "/a/b")
+        for s1 in seps for s2 in ("", "/", "\\")
+        for tail in ("", "/x", "/x?q", "#f")
+    }
+    offsite = ["/\\evil.example", "/\\\\evil.example", "/\t\\evil.example",
+               "/\t/evil.example", "/\n/evil.example", "/\r/evil.example",
+               "https://\\evil.example", "https:///\\evil.example",
+               "//evil.example", "javascript:alert(1)"]
+    candidates = sorted(set(class_values) | set(_SITE_RELATIVE_URLS)
+                        | set(offsite))
     script = (
         "const out = [];"
         # A JSON array literal is a valid JS array literal.
         f"for (const v of {json.dumps(candidates)}) {{"
-        f"  out.push([v, new URL(v, {base!r}).href]);"
+        f"  let href; try {{ href = new URL(v, {base!r}).href; }}"
+        f"  catch (e) {{ href = null; }}"
+        "  out.push([v, href]);"
         "} console.log(JSON.stringify(out));"
     )
     res = subprocess.run(["node", "-e", script], capture_output=True,
@@ -521,8 +547,18 @@ def test_every_accepted_site_relative_url_resolves_same_origin():
         assert resolved[value].startswith(origin + "/"), (
             f"{value!r} resolves off-origin: {resolved[value]}")
 
+    # The class: whatever this repo ACCEPTS must not leave the origin.
+    leaked = [
+        (value, resolved[value]) for value in class_values
+        if branding.url_attr(value) is not None
+        and resolved[value] is not None
+        and not resolved[value].startswith(origin + "/")
+    ]
+    assert not leaked, f"accepted values that resolve off-origin: {leaked[:5]}"
+
     for value in offsite:
-        assert not resolved[value].startswith(origin + "/"), (
+        assert not (resolved[value] is not None
+                    and resolved[value].startswith(origin + "/")), (
             f"{value!r} no longer resolves off-origin, so it no longer "
             f"needs refusing: {resolved[value]}")
         assert branding.url_attr(value) is None, value
