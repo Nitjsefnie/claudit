@@ -213,7 +213,7 @@ def test_speed_job_timeout_is_bound_and_margin_sized():
     assert job["timeout-minutes"] == "15"
 
 
-# --- tests.yml (the bot side) ------------------------------------------------
+# --- tests.yml (the measure-and-stage side) ----------------------------------
 
 def test_tests_job_measures_on_master_pushes_only():
     doc = _load("tests.yml")
@@ -223,7 +223,7 @@ def test_tests_job_measures_on_master_pushes_only():
     assert len(bench) == 1
     assert bench[0]["id"] == "suite_bench"
     # Record mode: the tests leg only measures -- the gate lives in
-    # speed.yml.
+    # speed.yml, and the push lives in ratchet-push.yml.
     assert bench[0]["with"]["mode"] == "record"
     assert bench[0]["if"] == (
         "${{ !cancelled() && steps.pytest.outcome == 'success' "
@@ -238,33 +238,38 @@ def test_tests_job_measures_on_master_pushes_only():
     assert len(uploads) == 1
 
 
-def test_tests_job_publishes_the_measured_output():
+def test_tests_job_publishes_no_outputs_any_more():
+    # Dead wiring since issue #479: the push job that consumed
+    # ratchet_changed/suite_measured moved to ratchet-push.yml, and the
+    # artifact presence IS the signal there (its list step reads the
+    # triggering run's artifacts). The job-level outputs mapping must
+    # not silently return.
     doc = _load("tests.yml")
-    job = _job(doc, "pytest")
-    assert job["outputs"]["suite_measured"] == (
-        "${{ steps.suite_bench.outputs.measured }}")
+    assert not (_job(doc, "pytest").get("outputs")), (
+        "the pytest job's outputs relay died with the in-callee push job")
 
+
+# --- ratchet-push.yml (the bot side) -----------------------------------------
 
 def test_ratchet_push_job_tightens_from_the_artifact():
-    doc = _load("tests.yml")
-    job = _job(doc, "ratchet-push")
-    # The bot job's admission: a raise-worthy run OR a measured one.
-    assert job["if"] == (
-        "needs.pytest.outputs.ratchet_changed == 'true' "
-        "|| needs.pytest.outputs.suite_measured == 'true'")
+    doc = _load("ratchet-push.yml")
+    job = _job(doc, "push")
+    # The bot job's admission lives in the job's if (pinned in
+    # test_workflow_ci_gate); the artifacts come from the TRIGGERING
+    # run, downloaded cross-run.
     downloads = [step for step in _steps(job)
                  if (step.get("uses") or "").startswith(
                      "actions/download-artifact")]
     names = sorted((step.get("with") or {}).get("name", "")
                    for step in downloads)
     assert names == ["ratchet-push", "suite-measurement"]
+    for step in downloads:
+        assert step["with"]["run-id"] == (
+            "${{ github.event.workflow_run.id }}")
     # The tighten is a DATA operation in the bot job: no checkout, no
-    # pip, no test code anywhere in the job's own text (the slice ends
-    # where the next top-level job begins).
-    text = (WORKFLOWS / "tests.yml").read_text(encoding="utf-8")
-    start = text.index("  ratchet-push:")
-    end = text.index("  pytest-portable:")
-    job_text = text[start:end]
+    # pip, no test code anywhere in the job's own text.
+    text = (WORKFLOWS / "ratchet-push.yml").read_text(encoding="utf-8")
+    job_text = text[text.index("  push:"):]
     for banned in ("actions/checkout", "pip install", "pytest "):
         assert banned not in job_text, banned
     # The runner sees one line: the quoted script path and its flag.
@@ -273,8 +278,8 @@ def test_ratchet_push_job_tightens_from_the_artifact():
 
 
 def test_ratchet_push_commits_only_when_something_changed():
-    doc = _load("tests.yml")
-    job = _job(doc, "ratchet-push")
+    doc = _load("ratchet-push.yml")
+    job = _job(doc, "push")
     push = _find_step(job, 'suite_ratchet.py" --tighten')
     lines = _run_lines(push)
     # Order is load-bearing: the tighten, then the porcelain check,
@@ -300,14 +305,14 @@ def test_compare_durations_is_gone():
 
 
 def test_ratchet_data_reads_are_guarded_on_artifact_presence():
-    # A suite-only run (ratchet_changed=false, suite_measured=true) is
-    # the COMMON admission: the ratchet-data artifact was never
-    # uploaded, and the push step's default shell is `bash -e` — an
-    # unguarded `cat base.txt` aborts the step and the tighten never
-    # runs. Every read of the ratchet-data artifact must sit inside a
-    # presence guard, ordered before the read.
-    doc = _load("tests.yml")
-    job = _job(doc, "ratchet-push")
+    # A suite-only run (no ratchet-data artifact, the suite measurement
+    # present) is the COMMON admission: the ratchet-data files were
+    # never downloaded, and the push step's default shell is `bash -e`
+    # — an unguarded `cat base.txt` aborts the step and the tighten
+    # never runs. Every read of the ratchet-data artifact must sit
+    # inside a presence guard, ordered before the read.
+    doc = _load("ratchet-push.yml")
+    job = _job(doc, "push")
     push = _find_step(job, 'suite_ratchet.py" --tighten')
     lines = _run_lines(push)
     guard = 'if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then'
@@ -317,8 +322,8 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
     assert guard_index < cat_index, (
         "the ratchet-data read is not behind its presence guard")
     # The guarded block is closed, and the tighten comes after it: the
-    # absence path degrades to the push-time staleness detection rather
-    # than dropping the run.
+    # absence path degrades to the BASE_FALLBACK base (the triggering
+    # run's head) rather than dropping the run.
     close_index = next(index for index, line in enumerate(lines)
                        if index > cat_index and line == "fi")
     tighten_index = lines.index(TIGHTEN_CMD)

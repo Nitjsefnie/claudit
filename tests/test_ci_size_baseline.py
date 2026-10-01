@@ -281,7 +281,10 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling():
     doc = thresholds.load(THRESHOLDS_PATH)
     baseline = doc["module_size_baseline"]
     sizes = size_baseline.tracked_sizes()
-    for rel in ("backend/schema.sql", "public/app.css",
-                ".github/workflows/tests.yml"):
+    for rel in ("backend/schema.sql", "public/app.css"):
         assert sizes[rel] == baseline[rel]
         assert baseline[rel] > size_baseline.ceiling_for(rel)
+    # .github/workflows/tests.yml was seeded here at the #393 seed and
+    # left the list the legal way: the ratchet-push split (issue #479)
+    # took it under the production ceiling, so --tighten dropped its
+    # entry — under-ceiling files need no seed (the pin above).

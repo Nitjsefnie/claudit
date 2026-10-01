@@ -20,11 +20,14 @@ check still reports. The invariants pinned here:
 - every step-running job in every workflow declares `timeout-minutes`
   (issue #98: GitHub's default is 360, so an undeclared bound lets a
   hung step occupy a runner for six hours);
-- the deploy key is loaded only by refresh-pricing.yml's push job,
-  which takes it from the master-push environment rather than a
-  forwarded secret; tests.yml's ratchet-push job pushes with the job's
-  own token (contents: write) and no environment (issue #479: the
-  environment's secret resolved empty inside the callee).
+- the deploy key is loaded only by the two push jobs that take it from
+  the master-push environment — refresh-pricing.yml's and the top-level
+  ratchet-push.yml's — never by a forwarded secret, and tests.yml
+  pushes nothing (issue #479: the secret resolved empty inside the
+  workflow_call callee, and a GITHUB_TOKEN push is rejected by the
+  ruleset's required aggregate check, so the ratchet push moved out of
+  the callee into ratchet-push.yml, keyed on the ci-gate run's
+  completion — the run that actually carries the ratchet artifacts).
 """
 from __future__ import annotations
 
@@ -40,6 +43,7 @@ CI_GATE = WORKFLOWS / "ci-gate.yml"
 GATE_FRESHNESS = WORKFLOWS / "gate-freshness.yml"
 TESTS_WORKFLOW = WORKFLOWS / "tests.yml"
 REFRESH_WORKFLOW = WORKFLOWS / "refresh-pricing.yml"
+RATCHET_PUSH_WORKFLOW = WORKFLOWS / "ratchet-push.yml"
 
 # The ten gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
@@ -76,9 +80,9 @@ def _tests_workflow():
 
 
 def _ratchet_push_job():
-    jobs = _tests_workflow()["jobs"]
-    assert set(jobs) == {"pytest", "pytest-portable", "ratchet-push"}
-    return jobs["ratchet-push"]
+    jobs = _load(RATCHET_PUSH_WORKFLOW)["jobs"]
+    assert set(jobs) == {"push"}
+    return jobs["push"]
 
 
 def test_every_reusable_call_points_at_an_existing_callable_workflow():
@@ -230,84 +234,113 @@ def _ratchet_push_run() -> str:
 # The pin is one function on purpose: the job's shape is one
 # observation, and splitting it would let half the shape rot silently.
 # pylint: disable-next=too-many-statements
-# The pin is one function on purpose: the job's shape is one
-# observation, and splitting it would let half the shape rot silently.
-# pylint: disable-next=too-many-statements
-def test_ratchet_push_job_pushes_with_the_job_token():
-    raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
-    workflow = _tests_workflow()
+def test_ratchet_push_workflow_pushes_with_the_deploy_key():
+    raw = RATCHET_PUSH_WORKFLOW.read_text(encoding="utf-8")
+    workflow = _load(RATCHET_PUSH_WORKFLOW)
     job = _ratchet_push_job()
     run = _ratchet_push_run()
 
-    # Job shape: the data-only push job sits beside the keyless suite
-    # jobs and receives the tested ratchet data as an artifact.
-    # Admission is a raise-worthy run OR a measured one (the suite-cost
-    # tighten). It pushes with the job's OWN token: contents: write,
-    # the exact decoded scalar -- and the master-push environment is
-    # GONE (the empty-secret refusal that killed run 36876895211 can
-    # never recur here).
-    assert job["needs"] == "pytest"
+    # The trigger is the ci-gate run's completion: tests.yml is a
+    # workflow_call callee and produces no run of its own on a master
+    # push — the run carrying the ratchet artifacts is ci-gate's.
+    wr = (workflow.get("on") or {}).get("workflow_run") or {}
+    assert wr.get("workflows") == ["ci gate"]
+    assert wr.get("types") == ["completed"]
+
+    # Only a completed green master push publishes: a PR run stages no
+    # master data, and a failed or cancelled gate run's data is not the
+    # tested state worth publishing.
     assert job["if"] == (
-        "needs.pytest.outputs.ratchet_changed == 'true' "
-        "|| needs.pytest.outputs.suite_measured == 'true'")
+        "github.event.workflow_run.event == 'push' "
+        "&& github.event.workflow_run.head_branch == 'master' "
+        "&& github.event.workflow_run.conclusion == 'success'")
+    assert job["environment"] == "master-push"
     assert job["timeout-minutes"] == "15"
-    assert job["permissions"] == {"contents": "write"}
-    assert "environment" not in job, job.get("environment")
-    # The admission reads job outputs: a dropped ratchet_changed mapping
-    # would degrade the raise path fail-green (the download's if reads
-    # an empty output and skips the artifact), so both mappings are
-    # pinned here.
-    assert workflow["jobs"]["pytest"]["outputs"] == {
-        "ratchet_changed": "${{ steps.ratchet.outputs.changed }}",
-        "suite_measured": "${{ steps.suite_bench.outputs.measured }}"}
+    assert job["permissions"] == {"actions": "read"}
+    assert workflow["permissions"] == {}
+    assert workflow["concurrency"]["group"] == "ratchet-push"
+    assert workflow["concurrency"]["cancel-in-progress"] == "false"
+
     steps = job["steps"]
-    assert len(steps) == 3
-    download, suite_download, push = steps
+    assert len(steps) == 4
+    listing, download, suite_download, push = steps
+    assert listing["name"] == "List the triggering run's artifacts"
+    listing_run = listing.get("run") or ""
+    assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert listing["env"]["RUN_ID"] == (
+        "${{ github.event.workflow_run.id }}")
+    assert "actions/runs/$RUN_ID/artifacts" in listing_run
+    assert "grep -qx 'ratchet-push'" in listing_run
+    assert "grep -qx 'suite-measurement'" in listing_run
+    assert 'echo "ratchet=$ratchet"' in listing_run
+    assert 'echo "suite=$suite"' in listing_run
+    assert 'echo "any=true"' in listing_run
+
+    # The artifacts belong to the TRIGGERING run: cross-run downloads
+    # name its run id and carry a token, which the job's actions: read
+    # caps.
     assert download["name"] == "Download the ratchet data"
-    assert download["if"] == (
-        "needs.pytest.outputs.ratchet_changed == 'true'")
+    assert download["if"] == "steps.list.outputs.ratchet == 'true'"
     assert download["uses"] == (
         "actions/download-artifact@"
         "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
     assert download["with"] == {
         "name": "ratchet-push",
         "path": "${{ runner.temp }}/ratchet-data",
+        "run-id": "${{ github.event.workflow_run.id }}",
+        "github-token": "${{ secrets.GITHUB_TOKEN }}",
     }
     assert suite_download["name"] == "Download the suite measurement"
-    assert suite_download["if"] == (
-        "needs.pytest.outputs.suite_measured == 'true'")
+    assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
     assert suite_download["uses"] == (
         "actions/download-artifact@"
         "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
     assert suite_download["with"] == {
         "name": "suite-measurement",
         "path": "${{ runner.temp }}/suite-data",
+        "run-id": "${{ github.event.workflow_run.id }}",
+        "github-token": "${{ secrets.GITHUB_TOKEN }}",
     }
     assert ("actions/download-artifact@"
             "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in raw)
+
+    # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
-    assert push["env"]["GH_TOKEN"] == "${{ github.token }}"
-    assert "MASTER_PUSH_DEPLOY_KEY" not in (push.get("env") or {})
+    assert push["if"] == "steps.list.outputs.any == 'true'"
+    assert push["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+        "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
+    assert push["env"]["REPO"] == "${{ github.repository }}"
+    assert push["env"]["BASE_FALLBACK"] == (
+        "${{ github.event.workflow_run.head_sha }}")
+    assert "GH_TOKEN" not in (push.get("env") or {})
     assert "PUSH_REMOTE" not in push["env"]
 
-    # The token rides in the remote URL, set once and never echoed; no
-    # ssh preamble exists anywhere in the step.
-    assert ('remote="https://x-access-token:${GH_TOKEN}'
-            '@github.com/${REPO}.git"' in run)
+    # The deploy key rides in an ssh agent, never a remote URL; the
+    # empty-key refusal fails closed before anything runs.
+    assert 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]' in run
+    assert "the master-push environment is missing its secret" in run
+    assert run.index("missing its secret") < run.index("ssh-agent")
+    assert "trap 'kill \"$SSH_AGENT_PID\" 2>/dev/null || true' EXIT" in run
+    assert "known_hosts" in run
+    assert "StrictHostKeyChecking=yes" in run
+    assert "x-access-token" not in run
+    assert "GITHUB_TOKEN" not in run
+
+    # The measured base: a raise staged base.txt; a suite-only run
+    # measured the triggering run's own head (BASE_FALLBACK). Master
+    # must still stand at it, or the data describes a tree master no
+    # longer has.
+    assert 'if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then' in run
+    assert 'base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"' in run
+    assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
+            in run)
+    assert 'base="$BASE_FALLBACK"' in run
+    assert "no ratchet data and no suite measurement to push" in run
     assert run.index("remote=") < run.index("git ls-remote")
-    assert "ssh-agent" not in run
-    assert "known_hosts" not in run
-    assert "StrictHostKeyChecking" not in run
 
-    # The key's shapes are gone from tests.yml ENTIRELY: a coordinated
-    # edit that re-adds the env mapping, a key read, or an agent fails
-    # here, not just at the job pin.
-    assert "MASTER_PUSH_DEPLOY_KEY" not in raw
-    assert "ssh-agent" not in raw
-
-    # The push order and its refusals: the artifact-presence guard, the
-    # tighten, the no-change guard, the commit, and the rejected-push
-    # fallback.
+    # The push order and its refusals: the base staleness check, the
+    # artifact-presence guards, the tighten, the no-change guard, the
+    # commit, and the rejected-push fallback.
     assert run.index("git ls-remote") < run.index("git init")
     assert ('cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" '
             '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"' in run)
@@ -335,14 +368,26 @@ def test_ratchet_push_job_pushes_with_the_job_token():
     assert "rev-parse HEAD^" in run
     assert "rev-parse FETCH_HEAD" in run
     assert "--force" not in run
-    assert "x-access-token" in raw  # the token remote, the only auth shape
+
+    # The key's shapes are gone from tests.yml ENTIRELY, and the callee
+    # no longer carries the push job at all: a coordinated edit that
+    # re-adds an env mapping, a key read, an agent, or the job fails
+    # here, not just at the workflow pin.
+    tests_raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
+    assert "MASTER_PUSH_DEPLOY_KEY" not in tests_raw
+    assert "ssh-agent" not in tests_raw
+    assert "x-access-token" not in tests_raw
+    assert set(_tests_workflow()["jobs"]) == {"pytest", "pytest-portable"}
 
 
-def test_the_tests_callee_is_capped_high_enough_for_the_token_push():
+def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     # A callee's token is capped by the caller's grant at the uses:
-    # site: contents: read there would clamp the ratchet-push job's own
-    # contents: write down to read, and the push would be refused. The
-    # pytest job's narrower self-declared block still governs that job.
+    # site. The callee pushes nothing since issue #479 (the ratchet
+    # push lives in the top-level ratchet-push.yml workflow, where the
+    # master-push environment's secret resolves), so contents: read
+    # covers every job it declares; pull-requests: write stays for the
+    # pytest job's informational patch-coverage comment. The pytest
+    # job's narrower self-declared block still governs that job.
     doc = _ci_gate()
     calls = [job for job in (doc.get("jobs") or {}).values()
              if (job.get("uses") or "")
@@ -350,7 +395,7 @@ def test_the_tests_callee_is_capped_high_enough_for_the_token_push():
     assert len(calls) == 1
     call = calls[0]
     assert call["permissions"] == {
-        "contents": "write",
+        "contents": "read",
         "pull-requests": "write",
     }
     # No secret is forwarded to the callee: the call maps no secrets,
@@ -375,16 +420,18 @@ def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
     assert tests_image.startswith("postgres:16@sha256:")
 
 
-def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_one_wiring():
+def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
-    # The deploy key has ZERO wiring in tests.yml (the ratchet push
-    # uses the job token); its only remaining load site in the repo is
-    # refresh-pricing's push job. The pytest job pushes nothing.
+    # The deploy key has ZERO wiring in tests.yml; its only load sites
+    # in the repo are the two environment-backed push jobs. The pytest
+    # job pushes nothing.
     assert "MASTER_PUSH_DEPLOY_KEY" not in raw
     assert "ssh-agent" not in raw
-    refresh_raw = REFRESH_WORKFLOW.read_text(encoding="utf-8")
+    for name, path in (("refresh-pricing.yml", REFRESH_WORKFLOW),
+                       ("ratchet-push.yml", RATCHET_PUSH_WORKFLOW)):
+        text = path.read_text(encoding="utf-8")
+        assert text.count("secrets.MASTER_PUSH_DEPLOY_KEY") >= 1, name
     assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 0
-    assert refresh_raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") >= 1
     pytest_job = _tests_workflow()["jobs"]["pytest"]
     for step in pytest_job.get("steps") or []:
         assert "git push" not in (step.get("run") or ""), step.get("name")
