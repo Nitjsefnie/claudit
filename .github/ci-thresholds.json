@@ -40,8 +40,8 @@
         "measured": 26.2
       },
       "share": {
-        "floor": 86.4,
-        "measured": 84.9
+        "floor": 84.8,
+        "measured": 83.3
       }
     },
     "residual": {
@@ -78,12 +78,12 @@
   "schema_version": 1,
   "suite_cost": {
     "collection": {
-      "floor": 30.6,
-      "measured": 29.1
+      "floor": 15.7,
+      "measured": 14.2
     },
     "residual": {
-      "floor": 10.6,
-      "measured": 9.1
+      "floor": 7.8,
+      "measured": 6.3
     },
     "run": {
       "floor": 345.5,
