@@ -4,7 +4,7 @@
 # the conftest every module loads, the scratch-DB layer, the db/portable
 # split -- and the CI-infrastructure tests an ordinary product pull
 # request does not touch, plus one DB-exercising file so the
-# private-Postgres path is counted too. Re-seed the committed budgets
+# database path is counted too. Re-seed the committed budgets
 # (delete the suite_cost member, seed through the loader's writer) in
 # the same change that edits this list: the counts are budgets for THIS
 # workload, not for whatever list follows.
