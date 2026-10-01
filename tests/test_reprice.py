@@ -455,6 +455,32 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
     assert float(claude[2]) == flat
 
 
+def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch):
+    """An id the meter does not list — the `unknown` label a model-less
+    rollout stores, or any future id — keeps the flag parse wrote: the
+    threshold-only parse-time decision stands, and the pass prices the
+    stored flag instead of re-deriving. Membership is patched synthetic
+    so the test stays independent of the committed data (SV-TEST-DATA)."""
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset())
+    flat = round(pricing.compute_cost(
+        "unknown", fresh=280_000, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
+    with db.viz_conn() as c:
+        _seed_meter_row(c, 1, model="unknown", fresh_tokens=280_000,
+                        long_context=True)
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 1
+
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT long_context, cost_usd FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None
+    assert row[0] is True
+    assert float(row[1]) == flat
+
+
 def test_reprice_keeps_a_claude_rows_stored_null_flag(fresh_db):
     """Issue #249: a CLAUDE-format record from a bare meter model stores
     long_context NULL — the flag is lane-only

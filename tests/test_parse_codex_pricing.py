@@ -13,7 +13,7 @@ and thereby re-purposed — to straddle a boundary.
 import json
 import pytest
 
-from backend import parse, parse_codex, pricing
+from backend import parse, pricing
 from backend.parse_common import _to_dt
 
 
@@ -160,10 +160,14 @@ def test_the_long_context_verdict_is_per_record():
         round(metered, 6), rel=1e-9)
 
 
-def test_long_context_models_match_the_parser_map():
-    """pricing.LONG_CONTEXT_MODELS must name exactly the labels
-    parse_codex._CODEX_MODEL_MAP emits: the reprice pass re-derives
-    records.long_context from stored columns only for the models whose
-    published rate card carries the meter (issue #194)."""
-    assert ({label for _, label in parse_codex._CODEX_MODEL_MAP}  # pylint: disable=protected-access
-            == pricing.LONG_CONTEXT_MODELS)
+def test_a_stored_dotted_id_matches_its_dashed_membership_key(monkeypatch):
+    """The reprice pass asks `is_long_context_model(row.model)` of the
+    STORED id, which carries the corpus's dots; membership is priced-data
+    keys in dashed spelling. The normalisation resolve() applies must
+    therefore be the same one the membership check applies. Membership
+    itself is patched synthetic (SV-TEST-DATA: it is repository data)."""
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
+                        frozenset({"gpt-5-6-sol", "gpt-6-1-sol"}))
+    assert pricing.is_long_context_model("gpt-5.6-sol")
+    assert pricing.is_long_context_model("gpt-6.1-sol")
+    assert not pricing.is_long_context_model("gpt-6-1-ghost")

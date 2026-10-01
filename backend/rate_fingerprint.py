@@ -36,7 +36,7 @@ from backend import long_context, pricing, pricing_load
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
-_STRUCTURE_VERSION = 1
+_STRUCTURE_VERSION = 2
 
 # The modules whose source the logic digest hashes. The reprice pass
 # itself joins them at first use (hashed_modules) — a module-level
@@ -169,6 +169,9 @@ def _document(model: str, provider: str | None) -> dict:
         "logic": _logic(),
         "norm": norm,
         "free": pricing._is_free(model, norm),  # pylint: disable=protected-access
+        # The reprice pass's meter re-derivation consults membership, so
+        # a data-only membership edit must move every pair's fingerprint.
+        "metered": sorted(pricing.LONG_CONTEXT_MODELS),
     }
     if doc["free"]:
         # A free id prices at zero without consulting any table, so its
