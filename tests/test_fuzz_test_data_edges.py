@@ -67,6 +67,7 @@ def _seed_document() -> dict:
             },
         },
         "provider_rates_fetched": FLOOR_STAMP,
+        "long_context_models": [],
         "openrouter": {"data_region": "global", "models": {}},
     }
 

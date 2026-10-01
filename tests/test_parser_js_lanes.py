@@ -211,7 +211,8 @@ def test_model_ids_survive_verbatim_in_both_parsers():
                                      "last_token_usage": u,
                                      "model_context_window": 258400}}}
 
-    models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol"]
+    models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol",
+              "gpt\u0665.6-sol"]
     lines: list[dict] = [_turn(1, models[0])]
     for i in range(len(models)):
         lines.append(_snapshot(2 * i + 2, 1_000 * (i + 1)))
@@ -221,7 +222,8 @@ def test_model_ids_survive_verbatim_in_both_parsers():
     out = parse.parse_file("codex/model_ids_verbatim.jsonl", blob)
     backend = out["records"]
     got = [r["model"] for r in backend]
-    assert got == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol"]
+    assert got == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
+                   "gpt\u0665.6-sol"]
 
     script = f"""
       global.window = {{}};
@@ -238,7 +240,8 @@ def test_model_ids_survive_verbatim_in_both_parsers():
     )
     assert proc.returncode == 0, proc.stderr
     got_browser = json.loads(proc.stdout)
-    assert got_browser == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol"]
+    assert got_browser == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
+                           "gpt\u0665.6-sol"]
 
 
 # --------------------------------------------------------------------------

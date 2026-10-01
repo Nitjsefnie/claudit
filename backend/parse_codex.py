@@ -83,8 +83,11 @@ _CODEX_API_RE = re.compile(r"tools\.([A-Za-z_][A-Za-z_0-9]*)\s*\(")
 #
 # The only rewrites are spelling: case-folding and the corpus's missing
 # separator (gpt5.6-sol -> gpt-5.6-sol, a real turn_context spelling), which
-# the stored id should spell the way the corpus canonically does.
-_CODEX_SEPARATED = re.compile(r"^gpt(?=[\d.])")
+# the stored id should spell the way the corpus canonically does. The digit
+# class is spelled [0-9], never \d: Python's \d matches Unicode Nd digits
+# where the JS mirror's \d matches ASCII only, so \d would make the two
+# runtimes disagree on a non-ASCII spelling (SV-PARSER-SPEC).
+_CODEX_SEPARATED = re.compile(r"^gpt(?=[0-9.])")
 
 # The cumulative counter's fields. All six are differenced so a duplicate
 # snapshot is recognised by ALL of them failing to advance, not just by the

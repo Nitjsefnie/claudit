@@ -70,6 +70,7 @@ def _seed_doc() -> dict:
             },
         },
         "provider_rates_fetched": "2026-06-01T00:00:00Z",
+        "long_context_models": [],
         "openrouter": {"data_region": "global", "models": {}},
     }
 
