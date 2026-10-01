@@ -112,6 +112,17 @@ def fee_notes(price: dict, where: str) -> list[str]:
     return notes
 
 
+def lists_a_fee(price: object) -> bool:
+    """Whether one listing prices a per-request fee. The log's five fields
+    carry no such cost and only the sampled append writes the fee note, so
+    a fee-carrying host must be sampled: a log-backed row would hold no
+    record of a cost the account really pays. The price itself is
+    validated by fee_notes on the path that reads it first."""
+    if not isinstance(price, dict):
+        return False
+    return any(key in price and not is_zero(price[key]) for key in RECORDED_FEES)
+
+
 def rates_of(price: dict, where: str) -> dict:
     """The five rates of one price. Cache writes take the listed write
     price when it is nonzero, the input rate otherwise; no listed cache-read
