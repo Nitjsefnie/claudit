@@ -33,6 +33,12 @@ before the setup block.
 Known CI blind spot, accepted for this pin: a docs-only push skips
 every ci-gate leg (the tests leg included), so the drift push itself
 stays green and the pin fires on the next code-touching run.
+
+Normalization boundary: each command's trailing ` # ...` inline
+comment is stripped, so a quoted or escaped ` #` literal inside a
+command line would be over-stripped -- none exists in any setup line
+today, and the strip applies identically to all three docs, so the
+equality test holds regardless.
 """
 from __future__ import annotations
 
