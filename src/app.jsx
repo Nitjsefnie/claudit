@@ -136,21 +136,6 @@ function txToDashData(tx) {
   return { events, limitHits, range: { start: start - pad, end: end + pad } };
 }
 
-// One-line what-changed for the live region, read off the ingest_done
-// payload (the run summary backend/ingest broadcasts). Shapes it cannot
-// read degrade to '' -- the announcement is then just "Data refreshed".
-function ingestChangeSummary(e) {
-  let s = null;
-  try { s = JSON.parse(e.data); } catch (_) { return ''; }
-  if (!s || typeof s !== 'object') return '';
-  const parts = [];
-  const n = (k, one, many) => { if (s[k] > 0) parts.push(`${s[k]} ${s[k] === 1 ? one : many}`); };
-  n('inserted', 'new file', 'new files');
-  n('reparsed', 'file updated', 'files updated');
-  n('deleted', 'file removed', 'files removed');
-  return parts.join(', ');
-}
-
 // One effect run owns one request (issue #179, #182): whichever
 // response landed LAST used to win, so a slow stale response could
 // overwrite a fresher one. mintRunSignal pairs the run's
@@ -382,7 +367,7 @@ function App() {
     if (!backendOn) return;
     const es = new EventSource('/api/events', { withCredentials: true });
     const onIngest = e => {
-      refreshRef.current = ingestChangeSummary(e);
+      refreshRef.current = window.ingestChangeSummary(e);
       setDashNonce(n => n + 1);
     };
     es.addEventListener('ingest_done', onIngest);
