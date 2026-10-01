@@ -13,6 +13,7 @@ import copy
 import importlib.util
 import json
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 from tests import git_meta
@@ -54,13 +55,35 @@ def _guard():
     return _load("thresholds_guard")
 
 
-def _document(baseline=None, suppression=None, suite=None):
+GAP = Decimal("1.5")
+
+
+def _reparse(shares=None):
+    """A synthetic reparse family: one record per bench phase.
+
+    Spelled as floats, like every other family in this module's
+    ``_document``: the guard tests serialise a base with plain
+    ``json.dumps`` (the base is trusted bytes that skip the loader), and
+    a Decimal there is not serialisable.
+    """
+    shares = shares or {}
+    return {
+        phase: {
+            "measured": float(shares.get(phase, "10.0")),
+            "floor": float(shares.get(phase, "10.0")) + float(GAP),
+        }
+        for phase in _thresholds().REPARSE_PHASES
+    }
+
+
+def _document(baseline=None, suppression=None, reparse=None, suite=None):
     return {
         "schema_version": 1,
         "coverage": {
             "python": {"measured": 92.6, "floor": 91.1},
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
+        "reparse_cpu": _reparse() if reparse is None else reparse,
         "module_size_baseline": baseline if baseline is not None else {},
         "pylint_suppression_baseline": (
             suppression if suppression is not None else {}),
@@ -164,7 +187,7 @@ def test_new_member_seeded_is_clean(tmp_path):
         suppression={"backend/ingest_fetch.py": 5})
     guard = _guard()
     base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps(base), encoding="utf-8")
+    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
     head_path = _written(tmp_path, head, "head.json")
     assert guard.main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
@@ -227,7 +250,7 @@ def test_removed_member_fails(tmp_path):
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
     head_path.write_text(
-        json.dumps(head, indent=2), encoding="utf-8")
+        json.dumps(head, indent=2, default=float), encoding="utf-8")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 1
 
@@ -295,6 +318,48 @@ def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base), encoding="utf-8")
     head_path = _written(tmp_path, _document(), "head.json")
+
+
+def test_reparse_phase_raised_fails(tmp_path):
+    # A reparse phase is a cost ceiling, so its ratchet only ever
+    # TIGHTENS: a record that moved up is a hand-raise of the budget,
+    # which buys headroom the maintainer's lever is meant to remove.
+    base = _document()
+    head = _document(reparse=_reparse({"sniff": "20.0"}))
+    assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_reparse_phase_tightened_is_clean(tmp_path):
+    # The bot's own direction for this family: a phase that got cheaper
+    # rewrites both its fields downward, and that move stays green.
+    base = _document()
+    head = _document(reparse=_reparse({"sniff": "4.0"}))
+    assert _guard_result(tmp_path, base, head) == 0
+
+
+def test_reparse_family_unchanged_is_clean(tmp_path):
+    base = _document()
+    assert _guard_result(tmp_path, base, _document()) == 0
+
+
+def test_reparse_phase_tighten_leaves_the_other_phases_alone(tmp_path):
+    # Phases are independent ceilings: tightening one is the bot's move,
+    # and it must not be able to carry another phase up or down with it.
+    base = _document()
+    head = _document(reparse=_reparse({"parse_body": "4.0"}))
+    assert _guard_result(tmp_path, base, head) == 0
+
+
+def test_reparse_family_seed_is_clean(tmp_path):
+    # The one-time seed: a base that predates the family carries no
+    # record, so the change that introduces one is not a move at all.
+    # The base's bytes are placed directly — the writer would refuse a
+    # document missing a required member.
+    base = _document()
+    base.pop("reparse_cpu")
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
+    head_path = _written(tmp_path, _document(reparse=_reparse()), "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
 
@@ -309,6 +374,35 @@ def test_suite_cost_added_to_established_base_fails(tmp_path):
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
     head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
+
+
+def test_reparse_family_seed_to_arbitrary_values_is_clean(tmp_path):
+    # The seed is the introducing PR's to choose, and this guard pins
+    # DIRECTION, not the truth of a seeded value (the committed-document
+    # tests do that): a seed far above any measurement is still legal
+    # here, exactly as a coverage seed is.
+    base = _document()
+    base.pop("reparse_cpu")
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
+    head_path = _written(
+        tmp_path,
+        _document(reparse=_reparse({"sniff": "60.0", "parse_body": "30.0"})),
+        "head.json")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 0
+
+
+def test_removed_reparse_member_fails(tmp_path):
+    # Deleting the family would leave the bench with no floors at all.
+    # The loader refuses such a head, so the bytes are hand-placed.
+    base = _document()
+    head = _document()
+    head.pop("reparse_cpu")
+    base_path = _written(tmp_path, base, "base.json")
+    head_path = tmp_path / "head.json"
+    head_path.write_text(json.dumps(head, indent=2, default=float),
+                         encoding="utf-8")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 1
 
@@ -335,3 +429,12 @@ def test_guard_rejects_a_decimal_spelled_head_record(tmp_path):
     base_path.write_text(json.dumps(base), encoding="utf-8")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 1
+
+
+def test_reparse_remedy_is_printed_for_a_reparse_move(tmp_path, capsys):
+    base = _document()
+    head = _document(reparse=_reparse({"sniff": "20.0"}))
+    assert _guard_result(tmp_path, base, head) == 1
+    err = capsys.readouterr().err
+    assert "reparse_cpu.sniff.measured" in err
+    assert "never raised by hand" in err
