@@ -61,6 +61,12 @@ async def lifespan(fastapi_app: FastAPI):
     db.apply_schema()
     db.schema_check()
     validate_bucket_config()
+    # Sweep the export tmp files a crashed process left behind (issue
+    # #441): the graceful reap (#363) runs at teardown only, which a
+    # SIGKILL bypasses. Aged past any live render's lifetime, so a live
+    # export in a tmp-sharing process is never touched. Runs before the
+    # scheduler books the startup ingest — the same startup pass.
+    api_export.sweep_stale_exports()
     events.set_loop(asyncio.get_running_loop())
 
     sched = BackgroundScheduler(daemon=True, timezone="UTC")
