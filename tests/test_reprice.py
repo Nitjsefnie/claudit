@@ -530,7 +530,7 @@ def test_reprice_phase_runs_between_suppression_and_canonical(monkeypatch):
               "rebuild_tool_rollup", "rebuild_tool_error_rollup",
               "rebuild_dispatch_rollup", "rebuild_dispatch_brief_rollup",
               "rebuild_latency_rollup", "rebuild_ctx_cost_rollup",
-              "rebuild_agent_rollup")
+              "rebuild_agent_rollup", "rebuild_web_metrics_rollup")
     for name in phases:
         monkeypatch.setattr(ingest, name, stub(name))
     ingest._rebuild_derived_state()  # pylint: disable=protected-access
