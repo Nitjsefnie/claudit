@@ -1,10 +1,8 @@
 name: tests
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which calls this workflow as a leg.
-  # workflow_call is the leg's entry; workflow_dispatch keeps a direct
-  # run possible.
+  # Trigger ownership moved to ci-gate.yml (issue #127): this file is
+  # called as a leg; workflow_dispatch keeps a direct run possible.
   workflow_call:
   workflow_dispatch:
 
@@ -17,8 +15,8 @@ concurrency:
   # ci-gate legs join this group under the caller's event: a
   # master-push leg occupies tests-refs/heads/master — ci-gate's
   # per-SHA push groups (issue #358) make this queue what serializes
-  # concurrent master runs and their ratchet pushes — and a
-  # pull-request leg cancels in progress. Dispatch queues by ref.
+  # master runs and their ratchet pushes — and PR legs cancel in
+  # progress. Dispatch queues by ref.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -28,10 +26,9 @@ jobs:
     timeout-minutes: 30
 
     permissions:
-      # The job reads contents for the suite and writes only the
-      # informational patch-coverage comment on a pull request (issue
-      # #129). The ratchet push moved to the ratchet-push job below,
-      # which takes the deploy key from the master-push environment.
+      # Reads contents for the suite; writes only the informational
+      # patch-coverage comment (issue #129). The ratchet push is the
+      # ratchet-push job below (deploy key, master-push environment).
       contents: read
       pull-requests: write
 
@@ -79,8 +76,12 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        # The exact micro the suite-cost seed was measured with: this
+        # job's bench step is the RECORD path feeding the tighten, and a
+        # floating alias drifting to a cheaper 3.13.x could tighten the
+        # ceilings below what the pinned gate interpreter measures.
         with:
-          python-version: "3.13"
+          python-version: "3.13.14"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         # The JavaScript coverage ratchet measures V8 block coverage, which
@@ -347,9 +348,9 @@ jobs:
 
       - name: Measure the suite cost
         # The bot's other input: one bench pass over the pinned fixture
-        # (the shared composite action). Master pushes only -- a pull
-        # request runs untrusted code, and the measurement feeds the
-        # tighten bot. The gate lives in speed.yml; this leg measures.
+        # (the shared composite action). Master pushes only -- the
+        # measurement feeds the tighten bot; the gate lives in
+        # speed.yml.
         id: suite_bench
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
@@ -412,9 +413,8 @@ jobs:
           fi
 
       - name: Stage the ratchet data
-        # The tested state: the measured thresholds file and the master
-        # tip it was measured on — the push job's base check compares
-        # that tip against master's now.
+        # The tested state: the measured file and the tip it was
+        # measured on — the push job's base check compares against it.
         if: steps.ratchet.outputs.changed == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/ratchet-data"
@@ -434,11 +434,10 @@ jobs:
     # The only job that loads the deploy key. No third-party or
     # upstream-derived code runs here before or while the key is loaded:
     # no repo checkout, no pip, no npm, no test suite, no
-    # upstream-response parsing; the download actions run before the key
-    # is loaded. The one script here, suite_ratchet.py --tighten, is a
-    # stdlib-only DATA operation over this master-push run's own
-    # measurement artifact and the fetched master's thresholds: no test
-    # code, never a raise.
+    # upstream-response parsing; the downloads run before the key is
+    # loaded. The one script here, suite_ratchet.py --tighten, is a
+    # stdlib-only DATA operation over this run's own measurement and
+    # the fetched master's thresholds: no test code, never a raise.
     needs: pytest
     if: needs.pytest.outputs.ratchet_changed == 'true' || needs.pytest.outputs.suite_measured == 'true'
     environment: master-push
@@ -467,9 +466,7 @@ jobs:
           REPO: ${{ github.repository }}
           SUITE_MEASURED: ${{ needs.pytest.outputs.suite_measured }}
         run: |
-          # Fail closed when the environment is missing its secret: with no key
-          # there is nothing to authenticate the push with, and the fallback must
-          # never be a token.
+          # Fail closed on an empty key: the fallback must never be a token.
           if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
             echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
             exit 1
@@ -480,25 +477,29 @@ jobs:
           trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
           ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
           mkdir -p ~/.ssh
-          # GitHub SSH host keys, published by GitHub's Meta endpoint:
-          # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+          # GitHub's published SSH host keys (its Meta endpoint).
           printf '%s\n' \
             'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
             'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
             >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
           remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
-          base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
-          fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
-          if [ "$fetched" != "$base" ]; then
-            echo "::notice::Master moved while this run measured; the next push raises instead"
-            {
-              echo "### Dropped: master moved while this run measured"
-              echo
-              echo "The measured base $base is no longer master's tip ($fetched);"
-              echo "this run's raise is dropped and the next master push raises instead."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          # Only a raise-worthy run staged the measured base; a
+          # suite-only run (the common admission) has no artifact and
+          # falls through to the push-time staleness detection below.
+          if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then
+            base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
+            fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
+            if [ "$fetched" != "$base" ]; then
+              echo "::notice::Master moved while this run measured; the next push raises instead"
+              {
+                echo "### Dropped: master moved while this run measured"
+                echo
+                echo "The measured base $base is no longer master's tip ($fetched);"
+                echo "this run's raise is dropped and the next master push raises instead."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
           fi
           git init -q "$RUNNER_TEMP/ratchet-repo"
           git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
@@ -508,9 +509,9 @@ jobs:
             cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
           fi
           if [ "$SUITE_MEASURED" = true ]; then
-            # The tighten is a downward-only data operation over the
-            # fetched master's committed thresholds and this run's own
-            # measurement; it writes nothing when nothing justifies it.
+            # Downward-only data operation over the fetched master's
+            # thresholds and this run's own measurement; writes nothing
+            # when nothing justifies it.
             python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
           fi
           git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
@@ -537,10 +538,9 @@ jobs:
 
   pytest-portable:
     # The suite minus every DB-touching test (tests/db_marker.py's
-    # mechanical split), run where no Postgres service exists: the full
+    # mechanical split), where no Postgres service exists: the full
     # suite, the coverage ratchet and the DB tests stay in the `pytest`
-    # job above; this job adds the platforms and Pythons that job
-    # cannot cover.
+    # job; this job adds the platforms and Pythons it cannot cover.
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -559,8 +559,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Same event rule as the Linux job (issue #126); the key carries
-      # the matrix's python-version.
+      # Same event rule as the Linux job (issue #126); key carries the
+      # matrix python-version.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

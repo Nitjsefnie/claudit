@@ -20,11 +20,14 @@ Two instruments:
 
 - ``InstructionCounter`` counts PYTHON BYTECODE instructions with
   ``sys.monitoring``'s INSTRUCTION events, which fire once per bytecode
-  the interpreter retires. A count is exact -- the same tree retires the
-  same number of bytecodes on a loaded machine and an idle one, and the
-  re-exec with ``PYTHONHASHSEED=0`` makes it hold by construction: set
-  iteration order is the one input left to hash order, and pytest walks
-  sets in several places.
+  the interpreter retires. A count is exact WITHIN one environment
+  state -- the same tree, interpreter, libraries and machine state
+  retire the same number of bytecodes on a loaded machine and an idle
+  one, and the re-exec with ``PYTHONHASHSEED=0`` holds set-iteration
+  order fixed, which is the one input left to hash order (pytest walks
+  sets in several places). Across states the counts wobble by an
+  observed +/-0.7M in ``run`` and +/-0.2M in ``residual`` (under half
+  the 1.5-unit gap; ``collection`` stable in every observation).
 - ``ProcessTimeSink`` accumulates ``time.process_time()`` per phase.
   It is the portable fallback when no ``sys.monitoring`` is available,
   and telemetry-only in every case: a CPU-time reading drifts with the
@@ -118,7 +121,15 @@ class InstructionCounter:
 
     @contextlib.contextmanager
     def window(self, key: str):
-        """Count every bytecode retired inside this block into ``key``."""
+        """Count every bytecode retired inside this block into ``key``.
+
+        A no-op when the counter never armed: an unusable instrument's
+        windows must not reach ``sys.monitoring`` with a tool id it
+        does not hold.
+        """
+        if not self.available:
+            yield
+            return
         self._stack.append(key)
         if len(self._stack) == 1:
             self._monitoring.set_events(TOOL_ID, self._event)

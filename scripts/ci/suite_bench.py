@@ -7,13 +7,22 @@ baseline release; a runner's speed varies by roughly a factor of two
 between jobs, so the ratio measured the runners as much as the code.
 This bench replaces that with a committed instruction-count ratchet:
 
-- A COUNT IS EXACT. ``sys.monitoring``'s INSTRUCTION event fires once
-  per bytecode the interpreter retires; the same tree retires the same
-  count on a loaded machine and an idle one. One pass over the pinned
-  fixture (``suite_bench_files.txt``), no statistics, no warm-up,
-  ``PYTHONHASHSEED=0`` by re-exec -- the run is deterministic by
-  construction, and the partition into collection / run / residual is
-  complete (suite_phases.partition refuses a negative residual).
+- A COUNT IS EXACT WITHIN ONE ENVIRONMENT STATE. ``sys.monitoring``'s
+  INSTRUCTION event fires once per bytecode the interpreter retires;
+  the same tree under the same interpreter, libraries and machine
+  state retires the same count on a loaded machine and an idle one.
+  One pass over the pinned fixture (``suite_bench_files.txt``), no
+  statistics, no warm-up, ``PYTHONHASHSEED=0`` by re-exec: repeated
+  runs in one state are identical (five-run probes, two seed values).
+  ACROSS states the counts wobble by an observed +/-0.7M in ``run``
+  and +/-0.2M in ``residual`` (under half the 1.5 gap; ``collection``
+  stable in every observation; the 0.7M spread appeared on identical
+  fixture bytes across a changed machine state). The gate reads the
+  committed file, so one gate's verdict is one state's reading, and
+  ``--check`` refuses a measurement not taken under
+  ``PYTHONHASHSEED=0``. The partition into collection / run /
+  residual is complete (suite_phases.partition refuses a negative
+  residual).
 - THE COMMITTED DOCUMENT IS THE BASELINE. No baseline-release checkout,
   no merge-base computation, no A/B pairing, no ratio: the budgets live
   in ``.github/ci-thresholds.json`` next to the coverage ratchets and
@@ -75,16 +84,23 @@ def read_fixture(path, repo_root) -> list:
     path outside the repo root is a setup error, not a measurement.
     """
     entries = []
+    root = Path(repo_root).resolve()
     for number, line in enumerate(
             Path(path).read_text(encoding='utf-8').splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith('#'):
             continue
-        target = (repo_root / stripped).resolve()
+        target = (root / stripped).resolve()
         if not target.is_file():
             raise ValueError(
                 f'{path}:{number}: {stripped} is not a file under '
                 f'{repo_root}')
+        try:
+            target.relative_to(root)
+        except ValueError:
+            raise ValueError(
+                f'{path}:{number}: {stripped} resolves outside '
+                f'{repo_root}') from None
         entries.append(target)
     if not entries:
         raise ValueError(f'{path}: the fixture list is empty')
@@ -99,6 +115,10 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
     attribute collection and run, and the residual is the divergence.
     """
     counter = suite_phases.InstructionCounter()
+    # Captured at entry: close() (the ExitStack's cleanup) marks the
+    # counter closed, and the counts read afterwards must not mistake
+    # our own cleanup for an instrument that was never there.
+    counting = counter.available
     sink = suite_phases.ProcessTimeSink()
     plugin = suite_phases.SuitePhasePlugin(counter, sink)
     args = [
@@ -107,7 +127,13 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
     ]
     cpu_start = time.process_time()
     with contextlib.ExitStack() as stack:
-        if counter.available:
+        if counting:
+            # Registered BEFORE the window: ExitStack unwinds in reverse
+            # entry order, so the window closes first (events off) and
+            # close() then frees the tool id -- an in-process caller is
+            # not left paying the INSTRUCTION tax for the rest of its
+            # life, and close() never touches a freed tool.
+            stack.callback(counter.close)
             stack.enter_context(counter.window('total'))
         code = pytest.main(args, plugins=[plugin])
     cpu_total = time.process_time() - cpu_start
@@ -120,7 +146,7 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
         _cpu(sink.phases['run']),
         tolerance=Decimal('0.001'))
     counts = None
-    if counter.available:
+    if counting:
         raw = suite_phases.partition(
             Decimal(counter.total),
             Decimal(counter.phases['collection']),
@@ -128,7 +154,7 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
         counts = {phase: (raw[phase] / suite_phases.SCALE).quantize(
             _QUANTUM) for phase in suite_phases.PHASES}
     return Measurement(
-        instrument=('instruction_count' if counter.available
+        instrument=('instruction_count' if counting
                     else 'process_time'),
         hash_seed=('0' if sys.flags.hash_randomization == 0
                    else 'randomized'),

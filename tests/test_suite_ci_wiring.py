@@ -297,3 +297,46 @@ def test_ratchet_push_commits_only_when_something_changed():
 def test_compare_durations_is_gone():
     assert not (ROOT / "scripts" / "ci" / "compare_durations.py").exists()
     assert not (ROOT / "tests" / "test_compare_durations.py").exists()
+
+
+def test_ratchet_data_reads_are_guarded_on_artifact_presence():
+    # A suite-only run (ratchet_changed=false, suite_measured=true) is
+    # the COMMON admission: the ratchet-data artifact was never
+    # uploaded, and the push step's default shell is `bash -e` — an
+    # unguarded `cat base.txt` aborts the step and the tighten never
+    # runs. Every read of the ratchet-data artifact must sit inside a
+    # presence guard, ordered before the read.
+    doc = _load("tests.yml")
+    job = _job(doc, "ratchet-push")
+    push = _find_step(job, 'suite_ratchet.py" --tighten')
+    lines = _run_lines(push)
+    guard = 'if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then'
+    guard_index = lines.index(guard)
+    cat_index = next(index for index, line in enumerate(lines)
+                     if 'cat "$RUNNER_TEMP/ratchet-data/base.txt"' in line)
+    assert guard_index < cat_index, (
+        "the ratchet-data read is not behind its presence guard")
+    # The guarded block is closed, and the tighten comes after it: the
+    # absence path degrades to the push-time staleness detection rather
+    # than dropping the run.
+    close_index = next(index for index, line in enumerate(lines)
+                       if index > cat_index and line == "fi")
+    tighten_index = lines.index(TIGHTEN_CMD)
+    assert close_index < tighten_index
+
+
+def test_both_bench_paths_pin_the_seed_interpreter():
+    # The budgets are exact instruction counts for ONE interpreter. The
+    # gate (speed.yml) and the record path (tests.yml's pytest job,
+    # whose measurement feeds the tighten) must run the same exact
+    # micro: a floating record-side alias that drifts to a cheaper
+    # 3.13.x lets the bot tighten ceilings below what the pinned gate
+    # interpreter measures -- a red gate with no legal raise.
+    for name, job_id in (("speed.yml", "speed"), ("tests.yml", "pytest")):
+        doc = _load(name)
+        job = _job(doc, job_id)
+        setups = [step for step in _steps(job)
+                  if (step.get("uses") or "").startswith(
+                      "actions/setup-python")]
+        assert len(setups) == 1, name
+        assert setups[0]["with"]["python-version"] == "3.13.14", name
