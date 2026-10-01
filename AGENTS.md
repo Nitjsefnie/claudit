@@ -48,6 +48,8 @@ backend/          — FastAPI application
                     top requests)
   api_sessions.py — /api/sessions*, transcript, sidecar
   api_export.py   — /api/export PNG render subprocess
+  api_web_metrics.py — POST /api/metrics beacon sink and GET
+                    /api/web-metrics p50/p75 readout
   constants.py    — Dependency-free shared constants; keeps the
                     api/ingest import graph acyclic
   turn_flags.py   — Events between two requests, folded onto the NEXT
@@ -132,6 +134,8 @@ backend/          — FastAPI application
                     resolution
   ingest_rollup_hourly.py — The seven hour-keyed rollup rebuilds
   ingest_rollup_latency.py — latency_rollup rebuilds
+  ingest_rollup_web_metrics.py — web_metrics_rollup rebuilds,
+                    over the beacon retention window
   ingest_rollups.py — Derived rebuilds in load-bearing order:
                     suppression, repricing, aliases, canonical flags,
                     teammate resolution, rollups. Re-exports only
@@ -161,7 +165,11 @@ backend/          — FastAPI application
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
                     READ-ONLY); pools never join across DBs
   cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
-  schema.sql      — Applied at every startup (SV-SCHEMA-AUTOAPPLY)
+  web_metrics.py  — The beacon sink's closed vocabulary and its
+                    write; the rollup grain's only writer
+  schema*.sql     — Applied at every startup as one script under
+                    one stamp, in db.SCHEMA_PATHS order
+                    (SV-SCHEMA-AUTOAPPLY)
 
 public/
   index.html      — Bootstraps React/Babel, loads /src/*; rewritten per
