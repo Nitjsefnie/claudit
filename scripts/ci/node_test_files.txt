@@ -16,6 +16,7 @@ tests/test_prompt_gate_whitespace.py
 tests/test_provider_rate_log_refresh.py
 tests/test_provider_rate_refresh.py
 tests/test_provider_rate_refresh_more.py
+tests/test_short_model_name.py
 tests/test_time_series_geometry.py
 tests/test_timeline_selection.py
 tests/test_transcript_fetch_error.py
