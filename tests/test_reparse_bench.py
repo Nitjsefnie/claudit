@@ -289,10 +289,40 @@ def test_residual_is_the_divergence_not_a_rounding():
     # The residual is everything the wrapped callables do not account
     # for. It is reported as its own phase rather than spread over the
     # others, so an unmeasured phase cannot hide inside a measured one.
+    #
+    # The claim is asserted in BYTECODES, not in process_time. A residual
+    # is a small SHARE of a pass, and Windows reads `GetProcessTimes` at
+    # roughly a 15.6 ms tick, so a phase this size quantises to 0.0 there
+    # even though the run's TOTAL resolves -- which is why
+    # `test_the_shape_pass_count_resolves_this_platform_clock` is green on
+    # the very runs where this assertion read `assert 0.0 > 0`. A clock
+    # floor is not evidence about the residual. Bytecodes are exact, so the
+    # claim is checked on every platform instead of skipped where the clock
+    # is coarse, and it is the same claim: the residual is real work the
+    # wrapped callables do not account for, and it is strictly less than
+    # the whole run.
     measurement = _short()
-    residual = measurement.phase_cpu_s["residual"]
-    assert residual > 0
-    assert measurement.phase_cpu_s["residual"] < measurement.cpu_s
+    assert "residual" in measurement.phase_cpu_s, (
+        "the residual phase is not instrumented at all")
+
+    counts = phases.measure_counts(bench.corpus(), bench.run_pass,
+                                   passes=phases.COUNT_PASSES)
+    assert counts.phase_bytecodes["residual"] > 0, (
+        "the residual phase retired no bytecodes: it is not the divergence "
+        "but the rounding the wrapped callables leave behind")
+    assert counts.phase_bytecodes["residual"] < counts.total_bytecodes, (
+        "the residual accounts for every bytecode of the run, so nothing "
+        "is left unmeasured")
+
+    # And the currency is one that CAN read zero, or the two assertions
+    # above would hold for any wiring at all. The committed mirror carries
+    # no sidecar, so that phase is instrumented and never reached -- the
+    # same shape as a residual that is not really measured, and the
+    # instrument reports it as exactly zero.
+    assert counts.phase_bytecodes["sidecar"] == 0, (
+        "the sidecar phase is expected to be unreached on this corpus; if it "
+        "now reads non-zero the fixture grew a meta.json and this "
+        "demonstration that the currency can read zero needs a new one")
 
 
 def test_sidecar_phase_is_measured_when_a_sidecar_exists():
