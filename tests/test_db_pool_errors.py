@@ -69,6 +69,26 @@ def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
 
 
 @pytest.mark.db
+def test_auth_pool_failure_on_an_unreachable_server_names_the_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #463's title mechanism: a server that cannot be dialled at
+    all fails the same way — the driver's dial error chained, with
+    DATABASE_URL_AUTH named — not a bare PoolTimeout that names
+    neither the env var nor the database."""
+    monkeypatch.setenv(
+        "DATABASE_URL_AUTH", "postgresql://postgres@127.0.0.1:1/nowhere")
+    db.reset_auth_pool()
+    try:
+        with pytest.raises(RuntimeError) as excinfo:
+            db.auth_pool()
+        assert "DATABASE_URL_AUTH" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
+    finally:
+        db.reset_auth_pool()
+
+
+@pytest.mark.db
 def test_auth_pool_rejects_a_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """Issue #460: the auth pool's connections are read-only at the
     server, so a write reaching the auth DB fails loudly instead of
