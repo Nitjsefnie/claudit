@@ -58,6 +58,10 @@ def _document(baseline=None):
                 "floor": 48.5,
             },
         },
+        "reparse_cpu": {
+            phase: {"measured": 10.0, "floor": 11.5}
+            for phase in _load("thresholds").REPARSE_PHASES
+        },
         "module_size_baseline": baseline or {},
         "pylint_suppression_baseline": {},
         "suite_cost": {

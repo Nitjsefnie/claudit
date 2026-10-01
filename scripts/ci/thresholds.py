@@ -22,15 +22,24 @@ _SCHEMA_VERSION = 1
 # over backend/, javascript from the node-executing tests over the src
 # files they load (src/**/*.js; node parses no JSX).
 COVERAGE_LANGUAGES = ('python', 'javascript')
-# The unit the reparse bench records (scripts/ci/reparse_bench.py) and
-# how many transcripts it divides by to reach it. The per-file cost of
-# the fixed fixture corpus is tens of microseconds, so a 1.5-unit gap
-# would be many times the whole value; recording CPU milliseconds per
-# 100 transcripts keeps the SHARED 1.5 yardstick a fraction of the
-# measurement instead of a multiple of it. The name is the document's
-# vocabulary: it says what a stored number means to whoever reads it.
-REPARSE_UNIT = 'cpu_ms_per_100_files'
-REPARSE_FILES_PER_UNIT = 100
+# The unit the reparse bench records (scripts/ci/reparse_bench.py): each
+# phase's share of one reparse pass's own CPU work, in percent. A share
+# rather than an absolute cost because a ratio inside one run does not
+# drift with the machine or the co-tenant load the way an absolute
+# total does — see the docstring of _reparse for the rest.
+REPARSE_UNIT = 'percent_of_pass_cpu'
+# The reparse bench's calibration: a required member, like a coverage
+# language, because a document without one leaves the bench's gate step
+# with nothing to check the measurement against. Unlike coverage, each
+# of its records is a phase's SHARE of a reparse pass's own CPU — a
+# cost, not a quality — so its ratchet only ever TIGHTENS (both fields
+# move down) and its gap sits above the measured value rather than
+# below; see _reparse.
+REPARSE_FAMILY = 'reparse_cpu'
+# The phases the reparse bench splits a pass into — the same names it
+# instruments (scripts/ci/reparse_bench.py reads them from here, so the
+# document and the measurement cannot disagree about what a phase is).
+REPARSE_PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # Every only-shrinks baseline member: recorded numbers never rise and
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
@@ -45,7 +54,8 @@ SUITE_COST_FAMILY = 'suite_cost'
 SUITE_COST_PHASES = ('collection', 'run', 'residual')
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
-_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', SUITE_COST_FAMILY,
+_TOP_LEVEL_FIELDS = ('schema_version', 'coverage',
+                     REPARSE_FAMILY, SUITE_COST_FAMILY,
                      *BASELINE_MEMBERS)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
@@ -54,6 +64,11 @@ _FIELD_LABELS = {
     SUITE_COST_FAMILY: 'suite cost phase: {field}',
     **{f'{SUITE_COST_FAMILY}.{phase}': f'suite cost {phase}: {{field}}'
        for phase in SUITE_COST_PHASES},
+    REPARSE_FAMILY: 'reparse CPU phase: {field}',
+    # A label per phase, so a refusal inside one phase's record names
+    # the phase rather than a bare field.
+    **{f'{REPARSE_FAMILY}.{phase}': f'reparse CPU {phase}: {{field}}'
+       for phase in REPARSE_PHASES},
 }
 _INVALID_PATH_CHARS = set('<>:"|?*')
 _DEVICE_NAMES = {
@@ -144,6 +159,18 @@ def instruction_value(value, name):
     return result
 
 
+def share_value(value, name):
+    """A reparse-bench share: a percent of the pass's own CPU.
+
+    The same shape and bounds as a coverage value — a bounded
+    percentage carrying exactly one decimal place, which is what the
+    bench prints and the ratchet writes — read as a share of the run
+    rather than of a corpus. Zero is a real reading (a phase this
+    corpus never reaches, like the sidecar step), not an absence.
+    """
+    return coverage_value(value, name)
+
+
 def _path_component_safe(component):
     safe = bool(component) and component not in ('.', '..')
     safe = safe and component.rstrip(' .') == component
@@ -207,6 +234,7 @@ def normalise(data):
     normalised = {
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
+        REPARSE_FAMILY: _reparse(data[REPARSE_FAMILY]),
         SUITE_COST_FAMILY: _suite_cost(data[SUITE_COST_FAMILY]),
     }
     for member in BASELINE_MEMBERS:
@@ -241,6 +269,35 @@ def _suite_cost(family):
             'measured': measured,
             'floor': floor,
         }
+    return normalised
+
+
+def _reparse(family):
+    """Validate the reparse bench's per-phase calibrations.
+
+    One record per phase of the pass, each a percent SHARE of that run's
+    own CPU. The gap sits ABOVE the measured value here, the mirror of
+    the coverage family, because a share is a cost and not a quality: a
+    run passes while its share stays at or below the recorded floor, so
+    the floor is the ceiling the recorded share may be exceeded by.
+    Writing it the coverage way round (floor = measured - gap) would put
+    the ceiling BELOW the measurement that recorded it, and every later
+    run at that measurement would fail a gate no change could satisfy.
+    Same fixed 1.5 yardstick, same recorded meaning.
+    """
+    _required_fields(family, REPARSE_PHASES, REPARSE_FAMILY)
+    normalised = {}
+    for phase in REPARSE_PHASES:
+        record = family[phase]
+        prefix = f'{REPARSE_FAMILY}.{phase}'
+        _required_fields(record, _COVERAGE_FIELDS, prefix)
+        measured = share_value(record['measured'], f'{prefix}.measured')
+        floor = share_value(record['floor'], f'{prefix}.floor')
+        if floor <= measured:
+            raise ValueError(f'{prefix}.floor must be above measured')
+        if floor - measured != CALIBRATION_GAP:
+            raise ValueError(f'{prefix} calibration gap must be 1.5')
+        normalised[phase] = {'measured': measured, 'floor': floor}
     return normalised
 
 
@@ -282,6 +339,11 @@ def suite_cost(data):
 
 def module_size_baseline(data):
     return dict(normalise(data)['module_size_baseline'])
+
+
+def reparse_cpu(data):
+    """The reparse bench's per-phase records, keyed by phase name."""
+    return dict(normalise(data)[REPARSE_FAMILY])
 
 
 def _json_ready(value):
@@ -360,6 +422,10 @@ def _parser():
                        help='print one language floor')
     modes.add_argument('--coverage-measured', choices=COVERAGE_LANGUAGES,
                        help='print one language measured value')
+    modes.add_argument('--reparse-floor', choices=REPARSE_PHASES,
+                       help='print one reparse phase floor')
+    modes.add_argument('--reparse-measured', choices=REPARSE_PHASES,
+                       help='print one reparse phase measured value')
     parser.add_argument('--thresholds', type=Path, default=THRESHOLDS)
     return parser
 
@@ -374,6 +440,10 @@ def main(argv=None):
         elif args.coverage_measured:
             measured, _floor = coverage(data, args.coverage_measured)
             print(f'{measured:.1f}')
+        elif args.reparse_floor:
+            print(f'{reparse_cpu(data)[args.reparse_floor]["floor"]:.1f}')
+        elif args.reparse_measured:
+            print(f'{reparse_cpu(data)[args.reparse_measured]["measured"]:.1f}')
         else:
             print('thresholds valid')
     except (OSError, ValueError) as error:

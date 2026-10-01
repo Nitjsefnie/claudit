@@ -34,6 +34,24 @@
     "backend/ingest_fetch.py": 5,
     "backend/ingest_reprice.py": 1
   },
+  "reparse_cpu": {
+    "parse_body": {
+      "floor": 87.4,
+      "measured": 85.9
+    },
+    "residual": {
+      "floor": 7.1,
+      "measured": 5.6
+    },
+    "sidecar": {
+      "floor": 1.5,
+      "measured": 0.0
+    },
+    "sniff": {
+      "floor": 12.8,
+      "measured": 11.3
+    }
+  },
   "schema_version": 1,
   "suite_cost": {
     "collection": {
