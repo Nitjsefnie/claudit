@@ -495,7 +495,7 @@ const LANE_CODEX_FAILURE_HEADS = ['Script failed', 'collab spawn failed'];
 function laneCodexModel(raw) {
   const lowered = String(raw || '').trim().toLowerCase();
   if (!lowered) return 'unknown';
-  return lowered.replace(/^gpt(?=[\d.])/, 'gpt-');
+  return lowered.replace(/^gpt(?=[0-9.])/, 'gpt-');
 }
 
 // Flatten a *_call_output payload into one string (backend _codex_output_text).
