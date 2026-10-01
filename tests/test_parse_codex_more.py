@@ -25,11 +25,11 @@ def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
     blob = _with_cache_write("rollout_fork_prefix.jsonl", written)
     rec = parse.parse_file("codex/cache_write.jsonl", blob)["records"][-1]
     plain = _parse("rollout_fork_prefix.jsonl")["records"][-1]
-    # Same prompt, but half its uncached part written to cache at 1.25x
-    # instead of billed as fresh input at 1x — so it costs strictly MORE.
-    assert rec["cost_usd"] > plain["cost_usd"]
-    # The fixture declares no model, so it bills at the `unknown` fallback's
-    # (default, estimated) rates.
+    # Same prompt, but half its uncached part written to cache at the row's
+    # create_1h rate instead of billed as fresh input. The SIGNED delta
+    # names the rate it took, whatever the row's ratios: strictly more at
+    # list price (create_1h is 1.25x fresh there), but the perturbed-data
+    # leg scales fields independently, so the sign itself is not the pin.
     rates = pricing.rate_for(_codex_model(None), rec["ts"])
     expected_delta = written * (rates["create_1h"] - rates["fresh"]) / 1_000_000
     assert rec["cost_usd"] - plain["cost_usd"] == pytest.approx(
