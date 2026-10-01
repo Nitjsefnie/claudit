@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from refresh_prices import RefreshError, rates_of, tag_region
+from refresh_prices import (RECORDED_FEES, RefreshError, is_zero, rates_of,
+                            tag_region)
 from backend import pricing as rate_pricing
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -369,6 +370,19 @@ def _has_endpoint_schedule(endpoint: dict) -> bool:
     return isinstance(pricing, dict) and bool(pricing.get("overrides"))
 
 
+def _has_endpoint_fee(endpoint: dict) -> bool:
+    """Whether one listed endpoint prices a per-request fee. The log's five
+    fields carry no such cost, and the fee note is written by the sampled
+    append path alone, so a fee-carrying host must be sampled: a log-backed
+    row would hold no record of a cost the account really pays. The price
+    itself is already validated by the time a host reaches this join."""
+    pricing = endpoint.get("pricing")
+    if not isinstance(pricing, dict):
+        return False
+    return any(key in pricing and not is_zero(pricing[key])
+               for key in RECORDED_FEES)
+
+
 def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
                   series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
                   resolutions: dict) -> tuple[HostSelection | None, str | None]:
@@ -381,6 +395,8 @@ def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set
         reason = "host endpoints use more than one tag prefix"
     elif not prefix or prefix_owners.get(prefix) != {host}:
         reason = "tag prefix is shared by another host"
+    elif any(_has_endpoint_fee(endpoint) for endpoint in endpoints):
+        reason = "endpoint lists a per-request fee the price log cannot carry"
     elif any(_has_endpoint_schedule(endpoint) for endpoint in endpoints):
         reason = "endpoint has a pricing schedule"
     else:

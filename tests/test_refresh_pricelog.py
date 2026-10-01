@@ -65,7 +65,8 @@ def _rates(fresh: float, output: float, read: float = 0,
             "read": read, "output": output}
 
 
-def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False) -> dict:
+def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False,
+              fee: str | None = None) -> dict:
     pricing = {
         "prompt": _per_token(rates["fresh"]),
         "completion": _per_token(rates["output"]),
@@ -74,6 +75,8 @@ def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False) -> d
     }
     if rates["create_5m"] != rates["fresh"]:
         pricing["input_cache_write"] = _per_token(rates["create_5m"])
+    if fee is not None:
+        pricing["web_search"] = fee
     if scheduled:
         pricing["overrides"] = [{"utc_days": ["monday"]}]
     return {"provider_name": host, "tag": tag, "pricing": pricing}
@@ -228,6 +231,29 @@ def test_region_filter_selects_one_of_two_distinct_endpoint_histories():
 
     assert match["Wafer"].entries is not None
     assert match["Wafer"].entries[0]["fresh"] == 0.3
+
+
+def test_a_host_listing_a_recorded_fee_is_sampled_not_log_backed():
+    """The fee note is written by the sampled append path only. A host that
+    listed a per-request fee and was log-backed anyway would carry no note
+    at all — the silent drop the recorded-fee rule exists to prevent, on
+    the other append path. So a fee routes the host to sampling, where the
+    note is written, exactly as a split 1h tier already does.
+    """
+    rates = _rates(0.3, 0.8, 0.01)
+    match = _joined([_endpoint("Wafer", "wafer/fp8", rates, fee="0.01")],
+                    [_series(rates=rates)])
+
+    assert match["Wafer"].entries is None
+    assert "fee" in match["Wafer"].reason
+
+
+def test_a_free_fee_leaves_the_host_log_backed():
+    rates = _rates(0.3, 0.8, 0.01)
+    match = _joined([_endpoint("Wafer", "wafer/fp8", rates, fee="0")],
+                    [_series(rates=rates)])
+
+    assert match["Wafer"].entries is not None
 
 
 def test_two_endpoints_at_the_same_price_are_sampled_as_ambiguous():
