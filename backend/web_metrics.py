@@ -125,6 +125,31 @@ def _term(raw: dict, field: str) -> str:
     return value
 
 
+def _check_tags(metric: str, region: str, phase: str) -> None:
+    """Whether the region/phase a beacon carries belong to its metric.
+
+    A journey names itself and carries neither; a layout shift is attributed
+    to a region and to a phase; a long task is a phase with no region. The
+    rule is per metric rather than per term because the interesting failures
+    are the mismatched ones — a shift with no region, or a journey carrying
+    both — and a flat "is this term known" check would pass every one of them.
+    """
+    if metric in JOURNEYS:
+        if region or phase:
+            raise BeaconError(f"metric {metric!r} carries no region or phase")
+        return
+    if metric == "layout_shift":
+        if not region:
+            raise BeaconError("layout_shift requires a region")
+        if not phase:
+            raise BeaconError("layout_shift requires a phase")
+        return
+    if region:
+        raise BeaconError("longtask carries no region")
+    if not phase:
+        raise BeaconError("longtask requires a phase")
+
+
 def normalise(raw: object) -> tuple[str, str, str, str, float]:
     """`(metric, part, region, phase, value)` for one beacon, or refuse.
 
@@ -147,19 +172,7 @@ def normalise(raw: object) -> tuple[str, str, str, str, float]:
         raise BeaconError(f"unknown region: {region!r}")
     if phase and phase not in PHASES:
         raise BeaconError(f"unknown phase: {phase!r}")
-    if metric in JOURNEYS:
-        if region or phase:
-            raise BeaconError(f"metric {metric!r} carries no region or phase")
-    elif metric == "layout_shift" and not region:
-        raise BeaconError("layout_shift requires a region")
-    elif metric == "longtask":
-        if region:
-            raise BeaconError("longtask carries no region")
-        if not phase:
-            raise BeaconError("longtask requires a phase")
-    # A shift with no phase, or one tagged with the journey's absent fields,
-    # would be a row nothing can attribute; the pairs above already refuse the
-    # shapes that are meaningless.
+    _check_tags(metric, region, phase)
 
     value = raw.get("value")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
