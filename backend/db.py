@@ -14,7 +14,7 @@ import hashlib
 import logging
 import os
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import LiteralString, cast
 
@@ -54,11 +54,43 @@ def sql_text(query: str) -> LiteralString:
     return cast(LiteralString, query)
 
 
+def _probe_first_connection(dsn: str, env_var: str, label: str) -> None:
+    """Connect once, synchronously, before a pool opens (issue #449).
+
+    The pool starts its connection workers in the background: a DSN the
+    server rejects (wrong password, missing database) fails only inside
+    those workers, which log it on the psycopg pool logger at most, while
+    the first client sees a bare PoolTimeout with the cause suppressed
+    (`raise ... from None` in getconn). First boot then fails on a
+    timeout that names neither the database nor the reason.
+
+    One bounded direct connection surfaces the driver's diagnostics: on
+    failure the server's FATAL (or the dial error) reaches the log and
+    the boot abort chained to a RuntimeError naming the env var whose
+    DSN to check — the SV-SCHEMA-FAIL-FAST shape. On success the
+    connection is discarded; the pool's own workers fill from there.
+    """
+    try:
+        with closing(psycopg.connect(dsn, connect_timeout=5)):
+            pass
+    except Exception as exc:
+        log.error(
+            "the %s pool could not make its first connection: %s — "
+            "check %s (host, port, database name, credentials)",
+            label, exc, env_var)
+        raise RuntimeError(
+            f"the {label} pool could not make its first connection: {exc}"
+            f" — check {env_var} (host, port, database name, credentials)"
+        ) from exc
+
+
 def viz_pool() -> ConnectionPool:
     global _VIZ
     if _VIZ is None:
+        dsn = os.environ["DATABASE_URL_VIZ"]
+        _probe_first_connection(dsn, "DATABASE_URL_VIZ", "viz")
         _VIZ = ConnectionPool(
-            os.environ["DATABASE_URL_VIZ"],
+            dsn,
             # The read endpoints are sync (blocking psycopg) and run on
             # FastAPI's threadpool, so requests now hit the DB genuinely
             # concurrently — a single dashboard load fans out to ~7. While
@@ -90,8 +122,10 @@ def reset_viz_pool() -> None:
 def auth_pool() -> ConnectionPool:
     global _AUTH
     if _AUTH is None:
+        dsn = os.environ["DATABASE_URL_AUTH"]
+        _probe_first_connection(dsn, "DATABASE_URL_AUTH", "auth")
         _AUTH = ConnectionPool(
-            os.environ["DATABASE_URL_AUTH"],
+            dsn,
             min_size=1, max_size=4, timeout=10,
             kwargs={"autocommit": True},
             check=ConnectionPool.check_connection,

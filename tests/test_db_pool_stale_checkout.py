@@ -108,6 +108,12 @@ def test_pool_replaces_connection_terminated_while_idle(
     # factories read the DSN out of the environment.
     monkeypatch.setenv(dsn_env, "postgresql:///pool-checkout-test")
     monkeypatch.setattr(db, "ConnectionPool", _fake_pool_class(server))
+    # The first-connection probe (issue #449) must not dial a real server
+    # either — this test opens no socket, so the probe gets a throwaway
+    # connection from the same fake world.
+    monkeypatch.setattr(
+        db.psycopg, "connect",
+        lambda *args, **kwargs: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(db, cache_attr, None)
 
     pool = pool_factory()
