@@ -45,6 +45,7 @@ def _bad_pool_env(
     db.reset_auth_pool()
 
 
+@pytest.mark.db
 def test_viz_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     with pytest.raises(RuntimeError) as excinfo:
         db.viz_pool()
@@ -57,6 +58,7 @@ def test_viz_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
 
 
+@pytest.mark.db
 def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     with pytest.raises(RuntimeError) as excinfo:
         db.auth_pool()
@@ -66,6 +68,7 @@ def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
 
 
+@pytest.mark.db
 def test_auth_pool_rejects_a_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """Issue #460: the auth pool's connections are read-only at the
     server, so a write reaching the auth DB fails loudly instead of
