@@ -82,17 +82,31 @@ def web_metrics_readout(
 ) -> dict:
     """Journey timings and observed blocking, as percentiles.
 
-    `range` picks the display bucket exactly as every other panel does, and a
-    width the rollup does not store takes a live pass — `latency_rollup`
-    leaves 300 out for the same reason, and this endpoint falls back the same
-    way.
+    `range` picks the display bucket exactly as every other panel does, and
+    the pass is chosen by what that bucket width affords. The rule is the one
+    the performance field guide states for precomputed percentiles:
+    computing the percentile once per stored bucket width is exact, but
+    COMBINING several buckets' percentiles into one range figure is not. So a
+    stored width is served from the rollup and flagged `exact: false`, and
+    every other width is served from the raw beacons and flagged exact.
+
+    In practice that makes the live pass the default, and not by accident:
+    every range the retention window can cover folds to a width finer than an
+    hour, which the rollup does not store, because `_bucket_seconds` only
+    reaches 3600 at a span of 100 hours or more. The raw table is small — a
+    few rows per page view — for exactly as long as it is kept.
+
+    The live pass clamps its window to the retention cutoff and reports the
+    window it really read in `since`, so a hand-typed range the rollup cannot
+    serve and the prune has already eaten cannot answer with a shorter
+    history under a longer label. The panel reads `since` and shows it.
     """
     delta = _parse_range(rng)
-    since, bucket_s = (datetime.now(timezone.utc) - delta,
-                       _bucket_seconds(delta))
-    compute = (_series_from_rollup if bucket_s in LATENCY_BUCKETS
-               else _series_live)
-    return compute(rng, bucket_s, since)
+    now = datetime.now(timezone.utc)
+    since, bucket_s = now - delta, _bucket_seconds(delta)
+    if bucket_s in LATENCY_BUCKETS:
+        return _series_from_rollup(rng, bucket_s, since)
+    return _series_live(rng, bucket_s, since, now)
 
 
 def _row(ts, metric, part, region, phase, n, p50, p75, total) -> dict:
@@ -137,17 +151,19 @@ def _pool(rows: Iterable) -> list[dict]:
 
 
 def _assemble(rng: str, bucket_s: int, bucket_rows: list, series_rows: list,
-              exact: bool) -> dict:
+              exact: bool, since: datetime) -> dict:
     """The response body: per-bucket rows and the range-level readout.
 
     `exact` says whether `series` holds true percentiles of the whole range
     (the live pass) or an n-weighted blend of per-bucket ones (the rollup
     pass). It is in the payload rather than only in this module's docstrings
     because a consumer that cannot tell them apart would be drawing an
-    approximation as if it were a measurement.
+    approximation as if it were a measurement. `since` is the window the
+    answer was actually read over, which is not always the window asked for.
     """
     return {
         "range": rng, "bucket_s": bucket_s, "exact": exact,
+        "since": _iso(since),
         # `series_rows` carries the same columns as `bucket_rows` with a
         # NULL bucket on the live pass, so both go through one shape.
         "series": _pool(row[1:] for row in series_rows),
@@ -164,7 +180,8 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
     Percentiles cannot be summed across buckets, so unlike the other rollups
     this one is precomputed PER display-bucket width — the widths are
     epoch-aligned and there are only a handful (`constants.LATENCY_BUCKETS`).
-    A range filter then just selects buckets.
+    A range filter then just selects buckets. The pooling is the one
+    approximation in this module, and `exact` says so in the payload.
     """
     with db.viz_conn() as conn:
         rows = conn.execute(
@@ -177,17 +194,22 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
                     * {bucket_s} + {bucket_s} / 2.0)
             ORDER BY bucket, metric, part, region, phase
             """), (bucket_s, since)).fetchall()
-    return _assemble(rng, bucket_s, rows, rows, exact=False)
+    return _assemble(rng, bucket_s, rows, rows, False, since)
 
 
-def _series_live(rng: str, bucket_s: int, since: datetime) -> dict:
-    """Exact percentiles straight off the retained beacons.
+def _series_live(rng: str, bucket_s: int, since: datetime,
+                 now: datetime) -> dict:
+    """Exact percentiles straight off the beacons, over the window that has them.
 
-    Only reachable for a width the rollup does not store — the 24h view's
-    5-minute buckets, which the API folds finer still. Reads the raw table,
-    so the population is bounded by the retention window rather than by the
-    range, which is exactly why this is the fallback and not the default.
+    The window is clamped to the retention cutoff, because the raw table is
+    pruned to it and a wider `since` would silently answer with a shorter
+    history than the caller asked for. The clamped instant goes back in the
+    payload so the panel can say what it is showing.
+
+    This is the DEFAULT pass, not the fallback: it is exact, and the raw
+    table is small (a few rows per page view) for as long as it is retained.
     """
+    window = max(since, web_metrics.retention_cutoff(now))
     with db.viz_conn() as conn:
         buckets = conn.execute(
             db.sql_text(f"""
@@ -205,7 +227,7 @@ def _series_live(rng: str, bucket_s: int, since: datetime) -> dict:
                    SUM(value) AS total
               FROM src GROUP BY 1, 2, 3, 4, 5
              ORDER BY bucket, metric, part, region, phase
-            """), (since,)).fetchall()
+            """), (window,)).fetchall()
         series = conn.execute(
             db.sql_text("""
             SELECT NULL::timestamptz, metric, part, region, phase,
@@ -216,5 +238,5 @@ def _series_live(rng: str, bucket_s: int, since: datetime) -> dict:
               FROM web_metrics WHERE ts >= %s
              GROUP BY 2, 3, 4, 5
              ORDER BY metric, part, region, phase
-            """), (since,)).fetchall()
-    return _assemble(rng, bucket_s, buckets, series, exact=True)
+            """), (window,)).fetchall()
+    return _assemble(rng, bucket_s, buckets, series, True, window)
