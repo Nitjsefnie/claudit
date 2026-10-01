@@ -27,6 +27,7 @@ CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
 CGV = ROOT / "src" / "context-growth-view.jsx"
 APP = ROOT / "src" / "app.jsx"
+EVENT_HELPERS = ROOT / "src" / "event-helpers.jsx"
 
 _SVG_FILES = (CHARTS, EXTRA, CGV)
 
@@ -364,7 +365,7 @@ def test_live_region_announces_only_after_the_refetch_lands():
     sse_dep = "}, [backendOn]);"
     sse_end = src.index(sse_dep, j) + len(sse_dep)
     sse = src[sse_start:sse_end]
-    assert "refreshRef.current = ingestChangeSummary(e)" in sse, (
+    assert "refreshRef.current = window.ingestChangeSummary(e)" in sse, (
         "the SSE handler must record the pending what-changed line")
     assert "setDashNonce(n => n + 1)" in sse
     assert "setRefreshMsg" not in sse, (
@@ -383,14 +384,19 @@ def test_live_region_announces_only_after_the_refetch_lands():
 def test_ingest_change_summary_degrades_on_unknown_payloads():
     """The payload is JSON the backend owns, but the reader must not
     throw on a shape it cannot read: the announcement then carries no
-    what-changed line instead of crashing the SSE handler.
+    what-changed line instead of crashing the SSE handler. The helper
+    lives in event-helpers.jsx (moved out of app.jsx for the size
+    ratchet, PR 457); app.jsx reaches it through window.
     """
-    src = APP.read_text(encoding="utf-8")
+    src = EVENT_HELPERS.read_text(encoding="utf-8")
     m = re.search(r"function ingestChangeSummary\(e\) \{(.*?)\n\}", src, re.S)
-    assert m, "the ingestChangeSummary helper is missing from app.jsx"
+    assert m, "the ingestChangeSummary helper is missing from event-helpers.jsx"
     body = m.group(1)
     assert "try {" in body and "catch" in body
     assert "inserted" in body and "reparsed" in body and "deleted" in body
+    assert "window.ingestChangeSummary" in APP.read_text(encoding="utf-8"), (
+        "app.jsx must reach the helper through window -- the function is "
+        "defined in event-helpers.jsx's script scope, not app.jsx's")
 
 
 def test_sr_only_hides_visually_but_not_from_readers():
