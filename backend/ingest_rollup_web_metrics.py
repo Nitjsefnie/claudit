@@ -48,10 +48,14 @@ column that composes, and it is what the layout-shift and long-task readouts
 need: a cumulative layout shift is a sum of shift values, not a percentile of
 them.
 
-The newest `RAW_KEEP_S` of data is deliberately ABSENT from the rollup. That is
-not a gap: `/api/web-metrics` serves it from the raw table, exactly, and says
-so in its `exact` flag. The rollup is what answers a range longer than the
-retention horizon, and for that it only ever holds complete buckets.
+What this pass does NOT hold is the newest beacons: a bucket closes only
+once its span has passed, so everything since the last fold is in the raw
+table and in no bucket yet. That is not a gap either — `/api/web-metrics`
+unions the raw tail back in — but the union is a BLEND of a stored bucket's
+percentile with a live one over a different population, so it is reported
+with `exact: false` and the panel says so on its face. A range the raw working
+set covers outright is served from the raw table alone and IS exact. Both
+facts are the reader's, in `backend/api_web_metrics.py`.
 """
 from __future__ import annotations
 
