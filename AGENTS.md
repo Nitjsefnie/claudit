@@ -333,7 +333,7 @@ tell you nothing; only the tip matters.
 **A branch without a PR is checked by dispatch:**
 `gh workflow run ci-gate.yml --ref <branch>`.
 
-**Nineteen workflows; `ci-gate.yml` owns the push/PR surface** and folds
+**Twenty workflows; `ci-gate.yml` owns the push/PR surface** and folds
 ten gate legs into **`ci gate / aggregate`**. Documentation-only changes
 (`*.md`, `PRESENTATION.txt`, `examples/`, `.claude/`, licences) skip the
 expensive legs by classification and still pass. The per-workflow table
@@ -347,10 +347,16 @@ runs in a key-only job that receives the tested data as an artifact,
 runs no test/dependency/upstream code, and stops its ssh-agent after
 the push. Deploy-key pushes start workflows, so the hourly pricing
 commit gets a real aggregate verdict on master's tip. The ratchet
-push (tests.yml's `ratchet-push` job) instead pushes with the job's
-own `GITHUB_TOKEN` — an environment's secret resolves empty inside a
-`workflow_call` callee (issue #479) — and a `GITHUB_TOKEN` push starts
-no runs, so the ratchet commit is silent by construction.
+push lives in `ratchet-push.yml`, a top-level `workflow_run` workflow
+keyed on the ci-gate run's completion — an environment's secret
+resolves empty inside a `workflow_call` callee, and a `GITHUB_TOKEN`
+push is rejected by the ruleset's required `aggregate` check (issue
+#479) — so its job takes the deploy key from the `master-push`
+environment, lists the triggering run's artifacts, downloads the
+measured thresholds and the suite measurement when present, and
+pushes only from a green master run that staged some. A
+`.github/ci-thresholds.json`-only commit stays silent in ci-gate by
+its paths-ignore.
 
 Run these locally before pushing — CI is the backstop:
 

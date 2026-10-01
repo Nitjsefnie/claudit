@@ -10,7 +10,6 @@
     }
   },
   "module_size_baseline": {
-    ".github/workflows/tests.yml": 592,
     "backend/api.py": 986,
     "backend/api_dashboard.py": 834,
     "backend/bash_churn.py": 918,
