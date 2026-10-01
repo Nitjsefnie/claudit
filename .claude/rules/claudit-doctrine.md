@@ -959,6 +959,24 @@ never hand-set numbers in a workflow.
   `src/**/*.js` — the files node executes. `.jsx` panels are outside it:
   node parses no JSX, and parity tests' eval'd fragments are attributed
   to the eval. Each language gates against its own floor in `tests.yml`.
+- Reparse CPU (`reparse_cpu`): one record per phase of one reparse pass
+  (`scripts/ci/reparse_bench.py`, called from `tests.yml` through
+  `.github/actions/reparse-bench`), each phase's SHARE of that run's own
+  CPU work in percent, `floor = measured + 1.5`. A share is a COST, so
+  the floor is the ceiling above the recorded value and only a phase that
+  got cheaper moves it — `scripts/ci/reparse_ratchet.py` mirrors
+  `ratchet.py` with every comparison reversed, one phase at a time. The
+  bench times `time.process_time()` (never wall: co-tenant load moved
+  wall-clock 2-4x on the deployment host), decomposes the pass by
+  wrapping the callables the real path calls, and names the residual —
+  everything those callables do not account for — as a phase of its own,
+  so an unmeasured phase cannot hide inside a measured one. A phase share
+  is ratcheted rather than an absolute cost because a ratio inside one
+  run does not drift with the machine the way a total does; the bench
+  also reports `perf stat`'s instruction count when the probe finds a
+  counter facility, net of a startup-and-imports baseline run, and says
+  NOT MEASURED with the reason when it does not. Never raise a floor by
+  hand, for any reason.
 - Module size (`module_size_baseline`): every tracked `*.py` under
   `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
   the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
@@ -1004,8 +1022,8 @@ never hand-set numbers in a workflow.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
-  lowered coverage value, a raised entry, or an added entry under the
-  frozen core families (the Python and src/ JavaScript scope the size
+  lowered coverage value, a RAISED reparse phase, a raised entry, or an
+  added entry under the frozen core families (the Python and src/ JavaScript scope the size
   ratchet had when the guard landed) or for an unmeasured path. What
   stays legal is exactly the bots' move set plus the two sanctioned
   seeds: a raise, a tighten, a brand-new member's entries, and a new
