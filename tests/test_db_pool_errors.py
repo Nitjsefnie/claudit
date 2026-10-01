@@ -21,6 +21,8 @@ the driver's FATAL: database "..." does not exist.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import psycopg
 import pytest
 
@@ -30,7 +32,9 @@ _BAD_DSN = "postgresql:///claudit_test_no_such_db_449"
 
 
 @pytest.fixture(name="bad_pool_env")
-def _bad_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _bad_pool_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
     monkeypatch.setenv("DATABASE_URL_VIZ", _BAD_DSN)
     monkeypatch.setenv("DATABASE_URL_AUTH", _BAD_DSN)
     db.reset_viz_pool()
