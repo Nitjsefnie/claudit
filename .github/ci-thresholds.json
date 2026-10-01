@@ -34,19 +34,5 @@
     "backend/ingest_fetch.py": 5,
     "backend/ingest_reprice.py": 1
   },
-  "schema_version": 1,
-  "suite_cost": {
-    "collection": {
-      "floor": 27.8,
-      "measured": 26.3
-    },
-    "residual": {
-      "floor": 10.5,
-      "measured": 9.0
-    },
-    "run": {
-      "floor": 318.1,
-      "measured": 316.6
-    }
-  }
+  "schema_version": 1
 }
