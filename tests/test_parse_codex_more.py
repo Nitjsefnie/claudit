@@ -28,7 +28,8 @@ def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
     # Same prompt, but half its uncached part written to cache at 1.25x
     # instead of billed as fresh input at 1x — so it costs strictly MORE.
     assert rec["cost_usd"] > plain["cost_usd"]
-    # The fixture declares no model, so it bills at the flagship rate.
+    # The fixture declares no model, so it bills at the `unknown` fallback's
+    # (default, estimated) rates.
     rates = pricing.rate_for(_codex_model(None), rec["ts"])
     expected_delta = written * (rates["create_1h"] - rates["fresh"]) / 1_000_000
     assert rec["cost_usd"] - plain["cost_usd"] == pytest.approx(
@@ -48,10 +49,10 @@ def test_the_billed_buckets_still_partition_the_prompt_exactly_once():
 @pytest.mark.parametrize("label", [
     "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 ])
-def test_every_label_the_codex_parser_emits_is_priced_exactly(label):
-    """An unmatched label resolves to the cheapest Codex fallback, which
-    would silently understate Sol or Terra while marking the value estimated.
-    """
+def test_every_label_the_codex_parser_stores_prices_exactly(label):
+    """Every id the corpus names is a pricing.json key, so the stored model
+    prices exactly — no estimate flag. An id with NO row is the issue #471
+    fallback shape: stored verbatim, priced estimated, never renamed."""
     resolution = pricing.resolve(label)
     assert resolution.kind == "exact"
     assert resolution.estimated is False
@@ -458,11 +459,10 @@ def test_an_applied_patch_is_not_also_counted_from_its_program_text():
         assert (tool_use["lines_added"], tool_use["lines_deleted"]) == (1, 1)
 
 
-def test_every_model_the_corpus_names_has_a_map_row():
-    """The map's fallback RELABELS an unmapped id, so a missing row hides a
-    model from the dashboard rather than merely mispricing it. Each id here
-    is one a rollout has actually carried.
-    """
+def test_every_model_the_corpus_names_stays_itself():
+    """Each id here is one a rollout has actually carried: the parser stores
+    it verbatim (spelling normalisation only, issue #471) — never renamed,
+    whatever the pricing table lists."""
     for raw in ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
         label = _codex_model(raw)
         assert label == raw, f"{raw} was relabelled to {label}"

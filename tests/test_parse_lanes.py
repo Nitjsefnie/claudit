@@ -57,7 +57,7 @@ def test_codex_reasoning_lands_in_thinking_tokens():
     ("gpt-5.6-luna", "gpt-5.6-luna"), ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("gpt-6-astra", "gpt-6-astra"),
 ])
-def test_codex_model_map_keeps_the_generations_apart(raw, label):
+def test_codex_models_keep_their_generation_labels(raw, label):
     from backend import parse_codex  # pylint: disable=import-outside-toplevel
     assert parse_codex._codex_model(raw) == label  # pylint: disable=protected-access
 
@@ -99,7 +99,7 @@ def _fresh_db_fixture(monkeypatch):
 
 
 @pytest.mark.parametrize("name,tool_use_id,prompt_count,models", [
-    ("codex_min.jsonl", "call_synthetic01", 1, ["gpt-6-astra"]),
+    ("codex_min.jsonl", "call_synthetic01", 1, ["unknown"]),
     ("kimi_code_min.jsonl", "tool_Synthetic01Example", 2, ["kimi-k2-7-code"]),
     # Legacy ids are per-session sequences ("tc1" repeats across unrelated
     # sessions in the kimi bucket), so the adapter namespaces them with the

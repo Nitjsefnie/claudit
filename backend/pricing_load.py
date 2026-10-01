@@ -41,6 +41,10 @@ class RateTables(TypedDict):
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
+    # The Codex long-context meter's membership (pricing.json's
+    # long_context_models): dashed keys of the models table, compared
+    # against a record's normalised model id.
+    LONG_CONTEXT_MODELS: frozenset[str]
 
 
 # The one timestamp spelling both loaders accept: whole seconds and an
@@ -198,6 +202,16 @@ def load_tables(doc: dict) -> RateTables:
                 provider_dated[model, host] = windows
             if start is not None:
                 provider_starts[model, host] = start
+    members = doc.get("long_context_models", [])
+    if (not isinstance(members, list)
+            or not all(isinstance(k, str) and k for k in members)
+            or len(set(members)) != len(members)):
+        raise ValueError(
+            "long_context_models: not a list of distinct non-empty keys")
+    unknown = [k for k in members if k not in doc["models"]]
+    if unknown:
+        raise ValueError(
+            f"long_context_models: {unknown} name no models-table key")
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
@@ -215,6 +229,7 @@ def load_tables(doc: dict) -> RateTables:
             | {end for windows in provider_dated.values() for end, _ in windows}
             | set(provider_starts.values())
         ),
+        "LONG_CONTEXT_MODELS": frozenset(members),
     }
 
 
@@ -241,5 +256,8 @@ PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
+# The Codex long-context meter's membership: dashed models-table keys, the
+# shape SV-RATE-ESTIMATES' comparison needs. pricing re-exports it.
+LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
 
 DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]

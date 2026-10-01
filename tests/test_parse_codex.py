@@ -274,14 +274,15 @@ def test_records_before_the_first_declaration_take_the_files_sole_model():
     assert all(r["model"] == "gpt-5.6-sol" for r in out["records"])
 
 
-def test_a_file_declaring_no_model_falls_back_rather_than_dropping_records():
+def test_a_file_declaring_no_model_bills_unknown_rather_than_inventing_one():
     """The fork fixture declares none. An unattributed record still has to
-    be billed, and it bills at the flagship rate: a visible overcount beats
-    a silent undercount."""
+    be billed — as `unknown` at the default (estimated) rates: the parser
+    invents no attribution the transcript does not carry (issue #471)."""
     blob = (FIX / "rollout_fork_prefix.jsonl").read_bytes()
     assert _codex_declared_models(blob) == set()
     out = _parse("rollout_fork_prefix.jsonl")
-    assert all(r["model"] == "gpt-6-astra" for r in out["records"])
+    assert all(r["model"] == "unknown" for r in out["records"])
+    assert pricing.resolve("unknown").estimated is True
 
 
 def test_a_file_declaring_several_models_reports_all_of_them():
@@ -294,17 +295,36 @@ def test_a_file_declaring_several_models_reports_all_of_them():
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("gpt5.6-sol", "gpt-5.6-sol"),        # real: one turn_context spells it so
     ("GPT-5.6-Terra", "gpt-5.6-terra"),
-    ("gpt-5.6-luna-preview", "gpt-5.6-luna"),
-    # Astra is GPT-6 and priced separately; before it had a row here it
-    # matched no needle and was relabelled to the flagship, which is why the
-    # dashboard reported zero Astra usage while the corpus was half Astra.
+    ("gpt-5.6-luna-preview", "gpt-5.6-luna-preview"),
+    # Sol 6.1 is the id that hid as GPT-5.6 Sol until the relabelling map
+    # went: it now survives verbatim and prices at its own row.
+    ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("GPT-6-Astra", "gpt-6-astra"),
-    ("gpt-7-unreleased", "gpt-6-astra"),  # unknown -> flagship, not the default
-    (None, "gpt-6-astra"),
+    ("gpt-7-unreleased", "gpt-7-unreleased"),  # unknown stays itself, estimated
+    (None, "unknown"),
 ])
-def test_model_ids_canonicalise_to_a_priced_label(raw, expected):
+def test_model_ids_stay_as_recorded_after_spelling_normalisation(raw, expected):
     assert _codex_model(raw) == expected
+
+
+def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
+    """Issue #471: a gpt-6.1-sol rollout kept reading as gpt-5.6-sol (the
+    first listed id whose needle the id contains) and billing at twice its
+    price. The id survives verbatim and resolves EXACTLY at its own
+    pricing.json row."""
+    out = _parse("rollout_sol_6_1.jsonl")
+    assert [r["model"] for r in out["records"]] == ["gpt-6.1-sol", "gpt-6.1-sol"]
+    for rec in out["records"]:
+        resolution = pricing.resolve(rec["model"], rec["ts"])
+        assert resolution.kind == "exact" and not resolution.estimated
+        assert resolution.key == "gpt-6-1-sol"
+        assert rec["cost_usd"] == pytest.approx(round(pricing.compute_cost(
+            rec["model"],
+            fresh=rec["fresh_tokens"], output=rec["output_tokens"],
+            eph5=0, eph1h=0, unsplit_create=rec["cache_creation_tokens"],
+            read=rec["cache_read_tokens"], ts=rec["ts"],
+        ), 6), rel=1e-9)
 
 
 # --------------------------------------------------------------------------
