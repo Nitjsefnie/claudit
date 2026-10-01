@@ -130,6 +130,10 @@ def test_counting_counts_only_inside_its_window():
 def test_the_counter_releases_its_tool_id():
     # A tool id left registered would tax every later instruction in the
     # process, long after the bench had finished measuring.
+    # sys.monitoring is installed by the interpreter, not imported, so a
+    # static reader cannot see its members -- the same reason the bench
+    # module guards its own calls.
+    # pylint: disable=no-member
     counter = phases.InstructionCounter()
     counter.close()
     sys.monitoring.use_tool_id(phases.TOOL_ID, "probe-after-close")
@@ -157,7 +161,7 @@ def test_bytecodes_per_file_is_recorded_in_hundreds():
     counts = _counts(passes=2)
     per_file = phases.bytecodes_per_file(counts)
     assert set(per_file) == set(bench.PHASES)
-    for phase, value in per_file.items():
+    for value in per_file.values():
         assert value.as_tuple().exponent == -1
         assert value >= 0
     # The sidecar step reads 0.0 on this corpus (no meta.json committed),
