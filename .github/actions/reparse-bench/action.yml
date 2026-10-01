@@ -36,6 +36,6 @@ runs:
           echo '### Reparse CPU'
           echo
           python3 scripts/ci/reparse_bench.py \
-            --write "$MEASUREMENT" --report
+            --write "$MEASUREMENT" --report "$MEASUREMENT"
         } >> "$GITHUB_STEP_SUMMARY"
         python3 scripts/ci/reparse_bench.py --check "$MEASUREMENT"

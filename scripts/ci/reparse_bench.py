@@ -107,17 +107,19 @@ UNIT = thresholds.REPARSE_UNIT
 # document carrying them, so a phase cannot be measured under one name
 # and recorded under another.
 PHASES = thresholds.REPARSE_PHASES
-# Fixed amplification, and the warm-up that precedes it. Measured on the
-# shared seeding box, four runs each, the run-to-run spread of a phase
-# share was about 2 points at 5000 passes and about 0.7 points at 20000
-# — inside the 1.5-point yardstick the ratchet moves on, which is what
-# makes a recorded floor mean something. 20000 passes is roughly 8 CPU
-# seconds, negligible against a 30-minute job.
-PASSES = 20000
-# 400 warm-up passes is past the knee: an un-warmed pass costs about 15%
-# more (8.9 CPU s over 20000 passes cold, against 7.2-8.1 warm), while
-# 2000 warm-up passes measure the same shares as 400.
-WARMUP_PASSES = 400
+# Fixed amplification, and the warm-up that precedes it. Chosen so the
+# run-to-run spread of a phase share stays inside the 1.5-point yardstick
+# the ratchet moves on — a floor narrower than the measurement's own noise
+# is a coin flip, not a gate. Measured on the shared seeding box: four
+# runs at 5000 passes spread a phase share over about 2 points, four at
+# 20000 over about 2, and four at 60000 over about 0.5 — while the pass
+# TOTAL moved 17% between the same runs, which is the whole reason the
+# ratcheted quantity is a share and not a total. 60000 passes is roughly
+# 21 CPU seconds, about 3% of this job's budget.
+PASSES = 60000
+# 600 warm-up passes is past the knee: an un-warmed pass costs about 15%
+# more, while 2000 warm-up passes measure the same shares as 400.
+WARMUP_PASSES = 600
 PERF_TIMEOUT_S = 120
 _QUANTUM = Decimal('0.1')
 _OVER_BUDGET_REMEDY = (
@@ -414,7 +416,10 @@ def main(argv=None):
             return 0
         if args.check is not None:
             return reparse_report.check(args.check, args.thresholds)
-        if args.report is not None:
+        if args.report is not None and args.write is None:
+            # Printing a measurement already on disk, measuring nothing:
+            # re-measuring here would print a different run's numbers
+            # than the ones a later --check reads.
             print(reparse_report.report(
                 reparse_report.measurement_from_file(args.report)))
             return 0

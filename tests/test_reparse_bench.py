@@ -512,6 +512,30 @@ def test_machine_line_carries_every_phase_share():
     assert float(Decimal(fields["share_sum"])) == pytest.approx(100.0, abs=0.2)
 
 
+def test_write_and_report_in_one_run_prints_the_measurement_it_wrote(
+        tmp_path, monkeypatch, capsys):
+    # The shape CI uses: measure, write, and print the human reading of
+    # that same measurement. Printing before the write would read a file
+    # that does not exist yet, and measuring twice would print a
+    # different run than the one the gate reads.
+    calls = []
+    real = bench.measure_in_child
+
+    def spy(passes, warmup):
+        calls.append((passes, warmup))
+        return real(passes, warmup)
+
+    monkeypatch.setattr(bench, "measure_in_child", spy)
+    path = tmp_path / "m.json"
+    assert bench.main(["--write", str(path), "--report", str(path),
+                       "--passes", "3", "--warmup", "1"]) == 0
+    assert len(calls) == 1, "the measurement ran more than once"
+    assert path.exists()
+    out = capsys.readouterr().out
+    written = report_module.measurement_from_file(path)
+    assert f"{written.cpu_s:.4f}" in out
+
+
 def test_report_flag_prints_a_written_measurement_without_measuring(
         tmp_path, capsys):
     # CI measures ONCE: the step writes the measurement, prints the human
@@ -573,10 +597,25 @@ def test_the_action_measures_once_and_gates_that_same_file():
     run = yaml_action_run()
     assert run.count("--write") == 1
     assert run.count("--check") == 1
-    assert run.count('"$MEASUREMENT"') == 2, run
+    assert run.count("--report") == 1
+    assert run.count('"$MEASUREMENT"') == 3, run
     assert "--passes" not in run, (
         "the gate step measures at the bench's recorded amplification; a "
         "step-level override would report a number nothing is recorded for")
+
+
+def test_every_flag_the_action_passes_is_a_real_bench_option():
+    # The action and the bench are two files that have to agree on a
+    # command line; nothing else checks it, and a flag the parser does
+    # not know fails the gate in CI rather than here.
+    import re  # pylint: disable=import-outside-toplevel
+
+    known = set()
+    for action in bench._parser()._actions:  # noqa: SLF001
+        known.update(action.option_strings)
+    for flag in re.findall(r"(?<!\w)--[a-z-]+", yaml_action_run()):
+        assert flag in known, f"the action passes {flag}, which the bench " \
+                               "does not accept"
 
 
 def yaml_action_run():
