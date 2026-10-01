@@ -161,7 +161,7 @@ def _pool(rows: Iterable) -> list[dict]:
 
 
 def _assemble(rng: str, bucket_s: int, bucket_rows: list, series_rows: list,
-              exact: bool, since: datetime) -> dict:
+              exact: bool, since: datetime, conn=None) -> dict:
     """The response body: per-bucket rows and the range-level readout.
 
     `exact` says whether `series` holds true percentiles of the whole range
@@ -171,9 +171,16 @@ def _assemble(rng: str, bucket_s: int, bucket_rows: list, series_rows: list,
     approximation as if it were a measurement. `since` is the window the
     answer was actually read over, which is not always the window asked for.
     """
+    guests, total_rows = (0, 0)
+    if conn is not None:
+        guests, total_rows = web_metrics.guest_share(conn, since)
     return {
         "range": rng, "bucket_s": bucket_s, "exact": exact,
         "since": _iso(since),
+        # Disclosure, not exclusion: an anonymous session shares one
+        # user_id, so a panel whose numbers are mostly one anonymous caller
+        # has to look skewed rather than read as a population.
+        "guests": guests, "beacons": total_rows,
         # `series_rows` carries the same columns as `bucket_rows` with a
         # NULL bucket on the live pass, so both go through one shape.
         "series": _pool(row[1:] for row in series_rows),
@@ -272,7 +279,7 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
     served = [r[0] for r in rows] or [tail_from]
     oldest = min(served) - timedelta(seconds=bucket_s / 2)
     return _assemble(rng, bucket_s, list(rows) + list(tail),
-                     list(rows) + list(tail), False, oldest)
+                     list(rows) + list(tail), False, oldest, conn)
 
 
 def _series_live(rng: str, bucket_s: int, since: datetime,
@@ -317,4 +324,4 @@ def _series_live(rng: str, bucket_s: int, since: datetime,
              GROUP BY 2, 3, 4, 5
              ORDER BY metric, part, region, phase
             """), (window,)).fetchall()
-    return _assemble(rng, bucket_s, buckets, series, True, window)
+    return _assemble(rng, bucket_s, buckets, series, True, window, conn)

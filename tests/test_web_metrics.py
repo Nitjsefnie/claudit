@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 # third-party, hence its position above the first-party block.
 from test_perf_js import _run
 
-from backend import api, db, session as session_mod, web_metrics
+from backend import api, cache, db, session as session_mod, web_metrics
 from backend.constants import LATENCY_BUCKETS
 from tests import scratch_db
 
@@ -277,13 +277,63 @@ def test_sink_refuses_a_non_json_body(viz, client):
 
 
 def test_sink_refuses_a_session_over_its_row_cap(viz, client, monkeypatch):
-    """A loop on the page must not become a row-count problem for the box."""
-    monkeypatch.setattr(web_metrics, "MAX_ROWS_PER_USER", 2)
+    """A loop on the page must not become a row-count problem for the box.
+
+    The router-only client has no session, so it is a GUEST and the ceiling
+    that applies is the guest one — which is the asymmetry the next two
+    cases pin.
+    """
+    monkeypatch.setattr(web_metrics, "MAX_ROWS_PER_GUEST", 2)
     assert _post(client, _beacon(), _beacon()).status_code == 202
     assert len(_rows(viz)) == 2
     r = _post(client, _beacon())
     assert r.status_code == 429
     assert len(_rows(viz)) == 2
+
+
+def test_a_guest_ceiling_is_lower_than_a_named_one_s(viz):
+    """Asymmetry is about trust, not worth: a guest is anonymous.
+
+    Every anonymous session shares `user_id = 0`, so without a lower ceiling
+    one caller can spend the whole anonymous budget and crowd out everyone
+    else's — the opposite of what a cap is for.
+    """
+    assert web_metrics.cap_for(web_metrics.GUEST_USER_ID) == \
+        web_metrics.MAX_ROWS_PER_GUEST
+    assert web_metrics.cap_for(7) == web_metrics.MAX_ROWS_PER_USER
+    assert web_metrics.MAX_ROWS_PER_GUEST < web_metrics.MAX_ROWS_PER_USER
+
+
+def test_the_guest_cap_is_enforced_against_the_guest(
+        viz, gated_client, monkeypatch):
+    """And it is the ceiling actually applied to an anonymous POST."""
+    monkeypatch.setattr(web_metrics, "MAX_ROWS_PER_GUEST", 2)
+    assert _post(gated_client, _beacon(), _beacon()).status_code == 202
+    assert _post(gated_client, _beacon()).status_code == 429
+    assert len(_rows(viz)) == 2
+
+
+def test_the_readout_discloses_the_guest_share(viz, pinned, client):
+    """Disclosure, not exclusion.
+
+    Guests are deliberately IN the panel's population — this host is
+    guest-heavy and a panel blind to its own traffic is the worse failure.
+    But a skewed panel has to look skewed, so the payload carries the count
+    the panel renders as "guests: N of M".
+    """
+    _seed(_VALUES, ts=_recent_ts())
+    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    assert body["beacons"] >= 1
+    assert 0 <= body["guests"] <= body["beacons"]
+    with db.viz_conn() as conn:
+        conn.execute("UPDATE web_metrics SET user_id = 0")
+        conn.commit()
+    # The readout is `@cache_response`, so a second identical request would
+    # return the FIRST one's payload and the disclosure would look broken.
+    cache.response_cache.clear()
+    after = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    assert after["guests"] == after["beacons"], (
+        "every row is anonymous and the payload does not say so")
 
 
 # --- the middleware gates (the sink's own route has no gate of its own) ---
