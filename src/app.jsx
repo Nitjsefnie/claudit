@@ -1150,8 +1150,8 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       {/* Self-fetching like the four above; hidden when unmeasured (#436). */}
       {backendOn && (
         <div className="dash-resp">
+          {/* No `project`: a beacon carries none. */}
           <window.WebMetricsPanel
-            project={activeProject}
             range={activeRange}
             nonce={dashNonce} />
         </div>

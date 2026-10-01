@@ -401,3 +401,44 @@ def test_the_panel_surfaces_the_window_the_answer_was_read_over():
         "over is never shown")
     assert "window from" in src, (
         "`since` is read but not rendered — the clamp is still invisible")
+
+
+def test_the_panel_says_how_much_of_its_traffic_is_anonymous():
+    """Disclosure, not exclusion — and a skewed panel must LOOK skewed.
+
+    Every anonymous session shares one `user_id`, so a panel whose numbers
+    are mostly one anonymous caller reads as a population when it is not.
+    Guests stay IN the readout (this host is guest-heavy; blinding the panel
+    to its own traffic is the worse failure) and the share is rendered, so
+    the skew is visible rather than silently trusted.
+    """
+    src = _strip_line_comments(PANEL.read_text(encoding="utf-8"))
+    assert "body.guests" in src, "the panel never reads the guest count"
+    assert "body.beacons" in src, "the panel never reads the total"
+    assert "from guests" in src, (
+        "the guest share is computed but never shown, which is disclosure "
+        "nobody can see")
+
+
+def test_the_observed_blocks_are_labelled_as_sums():
+    """A summed layout shift is not a CLS, and summed blocking is not a
+    per-view time. Both totals are over every visit in the range, across
+    every user, so the labels say summed."""
+    src = _strip_line_comments(PANEL.read_text(encoding="utf-8"))
+    assert "layout shift, summed" in src, (
+        "the layout-shift block is labelled as a per-view instability score; "
+        "it is a sum over every visit in the range")
+    assert "main-thread blocking, summed" in src, (
+        "the blocking block is labelled as main-thread blocking per view; it "
+        "is a sum over every long task in the range")
+
+
+def test_the_panel_does_not_send_a_project_the_endpoint_ignores():
+    """A parameter the server drops is worse than none: the URL claims a
+    narrowing the answer does not have."""
+    src = _strip_line_comments(PANEL.read_text(encoding="utf-8"))
+    assert "project=" not in src, (
+        "the panel appends a project filter the endpoint silently ignores")
+    assert "WebMetricsPanel({ range, nonce })" in src, (
+        "the panel still takes a `project` prop, so the call site is still "
+        "passing one the endpoint will not honour")
