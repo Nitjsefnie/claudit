@@ -405,6 +405,15 @@
   "openrouter": {
     "data_region": "global",
     "models": {
+      "claude-opus-5-5": {
+        "id": "anthropic/claude-opus-5.5",
+        "resolve": {
+          "Anthropic": {
+            "tag": "anthropic",
+            "why": "Anthropic lists claude-opus-5.5 under two tags: the base anthropic endpoint at the model's list price and a dearer anthropic/fast throughput tier, double the price. Pinned to anthropic: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          }
+        }
+      },
       "deepseek/deepseek-v4-1-flash": {
         "id": "deepseek/deepseek-v4.1-flash",
         "resolve": {
@@ -466,6 +475,63 @@
   },
   "provider_rates_fetched": "2026-10-01T10:54:04Z",
   "providers": {
+    "claude-opus-5-5": {
+      "Amazon Bedrock": [
+        {
+          "create_1h": 8.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": null,
+          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
+          "output": 20.0,
+          "read": 0.2
+        }
+      ],
+      "Anthropic": [
+        {
+          "create_1h": 8.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": null,
+          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
+          "output": 20.0,
+          "read": 0.2
+        }
+      ],
+      "Azure": [
+        {
+          "create_1h": 8.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": null,
+          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
+          "output": 20.0,
+          "read": 0.2
+        }
+      ],
+      "Claude Platform on AWS": [
+        {
+          "create_1h": 8.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": null,
+          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
+          "output": 20.0,
+          "read": 0.2
+        }
+      ],
+      "Google": [
+        {
+          "create_1h": 8.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": null,
+          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
+          "output": 20.0,
+          "read": 0.2
+        }
+      ]
+    },
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": [
         {

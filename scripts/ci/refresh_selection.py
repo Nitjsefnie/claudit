@@ -27,9 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # pylint: disable=wrong-import-position
-from refresh_prices import (PRICED, RefreshError, as_listed, covers_week,  # noqa: E402
-                            entry_schedule, in_a_window, is_zero, rates_of,
-                            tag_region, unknown_suffixes)
+from refresh_prices import (PRICED, RECORDED_FEES, RefreshError, as_listed,  # noqa: E402
+                            covers_week, entry_schedule, fee_notes, in_a_window,
+                            is_zero, rates_of, tag_region, unknown_suffixes)
 
 # What tells two of one host's endpoints apart when the price does not.
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
@@ -49,10 +49,14 @@ class Listing:
     rates: dict
     schedule: list | None
     discount: Decimal
+    # The RECORDED_FEES notes this endpoint carries. They are part of what
+    # makes a listing a distinct price: two endpoints differing only in a fee
+    # are two offerings, and collapsing them would drop a real cost.
+    fees: tuple[str, ...] = ()
 
     @property
     def price(self) -> str:
-        return json.dumps([self.rates, self.schedule], sort_keys=True)
+        return json.dumps([self.rates, self.schedule, list(self.fees)], sort_keys=True)
 
 
 def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> Listing:
@@ -76,8 +80,10 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
     price = endpoint["pricing"]
+    fees = fee_notes(price, where)
     for key, value in price.items():
-        if key not in (*PRICED, "discount", "overrides") and not is_zero(value):
+        if (key not in (*PRICED, *RECORDED_FEES, "discount", "overrides")
+                and not is_zero(value)):
             raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
@@ -94,7 +100,8 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
         if kept is not None:
             rates = kept
             schedule = entry_schedule({**as_listed(kept), "overrides": price["overrides"]}, where)
-    return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)))
+    return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)),
+                   tuple(fees))
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
