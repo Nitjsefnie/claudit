@@ -6,12 +6,21 @@ rollup, and neither touches `records`, so a fresh schema is the whole fixture.
 """
 # pylint: disable=too-many-lines
 import math
+import re
+import shutil
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+# The shipped client's own driver, reused: it already fakes every browser
+# global src/perf.js touches, and a second harness here would be a second
+# thing to keep in step with the file. pylint reads a bare sibling module as
+# third-party, hence its position above the first-party block.
+from test_perf_js import _run
 
 from backend import api, db, session as session_mod, web_metrics
 from backend.api_common import _bucket_seconds
@@ -480,3 +489,105 @@ def test_the_schema_carries_both_tables(viz):
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_name LIKE 'web_metrics%'").fetchall()}
     assert names == {"web_metrics", "web_metrics_rollup"}
+
+
+# --- the shipped client, against THIS sink's vocabulary -------------------
+#
+# The client and the sink each close over the same five metrics and their
+# parts, regions and phases, and nothing has ever made them agree: the
+# client's own suite pins it against a restatement of the table written in
+# the test file, which is a second copy that drifts. These run the REAL
+# src/perf.js through node, collect every beacon it can emit, and hand each
+# one to `web_metrics.normalise` — so the sink is the authority and a term
+# the backend would reject is a test failure here rather than a 400 that
+# discards the whole batch in a browser nobody is watching.
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="node not available")
+def test_every_beacon_the_client_can_emit_is_inside_the_sink_contract():
+    out = _run("""
+      // All three journeys, each with a measured fetch, so every
+      // (metric, part) pair the client can produce is exercised.
+      for (const name of ['dashboard_open', 'inspector_open', 'signin']) {
+        window.perf.openJourney(name);
+        clock += 100;
+        window.perf.closeFetch(name);
+        clock += 300;
+        window.perf.closeJourney(name);
+      }
+      window.perf.markUsable();
+      window.perf.sseUpdate();
+      const inGrid = {
+        getAttribute: n => (n === 'data-perf-region' ? 'panel_grid' : null),
+        parentElement: { getAttribute: () => null, parentElement: null },
+      };
+      __emit('layout-shift', [
+        { value: 0.04, hadRecentInput: false, sources: [{node: inGrid}] },
+      ]);
+      __emit('layout-shift', [
+        { value: 0.01, hadRecentInput: false, sources: [] },
+      ]);
+      __emit('longtask', [{ duration: 250 }]);
+      __tick();
+      console.log(JSON.stringify({ beacons: beacons() }));
+    """, sendBeacon=True, observers=["layout-shift", "longtask"])
+
+    rows = out["beacons"]
+    assert rows, "the driver emitted nothing, so this proves nothing"
+    # Every metric the client can name, and every part of each.
+    assert {r["metric"] for r in rows} == {
+        "dashboard_open", "inspector_open", "signin",
+        "layout_shift", "longtask"}
+    for row in rows:
+        try:
+            web_metrics.normalise(row)
+        except web_metrics.BeaconError as error:
+            pytest.fail(
+                f"the shipped client emits a beacon the sink refuses: "
+                f"{row!r} -- {error}")
+    # The sink accepts terms the client never emits, which is fine and
+    # expected, so this is a floor on coverage and not an equality.
+    assert len(rows) == 3 * 3 + 2 + 1
+
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _client_table(name: str) -> tuple[str, ...]:
+    """The closed set `src/perf.js` declares, read out of the shipped file."""
+    source = (_ROOT / "src" / "perf.js").read_text(encoding="utf-8")
+    match = re.search(rf"const {name} = \[([^\]]*)\]", source)
+    assert match, f"src/perf.js no longer declares a {name} table"
+    return tuple(re.findall(r"'([^']+)'", match.group(1)))
+
+
+def test_the_client_and_the_sink_name_the_same_regions_and_phases():
+    """The behavioural check above cannot see a set that DIVERGED.
+
+    `perf.js` walks past a `data-perf-region` it does not recognise and
+    falls back to 'other', so widening its own table emits no beacon the
+    sink would refuse -- the check stays green while the two vocabularies
+    quietly stop meaning the same thing. Compare the declarations instead,
+    and read them out of the shipped files rather than restating them.
+    """
+    assert _client_table("REGIONS") == web_metrics.REGIONS
+    # The client declares no PHASES table -- it assigns the three literals
+    # directly -- so they are collected from the assignment sites.
+    perf = (_ROOT / "src" / "perf.js").read_text(encoding="utf-8")
+    assert set(re.findall(r"phase = '([^']+)'", perf)) == set(web_metrics.PHASES), (
+        "the phases src/perf.js can enter do not match the sink's")
+    # Journeys are call-site arguments rather than a table, so they are read
+    # off the file's own use of them.
+    app = (_ROOT / "src" / "app.jsx").read_text(encoding="utf-8")
+    opened = set(re.findall(r"openJourney\('([^']+)'\)", app))
+    assert opened <= set(web_metrics.JOURNEYS), (
+        "app.jsx opens a journey the sink does not accept")
+    # `signin` is the one the app.jsx does NOT open: it is ADOPTED inside
+    # perf.js from the marker the sign-in page left in sessionStorage,
+    # because it starts on a document that no longer exists by the time the
+    # signed-in page runs. Pinning the asymmetry is the point -- if a fourth
+    # journey ever appears, or the third moves to a call site, this says so.
+    assert set(web_metrics.JOURNEYS) - opened == {"signin"}, (
+        "a journey the sink accepts has no opener: either the sign-in "
+        "journey moved to a call site, or the sink names one nothing starts")
