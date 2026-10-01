@@ -19,8 +19,8 @@ SUPERSESSION IS NOT THIS MODULE'S DECISION. ci-gate's concurrency group
 is one per pull request, or per pushed commit SHA on a push (issue
 #358), so a newer push starts its own run and the group itself never
 cancels the older one — the ordinary two-push supersession cancel
-cannot leave a stale aggregate behind. The two long legs (speed,
-test-data) are per-SHA on a push too (issues #366, #409); a residual
+cannot leave a stale aggregate behind. The long leg (test-data) is
+per-SHA on a push too (issues #366, #409); a residual
 lives one level down in the remaining per-ref legs, whose groups hold
 at most one PENDING run, so a third concurrent master push cancels a
 merely-queued short leg, and that middle run's aggregate folds red

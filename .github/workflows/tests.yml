@@ -2,29 +2,23 @@ name: tests
 
 on:
   # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which classifies the changed paths,
-  # narrows documentation-only runs, and calls this workflow as a leg.
+  # pull_request fire ci-gate, which calls this workflow as a leg.
   # workflow_call is the leg's entry; workflow_dispatch keeps a direct
-  # run possible for a branch without a PR that only wants this
-  # workflow's own verdict.
+  # run possible.
   workflow_call:
   workflow_dispatch:
 
-# Least privilege: every job here only reads the tree. Without an
-# explicit block the job inherits the repository default, which can be
-# read/write for the whole token.
+# Least privilege: without an explicit block every job inherits the
+# repository default, which can be read/write for the whole token.
 permissions:
   contents: read
 
 concurrency:
-  # Push and pull_request runs of this workflow arrive as ci-gate legs,
-  # and they join this group under the caller's event: a master-push
-  # leg occupies tests-refs/heads/master, queued against any other
-  # master run's tests leg — ci-gate's own push groups are per-SHA
-  # (issue #358), so this queue is what serializes concurrent master
-  # runs and their ratchet pushes — and a pull-request leg gets
-  # cancel-in-progress. Direct workflow_dispatch runs of this file
-  # queue on their ref likewise.
+  # ci-gate legs join this group under the caller's event: a
+  # master-push leg occupies tests-refs/heads/master — ci-gate's
+  # per-SHA push groups (issue #358) make this queue what serializes
+  # concurrent master runs and their ratchet pushes — and a
+  # pull-request leg cancels in progress. Dispatch queues by ref.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -43,15 +37,15 @@ jobs:
 
     outputs:
       ratchet_changed: ${{ steps.ratchet.outputs.changed }}
+      suite_measured: ${{ steps.suite_bench.outputs.measured }}
 
     services:
       postgres:
-        # The suite does not use a single fixed database: fixtures create
-        # and drop run-named ones (tests/scratch_db.py), so the role needs
-        # CREATEDB — the stock `postgres` superuser has it.
-        # Pinned by digest, as in refresh-pricing.yml: the ratchet-push job
-        # below receives the deploy key, so the image the measurements come
-        # from must be the reviewed one.
+        # Fixtures create and drop run-named databases
+        # (tests/scratch_db.py), so the role needs CREATEDB — the stock
+        # `postgres` superuser has it. Pinned by digest: the
+        # ratchet-push job below receives the deploy key, so the image
+        # the measurements come from must be the reviewed one.
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
@@ -66,9 +60,8 @@ jobs:
           --health-retries 10
 
     env:
-      # Fixtures build DSNs as `postgresql:///<db>` with no host, so libpq
-      # resolves the connection from these. The same vars drive the
-      # psql calls the fixtures shell out to.
+      # Fixtures build DSNs as `postgresql:///<db>`, so libpq resolves
+      # the connection from these (and the fixtures' psql calls).
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: postgres
@@ -77,12 +70,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history, because the patch-coverage step's merge-base
-          # computation on a pull request walks ancestry across both sides
-          # of the branch; a depth-1 clone would leave the merge ref's
-          # parents missing and the computation would fail (the same
-          # reason speed.yml fetches everything). The repo's history is
-          # small; the fetch is seconds.
+          # Full history: the patch-coverage step's merge-base
+          # computation walks ancestry across both sides of the branch;
+          # a depth-1 clone would leave the merge ref's parents missing.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
@@ -100,10 +90,8 @@ jobs:
         with:
           node-version: "24.17.0"
 
-      # The pip cache restores on every event but is saved only from a push
-      # of master: `cache: pip` saves in a post-job step that runs after the
-      # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126).
+      # The pip cache restores on every event but is saved only from a
+      # push of master, never from a pull-request checkout (issue #126).
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -116,8 +104,7 @@ jobs:
             pip-${{ runner.os }}-3.13-
 
       - name: Install postgresql-client
-        # Fixtures shell out to psql; the runner image has
-        # a server but the client binaries must match the service major.
+        # Fixtures shell out to psql; client must match service major.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
@@ -132,9 +119,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
 
-      # Saved here, not in a post-job step: the install above populated the
-      # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # Saved here, not in a post-job step, so the cache is written only
+      # from a master push (issue #126).
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -155,18 +141,14 @@ jobs:
 
       - name: Run tests
         id: pytest
-        # No --cov-fail-under here: the gate is its own step below so that
-        # "tests failed" and "coverage dropped" are distinguishable at a
-        # glance, and so the summary still renders when the gate is red.
+        # No --cov-fail-under: the gate is its own step below, so
+        # "tests failed" and "coverage dropped" stay distinguishable.
         run: python -m pytest tests/ -q --tb=short -ra --cov=backend --cov-report=term
 
       - name: Coverage summary
-        # Renders whether or not the gate below passes — a coverage
+        # Renders whether or not the gate below passes: a coverage
         # regression is only actionable if you can see WHICH file lost
-        # lines, and re-reading a scrolled CI log to find that is exactly
-        # the friction that gets a gate disabled. The recorded ratchet
-        # values are printed beside the report so a gap between this run's
-        # measurement and the recorded floor is visible at a glance.
+        # lines. Recorded ratchet values sit beside the report.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: |
           recorded_measured="$(python3 scripts/ci/thresholds.py \
@@ -197,13 +179,9 @@ jobs:
 
       - name: Patch coverage against the merge base
         # Informational readout (issue #129): of the lines this pull
-        # request ADDED, which did the suite execute. PR-only — the
-        # merge-base computation needs the pull-request event. The diff
-        # is the checked-out merge ref (the exact tree coverage.xml above
-        # measured) against its freshly fetched base tip, so the number
-        # describes the change GitHub would land. INFORMATIONAL BY
-        # DESIGN: no threshold, no gate; the module exits 0 for any
-        # result it computed, even 0%.
+        # request ADDED, which did the suite execute. PR-only, and
+        # INFORMATIONAL BY DESIGN: no threshold, no gate; the module
+        # exits 0 for any result it computed, even 0%.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
         env:
           REPO: ${{ github.repository }}
@@ -222,12 +200,11 @@ jobs:
             > "$RUNNER_TEMP/diff-coverage.md"
 
       - name: Post the patch-coverage comment
-        # ONE comment per pull request, UPDATED on later pushes rather
-        # than duplicated: the marker below is how the bot finds its own
-        # comment again, and an existing one is PATCHed. continue-on-error
-        # keeps a failed comment from reddening the run — the step
-        # summary above still carries the numbers (issue #129: a comment
-        # that failed to post must never be able to block a merge).
+        # ONE comment per pull request, UPDATED on later pushes: the
+        # marker is how the bot finds its own comment again.
+        # continue-on-error keeps a failed comment from reddening the
+        # run — the summary above still carries the numbers (issue
+        # #129).
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
         continue-on-error: true
         env:
@@ -274,38 +251,27 @@ jobs:
 
       - name: Coverage gate
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        # A RATCHET, not a target. The floor is committed data in
-        # .github/ci-thresholds.json: seeded 1.5 points under the measured
-        # coverage of the run that recorded it, so ordinary churn stays
-        # green and a real regression goes red. On a push to master this
-        # workflow raises the floor itself once coverage climbs more than
-        # the hysteresis (1.5) above the recorded measured — the floor is
-        # never lowered, not even by hand.
+        # A RATCHET, not a target: the floor is committed data, seeded
+        # 1.5 under the measured coverage that recorded it. On a master
+        # push the workflow raises it once coverage climbs more than the
+        # hysteresis (1.5) above the recorded measured — never lowered.
         run: |
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
           python -m coverage report "--fail-under=${floor}" --precision=1
 
       - name: Install the JS toolchain from the lockfile
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        # npm ci, not npm install: it installs package-lock.json exactly, so
-        # the c8 pin in package.json means what it says, and the pin is
-        # visible to Dependabot's npm ecosystem instead of sitting in this
-        # run: line where no update mechanism can see it (issue #361 — the
-        # gate sat on c8 10, two majors behind, until then). Same lockfile
-        # eslint.yml installs from.
+        # npm ci installs package-lock.json exactly, so the c8 pin means
+        # what it says and is visible to Dependabot (issue #361). Same
+        # lockfile eslint.yml installs from.
         run: npm ci --no-audit --no-fund
 
       - name: JavaScript coverage gate
-        # The front-end half of the same ratchet (issue #266). Coverage
-        # comes from the node-executing tests: NODE_V8_COVERAGE captures
-        # every node subprocess this step's pytest run spawns, and c8
-        # folds them into per-file line coverage over src/**/*.js — the
-        # files node actually executes. The .jsx panels are
-        # boundary-excluded: node parses no JSX, and the parity tests
-        # eval only extracted fragments, which V8 attributes to the eval,
-        # not the source file. The floor is the committed javascript
-        # record, same rules as python: seeded 1.5 under measured, never
-        # lowered, raised on master by ratchet.py --language javascript.
+        # The front-end half of the same ratchet (issue #266):
+        # NODE_V8_COVERAGE captures every node subprocess this step's
+        # pytest run spawns, and c8 folds them over src/**/*.js — the
+        # files node actually executes (the .jsx panels are outside it).
+        # Same floor rules as python.
         id: jscov
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         env:
@@ -334,35 +300,28 @@ jobs:
 
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
-        # raising the recorded ceiling: this step fails on any file that
-        # outgrew its baseline entry or crossed its ceiling (production
-        # 500 / test 700). Runs on every event so pull requests are
-        # gated too; master additionally tightens entries below.
+        # raising the recorded ceiling: a file that outgrew its entry
+        # or crossed its ceiling (production 500 / test 700) fails
+        # here, on every event; master additionally tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/size_baseline.py
 
       - name: Pylint suppression baseline
         # The same only-shrinks ratchet for inline complexity
-        # suppressions (issue #389): a file's per-file count of
-        # too-many-* disable comments never rises past its recorded
-        # count, and an unrecorded file stays at zero. Runs on every
-        # event so pull requests are gated too; master additionally
-        # tightens entries below.
+        # suppressions (issue #389): a file's count never rises past
+        # its record; an unrecorded file stays at zero. Every event;
+        # master additionally tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/suppression_baseline.py
 
       - name: Threshold direction guard
         # The bots are the only writers the ratchet data needs (issue
-        # #388): compared against the base document, a lowered coverage
-        # value, a raised entry, or an entry added under the frozen core
-        # families fails here, so the never-raise/never-lower rule no
-        # longer depends on review. Legal moves are exactly the bots'
-        # (a raise, a tighten) plus the two sanctioned seeds: a
-        # brand-new member's entries (#389) and a new measured family's
-        # one-time seed (#393). Runs on pull_request (merge base) and
-        # push (the pushed-to parent); workflow_dispatch has no base
-        # and skips — a branch without a PR is a smoke run, the PR is
-        # the gate.
+        # #388): a lowered coverage value, a raised entry, an added
+        # entry under the frozen core families, or a raised suite-cost
+        # budget fails here, so the never-rules no longer depend on
+        # review. Legal moves are exactly the bots' plus the sanctioned
+        # seeds. Runs on pull_request (merge base) and push; dispatch
+        # has no base and skips — the PR is the gate.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
         env:
           REPO: ${{ github.repository }}
@@ -386,14 +345,37 @@ jobs:
             --base "$RUNNER_TEMP/base-thresholds.json" \
             --head .github/ci-thresholds.json
 
+      - name: Measure the suite cost
+        # The bot's other input: one bench pass over the pinned fixture
+        # (the shared composite action). Master pushes only -- a pull
+        # request runs untrusted code, and the measurement feeds the
+        # tighten bot. The gate lives in speed.yml; this leg measures.
+        id: suite_bench
+        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
+                && steps.jscov.outcome == 'success'
+                && github.event_name == 'push'
+                && github.ref == 'refs/heads/master' }}
+        uses: ./.github/actions/suite-bench
+        with:
+          mode: record
+          measurement: ${{ runner.temp }}/suite-measurement.json
+
+      - name: Upload the suite measurement
+        # The artifact is the tested state the bot job tightens from.
+        if: ${{ !cancelled() && steps.suite_bench.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: suite-measurement
+          path: ${{ runner.temp }}/suite-measurement.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Ratchet the thresholds
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
-        # be able to write it. The ratchet raises either coverage floor
-        # (python from the full suite, javascript from the JS gate step)
-        # when this run justifies it, and --tighten follows shrunk files
-        # down; growth is never written here, the gate steps stay its
-        # gate.
+        # write it. Raises either coverage floor when justified, and
+        # --tighten follows shrunk files down; growth is never written
+        # here, the gate steps stay its gate.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
@@ -430,9 +412,9 @@ jobs:
           fi
 
       - name: Stage the ratchet data
-        # The artifact is the tested state: the measured thresholds file
-        # and the master tip the measurements come from — the push job's
-        # base check compares that tip against master's now.
+        # The tested state: the measured thresholds file and the master
+        # tip it was measured on — the push job's base check compares
+        # that tip against master's now.
         if: steps.ratchet.outputs.changed == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/ratchet-data"
@@ -452,10 +434,13 @@ jobs:
     # The only job that loads the deploy key. No third-party or
     # upstream-derived code runs here before or while the key is loaded:
     # no repo checkout, no pip, no npm, no test suite, no
-    # upstream-response parsing. The pinned download action is the only
-    # action, and it runs before the key is loaded.
+    # upstream-response parsing; the download actions run before the key
+    # is loaded. The one script here, suite_ratchet.py --tighten, is a
+    # stdlib-only DATA operation over this master-push run's own
+    # measurement artifact and the fetched master's thresholds: no test
+    # code, never a raise.
     needs: pytest
-    if: needs.pytest.outputs.ratchet_changed == 'true'
+    if: needs.pytest.outputs.ratchet_changed == 'true' || needs.pytest.outputs.suite_measured == 'true'
     environment: master-push
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -463,15 +448,24 @@ jobs:
       contents: read  # the push authenticates with the deploy key
     steps:
       - name: Download the ratchet data
+        if: needs.pytest.outputs.ratchet_changed == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ratchet-push
           path: ${{ runner.temp }}/ratchet-data
 
+      - name: Download the suite measurement
+        if: needs.pytest.outputs.suite_measured == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: suite-measurement
+          path: ${{ runner.temp }}/suite-data
+
       - name: Push the ratchet commit to master
         env:
           MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
+          SUITE_MEASURED: ${{ needs.pytest.outputs.suite_measured }}
         run: |
           # Fail closed when the environment is missing its secret: with no key
           # there is nothing to authenticate the push with, and the fallback must
@@ -510,11 +504,23 @@ jobs:
           git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
           git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
           git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
-          cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
+            cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          fi
+          if [ "$SUITE_MEASURED" = true ]; then
+            # The tighten is a downward-only data operation over the
+            # fetched master's committed thresholds and this run's own
+            # measurement; it writes nothing when nothing justifies it.
+            python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          fi
           git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
           git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
           git -C "$RUNNER_TEMP/ratchet-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten size baseline (automated)' \
+          if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain .github/ci-thresholds.json)" ]; then
+            echo "No ratchet move is justified by this run: nothing to commit."
+            exit 0
+          fi
+          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)' \
             -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
           if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
             git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
@@ -530,14 +536,11 @@ jobs:
           fi
 
   pytest-portable:
-    # The same suite minus every test that touches PostgreSQL, run where
-    # no Postgres service exists: the marker is derived mechanically from
-    # how a test gets its database (tests/db_marker.py — a fixture in
-    # DB_FIXTURES, or an explicit @pytest.mark.db for the direct-server
-    # tests), so the split cannot drift from the code by hand. The full
+    # The suite minus every DB-touching test (tests/db_marker.py's
+    # mechanical split), run where no Postgres service exists: the full
     # suite, the coverage ratchet and the DB tests stay in the `pytest`
-    # job above; this job adds the platforms and Pythons that job cannot
-    # cover.
+    # job above; this job adds the platforms and Pythons that job
+    # cannot cover.
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -556,9 +559,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Same event rule as the Linux job: restore on any event, save only
-      # from a push of master (issue #126). The key carries the matrix's
-      # python-version, like setup-python's own pip key did.
+      # Same event rule as the Linux job (issue #126); the key carries
+      # the matrix's python-version.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -571,17 +573,15 @@ jobs:
             pip-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Install dependencies
-        # backend/requirements.txt already pins pytest, pytest-asyncio and
-        # httpx2; requirements-test.txt adds only the coverage toolchain, so
-        # neither pin exists in two places. One command, not a multi-line
-        # block: the default pwsh shell on windows-latest propagates only
-        # the last line's exit code, and pip's wheels cover all three
-        # OSes (psycopg installs with the `binary` extra).
+        # backend/requirements.txt already pins pytest, pytest-asyncio
+        # and httpx2; requirements-test.txt adds only the coverage
+        # toolchain. One command: the default pwsh shell on
+        # windows-latest propagates only the last line's exit code, and
+        # pip's wheels cover all three OSes (psycopg's `binary` extra).
         run: python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt
 
-      # Saved here, not in a post-job step: the install above populated the
-      # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # Saved here, not in a post-job step, so the cache is written only
+      # from a master push (issue #126).
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -593,7 +593,7 @@ jobs:
           key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
 
       - name: Run tests
-        # Identical on all three OSes — a plain `python -m pytest`. The
-        # db-marked tests are the ones the portable cells cannot serve;
-        # the Linux job above runs them with the full suite.
+        # A plain `python -m pytest`: the db-marked tests are the ones
+        # the portable cells cannot serve; the Linux job runs the full
+        # suite.
         run: python -m pytest tests/ -q --tb=short -ra -m "not db"

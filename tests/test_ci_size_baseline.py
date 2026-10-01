@@ -60,6 +60,11 @@ def _document(baseline=None):
         },
         "module_size_baseline": baseline or {},
         "pylint_suppression_baseline": {},
+        "suite_cost": {
+            "collection": {"measured": 25.8, "floor": 27.3},
+            "run": {"measured": 309.8, "floor": 311.3},
+            "residual": {"measured": 6.5, "floor": 8.0},
+        },
     }
 
 

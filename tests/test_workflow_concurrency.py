@@ -8,11 +8,12 @@ run could still be cancelled or pending-superseded through them:
   outright (`cancel-in-progress: true` on a per-ref group), stranding a
   cancelled check on that SHA — which release.yml's waiter refuses (issue
   #366);
-- ``speed.yml`` and ``test-data.yml`` run the two longest gate legs, so with
-  their per-ref push groups a third concurrent master push cancelled a
-  merely-pending leg run — GitHub keeps at most one PENDING run per group,
-  whatever `cancel-in-progress` says — and that middle commit's aggregate
-  folded red (issue #409, observed on 1f0470e).
+- ``test-data.yml`` runs the longest remaining gate leg, and
+  ``speed.yml`` keeps the shape too (its bench is minutes since issue
+  #452): with per-ref push groups a third concurrent master push
+  cancelled a merely-pending leg run — GitHub keeps at most one PENDING
+  run per group, whatever `cancel-in-progress` says — and that middle
+  commit's aggregate folded red (issue #409, observed on 1f0470e).
 
 The invariant: on a push the group is the workflow name plus the pushed SHA,
 so no two master pushes ever share a group. Pull requests keep the

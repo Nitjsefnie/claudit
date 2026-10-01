@@ -453,7 +453,7 @@ procedure, documented in [`PRIVACY.md`](PRIVACY.md).
 - `scripts/` — `plots/ccusage_plot_db.py`, our DB-backed usage-plotting
   script (queries the claudit Postgres `records` table), and `ci/`, the
   CI entry points that are too big to live inside a workflow's `run:`
-  block (`smoke.py`, `compare_durations.py`).
+  block (`smoke.py`, `suite_bench.py`).
 - `tests/` — pytest suite (parser fixtures, ingest, API).
 - `fixtures/` — small JSONL + zip samples for parser tests.
 - `examples/` — sample systemd service file.
@@ -471,7 +471,8 @@ matrix over Linux/macOS/Windows × Python 3.13/3.14 for the no-database
 subset), `lint`, `types`, `eslint`, `smoke` (boots the
 real server against the fixture mirror), `codeql`, `audit` (`pip-audit`,
 daily), `actionlint` (lints the workflows themselves), `speed`
-(benchmarks this commit against the last release *on the same runner*),
+(counts this commit's suite cost in bytecode instructions against
+committed budgets),
 `version-guard` (refuses a tree `VERSION` naming an already-published
 release), and `release` (master pushes touching `VERSION` only). A branch without a
 PR is checked by dispatching a workflow on it: `gh workflow run
