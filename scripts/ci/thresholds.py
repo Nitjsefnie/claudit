@@ -22,6 +22,15 @@ _SCHEMA_VERSION = 1
 # over backend/, javascript from the node-executing tests over the src
 # files they load (src/**/*.js; node parses no JSX).
 COVERAGE_LANGUAGES = ('python', 'javascript')
+# The unit the reparse bench records (scripts/ci/reparse_bench.py) and
+# how many transcripts it divides by to reach it. The per-file cost of
+# the fixed fixture corpus is tens of microseconds, so a 1.5-unit gap
+# would be many times the whole value; recording CPU milliseconds per
+# 100 transcripts keeps the SHARED 1.5 yardstick a fraction of the
+# measurement instead of a multiple of it. The name is the document's
+# vocabulary: it says what a stored number means to whoever reads it.
+REPARSE_UNIT = 'cpu_ms_per_100_files'
+REPARSE_FILES_PER_UNIT = 100
 # Every only-shrinks baseline member: recorded numbers never rise and
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
