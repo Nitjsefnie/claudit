@@ -280,6 +280,36 @@ pip install -r backend/requirements.txt
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
+You also need an **auth database**: a second Postgres database holding
+the `users` table the login page reads. claudit owns no schema for it —
+in production it is provisioned and populated by your own user-management
+process, and this repository only ever READS it. Startup aborts on
+`db.schema_check()` unless that table exists and carries the two columns
+the login lookup reads, so create it before the first boot:
+
+```bash
+createdb claudit_auth
+psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
+config JSONB NOT NULL DEFAULT '{}'::jsonb)"
+```
+
+Point `DATABASE_URL_AUTH` in `.env` at that database
+(`DATABASE_URL_AUTH=postgresql:///claudit_auth`; the shipped example
+defaults to a database named `users`).
+
+`user_id` must be an integer type and `config` must be `JSONB`; those are
+the exact columns the login lookup selects, and the same minimal shape
+`scripts/ci/smoke.py` builds for its own fixture. A table named anything
+other than `users`, or one whose `user_id` is `text`, is rejected at
+startup by the same check (issue #368 — an earlier check let those
+through, and they 500ed every login with `UndefinedColumn`). Add
+`GRANT SELECT ON users TO <role>` when `DATABASE_URL_AUTH` connects as a
+role other than the table's owner.
+
+The table starts empty, so there is no account to sign in with yet — see
+[Auth](#auth) for the credential shape your user-management process writes
+into `config`.
+
 The first request blocks while ingest runs (~30s on a warm DB,
 several minutes for a cold cache against the full `claude` bucket).
 Subsequent ingests are incremental (etag + parser_version check per
@@ -376,8 +406,11 @@ every user must sign in again.
 
 Login expects a numeric user ID whose row in the auth DB's `users`
 table has a PBKDF2 web-password hash stored under
-`config.web_password_hash` (with a paired `web_password_salt`). The
-hash is either a bare hex digest — the legacy shape, verified at
+`config.web_password_hash` (with a paired `web_password_salt`). That
+table is external — see [Quick start](#quick-start) for the `CREATE
+TABLE` an operator runs once, and the two columns (`user_id`, `config`)
+startup insists on. The hash is either a bare hex digest — the legacy
+shape, verified at
 200,000 iterations with the `web_password_salt` value — or a
 versioned string `pbkdf2_sha256$<iterations>$<salt>$<hash>` that
 carries its own count and salt; `backend/auth.py` verifies both, and

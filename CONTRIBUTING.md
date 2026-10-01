@@ -73,12 +73,23 @@ databases in.
 createdb claudit
 psql claudit -f backend/schema.sql
 
+# The auth DB is external — this repo owns no schema for it. Startup
+# aborts on db.schema_check() unless users exists and carries the two
+# columns the login lookup reads (user_id integer, config JSONB).
+createdb claudit_auth
+psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
+config JSONB NOT NULL DEFAULT '{}'::jsonb)"
+
 cp backend/.env.example .env      # then edit: DATABASE_URL_VIZ, R2_*, ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
 
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
+
+`scripts/ci/smoke.py` builds the same minimal `users` table for its own
+fixture; see the README's [Quick start](README.md#quick-start) for what
+populates it and why it stays out of this repository.
 
 No R2 credentials? Point `R2_ENDPOINT` at a directory instead — the
 client walks the tree in `file://` mode:
