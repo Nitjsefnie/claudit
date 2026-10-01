@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -40,6 +41,18 @@ _live_renders: dict[asyncio.subprocess.Process, str] = {}
 # not backend/requirements.txt) or psycopg — an environment problem, not a
 # render failure, so it earns a 503 that names the fix (issue #115).
 _MISSING_MODULE_RE = re.compile(r"ModuleNotFoundError")
+
+# No live export's file can be older than this: the render subprocess is
+# bounded at _EXPORT_TIMEOUT_S and the handler unlinks its output on every
+# exit path, so a claudit_export_* file older than twice that is an orphan
+# of a process that died mid-render (issue #441). The wide margin keeps a
+# live export in a process sharing the tmp directory (a dev box without the
+# unit's PrivateTmp) from ever being swept.
+_STALE_EXPORT_MIN_AGE_S = 2 * _EXPORT_TIMEOUT_S
+
+# The mkstemp prefix the export handler writes; the sweep must target
+# exactly what this module creates.
+_EXPORT_TMP_PREFIX = "claudit_export_"
 
 
 def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]:
@@ -189,6 +202,39 @@ async def reap_live_renders(budget_s: float) -> None:
             os.unlink(out_path)
         except OSError:
             pass
+
+
+def sweep_stale_exports(directory: str | None = None) -> int:
+    """Unlink export tmp files a crashed process left behind (issue #441).
+
+    The graceful paths (#363, #414) reap the renders of a stop they run
+    in; a SIGKILL bypasses both, and the partial PNG it leaves behind was
+    never cleaned by anything. Called once at lifespan startup. A file is
+    swept only when older than _STALE_EXPORT_MIN_AGE_S: nothing younger
+    can be an orphan, and in a tmp shared with a live process nothing
+    older can still be live. Files outside the prefix, and unstatable or
+    unlinkable ones, are left alone. Returns how many files were removed.
+    """
+    tmp = Path(directory or tempfile.gettempdir())
+    cutoff = time.time() - _STALE_EXPORT_MIN_AGE_S
+    removed = 0
+    try:
+        candidates = list(tmp.glob(f"{_EXPORT_TMP_PREFIX}*"))
+    except OSError as exc:
+        print(f"[export] stale-export sweep could not list {tmp}: {exc}",
+              file=sys.stderr)
+        return 0
+    for path in candidates:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f"[export] swept {removed} stale export file(s) from {tmp}",
+              file=sys.stderr)
+    return removed
 
 
 @router.get("/export")

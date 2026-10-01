@@ -16,6 +16,12 @@ from backend import db, ingest_progress, r2
 # spells "aborted: <cause>"; a plain shutdown keeps this exact value.
 _ABORT_ERROR = "aborted: shutdown requested"
 
+# The ingest_runs.error text the run-start sweep closes a crash leftover
+# with (issue #440). Same "aborted: ..." family as _ABORT_ERROR, but a
+# distinct value: /health must let an operator tell "died without a
+# graceful stop" from "stopped cleanly".
+_STALE_ERROR = "aborted: previous run died without closing (crash)"
+
 
 def failure_summary(failed: list[tuple[str, str]]) -> str | None:
     """Count failed objects for `ingest_runs.error`.
@@ -92,5 +98,28 @@ def close_open_run(err: str = _ABORT_ERROR) -> bool:
             (datetime.now(timezone.utc), err, run_id),
         )
         closed = bool(cur.rowcount)
+        c.commit()
+    return closed
+
+
+def sweep_stale_runs() -> int:
+    """Close every still-open ingest_runs row as a crash leftover.
+
+    Called at the top of a run that holds the db-wide advisory lock
+    (ingest._db_run_lock): the server releases that lock the moment the
+    holding connection dies, so an open row under it proves the process
+    that opened it is gone — the SIGKILL shape the graceful paths (#103,
+    #372) can never close behind. No host/pid columns are needed: the
+    lock is the liveness proof. One set-based UPDATE; returns how many
+    rows it closed. The lock also serialises runs, so a row the current
+    run thread will close itself cannot exist at sweep time.
+    """
+    with db.viz_conn() as c, c.cursor() as cur:
+        cur.execute(
+            "UPDATE ingest_runs SET finished_at = %s, error = %s "
+            "WHERE finished_at IS NULL",
+            (datetime.now(timezone.utc), _STALE_ERROR),
+        )
+        closed = cur.rowcount
         c.commit()
     return closed
