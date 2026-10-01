@@ -50,6 +50,7 @@ def _login_page_response(
             err=err,
             app_name=html.escape(branding.brand_name().upper(), quote=True),
             style_nonce_attr=nonce_attr,
+            script_nonce_attr=nonce_attr,
             **_privacy_notice_slots(),
         ),
         status_code=status,
@@ -98,6 +99,25 @@ _LOGIN_HTML = """<!DOCTYPE html>
     Continue as guest
   </button>
 {privacy_link}</form>
+<script{script_nonce_attr}>
+  // The start of the sign-in journey (issue #436). Success is a bare 303
+  // to '/', so by the time the signed-in page runs, this document is
+  // gone and its performance.now() with it -- the instant has to travel,
+  // and it travels with the time origin it is relative to, because the
+  // next document's performance.now() starts near zero again.
+  // src/perf.js reads both keys back and consumes them; a re-rendered
+  // page after a failed attempt simply stamps again.
+  document.querySelector('form').addEventListener('submit', function () {{
+    try {{
+      sessionStorage.setItem('claudit.signin.start', String(performance.now()));
+      sessionStorage.setItem('claudit.signin.origin', String(performance.timeOrigin));
+    }} catch (e) {{
+      // Storage disabled (private browsing, blocked cookies): the
+      // journey is simply not measured. A telemetry marker must never be
+      // what stops a sign-in.
+    }}
+  }});
+</script>
 </body></html>
 """
 
