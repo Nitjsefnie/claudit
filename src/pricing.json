@@ -473,7 +473,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T13:54:30Z",
+  "provider_rates_fetched": "2026-10-01T14:54:04Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2746,6 +2746,14 @@
           "from": "2026-10-01T11:10:45Z",
           "output": 0.6,
           "read": 0.0243
+        },
+        {
+          "create_1h": 0.025,
+          "create_5m": 0.025,
+          "fresh": 0.025,
+          "from": "2026-10-01T14:25:59Z",
+          "output": 0.6,
+          "read": 0.025
         }
       ],
       "Sail Research": [
@@ -33345,6 +33353,15 @@
           "note": "85.2% off",
           "output": 0.58608,
           "read": 0.006216
+        },
+        {
+          "create_1h": 0.1848,
+          "create_5m": 0.1848,
+          "fresh": 0.1848,
+          "from": "2026-10-01T13:55:47Z",
+          "note": "86% off",
+          "output": 0.5544,
+          "read": 0.00588
         }
       ],
       "Cloudflare": [
@@ -34549,6 +34566,14 @@
           "note": "35% off",
           "output": 2.1879,
           "read": 0.07293
+        },
+        {
+          "create_1h": 1.122,
+          "create_5m": 1.122,
+          "fresh": 1.122,
+          "from": "2026-10-01T14:05:48Z",
+          "output": 3.366,
+          "read": 0.1122
         }
       ],
       "Relace": [
@@ -34839,6 +34864,14 @@
           "from": "2026-10-01T12:00:49Z",
           "output": 3.5,
           "read": 0.1853
+        },
+        {
+          "create_1h": 0.1748,
+          "create_5m": 0.1748,
+          "fresh": 0.1748,
+          "from": "2026-10-01T14:25:57Z",
+          "output": 3.5,
+          "read": 0.1748
         }
       ],
       "Sail Research": [
@@ -40079,6 +40112,14 @@
           "from": "2026-10-01T12:35:48Z",
           "output": 4.4,
           "read": 0.2
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-01T14:00:47Z",
+          "output": 4.4,
+          "read": 0.2
         }
       ],
       "Io Net": [
@@ -42369,6 +42410,14 @@
           "from": "2026-09-28T08:55:44Z",
           "output": 1.14,
           "read": 0.067
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-01T14:25:56Z",
+          "output": 1.14,
+          "read": 0.067
         }
       ],
       "Relace": [
@@ -43425,6 +43474,24 @@
           "note": "15% off",
           "output": 0.425,
           "read": 0.0255
+        },
+        {
+          "create_1h": 0.1125,
+          "create_5m": 0.1125,
+          "fresh": 0.1125,
+          "from": "2026-10-01T13:55:47Z",
+          "note": "25% off",
+          "output": 0.375,
+          "read": 0.0225
+        },
+        {
+          "create_1h": 0.1275,
+          "create_5m": 0.1275,
+          "fresh": 0.1275,
+          "from": "2026-10-01T14:35:56Z",
+          "note": "15% off",
+          "output": 0.425,
+          "read": 0.0255
         }
       ],
       "DeepInfra": [
@@ -43905,6 +43972,14 @@
           "fresh": 0.042,
           "from": "2026-10-01T13:45:49Z",
           "output": 0.5,
+          "read": 0.04
+        },
+        {
+          "create_1h": 0.042,
+          "create_5m": 0.042,
+          "fresh": 0.042,
+          "from": "2026-10-01T14:45:59Z",
+          "output": 0.6,
           "read": 0.04
         }
       ],
