@@ -128,10 +128,35 @@ def test_speed_job_uploads_the_measurement():
                    "actions/upload-artifact")]
     assert len(uploads) == 1
     upload = uploads[0]
-    assert upload["with"]["name"] == "suite-measurement"
+    # NOT tests.yml's `suite-measurement`: both legs run in the same
+    # ci-gate run, and one name shared by two uploads made the tighten
+    # bot's download-by-name a coin toss between them (issue #496).
+    assert upload["with"]["name"] == "suite-speed-measurement"
     assert upload["with"]["path"] == (
         "${{ runner.temp }}/suite-measurement.json")
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_the_two_suite_measurement_uploads_cannot_collide():
+    # The bot (ratchet-push.yml) reads one artifact by name out of the
+    # triggering run: `suite-measurement`, which tests.yml publishes.
+    # speed.yml publishes a second measurement of the same pass, so the
+    # two names must differ or the bot cannot say which one it read.
+    speed = _load("speed.yml")
+    tests = _load("tests.yml")
+
+    def _upload_names(doc, job):
+        return [((step.get("with") or {}).get("name"))
+                for step in _steps(_job(doc, job))
+                if (step.get("uses") or "").startswith(
+                    "actions/upload-artifact")
+                and "suite" in str((step.get("with") or {}).get("name"))]
+
+    speed_names = _upload_names(speed, "speed")
+    tests_names = _upload_names(tests, "pytest")
+    assert speed_names == ["suite-speed-measurement"]
+    assert tests_names == ["suite-measurement"]
+    assert not set(speed_names) & set(tests_names)
 
 
 def test_speed_job_measures_on_postgres():

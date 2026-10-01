@@ -14,6 +14,7 @@ import ast
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from decimal import Decimal
@@ -388,6 +389,34 @@ def test_fixture_paths_outside_the_repo_root_are_refused(tmp_path):
             cwd=tmp_path)
         assert result.returncode != 0, needle
         assert "outside" in (result.stderr + result.stdout), needle
+
+
+def _purge_bytecode_caches(root):
+    for cache in root.rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
+
+
+def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
+    # The count must not depend on the caches the checkout arrived with:
+    # compiling a module costs about as much again as loading it, and
+    # the two callers did not agree on whether the compile had already
+    # happened -- speed.yml measures a fresh checkout, tests.yml
+    # measures after the suite has run. warm_bytecode_caches draws that
+    # split outside the counted window, and this is the control: from a
+    # tree carrying no bytecode caches at all, one measurement must
+    # leave EVERY pinned file compiled. Without the warm-up the tree
+    # would still be bare, and the gate would read one number while
+    # the tighten bot wrote the other into the budgets (issue #496).
+    #
+    # The per-file assertion is what makes it bite: a warm-up that
+    # collected only part of the fixture would compile a __pycache__ and
+    # still pass a looser "some cache exists" check.
+    _purge_bytecode_caches(mini_suite)
+    assert not list(mini_suite.rglob("__pycache__"))
+    _measure(mini_suite, name="warmed.json")
+    compiled = mini_suite / "__pycache__"
+    for pinned in ("mini_test_a", "mini_test_b", "conftest"):
+        assert list(compiled.glob(f"{pinned}.cpython-*.pyc")), pinned
 
 
 def test_measure_releases_the_monitoring_tool_id(mini_suite):
