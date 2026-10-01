@@ -96,9 +96,17 @@ def url_attr(url: str) -> str | None:
     value reads as; a tab or newline between the two is stripped by the
     parser and turns ``/\\t\\host`` into the same escape. Refusing the
     character outright closes the shape wherever the parser would read
-    it as a ``/``, on either branch, and costs a real URL nothing: the
-    parser rewrites every raw ``\\`` to ``/`` anyway, so one that means
-    itself is spelled ``%5C`` and stays put.
+    it as a ``/``, on either branch.
+
+    The refusal reaches past the path: the parser rewrites a raw ``\\``
+    to ``/`` in the AUTHORITY and the PATH, but leaves it in the QUERY
+    and the FRAGMENT (``/p?a=b\\c`` keeps its backslash, node-verified),
+    so a query or fragment naming a literal backslash is refused too.
+    That is over-refusing two exotic values in the direction this
+    function's own rule calls safe and visible — the dropped link and
+    the logged warning — and ``%5C`` is the spelling that survives.
+    Why the shape is refused at all is measured, not argued: a URL that
+    means itself is written ``%5C``, which no parser rewrites.
 
     A refused value drops the link — a display-only setting must not
     take the service down at startup — and logs a warning, so the
