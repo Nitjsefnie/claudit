@@ -97,15 +97,18 @@ def url_attr(url: str) -> str | None:
       special scheme — http(s) here — so ``/\\host`` is the ``//host``
       scheme-relative escape spelled the other way, and
       ``https://\\host`` names a different host than the value reads as.
-    - ANY C0 CONTROL OR SPACE outside the trimmed ends. A tab, LF or CR
-      is REMOVED from anywhere in the value, so ``/\\t/host`` is
-      ``//host`` by the time the browser resolves it: the same escape
-      again, spelled across a character the parser takes out. The rest
-      (NUL, VT, FF, the other controls, a bare space) are
-      percent-encoded rather than removed, so they resolve where they
-      read — but the rule is the character, not the escape, and one
-      rule a reader can check is worth more than a list of shapes a
-      browser may add to.
+    - ANY C0 CONTROL OR SPACE outside the trimmed ends — all 33
+      characters ``_C0_SPACE`` names. Only THREE of them carry the
+      escape: a tab, LF or CR is REMOVED from anywhere in the value, so
+      ``/\\t/host`` is ``//host`` by the time the browser resolves it,
+      the same escape again, spelled across a character the parser takes
+      out. The other 29 (NUL, VT, FF, the remaining controls, a bare
+      space) are percent-encoded rather than removed, so they resolve
+      where they read. The rule is the character, not the escape,
+      because one rule a reader can check is worth more than a list of
+      shapes a browser may add to — but read that as the margin it is:
+      the class test below pins the escape, not the width, and narrowing
+      the set to the three would leave it green.
 
     Both refusals reach past what any single escape needs. That is
     deliberate, and it is the direction this function's own rule calls
@@ -129,6 +132,7 @@ def url_attr(url: str) -> str | None:
     # Anything the parser removes or rewrites ANYWHERE is refused, not
     # only where the escape happens to sit today: the ends are already
     # trimmed above, so what is left is what the browser reads.
+    # (Set width is a margin, not a tested property — see the docstring.)
     if (not _URL_ATTR_RE.match(value) or "\\" in value
             or not _C0_SPACE_SET.isdisjoint(value)):
         log.warning(
