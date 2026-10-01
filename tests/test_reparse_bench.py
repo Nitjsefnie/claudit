@@ -520,13 +520,22 @@ def test_report_phase_table_is_markdown():
 
 def test_report_table_stays_monospace_aligned():
     """Padded cells keep the job log's columns: every table line is one
-    visual width, the numeric columns flush right."""
+    visual width, the numeric columns right-aligned, the phase column
+    left-aligned."""
     lines = _report_lines(counted={name: None for name in bench.PHASES})
     table = [line for line in lines if line.startswith("|")]
     assert len({len(line) for line in table}) == 1
     assert all(cell.strip().endswith(":")
                for cell in table[1].strip("|").split("|")[1:]), (
         "the numeric columns are right-aligned")
+    # A rjust->ljust mutant on the data cells survives the width and
+    # separator pins above: the padding SIDE is its own assertion.
+    row = next(line for line in table[2:] if "sniff" in line)
+    cells = row.split("|")
+    assert cells[1].startswith(" sniff "), cells
+    assert cells[2].endswith("9.0% "), cells
+    assert cells[3].endswith("0.0000 "), cells
+    assert cells[4].endswith("- "), cells
 
 
 def test_report_marks_an_uncounted_phase_with_a_dash():
