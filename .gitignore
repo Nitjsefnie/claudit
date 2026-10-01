@@ -94,13 +94,14 @@
 # r2_mini is a MIRROR of an R2 bucket — its shape is
 # claude/<project>/<session>/... and a new fixture session adds directories at
 # arbitrary depth, so descendants are re-opened recursively instead of being
-# enumerated. The name-back list stays SCOPED to this subtree, so only the two
+# enumerated. The name-back list stays SCOPED to this subtree, so only the three
 # file types the mirror actually ships can get through.
 !/fixtures/r2_mini/
 /fixtures/r2_mini/**
 !/fixtures/r2_mini/**/
 !/fixtures/r2_mini/**/*.jsonl
 !/fixtures/r2_mini/**/*.txt
+!/fixtures/r2_mini/**/*.meta.json
 
 # ---- public/ — static assets served at / -----------------------------------
 !/public/
