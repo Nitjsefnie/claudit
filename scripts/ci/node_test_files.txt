@@ -1,3 +1,4 @@
+tests/test_branding.py
 tests/test_breakdown_exact_rate.py
 tests/test_ctx_turn_parity.py
 tests/test_dashboard_binning.py
