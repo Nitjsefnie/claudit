@@ -21,7 +21,7 @@ Auth is `session.auth_middleware` by path prefix, not a decorator (see
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -107,9 +107,16 @@ def web_metrics_readout(
     # fold stored, and one named function is what lets a test pin both.
     now = web_metrics.utcnow()
     since, bucket_s = now - delta, _bucket_seconds(delta)
-    if bucket_s in LATENCY_BUCKETS:
-        return _series_from_rollup(rng, bucket_s, since)
-    return _series_live(rng, bucket_s, since, now)
+    # The fork is by whether the range FITS the raw window, not by bucket
+    # width. Width was the older test and it chose wrong: a four-day range
+    # folds to a 15-minute bucket, is not a stored width, and was therefore
+    # served from 54 hours of raw rows for a 96-hour question — clamped, with
+    # the answer describing a third of the range it was asked about. A range
+    # the raw table cannot cover is served from the rollup plus its tail,
+    # whatever width it happens to fold to.
+    if delta.total_seconds() <= web_metrics.RAW_KEEP_S:
+        return _series_live(rng, bucket_s, since, now)
+    return _series_from_rollup(rng, _stored_width(bucket_s), since)
 
 
 def _row(ts, metric, part, region, phase, n, p50, p75, total) -> dict:
@@ -177,15 +184,45 @@ def _assemble(rng: str, bucket_s: int, bucket_rows: list, series_rows: list,
     }
 
 
-def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
-    """Read the stored per-width percentiles and pool them (see `_pool`).
+def _stored_width(requested: int) -> int:
+    """The narrowest STORED width that can carry a range, never a bare one.
 
-    Percentiles cannot be summed across buckets, so unlike the other rollups
-    this one is precomputed PER display-bucket width — the widths are
-    epoch-aligned and there are only a handful (`constants.LATENCY_BUCKETS`).
-    A range filter then just selects buckets. The pooling is the one
-    approximation in this module, and `exact` says so in the payload.
+    Each width's rollup accumulates only about `RAW_KEEP_S` of history — the
+    window its own folds can read — so a width the rollup does not store has
+    no history at all, and a stored width narrower than needed has only a
+    couple of widths' worth. Serving a four-day range from a 15-minute
+    bucket's rollup therefore answered a 96-hour question with 54 hours of
+    data, which is a clamp wearing a bucket's clothes.
+
+    So: the narrowest stored width at least as wide as asked for, and the
+    widest stored width when none is. Coarser buckets mean a coarser series,
+    which the caller can see in `bucket_s`; silently answering from a width
+    it does not hold is not an option.
     """
+    for width in LATENCY_BUCKETS:
+        if width >= requested:
+            return width
+    return LATENCY_BUCKETS[-1]
+
+
+def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
+    """Stored buckets UNION the raw tail, then pooled (see `_pool`).
+
+    The rollup holds only CLOSED buckets, and a bucket closes when its span
+    has passed — so the newest beacons, and everything since the last fold,
+    are in `web_metrics` and in no bucket yet. Reading the rollup ALONE
+    drops them, and the drop is not subtle: a wider range selects more stored
+    buckets and still reports FEWER beacons than a narrower one, and the
+    default `all` view served 42 of 240 on a ten-day corpus. That is what a
+    cross-model review of this branch found, and it contradicted a claim in
+    this module's own header.
+
+    So the tail is unioned back in, from the end of the newest stored bucket
+    to now. The union is a blend — a stored bucket's percentile beside a live
+    percentile over a different population — which is what `exact: false` has
+    always meant, and the reason the flag exists.
+    """
+    now = web_metrics.utcnow()
     with db.viz_conn() as conn:
         rows = conn.execute(
             db.sql_text(f"""
@@ -197,7 +234,45 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
                     * {bucket_s} + {bucket_s} / 2.0)
             ORDER BY bucket, metric, part, region, phase
             """), (bucket_s, since)).fetchall()
-    return _assemble(rng, bucket_s, rows, rows, False, since)
+        newest_row = conn.execute(
+            "SELECT MAX(bucket) FROM web_metrics_rollup WHERE bucket_s = %s",
+            (bucket_s,)).fetchone()
+        newest = newest_row[0] if newest_row else None
+        # The tail begins where the stored history stops — and never before
+        # the requested range, or a narrow range would pick up older buckets
+        # it did not ask for.
+        # The newest stored bucket's END, not its start: its span is already
+        # counted in the row, and starting at the start double-counts it.
+        tail_from = (newest + timedelta(seconds=bucket_s / 2)
+                     if newest is not None else since)
+        tail_from = max(tail_from, since,
+                        web_metrics.retention_cutoff(now))
+        tail = conn.execute(
+            db.sql_text(f"""
+            WITH src AS (
+              SELECT to_timestamp(
+                       floor(EXTRACT(EPOCH FROM ts) / {bucket_s})
+                       * {bucket_s} + {bucket_s} / 2.0) AS bucket,
+                     metric, part, region, phase, value
+                FROM web_metrics
+               WHERE ts >= %s
+            )
+            SELECT bucket, metric, part, region, phase, COUNT(*) AS n,
+                   PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY value) AS p50,
+                   PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY value) AS p75,
+                   SUM(value) AS total
+              FROM src GROUP BY 1, 2, 3, 4, 5
+             ORDER BY bucket, metric, part, region, phase
+            """), (tail_from,)).fetchall()
+    # `since` is the OLDEST data this answer actually rests on, not the
+    # window that was asked for: a range the rollup cannot reach is served
+    # from whatever history exists, and the panel shows the difference. The
+    # previous version echoed the requested window, which is the exact lie
+    # `since` was added to prevent.
+    served = [r[0] for r in rows] or [tail_from]
+    oldest = min(served) - timedelta(seconds=bucket_s / 2)
+    return _assemble(rng, bucket_s, list(rows) + list(tail),
+                     list(rows) + list(tail), False, oldest)
 
 
 def _series_live(rng: str, bucket_s: int, since: datetime,

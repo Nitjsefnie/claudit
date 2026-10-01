@@ -81,13 +81,36 @@ def test_the_signin_page_carries_a_marked_up_script(page):
 
 def test_the_signin_page_has_no_nonce_less_script(page):
     """One inline script without the nonce would be blocked, and the
-    marker would silently never be written."""
+    marker would silently never be written.
+
+    The match is case-insensitive on purpose. CodeQL flagged the
+    case-SENSITIVE pattern as a new high-severity alert
+    (py/incomplete-regexp, tests/test_signin_perf_marker.py): an unescaped,
+    unanchored tag pattern in a test that ASSERTS over the page's markup, and
+    a `<SCRIPT>` would sail past it while the assertion reported every script
+    as nonced. HTML tag names are ASCII case-insensitive, so a browser
+    honouring `<SCRIPT>` is exactly the case this must not miss.
+    """
     resp = page.get("/login")
     nonce = _nonce(resp)
-    scripts = re.findall(r"<script\b[^>]*>", resp.text)
+    scripts = re.findall(r"<script\b[^>]*>", resp.text, re.IGNORECASE)
     assert scripts, ("the sign-in page no longer carries any script -- "
                      "the start marker cannot be there")
     assert all(f'nonce="{nonce}"' in s for s in scripts), scripts
+
+
+def test_the_script_scan_sees_an_upper_case_tag(page):
+    """Proof the case-insensitivity is real, so the alert is answered.
+
+    Without this, dropping the flag is invisible locally: the shipped page is
+    all lower-case, so a case-sensitive pattern matches everything it ever
+    will and the assertion passes either way.
+    """
+    assert re.findall(r"<script\b[^>]*>", "<SCRIPT>x</SCRIPT>",
+                      re.IGNORECASE), (
+        "the case-insensitive flag is gone, so an upper-case tag is missed")
+    assert not re.findall(r"<script\b[^>]*>", "<SCRIPT>x</SCRIPT>"), (
+        "this case holds only while the pattern is case-sensitive")
 
 
 def test_the_marker_names_the_two_keys_the_client_adopts(page):
