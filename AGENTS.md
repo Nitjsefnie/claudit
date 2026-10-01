@@ -216,6 +216,12 @@ Setup detail lives in CONTRIBUTING.md; the short form:
 createdb claudit
 psql claudit -f backend/schema.sql        # idempotent; also auto-applies at startup
 
+# External auth DB — this repo owns no schema for it. Startup aborts on
+# db.schema_check() unless users carries the two columns the login reads.
+createdb claudit_auth
+psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
+config JSONB NOT NULL DEFAULT '{}'::jsonb)"
+
 cp backend/.env.example .env              # edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
