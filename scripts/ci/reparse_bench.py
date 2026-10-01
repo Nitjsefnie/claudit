@@ -19,9 +19,9 @@ field guide's findings rather than by a first instinct:
   calls — no reimplementation of the dispatch, no second copy of the
   parse to drift from the first. The ratcheted number is each phase's
   SHARE of the run's own CPU (a ratio within one process's own run,
-  the most load-resistant form available): on this box's shared CPU the
-  pass total moved +-28% between identical runs while the phase shares
-  moved about a point.
+  the most load-resistant form available): four runs of the same tree
+  on this shared box moved the pass TOTAL by 29% while every phase
+  share stayed inside half a point.
 
 - COUNTS BEAT TIMES WHERE THEY EXIST (guide: "instruction counts do not
   drift with machine speed"). ``perf stat``'s user-space instruction
@@ -63,6 +63,7 @@ field guide's findings rather than by a first instinct:
   python3 scripts/ci/reparse_bench.py                  # human report
   python3 scripts/ci/reparse_bench.py --machine        # key=value fields
   python3 scripts/ci/reparse_bench.py --write m.json   # measurement file
+  python3 scripts/ci/reparse_bench.py --report m.json  # print it, measure nothing
   python3 scripts/ci/reparse_bench.py --check m.json   # gate the file
 """
 from __future__ import annotations
