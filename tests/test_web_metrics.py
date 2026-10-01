@@ -195,11 +195,8 @@ def test_sink_stores_the_batch(viz, client):
     ]
 
 
-def test_sink_records_the_session_it_came_from(viz, client, monkeypatch):
-    """A guest beacons as user 0 — the value session.py hands the middleware."""
-    client.app.state  # touch, so a refactor removing state fails loudly
-    monkeypatch.setattr(session_mod, "resolve_session_user_id",
-                        lambda _cookie: 4242)
+def test_sink_records_the_session_it_came_from(viz):
+    """The stored user_id is the one the middleware put on request.state."""
     app = FastAPI()
 
     @app.middleware("http")

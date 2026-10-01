@@ -198,6 +198,34 @@ def auth_conn():
 # directory the service was started from does not matter.
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
+# The schema, as an ORDERED list of files, all applied in one transaction
+# under one content stamp (issue #436). Splitting is not a preference: the
+# module-size ratchet records schema.sql at exactly its current line count,
+# a recorded size it never raises and never seeds again for an existing
+# family, so any table added there fails the gate permanently. The ratchet's
+# own stated remedy is to relocate the code into a new module, and that is
+# what a second file is. `web_metrics` went out first; schema.sql is
+# otherwise untouched and stays first in the list, because its statements
+# are the ones the rest of the file's ALTERs depend on.
+SCHEMA_PATHS = (
+    SCHEMA_PATH,
+    Path(__file__).resolve().parent / "schema_web_metrics.sql",
+)
+
+
+def _read_schema() -> str:
+    """Every schema file's DDL, in order, as one script.
+
+    Concatenated rather than executed file by file so the whole schema —
+    including the trailing file — is one transaction, one advisory lock and
+    one stamp. A separate transaction per file would let a crash between them
+    leave a database stamped as current with a table missing, which is the
+    exact half-applied state SV-SCHEMA-AUTOAPPLY exists to prevent.
+    """
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)
+
+
 # Arbitrary but fixed key for the advisory lock the migration holds.
 # Two processes starting at once would otherwise run the same DDL
 # concurrently: IF NOT EXISTS makes each statement individually safe, but
@@ -228,9 +256,9 @@ def _stamp_version(c) -> str | None:
 
 
 def apply_schema() -> None:
-    """Apply backend/schema.sql to the app DB at startup.
+    """Apply the schema files (SCHEMA_PATHS) to the app DB at startup.
 
-    schema.sql is idempotent by construction -- every statement is
+    The schema is idempotent by construction -- every statement is
     CREATE ... IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
     or a guarded DO block that widens usage_rollup's primary key (it
     drops the old constraint only when it does not already carry the
@@ -243,8 +271,9 @@ def apply_schema() -> None:
     while the dashboard kept serving stale aggregates.
 
     The DDL runs only when it has something to do (issue #387): the
-    file is content-addressed in `schema_stamp` — the sha256 of the
-    file's exact bytes, written by the same transaction as the DDL —
+    schema is content-addressed in `schema_stamp` — the sha256 of every
+    schema file's exact bytes in order, written by the same transaction
+    as the DDL —
     and a boot whose stamp already matches takes no lock beyond an
     ACCESS SHARE on the stamp table itself. That is what keeps a long
     psql analysis or pg_dump over `records` from hanging a start, and
@@ -295,7 +324,7 @@ def apply_schema() -> None:
     additive subset of the stamped file's, and the next boot of THIS
     build fast-paths again.
     """
-    ddl = SCHEMA_PATH.read_text(encoding="utf-8")
+    ddl = _read_schema()
     stamp = hashlib.sha256(ddl.encode("utf-8")).hexdigest()
     with viz_conn() as c:
         if _stamp_version(c) == stamp:

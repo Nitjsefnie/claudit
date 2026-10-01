@@ -20,6 +20,7 @@ Auth is `session.auth_middleware` by path prefix, not a decorator (see
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -103,7 +104,7 @@ def _row(ts, metric, part, region, phase, n, p50, p75, total) -> dict:
     }
 
 
-def _pool(rows: list) -> list[dict]:
+def _pool(rows: Iterable) -> list[dict]:
     """Pool a grain's rows into one range-level readout.
 
     `n` and `total` are exact — they are sums. The two percentiles are an
