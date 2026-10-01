@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
 """Read, write, report and gate a reparse bench measurement.
 
-The other half of ``reparse_bench.py``: that module MEASURES the CPU work
-of one reparse pass and splits it into phases, this one carries the
-reading between a process that measured it, the CI step that prints it,
-the gate that holds each phase to its recorded share, and the ratchet
-that tightens those shares. Split because one module doing both would
-outgrow the per-file size ratchet, and an outgrown file moves code
-rather than growing a baseline entry (SV-CI-RATCHETS).
+The other half of ``reparse_bench.py``: that module runs the corpus and
+takes the reading, this one carries it between the process that measured
+it, the CI step that prints it, the gate that holds every phase to its
+recorded budgets, and the ratchet that tightens them. Split because one
+module doing both would outgrow the per-file size ratchet, and an
+outgrown file moves code rather than growing a baseline entry
+(SV-CI-RATCHETS).
 
-A measurement is a small JSON document: the CPU of the pass, each
-phase's share of it, and the instruction count when a counter facility
-was available. Shares go through the file as STRINGS, not JSON numbers:
-they carry exactly one decimal place by contract, and a float would
-round-trip them to whatever the nearest double spells. The recorded
-value has to be the value measured.
+A measurement is a small JSON document carrying TWO instruments over the
+same phases, because each sees something the other cannot:
+
+- ``share_<phase>`` — the phase's percent of the pass's own CPU time.
+  Scale-free inside one run, so it does not drift with the machine, and
+  it is what catches work MOVING between phases.
+- ``bytecodes_<phase>`` — the phase's bytecode instructions per file, in
+  thousands. Exact, so it needs no amplification and no tolerance, and
+  it is what catches the parse getting slower as a WHOLE — the case a
+  share cannot see, because every phase grows together.
+
+Numbers go through the file as STRINGS, not JSON numbers: they carry
+exactly one decimal place by contract, and a float would round-trip them
+to whatever the nearest double spells. The recorded value has to be the
+value measured.
 
   python3 scripts/ci/reparse_bench.py --write m.json   # measure + write
   python3 scripts/ci/reparse_bench.py --check m.json   # gate it
@@ -36,27 +45,52 @@ else:
 
 
 UNIT = thresholds.REPARSE_UNIT
+COUNT_UNIT = thresholds.REPARSE_COUNT_UNIT
 PHASES = thresholds.REPARSE_PHASES
 _OVER_BUDGET_REMEDY = (
-    'A reparse phase is over its recorded share of the pass: make that '
-    'phase cheaper. The recorded budget is never raised by hand.')
+    'A reparse phase is over its recorded budget: make that phase '
+    'cheaper. A recorded budget is never raised by hand.')
 
 
 class Measurement(NamedTuple):
-    """One bench run: the CPU of each phase, and the shares recorded."""
+    """One bench run: both instruments, phase by phase, over one corpus."""
     cpu_s: float
     files: int
     passes: int
     records: int
     phase_cpu_s: dict
     shares: dict
-    instructions_per_file: int | None
+    instruction_counts: dict | None
+    instruction_per_file: dict | None
     instruction_note: str
+    perf_per_file: int | None
+    perf_note: str
+
+
+def counts_payload(counts) -> dict | None:
+    """The counting instrument in the shape the measurement file carries.
+
+    A plain dict on purpose: the measurement survives a round trip through
+    the file, and a shape that changed across that trip would make the
+    report read a live object in one run and a dict in the next.
+    """
+    if counts is None:
+        return None
+    if isinstance(counts, dict):
+        return dict(counts)          # already shaped: a re-write of a read
+    return {
+        'available': bool(counts.available),
+        'reason': counts.reason,
+        'total_bytecodes': counts.total_bytecodes,
+        'overhead_per_call': counts.overhead_per_call,
+        'phase_bytecodes': dict(counts.phase_bytecodes),
+    }
 
 
 def measurement_json(measurement: Measurement) -> dict:
     return {
         'unit': UNIT,
+        'count_unit': COUNT_UNIT,
         'files': measurement.files,
         'passes': measurement.passes,
         'records': measurement.records,
@@ -67,11 +101,20 @@ def measurement_json(measurement: Measurement) -> dict:
             name: {
                 'cpu_s': measurement.phase_cpu_s[name],
                 'share': str(measurement.shares[name]),
+                # A phase with no count is None, not "None": a string
+                # the loader would have to refuse, and a zero that would
+                # read as a phase that retires nothing.
+                'bytecode_hundreds_per_file': (
+                    str(measurement.instruction_per_file[name])
+                    if (measurement.instruction_per_file
+                        and measurement.instruction_per_file[name] is not None)
+                    else None),
             } for name in PHASES
         },
         'share_sum': str(sum(measurement.shares.values())),
-        'instructions_per_file': measurement.instructions_per_file,
-        'instructions_note': measurement.instruction_note,
+        'counts': counts_payload(measurement.instruction_counts),
+        'perf_instructions_per_file': measurement.perf_per_file,
+        'perf_note': measurement.perf_note,
     }
 
 
@@ -87,39 +130,78 @@ def measurement_from_file(path) -> Measurement:
         data = json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(data, dict) or 'phases' not in data:
             raise ValueError('the measurement file carries no phases')
+        counts = data.get('counts') or None
+        per_file = {
+            name: (Decimal(data['phases'][name]['bytecode_hundreds_per_file'])
+                   if data['phases'][name].get('bytecode_hundreds_per_file') is not None
+                   else None)
+            for name in PHASES
+        }
         return Measurement(
             data['cpu_s'], data['files'], data['passes'], data['records'],
             {name: data['phases'][name]['cpu_s'] for name in PHASES},
-            {name: Decimal(data['phases'][name]['share'])
-             for name in PHASES},
-            data.get('instructions_per_file'),
-            data.get('instructions_note', ''))
+            {name: Decimal(data['phases'][name]['share']) for name in PHASES},
+            counts, per_file, (counts or {}).get('reason', ''),
+            data.get('perf_instructions_per_file'),
+            data.get('perf_note', ''))
     except (KeyError, AttributeError, TypeError) as error:
         raise ValueError(f'unreadable measurement file: {error}') from None
     except OSError as error:
         raise ValueError(f'cannot read the measurement: {error}') from None
 
 
-def check(path, thresholds_path=None) -> int:
-    """Gate a written measurement against the committed floors."""
-    measurement = measurement_from_file(path)
-    floors = thresholds.reparse_cpu(
-        thresholds.load(thresholds_path or thresholds.THRESHOLDS))
+# --- the gate ----------------------------------------------------------------
+
+def _counted(measurement: Measurement, phase: str) -> Decimal | None:
+    """A phase's counted cost, or None where the instrument was absent."""
+    per_file = measurement.instruction_per_file
+    return per_file[phase] if per_file else None
+
+
+def _over_budget(measurement: Measurement, floors: dict) -> list:
+    """Every phase over either of its two recorded budgets."""
     over = []
     for phase in PHASES:
         share = measurement.shares[phase]
-        floor = floors[phase]['floor']
-        if share > floor:
-            over.append(f'{phase}: {share}% of the pass, floor {floor}%')
+        share_floor = floors[phase]['share']['floor']
+        if share > share_floor:
+            over.append(f'{phase}: {share}% of the pass, '
+                        f'floor {share_floor}%')
+        counted = _counted(measurement, phase)
+        count_floor = floors[phase]['bytecodes']['floor']
+        if counted is not None and counted > count_floor:
+            over.append(f'{phase}: {counted} {COUNT_UNIT}, '
+                        f'floor {count_floor}')
+    return over
+
+
+def check(path, thresholds_path=None) -> int:
+    """Gate a written measurement against the committed budgets."""
+    measurement = measurement_from_file(path)
+    floors = thresholds.reparse(
+        thresholds.load(thresholds_path or thresholds.THRESHOLDS))
+    over = _over_budget(measurement, floors)
     if over:
-        print('reparse CPU over its recorded budget:', file=sys.stderr)
+        print('reparse work over its recorded budget:', file=sys.stderr)
         for line in over:
             print(f'  {line}', file=sys.stderr)
         print(_OVER_BUDGET_REMEDY, file=sys.stderr)
         return 1
-    print('reparse CPU within budget (' + ', '.join(
-        f'{name} {measurement.shares[name]}%' for name in PHASES) + ')')
+    print(summary_line(measurement))
     return 0
+
+
+def summary_line(measurement: Measurement) -> str:
+    """One line naming every phase under both of its budgets, for the
+    gate's own voice when it passes."""
+    parts = []
+    for name in PHASES:
+        counted = _counted(measurement, name)
+        part = f'{name} {measurement.shares[name]}%'
+        if counted is not None:
+            part += f'/{counted}'
+        parts.append(part)
+    return 'reparse work within budget (' + ', '.join(parts) + ')'
 
 
 # --- reporting ---------------------------------------------------------------
@@ -130,20 +212,31 @@ def report(measurement: Measurement) -> str:
     lines = [
         f'reparse CPU {measurement.cpu_s:.4f} s over '
         f'{measurement.files} transcripts x {measurement.passes} passes '
-        f'({per_file_ms:.4f} ms/file), split by phase:'
+        f'({per_file_ms:.4f} ms/file), split by phase:',
+        f'  {"phase":<11} {"share":>6}  {"ms/file":>9}  {COUNT_UNIT}',
     ]
     for name in PHASES:
         cpu_ms = measurement.phase_cpu_s[name] / (
             measurement.passes * measurement.files) * 1000
-        lines.append(f'  {name:<11} {measurement.shares[name]:>5}%  '
-                     f'{cpu_ms:.4f} ms/file')
+        counted = _counted(measurement, name)
+        lines.append(
+            f'  {name:<11} {measurement.shares[name]:>5}%  {cpu_ms:>9.4f}  '
+            f'{"-" if counted is None else f"{counted}":>9}')
     lines.append(f'  {"sum":<11} {sum(measurement.shares.values()):>5}%')
-    if measurement.instructions_per_file is None:
-        lines.append('  instructions: NOT MEASURED '
+    if measurement.instruction_per_file is None:
+        lines.append('  bytecodes: NOT MEASURED '
                      f'({measurement.instruction_note})')
     else:
-        lines.append(f'  instructions: {measurement.instructions_per_file} '
-                     f'per file ({measurement.instruction_note})')
+        counts = measurement.instruction_counts or {}
+        lines.append(
+            f'  bytecodes: {counts.get("total_bytecodes")} over the counted '
+            f'run, {counts.get("overhead_per_call")} per instrumented call '
+            f'(both included in the phases above)')
+    if measurement.perf_per_file is None:
+        lines.append(f'  perf: NOT MEASURED ({measurement.perf_note})')
+    else:
+        lines.append(f'  perf: {measurement.perf_per_file} machine '
+                     f'instructions per file ({measurement.perf_note})')
     return '\n'.join(lines)
 
 
@@ -158,7 +251,13 @@ def machine_line(measurement: Measurement) -> str:
     fields += [f'share_{name}={measurement.shares[name]:.1f}'
                for name in PHASES]
     fields.append(f'share_sum={sum(measurement.shares.values()):.1f}')
-    if measurement.instructions_per_file is not None:
+    if measurement.instruction_per_file is not None:
+        fields += [f'bytecodes_{name}={_counted(measurement, name)}'
+                   for name in PHASES
+                   if _counted(measurement, name) is not None]
+        counts = measurement.instruction_counts or {}
         fields.append(
-            f'instructions_per_file={measurement.instructions_per_file}')
+            f'bytecodes_total={counts.get("total_bytecodes")}')
+    if measurement.perf_per_file is not None:
+        fields.append(f'perf_instructions_per_file={measurement.perf_per_file}')
     return 'reparse_bench ' + ' '.join(fields)

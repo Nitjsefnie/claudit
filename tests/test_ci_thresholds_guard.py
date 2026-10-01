@@ -59,7 +59,7 @@ GAP = Decimal("1.5")
 
 
 def _reparse(shares=None):
-    """A synthetic reparse family: one record per bench phase.
+    """A synthetic reparse family: both metrics for every bench phase.
 
     Spelled as floats, like every other family in this module's
     ``_document``: the guard tests serialise a base with plain
@@ -69,8 +69,13 @@ def _reparse(shares=None):
     shares = shares or {}
     return {
         phase: {
-            "measured": float(shares.get(phase, "10.0")),
-            "floor": float(shares.get(phase, "10.0")) + float(GAP),
+            metric: {
+                "measured": float(
+                    shares.get(f"{phase}.{metric}", "10.0")),
+                "floor": float(
+                    shares.get(f"{phase}.{metric}", "10.0")) + float(GAP),
+            }
+            for metric in _thresholds().REPARSE_METRICS
         }
         for phase in _thresholds().REPARSE_PHASES
     }
@@ -83,7 +88,7 @@ def _document(baseline=None, suppression=None, reparse=None, suite=None):
             "python": {"measured": 92.6, "floor": 91.1},
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
-        "reparse_cpu": _reparse() if reparse is None else reparse,
+        "reparse": _reparse() if reparse is None else reparse,
         "module_size_baseline": baseline if baseline is not None else {},
         "pylint_suppression_baseline": (
             suppression if suppression is not None else {}),
@@ -325,7 +330,7 @@ def test_reparse_phase_raised_fails(tmp_path):
     # TIGHTENS: a record that moved up is a hand-raise of the budget,
     # which buys headroom the maintainer's lever is meant to remove.
     base = _document()
-    head = _document(reparse=_reparse({"sniff": "20.0"}))
+    head = _document(reparse=_reparse({"sniff.share": "20.0"}))
     assert _guard_result(tmp_path, base, head) == 1
 
 
@@ -333,7 +338,22 @@ def test_reparse_phase_tightened_is_clean(tmp_path):
     # The bot's own direction for this family: a phase that got cheaper
     # rewrites both its fields downward, and that move stays green.
     base = _document()
-    head = _document(reparse=_reparse({"sniff": "4.0"}))
+    head = _document(reparse=_reparse({"sniff.share": "4.0"}))
+    assert _guard_result(tmp_path, base, head) == 0
+
+
+def test_reparse_instruction_count_raised_fails(tmp_path):
+    # The count is the instrument that catches a uniform slowdown, so a
+    # hand-raised count budget would buy away exactly the regression the
+    # bench exists for.
+    base = _document()
+    head = _document(reparse=_reparse({"parse_body.bytecodes": "60.0"}))
+    assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_reparse_instruction_count_tightened_is_clean(tmp_path):
+    base = _document()
+    head = _document(reparse=_reparse({"parse_body.bytecodes": "4.0"}))
     assert _guard_result(tmp_path, base, head) == 0
 
 
@@ -346,7 +366,7 @@ def test_reparse_phase_tighten_leaves_the_other_phases_alone(tmp_path):
     # Phases are independent ceilings: tightening one is the bot's move,
     # and it must not be able to carry another phase up or down with it.
     base = _document()
-    head = _document(reparse=_reparse({"parse_body": "4.0"}))
+    head = _document(reparse=_reparse({"parse_body.share": "4.0"}))
     assert _guard_result(tmp_path, base, head) == 0
 
 
@@ -356,7 +376,7 @@ def test_reparse_family_seed_is_clean(tmp_path):
     # The base's bytes are placed directly — the writer would refuse a
     # document missing a required member.
     base = _document()
-    base.pop("reparse_cpu")
+    base.pop("reparse")
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
     head_path = _written(tmp_path, _document(reparse=_reparse()), "head.json")
@@ -382,12 +402,12 @@ def test_reparse_family_seed_to_arbitrary_values_is_clean(tmp_path):
     # tests do that): a seed far above any measurement is still legal
     # here, exactly as a coverage seed is.
     base = _document()
-    base.pop("reparse_cpu")
+    base.pop("reparse")
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
     head_path = _written(
         tmp_path,
-        _document(reparse=_reparse({"sniff": "60.0", "parse_body": "30.0"})),
+        _document(reparse=_reparse({"sniff.share": "60.0", "parse_body.share": "30.0"})),
         "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
@@ -398,7 +418,7 @@ def test_removed_reparse_member_fails(tmp_path):
     # The loader refuses such a head, so the bytes are hand-placed.
     base = _document()
     head = _document()
-    head.pop("reparse_cpu")
+    head.pop("reparse")
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
     head_path.write_text(json.dumps(head, indent=2, default=float),
@@ -433,8 +453,8 @@ def test_guard_rejects_a_decimal_spelled_head_record(tmp_path):
 
 def test_reparse_remedy_is_printed_for_a_reparse_move(tmp_path, capsys):
     base = _document()
-    head = _document(reparse=_reparse({"sniff": "20.0"}))
+    head = _document(reparse=_reparse({"sniff.share": "20.0"}))
     assert _guard_result(tmp_path, base, head) == 1
     err = capsys.readouterr().err
-    assert "reparse_cpu.sniff.measured" in err
+    assert "reparse.sniff.share.measured" in err
     assert "never raised by hand" in err

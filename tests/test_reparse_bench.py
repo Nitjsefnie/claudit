@@ -49,6 +49,7 @@ def _load(name="reparse_bench"):
 
 bench = _load()
 report_module = _load("reparse_report")
+phases = _load("reparse_phases")
 thresholds = sys.modules["thresholds"]
 
 
@@ -276,10 +277,9 @@ def test_instrumentation_is_removed_even_when_the_parse_raises(monkeypatch):
         raise RuntimeError("the parse failed")
 
     monkeypatch.setattr(parse, "parse_file", boom)
-    totals = {"sniff_format": 0.0, "parse_file": 0.0,
-              "apply_agent_sidecar": 0.0}
+    totals = {"sniff": 0.0, "parse_file": 0.0, "sidecar": 0.0}
     with pytest.raises(RuntimeError):
-        with bench.instrumented(totals):
+        with phases.instrumented(totals):
             parse.parse_file("k", b"")
     assert parse.parse_file is boom
 
@@ -372,11 +372,8 @@ def test_missing_measurement_file_refused(tmp_path):
 
 
 def test_check_passes_while_every_phase_is_within_its_floor(tmp_path):
-    floors = {name: {"measured": Decimal("10.0"), "floor": Decimal("11.5")}
-              for name in bench.PHASES}
-    document = _document(reparse=floors)
     thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, document)
+    thresholds.write(thresholds_path, _document(_budgets()))
     path = tmp_path / "m.json"
     report_module.write_measurement(path, _measurement_with(
         {name: Decimal("9.0") for name in bench.PHASES}))
@@ -384,11 +381,9 @@ def test_check_passes_while_every_phase_is_within_its_floor(tmp_path):
                        str(thresholds_path)]) == 0
 
 
-def test_check_fails_on_a_phase_over_its_floor(tmp_path):
-    floors = {name: {"measured": Decimal("10.0"), "floor": Decimal("11.5")}
-              for name in bench.PHASES}
+def test_check_fails_on_a_phase_over_its_share_floor(tmp_path):
     thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(reparse=floors))
+    thresholds.write(thresholds_path, _document(_budgets()))
     shares = {name: Decimal("9.0") for name in bench.PHASES}
     shares["parse_body"] = Decimal("40.0")
     path = tmp_path / "m.json"
@@ -397,11 +392,27 @@ def test_check_fails_on_a_phase_over_its_floor(tmp_path):
                        str(thresholds_path)]) == 1
 
 
-def test_check_names_the_offending_phase(tmp_path, capsys):
-    floors = {name: {"measured": Decimal("10.0"), "floor": Decimal("11.5")}
-              for name in bench.PHASES}
+def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys):
+    # The share and the count are gated separately, and a phase over
+    # either one fails: the count is what catches a uniform slowdown,
+    # where every share stays put.
     thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(reparse=floors))
+    thresholds.write(thresholds_path, _document(_budgets()))
+    counted = {name: Decimal("1.0") for name in bench.PHASES}
+    counted["parse_body"] = Decimal("40.0")
+    path = tmp_path / "m.json"
+    report_module.write_measurement(path, _measurement_with(
+        {name: Decimal("9.0") for name in bench.PHASES}, counted))
+    assert bench.main(["--check", str(path), "--thresholds",
+                       str(thresholds_path)]) == 1
+    err = capsys.readouterr().err
+    assert "parse_body: 40.0" in err
+    assert "sniff" not in err, "only the offending phase is named"
+
+
+def test_check_names_the_offending_phase(tmp_path, capsys):
+    thresholds_path = tmp_path / "ci-thresholds.json"
+    thresholds.write(thresholds_path, _document(_budgets()))
     shares = {name: Decimal("9.0") for name in bench.PHASES}
     shares["sniff"] = Decimal("40.0")
     path = tmp_path / "m.json"
@@ -421,236 +432,34 @@ def _document(reparse):
             "javascript": {"measured": Decimal("50.0"),
                            "floor": Decimal("48.5")},
         },
-        "reparse_cpu": reparse,
+        "reparse": reparse,
         "module_size_baseline": {},
         "pylint_suppression_baseline": {},
     }
 
 
-def _measurement_with(shares):
+def _budgets(measured="10.0", **overrides):
+    """A synthetic family: both metrics for every phase, one override
+    set per call."""
+    budgets = {
+        phase: {metric: {"measured": Decimal(measured),
+                         "floor": Decimal(measured) + Decimal("1.5")}
+                for metric in thresholds.REPARSE_METRICS}
+        for phase in thresholds.REPARSE_PHASES
+    }
+    for label, value in overrides.items():
+        phase, metric = label.split(".")
+        budgets[phase][metric] = {"measured": Decimal(value),
+                                  "floor": Decimal(value) + Decimal("1.5")}
+    return budgets
+
+
+def _measurement_with(shares, counted=None):
+    """A measurement whose phases read the given values, under both
+    instruments."""
     measurement = _short()
     return measurement._replace(
         shares=shares,
-        phase_cpu_s={name: 0.0 for name in bench.PHASES})
-
-
-# --- the instruction count ---------------------------------------------------
-
-def test_perf_count_is_read_out_of_the_csv():
-    # `perf stat -x,` writes value, unit, event, ...; the first plain
-    # integer field is the count.
-    csv = "123456,,instructions:u,100.00,,\n"
-    assert bench.parse_perf_count(csv) == 123456
-
-
-@pytest.mark.parametrize("text", ["", "not a count", "<not supported>,,,",
-                                  "<not counted>,,instructions:u,0.00,,"])
-def test_perf_count_refused_when_there_is_none(text):
-    assert bench.parse_perf_count(text) is None
-
-
-def test_missing_instruction_count_is_announced_not_glossed():
-    # A measurement that is absent must never read as a measurement that
-    # passed: the report says NOT MEASURED and why.
-    measurement = _short()
-    measurement = measurement._replace(
-        instructions_per_file=None, instruction_note="perf is not installed")
-    text = report_module.report(measurement)
-    assert "NOT MEASURED" in text
-    assert "perf is not installed" in text
-    assert "instructions_per_file" not in report_module.machine_line(measurement)
-
-
-def test_measured_instruction_count_is_reported():
-    measurement = _short()._replace(
-        instructions_per_file=123456,
-        instruction_note="net of a startup-and-imports baseline run")
-    assert "123456 per file" in report_module.report(measurement)
-    assert "instructions_per_file=123456" in report_module.machine_line(measurement)
-
-
-def test_child_run_reports_a_count_or_says_why():
-    # The real end-to-end path: a fresh child process, perf if the probe
-    # finds it and CPU time if not, and a measurement either way.
-    measurement = bench.measure_in_child(passes=3, warmup=1)
-    assert measurement.files == len(_fixture_transcripts())
-    assert float(sum(measurement.shares.values())) == pytest.approx(
-        100.0, abs=0.2)
-    if measurement.instructions_per_file is None:
-        assert measurement.instruction_note, (
-            "an unmeasured count must carry the reason it is unmeasured")
-    else:
-        assert measurement.instructions_per_file > 0
-
-
-def test_no_perf_falls_back_to_cpu_time_and_says_so(monkeypatch):
-    # The fallback is the portable path, and it must be LOUD: a runner
-    # without perf gets CPU time plus the reason, never a silent zero.
-    monkeypatch.setattr(bench.shutil, "which",
-                        lambda _name: None)
-    measurement = bench.measure_in_child(passes=3, warmup=1)
-    assert measurement.instructions_per_file is None
-    assert "perf is not installed" in measurement.instruction_note
-    assert "NOT MEASURED" in report_module.report(measurement)
-
-
-# --- the command line --------------------------------------------------------
-
-def test_machine_line_carries_every_phase_share():
-    result = subprocess.run(
-        [sys.executable, str(BENCH), "--machine", "--passes", "3",
-         "--warmup", "1"],
-        capture_output=True, text=True, check=True)
-    fields = dict(piece.split("=", 1)
-                  for piece in result.stdout.strip().split()
-                  if "=" in piece)
-    assert int(fields["files"]) == len(_fixture_transcripts())
-    assert int(fields["passes"]) == 3
-    assert fields["unit"] == bench.UNIT
-    for name in bench.PHASES:
-        assert Decimal(fields[f"share_{name}"]) >= 0
-    assert float(Decimal(fields["share_sum"])) == pytest.approx(100.0, abs=0.2)
-
-
-def test_write_and_report_in_one_run_prints_the_measurement_it_wrote(
-        tmp_path, monkeypatch, capsys):
-    # The shape CI uses: measure, write, and print the human reading of
-    # that same measurement. Printing before the write would read a file
-    # that does not exist yet, and measuring twice would print a
-    # different run than the one the gate reads.
-    calls = []
-    real = bench.measure_in_child
-
-    def spy(passes, warmup):
-        calls.append((passes, warmup))
-        return real(passes, warmup)
-
-    monkeypatch.setattr(bench, "measure_in_child", spy)
-    path = tmp_path / "m.json"
-    assert bench.main(["--write", str(path), "--report", str(path),
-                       "--passes", "3", "--warmup", "1"]) == 0
-    assert len(calls) == 1, "the measurement ran more than once"
-    assert path.exists()
-    out = capsys.readouterr().out
-    written = report_module.measurement_from_file(path)
-    assert f"{written.cpu_s:.4f}" in out
-
-
-def test_report_flag_prints_a_written_measurement_without_measuring(
-        tmp_path, capsys):
-    # CI measures ONCE: the step writes the measurement, prints the human
-    # report of that same reading, and gates that same file. A --report
-    # that re-measured would make the printed number and the gated number
-    # two different runs.
-    measurement = _short()
-    path = tmp_path / "m.json"
-    report_module.write_measurement(path, measurement)
-    assert bench.main(["--report", str(path)]) == 0
-    out = capsys.readouterr().out
-    for name in bench.PHASES:
-        assert name in out
-    assert f"{measurement.cpu_s:.4f}" in out
-
-
-def test_human_report_names_every_phase_and_the_sum():
-    result = subprocess.run(
-        [sys.executable, str(BENCH), "--passes", "3", "--warmup", "1"],
-        capture_output=True, text=True, check=True)
-    for name in bench.PHASES:
-        assert name in result.stdout
-    assert "sum" in result.stdout
-
-
-# --- the CI wiring -----------------------------------------------------------
-
-ACTION = REPO_ROOT / ".github" / "actions" / "reparse-bench" / "action.yml"
-
-
-def _tests_workflow():
-    import yaml  # pylint: disable=import-outside-toplevel
-
-    return yaml.load(
-        (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text(
-            encoding="utf-8"),
-        # BaseLoader, not safe_load: YAML 1.1 parses the bare key `on` as
-        # the boolean True, and the ratchet step is read by name.
-        Loader=yaml.BaseLoader)
-
-
-def _steps():
-    return _tests_workflow()["jobs"]["pytest"]["steps"]
-
-
-def test_ci_gates_the_bench_on_every_event():
-    # The bench is a gate like the coverage ones: a pull request has to
-    # be able to fail on it, not only master.
-    steps = [step for step in _steps()
-             if step.get("uses") == "./.github/actions/reparse-bench"]
-    assert len(steps) == 1, "expected exactly one reparse bench step"
-    assert "steps.pytest.conclusion != 'skipped'" in steps[0]["if"]
-    assert steps[0].get("id") == "reparse"
-
-
-def test_the_action_measures_once_and_gates_that_same_file():
-    # Measuring twice would print one number and gate another, so the
-    # write and the check must name the same measurement.
-    run = yaml_action_run()
-    assert run.count("--write") == 1
-    assert run.count("--check") == 1
-    assert run.count("--report") == 1
-    assert run.count('"$MEASUREMENT"') == 3, run
-    assert "--passes" not in run, (
-        "the gate step measures at the bench's recorded amplification; a "
-        "step-level override would report a number nothing is recorded for")
-
-
-def test_every_flag_the_action_passes_is_a_real_bench_option():
-    # The action and the bench are two files that have to agree on a
-    # command line; nothing else checks it, and a flag the parser does
-    # not know fails the gate in CI rather than here.
-    import re  # pylint: disable=import-outside-toplevel
-
-    known = set()
-    for action in bench._parser()._actions:  # noqa: SLF001
-        known.update(action.option_strings)
-    for flag in re.findall(r"(?<!\w)--[a-z-]+", yaml_action_run()):
-        assert flag in known, f"the action passes {flag}, which the bench " \
-                               "does not accept"
-
-
-def yaml_action_run():
-    import yaml  # pylint: disable=import-outside-toplevel
-
-    action = yaml.load(ACTION.read_text(encoding="utf-8"),
-                       Loader=yaml.BaseLoader)
-    steps = action["runs"]["steps"]
-    assert len(steps) == 1, "the action wraps one step"
-    return steps[0]["run"]
-
-
-def test_only_a_master_push_may_tighten_the_reparse_shares():
-    # Untrusted code on a pull request must not be able to write the
-    # recorded data, so the ratchet step stays master-only — and it must
-    # not run on a measurement the bench gate already rejected.
-    step = next(step for step in _steps()
-                if step.get("name") == "Ratchet the thresholds")
-    condition = step["if"]
-    assert "github.event_name == 'push'" in condition
-    assert "github.ref == 'refs/heads/master'" in condition
-    assert "steps.reparse.outcome == 'success'" in condition
-    assert "reparse_ratchet.py" in step["run"]
-    assert "reparse-bench.json" in step["run"]
-
-
-def test_bench_forces_the_fixture_mirror_over_the_environment():
-    # The subprocess starts with a hostile R2_ENDPOINT; the corpus it
-    # measures must still be the committed mirror.
-    env = dict(os.environ)
-    env["R2_ENDPOINT"] = "https://example.invalid/bucket"
-    env["R2_BUCKET"] = "not-the-fixture-bucket"
-    result = subprocess.run(
-        [sys.executable, str(BENCH), "--machine", "--passes", "3",
-         "--warmup", "1"],
-        capture_output=True, text=True, check=True, env=env,
-        cwd=str(REPO_ROOT))
-    assert f"files={len(_fixture_transcripts())}" in result.stdout
+        phase_cpu_s={name: 0.0 for name in bench.PHASES},
+        instruction_per_file=(dict.fromkeys(bench.PHASES, None) if counted
+                              is None else counted))

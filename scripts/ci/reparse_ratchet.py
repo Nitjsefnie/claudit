@@ -49,57 +49,70 @@ CALIBRATION_GAP = Decimal('1.5')
 TIGHTEN_HYSTERESIS = Decimal('1.5')
 
 
-def measurement(value, phase):
+_VALIDATE = {'share': thresholds.share_value,
+             'bytecodes': thresholds.count_value}
+
+
+def measurement(value, label):
     if isinstance(value, bool):
-        raise ValueError(f'{phase}: measured must be a finite JSON number')
+        raise ValueError(f'{label}: measured must be a finite JSON number')
     try:
         result = value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, ValueError):
         raise ValueError(
-            f'{phase}: measured must be a finite JSON number') from None
+            f'{label}: measured must be a finite JSON number') from None
     if not result.is_finite():
-        raise ValueError(f'{phase}: measured must be finite')
-    return thresholds.share_value(result, f'{phase}: measured')
+        raise ValueError(f'{label}: measured must be finite')
+    return result
 
 
-def floor_for(measured, phase='measured'):
-    """The ceiling a phase's share may be exceeded by: the gap ABOVE it,
-    because this floor is an upper bound on a cost."""
-    return measurement(measured, phase) + CALIBRATION_GAP
+def floor_for(measured, metric='share'):
+    """The ceiling a phase's cost may be exceeded by: the gap ABOVE it,
+    because this floor is an upper bound on a cost, not a lower bound on
+    a quality."""
+    return _VALIDATE[metric](measured, metric) + CALIBRATION_GAP
 
 
 def read_calibration(data):
-    return thresholds.reparse_cpu(data)
+    return thresholds.reparse(data)
 
 
-def tightenable(data, shares):
-    """The phases whose measurement justifies a tighten, and by how much.
+def tightenable(data, readings):
+    """Every phase-metric whose measurement justifies a tighten.
 
-    ``shares`` is one measured share per phase. A phase tightens when it
+    ``readings`` is ``{phase: {metric: value}}``. A pair tightens when it
     beats its recorded value by more than the hysteresis — the same rule
     the coverage ratchet applies to a raise, with every comparison
-    reversed.
+    reversed. The two metrics of one phase are independent: a cheaper
+    share says nothing about the count.
     """
     candidate = thresholds.normalise(data)
     moves = {}
     for phase in thresholds.REPARSE_PHASES:
-        if phase not in shares:
+        if phase not in readings:
             raise ValueError(f'the measurement carries no {phase} phase')
-        recorded = candidate[thresholds.REPARSE_FAMILY][phase]['measured']
-        measured = measurement(shares[phase], phase)
-        if recorded - measured > TIGHTEN_HYSTERESIS:
-            moves[phase] = measured
+        for metric in thresholds.REPARSE_METRICS:
+            if metric not in readings[phase]:
+                raise ValueError(
+                    f'the measurement carries no {metric} for {phase}')
+            label = f'{phase}.{metric}'
+            recorded = (candidate[thresholds.REPARSE_FAMILY][phase]
+                        [metric]['measured'])
+            measured = _VALIDATE[metric](
+                measurement(readings[phase][metric], label), label)
+            if recorded - measured > TIGHTEN_HYSTERESIS:
+                moves[label] = (phase, metric, measured)
     return moves
 
 
-def update(data, shares):
+def update(data, readings):
     """Return an updated document, or ``None`` when no tighten is due."""
-    moves = tightenable(data, shares)
+    moves = tightenable(data, readings)
     if not moves:
         return None
     candidate = thresholds.normalise(data)
-    for phase, measured in moves.items():
-        candidate[thresholds.REPARSE_FAMILY][phase] = {
+    for _label, (phase, metric, measured) in moves.items():
+        candidate[thresholds.REPARSE_FAMILY][phase][metric] = {
             'measured': measured,
             'floor': measured + CALIBRATION_GAP,
         }
@@ -115,11 +128,23 @@ def _parser():
     return parser
 
 
-def _shares(path: Path) -> dict:
+def _readings(path: Path) -> dict:
+    """The measurement file's per-phase, per-metric readings.
+
+    A phase with no count (an interpreter without sys.monitoring) is left
+    out rather than read as zero: a zero would tighten a floor that no
+    run can justify.
+    """
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
-        phases = data['phases']
-        return {phase: phases[phase]['share'] for phase in phases}
+        readings = {}
+        for phase, record in data['phases'].items():
+            entry = {'share': record['share']}
+            counted = record.get('bytecode_hundreds_per_file')
+            if counted is not None:
+                entry['bytecodes'] = counted
+            readings[phase] = entry
+        return readings
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(
             f'cannot read the bench measurement {path}: {error}') from None
@@ -129,22 +154,23 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         data = thresholds.load(args.thresholds)
-        shares = _shares(args.measured_file)
+        readings = _readings(args.measured_file)
         recorded = read_calibration(data)
-        candidate = update(data, shares)
+        candidate = update(data, readings)
         if candidate is None:
-            print('no reparse phase beat its recorded share by more than '
-                  f'{TIGHTEN_HYSTERESIS} {thresholds.REPARSE_UNIT}: nothing '
-                  'to tighten')
+            print('no reparse phase beat its recorded budget by more than '
+                  f'{TIGHTEN_HYSTERESIS}: nothing to tighten')
             return 0
         for phase in thresholds.REPARSE_PHASES:
-            before = recorded[phase]
-            after = candidate[thresholds.REPARSE_FAMILY][phase]
-            if after != before:
-                print(f'tightened the {phase} share '
-                      f'{before["floor"]} -> {after["floor"]} '
-                      f'{thresholds.REPARSE_UNIT} '
-                      f'(measured {after["measured"]})')
+            for metric in thresholds.REPARSE_METRICS:
+                before = recorded[phase][metric]
+                after = candidate[thresholds.REPARSE_FAMILY][phase][metric]
+                if after != before:
+                    unit = (thresholds.REPARSE_COUNT_UNIT if metric
+                            == 'bytecodes' else thresholds.REPARSE_UNIT)
+                    print(f'tightened the {phase} {metric} budget '
+                          f'{before["floor"]} -> {after["floor"]} {unit} '
+                          f'(measured {after["measured"]})')
         thresholds.write(args.thresholds, candidate)
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)

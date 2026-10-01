@@ -17,23 +17,34 @@ field guide's findings rather than by a first instinct:
   tree growth with no product change"). The pass is timed in the phases
   it is actually made of, by wrapping the exact callables the real path
   calls — no reimplementation of the dispatch, no second copy of the
-  parse to drift from the first. The ratcheted number is each phase's
-  SHARE of the run's own CPU (a ratio within one process's own run,
-  the most load-resistant form available): four runs of the same tree
-  on this shared box moved the pass TOTAL by 29% while every phase
-  share stayed inside half a point.
+  parse to drift from the first.
 
-- COUNTS BEAT TIMES WHERE THEY EXIST (guide: "instruction counts do not
-  drift with machine speed"). ``perf stat``'s user-space instruction
-  count is measured when the probe says it works, net of a baseline run
-  that prices the interpreter's own startup and the backend's imports,
-  and reported. It is not the ratcheted quantity, for two reasons: a
-  `perf stat` reading covers a whole process, so it cannot attribute a
-  count to one of the phases above; and whether it works at all is a
-  property of the machine the bench runs on, so a recorded family whose
-  unit changes between runners is not a ratchet. When the probe fails
-  the bench says so on every line it prints — a measurement that is
-  absent must never read as a measurement that passed.
+- TWO INSTRUMENTS, because each sees something the other cannot. Each
+  phase's SHARE of the run's own CPU is scale-free inside one run: four
+  runs of the same tree on this shared box moved the pass TOTAL by 29%
+  while every phase share stayed inside half a point. That is what
+  catches work MOVING between phases. It cannot catch the parse getting
+  slower as a WHOLE, because every phase grows together — so each phase
+  is also counted in BYTECODE INSTRUCTIONS per file, with
+  ``sys.monitoring``'s INSTRUCTION event (``scripts/ci/reparse_phases``).
+  A count is exact: the same tree retired the same 295,703 bytecodes on
+  every run measured here, on a loaded machine, under any
+  ``PYTHONHASHSEED``. That is the instrument that holds the maintainer's
+  own case, a uniform per-file slowdown.
+
+- COUNTS FROM perf ARE A CROSS-CHECK, NOT A RATCHET (guide: "instruction
+  counts do not drift with machine speed"). ``perf stat``'s user-space
+  machine-instruction count is measured when the probe finds it, net of a
+  baseline run pricing interpreter startup and the imports, and reported
+  beside the bytecodes. Three reasons it is not recorded: it prices a
+  whole process, so it cannot attribute a count to a phase; whether it
+  works at all is a property of the machine the bench runs on, and a
+  recorded value whose unit changes between runners is not a ratchet;
+  and it needs a counter facility a hosted runner may refuse an
+  unprivileged process. When the probe fails the bench says so on every
+  line it prints — a measurement that is absent must never read as a
+  measurement that passed. The same is true of the bytecodes: an
+  interpreter without ``sys.monitoring`` gets CPU time and the reason.
 
 - THE INSTRUMENT ACCOUNTS FOR THE WHOLE (guide: "the named phases
   summed to less than the reported total ... treat any divergence as an
@@ -51,14 +62,18 @@ field guide's findings rather than by a first instinct:
   component can reach the number. The listing is sorted by key, so the
   pass walks the corpus in the same order on every machine.
 
-- ONE RUN, NO STATISTICS, with a fixed amplification. The corpus is a
-  few hundred microseconds of work — far too small to time once — so
-  ``PASSES`` passes are timed together inside one region and divided by
-  their own count. No minimum, median or repeat is taken. ``WARMUP``
-  passes run before the clock starts: the first passes of a fresh
-  interpreter cost two orders of magnitude more than steady state, and
-  an un-warmed reading would price the interpreter rather than the
-  parse.
+- ONE RUN, NO STATISTICS. The timed region is one run of ``PASSES``
+  passes divided by its own count: no minimum, median or repeat is taken.
+  ``WARMUP`` passes run before the clock starts, because the first passes
+  of a fresh interpreter cost about 15% more and an un-warmed reading
+  would price the interpreter rather than the parse. The amplification
+  is sized for the SHARE, whose noise is the machine's: a phase share
+  spread about 2 points at 20000 passes and about 0.5 at 60000, against a
+  1.5-point yardstick. The counted run needs none of it — one pass is
+  already exact — and takes twenty, because the callback that makes a
+  count exact costs about four times the CPU it measures (measured on
+  this corpus) and would distort every time-based share if both ran in
+  one region.
 
   python3 scripts/ci/reparse_bench.py                  # human report
   python3 scripts/ci/reparse_bench.py --machine        # key=value fields
@@ -69,7 +84,6 @@ field guide's findings rather than by a first instinct:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import importlib
 import os
 import shutil
@@ -83,9 +97,10 @@ from typing import NamedTuple
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import reparse_report, thresholds
+    from . import reparse_phases, reparse_report, thresholds
 else:
     thresholds = importlib.import_module('thresholds')
+    reparse_phases = importlib.import_module('reparse_phases')
     reparse_report = importlib.import_module('reparse_report')
 
 # The reading's shape and every way it is written, printed and gated live
@@ -108,6 +123,10 @@ UNIT = thresholds.REPARSE_UNIT
 # document carrying them, so a phase cannot be measured under one name
 # and recorded under another.
 PHASES = thresholds.REPARSE_PHASES
+COUNT_PASSES = reparse_phases.COUNT_PASSES
+# perf prices a whole process, so its cross-check runs a short pass of its
+# own rather than the amplified timed one.
+PERF_PASSES = 200
 # Fixed amplification, and the warm-up that precedes it. Chosen so the
 # run-to-run spread of a phase share stays inside the 1.5-point yardstick
 # the ratchet moves on — a floor narrower than the measurement's own noise
@@ -143,7 +162,7 @@ def _pin_corpus_env():
 _pin_corpus_env()
 
 # pylint: disable-next=wrong-import-position
-from backend import agent_sidecar, ingest_fetch, ingest_scan, parse, r2  # noqa: E402
+from backend import ingest_fetch, ingest_scan, r2  # noqa: E402
 
 
 class Entry(NamedTuple):
@@ -197,44 +216,6 @@ def run_pass(entries: list[Entry]) -> int:
     return records
 
 
-@contextlib.contextmanager
-def instrumented(totals: dict):
-    """Time the callables the real path is made of, then put them back.
-
-    Three public callables, wrapped in place and restored on exit:
-    ``parse.sniff_format`` (nested inside ``parse.parse_file``, so
-    ``parse_body`` is parse_file's own time minus it), ``parse.parse_file``
-    (the whole parse, whatever format it dispatches to) and
-    ``agent_sidecar.apply_agent_sidecar`` (the meta.json sidecar step,
-    which sits outside parse_file, in fetch_and_parse). Whatever the
-    pass does beyond those three falls to the residual.
-    """
-    originals = (
-        (parse, 'sniff_format', parse.sniff_format),
-        (parse, 'parse_file', parse.parse_file),
-        (agent_sidecar, 'apply_agent_sidecar',
-         agent_sidecar.apply_agent_sidecar),
-    )
-
-    def timed(name, function):
-        def wrapper(*args, **kwargs):
-            start = time.process_time()
-            try:
-                return function(*args, **kwargs)
-            finally:
-                totals[name] += time.process_time() - start
-        return wrapper
-
-    try:
-        for module, attribute, _original in originals:
-            setattr(module, attribute,
-                    timed(attribute, getattr(module, attribute)))
-        yield
-    finally:
-        for module, attribute, original in originals:
-            setattr(module, attribute, original)
-
-
 def share_of(cpu_s: float, total_cpu_s: float) -> Decimal:
     """One phase's percent of the run's own CPU, to one decimal place."""
     if total_cpu_s <= 0:
@@ -246,18 +227,25 @@ def share_of(cpu_s: float, total_cpu_s: float) -> Decimal:
 
 def measure(entries: list[Entry], passes: int = PASSES,
             warmup: int = WARMUP_PASSES,
-            instructions_per_file: int | None = None,
-            instruction_note: str = '') -> Measurement:
-    """Time `passes` passes over the corpus and split the CPU by phase."""
+            instruction_counts=None, instruction_per_file=None,
+            instruction_note: str = '', perf_per_file: int | None = None,
+            perf_note: str = '') -> Measurement:
+    """Time `passes` passes over the corpus and split the CPU by phase.
+
+    The instruction counts travel with the measurement rather than being
+    derived from it: they come from a separate, much shorter counted run,
+    because the callback that makes a count exact costs about four times
+    the CPU it measures (measured on this corpus) and would distort every
+    time-based share if both ran in one region.
+    """
     if passes <= 0:
         raise ValueError(f'passes must be positive: {passes}')
     if warmup < 0:
         raise ValueError(f'warmup must not be negative: {warmup}')
     if not entries:
         raise ValueError(f'no transcripts to parse under {MIRROR}')
-    totals = {'sniff_format': 0.0, 'parse_file': 0.0,
-              'apply_agent_sidecar': 0.0}
-    with instrumented(totals):
+    totals = {'sniff': 0.0, 'parse_file': 0.0, 'sidecar': 0.0}
+    with reparse_phases.instrumented(totals):
         for _ in range(warmup):
             run_pass(entries)
         for name in totals:
@@ -267,18 +255,12 @@ def measure(entries: list[Entry], passes: int = PASSES,
         for _ in range(passes):
             records = run_pass(entries)
         total = time.process_time() - start
-    phase_cpu_s = {
-        'sniff': totals['sniff_format'],
-        'parse_body': totals['parse_file'] - totals['sniff_format'],
-        'sidecar': totals['apply_agent_sidecar'],
-        # The divergence between the named phases and the run: whatever
-        # the wrapped callables do not account for.
-        'residual': total - totals['parse_file']
-        - totals['apply_agent_sidecar'],
-    }
+    phase_cpu_s = reparse_phases.partition(
+        total, totals['sniff'], totals['parse_file'], totals['sidecar'])
     shares = {name: share_of(phase_cpu_s[name], total) for name in PHASES}
     return Measurement(total, len(entries), passes, records, phase_cpu_s,
-                       shares, instructions_per_file, instruction_note)
+                       shares, instruction_counts, instruction_per_file,
+                       instruction_note, perf_per_file, perf_note)
 
 
 # --- the instruction count ---------------------------------------------------
@@ -349,36 +331,71 @@ def _plain_child(scratch: Path, passes: int, warmup: int) -> Measurement:
     return reparse_report.measurement_from_file(path)
 
 
+def _child_measurement(path: Path, passes: int, warmup: int,
+                       count_passes: int) -> Measurement:  # noqa: D401
+    """One child's whole reading: the timed pass and the counted pass."""
+    entries = corpus()
+    counts = reparse_phases.measure_counts(
+        entries, run_pass, passes=count_passes)
+    per_file = (reparse_phases.bytecodes_per_file(counts)
+                if counts.available else None)
+    return measure(entries, passes=passes, warmup=warmup,
+                   instruction_counts=reparse_report.counts_payload(counts),
+                   instruction_per_file=per_file,
+                   instruction_note=counts.reason)
+
+
 def measure_in_child(passes: int = PASSES,
-                     warmup: int = WARMUP_PASSES) -> Measurement:
+                     warmup: int = WARMUP_PASSES,
+                     count_passes: int = COUNT_PASSES,
+                     perf_passes: int = PERF_PASSES) -> Measurement:
     """The bench's measurement, taken in a fresh child process.
 
-    Always a child, with or without perf, so the reading starts from the
-    same fresh interpreter either way. With perf there are two runs: the
-    timed one, and a one-pass run pricing the constant the first carries
-    (startup plus imports); the difference is the work the passes did,
-    divided by the file-parses it did. Without a usable instruction
-    count the measurement still stands — CPU time, with the reason it is
-    not a count printed on every line that reports the run.
+    Always a child, so the reading starts from the same fresh interpreter
+    every time. The child takes both instruments: the timed pass that
+    gives each phase its share, and the much shorter counted pass that
+    gives each phase its bytecodes.
+
+    `perf stat`'s machine-instruction count rides along as a CROSS-CHECK
+    on the counting instrument and nothing more: it needs a counter
+    facility a runner may not have, it prices the whole process rather
+    than a phase, and the recorded families must not depend on it.
     """
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch)
-        count, measurement, note = _perf_child(root, 'work', passes, warmup)
-        per_file = None
-        if measurement is None:
-            measurement = _plain_child(root, passes, warmup)
-            note = f'{note}: CPU time is the measurement'
+        path = root / 'measurement.json'
+        measurement = _run_counting_child(root, path, passes, warmup,
+                                          count_passes)
+        perf_total, _unused, perf_note = _perf_child(
+            root, 'perf', perf_passes, 0)
+        perf_base, _unused2, perf_base_note = _perf_child(root, 'baseline', 1, 0)
+        perf_per_file = None
+        if perf_total is None:
+            perf_note = perf_note or perf_base_note
+        elif perf_base is None:
+            perf_note = perf_base_note
         else:
-            baseline, _unused, baseline_note = _perf_child(
-                root, 'baseline', 1, 0)
-            if baseline is None:
-                note = baseline_note
-            else:
-                per_file = ((count - baseline)
-                            // max(passes * measurement.files, 1))
-                note = 'net of a startup-and-imports baseline run'
+            perf_per_file = ((perf_total - perf_base)
+                             // max(perf_passes * measurement.files, 1))
+            perf_note = 'net of a startup-and-imports baseline run'
         return measurement._replace(
-            instructions_per_file=per_file, instruction_note=note)
+            perf_per_file=perf_per_file, perf_note=perf_note)
+
+
+def _run_counting_child(root: Path, path: Path, passes: int, warmup: int,
+                        count_passes: int) -> Measurement:
+    """The child's own reading, without perf: both instruments, in one
+    fresh interpreter."""
+    command = [sys.executable, str(Path(__file__).resolve()), '--child',
+               '--write', str(path), '--passes', str(passes),
+               '--warmup', str(warmup), '--count-passes', str(count_passes)]
+    done = subprocess.run(  # pylint: disable=subprocess-run-check
+        command, capture_output=True, text=True, timeout=PERF_TIMEOUT_S,
+        check=False)
+    if done.returncode != 0 or not path.exists():
+        raise ValueError('the bench run failed: '
+                         f'{(done.stderr or "").strip()[:200]}')
+    return reparse_report.measurement_from_file(path)
 
 
 def _parser():
@@ -399,6 +416,8 @@ def _parser():
                         help='timed passes over the corpus')
     parser.add_argument('--warmup', type=int, default=WARMUP_PASSES,
                         help='untimed passes run before the clock starts')
+    parser.add_argument('--count-passes', type=int, default=COUNT_PASSES,
+                        help=argparse.SUPPRESS)
     parser.add_argument('--thresholds', type=Path,
                         default=thresholds.THRESHOLDS,
                         help=argparse.SUPPRESS)
@@ -413,7 +432,8 @@ def main(argv=None):
                 raise ValueError('--child needs --write')
             reparse_report.write_measurement(
                 args.write,
-                measure(corpus(), passes=args.passes, warmup=args.warmup))
+                _child_measurement(args.write, args.passes, args.warmup,
+                                   args.count_passes))
             return 0
         if args.check is not None:
             return reparse_report.check(args.check, args.thresholds)
@@ -424,7 +444,8 @@ def main(argv=None):
             print(reparse_report.report(
                 reparse_report.measurement_from_file(args.report)))
             return 0
-        measurement = measure_in_child(args.passes, args.warmup)
+        measurement = measure_in_child(args.passes, args.warmup,
+                                       args.count_passes)
         if args.write is not None:
             reparse_report.write_measurement(args.write, measurement)
         print(reparse_report.machine_line(measurement) if args.machine

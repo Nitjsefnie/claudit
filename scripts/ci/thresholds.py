@@ -28,14 +28,24 @@ COVERAGE_LANGUAGES = ('python', 'javascript')
 # drift with the machine or the co-tenant load the way an absolute
 # total does — see the docstring of _reparse for the rest.
 REPARSE_UNIT = 'percent_of_pass_cpu'
+# The second instrument's unit: hundreds of bytecode instructions per
+# file, counted with sys.monitoring's INSTRUCTION event. Exact, so it
+# needs no amplification and no tolerance — which is also why its gap is
+# sized for interpreter drift rather than for noise.
+REPARSE_COUNT_UNIT = 'bytecode_hundreds_per_file'
 # The reparse bench's calibration: a required member, like a coverage
 # language, because a document without one leaves the bench's gate step
 # with nothing to check the measurement against. Unlike coverage, each
-# of its records is a phase's SHARE of a reparse pass's own CPU — a
-# cost, not a quality — so its ratchet only ever TIGHTENS (both fields
-# move down) and its gap sits above the measured value rather than
-# below; see _reparse.
-REPARSE_FAMILY = 'reparse_cpu'
+# of its records is a COST — a phase's share of a pass's own CPU, and
+# the bytecodes that phase retires per file — so its ratchet only ever
+# TIGHTENS (both fields move down) and its gap sits above the measured
+# value rather than below; see _reparse.
+REPARSE_FAMILY = 'reparse'
+# The two instruments recorded per phase, and why both are here: a share
+# is scale-free inside one run and catches work MOVING between phases; a
+# bytecode count is exact and catches the pass getting slower as a WHOLE,
+# which a share cannot see because every phase grows together.
+REPARSE_METRICS = ('bytecodes', 'share')
 # The phases the reparse bench splits a pass into — the same names it
 # instruments (scripts/ci/reparse_bench.py reads them from here, so the
 # document and the measurement cannot disagree about what a phase is).
@@ -65,10 +75,14 @@ _FIELD_LABELS = {
     **{f'{SUITE_COST_FAMILY}.{phase}': f'suite cost {phase}: {{field}}'
        for phase in SUITE_COST_PHASES},
     REPARSE_FAMILY: 'reparse CPU phase: {field}',
-    # A label per phase, so a refusal inside one phase's record names
-    # the phase rather than a bare field.
+    # A label per phase and per phase-metric, so a refusal inside one
+    # phase's record names the phase (and the metric) rather than a bare
+    # field.
     **{f'{REPARSE_FAMILY}.{phase}': f'reparse CPU {phase}: {{field}}'
        for phase in REPARSE_PHASES},
+    **{f'{REPARSE_FAMILY}.{phase}.{metric}':
+       f'reparse CPU {phase} {metric}: {{field}}'
+       for phase in REPARSE_PHASES for metric in REPARSE_METRICS},
 }
 _INVALID_PATH_CHARS = set('<>:"|?*')
 _DEVICE_NAMES = {
@@ -160,15 +174,32 @@ def instruction_value(value, name):
 
 
 def share_value(value, name):
-    """A reparse-bench share: a percent of the pass's own CPU.
+    """A reparse phase's share: a percent of the pass's own CPU.
 
-    The same shape and bounds as a coverage value — a bounded
-    percentage carrying exactly one decimal place, which is what the
-    bench prints and the ratchet writes — read as a share of the run
-    rather than of a corpus. Zero is a real reading (a phase this
-    corpus never reaches, like the sidecar step), not an absence.
+    The same shape and bounds as a coverage value — a bounded percentage
+    carrying exactly one decimal place, which is what the bench prints
+    and the ratchet writes — read as a share of the run rather than of a
+    corpus. Zero is a real reading (a phase this corpus never reaches,
+    like the sidecar step), not an absence.
     """
     return coverage_value(value, name)
+
+
+def count_value(value, name):
+    """A reparse phase's cost: hundreds of bytecodes per file.
+
+    Bounded below only: the number is a count, so it has no natural
+    ceiling, and it carries the same one-decimal spelling as every other
+    recorded number. Zero is a real reading (a phase this corpus never
+    reaches), not an absence.
+    """
+    result = _number(value, name)
+    if result < 0:
+        raise ValueError(f'{name} must not be negative')
+    exponent = result.as_tuple().exponent
+    if not isinstance(exponent, int) or exponent != -1:
+        raise ValueError(f'{name} must have exactly one decimal place')
+    return result
 
 
 def _path_component_safe(component):
@@ -286,18 +317,25 @@ def _reparse(family):
     Same fixed 1.5 yardstick, same recorded meaning.
     """
     _required_fields(family, REPARSE_PHASES, REPARSE_FAMILY)
+    validate = {'share': share_value, 'bytecodes': count_value}
     normalised = {}
     for phase in REPARSE_PHASES:
         record = family[phase]
         prefix = f'{REPARSE_FAMILY}.{phase}'
-        _required_fields(record, _COVERAGE_FIELDS, prefix)
-        measured = share_value(record['measured'], f'{prefix}.measured')
-        floor = share_value(record['floor'], f'{prefix}.floor')
-        if floor <= measured:
-            raise ValueError(f'{prefix}.floor must be above measured')
-        if floor - measured != CALIBRATION_GAP:
-            raise ValueError(f'{prefix} calibration gap must be 1.5')
-        normalised[phase] = {'measured': measured, 'floor': floor}
+        _required_fields(record, REPARSE_METRICS, prefix)
+        normalised[phase] = {}
+        for metric in REPARSE_METRICS:
+            pair = record[metric]
+            label = f'{prefix}.{metric}'
+            _required_fields(pair, _COVERAGE_FIELDS, label)
+            measured = validate[metric](pair['measured'], f'{label}.measured')
+            floor = validate[metric](pair['floor'], f'{label}.floor')
+            if floor <= measured:
+                raise ValueError(f'{label}.floor must be above measured')
+            if floor - measured != CALIBRATION_GAP:
+                raise ValueError(f'{label} calibration gap must be 1.5')
+            normalised[phase][metric] = {
+                'measured': measured, 'floor': floor}
     return normalised
 
 
@@ -341,8 +379,8 @@ def module_size_baseline(data):
     return dict(normalise(data)['module_size_baseline'])
 
 
-def reparse_cpu(data):
-    """The reparse bench's per-phase records, keyed by phase name."""
+def reparse(data):
+    """The reparse bench's records: phase -> metric -> measured/floor."""
     return dict(normalise(data)[REPARSE_FAMILY])
 
 
@@ -413,6 +451,20 @@ def write(path, data):
             _remove_temp(temporary_path)
 
 
+def _reparse_pair(data, phase_metric, field):
+    """One recorded number for one phase and metric, named in the error
+    it raises: an unknown phase or metric is a caller mistake, and the
+    loader's own messages speak of the document."""
+    phase, metric = phase_metric
+    records = reparse(data)
+    if phase not in records:
+        raise ValueError(f'unknown reparse phase: {phase}')
+    if metric not in records[phase]:
+        raise ValueError(
+            f'unknown reparse metric for {phase}: {metric}')
+    return records[phase][metric][field]
+
+
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -422,9 +474,10 @@ def _parser():
                        help='print one language floor')
     modes.add_argument('--coverage-measured', choices=COVERAGE_LANGUAGES,
                        help='print one language measured value')
-    modes.add_argument('--reparse-floor', choices=REPARSE_PHASES,
+    modes.add_argument('--reparse-floor', nargs=2, metavar=('PHASE', 'METRIC'),
                        help='print one reparse phase floor')
-    modes.add_argument('--reparse-measured', choices=REPARSE_PHASES,
+    modes.add_argument('--reparse-measured', nargs=2,
+                       metavar=('PHASE', 'METRIC'),
                        help='print one reparse phase measured value')
     parser.add_argument('--thresholds', type=Path, default=THRESHOLDS)
     return parser
@@ -441,9 +494,9 @@ def main(argv=None):
             measured, _floor = coverage(data, args.coverage_measured)
             print(f'{measured:.1f}')
         elif args.reparse_floor:
-            print(f'{reparse_cpu(data)[args.reparse_floor]["floor"]:.1f}')
+            print(f'{_reparse_pair(data, args.reparse_floor, "floor"):.1f}')
         elif args.reparse_measured:
-            print(f'{reparse_cpu(data)[args.reparse_measured]["measured"]:.1f}')
+            print(f'{_reparse_pair(data, args.reparse_measured, "measured"):.1f}')
         else:
             print('thresholds valid')
     except (OSError, ValueError) as error:
