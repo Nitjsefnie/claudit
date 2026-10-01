@@ -472,3 +472,22 @@ def test_a_sigterm_during_a_sequential_run_restores_the_baseline(
                          repo_root=repo)
     assert exit_info.value.code == 128 + signal.SIGTERM
     assert pricing_path.read_text(encoding="utf-8") == baseline
+
+
+def test_arguments_are_validated():
+    fuzz_module = _load_fuzzer()
+    for argv in (["--iterations", "0"], ["--jobs", "0"], ["--no-such-flag"]):
+        with pytest.raises(SystemExit) as exit_info:
+            fuzz_module.main(argv)
+        assert exit_info.value.code == 2
+
+
+def test_help_names_the_flags(capsys):
+    fuzz_module = _load_fuzzer()
+    with pytest.raises(SystemExit) as exit_info:
+        fuzz_module.main(["--help"])
+    assert exit_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--iterations" in out
+    assert "--seed" in out
+    assert "--jobs" in out
