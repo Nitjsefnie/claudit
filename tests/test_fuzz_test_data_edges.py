@@ -475,7 +475,6 @@ def test_a_sigterm_during_a_sequential_run_restores_the_baseline(
 
 
 def test_arguments_are_validated():
-    fuzz_module = _load_fuzzer()
     for argv in (["--iterations", "0"], ["--jobs", "0"], ["--no-such-flag"]):
         with pytest.raises(SystemExit) as exit_info:
             fuzz_module.main(argv)
@@ -483,7 +482,6 @@ def test_arguments_are_validated():
 
 
 def test_help_names_the_flags(capsys):
-    fuzz_module = _load_fuzzer()
     with pytest.raises(SystemExit) as exit_info:
         fuzz_module.main(["--help"])
     assert exit_info.value.code == 0
