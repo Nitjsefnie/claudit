@@ -283,7 +283,7 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 You also need an **auth database**: a second Postgres database holding
 the `users` table the login page reads. claudit owns no schema for it —
 in production it is provisioned and populated by your own user-management
-process, and this repository only ever READS it. Startup aborts on
+process, and the application only ever READS it. Startup aborts on
 `db.schema_check()` unless that table exists and carries the two columns
 the login lookup reads, so create it before the first boot:
 
@@ -297,14 +297,20 @@ Point `DATABASE_URL_AUTH` in `.env` at that database
 (`DATABASE_URL_AUTH=postgresql:///claudit_auth`; the shipped example
 defaults to a database named `users`).
 
-`user_id` must be an integer type and `config` must be `JSONB`; those are
-the exact columns the login lookup selects, and the same minimal shape
+`user_id` must be an integer type and `config` must be `JSONB`; those two
+are the whole of the login lookup's SQL, and the same minimal shape
 `scripts/ci/smoke.py` builds for its own fixture. A table named anything
-other than `users`, or one whose `user_id` is `text`, is rejected at
-startup by the same check (issue #368 — an earlier check let those
-through, and they 500ed every login with `UndefinedColumn`). Add
-`GRANT SELECT ON users TO <role>` when `DATABASE_URL_AUTH` connects as a
-role other than the table's owner.
+other than `users`, one living outside the `public` schema, or one whose
+`user_id` is `text` is rejected at startup by the same check (issue #368 —
+an earlier check let those through, and they 500ed every login with
+`UndefinedColumn`).
+
+The connecting role needs `SELECT` on the table. It is the database, not
+the application, that is the real boundary: claudit issues no write
+against the auth DB, but a `GRANT`-less role cannot read it either, and
+startup then aborts with `auth DB: role '<role>' lacks SELECT on 'users'`.
+So when `DATABASE_URL_AUTH` connects as a role other than the table's
+owner, run `GRANT SELECT ON users TO <role>` too.
 
 The table starts empty, so there is no account to sign in with yet — see
 [Auth](#auth) for the credential shape your user-management process writes
