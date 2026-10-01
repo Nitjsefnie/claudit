@@ -47,9 +47,9 @@ def _harness() -> str:
         _slice("src/app.jsx", "function modelProviderLabel",
                "\nfunction App()"),
         _slice("src/app.jsx", "function backendAggregateRange",
-               "\n// Which of the four token panels"),
+               "\nfunction tokenPanels"),
         _slice("src/app.jsx", "function computeTokenBreakdown",
-               "\n// Paired token/cost breakdown bars"),
+               "\nfunction TokenBreakdownPanel"),
     ]
     return f"""
       global.window = {{}};
