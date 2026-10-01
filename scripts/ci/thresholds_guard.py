@@ -9,6 +9,8 @@ change a pull request or master push makes to
 longer depends on review:
 
 - a coverage ``floor`` or ``measured`` value never decreases;
+- a reparse ``floor`` or ``measured`` value never INCREASES (that family
+  is a cost ceiling, so its ratchet only ever tightens downward);
 - a baseline entry is never raised;
 - an entry is added only when it seeds a brand-new member, or — for a
   member the base already carries — when its path lies OUTSIDE the
@@ -18,9 +20,10 @@ longer depends on review:
   addition under the frozen core, or for a path no ratchet measures, is
   a hand-add and fails.
 
-Removals and lowers are the bots' own direction and pass. The truth of
-seeded values is pinned separately, by the committed-document-matches-
-tree tests, which run on the same merge ref.
+Removals and lowers are the bots' own direction and pass, as does the
+one-time seed of a family the base predates. The truth of seeded values
+is pinned separately, by the committed-document-matches-tree tests, which
+run on the same merge ref.
 
 The guard runs from the tree under test, like every other gate step: it
 shares the steps' threat model, closing the accidental and
@@ -54,6 +57,10 @@ CORE_PREFIXES = ('backend/', 'scripts/', 'tests/')
 COVERAGE_REMEDY = (
     'A coverage floor or measured value is never lowered by hand: the '
     'ratchet raises them on master when a run justifies it.')
+REPARSE_REMEDY = (
+    'A reparse CPU floor or measured value is never raised by hand: the '
+    'ratchet only tightens it downward on master when a faster run '
+    'justifies it, so buy headroom by making the reparse cheaper.')
 BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
     'module, reduce the complexity, or seed a new family through the '
@@ -67,6 +74,10 @@ SUITE_COST_REMEDY = (
 # A stand-in for a member the base predates, so a base missing it still
 # validates: it is never compared against (the family is not in
 # ``established``), only carried.
+_ABSENT_REPARSE = {
+    phase: {'measured': Decimal('2.5'), 'floor': Decimal('4.0')}
+    for phase in thresholds.REPARSE_PHASES
+}
 _ABSENT_SUITE_COST = {
     phase: {'measured': Decimal('0.0'), 'floor': Decimal('1.5')}
     for phase in thresholds.SUITE_COST_PHASES
@@ -98,12 +109,30 @@ def _load_base(path):
                    if member in data}
     for member in thresholds.BASELINE_MEMBERS:
         data.setdefault(member, {})
+    if thresholds.REPARSE_FAMILY in data:
+        established.add(thresholds.REPARSE_FAMILY)
+    else:
+        data[thresholds.REPARSE_FAMILY] = {
+            phase: dict(record) for phase, record in _ABSENT_REPARSE.items()}
     if thresholds.SUITE_COST_FAMILY in data:
         established.add(thresholds.SUITE_COST_FAMILY)
     else:
         data.setdefault(thresholds.SUITE_COST_FAMILY, _ABSENT_SUITE_COST)
     return thresholds.normalise(data), established
 
+
+def _coverage_moves(base, head):
+    """A coverage value that decreases: the ratchet only ever raises."""
+    moves = []
+    for language in thresholds.COVERAGE_LANGUAGES:
+        before = base['coverage'][language]
+        after = head['coverage'][language]
+        for field in ('measured', 'floor'):
+            if after[field] < before[field]:
+                moves.append(
+                    f'coverage.{language}.{field}: '
+                    f'{before[field]} -> {after[field]}')
+    return moves
 
 def _suite_cost_moves(base, head, established):
     """A suite cost budget that RISES.
@@ -128,20 +157,33 @@ def _suite_cost_moves(base, head, established):
     return moves
 
 
-def forbidden_moves(base, head, established):
-    """Return the data's forbidden moves from base to head, labelled."""
+def _reparse_moves(base, head, established):
+    """A reparse phase that RISES.
+
+    Each phase is a cost ceiling, so its ratchet only ever moves down: an
+    upward move is the hand-raise the never-rules forbid and a downward
+    one is the tighten. A family the base predates carries no record, so
+    the change introducing one is its seed and not a move at all.
+    """
+    if thresholds.REPARSE_FAMILY not in established:
+        return []
     moves = []
-    for language in thresholds.COVERAGE_LANGUAGES:
-        before = base['coverage'][language]
-        after = head['coverage'][language]
+    before = base[thresholds.REPARSE_FAMILY]
+    after = head[thresholds.REPARSE_FAMILY]
+    for phase in thresholds.REPARSE_PHASES:
         for field in ('measured', 'floor'):
-            if after[field] < before[field]:
+            if after[phase][field] > before[phase][field]:
                 moves.append(
-                    f'coverage.{language}.{field}: '
-                    f'{before[field]} -> {after[field]}')
+                    f'{thresholds.REPARSE_FAMILY}.{phase}.{field}: '
+                    f'{before[phase][field]} -> {after[phase][field]}')
+    return moves
 
-    moves.extend(_suite_cost_moves(base, head, established))
 
+def _baseline_moves(base, head, established):
+    """A baseline entry that is raised, or added outside a sanctioned
+    seed. The measured set is read once, and only when an addition
+    outside the frozen families actually needs it."""
+    moves = []
     measured = None
     for member in thresholds.BASELINE_MEMBERS:
         before = base[member]
@@ -154,16 +196,22 @@ def forbidden_moves(base, head, established):
                 # measured family's seed can be legitimate.
                 if _is_core_family(path):
                     moves.append(f'{member}.{path}: added')
-                else:
-                    if measured is None:
-                        measured = size_baseline.tracked_sizes()
-                    if path not in measured:
-                        moves.append(
-                            f'{member}.{path}: added, unmeasured')
+                    continue
+                if measured is None:
+                    measured = size_baseline.tracked_sizes()
+                if path not in measured:
+                    moves.append(f'{member}.{path}: added, unmeasured')
             elif value > before[path]:
-                moves.append(
-                    f'{member}.{path}: {before[path]} -> {value}')
+                moves.append(f'{member}.{path}: {before[path]} -> {value}')
     return moves
+
+
+def forbidden_moves(base, head, established):
+    """Return the data's forbidden moves from base to head, labelled."""
+    return (_coverage_moves(base, head)
+            + _reparse_moves(base, head, established)
+            + _suite_cost_moves(base, head, established)
+            + _baseline_moves(base, head, established))
 
 
 def _parser():
@@ -186,6 +234,9 @@ def main(argv=None):
             return 0
         for move in moves:
             print(f'forbidden move: {move}', file=sys.stderr)
+        if any(move.startswith(f'{thresholds.REPARSE_FAMILY}.')
+               for move in moves):
+            print(REPARSE_REMEDY, file=sys.stderr)
         print(COVERAGE_REMEDY, file=sys.stderr)
         print(BASELINE_REMEDY, file=sys.stderr)
         print(SUITE_COST_REMEDY, file=sys.stderr)
