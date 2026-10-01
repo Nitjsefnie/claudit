@@ -4,7 +4,7 @@
 The gate workflows used to narrow documentation-only runs at the
 trigger, with `paths-ignore` on their push and pull_request events. A
 trigger filter cannot report: a docs-only change started no run at all,
-so those check names never appeared, and a future required-check
+so those check names never appeared, and a required-check
 ruleset could never go green on such a pull request. ci-gate.yml starts
 on every push and pull request and narrows INSIDE the workflow instead:
 this script reads the run's changed paths and emits one output,
