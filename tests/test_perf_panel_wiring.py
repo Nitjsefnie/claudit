@@ -272,14 +272,33 @@ def test_the_dashboard_journey_closes_on_the_first_data_bearing_render():
     effect = _effect_for(
         "window.perf.closeJourney('dashboard_open')",
         "[hasData, dashFetch]);")
-    assert "hasData" in effect, (
-        "the dashboard journey closes without waiting for data to exist")
-    assert "dashFetch.status !== window.dashboardFetch.READY" in effect, (
-        "the dashboard journey closes on the request STARTING, so every "
+    assert "if (dashFetch.status === window.dashboardFetch.LOADING) return;" in effect, (
+        "the effect fires while the request is still STARTING, so every "
         "refetch closes the journey before its own data lands")
+    assert "hasData && dashFetch.status === window.dashboardFetch.READY" in effect, (
+        "the close is not gated on a data-bearing READY, so a journey ends "
+        "on an empty render or a failed one over stale `synth`")
     assert "window.perf.markUsable()" in effect, (
         "the phase never leaves pre_paint -- every observed shift would "
         "be attributed to the first paint")
+
+
+def test_the_phase_leaves_pre_paint_on_a_range_with_no_rows():
+    """markUsable is about the request RESOLVING, not about data arriving.
+
+    Gating it on `hasData` left a deploy with no data in pre-paint
+    forever, and an adopted sign-in journey -- which closes on
+    markUsable -- never closing at all. The fix is that the early return
+    above keys on LOADING alone.
+    """
+    effect = _effect_for(
+        "window.perf.closeJourney('dashboard_open')",
+        "[hasData, dashFetch]);")
+    before, _, usable = effect.partition("window.perf.markUsable()")
+    assert usable, "the effect does not reach markUsable at all"
+    assert "hasData" not in before, (
+        "markUsable is gated on data existing, so an empty range never "
+        "leaves pre-paint and an adopted sign-in journey never closes")
 
 
 def test_the_inspector_journey_brackets_the_transcript_load():

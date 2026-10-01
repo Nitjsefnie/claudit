@@ -893,20 +893,20 @@ function computeSessions(events) {
 
 function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch }) {
   // `synth` is null until /api/dashboard lands. Render anyway: the four
-  // backend panels below (Tool Usage, Reply Latency, Tool Error Rate,
-  // Activity Heatmap) each fetch their OWN endpoint on mount, and gating
-  // the whole component on dashboard data made those four requests wait
-  // for it — a measured 6.9s before they even started, turning a parallel
-  // fan-out into a serial chain. They depend only on project/range/models.
+  // backend panels below each fetch their OWN endpoint on mount, and gating
+  // the whole component on dashboard data made those four requests wait for
+  // it — a measured 6.9s, turning a parallel fan-out into a serial chain.
   const hasData = !!synth;
-  // Issue #436: the dashboard journey closes on the first DATA-BEARING
-  // render, not on mount -- a journey closed on mount would report a page
-  // that rendered nothing. Keyed on the request state, so each openJourney
-  // above, SSE refetches included, is closed by the response feeding it.
+  // Issue #436: the page is USABLE once the request RESOLVES, an empty range
+  // included -- a deploy with no data would otherwise never leave pre-paint.
+  // The JOURNEY still closes only on a data-bearing READY: an empty one, or a
+  // failed one over stale `synth`, would report a page that rendered nothing.
   useEffect(() => {
-    if (!hasData || dashFetch.status !== window.dashboardFetch.READY) return;
+    if (dashFetch.status === window.dashboardFetch.LOADING) return;
     window.perf.markUsable();
-    window.perf.closeJourney('dashboard_open');
+    if (hasData && dashFetch.status === window.dashboardFetch.READY) {
+      window.perf.closeJourney('dashboard_open');
+    }
   }, [hasData, dashFetch]);
   const {
     events = [], limitHits = [], range: dataRange, costByModel: backendByModel,
