@@ -959,24 +959,44 @@ never hand-set numbers in a workflow.
   `src/**/*.js` — the files node executes. `.jsx` panels are outside it:
   node parses no JSX, and parity tests' eval'd fragments are attributed
   to the eval. Each language gates against its own floor in `tests.yml`.
-- Reparse CPU (`reparse_cpu`): one record per phase of one reparse pass
+- **The gap sits ABOVE the measured value for every cost family, and BELOW
+  it for every quality family.** This is not a typo and not a special
+  case: `coverage` is a QUALITY, so higher is better, its `floor` is a
+  lower bound, and `floor = measured - 1.5`. A cost family is the other
+  way round — its `floor` is the CEILING the recorded value may be
+  exceeded by, so `floor = measured + 1.5`, and only a run that got
+  CHEAPER moves it. Writing a cost family the coverage way round puts
+  the ceiling below the measurement that recorded it, and every later
+  run at that measurement fails a gate no change can satisfy.
+- Reparse (`reparse`): one record per phase of one reparse pass
   (`scripts/ci/reparse_bench.py`, called from `tests.yml` through
-  `.github/actions/reparse-bench`), each phase's SHARE of that run's own
-  CPU work in percent, `floor = measured + 1.5`. A share is a COST, so
-  the floor is the ceiling above the recorded value and only a phase that
-  got cheaper moves it — `scripts/ci/reparse_ratchet.py` mirrors
-  `ratchet.py` with every comparison reversed, one phase at a time. The
-  bench times `time.process_time()` (never wall: co-tenant load moved
-  wall-clock 2-4x on the deployment host), decomposes the pass by
-  wrapping the callables the real path calls, and names the residual —
-  everything those callables do not account for — as a phase of its own,
-  so an unmeasured phase cannot hide inside a measured one. A phase share
-  is ratcheted rather than an absolute cost because a ratio inside one
-  run does not drift with the machine the way a total does; the bench
-  also reports `perf stat`'s instruction count when the probe finds a
-  counter facility, net of a startup-and-imports baseline run, and says
-  NOT MEASURED with the reason when it does not. Never raise a floor by
-  hand, for any reason.
+  `.github/actions/reparse-bench`), each phase carrying TWO instruments,
+  both ratcheted, because each sees something the other cannot:
+  - `share` — the phase's percent of that run's own CPU, `time.process_time()`
+    (never wall: co-tenant load moved wall-clock 2-4x on the deployment
+    host). Scale-free inside one run, so it does not drift with the
+    machine: four runs of the same tree moved the pass total by 29% while
+    every phase share stayed inside half a point. It catches work MOVING
+    between phases, and cannot catch the pass getting slower as a whole.
+  - `bytecodes` — hundreds of bytecode instructions per file, counted
+    with `sys.monitoring`'s INSTRUCTION event
+    (`scripts/ci/reparse_phases.py`). Exact: the same tree retires the
+    same number on a loaded machine and an idle one, under any
+    `PYTHONHASHSEED` (measured). It catches the uniform per-file slowdown
+    the maintainer's lever is about, and needs no amplification to be
+    stable; its gap is sized for interpreter drift, not for noise.
+  Both are costs: `floor = measured + 1.5`, and
+  `scripts/ci/reparse_ratchet.py` mirrors `ratchet.py` with every
+  comparison reversed, one phase and metric at a time. The pass is
+  decomposed by wrapping the callables the real path calls, and the
+  residual — everything they do not account for — is a phase of its own,
+  named and ratcheted, so an unmeasured phase cannot hide inside a
+  measured one. `perf stat`'s machine-instruction count rides along as a
+  CROSS-CHECK and nothing more: it prices a whole process rather than a
+  phase, and needs a counter facility a hosted runner may refuse. When
+  either instrument is unavailable the bench prints NOT MEASURED with
+  the reason — an absent measurement must never read as a passing one.
+  Never raise a floor by hand, for any reason.
 - Module size (`module_size_baseline`): every tracked `*.py` under
   `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
   the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
@@ -1022,7 +1042,7 @@ never hand-set numbers in a workflow.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
-  lowered coverage value, a RAISED reparse phase, a raised entry, or an
+  lowered coverage value, a RAISED reparse budget, a raised entry, or an
   added entry under the frozen core families (the Python and src/ JavaScript scope the size
   ratchet had when the guard landed) or for an unmeasured path. What
   stays legal is exactly the bots' move set plus the two sanctioned
