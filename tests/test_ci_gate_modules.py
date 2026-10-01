@@ -119,6 +119,69 @@ def test_documentation_only_requires_a_nonempty_all_doc_set():
 
 
 # ---------------------------------------------------------------------------
+# classify_changes: the bot-data class (issue #455)
+# ---------------------------------------------------------------------------
+
+
+def test_bot_data_pattern_set_is_the_refresh_bots_file():
+    # The refresh bot's ONLY generated-data file, as a rooted filter
+    # pattern. Deliberately NOT in DOC_PATTERNS: a rate-data change must
+    # still get its boot-and-serve check (smoke) and lint, just not the
+    # whole matrix — the refresh job ran the full suite against the new
+    # rates BEFORE pushing, so re-running it here verifies nothing.
+    assert classify.BOT_DATA_PATTERNS == ("src/pricing.json",)
+
+
+def test_bot_data_pattern_is_rooted():
+    assert classify.matches("src/pricing.json", "src/pricing.json")
+    assert not classify.matches("src/pricing.json", "src/pricing.jsonx")
+    assert not classify.matches("src/pricing.json", "x/src/pricing.json")
+    assert not classify.matches("src/pricing.json", "backend/pricing.json")
+
+
+def test_is_bot_data_partition():
+    assert classify.is_bot_data("src/pricing.json")
+    for path in (DOCS + CODE + ["src/parser.js", "src/pricing.py"]):
+        assert not classify.is_bot_data(path), path
+
+
+def test_data_only_requires_a_nonempty_all_bot_data_set():
+    assert not classify.data_only([])
+    assert classify.data_only(["src/pricing.json"])
+    for intruder in DOCS + CODE:
+        assert not classify.data_only(["src/pricing.json", intruder]), intruder
+
+
+def test_classify_bot_data_only_gets_the_cheap_class():
+    docs_only, data_only, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "src/pricing.json\n",
+    )
+    assert (docs_only, data_only) == (False, True)
+    assert "data-only" in reason
+
+
+def test_classify_mixed_pricing_json_and_code_runs_everything():
+    # The class is the SET of changed paths, never individual files: one
+    # code file beside the data file is a full run.
+    docs_only, data_only, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "src/pricing.json\nbackend/app.py\n",
+    )
+    assert (docs_only, data_only) == (False, False)
+    assert "outside documentation" in reason
+
+
+def test_classify_pricing_json_beside_docs_runs_everything():
+    docs_only, data_only, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "src/pricing.json\nREADME.md\n",
+    )
+    assert (docs_only, data_only) == (False, False)
+    assert "outside documentation" in reason
+
+
+# ---------------------------------------------------------------------------
 # classify_changes: reading the changed paths
 # ---------------------------------------------------------------------------
 
@@ -288,8 +351,8 @@ def test_pr_rename_row_yields_both_paths_and_classifies_full():
         "backend/auth.md", "backend/auth.py"]
     assert calls[0][calls[0].index("--jq") + 1] == PR_FILES_JQ
 
-    docs_only, reason = classify.classify(event, run)
-    assert docs_only is False
+    docs_only, data_only, reason = classify.classify(event, run)
+    assert (docs_only, data_only) == (False, False)
     assert "outside documentation" in reason
 
 
@@ -350,8 +413,8 @@ def test_docs_only_rename_yields_both_paths_and_stays_docs_only():
              "pull_request": "17"}
     assert classify.changed_paths(event, run) == [
         "docs/b.md", "docs/a.md"]
-    docs_only, reason = classify.classify(event, run)
-    assert docs_only is True
+    docs_only, data_only, reason = classify.classify(event, run)
+    assert (docs_only, data_only) == (True, False)
     assert "documentation-only" in reason
 
 
@@ -375,26 +438,27 @@ def test_row_without_previous_filename_yields_one_path():
 
 
 def test_classify_docs_only():
-    docs_only, reason = classify.classify(
+    docs_only, data_only, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "README.md\nNOTICE\n",
     )
-    assert docs_only is True
+    assert (docs_only, data_only) == (True, False)
     assert "documentation-only" in reason
 
 
 def test_classify_mixed_change_runs_everything():
-    docs_only, reason = classify.classify(
+    docs_only, data_only, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "README.md\nbackend/app.py\n",
     )
-    assert docs_only is False
+    assert (docs_only, data_only) == (False, False)
     assert "outside documentation" in reason
 
 
 def test_classify_unreadable_paths_run_everything():
-    docs_only, reason = classify.classify({"name": "push"}, lambda argv: "")
-    assert docs_only is False
+    docs_only, data_only, reason = classify.classify(
+        {"name": "push"}, lambda argv: "")
+    assert (docs_only, data_only) == (False, False)
     assert "full" in reason
 
 
@@ -412,10 +476,23 @@ def test_event_from_environment():
 
 def test_write_outputs(tmp_path):
     out = tmp_path / "output.txt"
-    classify.write_outputs(str(out), True, "documentation-only change: 2 paths")
+    classify.write_outputs(str(out), True, False,
+                           "documentation-only change: 2 paths")
     assert out.read_text(encoding="utf-8") == (
         "docs_only=true\n"
+        "data_only=false\n"
         "reason=documentation-only change: 2 paths\n"
+    )
+
+
+def test_write_outputs_records_the_data_only_narrowing(tmp_path):
+    out = tmp_path / "output.txt"
+    classify.write_outputs(str(out), False, True,
+                           "bot-data-only change: 1 paths")
+    assert out.read_text(encoding="utf-8") == (
+        "docs_only=false\n"
+        "data_only=true\n"
+        "reason=bot-data-only change: 1 paths\n"
     )
 
 
@@ -427,7 +504,9 @@ def test_main_writes_full_run_over_an_unhandled_event(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GITHUB_OUTPUT", str(out))
     assert classify.main() == 0
-    assert "docs_only=false" in out.read_text(encoding="utf-8")
+    text = out.read_text(encoding="utf-8")
+    assert "docs_only=false" in text
+    assert "data_only=false" in text
 
 
 # ---------------------------------------------------------------------------
@@ -441,16 +520,19 @@ LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
 def _needs(**overrides):
     """A green needs document, with per-leg result overrides.
 
-    Key a leg as ``<name>__result`` to set its result, ``docs_only`` to
-    flip the classifier output.
+    Key a leg as ``<name>__result`` to set its result, ``docs_only`` /
+    ``data_only`` to flip the classifier outputs.
     """
     doc = {
-        "classify": {"result": "success", "outputs": {"docs_only": "false"}},
+        "classify": {"result": "success", "outputs": {"docs_only": "false",
+                                                      "data_only": "false"}},
     }
     for leg in LEGS[1:]:
         doc[leg] = {"result": "success"}
     doc["classify"]["outputs"]["docs_only"] = overrides.pop(
         "docs_only", "false")
+    doc["classify"]["outputs"]["data_only"] = overrides.pop(
+        "data_only", "false")
     for key, value in overrides.items():
         name = key.removesuffix("__result")
         if name == "classify":
@@ -483,6 +565,54 @@ def test_aggregate_docs_only_skips_pass():
     verdict, message = aggregate.decide(doc)
     assert verdict == aggregate.PASSED
     assert "docs-only" in message
+
+
+def test_aggregate_data_only_skips_pass_and_names_the_cheap_legs():
+    doc = _needs(data_only="true")
+    for leg in LEGS[1:]:
+        doc[leg] = {
+            "result": "skipped" if leg not in aggregate.CHEAP_LEGS
+            else "success"}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.PASSED
+    assert "data-only" in message
+    for cheap in sorted(aggregate.CHEAP_LEGS):
+        assert cheap in message
+
+
+def test_aggregate_data_only_cannot_skip_the_cheap_legs():
+    # Fail closed: a data-only run that skipped lint or smoke anyway is
+    # a fold/workflow disagreement, and the aggregate must go red — the
+    # boot-and-serve check is why the cheap class exists.
+    doc = _needs(data_only="true")
+    for leg in LEGS[1:]:
+        doc[leg] = {"result": "skipped"}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.FAILED
+    assert "lint=skipped" in message
+    assert "smoke=skipped" in message
+
+
+def test_aggregate_data_only_output_missing_reads_as_not_data_only():
+    # Fail closed: a classify entry without the data_only output cannot
+    # turn a skipped leg into a pass.
+    doc = _needs()
+    doc["classify"] = {"result": "success", "outputs": {
+        "docs_only": "false"}}
+    doc["tests"] = {"result": "skipped"}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.FAILED
+    assert "tests=skipped" in message
+
+
+def test_aggregate_non_data_only_skip_fails():
+    # A skip beside a data_only=false output is still a disagreement,
+    # the way a non-docs skip has always been.
+    doc = _needs(data_only="false")
+    doc["speed"] = {"result": "skipped"}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.FAILED
+    assert "speed=skipped" in message
 
 
 def test_aggregate_non_docs_skip_fails():
@@ -548,6 +678,21 @@ def test_aggregate_summary_is_markdown_naming_every_leg(tmp_path):
     assert "classification: documentation-only change: 3 paths" in text
     for leg in LEGS:
         assert leg in text
+
+
+def test_aggregate_summary_names_the_data_only_narrowing(tmp_path):
+    doc = _needs(data_only="true")
+    doc["classify"]["outputs"]["reason"] = "bot-data-only change: 1 paths"
+    for leg in LEGS[1:]:
+        doc[leg] = {
+            "result": "skipped" if leg not in aggregate.CHEAP_LEGS
+            else "success"}
+    summary = tmp_path / "summary.md"
+    assert aggregate.main_with(doc, summary_path=str(summary)) == 0
+    text = summary.read_text(encoding="utf-8")
+    assert "data-only narrowing: true" in text
+    assert "classification: bot-data-only change: 1 paths" in text
+    assert "data-only" in text
 
 
 def test_aggregate_summary_without_a_classify_reason_omits_the_line(tmp_path):
