@@ -14,6 +14,7 @@ import os
 
 from backend import api, cache
 from backend.api_dashboard import dashboard
+from backend.api_web_metrics import web_metrics_readout
 
 log = logging.getLogger("claudit.ingest")
 
@@ -58,6 +59,10 @@ def warm_common() -> None:
         cache.warm(api.tool_usage, rng=rng)
         cache.warm(api.tool_error_rate, rng=rng)
         cache.warm(api.reply_latency, rng=rng)
+        # The web-metrics readout (issue #436) reads a rollup this run's
+        # LAST phase just rebuilt, so warming it here is the only thing that
+        # makes the panel non-empty on the first load after a boot.
+        cache.warm(web_metrics_readout, rng=rng)
         # /api/projects became range-scoped, so it needs warming per range
         # like everything else. Warming it bare took the endpoint's own
         # signature default ("30d") while the UI opens on "all", leaving
