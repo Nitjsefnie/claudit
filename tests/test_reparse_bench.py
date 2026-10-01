@@ -65,12 +65,71 @@ def _fixture_transcripts():
                   for p in bucket_root.rglob("*.jsonl"))
 
 
+#: Passes a shape-asserting test needs for `time.process_time()` to resolve
+#: them AT ALL. One pass over this corpus is ~0.35 ms of CPU, so the old
+#: 5 measured 1.8 ms and 20 measured 7 ms — comfortably above Linux's
+#: microsecond resolution and BELOW Windows', where the counter
+#: `GetProcessTimes` reads at roughly a 15.6 ms tick. There a short
+#: measurement comes back as exactly 0.0, and the bench refuses it
+#: ("nothing to share") rather than dividing by it — so every shape test
+#: failed on both Windows legs with the corpus tests green, which is the
+#: signature of a clock and not of a corpus.
+#:
+#: 4000 passes is ~1.4 s of CPU: about 90 ticks at 15.6 ms, and still two
+#: ticks if a platform's granularity were as coarse as 0.6 s. The cost is
+#: paid once per test and the recorded gate is unaffected — it runs
+#: `bench.PASSES` (60000) and the gate step is Linux-only.
+SHAPE_PASSES = 4000
+
+
 def _short(**kwargs):
     """A measurement too short to be a recorded number, fast enough for
     a test: the shape is what these assert, never the value."""
-    kwargs.setdefault("passes", 5)
+    kwargs.setdefault("passes", SHAPE_PASSES)
     kwargs.setdefault("warmup", 1)
     return bench.measure(bench.corpus(), **kwargs)
+
+
+def test_the_shape_pass_count_resolves_this_platform_clock():
+    """Why `SHAPE_PASSES` is a floor and not a preference.
+
+    Two Windows legs of the matrix failed every shape test with "the pass
+    measured 0.0 CPU s: nothing to share" while the corpus tests passed —
+    the signature of a clock that cannot resolve the measurement rather than
+    of a corpus it cannot read. This asserts the property directly, on
+    whichever platform runs it: a shape-sized measurement is non-zero HERE.
+    A platform whose `process_time()` is too coarse fails this test with a
+    message naming the constant, instead of nine tests failing with the same
+    arithmetic error and no explanation.
+    """
+    # A platform whose `process_time()` is too coarse fails this with a
+    # message naming the constant. Asserting the property directly means the
+    # diagnosis is one line rather than nine identical arithmetic errors.
+    measurement = _short()
+    assert measurement.cpu_s > 0, (
+        f"{SHAPE_PASSES} passes measured 0.0 CPU s on this platform: its "
+        f"time.process_time() cannot resolve it, and every shape test that "
+        f"uses this helper will fail on 'nothing to share'. Raise "
+        f"SHAPE_PASSES rather than the number of failures.")
+
+    # And the same property under a COARSE clock, which is the only way this
+    # bites anywhere but on the platform that already failed. Windows'
+    # `GetProcessTimes` reads at roughly a 15.6 ms tick; quantizing the
+    # clock to that reproduces the defect on every platform, so lowering
+    # SHAPE_PASSES below what a 15.6 ms tick resolves is a red test here
+    # rather than two red CI legs nobody can reproduce locally.
+    tick = 0.0156
+    real = time.process_time
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(time, "process_time",
+                   lambda: int(real() / tick) * tick)
+    try:
+        coarse = _short()
+    finally:
+        monkey.undo()
+    assert coarse.cpu_s > 0, (
+        f"{SHAPE_PASSES} passes measured 0.0 under a {tick}s clock tick: "
+        f"SHAPE_PASSES is below what Windows can resolve")
 
 
 # --- the corpus and the path -------------------------------------------------
@@ -218,7 +277,7 @@ def test_sniff_and_parse_body_are_phases_of_the_parse_not_of_the_pass():
     # count — that is what makes the shares a partition rather than a
     # list of overlapping timers. Together they still sit inside the
     # pass, so the residual has room to be a phase of its own.
-    measurement = _short(passes=20)
+    measurement = _short(passes=SHAPE_PASSES * 2)
     assert measurement.phase_cpu_s["sniff"] > 0
     assert measurement.phase_cpu_s["parse_body"] > measurement.phase_cpu_s["sniff"]
     assert measurement.shares["parse_body"] > measurement.shares["sniff"]
@@ -249,7 +308,8 @@ def test_sidecar_phase_is_measured_when_a_sidecar_exists():
     sided = entry._replace(
         sidecar_key=f"{entry.key}.meta.json",
         sidecar_blob=b'{"agentType": "bench-sidecar-role"}')
-    measurement = bench.measure([sided], passes=5, warmup=1)
+    measurement = bench.measure(
+        [sided], passes=SHAPE_PASSES, warmup=1)
     assert measurement.phase_cpu_s["sidecar"] > 0
     assert measurement.shares["sidecar"] > 0
     assert parse.parse_file is not None  # the module is back in place
