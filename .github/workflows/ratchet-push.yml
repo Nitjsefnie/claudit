@@ -17,11 +17,13 @@ name: ratchet push
 # budgets from the measurement, and pushes the ratchet commit when
 # there is something to push.
 #
-# THE SUITE GATES THE PUSH, TWICE OVER: only a run whose pytest,
-# JavaScript-coverage and reparse legs were green stages the data, and
-# only a FULLY green gate run (conclusion: success) publishes it. The
-# push job runs no test, dependency or upstream code — no checkout, no
-# pip, no npm — and stops its ssh-agent when the step ends. The deploy
+# THE SUITE GATES THE PUSH, TWICE OVER: only a run whose pytest and
+# JavaScript-coverage legs were green stages the suite measurement,
+# only one whose reparse bench was green too stages the ratchet data,
+# and only a FULLY green gate run (conclusion: success) publishes
+# either. The push job runs no test, dependency or upstream code — no
+# checkout, no pip, no npm — and stops its ssh-agent when the step
+# ends. The deploy
 # key lives in the master-push environment, reachable only from
 # master. Like the pricing bot's deploy-key push, the ratchet commit
 # starts workflow runs — but ci-gate ignores a
