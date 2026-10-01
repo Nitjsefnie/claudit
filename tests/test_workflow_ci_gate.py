@@ -351,7 +351,16 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
             "baselines (automated)" in run)
-    assert "Co-Authored-By" not in run
+    # The commit names no co-author: a github-actions[bot] commit is
+    # authored by no model, so a trailer on it attributes work to a
+    # model that never ran (issue #491). Scoped to the commit
+    # invocation, so its continuations count and an explanatory comment
+    # beside it does not; case-folded, because git's trailer parser
+    # accepts `Co-authored-by:` as readily as the canonical spelling.
+    commit_start = run.index("commit -m")
+    commit_end = run.find("\n          git ", commit_start)
+    commit_cmd = run[commit_start:commit_end if commit_end != -1 else None]
+    assert "co-authored-by" not in commit_cmd.lower()
     # The suite-cost tighten: a downward-only data operation, then the
     # no-change guard that lets a no-op tighten end the job quietly.
     assert "suite_ratchet.py" in run
