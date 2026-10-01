@@ -64,6 +64,7 @@ from backend.ingest_rollups import (  # noqa: F401  (re-export)
     rebuild_dispatch_brief_rollup,
     rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
     rebuild_tool_error_rollup, rebuild_tool_rollup,
+    rebuild_web_metrics_rollup,
     recompute_canonical, resolve_teammate_agent_types,
 )
 from backend.ingest_scope import (  # noqa: F401  (re-export)
@@ -398,6 +399,11 @@ def _rebuild_derived_state() -> int:
         ("latency_rollup", rebuild_latency_rollup),
         ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
         ("agent_rollup", rebuild_agent_rollup),
+        # Browser performance telemetry (issue #436). Last, and the only
+        # phase reading a table no ingest phase writes: it folds `web_metrics`
+        # over the retention window and prunes, so it depends on nothing
+        # above and nothing above depends on it.
+        ("web_metrics_rollup", rebuild_web_metrics_rollup),
     )
     changed = 0
     scope = current_scope()
