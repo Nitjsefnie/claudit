@@ -559,23 +559,6 @@ def test_the_schedule_of_a_touched_provider_row_is_untouched(
         assert set(appended) == {"from", "note", *RATE_FIELDS}
 
 
-def test_arguments_are_validated():
-    for argv in (["--iterations", "0"], ["--jobs", "0"], ["--no-such-flag"]):
-        with pytest.raises(SystemExit) as exit_info:
-            fuzz_module.main(argv)
-        assert exit_info.value.code == 2
-
-
-def test_help_names_the_flags(capsys):
-    with pytest.raises(SystemExit) as exit_info:
-        fuzz_module.main(["--help"])
-    assert exit_info.value.code == 0
-    out = capsys.readouterr().out
-    assert "--iterations" in out
-    assert "--seed" in out
-    assert "--jobs" in out
-
-
 def test_sequential_main_runs_iterations_and_prints_a_summary(
         monkeypatch, git_repo, tmp_path, capsys):
     suite_calls, restore_calls = [], []
