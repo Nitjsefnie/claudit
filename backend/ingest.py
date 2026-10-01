@@ -41,8 +41,8 @@ from backend.ingest_fetch import (  # noqa: F401  (re-export)
 )
 from backend.ingest_persist import _persist  # noqa: F401  (re-export)
 from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
-    _ABORT_ERROR, _close_run, _open_run, close_open_run, failed_public_keys,
-    failure_summary, sweep_stale_runs,
+    _ABORT_ERROR, _close_run, _open_run, _open_run_swept, close_open_run,
+    failed_public_keys, failure_summary, sweep_stale_runs,
 )
 # The listing scan (split for size; the tests reach these through ingest)
 # and the lock-loss guard the bounded steps consult (issue #374).
@@ -515,17 +515,7 @@ def run_ingest_locked(trigger: str) -> dict:
 
 def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     with _timed_step("open_run"):
-        # Crash recovery (issue #440): under the advisory lock, an open
-        # row's opener is provably dead, so close its row before booking
-        # our own — the SIGKILL shape the graceful paths never see.
-        swept = sweep_stale_runs()
-        if swept:
-            log.warning(
-                "ingest (%s): closed %d ingest_runs row(s) the previous "
-                "process left open (it died without a graceful stop)",
-                trigger, swept)
-        started = datetime.now(timezone.utc)
-        run_id = _open_run(started, trigger)
+        started, run_id = _open_run_swept(trigger)
         _set_progress(phase="listing", done=0, total=0, run_id=run_id, started_at=started.isoformat())
         listed = inserted = reparsed = deleted = vanished = newer = changed = lane_moved = 0
         # Per-object failures (qualified key, message). Counted in `error`,
