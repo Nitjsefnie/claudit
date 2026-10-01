@@ -37,16 +37,16 @@
   "schema_version": 1,
   "suite_cost": {
     "collection": {
-      "floor": 27.5,
-      "measured": 26.0
+      "floor": 27.8,
+      "measured": 26.3
     },
     "residual": {
-      "floor": 7.9,
-      "measured": 6.4
+      "floor": 10.5,
+      "measured": 9.0
     },
     "run": {
-      "floor": 318.0,
-      "measured": 316.5
+      "floor": 318.1,
+      "measured": 316.6
     }
   }
 }
