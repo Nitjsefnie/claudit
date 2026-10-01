@@ -72,32 +72,19 @@ from backend.json_shape import as_dict, as_list
 # collapse every shell command, patch and plan update into one bucket.
 _CODEX_API_RE = re.compile(r"tools\.([A-Za-z_][A-Za-z_0-9]*)\s*\(")
 
-# Model in force -> canonical pricing label. Substring, not prefix: the corpus
-# carries "gpt5.6-sol" (missing separator) alongside "gpt-5.6-sol". An
-# unrecognised model bills at the FLAGSHIP rate, the opposite of the Kimi
-# ladder's conservative fallback: here a wrong overcount is visible and
-# arguable, while a wrong undercount silently understates the bill.
+# A record keeps the model id the transcript names (issue #471): the parser
+# relabels nothing and falls back to nothing. An id pricing.json has no row
+# for prices through the fallback and surfaces as estimated_rate
+# (SV-RATE-ESTIMATES) — a visible estimate beats an invented attribution.
+# That failure mode is why: the old substring map RELABELLED any unmapped id
+# (gpt-6.1-sol read as gpt-5.6-sol at twice its price; Astra shipped as Sol
+# for weeks until it got a row), hiding every new model from the dashboard
+# until a code change listed it.
 #
-# EVERY MODEL THE CORPUS NAMES NEEDS A ROW HERE, and the cost of forgetting
-# one is not merely a mispriced record: the fallback RELABELS it, so the
-# model disappears from the dashboard entirely and its usage is reported as
-# the flagship's. That is what happened to Astra, which shipped on
-# 2026-09-04 and read as Sol until this row was added.
-#
-# The flagship is whichever current model is most expensive, so the
-# fallback keeps erring upward — Astra at 2.5x Sol now holds that seat.
-_CODEX_FLAGSHIP = "gpt-6-astra"
-# Matched as SUBSTRINGS, in order, so a more specific id must come before
-# any needle it contains: `gpt-6-sol` contains `sol`, and listed after it
-# would be relabelled GPT-5.6 Sol and billed at twice its price.
-_CODEX_MODEL_MAP = (
-    ("astra", "gpt-6-astra"),
-    ("gpt-6-sol", "gpt-6-sol"),
-    ("gpt-6-luna", "gpt-6-luna"),
-    ("terra", "gpt-5.6-terra"),
-    ("luna", "gpt-5.6-luna"),
-    ("sol", "gpt-5.6-sol"),
-)
+# The only rewrites are spelling: case-folding and the corpus's missing
+# separator (gpt5.6-sol -> gpt-5.6-sol, a real turn_context spelling), which
+# the stored id should spell the way the corpus canonically does.
+_CODEX_SEPARATED = re.compile(r"^gpt(?=[\d.])")
 
 # The cumulative counter's fields. All six are differenced so a duplicate
 # snapshot is recognised by ALL of them failing to advance, not just by the
@@ -123,17 +110,17 @@ RECORD_TYPES = frozenset({
 
 
 def _codex_model(raw: str | None) -> str:
-    """Model string in force -> canonical pricing label.
+    """Model string in force -> the stored model id.
 
-    Only canonical labels may reach pricing.compute_cost: an unmapped id
-    resolves to the cheapest Codex fallback — off by 50x on fresh input
-    for the flagship, silently.
+    Spelling normalisation only (issue #471); never a relabelling. A
+    transcript that names no model stores "unknown" — _append_tool_use's
+    label for an unattributed record — which prices at the default rates,
+    flagged estimated.
     """
-    lowered = (raw or "").lower()
-    for needle, label in _CODEX_MODEL_MAP:
-        if needle in lowered:
-            return label
-    return _CODEX_FLAGSHIP
+    lowered = (raw or "").strip().lower()
+    if not lowered:
+        return "unknown"
+    return _CODEX_SEPARATED.sub("gpt-", lowered)
 
 
 @dataclass

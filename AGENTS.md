@@ -111,8 +111,9 @@ backend/          — FastAPI application
   pricing_load.py — Loads src/pricing.json's rate tables, checked, at
                     import; pricing.py re-exports them (SV-RATE-DATA)
   long_context.py — Codex long-context meter constants (threshold,
-                    multipliers, model set); dependency-free; pricing
-                    re-exports as pricing.LONG_CONTEXT_*
+                    multipliers); dependency-free; the meter membership is
+                    pricing.json data (long_context_models), re-exported as
+                    pricing.LONG_CONTEXT_MODELS
   rate_fingerprint.py — Per-(model, provider) digest of the rate data
                     resolve() consults, plus the pricing modules'
                     source; the reprice pass's clean restamp proves a

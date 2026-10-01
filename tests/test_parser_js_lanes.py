@@ -57,19 +57,6 @@ TRICKY_BLOBS = [
     b'{"unidentified": true}\n',
 ]
 
-# Cumulative counters for the model-map-order blob: the second snapshot
-# must advance every field or the differencing drops it as a duplicate.
-_MODEL_MAP_USAGE = {
-    "input_tokens": 20_000, "cached_input_tokens": 19_500,
-    "cache_write_input_tokens": 0, "output_tokens": 500,
-    "reasoning_output_tokens": 300, "total_tokens": 20_500,
-}
-_MODEL_MAP_USAGE2 = {
-    "input_tokens": 21_000, "cached_input_tokens": 20_500,
-    "cache_write_input_tokens": 0, "output_tokens": 700,
-    "reasoning_output_tokens": 400, "total_tokens": 21_700,
-}
-
 
 @lru_cache(maxsize=1)
 def _browser_lane_output() -> dict:
@@ -197,27 +184,44 @@ def test_a_settings_only_model_switch_labels_the_following_request():
     assert browser[0]["line"] == 3
 
 
-def test_model_map_order_keeps_the_generations_apart_in_both_parsers():
-    """gpt-6-sol contains the needle sol, so the substring map's order is
-    load-bearing (D7): a bare sol model must fall to gpt-5.6-sol while
-    gpt-6-sol stays itself — in the browser exactly as in the backend."""
-    lines = [
-        {"timestamp": "2026-06-14T12:00:01.000Z", "type": "turn_context",
-         "payload": {"model": "gpt-6-sol"}},
-        {"timestamp": "2026-06-14T12:00:02.000Z", "type": "event_msg",
-         "payload": {"type": "token_count", "info": {
-             "total_token_usage": _MODEL_MAP_USAGE,
-             "last_token_usage": _MODEL_MAP_USAGE}}},
-        {"timestamp": "2026-06-14T12:00:03.000Z", "type": "turn_context",
-         "payload": {"model": "sol"}},
-        {"timestamp": "2026-06-14T12:00:04.000Z", "type": "event_msg",
-         "payload": {"type": "token_count", "info": {
-             "total_token_usage": _MODEL_MAP_USAGE2,
-             "last_token_usage": _MODEL_MAP_USAGE2}}},
-    ]
+def test_model_ids_survive_verbatim_in_both_parsers():
+    """No relabelling table, no flagship fallback (issue #471): each model
+    the transcript names survives verbatim after spelling normalisation —
+    in the browser exactly as in the backend. sol stays sol (a visible
+    estimate at the fallback rates), gpt-6.1-sol prices at its own row,
+    and the missing-separator spelling folds. Each model's token_count
+    advances every counter, or differencing reads it as a duplicate."""
+    def _turn(second: int, model: str) -> dict:
+        return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
+                "type": "turn_context", "payload": {"model": model}}
+
+    def _usage(n_in: int, n_cached: int, n_out: int, n_reason: int) -> dict:
+        return {"input_tokens": n_in, "cached_input_tokens": n_cached,
+                "cache_write_input_tokens": 0, "output_tokens": n_out,
+                "reasoning_output_tokens": n_reason,
+                "total_tokens": n_in + 500}
+
+    def _snapshot(second: int, n_in: int) -> dict:
+        u = _usage(n_in, n_in - 500, 400 + n_in // 1000 * 100,
+                   300 + n_in // 1000 * 50)
+        return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
+                "type": "event_msg",
+                "payload": {"type": "token_count",
+                            "info": {"total_token_usage": u,
+                                     "last_token_usage": u,
+                                     "model_context_window": 258400}}}
+
+    models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol"]
+    lines: list[dict] = [_turn(1, models[0])]
+    for i, model in enumerate(models):
+        lines.append(_snapshot(2 * i + 2, 1_000 * (i + 1)))
+        if i + 1 < len(models):
+            lines.append(_turn(2 * i + 3, models[i + 1]))
     blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
-    backend = parse.parse_file("codex/model_map_order.jsonl", blob)["records"]
-    assert [r["model"] for r in backend] == ["gpt-6-sol", "gpt-5.6-sol"]
+    out = parse.parse_file("codex/model_ids_verbatim.jsonl", blob)
+    backend = out["records"]
+    got = [r["model"] for r in backend]
+    assert got == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol"]
 
     script = f"""
       global.window = {{}};
@@ -233,7 +237,8 @@ def test_model_map_order_keeps_the_generations_apart_in_both_parsers():
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == ["gpt-6-sol", "gpt-5.6-sol"]
+    got_browser = json.loads(proc.stdout)
+    assert got_browser == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol"]
 
 
 # --------------------------------------------------------------------------

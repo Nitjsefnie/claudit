@@ -52,8 +52,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
-    LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_MODELS, LONG_CONTEXT_OUTPUT_MULT,
-    LONG_CONTEXT_THRESHOLD)
+    LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_OUTPUT_MULT, LONG_CONTEXT_THRESHOLD)
 from backend.pricing_load import (
     DATED_RATES,
     DEFAULT_RATES,
@@ -66,6 +65,7 @@ from backend.pricing_load import (
     PRICING_JSON,
     RATE_EPOCHS,
     RATE_FIELDS,
+    LONG_CONTEXT_MODELS,
     _DAYS,
     Windows,
     RateTables,
@@ -81,10 +81,10 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
 )
 
 __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
-    "DATED_RATES", "DEFAULT_RATES", "MODEL_RATES", "PROVIDER_DATED_RATES",
-    "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
-    "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
-    "Windows", "RateTables", "ScheduleWindow", "load_tables",
+    "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS", "MODEL_RATES",
+    "PROVIDER_DATED_RATES", "PROVIDER_RATES", "PROVIDER_RATES_FETCHED",
+    "PROVIDER_SCHEDULES", "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS",
+    "RATE_FIELDS", "Windows", "RateTables", "ScheduleWindow", "load_tables",
 ]
 
 UTC = timezone.utc
@@ -324,6 +324,16 @@ def resolve(model: str, ts: datetime | None = None,
         if pattern.search(norm):
             return Resolution(rates, "tier")
     return Resolution(DEFAULT_RATES, "default")
+
+
+def is_long_context_model(model: str) -> bool:
+    """Whether a stored model id names a long-context-metered Codex model.
+
+    Membership is pricing.json's long_context_models — dashed models-table
+    keys — and the stored id normalises the way resolve() normalises, so
+    the dotted gpt-5.6-sol matches key gpt-5-6-sol (SV-RATE-ESTIMATES).
+    """
+    return _normalise(model) in LONG_CONTEXT_MODELS
 
 
 def rate_for(model: str, ts: datetime | None = None,

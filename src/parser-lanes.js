@@ -476,17 +476,6 @@ function parseLaneKimiCode(blob, opts) {
 
 // `exec` is the only custom tool; the api it calls is the useful name.
 const LANE_CODEX_API_RE = /tools\.([A-Za-z_][A-Za-z_0-9]*)\s*\(/g;
-const LANE_CODEX_FLAGSHIP = 'gpt-6-astra';
-// Substring needles, in order, most specific first: `gpt-6-sol` contains
-// `sol`, so a later generic needle must not claim it.
-const LANE_CODEX_MODEL_MAP = [
-  ['astra', 'gpt-6-astra'],
-  ['gpt-6-sol', 'gpt-6-sol'],
-  ['gpt-6-luna', 'gpt-6-luna'],
-  ['terra', 'gpt-5.6-terra'],
-  ['luna', 'gpt-5.6-luna'],
-  ['sol', 'gpt-5.6-sol'],
-];
 // The cumulative counter's fields; all six are differenced so a duplicate
 // snapshot is recognised by ALL of them failing to advance.
 const LANE_CODEX_USAGE_KEYS = [
@@ -496,14 +485,17 @@ const LANE_CODEX_USAGE_KEYS = [
 // A tool result whose first line starts with one of these is a failure.
 const LANE_CODEX_FAILURE_HEADS = ['Script failed', 'collab spawn failed'];
 
-// An unrecognised model bills at the flagship: a visible overcount beats a
-// silent undercount (backend _codex_model).
+// A record keeps the model id the transcript names (issue #471) — the
+// relabelling map and flagship fallback are gone (backend _codex_model):
+// gpt-6.1-sol read as gpt-5.6-sol at twice its price, and every unmapped
+// id disappeared into the flagship. The only rewrites are spelling: lower
+// case and the missing separator (gpt5.6-sol -> gpt-5.6-sol). An id
+// pricing.json has no row for prices through the fallback and surfaces as
+// estimated_rate; a transcript naming no model stores 'unknown'.
 function laneCodexModel(raw) {
-  const lowered = String(raw || '').toLowerCase();
-  for (const [needle, label] of LANE_CODEX_MODEL_MAP) {
-    if (lowered.includes(needle)) return label;
-  }
-  return LANE_CODEX_FLAGSHIP;
+  const lowered = String(raw || '').trim().toLowerCase();
+  if (!lowered) return 'unknown';
+  return lowered.replace(/^gpt(?=[\d.])/, 'gpt-');
 }
 
 // Flatten a *_call_output payload into one string (backend _codex_output_text).

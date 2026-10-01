@@ -410,3 +410,23 @@ def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
     """)
     assert (got["kind"], got["key"]) == ("exact", "acme/acme-9:nitro")
     assert _js_rates(got["rates"]) == P_AFTER
+
+
+def test_an_unknown_long_context_member_is_refused_naming_it():
+    """pricing.json's long_context_models are dashed keys of the models
+    table; a name that is not one is a typo'd data edit the loader
+    refuses (SV-RATE-DATA: both loaders refuse a rule-breaking file)."""
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol", "gpt-9-ghost"]
+    with pytest.raises(ValueError, match="gpt-9-ghost"):
+        pricing.load_tables(doc)
+
+
+def test_long_context_models_stay_distinct_and_string_typed():
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol", "gpt-5-6-sol"]
+    with pytest.raises(ValueError, match="distinct"):
+        pricing.load_tables(doc)
+    doc["long_context_models"] = [42]
+    with pytest.raises(ValueError, match="long_context_models"):
+        pricing.load_tables(doc)

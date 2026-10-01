@@ -21,16 +21,7 @@ LONG_CONTEXT_THRESHOLD = 272_000
 LONG_CONTEXT_INPUT_MULT = 2.0
 LONG_CONTEXT_OUTPUT_MULT = 1.5
 
-# The canonical labels every Codex record's model carries
-# (parse_codex._CODEX_MODEL_MAP) — the models whose published pricing carries
-# the meter: uniform across the family (272k threshold, 2x input side, 1.5x
-# output — developers.openai.com/api/docs/pricing, checked 2026-09-26), so the
-# threshold and multipliers above stay global, not per-model data. The reprice
-# pass consults this set to re-derive records.long_context from stored columns;
-# a row of any other model never bills the meter, so its stored flag is left
-# exactly as parse stored it. Keep in lockstep with parse_codex._CODEX_MODEL_MAP
-# (a test pins the pairing).
-LONG_CONTEXT_MODELS = frozenset({
-    "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra",
-    "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
-})
+# WHICH models carry the meter — pricing.json's long_context_models — is
+# data (issue #471), loaded by pricing_load and re-exported through pricing
+# as LONG_CONTEXT_MODELS: a new model is a data edit, never a code change,
+# and the reprice pass consults it through pricing.is_long_context_model().

@@ -233,7 +233,7 @@ def _record_updates(row: _StaleRow) -> dict:
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
     if (row.long_context is not None
-            and row.model in pricing.LONG_CONTEXT_MODELS
+            and pricing.is_long_context_model(row.model)
             and not row.provider):
         long_context = (row.fresh_tokens + row.cache_creation_tokens
                         + row.cache_read_tokens
