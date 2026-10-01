@@ -8,9 +8,12 @@ new module, and the run row's INSERT and final UPDATE are that piece.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from backend import db, ingest_progress, r2
+
+log = logging.getLogger("claudit.ingest")
 
 # The ingest_runs.error text an aborted run is closed with. The row text
 # spells "aborted: <cause>"; a plain shutdown keeps this exact value.
@@ -123,3 +126,25 @@ def sweep_stale_runs() -> int:
         closed = cur.rowcount
         c.commit()
     return closed
+
+
+def _open_run_swept(trigger: str) -> tuple[datetime, int]:
+    """Sweep crash leftovers, then book this run's row (issue #440).
+
+    Called in place of _open_run at the top of a run that holds the
+    db-wide advisory lock (ingest._db_run_lock): the server releases the
+    lock the moment the holding connection dies, so an open row under it
+    proves the process that opened it is gone — the SIGKILL shape the
+    graceful paths (#103, #372) can never close behind. No host/pid
+    columns are needed: the lock is the liveness proof. `started` is
+    taken AFTER the sweep, so the booked row starts when the run itself
+    does, and the sweep provably landed before the booking.
+    """
+    closed = sweep_stale_runs()
+    if closed:
+        log.warning(
+            "ingest (%s): closed %d ingest_runs row(s) the previous "
+            "process left open (it died without a graceful stop)",
+            trigger, closed)
+    started = datetime.now(timezone.utc)
+    return started, _open_run(started, trigger)
