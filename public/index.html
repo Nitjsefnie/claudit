@@ -26,7 +26,12 @@
 <script src="/src/synthetic-data.js"></script>
 <script src="/src/dashboard-binning.js"></script>
 <script src="/src/dashboard-fetch.js"></script>
+<script src="/src/panel-gating.js"></script>
 <script src="/src/timeline-selection.js"></script>
+<!-- Telemetry (issue #436). Loaded before the panels so its buffered
+     PerformanceObserver entries start collecting at first paint; the
+     index rewrite puts the response's CSP nonce on this tag. -->
+<script src="/src/perf.js"></script>
 <script type="text/babel" src="/src/event-helpers.jsx"></script>
 <script type="text/babel" src="/src/detail-pane.jsx"></script>
 <script type="text/babel" src="/src/context-growth-view.jsx"></script>
@@ -34,6 +39,7 @@
 <script type="text/babel" src="/src/dashboard-charts-extra.jsx"></script>
 <script type="text/babel" src="/src/views/cache-view.jsx"></script>
 <script type="text/babel" src="/src/views/context-growth-view-v2.jsx"></script>
+<script type="text/babel" src="/src/perf-panel.jsx"></script>
 <script type="text/babel" src="/src/sessions-list.jsx"></script>
 <script type="text/babel" src="/src/dashboard-summary.jsx"></script>
 <script type="text/babel" src="/src/app.jsx"></script>
