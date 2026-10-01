@@ -8,9 +8,9 @@ there is no dirty-file scope to narrow by. The scope is the retention window
 instead, and it is bounded: the raw table is pruned to
 `web_metrics.RAW_KEEP_S` and beacons are a few rows per page view.
 
-**A bucket is stored once, whole, and never revised** — the fold that CLOSES
-it writes it, and the next fold finds it and leaves it alone. Everything below
-is that one rule seen from three sides.
+**A bucket is stored whole, and only a fold that saw more of it may revise
+it.** The fold that CLOSES a bucket writes it; the next finds it and leaves it
+alone. Everything below is that one rule seen from three sides.
 
 *Why closed, and not "rebuild the window".* A bucket is a percentile over a
 population, so it is only a fact once the population has stopped changing. An
@@ -22,12 +22,20 @@ narrower slice, so every stored percentile ended up describing the bucket's
 LAST HOUR, at every width, permanently. The 6-, 12- and 24-hour rollups were
 keeping a third, a quarter and under a quarter of their beacons.
 
-*Why the raw table outlives the horizon.* A bucket becomes complete at exactly
-the instant its last beacon is pruned, so a raw table pruned AT the horizon
-never has a closable bucket's rows on the fold that closes it. Hence
-`RAW_KEEP_S = RETENTION_S + widest bucket + one fold interval`: a full bucket
-width of slack so a closing bucket is still readable, and one fold interval so
-the boundary cannot land between a prune and a fold.
+*Why the raw table outlives the horizon, by TWO widths.* A bucket becomes
+complete at exactly the instant its last beacon is pruned, so a raw table
+pruned AT the horizon never has a closable bucket's rows on the fold that
+closes it. One width of slack is not enough either, and that was the second
+version of this defect: a closed bucket `[s, s+W)` starts after
+`now - RETENTION_S - 2W`, so a read window one width back leaves the newest
+closing bucket's oldest beacons outside it — the fold stores it short, and
+NOTHING repairs it, because the window advances with `now` and a bucket the
+window has cut off stays cut off. Three skipped hourly folds were enough to
+strand the 24-hour bucket, the width the default `all` view reads, with 22 of
+its 24 beacons, silently and permanently. Hence
+`RAW_KEEP_S = RETENTION_S + 2 * widest bucket + fold interval`, which makes a
+partial read of a closed bucket impossible at every fold rather than
+unlikely at most of them.
 
 *Why the DELETE and the INSERT share one expression.* A bucket is either
 stored whole or not at all. If the delete bound and the insert filter were
