@@ -34,8 +34,18 @@ window has cut off stays cut off. Three skipped hourly folds were enough to
 strand the 24-hour bucket, the width the default `all` view reads, with 22 of
 its 24 beacons, silently and permanently. Hence
 `RAW_KEEP_S = 2 * widest bucket + fold interval`, which makes a
-partial read of a closed bucket impossible at every fold rather than
-unlikely at most of them.
+partial read of a closed bucket impossible at every fold that HAPPENS.
+
+*Why the fold still checks the span it read (issue #475).* Two widths is
+arithmetic about folds that run, and it says nothing about a pass that does
+NOT run: the window advances with `now` while the beacons stay put, so a fold
+stalled longer than the thirty hours between `now - RAW_KEEP_S` and a
+bucket's start resumes with its window inside that bucket, stores its tail,
+and `DO NOTHING` freezes the short row beside whole ones for ever. So the
+span is checked, not assumed — a bucket the window did not cover is not
+stored at all — and the window reaches back to the oldest beacon on the
+table while a stalled pass has left the working set wider than nominal, so
+the refusal is rare and a later pass usually stores the bucket whole.
 
 *Why the DELETE and the INSERT share one expression.* A bucket is either
 stored whole or not at all. If the delete bound and the insert filter were
@@ -82,19 +92,25 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> int:
     bound is still growing, so storing it would publish a percentile over a
     population that is about to change under the reader.
 
-    Three facts fix the placement, and none of them is a tuning choice:
+    Four facts fix the placement, and none of them is a tuning choice:
 
     * **Store only closed buckets.** An open bucket is rewritten on every
       fold with a strictly larger population, so a reader sees a moving
       number; worse, a fold whose window reached behind the raw cutoff would
       rebuild it from rows the prune had already taken.
+    * **Store only buckets the window READS WHOLE.** `read_from` is the
+      oldest row on the table, and a bucket starting below it has beacons the
+      fold cannot see — so the row would be a tail, not a bucket. There is no
+      marker distinguishing the two and `DO NOTHING` never revises, so a tail
+      would sit in the history for ever looking like a fact. Refusing is the
+      honest half of the rule; `web_metrics.fold_read_from` is the half that
+      keeps the refusal rare (issue #475).
     * **The DELETE bound is the same expression as the INSERT's filter.** A
       bucket is either stored whole or not at all, and the two cannot
       disagree about which.
-    * **`read_from` is the oldest row on the table, not the horizon.** It is
-      what `web_metrics.RAW_KEEP_S` leaves behind, and it is a full bucket
-      width plus a fold interval behind the horizon precisely so that a
-      bucket closing on THIS fold still has its rows.
+    * **`read_from` is a full bucket width plus a fold interval behind the
+      horizon**, which is what makes a bucket closing on THIS fold readable
+      in full rather than merely probably readable.
     """
     closed_through = horizon - timedelta(seconds=bucket_width / 2)
     conn.execute(
@@ -123,6 +139,14 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> int:
                n, p50, p75, total
           FROM bands
          WHERE bucket <= %s
+           -- The span the window has to cover, in the midpoint the table
+           -- stores: `epoch(bucket) - W/2 >= epoch(read_from)` IS
+           -- `s >= read_from`. A bucket below it cannot be read whole, and a
+           -- short row is indistinguishable from a whole one, so it is not
+           -- stored at all and the next pass -- whose window reaches further
+           -- back while the beacons are still there -- stores it whole.
+           AND EXTRACT(EPOCH FROM bucket) - {bucket_width} / 2.0
+               >= EXTRACT(EPOCH FROM %s)
         -- A closed bucket is written once and never revised, so a fold that
         -- finds one already stored is a fold whose window reached back over
         -- a boundary it has no business re-reading. The stored row is the
@@ -130,7 +154,7 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> int:
         -- the "stored whole, or not at all" invariant hold.
         ON CONFLICT (bucket_s, bucket, metric, part, region, phase)
         DO NOTHING
-        """), (read_from, closed_through))
+        """), (read_from, closed_through, read_from))
     return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
 
 
@@ -143,16 +167,22 @@ def rebuild_web_metrics_rollup() -> int:
     """
     now = web_metrics.utcnow()
     horizon = web_metrics.rollup_horizon(now)
-    read_from = web_metrics.retention_cutoff(now)
+    cutoff = web_metrics.retention_cutoff(now)
     written = 0
     with db.viz_conn() as conn:
+        # The window may reach further back than the cutoff when a stalled
+        # pass left the working set wider than its nominal width, and it is
+        # deliberately NOT what the prune below deletes at: pruning at the
+        # fold's own read window would pin the working set at its widest and
+        # the next pass would read just as far again, for ever (issue #475).
+        read_from = web_metrics.fold_read_from(conn, now)
         for bucket_width in LATENCY_BUCKETS:
             written += _fold(conn, bucket_width, horizon, read_from)
-        # Pruned after the fold, in the same transaction, at the horizon the
-        # fold read from. The two instants differ by design and the
-        # difference is the slack that lets a bucket close.
+        # Pruned after the fold, in the same transaction, at the retention
+        # cutoff. The two instants differ by design and the difference is the
+        # slack that lets a bucket close.
         conn.execute(
-            "DELETE FROM web_metrics WHERE ts < %s", (read_from,))
+            "DELETE FROM web_metrics WHERE ts < %s", (cutoff,))
         conn.commit()
     log.info("rebuild_web_metrics_rollup: %d rows", written)
     return written

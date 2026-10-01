@@ -226,14 +226,22 @@ def test_prune_keeps_the_window_and_drops_the_rest(viz, pinned):
         "a pruned row must not survive in a rollup bucket either")
 
 
-def test_the_fold_and_the_prune_cover_disjoint_populations(viz, pinned, monkeypatch):
-    """A row one second outside the window is in neither side of the pass.
+def test_the_fold_reads_every_row_the_prune_deletes(viz, pinned, monkeypatch):
+    """A row one second outside the window is never pruned unread.
 
-    This is why the fold and the prune need no ordering between them: the
-    fold reads exactly `ts >= cutoff` and the prune deletes exactly
-    `ts < cutoff`, so nothing deleted was ever a row the fold owed a bucket.
-    Pinned at the boundary rather than in the middle of the window, where a
-    fold that quietly reached further back would go unnoticed.
+    The fold and the prune need no ordering between them for one reason: the
+    fold's read window is never NEWER than the prune's delete bound, so
+    whatever the prune drops was already offered to the fold. The two used to
+    be the same instant — disjoint populations by construction. Issue #475
+    moved them apart: the read window now reaches back to the oldest row on
+    the table when a stalled pass has left the working set wider than its
+    nominal width, so the fold can read rows the prune is about to delete.
+
+    Which is what makes the boundary worth pinning. A row just OUTSIDE the
+    window shares an hourly bucket with one just inside it, so the bucket
+    cannot be read whole, and the fold refuses it — before #475 it stored the
+    inner row alone, which is the partial-bucket defect wearing a test's
+    clothes: an `n = 1` row that looks like a fact and cannot be revised.
     """
     pinned = datetime(2026, 1, 2, 0, 10, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(web_metrics, "utcnow", lambda: pinned)
@@ -246,7 +254,9 @@ def test_the_fold_and_the_prune_cover_disjoint_populations(viz, pinned, monkeypa
         totals = {float(t) for (t,) in conn.execute(
             "SELECT total FROM web_metrics_rollup "
             "WHERE bucket_s = 3600").fetchall()}
-    assert totals == {1.0}, "the row outside the window gets no bucket"
+    assert totals == set(), (
+        "a bucket one row short of readable was stored as the rows that "
+        "survived; it must be refused instead")
 
 
 # --- the readout -----------------------------------------------------------
@@ -479,6 +489,80 @@ def test_the_fold_that_closes_a_bucket_stores_all_of_it(
         after = _rollup_rows(viz, 86400)
         assert after == first, (
             f"a fold {later}h later changed a stored closed bucket: {after}")
+
+
+# --- the stall (issue #475) ------------------------------------------------
+#
+# The window is `RAW_KEEP_S - widest` = 30h wide, so `RAW_KEEP_S` makes a
+# partial read of a closed bucket impossible ON EVERY NORMAL FOLD -- and says
+# so. It cannot make it impossible on a fold that does not happen: a pass
+# stalled longer than the window resumes with a read window that has moved
+# INTO the bucket it is about to close, stores the newest hours of it, and
+# `ON CONFLICT DO NOTHING` freezes that for good, indistinguishable from a
+# whole row. The rule the stall must not break is the one the window was
+# sized for: stored whole, or not at all.
+
+
+def test_a_stalled_fold_stores_whole_buckets(viz, closing_horizon):
+    """A pass that missed its window still stores a bucket WHOLE.
+
+    Seeded across a whole day-bucket, then folded ONCE, thirty-six hours after
+    that bucket closed -- past the 30h window, so the resuming fold's
+    `retention_cutoff` lands inside the bucket and reads only its tail.
+    """
+    base = datetime(2026, 6, 20, 0, 0, 0, tzinfo=timezone.utc)
+    for hour in range(24):
+        _seed([float(hour)], ts=base + timedelta(hours=hour))
+    stalled = base + timedelta(hours=60)
+    # The scenario, pinned before the behaviour: the shipped read window
+    # really does open inside the bucket, so this case cannot pass by the
+    # constant alone having been widened until the stall stops mattering.
+    assert base < web_metrics.retention_cutoff(stalled) < base + timedelta(
+        hours=24), (
+        f"the shipped retention window opens at "
+        f"{web_metrics.retention_cutoff(stalled)}, which no longer cuts into "
+        f"the day bucket [{base}, +24h) -- the stall this case reproduces no "
+        f"longer reaches inside it")
+
+    _fold_at(stalled)
+    rows = _rollup_rows(viz, 86400)
+    assert rows, "a day bucket closed 36h ago must still be stored"
+    n, _p50, _p75, total = next(iter(rows.values()))
+    assert n == 24, (
+        f"a fold stalled past the window stored {n} of the bucket's 24 "
+        f"beacons; the read window had moved inside the bucket and the row "
+        f"was frozen partial")
+    assert total == sum(float(hour) for hour in range(24)), total
+
+    # And whole stays whole: four more passes, the last a long way on.
+    for later in (6, 12, 24, 400):
+        _fold_at(stalled + timedelta(hours=later))
+        assert _rollup_rows(viz, 86400) == rows, (
+            f"a fold {later}h after the stall changed a stored day bucket")
+
+
+def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
+                                                           closing_horizon):
+    """The other half of the rule: absent, rather than a short row.
+
+    No stall is needed to arrange this one -- the working set simply no longer
+    holds the bucket's oldest beacons, which is what a fold that read a
+    narrower window than it stores would look like from the outside. A stored
+    `n = 18` row is the failure, because nothing can ever tell it from a whole
+    one: `DO NOTHING` will not revise it and no marker distinguishes it.
+    """
+    base = datetime(2026, 6, 21, 0, 0, 0, tzinfo=timezone.utc)
+    for hour in range(24):
+        _seed([float(hour)], ts=base + timedelta(hours=hour))
+    with db.viz_conn() as conn:
+        conn.execute("DELETE FROM web_metrics WHERE ts < %s",
+                     (base + timedelta(hours=6),))
+        conn.commit()
+
+    _fold_at(base + timedelta(hours=60))
+    assert _rollup_rows(viz, 86400) == {}, (
+        "a bucket whose oldest beacons are gone from the working set was "
+        "stored as the tail that survived -- a short row nothing can repair")
 
 
 def test_a_later_fold_does_not_rewrite_a_whole_row(viz, closing_horizon):
