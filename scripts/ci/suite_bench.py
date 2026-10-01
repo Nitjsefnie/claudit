@@ -82,6 +82,10 @@ _ONE_PLACE = Decimal('0.1')
 # that verdict; a non-passing test still retires its instructions).
 _USABLE = (0, 1)
 _QUANTUM = _ONE_PLACE
+# Set on the re-exec'd child: the parent has already drawn the
+# compile/load split outside the counted window, so the child's own
+# warm-up pass would only repeat it.
+WARMED_ENV = 'SUITE_BENCH_WARMED'
 # The reading's shape lives in the report module; this alias is what
 # the annotations name, exactly as reparse_bench does.
 Measurement = suite_report.Measurement
@@ -246,7 +250,11 @@ def _reexec_with_deterministic_hash_seed(argv) -> None:
     if os.environ.get('PYTHONHASHSEED') == '0':
         os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
         return
-    env = dict(os.environ, PYTHONHASHSEED='0', PYTHONDONTWRITEBYTECODE='1')
+    env = dict(os.environ, PYTHONHASHSEED='0', PYTHONDONTWRITEBYTECODE='1',
+               # The parent already warmed the tree before handing over;
+               # saying so keeps the child from paying for a second
+               # collect-only pass it does not need (issue #496).
+               **{WARMED_ENV: '1'})
     # The child's streams are inherited on purpose (its report is
     # the run's output), so only its exit code is read back.
     # pylint: disable-next=subprocess-run-check
@@ -287,8 +295,10 @@ def main(argv=None):
             # arrived with, and the parent is the only process outside
             # every counted window: compile the tree here, then hand the
             # measurement to the deterministic child.
-            warm_bytecode_caches(
-                read_fixture(args.fixture, args.repo_root), args.repo_root)
+            if os.environ.get(WARMED_ENV) != '1':
+                warm_bytecode_caches(
+                    read_fixture(args.fixture, args.repo_root),
+                    args.repo_root)
             _reexec_with_deterministic_hash_seed(sys.argv[1:])
             fixture = read_fixture(args.fixture, args.repo_root)
             measurement = measure(fixture, args.repo_root)
