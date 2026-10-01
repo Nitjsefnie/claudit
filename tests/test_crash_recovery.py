@@ -64,6 +64,14 @@ def test_sweep_stale_runs_closes_only_open_rows(fresh_db):
         stale_id = _insert_open_run()
         c.commit()
 
+    # The plant is asserted before the sweep: a failed plant must fail
+    # here, not read as a sweep verdict below.
+    with db.viz_conn() as c:
+        planted = c.execute(
+            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            (stale_id,)).fetchone()
+    assert planted is not None and planted[0] is None and planted[1] is None
+
     assert ingest.sweep_stale_runs() == 1
     with db.viz_conn() as c:
         done = c.execute(
@@ -123,6 +131,11 @@ def test_sweep_stale_exports_removes_only_aged_orphans(tmp_path):
     os.utime(old, (now - 10_000, now - 10_000))
     os.utime(young, (now - 10, now - 10))
     os.utime(other, (now - 10_000, now - 10_000))
+
+    # Same live-oracle rule: every file is provably present before the
+    # sweep, so the "kept" assertions below cannot pass on a failed plant.
+    for path in (old, young, other):
+        assert path.exists()
 
     assert api_export.sweep_stale_exports(directory=str(tmp_path)) == 1
 
