@@ -16,7 +16,7 @@
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 674,
     "backend/parse.py": 880,
-    "backend/parse_codex.py": 716,
+    "backend/parse_codex.py": 706,
     "backend/parse_kimi.py": 565,
     "backend/schema.sql": 834,
     "public/app.css": 683,
@@ -24,7 +24,7 @@
     "src/app.jsx": 1417,
     "src/dashboard-charts-extra.jsx": 3495,
     "src/dashboard-charts.jsx": 1331,
-    "src/parser-lanes.js": 722,
+    "src/parser-lanes.js": 714,
     "src/parser.js": 1024
   },
   "pylint_suppression_baseline": {
