@@ -114,8 +114,7 @@ jobs:
 
       - name: Install dependencies
         # backend/requirements.txt already pins pytest, pytest-asyncio and
-        # httpx2; requirements-test.txt adds only the coverage toolchain, so
-        # neither pin exists in two places.
+        # httpx2; requirements-test.txt adds only the coverage toolchain.
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
@@ -271,8 +270,7 @@ jobs:
         # The front-end half of the same ratchet (issue #266):
         # NODE_V8_COVERAGE captures every node subprocess this step's
         # pytest run spawns, and c8 folds them over src/**/*.js — the
-        # files node actually executes (the .jsx panels are outside it).
-        # Same floor rules as python.
+        # files node actually executes (.jsx panels are outside it).
         id: jscov
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         env:
@@ -303,20 +301,18 @@ jobs:
         id: reparse
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         uses: ./.github/actions/reparse-bench
-
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
-        # or crossed its ceiling (production 500 / test 700) fails
-        # here, on every event; master additionally tightens below.
+        # or crossed its ceiling (production 500 / test 700) fails here,
+        # on every event; master additionally tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/size_baseline.py
 
       - name: Pylint suppression baseline
         # The same only-shrinks ratchet for inline complexity
-        # suppressions (issue #389): a file's count never rises past
-        # its record; an unrecorded file stays at zero. Every event;
-        # master additionally tightens below.
+        # suppressions (issue #389): a file's count never rises past its
+        # record; an unrecorded file stays at zero. Master tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/suppression_baseline.py
 
@@ -354,8 +350,7 @@ jobs:
       - name: Measure the suite cost
         # The bot's other input: one bench pass over the pinned fixture
         # (the shared composite action). Master pushes only -- the
-        # measurement feeds the tighten bot; the gate lives in
-        # speed.yml.
+        # measurement feeds the tighten bot; the gate lives in speed.yml.
         id: suite_bench
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
@@ -380,9 +375,8 @@ jobs:
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
         # be able to write it. The ratchets raise either coverage floor
-        # (python from the full suite, javascript from the JS gate step)
-        # and tighten the reparse phase shares, --tighten follows shrunk
-        # files down; growth is never written here, the gates stay gates.
+        # and tighten the reparse phase shares; growth is never written
+        # here, the gates stay gates.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
@@ -540,8 +534,7 @@ jobs:
   pytest-portable:
     # The suite minus every DB-touching test (tests/db_marker.py's
     # mechanical split), where no Postgres service exists: the full
-    # suite, the coverage ratchet and the DB tests stay in the `pytest`
-    # job; this job adds the platforms and Pythons it cannot cover.
+    # suite, the ratchets and the DB tests stay in the `pytest` job.
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -576,9 +569,8 @@ jobs:
       - name: Install dependencies
         # backend/requirements.txt already pins pytest, pytest-asyncio
         # and httpx2; requirements-test.txt adds only the coverage
-        # toolchain. One command: the default pwsh shell on
-        # windows-latest propagates only the last line's exit code, and
-        # pip's wheels cover all three OSes (psycopg's `binary` extra).
+        # toolchain. One command, because the default pwsh shell on
+        # windows-latest propagates only the last line's exit code.
         run: python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt
 
       # Saved here, not in a post-job step, so the cache is written only
