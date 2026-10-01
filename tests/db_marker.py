@@ -47,7 +47,9 @@ import pytest
 #   dashboard_body       test_breakdown_exact_rate; creates its own
 #                        scratch DB in-body
 #   client               test_provider_split_api; creates its own
-#                        scratch DB in-body
+#                        scratch DB in-body. test_web_metrics defines a
+#                        second one over `viz` (issue #436) — the registry
+#                        is by NAME, so both mark.
 #   api_client           test_rate_boundary_fold_api; takes fresh_db,
 #                        which creates the scratch DB
 #   _viz_ready           test_db_schema_check; autouse, applies the app
@@ -58,6 +60,10 @@ import pytest
 #                        scratch DB in-body (issue #375 fixture)
 #   server               test_export_shutdown; provisions the export-shutdown
 #                        server's viz + auth scratch databases
+#   viz                  test_web_metrics; a fresh schema as DATABASE_URL_VIZ,
+#                        with no ingest (issue #436)
+#   gated_client         test_web_metrics; the api router behind the real
+#                        auth middleware, as a guest
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -75,6 +81,9 @@ DB_FIXTURES = frozenset({
     "projects_client",
     "twin_app",
     "server",
+    # issue #436; see the `client` entry above for why it is not repeated.
+    "viz",
+    "gated_client",
 })
 
 
