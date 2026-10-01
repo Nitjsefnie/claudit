@@ -371,6 +371,34 @@ def test_the_schema_carries_both_tables(viz):
     assert names == {"web_metrics", "web_metrics_rollup"}
 
 
+def test_a_user_id_wider_than_int4_round_trips(viz):
+    # The session layer reports the auth DB's `user_id`, and there that
+    # column is a BIGINT: a named user's id exceeds int4 on this host, and
+    # the sink's executemany raised
+    # `psycopg.errors.NumericValueOutOfRange: integer out of range` on a
+    # real beacon from a logged-in user browsing the dashboard. Guests
+    # (`user_id` 0) are what the sink was exercised with, so the column's
+    # width was never held to a value the old schema could not store.
+    wide = 2**31 + 7                       # past the int4 ceiling
+    beacon = web_metrics.normalise(_beacon(value=12.0))
+    with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
+        assert web_metrics.store(conn, wide, [beacon]) == 1
+        got = conn.execute(
+            "SELECT user_id FROM web_metrics ORDER BY id").fetchall()
+    assert got == [(wide,)]
+
+    # And the width is the schema's, not the driver's: a column that
+    # merely accepted the parameter would still truncate it on the way
+    # back out, which is the failure a real deployment would show as a
+    # beacon attributed to the wrong user rather than as an error.
+    with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
+        width = conn.execute(
+            "SELECT atttypid::regtype::text FROM pg_attribute "
+            "WHERE attrelid = 'web_metrics'::regclass "
+            "AND attname = 'user_id' AND NOT attisdropped").fetchone()
+    assert width == ("bigint",)
+
+
 # --- the shipped client, against THIS sink's vocabulary -------------------
 #
 # The client and the sink each close over the same five metrics and their

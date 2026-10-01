@@ -136,7 +136,7 @@ a full derived rebuild next run. Older binaries may ignore the marker.
 
 ROLLBACK IS ONE-DIRECTIONAL — an older binary runs against a newer
 schema. That is safe because every migration is additive and nullable,
-with TWO guarded, idempotent exceptions:
+with guarded, idempotent exceptions:
 
 - The DO block swapping `usage_rollup`'s primary key to widen the grain
   (`long_context`, then `provider`): the table is derived,
@@ -145,6 +145,12 @@ with TWO guarded, idempotent exceptions:
 - The int→bigint widening of `user_session.user_id`: not derived state,
   but inert for older binaries — they only wrote INTEGER-sized values and
   read ids into Python ints.
+- The int→bigint widening of `web_metrics.user_id`, same shape and same
+  reason: the session layer reports the AUTH database's user id, which is
+  a BIGINT there, so a narrower column raised
+  `NumericValueOutOfRange` in the beacon sink on a named user's first
+  real beacon. The ids themselves are the auth database's, so an older
+  binary reading them is indifferent to this column's width.
 
 Older binaries' READS ignore unknown columns, and their INGEST never
 reparses a file whose stored `parser_version` is newer than their own,
