@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: List the heads a required aggregate would strand
+      - name: List the heads the required aggregate strands
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/gate_freshness.py

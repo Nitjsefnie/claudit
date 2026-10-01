@@ -315,7 +315,7 @@ jobs:
           # The measured set is scripts/ci/node_test_files.txt — one
           # `tests/…` path per line — not a hand list: the file is pinned
           # by tests/test_js_toolchain.py to equal
-          # grep -l '["node"' tests/*.py, so a node-executing test file
+          # grep -lF '["node"' tests/*.py, so a node-executing test file
           # outside the list fails the suite instead of its exercised
           # paths quietly staying outside the measurement (issue #433).
           python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
