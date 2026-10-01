@@ -96,22 +96,35 @@ MAX_ROWS_PER_USER = 20_000
 #: of slack either side of its leading edge.
 #:
 #: `RAW_KEEP_S` is longer, and the difference is the whole correctness of the
-#: fold. A bucket is stored on the fold that CLOSES it -- the first one where
-#: its entire span is behind the horizon -- and a bucket becomes complete at
-#: exactly the instant its last beacon is pruned. Prune at the horizon and
-#: the two coincide: every fold finds the newest closable bucket's rows
-#: already gone, and either drops the bucket or stores it with its tail
-#: missing. So the raw table keeps `RETENTION_S` PLUS one widest bucket PLUS
-#: one fold interval, which is what leaves a closable bucket's rows on the
-#: table at the moment it closes.
+#: fold: it makes a PARTIAL read of a closed bucket impossible, at any fold,
+#: so a stored bucket is whole by construction rather than by luck.
+#:
+#: A bucket `[s, s+W)` is closed once `s + W <= horizon`, and `horizon` is
+#: `now - RETENTION_S`. On the `W` lattice the smallest such `s` therefore
+#: satisfies
+#:
+#:     s > (now - RETENTION_S - W) - W  =  now - RETENTION_S - 2W
+#:
+#: So EVERY closed bucket starts after `now - RETENTION_S - 2W`, and the read
+#: window has to reach back to there. One width of slack is not enough, which
+#: is the trap this constant exists to close: with `R + W` the newest closing
+#: bucket's oldest beacons sit just outside the window, the fold stores it
+#: short, and nothing later can repair it -- the window advances with `now`,
+#: so a bucket the window has cut off stays cut off for good. The earlier
+#: value had exactly that shape and stranded a 24-hour bucket with 22 of its
+#: 24 beacons after three skipped hourly folds, permanently and silently.
+#:
+#: Two widths, plus a fold interval of slack for the boundary itself.
 RETENTION_S = 2 * max(LATENCY_BUCKETS)
 
-#: The interval at which the fold runs. A bucket must still be readable one
-#: interval after it closes, so the raw retention carries a fold's slack.
-FOLD_INTERVAL_S = 3600
+#: The interval at which the fold runs, and the slack kept past the width that
+#: makes the invariant above hold. Not load-bearing for correctness -- the
+#: two widths are -- but it keeps the oldest closed bucket comfortably inside
+#: the window rather than exactly on its edge.
+FOLD_INTERVAL_S = 6 * 3600
 
 #: What the raw table actually keeps, and where `prune` deletes below.
-RAW_KEEP_S = RETENTION_S + max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
+RAW_KEEP_S = RETENTION_S + 2 * max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
 
 #: Value ceiling per part. A timing part is milliseconds and a beacon is
 #: bounded by human patience; an hour is far past anything a page legitimately
