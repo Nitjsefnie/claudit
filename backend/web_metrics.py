@@ -335,12 +335,13 @@ def fold_read_from(conn, now: datetime) -> datetime:
     running to prune it. Nothing here is unbounded in practice: the fold reads
     the extra rows and the same pass's prune (at the cutoff, NOT at this
     window) removes them, so the next fold is back inside the nominal window.
-    The cost is one wider pass, once, and it buys back a bucket that would
-    otherwise be lost outright.
+    The reach-back is bounded by how long the pass was not running, and it
+    buys a bucket back only while its beacons are still there; one whose
+    beacons are gone stays absent rather than being stored short.
 
-    Nothing is gained by widening the bound the other way. A bucket whose
-    beacons really are gone is refused by the fold's own span check rather
-    than stored short; see `ingest_rollup_web_metrics._fold`.
+    What it costs is not measured here: a pass that resumes after a long
+    stall reads a wider slice than `RAW_KEEP_S` once. Treat that as a claim
+    to profile, not a measured ceiling.
     """
     cutoff = retention_cutoff(now)
     row = conn.execute("SELECT MIN(ts) FROM web_metrics").fetchone()
