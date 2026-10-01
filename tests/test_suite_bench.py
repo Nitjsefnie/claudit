@@ -419,13 +419,16 @@ def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
         assert list(compiled.glob(f"{pinned}.cpython-*.pyc")), pinned
 
 
-def test_the_count_is_the_same_from_a_bare_tree_and_an_inherited_one(mini_suite):
-    # The claim behind the warm-up, asserted directly rather than through
-    # its mechanism: a measurement must not read differently because of
-    # the bytecode caches the checkout arrived with. Each run below starts
-    # from a PURGED tree, so the two runs differ in nothing the bench did
-    # not establish itself, and every phase's instruction count must
-    # match. process_time is telemetry and is deliberately not compared.
+def test_repeated_measurements_from_a_purged_tree_agree(mini_suite):
+    # Repeatability, and only that: two measurements each taken from a
+    # PURGED tree must read alike in every phase. This is NOT the
+    # bare-versus-inherited claim -- the bench draws its own compile/load
+    # split before counting either run, so both start warm and that
+    # comparison is structural, not something a unit test at this tree's
+    # size can observe. What this does pin is that the warm-up leaves the
+    # counted state stable run to run, which a warm whose effect varied
+    # between invocations would break. process_time is telemetry and is
+    # deliberately not compared.
     counts = []
     for name in ("bare.json", "inherited.json"):
         _purge_bytecode_caches(mini_suite)

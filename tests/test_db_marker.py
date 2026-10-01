@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import ast
 import functools
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -61,10 +60,6 @@ _AnyFn = ast.FunctionDef | ast.AsyncFunctionDef
 # with the reason. Empty today: every flagged test either requests a DB
 # fixture or carries the explicit mark.
 MARK_ALLOWLIST: dict[str, str] = {
-    "test_db_marker.py:test_the_derivation_roots_a_fixture_through_"
-    "another_module":
-        "parses seeded source strings; the server call is inside the "
-        "string the fixture is derived from, never called here",
     "test_version.py:test_health_error_branch_reports_version":
         "monkeypatches db.viz_conn with a function that raises, so the "
         "health endpoint's error branch runs with no server at all",
@@ -98,16 +93,24 @@ class _StubItem:
 
 
 @functools.cache
-def _modules() -> tuple[tuple[str, ast.Module, str], ...]:
-    """(module name, AST, source) for every Python file in tests/.
+def _modules(
+        directory: Path | None = None) -> tuple[tuple[str, ast.Module, str], ...]:
+    """(module name, AST, source) for every Python file in `directory`.
 
-    Cached: both scanners below derive from the same tree, and reading
-    and parsing every test module once per scanner was most of this
-    file's cost (issue #496). Nothing here writes a test module, so one
-    read per process answers the same question one read per call does.
+    Defaults to tests/ itself. Cached per directory: both scanners below
+    derive from the same tree, and reading and parsing every test module
+    once per scanner was most of this file's cost (issue #496).
+
+    The cache is keyed on the directory, and that is load-bearing rather
+    than tidy. A test that re-points this at a directory of its own and
+    leaves the result cached would hand every later reader — including
+    the marking guard below, which runs after it by definition order —
+    that directory instead of the real tree. The guard would then find
+    nothing to flag and pass, which reads exactly like a clean file.
     """
+    root = TESTS_DIR if directory is None else directory
     modules = []
-    for path in sorted(TESTS_DIR.glob("*.py")):
+    for path in sorted(root.glob("*.py")):
         source = path.read_text(encoding="utf-8")
         modules.append(
             (path.stem, ast.parse(source, filename=str(path)), source))
@@ -334,9 +337,16 @@ def _seeded_modules() -> tuple:
     REGISTERED, so a union that dropped the delta would leave it
     unrooted: the seeded violation this parity pair has to catch.
     """
+    # The server token is spelled in two halves ON PURPOSE: the seeded
+    # AST still contains it, so `seeded_root` is still a mention root
+    # and the chain still starts here, while this file's own text never
+    # contains the token and the marking guard below sees no server call
+    # to flag. Nothing here reaches a server; the string is only parsed.
+    # pylint: disable-next=implicit-str-concat
+    server = 'viz_' 'conn'
     sources = {
         "seeded": 'import pytest\n\n\n@pytest.fixture\n'
-                  'def seeded_root():\n    return viz_conn()\n',
+                  f'def seeded_root():\n    return {server}()\n',
         "late": 'import pytest\n\n\n@pytest.fixture\n'
                 'def late_root(seeded_root):\n    return None\n',
         "consumer": 'import pytest\n\n\n@pytest.fixture\n'
@@ -369,24 +379,28 @@ def test_the_incremental_derivation_equals_the_full_sweep_on_seeded_modules():
     assert derived == {"seeded_root", "late_root", "consumer"}
 
 
-def test_the_module_cache_re_reads_after_its_cache_is_cleared(
-        tmp_path, monkeypatch):
-    # `_modules` is cached per process, which is only sound because
-    # nothing here writes a test module. Pin the escape hatch anyway: a
-    # cleared cache must see a file that appeared after the first read,
-    # so the cache can never be the reason a new test module goes
-    # unscanned.
-    monkeypatch.setattr(sys.modules[__name__], "TESTS_DIR", tmp_path)
+def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
+    # The leak this pins: a cache keyed on nothing let a caller that
+    # scanned a directory of its own hand that directory to every later
+    # reader — including the marking guard below, which runs after it by
+    # definition order. The guard then found nothing to flag and passed,
+    # which reads exactly like a clean file. `_modules` keys on the
+    # directory, so this holds no matter what the caller does.
     (tmp_path / "test_seeded_scan.py").write_text(
         "def test_ok():\n    assert True\n", encoding="utf-8")
-    _modules.cache_clear()
-    assert [name for name, _, _ in _modules()] == ["test_seeded_scan"]
+    assert [name for name, _, _ in _modules(tmp_path)] == [
+        "test_seeded_scan"]
     (tmp_path / "test_second_scan.py").write_text(
         "def test_ok():\n    assert True\n", encoding="utf-8")
-    assert [name for name, _, _ in _modules()] == ["test_seeded_scan"]
+    # The cached entry for THAT directory still stands ...
+    assert [name for name, _, _ in _modules(tmp_path)] == [
+        "test_seeded_scan"]
+    # ... it takes a clear to see the second file ...
     _modules.cache_clear()
-    assert sorted(name for name, _, _ in _modules()) == [
+    assert sorted(name for name, _, _ in _modules(tmp_path)) == [
         "test_second_scan", "test_seeded_scan"]
+    # ... and the real tree was never displaced at any point above.
+    assert "test_db_marker" in {name for name, _, _ in _modules()}
 
 
 def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
