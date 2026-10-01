@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""List the open pull-request heads a new required check would strand.
+"""List the open pull-request heads the required check strands.
 
-Once `ci gate / aggregate` becomes a required check, a head that has
-never run it (or whose latest run predates the workflow) cannot go
-green until it rebases or reruns. The manager rebinding rulesets needs
-that set NAMED, not guessed; this script lists it.
+`ci gate / aggregate` is required (the `require-ci-aggregate` ruleset,
+active 2026-09-27), and a head that has never run it (or whose latest
+run predates the workflow) cannot go green until it rebases or reruns.
+The manager rebinding rulesets needs that set NAMED, not guessed; this
+script lists it.
 
 SELECTION. A head is stale when its latest `ci gate / aggregate` run —
 the Actions runs of ci-gate.yml whose head SHA is the PR's — predates

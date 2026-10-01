@@ -312,25 +312,13 @@ jobs:
           NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
         run: |
           rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
-          # Mechanically derived today via: grep -l '["node"' tests/*.py
-          # A new node-executing test file must be added to this list or
-          # its exercised paths stay outside the measurement.
-          python -m pytest tests/test_breakdown_exact_rate.py \
-            tests/test_ctx_turn_parity.py \
-            tests/test_dashboard_binning.py \
-            tests/test_empty_usage_parity.py \
-            tests/test_model_colors.py \
-            tests/test_parse_non_object.py \
-            tests/test_parser_js_lanes.py \
-            tests/test_parser_js_mirror.py \
-            tests/test_parser_js_pricing_loader.py \
-            tests/test_parser_js_user_prompt.py \
-            tests/test_pricing_data.py \
-            tests/test_prompt_gate_whitespace.py \
-            tests/test_provider_rate_refresh.py \
-            tests/test_time_series_geometry.py \
-            tests/test_transcript_fetch_error.py \
-            tests/test_vbar_label_geometry.py -q --no-header
+          # The measured set is scripts/ci/node_test_files.txt — one
+          # `tests/…` path per line — not a hand list: the file is pinned
+          # by tests/test_js_toolchain.py to equal
+          # grep -l '["node"' tests/*.py, so a node-executing test file
+          # outside the list fails the suite instead of its exercised
+          # paths quietly staying outside the measurement (issue #433).
+          python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
           npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
             --reporter=text --reporter=json-summary \

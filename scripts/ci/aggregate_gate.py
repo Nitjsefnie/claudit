@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The aggregate job's verdict: fold every ci-gate leg into one check.
 
-`ci gate / aggregate` is the one name a future required-check ruleset
+`ci gate / aggregate` is the one name the required-check ruleset
 requires, so it must report even when legs fail, skip or never start —
 the job carries `if: always()` and this module owns the fold over the
 needs document the workflow passes in as JSON:

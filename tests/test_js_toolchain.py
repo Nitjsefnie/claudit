@@ -460,3 +460,31 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     assert any("--check-coverage" in run and "--lines" in run for run in runs), (
         "the JavaScript coverage gate no longer checks itself against the "
         "committed javascript floor")
+
+
+def test_js_coverage_measured_set_matches_its_derivation() -> None:
+    """The measured set is the grep's output, pinned, not merely claimed.
+
+    The list lives in scripts/ci/node_test_files.txt, one `tests/…` path
+    per line; tests.yml feeds it to pytest and this test pins the file's
+    content to the files containing `["node"` under tests/ — the command
+    the workflow comment used to cite by hand (issue #433: the hand-list
+    had drifted four files behind what it claimed to derive from).
+    """
+    list_file = REPO_ROOT / "scripts" / "ci" / "node_test_files.txt"
+    assert list_file.exists(), (
+        "scripts/ci/node_test_files.txt is gone; the JavaScript coverage "
+        "gate's measured set has nowhere to live")
+    listed = [line.strip() for line in
+              list_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    derived = sorted(
+        f"tests/{path.name}" for path in sorted((REPO_ROOT / "tests").glob("*.py"))
+        if '["node"' in path.read_text(encoding="utf-8"))
+    assert listed == derived, (
+        "the measured set (scripts/ci/node_test_files.txt) no longer equals "
+        "grep -l '[\"node\"' tests/*.py: a node-executing test file was "
+        "added or removed without updating the list")
+    runs = _run_bodies(_workflow("tests.yml"))
+    assert any("node_test_files.txt" in run for run in runs), (
+        "tests.yml no longer consumes scripts/ci/node_test_files.txt; the "
+        "pinned list no longer drives the JavaScript coverage measurement")
