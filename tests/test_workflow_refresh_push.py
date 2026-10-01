@@ -163,14 +163,14 @@ def test_push_job_is_the_only_job_that_loads_the_key():
     assert len(steps) == 2
     download, = [step for step in steps if "uses" in step]
     assert download["uses"] == (
-        "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131")
+        "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
     assert download["with"] == {
         "name": "pricing-refresh",
         "path": "${{ runner.temp }}/push-data",
     }
     raw = WORKFLOW.read_text(encoding="utf-8")
     assert ("actions/download-artifact@"
-            "37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0" in raw)
+            "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in raw)
 
 
 def test_push_run_block_pins_the_key_preamble_and_host_keys():

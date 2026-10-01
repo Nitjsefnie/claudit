@@ -211,13 +211,13 @@ def test_ratchet_push_job_takes_the_key_from_the_master_push_environment():
     assert download["name"] == "Download the ratchet data"
     assert download["uses"] == (
         "actions/download-artifact@"
-        "37930b1c2abaa49bbe596cd826c3c89aef350131")
+        "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
     assert download["with"] == {
         "name": "ratchet-push",
         "path": "${{ runner.temp }}/ratchet-data",
     }
     assert ("actions/download-artifact@"
-            "37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0" in raw)
+            "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in raw)
     assert push["name"] == "Push the ratchet commit to master"
     assert push["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
         "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
