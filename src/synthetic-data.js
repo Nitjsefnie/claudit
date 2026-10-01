@@ -13,12 +13,12 @@ window.generateSyntheticData = function () {
 
   // Pricing per model (USD per token)
   const PRICING = {
-    'opus-4-7':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
-    'opus-4-6':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
-    'opus-4-5':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
-    'sonnet-4-6': { in: 3/1e6, out: 15/1e6, cc: 3.75/1e6, cr: 0.3/1e6 },
-    'sonnet-4-5': { in: 3/1e6, out: 15/1e6, cc: 3.75/1e6, cr: 0.3/1e6 },
-    'haiku-4-5':  { in: 1/1e6, out: 5/1e6,  cc: 1.25/1e6, cr: 0.1/1e6 },
+    'claude-opus-4-7':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
+    'claude-opus-4-6':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
+    'claude-opus-4-5':   { in: 5/1e6, out: 25/1e6, cc: 6.25/1e6, cr: 0.5/1e6 },
+    'claude-sonnet-4-6': { in: 3/1e6, out: 15/1e6, cc: 3.75/1e6, cr: 0.3/1e6 },
+    'claude-sonnet-4-5': { in: 3/1e6, out: 15/1e6, cc: 3.75/1e6, cr: 0.3/1e6 },
+    'claude-haiku-4-5':  { in: 1/1e6, out: 5/1e6,  cc: 1.25/1e6, cr: 0.1/1e6 },
     '<synthetic>':{ in: 0, out: 0, cc: 0, cr: 0 },
   };
 
@@ -64,11 +64,11 @@ window.generateSyntheticData = function () {
     let model;
     const r = rng();
     if (frac < 0.3) {
-      model = r < 0.5 ? 'opus-4-6' : r < 0.7 ? 'sonnet-4-5' : 'haiku-4-5';
+      model = r < 0.5 ? 'claude-opus-4-6' : r < 0.7 ? 'claude-sonnet-4-5' : 'claude-haiku-4-5';
     } else if (frac < 0.7) {
-      model = r < 0.65 ? 'opus-4-6' : r < 0.85 ? 'opus-4-7' : 'haiku-4-5';
+      model = r < 0.65 ? 'claude-opus-4-6' : r < 0.85 ? 'claude-opus-4-7' : 'claude-haiku-4-5';
     } else {
-      model = r < 0.5 ? 'opus-4-7' : r < 0.85 ? 'opus-4-6' : r < 0.92 ? 'haiku-4-5' : '<synthetic>';
+      model = r < 0.5 ? 'claude-opus-4-7' : r < 0.85 ? 'claude-opus-4-6' : r < 0.92 ? 'claude-haiku-4-5' : '<synthetic>';
     }
 
     for (let i = 0; i < reqs; i++) {
@@ -82,7 +82,7 @@ window.generateSyntheticData = function () {
       const ccT     = Math.floor((1000 + rng() * 6000) * ramp);
       const crT     = Math.floor((20000 + rng() * 120000) * ramp * (1 + frac * 4));
 
-      const p = PRICING[model] || PRICING['opus-4-6'];
+      const p = PRICING[model] || PRICING['claude-opus-4-6'];
       const cost = inputT * p.in + outputT * p.out + ccT * p.cc + crT * p.cr;
 
       events.push({
@@ -90,7 +90,7 @@ window.generateSyntheticData = function () {
         session_id: 'sess_' + sessionId,
         model,
         // The id the Token Breakdown prices by, as a real record names it.
-        model_id: model === '<synthetic>' ? model : 'claude-' + model,
+        model_id: model,
         input_tokens: inputT,
         output_tokens: outputT,
         cache_create: ccT,

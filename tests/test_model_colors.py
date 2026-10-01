@@ -53,9 +53,12 @@ OKLCH = re.compile(r"^oklch\(0\.\d+ 0\.\d+ \d+(\.\d+)?\)$")
 
 
 def test_hardcoded_models_keep_their_hand_picked_colour():
-    out = _node_probe(["opus-5", "haiku-4-5", "<synthetic>"])
-    assert out["opus-5"] == "oklch(0.72 0.18 350)"
-    assert out["haiku-4-5"] == "oklch(0.78 0.14 175)"
+    """The keys are the ids as recorded, vendor prefix included: issue
+    #472 stopped the display dropping `claude-`, and the table is keyed
+    on the same canonical names the display produces."""
+    out = _node_probe(["claude-opus-5", "claude-haiku-4-5", "<synthetic>"])
+    assert out["claude-opus-5"] == "oklch(0.72 0.18 350)"
+    assert out["claude-haiku-4-5"] == "oklch(0.78 0.14 175)"
     assert out["<synthetic>"] == "oklch(0.65 0.02 260)"
 
 
@@ -90,4 +93,16 @@ def test_derived_hue_stays_clear_of_the_hardcoded_hues():
 def test_non_string_lookups_do_not_throw():
     out = _node_probe([])
     assert out["__symbol"] is True
-    assert "opus-5" in out["__hardcoded"]
+    assert "claude-opus-5" in out["__hardcoded"]
+
+
+def test_no_hand_picked_key_drops_a_vendor_prefix():
+    """A re-key that missed one entry would leave that model on a derived
+    colour forever, which no test of its colour value could see. Every
+    hand-picked Claude key carries the prefix its canonical name has."""
+    out = _node_probe([])
+    claude = [k for k in out["__hardcoded"] if k.startswith("claude-")]
+    assert len(claude) >= 10, out["__hardcoded"]
+    bare = [k for k in out["__hardcoded"]
+            if k.split("-")[0] in ("opus", "sonnet", "haiku", "fable")]
+    assert bare == [], f"prefix-stripped keys left in the table: {bare}"

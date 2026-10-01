@@ -36,22 +36,22 @@ const COL = {
 };
 
 // --- Model colours
-// Hand-picked colours for the models that have one. Anything else — a new
-// lane, a new generation — used to fall to the '#888' every lookup site
-// carries, so two unknown models were the same grey on every panel.
+// Hand-picked colours, keyed on the canonical name shortModelName produces
+// (vendor prefix included, #472). Anything else — a new lane, a new
+// generation — used to fall to the '#888', so two unknowns were one grey.
 const MODEL_COLOR_TABLE = {
-  'fable-5-1':   'oklch(0.84 0.12 318)',  // light orchid — current top tier
-  'fable-5':     'oklch(0.78 0.17 330)',  // magenta
-  'opus-5':      'oklch(0.72 0.18 350)',  // deep rose — current Opus
-  'opus-4-8':    'oklch(0.70 0.17 5)',    // rose
-  'opus-4-7':    'oklch(0.72 0.16 25)',   // coral
-  'opus-4-6':    'oklch(0.78 0.14 55)',   // amber
-  'opus-4-5':    'oklch(0.85 0.14 90)',   // gold
-  'sonnet-5':    'oklch(0.75 0.15 275)',  // indigo
-  'sonnet-4-6':  'oklch(0.78 0.14 245)',  // blue
-  'sonnet-4-5':  'oklch(0.72 0.16 305)',  // violet
-  'haiku-4-5':   'oklch(0.78 0.14 175)',  // teal — matches --accent
-  '<synthetic>': 'oklch(0.65 0.02 260)',  // neutral
+  'claude-fable-5-1':   'oklch(0.84 0.12 318)',  // light orchid — current top tier
+  'claude-fable-5':     'oklch(0.78 0.17 330)',  // magenta
+  'claude-opus-5':      'oklch(0.72 0.18 350)',  // deep rose — current Opus
+  'claude-opus-4-8':    'oklch(0.70 0.17 5)',    // rose
+  'claude-opus-4-7':    'oklch(0.72 0.16 25)',   // coral
+  'claude-opus-4-6':    'oklch(0.78 0.14 55)',   // amber
+  'claude-opus-4-5':    'oklch(0.85 0.14 90)',   // gold
+  'claude-sonnet-5':    'oklch(0.75 0.15 275)',  // indigo
+  'claude-sonnet-4-6':  'oklch(0.78 0.14 245)',  // blue
+  'claude-sonnet-4-5':  'oklch(0.72 0.16 305)',  // violet
+  'claude-haiku-4-5':   'oklch(0.78 0.14 175)',  // teal — matches --accent
+  '<synthetic>':        'oklch(0.65 0.02 260)',  // neutral
 };
 
 // FNV-1a over the key: cheap, deterministic, and spreads adjacent ids

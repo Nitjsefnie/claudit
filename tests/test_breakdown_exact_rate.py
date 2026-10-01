@@ -114,8 +114,8 @@ def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
         "cache_read_tokens": read, "cost_usd": stored,
     }]})
     assert got["costTotal"] == pytest.approx(stored, rel=1e-12)
-    # The display name is unchanged: labels still read 'opus-4-8'.
-    assert got["models"] == [model.removeprefix("claude-")]
+    # The display name is the recorded id, vendor prefix included (#472).
+    assert got["models"] == [model]
 
 
 def test_breakdown_prices_an_event_without_model_id_by_its_display_name():
@@ -179,7 +179,7 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
     """)
     assert got["eventCost"] > 0
     assert got["costTotal"] == pytest.approx(got["eventCost"], rel=1e-12)
-    assert got["models"] == ["opus-4-8", "sonnet-4-5"]
+    assert got["models"] == ["claude-opus-4-8", "claude-sonnet-4-5"]
 
 
 def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
@@ -332,6 +332,10 @@ def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
     assert got, "the preview generated no events"
     for model, (model_id, kind) in got.items():
         assert model_id is not None, model
+        assert model_id == model, (
+            f"the preview shows {model!r} but prices {model_id!r}; a "
+            "displayed name that is not the priced id is the mismatch "
+            "issue #472 removed")
         assert _node(f"console.log(JSON.stringify(shortModelName("
                      f"{json.dumps(model_id)})))") == model
         if model != "<synthetic>":

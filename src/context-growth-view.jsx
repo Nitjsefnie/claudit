@@ -185,8 +185,8 @@ function SummaryStat({ label, value }) {
 
 function shortModel(m) {
   if (!m) return '?';
-  // Canonical short name shared with the dashboard ("claude-fable-5[1m]"
-  // → "fable-5"). The old regex here only knew opus/sonnet/haiku.
+  // Canonical name shared with the dashboard ("claude-fable-5[1m]" →
+  // "claude-fable-5"). The old regex here only knew opus/sonnet/haiku.
   return window.shortModelName ? window.shortModelName(m) : m;
 }
 

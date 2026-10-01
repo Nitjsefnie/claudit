@@ -448,7 +448,7 @@ def _capformodel_source() -> str:
 def test_capformodel_lane_caps():
     script = f"""
       const src = {json.dumps(_capformodel_source())};
-      eval(src);
+      eval(src + "\\nglobalThis.__caps = MODEL_CAPS;");
       console.log(JSON.stringify({{
         sol: capForModel('gpt-6-sol'),
         sol56: capForModel('gpt-5-6-sol'),
@@ -456,8 +456,10 @@ def test_capformodel_lane_caps():
         kimi: capForModel('kimi-k3'),
         opus5: capForModel('claude-opus-5'),
         opus48: capForModel('claude-opus-4-8'),
-        fable: capForModel('fable-5-1'),
-        haiku: capForModel('haiku-4-5'),
+        fable: capForModel('claude-fable-5-1'),
+        haiku: capForModel('claude-haiku-4-5'),
+        sonnet45: capForModel('claude-sonnet-4-5'),
+        capsKeys: Object.keys(globalThis.__caps),
       }}));
     """
     proc = subprocess.run(
@@ -474,6 +476,30 @@ def test_capformodel_lane_caps():
     assert got["opus48"] == 1_000_000
     assert got["fable"] == 1_000_000
     assert got["haiku"] == 200_000
+    assert got["sonnet45"] == 200_000
+    # Issue #472: the table is keyed on the canonical name the display
+    # produces, which keeps the vendor prefix — a bare key would sit
+    # unreached and every Claude model would fall to the default cap.
+    assert [k for k in got["capsKeys"] if k.startswith("claude-")] == \
+        got["capsKeys"], got["capsKeys"]
+
+
+def test_capformodel_ignores_case():
+    """`capForModel` lowercases before it looks the key up, so an id
+    spelled with capitals still finds its row."""
+    script = f"""
+      const src = {json.dumps(_capformodel_source())};
+      eval(src);
+      console.log(JSON.stringify({{
+        mixed: capForModel('Claude-Haiku-4-5'),
+      }}));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["mixed"] == 200_000
 
 
 # --------------------------------------------------------------------------

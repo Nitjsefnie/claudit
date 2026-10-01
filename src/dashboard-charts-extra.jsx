@@ -365,16 +365,16 @@ function CacheTTLPanel({ events, range, binMs }) {
 
 const CTX_TURN_CAP = Infinity;
 const MODEL_CAPS = {
-  'fable-5-1':  1_000_000,
-  'fable-5':    1_000_000,
-  'opus-4-8':   1_000_000,
-  'opus-4-7':   1_000_000,
-  'opus-4-6':   1_000_000,
-  'opus-4-5':   1_000_000,
-  'sonnet-5':   1_000_000,
-  'sonnet-4-6': 1_000_000,
-  'sonnet-4-5':   200_000,
-  'haiku-4-5':    200_000,
+  'claude-fable-5-1':  1_000_000,
+  'claude-fable-5':    1_000_000,
+  'claude-opus-4-8':   1_000_000,
+  'claude-opus-4-7':   1_000_000,
+  'claude-opus-4-6':   1_000_000,
+  'claude-opus-4-5':   1_000_000,
+  'claude-sonnet-5':   1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  'claude-sonnet-4-5':   200_000,
+  'claude-haiku-4-5':    200_000,
 };
 function capForModel(m) {
   const s = String(m).toLowerCase();
@@ -385,7 +385,7 @@ function capForModel(m) {
   // purpose. kimi-* at Kimi's 256k.
   if (s.startsWith('gpt')) return 272_000;
   if (s.startsWith('kimi')) return 256_000;
-  return MODEL_CAPS[m]
+  return MODEL_CAPS[s]
     || ((s.includes('opus') || s.includes('fable')) ? 1_000_000 : 200_000);
 }
 
@@ -793,12 +793,12 @@ function extendBucketSeries(points, halfMs, valueKeys, options) {
 }
 
 // Canonicalize backend model strings (e.g. "claude-opus-4-7-20251101") to
-// the short keys used by `window.modelColors` ("opus-4-7"). Falls back to
-// the original string when no canonical short name applies.
+// the key used by `window.modelColors` ("claude-opus-4-7"). The VENDOR PREFIX
+// IS KEPT (#472) — only the snapshot/variant suffix folds, and it names the
+// same model.
 function shortModelName(m) {
   if (!m) return 'unknown';
   let s = String(m).toLowerCase();
-  if (s.startsWith('claude-')) s = s.slice('claude-'.length);
   // Strip trailing [variant] tag (e.g. "claude-fable-5[1m]"), then -YYYYMMDD date
   s = s.replace(/\[[^\]]*\]$/, '');
   s = s.replace(/-\d{8}$/, '');
