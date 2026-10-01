@@ -15,8 +15,9 @@ concurrency:
   # ci-gate legs join this group under the caller's event: a
   # master-push leg occupies tests-refs/heads/master — ci-gate's
   # per-SHA push groups (issue #358) make this queue what serializes
-  # master runs and their ratchet pushes — and PR legs cancel in
-  # progress. Dispatch queues by ref.
+  # master runs — and PR legs cancel in progress. Dispatch queues by
+  # ref. The ratchet push itself is serialized by ratchet-push.yml's
+  # own group since issue #479 moved it out of this callee.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -27,22 +28,19 @@ jobs:
 
     permissions:
       # Reads contents for the suite; writes only the informational
-      # patch-coverage comment (issue #129). The ratchet push is the
-      # ratchet-push job below (own token, contents: write).
+      # patch-coverage comment (issue #129). The ratchet data is
+      # published by the top-level ratchet-push.yml workflow (issue
+      # #479); this job only stages and uploads it.
       contents: read
       pull-requests: write
-
-    outputs:
-      ratchet_changed: ${{ steps.ratchet.outputs.changed }}
-      suite_measured: ${{ steps.suite_bench.outputs.measured }}
 
     services:
       postgres:
         # Fixtures create and drop run-named databases
         # (tests/scratch_db.py), so the role needs CREATEDB — the stock
         # `postgres` superuser has it. Pinned by digest: the
-        # ratchet-push job publishes from this image's measurements, so
-        # the image must be the reviewed one.
+        # ratchet-push workflow publishes from this image's
+        # measurements, so the image must be the reviewed one.
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
@@ -416,7 +414,8 @@ jobs:
 
       - name: Stage the ratchet data
         # The tested state: the measured file and the tip it was
-        # measured on — the push job's base check compares against it.
+        # measured on — the ratchet-push workflow's base check
+        # compares against it.
         if: steps.ratchet.outputs.changed == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/ratchet-data"
@@ -431,105 +430,6 @@ jobs:
           path: ${{ runner.temp }}/ratchet-data
           if-no-files-found: error
           retention-days: 1
-
-  ratchet-push:
-    # The data-only push job: no third-party or upstream-derived code
-    # runs here at all -- no repo checkout, no pip, no npm, no test
-    # suite, no upstream-response parsing; the pinned downloads run
-    # first. The one script here, suite_ratchet.py --tighten, is a
-    # stdlib-only DATA operation over this run's own measurement and
-    # the fetched master's thresholds: no test code, never a raise.
-    # The push authenticates with the job's own GITHUB_TOKEN
-    # (contents: write), not the master-push deploy key: the key lives
-    # in an environment, and inside this workflow_call callee its
-    # secret resolved EMPTY on the job's first live run (issue #479,
-    # run 36876895211) -- environments belong to the top-level
-    # workflow, and refresh-pricing's push job reads the key there and
-    # works. The key keeps exactly two consumers after this: the
-    # pricing bot's push job and the deploy path.
-    needs: pytest
-    if: needs.pytest.outputs.ratchet_changed == 'true' || needs.pytest.outputs.suite_measured == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      # Write is the push; nothing else is needed or granted.
-      contents: write
-    steps:
-      - name: Download the ratchet data
-        if: needs.pytest.outputs.ratchet_changed == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ratchet-push
-          path: ${{ runner.temp }}/ratchet-data
-
-      - name: Download the suite measurement
-        if: needs.pytest.outputs.suite_measured == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: suite-measurement
-          path: ${{ runner.temp }}/suite-data
-
-      - name: Push the ratchet commit to master
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SUITE_MEASURED: ${{ needs.pytest.outputs.suite_measured }}
-        run: |
-          # The token rides in the remote URL, set once and never
-          # echoed; GitHub masks registered secrets in run logs.
-          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          # Only a raise-worthy run staged the measured base; a
-          # suite-only run (the common admission) has no artifact and
-          # falls through to the push-time staleness detection below.
-          if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then
-            base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
-            fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
-            if [ "$fetched" != "$base" ]; then
-              echo "::notice::Master moved while this run measured; the next push raises instead"
-              {
-                echo "### Dropped: master moved while this run measured"
-                echo
-                echo "The measured base $base is no longer master's tip ($fetched);"
-                echo "this run's raise is dropped and the next master push raises instead."
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          fi
-          git init -q "$RUNNER_TEMP/ratchet-repo"
-          git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
-
-          git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
-          git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
-          if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
-            cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
-          fi
-          if [ "$SUITE_MEASURED" = true ]; then
-            # Downward-only data operation over the fetched master's
-            # thresholds and this run's own measurement; writes nothing
-            # when nothing justifies it.
-            python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
-          fi
-          git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
-          git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
-          git -C "$RUNNER_TEMP/ratchet-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain .github/ci-thresholds.json)" ]; then
-            echo "No ratchet move is justified by this run: nothing to commit."
-            exit 0
-          fi
-          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)' \
-            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
-          if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
-            git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
-            if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then
-              echo "the ratchet push was rejected while master stood still" >&2
-              exit 1
-            fi
-            echo "::notice::Master moved while this run measured; the next push raises instead"
-            {
-              echo "### Dropped: master moved while this run measured"
-              echo "This run's raise is dropped; the next master push raises instead."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
 
   pytest-portable:
     # The suite minus every DB-touching test (tests/db_marker.py's

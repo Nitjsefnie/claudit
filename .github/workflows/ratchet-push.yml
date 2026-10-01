@@ -1,0 +1,208 @@
+name: ratchet push
+
+# The data-only push half of the CI ratchets, split out of tests.yml
+# (issue #479). A workflow_call callee cannot read an environment's
+# secret — the master-push deploy key resolved EMPTY inside the tests
+# leg — and the job token's push is rejected by the ruleset's required
+# aggregate check, which only the deploy key's bypass clears. So the
+# push lives HERE, a top-level workflow where `environment:
+# master-push` resolves, keyed on the ci-gate run's completion.
+#
+# tests.yml is a workflow_call callee and produces no run of its own on
+# a master push — the run that carries the ratchet-data and
+# suite-measurement artifacts is ci-gate's — so that run is the
+# trigger. The keyless half stays in tests.yml: the callee measures,
+# stages the artifacts there, and this workflow lists the triggering
+# run's artifacts, downloads whichever exist, tightens the suite-cost
+# budgets from the measurement, and pushes the ratchet commit when
+# there is something to push.
+#
+# THE SUITE GATES THE PUSH, TWICE OVER: only a run whose pytest,
+# JavaScript-coverage and reparse legs were green stages the data, and
+# only a FULLY green gate run (conclusion: success) publishes it. The
+# push job runs no test, dependency or upstream code — no checkout, no
+# pip, no npm — and stops its ssh-agent when the step ends. The deploy
+# key lives in the master-push environment, reachable only from
+# master. Like the pricing bot's deploy-key push, the ratchet commit
+# starts workflow runs — but ci-gate ignores a
+# .github/ci-thresholds.json-only change, so the commit stays silent
+# there by construction.
+#
+# Master standing still is checked twice. The measured base — the
+# staged base.txt when the run raised, else the triggering run's own
+# head for a suite-only run — must still be master's tip before
+# anything is built; a push rejected while master stood still is an
+# error, and a push rejected after master moved drops this run's data:
+# the next master run measures and raises instead.
+
+on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
+    # ci-gate.yml's `name:` — the run that carries the ratchet
+    # artifacts on a master push. The trigger's hazard — event data or
+    # code from another branch's run reaching a privileged job — does
+    # not apply: the job's if admits only a push event whose head
+    # branch is master (a fork PR's run never passes it), the job
+    # checks out no code, downloads only this repository's own
+    # artifacts from the triggering run, and authenticates the push
+    # with the deploy key, not the job token.
+    workflows: [ci gate]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  # Never cancel in progress: a cancelled run can stop between the
+  # commit and the push. Two master runs completing close together
+  # queue here; the loser's staleness check below drops its data.
+  group: ratchet-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    # Master pushes only: a PR run stages no master data, and a failed
+    # or cancelled gate run's data is not the tested state worth
+    # publishing. Skipped otherwise, green.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.conclusion == 'success'
+    environment: master-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read  # list and download the triggering run's artifacts
+
+    steps:
+      - name: List the triggering run's artifacts
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          names="$(gh api -H 'Cache-Control: no-cache' --paginate \
+            "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.expired != true) | .name' \
+            | sort -u)"
+          ratchet=false
+          suite=false
+          if printf '%s\n' "$names" | grep -qx 'ratchet-push'; then
+            ratchet=true
+          fi
+          if printf '%s\n' "$names" | grep -qx 'suite-measurement'; then
+            suite=true
+          fi
+          echo "ratchet=$ratchet" >> "$GITHUB_OUTPUT"
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          if [ "$ratchet" = true ] || [ "$suite" = true ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the ratchet data
+        # The artifact belongs to the TRIGGERING run: the download is
+        # cross-run, so it names the run id and carries a token capped
+        # by the job's actions: read.
+        if: steps.list.outputs.ratchet == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ratchet-push
+          path: ${{ runner.temp }}/ratchet-data
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download the suite measurement
+        if: steps.list.outputs.suite == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: suite-measurement
+          path: ${{ runner.temp }}/suite-data
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the ratchet commit to master
+        if: steps.list.outputs.any == 'true'
+        env:
+          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
+          REPO: ${{ github.repository }}
+          # A suite-only run staged no base.txt; it measured on the
+          # triggering run's own head.
+          BASE_FALLBACK: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Fail closed when the environment is missing its secret: with
+          # no key there is nothing to authenticate the push with, and
+          # the fallback must never be a token.
+          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" >/dev/null
+          # The agent is stopped when this step ends, whatever its
+          # outcome: the key never outlives the step that loaded it.
+          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
+          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          mkdir -p ~/.ssh
+          # GitHub SSH host keys, published by GitHub's Meta endpoint:
+          # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          # The measured base: a raise staged base.txt; a suite-only run
+          # measured the triggering run's own head. Master must still
+          # stand at it, or the data describes a tree master no longer
+          # has.
+          if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then
+            base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
+          elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
+            base="$BASE_FALLBACK"
+          else
+            echo "no ratchet data and no suite measurement to push" >&2
+            exit 1
+          fi
+          fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
+          if [ "$fetched" != "$base" ]; then
+            echo "::notice::Master moved while this run measured; the next push raises instead"
+            {
+              echo "### Dropped: master moved while this run measured"
+              echo
+              echo "The measured base $base is no longer master's tip ($fetched);"
+              echo "this run's raise is dropped and the next master push raises instead."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git init -q "$RUNNER_TEMP/ratchet-repo"
+          git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
+          git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
+          git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
+          if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
+            cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          fi
+          if [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
+            # Downward-only data operation over the fetched master's
+            # thresholds and this run's own measurement; writes nothing
+            # when nothing justifies it.
+            python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+          fi
+          git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
+          git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/ratchet-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain .github/ci-thresholds.json)" ]; then
+            echo "No ratchet move is justified by this run: nothing to commit."
+            exit 0
+          fi
+          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)' \
+            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
+          if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
+            git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
+            if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then
+              echo "the ratchet push was rejected while master stood still" >&2
+              exit 1
+            fi
+            echo "::notice::Master moved while this run measured; the next push raises instead"
+            {
+              echo "### Dropped: master moved while this run measured"
+              echo "This run's raise is dropped; the next master push raises instead."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
