@@ -24,7 +24,9 @@ These refuse the host or model they concern, which appends nothing:
   their combination with a recorded "ignore" of listing-artifact fields);
 - a resolution that no longer applies;
 - a price or override kind this script does not model, or a response
-  shape it does not recognise;
+  shape it does not recognise; a listed per-request fee is the exception:
+  it is recorded in the row's note, never priced from token counts, so an
+  unmodelled cost is never dropped in silence;
 - a host seen for the first time while the fetch falls inside one of its
   schedule's windows, unless its schedule covers the whole week: then no
   record is priced by the entry default and it starts as the listed top-level
@@ -87,8 +89,14 @@ class Move:
 
 def _entry(stamp: str, listing: Listing) -> dict:
     entry = {"from": stamp, **listing.rates}
+    # A recorded per-request fee rides in the note beside the discount: it
+    # is a real cost the table cannot carry, and the row says so rather than
+    # pricing a call that in fact cost more.
+    notes = list(listing.fees)
     if listing.discount:
-        entry["note"] = _discount_note(listing.discount)
+        notes.insert(0, _discount_note(listing.discount))
+    if notes:
+        entry["note"] = "; ".join(notes)
     if listing.schedule:
         entry["schedule"] = listing.schedule
     return entry

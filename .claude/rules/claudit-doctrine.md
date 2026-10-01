@@ -637,7 +637,12 @@ same rules:
   already has any promotional discount applied; the discount goes in
   `note` (`N% off`), never a rate. Cache writes take the listed write
   price when nonzero, else the input rate; an unlisted cache-read price
-  is 0. Endpoints of one host at one price are one row.
+  is 0. A listed `input_cache_write_1h` is the `create_1h` rate, the one
+  number the TTL split turns on (SV-COST-SPLIT); absent or zero, the 5m
+  tier is it too, so a listing that does not split them changes nothing.
+  A host whose listing splits them is sampled, never log-backed: the log's
+  five fields carry no 1h tier, so no series can be joined to it. Endpoints
+  of one host at one price are one row.
 - The account is billed only by endpoints in its data region,
   `openrouter.data_region`: `global` or a lowercase region code.
   - An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`. A suffix
@@ -646,7 +651,10 @@ same rules:
     `<region>-<area>[-<n>]`, in any case (`us-east-1`). A suffix that is
     neither a region nor a known quantization (`fp4`, `fp8`, `nvfp4`,
     `bf16`, …) is logged in the run's notices and refuses nothing.
-  - `global` takes the endpoints with no region suffix.
+  - `global` takes the endpoints with no region suffix — every suffix that
+    names no region, so `azure/global` and `google-vertex/global` are
+    listed and `google-vertex/europe` is not. `global` is deliberately NOT
+    a region code: adding it would drop the very endpoints that carry it.
   - A host whose endpoints all lie outside the region is not listed for
     the account, so it is reported as vanished.
 - Endpoints are grouped by host first, so a malformed endpoint refuses
@@ -740,9 +748,17 @@ same rules:
   appends and bumps nothing. A first move away never matches; the flip
   back does. A genuine return to an older price is hand-appended, and the
   next run compares against it.
-- **Unmodelled pricing refuses the host:** an override kind the script
-  does not model (e.g. a `min_prompt_tokens` tier), or any other pricing
-  key at a nonzero price (e.g. a per-request fee).
+- **Unmodelled pricing refuses the host, unless it is a RECORDED fee:** an
+  override kind the script does not model (e.g. a `min_prompt_tokens`
+  tier), or any other pricing key at a nonzero price. The one exception is
+  `web_search`, a per-request fee no token count can price: it enters no
+  rate, and is written into the row's `note` with its unit beside any
+  discount note, so the row says what it cannot price instead of pricing a
+  call that in fact cost more. A recorded fee is not a dropped one; every
+  other unmodelled key at a nonzero price still refuses, which is what
+  keeps an unmodelled cost from vanishing in silence. The fee is part of
+  what makes a listing a distinct price, so two endpoints differing only
+  in it refuse rather than collapse into one row.
 - A run that appends bumps `PRICING_VERSION` to one past the value in
   `backend/constants.py` — never a literal — in the same commit (records
   at or after a new `from` ingested before the deploy were priced at the
