@@ -265,8 +265,10 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
     assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
                          "--thresholds", str(target)]) == 1
     assert target.read_text(encoding="utf-8") == before
-    # A tighten within the hysteresis writes nothing.
-    within = {phase: COUNTS[phase] - Decimal("0.1")
+    # A tighten within the hysteresis writes nothing: the measurement
+    # is built from the committed values themselves, one step cheaper.
+    recorded = thresholds.load(target)["suite_cost"]
+    within = {phase: recorded[phase]["measured"] - Decimal("0.1")
               for phase in ("collection", "run", "residual")}
     assert ratchet.main(
         ["--tighten", str(_measurement_file(tmp_path, within, "w.json")),
