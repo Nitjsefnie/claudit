@@ -194,8 +194,7 @@ jobs:
             echo "No ratchet move is justified by this run: nothing to commit."
             exit 0
           fi
-          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)' \
-            -m 'Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>'
+          git -C "$RUNNER_TEMP/ratchet-repo" commit -m 'Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'
           if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
             git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
             if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then

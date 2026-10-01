@@ -351,7 +351,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
             "baselines (automated)" in run)
-    assert "Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>" in run
+    assert "Co-Authored-By" not in run
     # The suite-cost tighten: a downward-only data operation, then the
     # no-change guard that lets a no-op tighten end the job quietly.
     assert "suite_ratchet.py" in run
