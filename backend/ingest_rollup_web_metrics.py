@@ -27,13 +27,13 @@ complete at exactly the instant its last beacon is pruned, so a raw table
 pruned AT the horizon never has a closable bucket's rows on the fold that
 closes it. One width of slack is not enough either, and that was the second
 version of this defect: a closed bucket `[s, s+W)` starts after
-`now - RETENTION_S - 2W`, so a read window one width back leaves the newest
+`now - 2W`, so a read window one width back leaves the newest
 closing bucket's oldest beacons outside it — the fold stores it short, and
 NOTHING repairs it, because the window advances with `now` and a bucket the
 window has cut off stays cut off. Three skipped hourly folds were enough to
 strand the 24-hour bucket, the width the default `all` view reads, with 22 of
 its 24 beacons, silently and permanently. Hence
-`RAW_KEEP_S = RETENTION_S + 2 * widest bucket + fold interval`, which makes a
+`RAW_KEEP_S = 2 * widest bucket + fold interval`, which makes a
 partial read of a closed bucket impossible at every fold rather than
 unlikely at most of them.
 
