@@ -82,8 +82,10 @@ log = logging.getLogger("claudit.ingest")
 _GRAIN = "metric, part, region, phase"
 
 
-def _fold(conn, bucket_width: int, horizon, read_from) -> int:
+def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
     """Store every bucket of this width that has CLOSED, and drop the rest.
+
+    Returns `(rows written, buckets refused)` — see `_refused` for the second.
 
     A bucket is `[s, s + W)` with `s = floor(epoch / W) * W`, stored at its
     midpoint. It is complete when its whole span is behind `horizon`, i.e.
@@ -143,8 +145,10 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> int:
            -- stores: `epoch(bucket) - W/2 >= epoch(read_from)` IS
            -- `s >= read_from`. A bucket below it cannot be read whole, and a
            -- short row is indistinguishable from a whole one, so it is not
-           -- stored at all and the next pass -- whose window reaches further
-           -- back while the beacons are still there -- stores it whole.
+           -- stored at all. A LATER pass -- whose window reaches further back
+           -- while the beacons are still there -- stores it whole; and if
+           -- they are gone by then it stays absent, which is a gap a reader
+           -- can see and a short row is not.
            AND EXTRACT(EPOCH FROM bucket) - {bucket_width} / 2.0
                >= EXTRACT(EPOCH FROM %s)
         -- A closed bucket is written once and never revised, so a fold that
@@ -155,7 +159,44 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> int:
         ON CONFLICT (bucket_s, bucket, metric, part, region, phase)
         DO NOTHING
         """), (read_from, closed_through, read_from))
-    return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0, \
+        _refused(conn, bucket_width, horizon, read_from)
+
+
+def _refused(conn, bucket_width: int, horizon, read_from) -> int:
+    """How many buckets of this width the span bound turned away.
+
+    A refusal is the rule working, so it is not an error -- but silence about
+    it is what the issue this closes objected to: a bucket missing from the
+    stored history looks identical to one that never had a beacon. The count
+    is what makes it legible in `/health`'s log tail.
+
+    Scoped to the one-width slice that can hold a refused bucket at all,
+    `[read_from, read_from + W)`, rather than the whole working set. A bucket
+    is refused iff its START `s` is below `read_from`, and a bucket that can
+    still hold a beacon has rows inside its own span `[s, s + W)` -- so it
+    has to STRADDLE `read_from`, and the rows that show it are the ones at or
+    after it. (A bucket entirely below the window has no surviving rows at
+    all: the prune deletes below the cutoff, which is never earlier than the
+    window, so nothing of it can still be on the table.) That makes this an
+    index range one bucket width wide, not a second pass over the retention
+    window. The closed-bucket predicate rides along so the count stays honest
+    if the horizon ever moves.
+    """
+    row = conn.execute(
+        db.sql_text(f"""
+        SELECT COUNT(DISTINCT to_timestamp(
+                        floor(EXTRACT(EPOCH FROM w.ts) / {bucket_width})
+                        * {bucket_width} + {bucket_width} / 2.0))
+          FROM web_metrics w
+         WHERE w.ts >= %s AND w.ts < %s
+           AND floor(EXTRACT(EPOCH FROM w.ts) / {bucket_width})
+               * {bucket_width} < EXTRACT(EPOCH FROM %s)
+           AND floor(EXTRACT(EPOCH FROM w.ts) / {bucket_width})
+               * {bucket_width} + {bucket_width} <= EXTRACT(EPOCH FROM %s)
+        """), (read_from, read_from + timedelta(seconds=bucket_width),
+               read_from, horizon)).fetchone()
+    return int(row[0]) if row and row[0] else 0
 
 
 def rebuild_web_metrics_rollup() -> int:
@@ -168,7 +209,7 @@ def rebuild_web_metrics_rollup() -> int:
     now = web_metrics.utcnow()
     horizon = web_metrics.rollup_horizon(now)
     cutoff = web_metrics.retention_cutoff(now)
-    written = 0
+    written = refused = 0
     with db.viz_conn() as conn:
         # The window may reach further back than the cutoff when a stalled
         # pass left the working set wider than its nominal width, and it is
@@ -177,12 +218,19 @@ def rebuild_web_metrics_rollup() -> int:
         # the next pass would read just as far again, for ever (issue #475).
         read_from = web_metrics.fold_read_from(conn, now)
         for bucket_width in LATENCY_BUCKETS:
-            written += _fold(conn, bucket_width, horizon, read_from)
+            stored, turned_away = _fold(conn, bucket_width, horizon,
+                                        read_from)
+            written += stored
+            refused += turned_away
         # Pruned after the fold, in the same transaction, at the retention
         # cutoff. The two instants differ by design and the difference is the
         # slack that lets a bucket close.
         conn.execute(
             "DELETE FROM web_metrics WHERE ts < %s", (cutoff,))
         conn.commit()
-    log.info("rebuild_web_metrics_rollup: %d rows", written)
+    # The refused count is the half a reader would otherwise have to guess
+    # at: a bucket absent from the stored history is indistinguishable from
+    # one that never had a beacon, and this is where that becomes visible.
+    log.info("rebuild_web_metrics_rollup: %d rows, %d buckets refused",
+             written, refused)
     return written
