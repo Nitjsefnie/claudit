@@ -235,8 +235,8 @@ def test_model_ids_survive_verbatim_in_both_parsers():
         meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
     """
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
+        ["node", "-e", script], capture_output=True, text=True,
+        encoding="utf-8", timeout=60, check=False,
     )
     assert proc.returncode == 0, proc.stderr
     got_browser = json.loads(proc.stdout)
