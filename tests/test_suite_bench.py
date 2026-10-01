@@ -262,6 +262,10 @@ def test_check_on_a_counts_less_measurement_fails_closed(mini_suite,
 
 
 def test_partition_rejects_a_negative_residual():
+    # sys.path first: the module's sibling import of thresholds must
+    # resolve however this test is invoked (solo, file-wide, or from a
+    # mutant runner), never through a sibling test's leftover seeding.
+    sys.path.insert(0, str(SCRIPTS_CI))
     phases = SCRIPTS_CI / "suite_phases.py"
     spec = importlib.util.spec_from_file_location("suite_phases", phases)
     assert spec and spec.loader
@@ -333,3 +337,70 @@ def test_summary_markdown_names_the_phases(mini_suite, tmp_path):
     for phase in ("collection", "run", "residual"):
         assert phase in text
     assert "million_instructions" in text
+
+
+def test_check_refuses_a_non_deterministic_measurement(mini_suite, tmp_path):
+    # The committed budgets are exact counts of a PYTHONHASHSEED=0 run;
+    # a measurement recorded under a randomized seed is not comparable
+    # with them, and the gate refuses it rather than reading the dead
+    # telemetry field as irrelevant.
+    measurement = _measure(mini_suite)
+    measurement["hash_seed"] = "randomized"
+    (mini_suite / "m.json").write_text(
+        json.dumps(measurement), encoding="utf-8")
+    target = _thresholds_for(tmp_path, _measure(mini_suite, name="x.json"))
+    result = _run_bench(
+        ["--check", str(mini_suite / "m.json"), "--thresholds",
+         str(target)], cwd=mini_suite)
+    assert result.returncode != 0
+    assert "hash seed" in result.stderr
+    assert "PYTHONHASHSEED=0" in result.stderr
+
+
+def test_fixture_paths_outside_the_repo_root_are_refused(tmp_path):
+    # read_fixture's docstring claims an off-root path is a setup error;
+    # the control makes the claim true: both a ../escape and an absolute
+    # path (which the / operator adopts whole) must be refused.
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "escape.py"
+    outside.write_text("def test_ok():\n    assert True\n",
+                       encoding="utf-8")
+    for needle in ("../escape.py", str(outside)):
+        fixture = tmp_path / "bench_files.txt"
+        fixture.write_text(needle + "\n", encoding="utf-8")
+        result = _run_bench(
+            ["--write", "m.json", "--repo-root", str(root),
+             "--fixture", str(fixture)],
+            cwd=tmp_path)
+        assert result.returncode != 0, needle
+        assert "outside" in (result.stderr + result.stdout), needle
+
+
+def test_measure_releases_the_monitoring_tool_id(mini_suite):
+    # close() is not optional: its docstring promises the tool id goes
+    # back, and an in-process caller that measured once must not leave
+    # the INSTRUCTION tax armed for the rest of its life. The control:
+    # after measure() returns, a fresh counter can claim the tool id.
+    sys.path.insert(0, str(SCRIPTS_CI))
+
+    def _load(name, filename):
+        spec = importlib.util.spec_from_file_location(
+            name, SCRIPTS_CI / filename)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    bench = _load("suite_bench", "suite_bench.py")
+    fixture = bench.read_fixture(
+        mini_suite / "bench_files.txt", mini_suite)
+    bench.measure(fixture, mini_suite)
+    # A fresh CLASS under a fresh module name, so the check reads the
+    # process-global tool id, not a cached module's attribute.
+    fresh = _load("suite_phases_fresh", "suite_phases.py").InstructionCounter()
+    try:
+        assert fresh.available, fresh.reason
+    finally:
+        fresh.close()

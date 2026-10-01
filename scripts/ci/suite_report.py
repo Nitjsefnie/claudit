@@ -181,6 +181,11 @@ def check(path, thresholds_path=None) -> int:
               f'(instrument {measurement.instrument!r}, '
               'the portable fallback): not gateable', file=sys.stderr)
         return 1
+    if measurement.hash_seed != '0':
+        print('the measurement was not taken under PYTHONHASHSEED=0 '
+              f'(hash seed {measurement.hash_seed!r}): its counts are '
+              'not comparable with the committed budgets', file=sys.stderr)
+        return 1
     budgets = thresholds.suite_cost(
         thresholds.load(thresholds_path or thresholds.THRESHOLDS))
     over = _over_budget(measurement.counts, budgets)
