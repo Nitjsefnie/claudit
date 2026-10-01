@@ -106,7 +106,10 @@ PRICING_VERSION = "135"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
-DERIVED_STATE_VERSION = "1"
+# 2 — the web-metrics fold refuses a bucket it cannot read whole, and its
+#     read window reaches back to the oldest raw row while a stalled pass has
+#     left the working set wide (issue #475).
+DERIVED_STATE_VERSION = "2"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
