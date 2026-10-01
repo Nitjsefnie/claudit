@@ -109,8 +109,6 @@ PART_LIMITS = {
     "shift": (0.0, 1000.0),
 }
 
-_FIELDS = ("metric", "part", "region", "phase", "value")
-
 
 class BeaconError(ValueError):
     """A beacon the sink refuses. Names the offending field."""
@@ -126,7 +124,7 @@ def _term(raw: dict, field: str) -> str:
 
 
 def _check_tags(metric: str, region: str, phase: str) -> None:
-    """Whether the region/phase a beacon carries belong to its metric.
+    """Refuse a region/phase that does not belong to its metric.
 
     A journey names itself and carries neither; a layout shift is attributed
     to a region and to a phase; a long task is a phase with no region. The
