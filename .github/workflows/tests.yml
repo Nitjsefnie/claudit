@@ -318,6 +318,9 @@ jobs:
           # grep -lF '["node"' tests/*.py, so a node-executing test file
           # outside the list fails the suite instead of its exercised
           # paths quietly staying outside the measurement (issue #433).
+          # The word split IS the invocation — one path per line becomes
+          # one pytest argument:
+          # shellcheck disable=SC2046
           python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
           npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
