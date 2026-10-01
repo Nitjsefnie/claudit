@@ -124,11 +124,17 @@ MAX_ROWS_PER_GUEST = 2_000
 #: `s + W <= now` and `s` sits on the `W` lattice -- so the read window has
 #: to reach back two widths, plus a fold interval so the boundary cannot land
 #: between a prune and a fold. Two widths is what makes a PARTIAL read of a
-#: closed bucket impossible at every fold rather than unlikely at most of them:
-#: with one, the fold that catches a bucket the instant it closes stores it
-#: short, and nothing repairs it, because the window advances with `now` and a
-#: bucket the window has cut off stays cut off for good. That is what stranded
-#: a 24-hour bucket with 22 of its 24 beacons after three skipped folds.
+#: closed bucket impossible at every fold that RUNS: with one, the fold that
+#: catches a bucket the instant it closes stores it short, and nothing
+#: repairs it, because the window advances with `now` and a bucket the window
+#: has cut off stays cut off for good. That is what stranded a 24-hour bucket
+#: with 22 of its 24 beacons after three skipped folds.
+#:
+#: It is arithmetic about folds that run, so it cannot cover a fold that does
+#: not (issue #475): thirty hours of stall moves the window inside the bucket
+#: it is about to close. `fold_read_from` and the fold's span check are what
+#: cover that case -- the window reaches back while the beacons survive, and
+#: a bucket that still cannot be read whole is not stored.
 #:
 #: The ROLLUP is the durable record and nothing prunes it. The raw table holds
 #: about two and a quarter days of a few rows per page view -- a working set,
@@ -309,6 +315,39 @@ def retention_cutoff(now: datetime) -> datetime:
     this is clamped to it and reports the window it really used.
     """
     return now - timedelta(seconds=RAW_KEEP_S)
+
+
+def fold_read_from(conn, now: datetime) -> datetime:
+    """The oldest instant the FOLD may read -- the cutoff, or older (issue
+    #475).
+
+    `retention_cutoff` alone is enough on every fold that HAPPENS: it is two
+    widths behind `now`, and a bucket closing on this fold starts inside that.
+    It is not enough on a fold that does not happen. A pass stalled longer
+    than `RAW_KEEP_S - widest` -- thirty hours -- resumes with a read window
+    that has moved INTO the bucket it is about to close, stores that bucket's
+    newest hours, and `ON CONFLICT DO NOTHING` freezes the short row for
+    good, beside whole ones and indistinguishable from them.
+
+    So the window reaches back to the oldest beacon still on the table when
+    that beacon is older than the cutoff, which is exactly when the working
+    set outgrew its nominal width -- which happens only while the pass is not
+    running to prune it. Nothing here is unbounded in practice: the fold reads
+    the extra rows and the same pass's prune (at the cutoff, NOT at this
+    window) removes them, so the next fold is back inside the nominal window.
+    The cost is one wider pass, once, and it buys back a bucket that would
+    otherwise be lost outright.
+
+    Nothing is gained by widening the bound the other way. A bucket whose
+    beacons really are gone is refused by the fold's own span check rather
+    than stored short; see `ingest_rollup_web_metrics._fold`.
+    """
+    cutoff = retention_cutoff(now)
+    row = conn.execute("SELECT MIN(ts) FROM web_metrics").fetchone()
+    oldest = row[0] if row else None
+    if oldest is None or oldest > cutoff:
+        return cutoff
+    return oldest
 
 
 def rollup_horizon(now: datetime) -> datetime:
