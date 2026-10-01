@@ -12,6 +12,8 @@ copies of them are two things to keep in step.
 """
 from __future__ import annotations
 
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -542,7 +544,8 @@ def test_a_stalled_fold_stores_whole_buckets(viz, closing_horizon):
 
 
 def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
-                                                           closing_horizon):
+                                                           closing_horizon,
+                                                           caplog):
     """The other half of the rule: absent, rather than a short row.
 
     No stall is needed to arrange this one -- the working set simply no longer
@@ -559,10 +562,32 @@ def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
                      (base + timedelta(hours=6),))
         conn.commit()
 
-    _fold_at(base + timedelta(hours=60))
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        _fold_at(base + timedelta(hours=60))
     assert _rollup_rows(viz, 86400) == {}, (
         "a bucket whose oldest beacons are gone from the working set was "
         "stored as the tail that survived -- a short row nothing can repair")
+
+    # The positive witness, in this same control, because `== {}` on its own
+    # is satisfied just as well by a fold that stored NOTHING AT ALL — a
+    # broken query, a width nobody folds, an exception swallowed upstream.
+    # The same run stored every hourly bucket whose beacons survived, so the
+    # day bucket's absence is a refusal and not a fold that did nothing.
+    hourly = _rollup_rows(viz, 3600)
+    assert len(hourly) == 18, (
+        f"the same fold stored {len(hourly)} hourly buckets where the beacons "
+        f"survived, so the day bucket's absence is a refusal rather than a "
+        f"fold that stored nothing")
+    assert {n for n, _p50, _p75, _total in hourly.values()} == {1}, (
+        f"the surviving beacons are one per hour bucket: {hourly}")
+
+    # And the refusal is not silent. A bucket absent from the stored history
+    # is indistinguishable from one that never had a beacon; the issue this
+    # closes objected to exactly that, "permanently and without a log line".
+    reported = re.search(r"(\d+) buckets refused", caplog.text)
+    assert reported, (
+        f"the fold refused a bucket and said nothing: {caplog.text}")
+    assert int(reported.group(1)) >= 1, caplog.text
 
 
 def test_a_later_fold_does_not_rewrite_a_whole_row(viz, closing_horizon):
