@@ -512,6 +512,22 @@ def test_machine_line_carries_every_phase_share():
     assert float(Decimal(fields["share_sum"])) == pytest.approx(100.0, abs=0.2)
 
 
+def test_report_flag_prints_a_written_measurement_without_measuring(
+        tmp_path, capsys):
+    # CI measures ONCE: the step writes the measurement, prints the human
+    # report of that same reading, and gates that same file. A --report
+    # that re-measured would make the printed number and the gated number
+    # two different runs.
+    measurement = _short()
+    path = tmp_path / "m.json"
+    report_module.write_measurement(path, measurement)
+    assert bench.main(["--report", str(path)]) == 0
+    out = capsys.readouterr().out
+    for name in bench.PHASES:
+        assert name in out
+    assert f"{measurement.cpu_s:.4f}" in out
+
+
 def test_human_report_names_every_phase_and_the_sum():
     result = subprocess.run(
         [sys.executable, str(BENCH), "--passes", "3", "--warmup", "1"],
@@ -519,6 +535,72 @@ def test_human_report_names_every_phase_and_the_sum():
     for name in bench.PHASES:
         assert name in result.stdout
     assert "sum" in result.stdout
+
+
+# --- the CI wiring -----------------------------------------------------------
+
+ACTION = REPO_ROOT / ".github" / "actions" / "reparse-bench" / "action.yml"
+
+
+def _tests_workflow():
+    import yaml  # pylint: disable=import-outside-toplevel
+
+    return yaml.load(
+        (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"),
+        # BaseLoader, not safe_load: YAML 1.1 parses the bare key `on` as
+        # the boolean True, and the ratchet step is read by name.
+        Loader=yaml.BaseLoader)
+
+
+def _steps():
+    return _tests_workflow()["jobs"]["pytest"]["steps"]
+
+
+def test_ci_gates_the_bench_on_every_event():
+    # The bench is a gate like the coverage ones: a pull request has to
+    # be able to fail on it, not only master.
+    steps = [step for step in _steps()
+             if step.get("uses") == "./.github/actions/reparse-bench"]
+    assert len(steps) == 1, "expected exactly one reparse bench step"
+    assert "steps.pytest.conclusion != 'skipped'" in steps[0]["if"]
+    assert steps[0].get("id") == "reparse"
+
+
+def test_the_action_measures_once_and_gates_that_same_file():
+    # Measuring twice would print one number and gate another, so the
+    # write and the check must name the same measurement.
+    run = yaml_action_run()
+    assert run.count("--write") == 1
+    assert run.count("--check") == 1
+    assert run.count('"$MEASUREMENT"') == 2, run
+    assert "--passes" not in run, (
+        "the gate step measures at the bench's recorded amplification; a "
+        "step-level override would report a number nothing is recorded for")
+
+
+def yaml_action_run():
+    import yaml  # pylint: disable=import-outside-toplevel
+
+    action = yaml.load(ACTION.read_text(encoding="utf-8"),
+                       Loader=yaml.BaseLoader)
+    steps = action["runs"]["steps"]
+    assert len(steps) == 1, "the action wraps one step"
+    return steps[0]["run"]
+
+
+def test_only_a_master_push_may_tighten_the_reparse_shares():
+    # Untrusted code on a pull request must not be able to write the
+    # recorded data, so the ratchet step stays master-only — and it must
+    # not run on a measurement the bench gate already rejected.
+    step = next(step for step in _steps()
+                if step.get("name") == "Ratchet the thresholds")
+    condition = step["if"]
+    assert "github.event_name == 'push'" in condition
+    assert "github.ref == 'refs/heads/master'" in condition
+    assert "steps.reparse.outcome == 'success'" in condition
+    assert "reparse_ratchet.py" in step["run"]
+    assert "reparse-bench.json" in step["run"]
 
 
 def test_bench_forces_the_fixture_mirror_over_the_environment():
