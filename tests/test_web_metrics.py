@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, session as session_mod, web_metrics
+from backend.api_common import _bucket_seconds
+from backend.constants import LATENCY_BUCKETS
 from backend.ingest_rollup_web_metrics import rebuild_web_metrics_rollup
 from tests import scratch_db
 
@@ -352,7 +354,7 @@ def test_the_fold_and_the_prune_cover_disjoint_populations(viz, monkeypatch):
 # --- the readout -----------------------------------------------------------
 
 
-def test_readout_serves_the_rollup_for_a_stored_width(viz, client):
+def test_readout_serves_the_rollup_past_the_retention_window(viz, client):
     _seed(_VALUES)
     rebuild_web_metrics_rollup()
     r = client.get("/api/web-metrics?range=7d", headers=_ORIGIN)
@@ -367,24 +369,81 @@ def test_readout_serves_the_rollup_for_a_stored_width(viz, client):
     assert body["buckets"] and body["buckets"][0]["ts"]
 
 
+def test_a_range_the_raw_beacons_still_cover_is_exact(viz, client):
+    """The live pass is the default, and the arithmetic behind it is pinned.
+
+    Every range the retention window can cover folds to a width finer than an
+    hour, which the rollup does not store — `_bucket_seconds` only reaches
+    the narrowest stored width (3600) at a span of 100 hours. So "the rollup
+    does not store this width" and "the raw rows still cover this range" are
+    the same statement today, and that identity is what makes the answer
+    exact without anyone having to choose. Pin it: if a stored width is ever
+    added below 3600, or the retention window pushed past a day, this fails
+    and the fork in `web_metrics_readout` has to be reconsidered.
+    """
+    for hours in (1, 6, 12, 24, 36, 48):
+        span = timedelta(hours=hours)
+        assert span.total_seconds() <= web_metrics.RETENTION_S
+        assert _bucket_seconds(span) not in LATENCY_BUCKETS, (
+            f"{hours}h now folds to a stored width, so a range the raw rows "
+            f"cover is answered from the rollup and blended")
+
+    _seed(_VALUES)
+    rebuild_web_metrics_rollup()
+    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    assert body["exact"] is True
+    assert body["series"][0]["p50"] == 4.5
+    assert body["since"], "the window actually read is reported"
+
+
+def test_a_range_past_retention_and_past_the_stored_widths_is_clamped(viz, client):
+    """3 days maps to a 30-minute bucket the rollup does not store.
+
+    Reading the raw table unclamped would answer with the 48 hours that
+    survived the prune under a 3-day label. The window comes back in the
+    payload so the panel can say what it is showing.
+    """
+    _seed(_VALUES)
+    rebuild_web_metrics_rollup()
+    before = datetime.now(timezone.utc)
+    body = client.get("/api/web-metrics?range=3d", headers=_ORIGIN).json()
+    assert body["bucket_s"] not in (3600, 21600, 43200, 86400)
+    since = datetime.fromisoformat(body["since"].replace("Z", "+00:00"))
+    # `before`, not a fresh now(): the cutoff the server clamped to was taken
+    # at the request, so comparing it to a later clock reads as a breach.
+    assert since >= before - timedelta(seconds=web_metrics.RETENTION_S)
+    assert since < before, "3d would be an hour further back than 48h"
+    assert body["series"][0]["n"] == len(_VALUES)
+
+
 def test_readout_rolls_the_blend_by_sample_count(viz, client):
-    """Two buckets, different sizes: the p50 is weighted by n, not averaged."""
+    """Two buckets, different sizes: the p50 is weighted by n, not averaged.
+
+    The two populations sit in different HOUR buckets but the same
+    retention window, so `?range=1d` reads both raw and exact — where the
+    true p50 of [100 x8, 900] is 100, not the 344.4 the rollup's blend
+    reports. The rollup's answer is pinned separately, below.
+    """
     now = datetime.now(timezone.utc)
     early = now - timedelta(hours=5)
     late = now - timedelta(minutes=5)
     _seed([100.0] * 8, ts=early)
     _seed([900.0], ts=late)
     rebuild_web_metrics_rollup()
-    series = client.get("/api/web-metrics?range=7d",
+    live = client.get("/api/web-metrics?range=1d",
+                      headers=_ORIGIN).json()["series"]
+    assert len(live) == 1
+    assert live[0]["n"] == 9 and live[0]["total"] == pytest.approx(1700.0)
+    assert live[0]["p50"] == pytest.approx(100.0), "the exact range p50"
+
+    rolled = client.get("/api/web-metrics?range=7d",
                         headers=_ORIGIN).json()["series"]
-    assert len(series) == 1
-    row = series[0]
-    assert row["n"] == 9 and row["total"] == pytest.approx(1700.0)
     # (8 * 100 + 1 * 900) / 9 — an unweighted mean would read 500.0.
-    assert row["p50"] == pytest.approx((800.0 + 900.0) / 9)
+    assert rolled[0]["p50"] == pytest.approx((800.0 + 900.0) / 9)
 
 
-def test_readout_takes_the_live_path_for_a_width_the_rollup_omits(viz, client):
+def test_readout_is_exact_for_every_range_inside_the_window(viz, client):
+    """The 24h view folds finer than the rollup stores, and is exact."""
     _seed(_VALUES)
     body = client.get("/api/web-metrics?range=24h", headers=_ORIGIN).json()
     assert body["bucket_s"] not in (3600, 21600, 43200, 86400)
