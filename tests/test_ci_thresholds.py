@@ -56,12 +56,15 @@ SUITE_COST = {
 
 
 def _reparse(shares=None):
-    """A synthetic reparse family: one record per bench phase."""
+    """A synthetic reparse family: both metrics for every bench phase."""
     shares = shares or {}
     return {
         phase: {
-            "measured": Decimal(shares.get(phase, "10.0")),
-            "floor": Decimal(shares.get(phase, "10.0")) + GAP,
+            metric: {
+                "measured": Decimal(shares.get(f"{phase}.{metric}", "10.0")),
+                "floor": Decimal(shares.get(f"{phase}.{metric}", "10.0")) + GAP,
+            }
+            for metric in thresholds.REPARSE_METRICS
         }
         for phase in thresholds.REPARSE_PHASES
     }
@@ -81,7 +84,7 @@ def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
                 "floor": Decimal("48.5"),
             },
         },
-        "reparse_cpu": _reparse() if reparse is None else reparse,
+        "reparse": _reparse() if reparse is None else reparse,
         "module_size_baseline": baseline or {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
@@ -505,37 +508,41 @@ def test_committed_document_carries_a_record_for_every_reparse_phase():
     # measurement against, and one missing a phase leaves that phase
     # ungated while the others still look complete.
     doc = thresholds.load(THRESHOLDS_PATH)
-    family = doc["reparse_cpu"]
+    family = doc["reparse"]
     assert set(family) == set(thresholds.REPARSE_PHASES)
-    for phase, record in family.items():
-        assert isinstance(record["measured"], Decimal), phase
-        assert isinstance(record["floor"], Decimal), phase
-        assert 0 <= record["measured"] <= 100, phase
-        assert record["floor"] > record["measured"], phase
-        assert record["floor"] == record["measured"] + GAP, phase
+    for phase, metrics in family.items():
+        assert set(metrics) == set(thresholds.REPARSE_METRICS), phase
+        for metric, record in metrics.items():
+            label = f'{phase}.{metric}'
+            assert isinstance(record["measured"], Decimal), label
+            assert isinstance(record["floor"], Decimal), label
+            assert record["measured"] >= 0, label
+            assert record["floor"] > record["measured"], label
+            assert record["floor"] == record["measured"] + GAP, label
 
 
-def test_reparse_cpu_reader_returns_every_phase():
+def test_reparse_reader_returns_every_phase_and_metric():
     doc = thresholds.load(THRESHOLDS_PATH)
-    records = thresholds.reparse_cpu(doc)
+    records = thresholds.reparse(doc)
     assert set(records) == set(thresholds.REPARSE_PHASES)
-    for phase, record in records.items():
-        assert record == doc["reparse_cpu"][phase], phase
+    for phase, metrics in records.items():
+        assert set(metrics) == set(thresholds.REPARSE_METRICS), phase
+        assert metrics == doc["reparse"][phase], phase
 
 
 def test_missing_reparse_cpu_member_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["reparse_cpu"]
+    del payload["reparse"]
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing field: reparse_cpu"):
+    with pytest.raises(ValueError, match="missing field: reparse"):
         thresholds.load(target)
 
 
 def test_missing_reparse_phase_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["reparse_cpu"]["residual"]
+    del payload["reparse"]["residual"]
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError,
                        match="missing reparse CPU phase: residual"):
@@ -545,7 +552,7 @@ def test_missing_reparse_phase_refused(tmp_path):
 def test_unknown_reparse_phase_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["persist"] = {"measured": 1.0, "floor": 2.5}
+    payload["reparse"]["persist"] = {"measured": 1.0, "floor": 2.5}
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="unknown reparse CPU phase: persist"):
         thresholds.load(target)
@@ -554,16 +561,16 @@ def test_unknown_reparse_phase_refused(tmp_path):
 def test_missing_reparse_phase_field_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["reparse_cpu"]["sniff"]["floor"]
+    del payload["reparse"]["sniff"]["share"]["floor"]
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing reparse CPU sniff: floor"):
+    with pytest.raises(ValueError, match="missing reparse CPU sniff.share: floor"):
         thresholds.load(target)
 
 
 def test_unknown_reparse_phase_field_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["sniff"]["unit"] = "percent"
+    payload["reparse"]["sniff"]["unit"] = "percent"
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="unknown reparse CPU sniff: unit"):
         thresholds.load(target)
@@ -573,7 +580,7 @@ def test_unknown_reparse_phase_field_refused(tmp_path):
 def test_reparse_share_must_be_a_percentage(tmp_path, value):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["sniff"] = {
+    payload["reparse"]["sniff"]["share"] = {
         "measured": json.loads(value),
         "floor": json.loads(value) + 1.5,
     }
@@ -586,16 +593,18 @@ def test_reparse_zero_share_is_a_real_reading(tmp_path):
     # A phase this corpus never reaches reads 0.0 (the sidecar step: no
     # meta.json sidecar is committed). That is a measurement, not an
     # absence, so the loader takes it.
-    target = _written_document(tmp_path, reparse=_reparse({"sidecar": "0.0"}))
+    target = _written_document(tmp_path, reparse=_reparse(
+        {"sidecar.share": "0.0", "sidecar.bytecodes": "0.0"}))
     doc = thresholds.load(target)
-    assert doc["reparse_cpu"]["sidecar"]["measured"] == Decimal("0.0")
+    assert doc["reparse"]["sidecar"]["share"]["measured"] == Decimal("0.0")
+    assert doc["reparse"]["sidecar"]["bytecodes"]["measured"] == Decimal("0.0")
 
 
 @pytest.mark.parametrize("value", ["6", "6.45"])
 def test_reparse_share_needs_exactly_one_decimal_place(tmp_path, value):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["sniff"] = {
+    payload["reparse"]["sniff"]["share"] = {
         "measured": json.loads(value),
         "floor": json.loads(value) + 1.5,
     }
@@ -607,7 +616,7 @@ def test_reparse_share_needs_exactly_one_decimal_place(tmp_path, value):
 def test_reparse_wrong_calibration_gap_refused(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["sniff"] = {"measured": 6.4, "floor": 8.4}
+    payload["reparse"]["sniff"]["share"] = {"measured": 6.4, "floor": 8.4}
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="gap must be 1.5"):
         thresholds.load(target)
@@ -619,36 +628,31 @@ def test_reparse_floor_below_measured_refused(tmp_path):
     # below a number it cannot influence.
     target = _written_document(tmp_path, reparse=_reparse())
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse_cpu"]["sniff"] = {"measured": 6.4, "floor": 5.9}
+    payload["reparse"]["sniff"]["share"] = {"measured": 6.4, "floor": 5.9}
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError,
-                       match=r"reparse_cpu\.sniff\.floor must be above"):
+                       match=r"reparse\.sniff\.share\.floor must be above"):
         thresholds.load(target)
 
 
-def test_reparse_floor_cli_prints_one_phase_floor():
+@pytest.mark.parametrize("metric", ["share", "bytecodes"])
+def test_reparse_cli_prints_one_phase_metric(metric):
     phase = thresholds.REPARSE_PHASES[0]
-    recorded = thresholds.load(THRESHOLDS_PATH)["reparse_cpu"][phase]
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--reparse-floor", phase, "--thresholds", str(THRESHOLDS_PATH)],
-        capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == f'{recorded["floor"]:.1f}'
-
-
-def test_reparse_measured_cli_prints_one_phase_measured():
-    phase = thresholds.REPARSE_PHASES[-1]
-    recorded = thresholds.load(THRESHOLDS_PATH)["reparse_cpu"][phase]
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--reparse-measured", phase, "--thresholds", str(THRESHOLDS_PATH)],
-        capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == f'{recorded["measured"]:.1f}'
+    recorded = thresholds.load(THRESHOLDS_PATH)["reparse"][phase][metric]
+    for flag, field in (("--reparse-floor", "floor"),
+                        ("--reparse-measured", "measured")):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
+             flag, phase, metric, "--thresholds", str(THRESHOLDS_PATH)],
+            capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == f'{recorded[field]:.1f}'
 
 
 def test_reparse_cli_refuses_an_unknown_phase():
     result = subprocess.run(  # pylint: disable=subprocess-run-check
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--reparse-floor", "persist", "--thresholds", str(THRESHOLDS_PATH)],
+         "--reparse-floor", "persist", "share", "--thresholds",
+         str(THRESHOLDS_PATH)],
         capture_output=True, text=True)
-    assert result.returncode == 2
+    assert result.returncode == 1
+    assert "unknown reparse phase" in result.stderr

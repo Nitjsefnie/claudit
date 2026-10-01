@@ -58,9 +58,9 @@ COVERAGE_REMEDY = (
     'A coverage floor or measured value is never lowered by hand: the '
     'ratchet raises them on master when a run justifies it.')
 REPARSE_REMEDY = (
-    'A reparse CPU floor or measured value is never raised by hand: the '
-    'ratchet only tightens it downward on master when a faster run '
-    'justifies it, so buy headroom by making the reparse cheaper.')
+    'A reparse phase budget is never raised by hand: the ratchet only '
+    'tightens it downward on master when a cheaper run justifies it, so '
+    'buy headroom by making the reparse cheaper.')
 BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
     'module, reduce the complexity, or seed a new family through the '
@@ -75,7 +75,8 @@ SUITE_COST_REMEDY = (
 # validates: it is never compared against (the family is not in
 # ``established``), only carried.
 _ABSENT_REPARSE = {
-    phase: {'measured': Decimal('2.5'), 'floor': Decimal('4.0')}
+    phase: {metric: {'measured': Decimal('2.5'), 'floor': Decimal('4.0')}
+            for metric in thresholds.REPARSE_METRICS}
     for phase in thresholds.REPARSE_PHASES
 }
 _ABSENT_SUITE_COST = {
@@ -171,11 +172,14 @@ def _reparse_moves(base, head, established):
     before = base[thresholds.REPARSE_FAMILY]
     after = head[thresholds.REPARSE_FAMILY]
     for phase in thresholds.REPARSE_PHASES:
-        for field in ('measured', 'floor'):
-            if after[phase][field] > before[phase][field]:
-                moves.append(
-                    f'{thresholds.REPARSE_FAMILY}.{phase}.{field}: '
-                    f'{before[phase][field]} -> {after[phase][field]}')
+        for metric in thresholds.REPARSE_METRICS:
+            for field in ('measured', 'floor'):
+                if (after[phase][metric][field]
+                        > before[phase][metric][field]):
+                    moves.append(
+                        f'{thresholds.REPARSE_FAMILY}.{phase}.{metric}.'
+                        f'{field}: {before[phase][metric][field]} -> '
+                        f'{after[phase][metric][field]}')
     return moves
 
 

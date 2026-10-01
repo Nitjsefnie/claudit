@@ -176,10 +176,12 @@ floors (always 1.5 below) are committed data in
 `.github/ci-thresholds.json`, and CI raises each floor on master when a
 run measures more than 1.5 above its recorded value. The same file holds
 the reparse hot path's budget (`scripts/ci/reparse_bench.py`): one
-record per phase of a parse pass, each phase's share of that run's own
-CPU work, gated the same way and tightened only downward — a share is a
-cost, so its floor is the ceiling 1.5 above the recorded value and only
-a phase that got cheaper moves it. The same file caps
+record per phase of a parse pass, each phase carrying the share of that
+run's own CPU work AND the bytecodes it retires per file, gated the same
+way and tightened only downward. Both are costs, so their floors are the
+ceilings 1.5 above the recorded values and only a phase that got cheaper
+moves them — the inversion the coverage family's `floor = measured - 1.5`
+does not have, because higher coverage is better and a lower CPU cost is. The same file caps
 every Python file's line count and every tracked `src/**/*.js(x)` file
 too (production 500 / test 700): files over the cap carry baseline
 entries that CI lowers as they shrink, and entries are never added or

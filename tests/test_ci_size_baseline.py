@@ -58,8 +58,11 @@ def _document(baseline=None):
                 "floor": 48.5,
             },
         },
-        "reparse_cpu": {
-            phase: {"measured": 10.0, "floor": 11.5}
+        "reparse": {
+            phase: {
+                metric: {"measured": 10.0, "floor": 11.5}
+                for metric in _load("thresholds").REPARSE_METRICS
+            }
             for phase in _load("thresholds").REPARSE_PHASES
         },
         "module_size_baseline": baseline or {},
