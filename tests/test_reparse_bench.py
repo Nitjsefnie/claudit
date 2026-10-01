@@ -490,6 +490,71 @@ def test_missing_measurement_file_refused(tmp_path):
         report_module.measurement_from_file(tmp_path / "absent.json")
 
 
+# --- the phase table (issue #490) ---------------------------------------------
+
+def _report_lines(counted=None):
+    """The report block for a synthetic measurement: shares of 9.0%
+    apiece and, unless a per-phase mapping is given, 1.0 counted apiece.
+    Pass a dict of Nones for the instrument-absent shape."""
+    shares = {name: Decimal("9.0") for name in bench.PHASES}
+    if counted is None:
+        counted = {name: Decimal("1.0") for name in bench.PHASES}
+    return report_module.report(
+        _measurement_with(shares, counted)).splitlines()
+
+
+def test_report_phase_table_is_markdown():
+    """Padded markdown: readable in the monospace job log, and pasted
+    elsewhere it renders as a table (issue #490)."""
+    lines = _report_lines()
+    header, separator, *rows = [
+        line for line in lines if line.startswith("|")]
+    assert [cell.strip() for cell in header.strip("|").split("|")] == [
+        "phase", "share", "ms/file", "bytecode_hundreds_per_file"]
+    assert set(separator) <= set("|-: ")
+    assert {row.split("|")[1].strip() for row in rows} == set(bench.PHASES)
+    assert lines[lines.index(header) - 1] == "", (
+        "a blank line separates the prose intro from the table, so the "
+        "table renders when the block is pasted as markdown")
+
+
+def test_report_table_stays_monospace_aligned():
+    """Padded cells keep the job log's columns: every table line is one
+    visual width, the numeric columns flush right."""
+    lines = _report_lines(counted={name: None for name in bench.PHASES})
+    table = [line for line in lines if line.startswith("|")]
+    assert len({len(line) for line in table}) == 1
+    assert all(cell.strip().endswith(":")
+               for cell in table[1].strip("|").split("|")[1:]), (
+        "the numeric columns are right-aligned")
+
+
+def test_report_marks_an_uncounted_phase_with_a_dash():
+    row = next(line for line in _report_lines(
+                   counted={name: None for name in bench.PHASES})
+               if line.startswith("|") and "parse_body" in line)
+    assert row.strip("| ").split("|")[-1].strip() == "-"
+
+
+def test_report_shows_a_phase_counted_value_in_its_row():
+    counted = {name: Decimal("1.0") for name in bench.PHASES}
+    counted["parse_body"] = Decimal("40.0")
+    row = next(line for line in _report_lines(counted=counted)
+               if line.startswith("|") and "parse_body" in line)
+    assert row.strip("| ").split("|")[-1].strip() == "40.0"
+
+
+def test_report_totals_and_instrument_notes_stay_prose():
+    """The intro, the sum and the two instrument notes are not rows of
+    the table (issue #490 keeps them prose)."""
+    prose = [line for line in _report_lines()
+             if not line.startswith("|")]
+    assert prose[0].startswith("reparse CPU")
+    assert any(line.lstrip().startswith("sum ") for line in prose)
+    assert any(line.lstrip().startswith("bytecodes:") for line in prose)
+    assert any(line.lstrip().startswith("perf:") for line in prose)
+
+
 def test_check_passes_while_every_phase_is_within_its_floor(tmp_path):
     thresholds_path = tmp_path / "ci-thresholds.json"
     thresholds.write(thresholds_path, _document(_budgets()))

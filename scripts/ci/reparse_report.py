@@ -206,6 +206,47 @@ def summary_line(measurement: Measurement) -> str:
 
 # --- reporting ---------------------------------------------------------------
 
+_REPORT_COLUMNS = ('phase', 'share', 'ms/file',
+                   'bytecode_hundreds_per_file')
+_RIGHT_ALIGN = (False, True, True, True)
+
+
+def _md_row(cells, widths) -> str:
+    """One padded markdown row: the phase column flush left, the numeric
+    columns flush right, so the CI job log keeps its columns aligned and
+    the table still renders pasted anywhere else (issue #490)."""
+    return '| ' + ' | '.join(
+        cell.rjust(width) if right else cell.ljust(width)
+        for cell, width, right in zip(cells, widths, _RIGHT_ALIGN)) + ' |'
+
+
+def _phase_table(measurement: Measurement) -> list:
+    """The per-phase block as a padded markdown table. A phase the
+    counting instrument missed carries a dash."""
+    rows = []
+    for name in PHASES:
+        counted = _counted(measurement, name)
+        cpu_ms = measurement.phase_cpu_s[name] / (
+            measurement.passes * measurement.files) * 1000
+        rows.append((
+            name,
+            f'{measurement.shares[name]}%',
+            f'{cpu_ms:.4f}',
+            '-' if counted is None else f'{counted}',
+        ))
+    widths = [max([len(_REPORT_COLUMNS[i])]
+                  + [len(row[i]) for row in rows])
+              for i in range(len(_REPORT_COLUMNS))]
+    return [
+        _md_row(_REPORT_COLUMNS, widths),
+        '| ' + ' | '.join(
+            (':' + '-' * (width - 1)) if not right
+            else ('-' * (width - 1) + ':')
+            for width, right in zip(widths, _RIGHT_ALIGN)) + ' |',
+        *[_md_row(row, widths) for row in rows],
+    ]
+
+
 def report(measurement: Measurement) -> str:
     per_file_ms = (measurement.cpu_s
                    / (measurement.passes * measurement.files) * 1000)
@@ -213,16 +254,10 @@ def report(measurement: Measurement) -> str:
         f'reparse CPU {measurement.cpu_s:.4f} s over '
         f'{measurement.files} transcripts x {measurement.passes} passes '
         f'({per_file_ms:.4f} ms/file), split by phase:',
-        f'  {"phase":<11} {"share":>6}  {"ms/file":>9}  {COUNT_UNIT}',
+        '',
+        *_phase_table(measurement),
+        f'  {"sum":<11} {sum(measurement.shares.values()):>5}%',
     ]
-    for name in PHASES:
-        cpu_ms = measurement.phase_cpu_s[name] / (
-            measurement.passes * measurement.files) * 1000
-        counted = _counted(measurement, name)
-        lines.append(
-            f'  {name:<11} {measurement.shares[name]:>5}%  {cpu_ms:>9.4f}  '
-            f'{"-" if counted is None else f"{counted}":>9}')
-    lines.append(f'  {"sum":<11} {sum(measurement.shares.values()):>5}%')
     if measurement.instruction_per_file is None:
         lines.append('  bytecodes: NOT MEASURED '
                      f'({measurement.instruction_note})')
