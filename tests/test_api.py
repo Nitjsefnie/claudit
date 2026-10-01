@@ -157,12 +157,13 @@ def test_export_missing_module_child_is_503_naming_export_python(
 
 @pytest.mark.parametrize("rc, stderr_text", [
     (1, "some other failure"),
+    (2, ""),
     (4, ""),
 ])
 def test_export_other_child_failure_stays_500(app_with_data, tmp_path, rc, stderr_text):
     """Any other nonzero exit keeps the plain 500 — only the missing-module
-    shape and the no-data exit (3, issue #445) are classified. rc 4 pins
-    the boundary above the no-data code."""
+    shape and the no-data exit (3, issue #445) are classified. rc 2
+    (argparse) and rc 4 pin the boundaries on both sides of 3."""
     out_path = str(tmp_path / "out.png")
     child = [sys.executable, "-c",
              f"import sys; sys.stderr.write({stderr_text!r}); sys.exit({rc})"]
@@ -173,11 +174,13 @@ def test_export_other_child_failure_stays_500(app_with_data, tmp_path, rc, stder
     assert str(excinfo.value.detail) == "export render failed"
 
 
-def test_export_no_data_child_is_404(app_with_data, tmp_path):
+def test_export_no_data_child_is_404(app_with_data, tmp_path, capsys):
     """The plot child's no-data exit (rc 3) maps to a 404, not a 500 —
     'no data in range' is an empty outcome, not a render failure (issue
-    #445). 3 is distinct from 1 (genuine failure → 500) and 2 (argparse
-    → 500)."""
+    #445). 3 is distinct from 1 (genuine failure → 500), 2 (argparse →
+    500) and 4 (→ 500). The empty outcome must also stay SILENT: the
+    '[export] render failed' log line lives inside the rc != 0 branch,
+    so no failure line may be logged for a no-data request."""
     out_path = str(tmp_path / "out.png")
     child = [sys.executable, "-c", "import sys; sys.exit(3)"]
     with pytest.raises(HTTPException) as excinfo:
@@ -185,6 +188,7 @@ def test_export_no_data_child_is_404(app_with_data, tmp_path):
             child, out_path))
     assert excinfo.value.status_code == 404
     assert "no data" in str(excinfo.value.detail).lower()
+    assert "render failed" not in capsys.readouterr().err
 
 
 def test_export_no_data_range_answers_404_not_500(app_with_data, monkeypatch, tmp_path):
