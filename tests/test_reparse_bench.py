@@ -402,17 +402,35 @@ def test_non_positive_pass_count_refused(passes):
         bench.measure(bench.corpus(), passes=int(passes), warmup=1)
 
 
+#: Every module that touches the measurement, not just the one the docstring
+#: is in. The per-phase timing actually happens in reparse_phases.py, so a
+#: scan of reparse_bench.py alone left the phase split — the part the ratchet
+#: reads — unchecked. A claim narrower than the thing it protects.
+#:
+#: The first pair MEASURES and must therefore clock with process_time; the
+#: second pair only reads and writes the measurement file, so requiring a
+#: clock of them would be nonsense. A wall clock is barred from all four.
+BENCH_MEASURES = ("reparse_bench.py", "reparse_phases.py")
+BENCH_HANDLES = ("reparse_ratchet.py", "reparse_report.py")
+
+
 def test_bench_measures_cpu_time_never_wall_clock():
     # Source-level on purpose: nothing here renders or executes the
     # measurement, so the pin that survives is the one on the code. A
     # wall-clock component would make the number depend on the runner's
-    # load rather than on the parse work, which is the whole point.
-    source = BENCH.read_text(encoding="utf-8")
-    assert "process_time" in source
-    for wall_clock in ("perf_counter", "monotonic", "time.time("):
-        assert wall_clock not in source, (
-            f"the bench references {wall_clock}: a CPU budget cannot carry "
-            "a wall-clock component")
+    # load rather than on the parse work, which is the whole point — and on
+    # this host the co-tenant multiplier moved wall by 2-4x.
+    ci_dir = BENCH.parent
+    for name in BENCH_MEASURES:
+        source = (ci_dir / name).read_text(encoding="utf-8")
+        assert "process_time" in source, (
+            f"{name} measures without time.process_time()")
+    for name in BENCH_MEASURES + BENCH_HANDLES:
+        source = (ci_dir / name).read_text(encoding="utf-8")
+        for wall_clock in ("perf_counter", "monotonic", "time.time("):
+            assert wall_clock not in source, (
+                f"{name} references {wall_clock}: a CPU budget cannot "
+                "carry a wall-clock component")
 
 
 def test_written_measurement_round_trips_exactly(tmp_path):

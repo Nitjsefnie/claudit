@@ -545,11 +545,22 @@ def test_a_wider_range_never_serves_fewer_beacons(viz, pinned):
 
 
 def test_since_names_the_data_served_not_the_range_asked_for(viz, pinned):
-    """`since` existed to stop the reader believing a longer label.
+    """`since` EQUALS the oldest data served — an equality, not a bound.
 
-    On the rollup path it used to echo the REQUESTED window while the data
-    stopped short of it, which is the exact lie the field was added to
-    prevent. It must name the oldest data the answer rests on.
+    `since` existed to stop the reader believing a longer label: on the
+    rollup path it used to echo the REQUESTED window while the data stopped
+    short of it, which is the exact lie the field was added to prevent.
+
+    It was first pinned with two `since <= X` assertions, and both of them
+    held against the buggy code — an echo of the requested window names an
+    instant OLDER than the data, so `requested <= oldest-served` is true
+    exactly when the bug is present. A one-sided bound cannot catch a value
+    that is wrong by being too early; only an equality, or the symmetric
+    bound, can. The cross-model review ran the original assertions against
+    the pre-fix head and they were green, which is how the toothless pin
+    was found. This one asserts the identity, and the count assertion in
+    `test_a_wider_range_never_serves_fewer_beacons` is what actually
+    discriminates the data itself.
     """
     base = PINNED_NOW - timedelta(hours=240)
     with db.viz_conn() as conn:
@@ -566,9 +577,12 @@ def test_since_names_the_data_served_not_the_range_asked_for(viz, pinned):
 
     body = web_metrics_readout(rng="all")
     since = datetime.fromisoformat(body["since"].replace("Z", "+00:00"))
-    oldest = min(b["ts"] for b in body["buckets"])
-    assert since <= datetime.fromisoformat(oldest.replace("Z", "+00:00")), (
-        f"`since` ({since}) is LATER than the oldest bucket served "
-        f"({oldest}), so the panel would claim less history than it shows")
-    assert since <= PINNED_NOW - timedelta(hours=200), (
-        "`since` echoed the requested window instead of the data served")
+    width = body["bucket_s"]
+    starts = [datetime.fromisoformat(b["ts"].replace("Z", "+00:00"))
+              - timedelta(seconds=width / 2) for b in body["buckets"]]
+    assert since == min(starts), (
+        f"`since` ({since}) is not the oldest bucket the answer rests on "
+        f"({min(starts)}); it is echoing the requested window again")
+    # And the symmetric bound, so a future change that reports the requested
+    # window is caught from the other side as well.
+    assert since >= min(starts) - timedelta(seconds=1)
