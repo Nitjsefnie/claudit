@@ -69,20 +69,48 @@ def test_two_providers_of_one_model_price_differently():
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
-    # Every seeded row lists cache_write 0, so both create buckets carry
-    # the input rate rather than a free write. Pin that seeded history
-    # window: later entries may independently change any of the five rates.
+    # A host that lists no write price is charged the input rate for the
+    # write, never a free one: every seeded row's create buckets carry a
+    # positive rate, whatever tier the host split them into.
     for model, provider in pricing.PROVIDER_RATES:
         if (model.startswith(FUZZ_RESERVED_NAMESPACE)
                 or provider.startswith(FUZZ_RESERVED_NAMESPACE)
                 or (model, provider) in pricing.PROVIDER_STARTS):
             continue
         rates = pricing.rate_for(model, SEEDED, provider)
-        assert rates["create_5m"] == rates["fresh"]
-        assert rates["create_1h"] == rates["fresh"]
+        if rates["fresh"]:
+            assert rates["create_5m"] > 0 and rates["create_1h"] > 0
     assert _cost(V41, "Novita", SEEDED, eph5=1_000_000, eph1h=1_000_000,
                  unsplit_create=1_000_000) == pytest.approx(
                      3 * 0.285, rel=1e-12)
+
+
+def test_an_unsplit_cache_write_prices_both_tiers_at_the_input_rate(monkeypatch):
+    # The invariant itself, over synthetic rates rather than the maintained
+    # table: with no listed write price the loader cannot invent a tier.
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("acme/v9", "SyntheticHost"): {"fresh": 4.0, "create_5m": 4.0,
+                                       "create_1h": 4.0, "read": 0.2,
+                                       "output": 20.0}})
+    rates = pricing.rate_for("acme/v9", SEEDED, provider="SyntheticHost")
+    assert rates["create_5m"] == rates["fresh"] == 4.0
+    assert rates["create_1h"] == rates["fresh"]
+    assert _cost("acme/v9", "SyntheticHost", SEEDED, eph5=1_000_000,
+                 eph1h=1_000_000, unsplit_create=1_000_000) == pytest.approx(
+                     12.0, rel=1e-12)
+
+
+def test_a_listed_1h_tier_is_read_apart_from_the_5m_one(monkeypatch):
+    """The split the refresh now records: a host that lists both writes
+    prices the 1h bucket at its own rate, not the 5m one."""
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("acme/v9", "SyntheticHost"): {"fresh": 4.0, "create_5m": 5.0,
+                                       "create_1h": 8.0, "read": 0.2,
+                                       "output": 20.0}})
+    rates = pricing.rate_for("acme/v9", SEEDED, provider="SyntheticHost")
+    assert (rates["create_5m"], rates["create_1h"]) == (5.0, 8.0)
+    assert _cost("acme/v9", "SyntheticHost", SEEDED, eph5=1_000_000,
+                 eph1h=1_000_000) == pytest.approx(13.0, rel=1e-12)
 
 
 def test_the_provider_table_is_keyed_on_the_normalised_model_id(
