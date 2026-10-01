@@ -28,7 +28,7 @@ jobs:
     permissions:
       # Reads contents for the suite; writes only the informational
       # patch-coverage comment (issue #129). The ratchet push is the
-      # ratchet-push job below (deploy key, master-push environment).
+      # ratchet-push job below (own token, contents: write).
       contents: read
       pull-requests: write
 
@@ -41,8 +41,8 @@ jobs:
         # Fixtures create and drop run-named databases
         # (tests/scratch_db.py), so the role needs CREATEDB — the stock
         # `postgres` superuser has it. Pinned by digest: the
-        # ratchet-push job below receives the deploy key, so the image
-        # the measurements come from must be the reviewed one.
+        # ratchet-push job publishes from this image's measurements, so
+        # the image must be the reviewed one.
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
@@ -431,20 +431,27 @@ jobs:
           retention-days: 1
 
   ratchet-push:
-    # The only job that loads the deploy key. No third-party or
-    # upstream-derived code runs here before or while the key is loaded:
-    # no repo checkout, no pip, no npm, no test suite, no
-    # upstream-response parsing; the downloads run before the key is
-    # loaded. The one script here, suite_ratchet.py --tighten, is a
+    # The data-only push job: no third-party or upstream-derived code
+    # runs here at all -- no repo checkout, no pip, no npm, no test
+    # suite, no upstream-response parsing; the pinned downloads run
+    # first. The one script here, suite_ratchet.py --tighten, is a
     # stdlib-only DATA operation over this run's own measurement and
     # the fetched master's thresholds: no test code, never a raise.
+    # The push authenticates with the job's own GITHUB_TOKEN
+    # (contents: write), not the master-push deploy key: the key lives
+    # in an environment, and inside this workflow_call callee its
+    # secret resolved EMPTY on the job's first live run (issue #479,
+    # run 36876895211) -- environments belong to the top-level
+    # workflow, and refresh-pricing's push job reads the key there and
+    # works. The key keeps exactly two consumers after this: the
+    # pricing bot's push job and the deploy path.
     needs: pytest
     if: needs.pytest.outputs.ratchet_changed == 'true' || needs.pytest.outputs.suite_measured == 'true'
-    environment: master-push
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read  # the push authenticates with the deploy key
+      # Write is the push; nothing else is needed or granted.
+      contents: write
     steps:
       - name: Download the ratchet data
         if: needs.pytest.outputs.ratchet_changed == 'true'
@@ -462,28 +469,13 @@ jobs:
 
       - name: Push the ratchet commit to master
         env:
-          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SUITE_MEASURED: ${{ needs.pytest.outputs.suite_measured }}
         run: |
-          # Fail closed on an empty key: the fallback must never be a token.
-          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
-            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
-            exit 1
-          fi
-          eval "$(ssh-agent -s)" >/dev/null
-          # The agent is stopped when this step ends, whatever its outcome: the
-          # key never outlives the step that loaded it.
-          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
-          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
-          mkdir -p ~/.ssh
-          # GitHub's published SSH host keys (its Meta endpoint).
-          printf '%s\n' \
-            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
-            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
-            >> ~/.ssh/known_hosts
-          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
-          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          # The token rides in the remote URL, set once and never
+          # echoed; GitHub masks registered secrets in run logs.
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           # Only a raise-worthy run staged the measured base; a
           # suite-only run (the common admission) has no artifact and
           # falls through to the push-time staleness detection below.
@@ -503,6 +495,7 @@ jobs:
           fi
           git init -q "$RUNNER_TEMP/ratchet-repo"
           git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
+
           git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
           git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
           if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then

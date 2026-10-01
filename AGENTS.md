@@ -334,12 +334,15 @@ gates one measured pytest pass against committed instruction budgets
 (scripts/ci/suite_bench.py; no baseline release involved), and
 `refresh-pricing.yml` deliberately keeps its no-cache setup despite the
 pip-cache rule. The master-push deploy key lives in the `master-push`
-GitHub environment, reachable only from master; each bot's push runs in
-its own key-only job that receives the tested data as an artifact, runs
-no test/dependency/upstream code, and stops its ssh-agent after the
-push. Deploy-key pushes start workflows, so the hourly pricing commit
-gets a real aggregate verdict on master's tip; the ratchet commit stays
-silent because ci-gate ignores `.github/ci-thresholds.json`.
+GitHub environment, reachable only from master; the pricing bot's push
+runs in a key-only job that receives the tested data as an artifact,
+runs no test/dependency/upstream code, and stops its ssh-agent after
+the push. Deploy-key pushes start workflows, so the hourly pricing
+commit gets a real aggregate verdict on master's tip. The ratchet
+push (tests.yml's `ratchet-push` job) instead pushes with the job's
+own `GITHUB_TOKEN` — an environment's secret resolves empty inside a
+`workflow_call` callee (issue #479) — and a `GITHUB_TOKEN` push starts
+no runs, so the ratchet commit is silent by construction.
 
 Run these locally before pushing — CI is the backstop:
 
