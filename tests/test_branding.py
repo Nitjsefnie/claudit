@@ -538,7 +538,10 @@ def test_every_accepted_site_relative_url_resolves_same_origin(caplog):
         "  out.push([v, href]);"
         "} console.log(JSON.stringify(out));"
     )
-    res = subprocess.run(["node", "-e", script], capture_output=True,
+    # The script goes in over STDIN, not argv: 1296 JSON-encoded values
+    # is a ~100 KB command line, and Windows caps one at 32,767 characters
+    # (WinError 206, both windows legs of the matrix).
+    res = subprocess.run(["node", "-"], input=script, capture_output=True,
                          text=True, check=True)
     resolved = dict(json.loads(res.stdout))
 
