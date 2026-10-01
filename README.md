@@ -286,10 +286,10 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 The second database is the **auth database**, holding the `users` table
 the login page reads. claudit owns no schema for it — in production it is
 provisioned and populated by your own user-management process, and the
-application only ever READS it. Set `DATABASE_URL_AUTH` to point at it
-(`postgresql:///claudit_auth` above; the shipped `backend/.env.example`
-defaults to `postgresql:///users`, a database this quick start does not
-create).
+application only ever READS it. Set `DATABASE_URL_AUTH` to point at the
+database just created (`DATABASE_URL_AUTH=postgresql:///claudit_auth`);
+the shipped `backend/.env.example` defaults to
+`postgresql:///users`, a database this quick start does not create.
 
 `db.schema_check()` aborts startup unless that table exists and carries
 the two columns the login lookup reads, and it is deliberately strict
@@ -311,9 +311,11 @@ about both:
   'users'`. So when `DATABASE_URL_AUTH` connects as a role other than the
   table's owner, run `GRANT SELECT ON users TO <role>` too.
 
-A table outside the `public` schema aborts with the same
-`no 'users' table visible` message an unreachable database produces, so
-check the schema as well as the DSN.
+A `users` table outside the `public` schema aborts with the same
+`no 'users' table visible` message a wrong database produces, so check
+the schema as well as the DSN. A database that cannot be reached at all
+never gets that far — the connection times out instead, with no mention
+of which variable was wrong (issue #463).
 
 The table starts empty, so there is no credentialed account yet —
 **Continue as guest** on the sign-in page gets you in without one, and
