@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
+from backend.app import _nonce_script_elements
 from backend import api_export
 from backend import branding
 from backend import login as login_mod
@@ -147,29 +149,51 @@ def test_brand_rides_the_existing_injection_script(page_client):
 # ---------------------------------------------------------------------------
 
 
+class _ScriptCollector(HTMLParser):
+    """Every script ELEMENT a real HTML parser sees, as (open tag,
+    content) — stdlib `html.parser` brings its own CDATA handling for
+    script raw text, so this is an INDEPENDENT oracle. A hand-rolled
+    walk would re-declare the implementation's own regexes and could
+    only ever agree with them; under the blanket-`replace` bug the
+    injected tag lands inside a JS string literal, which is not an
+    element to this parser either — so independence is what makes the
+    question ("does every element the browser sees carry a nonce?")
+    answerable at all."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.elements: list[tuple[str, str]] = []
+        self._open: str | None = None
+        self._body: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            self._open = self.get_starttag_text()
+            self._body = []
+
+    def handle_startendtag(self, tag, attrs):
+        pass
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self._open is not None:
+            self.elements.append((self._open, "".join(self._body)))
+            self._open = None
+
+    def handle_data(self, data):
+        if self._open is not None:
+            self._body.append(data)
+
+    def close(self):
+        super().close()
+        if self._open is not None:          # an unterminated element
+            self.elements.append((self._open, "".join(self._body)))
+
+
 def _script_elements(html: str) -> list[tuple[str, str]]:
-    """(open tag, content) of every script ELEMENT in `html`, walking the
-    way a browser does: an element's content is RAW TEXT ending at the
-    first `</script`, so a `<script` sequence inside one is CONTENT, not
-    another element. The distinction is the whole of #439 — a regex that
-    ignores it counts the brand payload's `<script` as an element."""
-    elements: list[tuple[str, str]] = []
-    pos = 0
-    while True:
-        open_match = _SCRIPT_OPEN_RE.search(html, pos)
-        if open_match is None:
-            return elements
-        close = _SCRIPT_CLOSE_RE.search(html, open_match.end())
-        if close is None:
-            elements.append((open_match.group(0), html[open_match.end():]))
-            return elements
-        elements.append((open_match.group(0),
-                         html[open_match.end():close.start()]))
-        pos = close.end()
-
-
-_SCRIPT_OPEN_RE = re.compile(r"<script\b[^>]*>", re.I)
-_SCRIPT_CLOSE_RE = re.compile(r"</script\s*>", re.I)
+    parser = _ScriptCollector()
+    parser.feed(html)
+    parser.close()
+    return parser.elements
 
 
 def _raw_js_script_bodies(html: str) -> list[str]:
@@ -237,13 +261,16 @@ def test_bootstrap_stays_valid_js_for_every_script_unsafe_brand(
     None,
     "Overview <script>alert(1)</script>",
     '</script><script src="/x">',
+    '<script>unterminated',
+    '</SCRIPT><SCRIPT SRC="/x">',
 ])
 def test_every_served_script_element_carries_the_nonce(
         page_client, monkeypatch, title):
     """The invariant #439's fix rests on, checked under a hostile brand
-    value too: the rewrite tags script ELEMENTS, so every element the
-    browser sees carries the response's nonce, and the `<script` the
-    payload carries never becomes an extra untagged element."""
+    value too: the rewrite tags script ELEMENTS, so every element an
+    independent HTML parser sees in the served page carries the
+    response's nonce — and, against the template's own count, that no
+    payload `<script` has become an element the rewrite did not tag."""
     if title is not None:
         monkeypatch.setenv("APP_TITLE", title)
     resp = page_client.get("/")
@@ -255,6 +282,60 @@ def test_every_served_script_element_carries_the_nonce(
     assert elements
     for tag, _body in elements:
         assert f'nonce="{nonce}"' in tag, f"untagged script element: {tag}"
+    # The template's own element count, parsed the same independent way:
+    # a brand value carrying `<script` must not add an element.
+    assert len(elements) == len(_script_elements(INDEX.read_text("utf-8")))
+
+
+# The rewrite is a pass-through: strip the attribute it added and the
+# document must come back byte for byte. The walk REWRITES the served
+# HTML rather than scanning it, so a tail it dropped would be as
+# invisible to a reader as a tag it missed.
+_WALKER_CASES = [
+    "",
+    "no scripts at all",
+    "<script></script>",
+    "<script>a<script>b</script>c</script>",
+    "<SCRIPT>x</SCRIPT>",
+    "<ScRiPt src='/x'>y</ScRiPt>",
+    "<scriptx>a</scriptx>",
+    "<script>a</script/><script>b</script>",
+    "<script>a</script foo='1'>b</script>",
+    "<script>a</script >b</script >",
+    "<p>before</p><script>a</script><p>after</p>",
+    "<script>unterminated tail",
+    "<script>a<script>unterminated after a nested open",
+    "<script>a</script>trailing text after the last close",
+]
+
+
+@pytest.mark.parametrize("html", _WALKER_CASES)
+def test_nonce_rewrite_conserves_the_document(html):
+    """Every byte survives the rewrite: removing the injected attribute
+    returns the input exactly, casing included. An unterminated element
+    runs to the end of the document, and an end tag the browser accepts
+    (`</script/>`, `</script foo="1">`) ends the element as it does."""
+    out = _nonce_script_elements(html, "NONCE")
+    assert out.replace(' nonce="NONCE"', "") == html
+
+
+@pytest.mark.parametrize("html", [
+    "<script>a</script/><script>b</script>",
+    "<script>a</script foo='1'>b</script>",
+    "<script>a</script >b</script >",
+    "<script>a</script\t>b</script\t>",
+])
+def test_nonce_rewrite_tags_every_element_a_browser_sees(html):
+    """The end-tag grammar is the browser's, not `</script>` alone: a
+    self-closing or attribute-bearing end tag closes the element as
+    surely as a bare one, so the element after it must still be tagged
+    — an untagged one is blocked by the very CSP the nonce satisfies."""
+    out = _nonce_script_elements(html, "NONCE")
+    tags = _script_elements(out)
+    assert len(tags) == len(_script_elements(html)), (
+        f"element count changed: {out!r}")
+    for tag, _body in tags:
+        assert 'nonce="NONCE"' in tag, f"untagged element: {out!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -398,14 +479,24 @@ def test_url_attr_accepts_a_backslash_percent_encoded():
 def test_every_accepted_site_relative_url_resolves_same_origin():
     """#438, the property the site-relative branch exists to provide:
     whatever `url_attr` hands back goes into an href, and a browser
-    resolves it against this origin. Run through node's own WHATWG URL
-    parser — the implementation this check claims to model — so a shape
-    the repo reasons about wrongly fails here instead of in a browser.
+    resolves it against this origin. Each value below is measured
+    through node's own WHATWG URL parser — the implementation this check
+    models — so a shape the repo reasons about wrongly fails here instead
+    of in a browser.
 
-    The refused shapes beside it are the other half: each resolves OFF
-    this origin, which is why it must be refused (and over-refusing a
-    config value is safe and visible — a dropped link, never a page
-    pointing at someone else's host)."""
+    These are the values this suite enumerates, NOT the whole class: a
+    property test that claimed the class would need the class derived,
+    and the tab-stripped spelling `/\t/evil.example` is a member neither
+    list below reaches (filed as its own issue). The oracle is still
+    sound for what it enumerates — it comes from node, independently of
+    `branding`, so it can contradict the repo's own belief — and both
+    directions bite: refuse-everything and accept-everything mutants
+    each fail this file.
+
+    The refused shapes are the other half: each resolves OFF this origin,
+    which is why it must be refused (and over-refusing a config value is
+    safe and visible — a dropped link, never a page pointing at someone
+    else's host)."""
     base = "https://op.example/dashboard"
     origin = "https://op.example"
     offsite = [
