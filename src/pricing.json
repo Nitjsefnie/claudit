@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T19:53:48Z",
+  "provider_rates_fetched": "2026-10-01T20:53:32Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2827,6 +2827,14 @@
           "from": "2026-10-01T19:10:34Z",
           "output": 0.6,
           "read": 0.0259
+        },
+        {
+          "create_1h": 0.0264,
+          "create_5m": 0.0264,
+          "fresh": 0.0264,
+          "from": "2026-10-01T20:10:36Z",
+          "output": 0.6,
+          "read": 0.0264
         }
       ],
       "Sail Research": [
@@ -35062,6 +35070,14 @@
           "from": "2026-10-01T18:11:03Z",
           "output": 3.5,
           "read": 0.2497
+        },
+        {
+          "create_1h": 0.255,
+          "create_5m": 0.255,
+          "fresh": 0.255,
+          "from": "2026-10-01T20:10:35Z",
+          "output": 3.5,
+          "read": 0.255
         }
       ],
       "Sail Research": [
@@ -40428,6 +40444,14 @@
           "from": "2026-09-29T23:30:52Z",
           "output": 3.93,
           "read": 0.19
+        },
+        {
+          "create_1h": 0.24,
+          "create_5m": 0.24,
+          "fresh": 0.24,
+          "from": "2026-10-01T20:40:35Z",
+          "output": 3.93,
+          "read": 0.19
         }
       ],
       "Mistral": [
@@ -41894,6 +41918,30 @@
           "fresh": 0.131,
           "from": "2026-10-01T16:35:55Z",
           "output": 2.694,
+          "read": 0.176
+        },
+        {
+          "create_1h": 0.357,
+          "create_5m": 0.357,
+          "fresh": 0.357,
+          "from": "2026-10-01T20:10:33Z",
+          "output": 2.694,
+          "read": 0.176
+        },
+        {
+          "create_1h": 0.119,
+          "create_5m": 0.119,
+          "fresh": 0.119,
+          "from": "2026-10-01T20:20:35Z",
+          "output": 2.694,
+          "read": 0.176
+        },
+        {
+          "create_1h": 0.106,
+          "create_5m": 0.106,
+          "fresh": 0.106,
+          "from": "2026-10-01T20:40:36Z",
+          "output": 2.653,
           "read": 0.176
         }
       ],
@@ -44259,6 +44307,14 @@
           "from": "2026-10-01T19:25:34Z",
           "output": 0.6,
           "read": 0.048
+        },
+        {
+          "create_1h": 0.046,
+          "create_5m": 0.046,
+          "fresh": 0.046,
+          "from": "2026-10-01T20:25:53Z",
+          "output": 0.6,
+          "read": 0.044
         }
       ],
       "Io Net": [
