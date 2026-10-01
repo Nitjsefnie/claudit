@@ -9,6 +9,7 @@ that ``write()`` publishes.
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import subprocess
@@ -43,8 +44,18 @@ thresholds = _load()
 
 GAP = Decimal("1.5")
 
+# Every suite phase's ceiling sits exactly the calibration gap ABOVE its
+# recorded measured value: a suite phase's number is a cost ceiling, not a
+# quality floor, so the gap sits above (mirrored against coverage, whose
+# floor sits below).
+SUITE_COST = {
+    "collection": {"measured": Decimal("12.5"), "floor": Decimal("14.0")},
+    "run": {"measured": Decimal("304.9"), "floor": Decimal("306.4")},
+    "residual": {"measured": Decimal("6.3"), "floor": Decimal("7.8")},
+}
 
-def _document(measured="92.6", floor="91.1", baseline=None):
+
+def _document(measured="92.6", floor="91.1", baseline=None, suite=None):
     return {
         "schema_version": 1,
         "coverage": {
@@ -59,6 +70,7 @@ def _document(measured="92.6", floor="91.1", baseline=None):
         },
         "module_size_baseline": baseline or {},
         "pylint_suppression_baseline": {},
+        "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
     }
 
 
@@ -351,3 +363,123 @@ def test_committed_suppression_member_loads():
         assert path.startswith(("backend/", "scripts/"))
         assert not path.startswith("tests/")
         assert count > 0
+
+
+def test_committed_suite_cost_member_loads():
+    # The committed suite_cost member loads through the reader, carries
+    # exactly the bench's phases, and every ceiling sits the calibration
+    # gap above its measured value (a cost's gap sits above).
+    doc = thresholds.load(THRESHOLDS_PATH)
+    phases = thresholds.suite_cost(doc)
+    assert tuple(sorted(phases)) == tuple(
+        sorted(thresholds.SUITE_COST_PHASES))
+    for phase in thresholds.SUITE_COST_PHASES:
+        measured, floor = phases[phase]["measured"], phases[phase]["floor"]
+        assert isinstance(measured, Decimal)
+        assert floor == measured + thresholds.CALIBRATION_GAP
+
+
+def test_suite_cost_reader_returns_the_committed_phases():
+    doc = thresholds.normalise(_document())
+    phases = thresholds.suite_cost(doc)
+    assert phases == SUITE_COST
+
+
+def test_missing_suite_cost_member_refused(tmp_path):
+    # A document omitting the member is refused outright, like the
+    # suppression baseline: every consumer can read the family unguarded.
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["suite_cost"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing field"):
+        thresholds.load(target)
+
+
+@pytest.mark.parametrize("phase", thresholds.SUITE_COST_PHASES)
+def test_missing_suite_cost_phase_refused(tmp_path, phase):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["suite_cost"][phase]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing suite cost phase"):
+        thresholds.load(target)
+
+
+def test_unknown_suite_cost_phase_refused(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["suite_cost"]["warmup"] = {"measured": 1.0, "floor": 2.5}
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown suite cost phase"):
+        thresholds.load(target)
+
+
+@pytest.mark.parametrize(
+    "mutation, match",
+    [
+        # Vary ONE property per case against the validator's conditions;
+        # the nested label names the phase and the field it rejects.
+        (lambda record: record.pop("measured"), "missing suite cost"),
+        (lambda record: record.pop("floor"), "missing suite cost"),
+        (lambda record: record.update({"kind": "share"}),
+         "unknown suite cost"),
+        (lambda record: record.update({"measured": "4.2"}), "JSON number"),
+        (lambda record: record.update({"measured": -0.1}), "non-negative"),
+        (lambda record: record.update({"measured": 4}), "exactly one"),
+        (lambda record: record.update({"measured": 4.25}), "exactly one"),
+        (lambda record: record.update({"floor": 14}), "exactly one"),
+    ],
+)
+def test_suite_cost_entry_validator_rejects(tmp_path, mutation, match):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    mutation(payload["suite_cost"]["collection"])
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=match):
+        thresholds.load(target)
+
+
+@pytest.mark.parametrize(
+    "measured, floor, match",
+    [
+        # floor == measured: no gap, a ceiling that bars the measurement
+        # that recorded it.
+        (12.5, 12.5, "floor must be above measured"),
+        # floor BELOW measured: the gap written the coverage way round.
+        (12.5, 11.0, "floor must be above measured"),
+        # A gap that is not the shared yardstick.
+        (12.5, 14.5, "gap must be 1.5"),
+        (12.5, 13.9, "gap must be 1.5"),
+    ],
+)
+def test_suite_cost_gap_shape_refused(tmp_path, measured, floor, match):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["suite_cost"]["collection"] = {
+        "measured": measured, "floor": floor}
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=match):
+        thresholds.load(target)
+
+
+def test_suite_cost_values_survive_the_canonical_round_trip(tmp_path):
+    # write() publishes canonical bytes and the loader reads the same
+    # numbers back: the recorded value is the value measured.
+    target = tmp_path / "ci-thresholds.json"
+    doc = _document()
+    thresholds.write(target, doc)
+    assert thresholds.load(target)["suite_cost"] == SUITE_COST
+
+
+def test_instruction_value_bounds():
+    assert thresholds.instruction_value(
+        Decimal("0.0"), "m") == Decimal("0.0")
+    assert thresholds.instruction_value(
+        Decimal("304.9"), "m") == Decimal("304.9")
+    with pytest.raises(ValueError, match="non-negative"):
+        thresholds.instruction_value(Decimal("-0.1"), "m")
+    with pytest.raises(ValueError, match="exactly one decimal place"):
+        thresholds.instruction_value(Decimal("4"), "m")
+    with pytest.raises(ValueError, match="exactly one decimal place"):
+        thresholds.instruction_value(Decimal("4.25"), "m")

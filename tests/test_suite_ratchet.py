@@ -1,0 +1,284 @@
+"""Tests for the suite cost ratchet's data operations.
+
+The bot's only suite-cost moves: a one-time seed through the loader's
+writer when the member is absent (refusing to overwrite), and a tighten
+that lowers both fields of a phase whose measurement beats the recorded
+value by more than the hysteresis, never raising and never touching the
+other phases. The synthetic bot path at the bottom seeds, tightens a
+cheaper measurement, and proves the direction guard accepts the
+downward move and rejects the upward one.
+"""
+from __future__ import annotations
+
+import copy
+import importlib.util
+import json
+import sys
+from decimal import Decimal
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
+
+
+def _load(name):
+    """Import a scripts/ci module by path.
+
+    scripts/ci is not a package and deliberately has no __init__.py — it
+    holds standalone CI entry points, not an importable library. The
+    directory itself goes on sys.path first, so the module's importlib
+    import of its siblings resolves.
+    """
+    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _thresholds():
+    return _load("thresholds")
+
+
+def _ratchet():
+    return _load("suite_ratchet")
+
+
+def _guard():
+    return _load("thresholds_guard")
+
+
+COUNTS = {
+    "collection": Decimal("12.5"),
+    "run": Decimal("304.9"),
+    "residual": Decimal("6.3"),
+}
+
+MEASUREMENT = {
+    "instrument": "instruction_count",
+    "unit": "million_instructions",
+    "hash_seed": "0",
+    "tests": 255,
+    "phases": {
+        phase: {"million_instructions": str(count),
+                "process_time_s": "1.000"}
+        for phase, count in COUNTS.items()
+    },
+    "total_million_instructions": str(sum(COUNTS.values())),
+}
+
+
+def _document(suite=None):
+    return {
+        "schema_version": 1,
+        "coverage": {
+            "python": {"measured": 92.6, "floor": 91.1},
+            "javascript": {"measured": 50.0, "floor": 48.5},
+        },
+        "module_size_baseline": {},
+        "pylint_suppression_baseline": {},
+        "suite_cost": copy.deepcopy(suite) if suite is not None else None,
+    }
+
+
+def _seeded_document():
+    doc = _document()
+    del doc["suite_cost"]
+    return doc
+
+
+def _written(tmp_path, doc, name="ci-thresholds.json"):
+    target = tmp_path / name
+    if doc.get("suite_cost") is None:
+        doc.pop("suite_cost", None)
+        target.write_text(json.dumps(doc), encoding="utf-8")
+    else:
+        _thresholds().write(target, doc)
+    return target
+
+
+def _measurement_file(tmp_path, counts, name="m.json"):
+    target = tmp_path / name
+    payload = json.loads(json.dumps(MEASUREMENT))
+    for phase in ("collection", "run", "residual"):
+        payload["phases"][phase]["million_instructions"] = str(
+            counts[phase])
+    payload["total_million_instructions"] = str(sum(counts.values()))
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    return target
+
+
+def test_seed_writes_the_family_through_the_loader(tmp_path):
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["suite_cost"] == {
+        phase: {
+            "measured": COUNTS[phase],
+            "floor": COUNTS[phase] + Decimal("1.5"),
+        } for phase in ("collection", "run", "residual")}
+
+
+def test_seed_refuses_when_the_member_exists(tmp_path, capsys):
+    ratchet = _ratchet()
+    seeded = _document()
+    seeded["suite_cost"] = {
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")}
+    target = _written(tmp_path, seeded)
+    before = target.read_text(encoding="utf-8")
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 1
+    assert target.read_text(encoding="utf-8") == before
+    assert "already recorded" in capsys.readouterr().err
+
+
+def test_seed_writes_canonical_bytes(tmp_path):
+    # The seeded bytes are the loader writer's canonical bytes: the
+    # round trip through normalise is lossless, so the committed
+    # document always stays byte-identical to what write() publishes.
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 0
+    text = target.read_text(encoding="utf-8")
+    assert text == json.dumps(
+        json.loads(text), indent=2, sort_keys=True) + "\n"
+    assert thresholds.load(target) == thresholds.normalise(
+        thresholds.load(target))
+
+
+def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    seeded = _document()
+    seeded["suite_cost"] = {
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")}
+    target = _written(tmp_path, seeded)
+    cheaper = dict(COUNTS)
+    # run: exactly the hysteresis cheaper -- no move. collection: more
+    # than the hysteresis cheaper -- both fields move down. residual:
+    # unchanged.
+    cheaper["run"] = COUNTS["run"] - Decimal("1.5")
+    cheaper["collection"] = COUNTS["collection"] - Decimal("1.6")
+    assert ratchet.main(
+        ["--tighten", str(_measurement_file(tmp_path, cheaper)),
+         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["suite_cost"]["run"] == seeded["suite_cost"]["run"]
+    assert doc["suite_cost"]["residual"] == seeded["suite_cost"]["residual"]
+    assert doc["suite_cost"]["collection"] == {
+        "measured": COUNTS["collection"] - Decimal("1.6"),
+        "floor": COUNTS["collection"] - Decimal("1.6") + Decimal("1.5"),
+    }
+
+
+def test_tighten_never_raises(tmp_path):
+    ratchet = _ratchet()
+    seeded = _document()
+    seeded["suite_cost"] = {
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")}
+    target = _written(tmp_path, seeded)
+    dearer = {phase: COUNTS[phase] + Decimal("50.0")
+              for phase in ("collection", "run", "residual")}
+    before = target.read_text(encoding="utf-8")
+    assert ratchet.main(
+        ["--tighten", str(_measurement_file(tmp_path, dearer)),
+         "--thresholds", str(target)]) == 0
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_tighten_refuses_a_counts_less_measurement(tmp_path):
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    payload = json.loads(json.dumps(MEASUREMENT))
+    payload["instrument"] = "process_time"
+    for record in payload["phases"].values():
+        record["million_instructions"] = None
+    path = tmp_path / "fallback.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert ratchet.main(["--tighten", str(path),
+                         "--thresholds", str(target)]) == 1
+
+
+def test_the_synthetic_bot_path_seed_then_tighten_then_guard(tmp_path):
+    # The bot's whole suite-cost journey in one flow: seed against a
+    # document the family predates, tighten with a cheaper run, and
+    # hold the result to the direction guard -- downward free, upward
+    # forbidden.
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    guard = _guard()
+    target = _written(tmp_path, _seeded_document())
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 0
+    seeded = thresholds.load(target)
+
+    cheaper = {phase: COUNTS[phase] - Decimal("2.0")
+               for phase in ("collection", "run", "residual")}
+    assert ratchet.main(
+        ["--tighten", str(_measurement_file(tmp_path, cheaper, "c.json")),
+         "--thresholds", str(target)]) == 0
+    tightened = thresholds.load(target)
+    for phase in ("collection", "run", "residual"):
+        assert tightened["suite_cost"][phase]["measured"] == cheaper[phase]
+
+    # Guard: base -> tightened (a tighten) is clean; tightened -> base
+    # (the reverse, an upward move) is forbidden.
+    base_path = tmp_path / "base.json"
+    thresholds.write(base_path, seeded)
+    head_path = tmp_path / "head.json"
+    thresholds.write(head_path, tightened)
+    assert guard.main([
+        "--base", str(base_path), "--head", str(head_path)]) == 0
+    assert guard.main([
+        "--base", str(head_path), "--head", str(base_path)]) == 1
+
+
+def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
+    # The committed document, copied to tmp_path and passed through the
+    # seed-refusal and tighten paths, keeps canonical bytes: the bot's
+    # writes are the loader's writes.
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = tmp_path / "ci-thresholds.json"
+    target.write_bytes(
+        subprocess_committed_bytes())
+    doc = thresholds.load(target)
+    assert tuple(sorted(doc["suite_cost"])) == (
+        "collection", "residual", "run")
+    # The member is present, so a seed refuses and changes nothing.
+    before = target.read_text(encoding="utf-8")
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 1
+    assert target.read_text(encoding="utf-8") == before
+    # A tighten within the hysteresis writes nothing.
+    within = {phase: COUNTS[phase] - Decimal("0.1")
+              for phase in ("collection", "run", "residual")}
+    assert ratchet.main(
+        ["--tighten", str(_measurement_file(tmp_path, within, "w.json")),
+         "--thresholds", str(target)]) == 0
+    assert target.read_text(encoding="utf-8") == before
+
+
+def subprocess_committed_bytes():
+    # Local import: only this helper needs the subprocess module.
+    # pylint: disable-next=import-outside-toplevel
+    import subprocess
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
+         "HEAD:.github/ci-thresholds.json"],
+        capture_output=True, check=True).stdout

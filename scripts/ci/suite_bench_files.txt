@@ -1,0 +1,23 @@
+# The suite bench's pinned fixture: the test files whose instruction
+# counts the speed gate budgets, one path per line, relative to the repo
+# root. Chosen so the counts measure the suite's SHARED machinery --
+# the conftest every module loads, the scratch-DB layer, the db/portable
+# split -- and the CI-infrastructure tests an ordinary product pull
+# request does not touch, plus one DB-exercising file so the
+# private-Postgres path is counted too. Re-seed the committed budgets
+# (delete the suite_cost member, seed through the loader's writer) in
+# the same change that edits this list: the counts are budgets for THIS
+# workload, not for whatever list follows.
+tests/test_scratch_db.py
+tests/test_db_marker.py
+tests/test_version.py
+tests/test_git_meta.py
+tests/test_ci_thresholds.py
+tests/test_ci_thresholds_guard.py
+tests/test_ci_ratchets.py
+tests/test_ci_size_baseline.py
+tests/test_ci_suppression_baseline.py
+tests/test_ci_gate_modules.py
+tests/test_ci_classify_verified_base.py
+tests/test_ci_gate_botdata.py
+tests/test_no_pinned_version_literals.py
