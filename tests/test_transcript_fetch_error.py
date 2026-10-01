@@ -387,8 +387,10 @@ def test_session_route_shows_error_before_session_view_and_ignores_reformatting(
     assert match, "could not locate the Inspector route render branch"
     branch = re.sub(r"\s+", " ", match.group(1)).strip()
     assert re.search(
-        r"\(\s*transcriptError\s*\?\s*<div\s+className=\"err\">"
-        r"\s*\{transcriptError\}\s*</div>\s*"
+        r"\(\s*transcriptError\s*\?\s*<>\s*"
+        r"<div\s+className=\"page-head\"><h1>Inspector</h1></div>\s*"
+        r"<div\s+className=\"err\">\s*\{transcriptError\}\s*</div>\s*</>\s*"
         r":\s*<SessionView\b",
         branch,
-    ), "the error element must render for transcriptError, before the normal SessionView branch"
+    ), ("the error element must render for transcriptError, with the "
+        "page h1 above it, before the normal SessionView branch")
