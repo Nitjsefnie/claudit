@@ -102,7 +102,7 @@ def _mutations():
     Every mutation changes exactly one input resolve() consults: a
     dated window, a list price, a provider window, a provider list, a
     schedule, a row start, a longer matching key, the tier fallback's
-    underlying newest key, and the default.
+    underlying newest key, the default, and the meter membership.
     """
     end = datetime(2030, 1, 1, tzinfo=UTC)
     start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -170,6 +170,15 @@ def _mutations():
         monkeypatch.setattr(pricing, "DEFAULT_RATES", dict(_R7))
         return "weird-thing-9", None
 
+    def meter_membership(monkeypatch):
+        # The reprice pass's meter re-derivation consults membership, so
+        # the document carries it unconditionally ("metered"): moving a
+        # key in or out of the set must move every pair's fingerprint,
+        # not only a member model's.
+        monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
+                            frozenset({"gpt-9-metered-check"}))
+        return "weird-thing-9", None
+
     return [
         ("dated window", dated_window),
         ("model list", model_list),
@@ -180,14 +189,16 @@ def _mutations():
         ("longer key steals", longer_key_steals),
         ("newer family key", newer_family_key_moves_tier),
         ("default rates", default_rates),
+        ("meter membership", meter_membership),
     ]
 
 
-# The default is part of every pair's fingerprint by design (the
-# structure carries it unconditionally), so the default-rates mutation
-# is the one mutation with no unaffected pair; the unrelated-pair test
-# covers the other eight.
-_PAIR_SCOPED = [m for m in _mutations() if m[0] != "default rates"]
+# The default and the meter membership are part of every pair's
+# fingerprint by design (the structure carries both unconditionally),
+# so those are the two mutations with no unaffected pair; the
+# unrelated-pair test covers the other eight.
+_PAIR_SCOPED = [m for m in _mutations()
+                if m[0] not in ("default rates", "meter membership")]
 
 # Each mutation's affected pair — fingerprinted before AND after the
 # patch in the sensitivity test.
@@ -201,6 +212,7 @@ _PROBES: dict[str, tuple[str, str | None]] = {
     "longer key steals": (f"{_AFFECTED_MODEL}-20260101", None),
     "newer family key": ("claude-sonnet-99", None),
     "default rates": ("weird-thing-9", None),
+    "meter membership": ("weird-thing-9", None),
 }
 
 

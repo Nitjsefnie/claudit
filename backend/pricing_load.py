@@ -184,7 +184,9 @@ def _long_context_members(doc: dict) -> frozenset[str]:
     """The long-context meter's membership, checked: distinct non-empty
     strings, each naming a models-table key (the meter rides that table's
     rate rows, so a key with no row is a typo the loader refuses)."""
-    members = doc.get("long_context_models", [])
+    if "long_context_models" not in doc:
+        raise ValueError("pricing.json: long_context_models is missing")
+    members = doc["long_context_models"]
     if (not isinstance(members, list)
             or not all(isinstance(k, str) and k for k in members)
             or len(set(members)) != len(members)):
