@@ -758,7 +758,10 @@ same rules:
   other unmodelled key at a nonzero price still refuses, which is what
   keeps an unmodelled cost from vanishing in silence. The fee is part of
   what makes a listing a distinct price, so two endpoints differing only
-  in it refuse rather than collapse into one row.
+  in it refuse rather than collapse into one row. A fee-carrying host is
+  SAMPLED, never log-backed, on both paths: only the sampled append writes
+  the note, and the log's five fields carry no per-request cost, so a
+  log-backed row would hold no record of it.
 - A run that appends bumps `PRICING_VERSION` to one past the value in
   `backend/constants.py` — never a literal — in the same commit (records
   at or after a new `from` ingested before the deploy were priced at the

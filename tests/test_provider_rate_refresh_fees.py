@@ -14,8 +14,11 @@ network.
 """
 from __future__ import annotations
 
+import copy
+
 from tests.refresh_fixture_builders import _endpoint, _per_token
-from tests.test_provider_rate_refresh import GLM, Run, refresh_prices
+from tests.test_provider_rate_refresh import GLM, NOW, Run, refresh, refresh_prices
+from tests.test_refresh_pricelog import _series
 
 # The fee as OpenRouter lists it: USD per request, not per token.
 WEB_SEARCH = "0.01"
@@ -101,6 +104,31 @@ def test_a_fee_that_is_not_a_number_refuses_its_host(tmp_path, capsys):
     rc, _, err = run(capsys)
     assert rc != 0 and "fee web_search 'free'" in err
     assert run.doc()["providers"][GLM]["OpenInference"] == before
+
+
+def test_a_fee_host_is_sampled_even_when_the_log_could_back_it(tmp_path, capsys):
+    """The other append path, end to end. A fee-carrying host the log can
+    identify is still sampled, so the entry the run writes carries the
+    note — log-backed appends carry OpenRouter's own history, which has no
+    field for the fee and would leave the cost unrecorded."""
+    run = Run(tmp_path)
+    _fee(run, GLM, "OpenInference")
+    _move(run, GLM, "OpenInference")
+    listed = run.endpoint(GLM, "OpenInference")["pricing"]
+    rates = refresh_prices.rates_of(listed, "OpenInference")
+    rc = refresh.main(
+        ["--commit-msg", str(run.commit_msg)],
+        fetch=lambda model_id: copy.deepcopy(run.payloads[model_id]),
+        fetch_models=lambda: {"data": [
+            {"id": source["id"], "canonical_slug": source["id"]}
+            for source in run.doc()["openrouter"]["models"].values()]},
+        fetch_log=lambda _slug: {"data": {"series": [
+            _series(slug="openinference", host="OpenInference", rates=rates)]}},
+        now=NOW, pricing_path=run.pricing, constants_path=run.constants)
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert "per-request fee the price log cannot carry" in out
+    assert run.doc()["providers"][GLM]["OpenInference"][-1]["note"] == FEE_NOTE
 
 
 # --- a listed 1h cache write is the create_1h rate --------------------------
