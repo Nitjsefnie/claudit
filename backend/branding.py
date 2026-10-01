@@ -71,6 +71,7 @@ def privacy_notice_url() -> str:
 
 
 _C0_SPACE = "".join(map(chr, range(0x21)))  # C0 controls + space
+_C0_SPACE_SET = frozenset(_C0_SPACE)
 _URL_ATTR_RE = re.compile(r"(?:https?://|/(?!/))")
 
 
@@ -89,24 +90,34 @@ def url_attr(url: str) -> str | None:
     over-refusing a config value is safe and visible, under-refusing
     is XSS.
 
-    A RAW BACKSLASH is refused wherever it appears (#438). The URL
-    parser maps ``\\`` to ``/`` for a special scheme — http(s) here —
-    so ``/\\host`` is the ``//host`` scheme-relative escape spelled the
-    other way, and ``https://\\host`` names a different host than the
-    value reads as; a tab or newline between the two is stripped by the
-    parser and turns ``/\\t\\host`` into the same escape. Refusing the
-    character outright closes the shape wherever the parser would read
-    it as a ``/``, on either branch.
+    Two more characters the browser does its own thing with, both
+    refused wherever they appear (#438, #450):
 
-    The refusal reaches past the path: the parser rewrites a raw ``\\``
-    to ``/`` in the AUTHORITY and the PATH, but leaves it in the QUERY
-    and the FRAGMENT (``/p?a=b\\c`` keeps its backslash, node-verified),
-    so a query or fragment naming a literal backslash is refused too.
-    That is over-refusing two exotic values in the direction this
-    function's own rule calls safe and visible — the dropped link and
-    the logged warning — and ``%5C`` is the spelling that survives.
-    Why the shape is refused at all is measured, not argued: a URL that
-    means itself is written ``%5C``, which no parser rewrites.
+    - A RAW BACKSLASH. The URL parser maps ``\\`` to ``/`` for a
+      special scheme — http(s) here — so ``/\\host`` is the ``//host``
+      scheme-relative escape spelled the other way, and
+      ``https://\\host`` names a different host than the value reads as.
+    - ANY C0 CONTROL OR SPACE outside the trimmed ends. A tab, LF or CR
+      is REMOVED from anywhere in the value, so ``/\\t/host`` is
+      ``//host`` by the time the browser resolves it: the same escape
+      again, spelled across a character the parser takes out. The rest
+      (NUL, VT, FF, the other controls, a bare space) are
+      percent-encoded rather than removed, so they resolve where they
+      read — but the rule is the character, not the escape, and one
+      rule a reader can check is worth more than a list of shapes a
+      browser may add to.
+
+    Both refusals reach past what any single escape needs. That is
+    deliberate, and it is the direction this function's own rule calls
+    safe and visible: a dropped link and a logged warning. Nothing a
+    real privacy-notice URL carries is lost, because every character
+    refused here has a spelling that survives untouched — ``%5C`` for
+    the backslash, ``%20``/``%09`` for the control — and the URL parser
+    rewrites or removes none of those. The one claim that is NOT
+    general: the parser rewrites a raw ``\\`` to ``/`` in the
+    AUTHORITY and the PATH but leaves it in the QUERY and the FRAGMENT
+    (``/p?a=b\\c`` keeps its backslash, node-verified), so those two
+    components are refused on the character rather than on a bypass.
 
     A refused value drops the link — a display-only setting must not
     take the service down at startup — and logs a warning, so the
@@ -115,12 +126,17 @@ def url_attr(url: str) -> str | None:
     value = url.strip(_C0_SPACE)
     if not value:
         return None
-    if not _URL_ATTR_RE.match(value) or "\\" in value:
+    # Anything the parser removes or rewrites ANYWHERE is refused, not
+    # only where the escape happens to sit today: the ends are already
+    # trimmed above, so what is left is what the browser reads.
+    if (not _URL_ATTR_RE.match(value) or "\\" in value
+            or not _C0_SPACE_SET.isdisjoint(value)):
         log.warning(
             "refusing %r as a URL attribute (SV-BRAND-ESCAPE): only "
             "http:// and https:// URLs and site-relative paths "
-            "(leading /, no backslash — a browser reads it as /) are "
-            "allowed; dropping the link",
+            "(leading /) with no backslash and no control characters "
+            "are allowed — a browser rewrites \\ to / and drops tab, "
+            "CR and LF before resolving the value; dropping the link",
             value,
         )
         return None
