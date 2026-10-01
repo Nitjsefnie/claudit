@@ -350,6 +350,7 @@ def _synthetic_provider_doc(w):
             entry(w.after, w.cutover.isoformat()),
         ]}},
         "provider_rates_fetched": w.cutover.isoformat(),
+        "long_context_models": [],
     }
 
 
