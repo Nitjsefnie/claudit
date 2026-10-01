@@ -89,10 +89,29 @@ MAX_BEACONS = 50
 #: cap is what it says it is.
 MAX_ROWS_PER_USER = 20_000
 
-#: How long a raw beacon is kept. Twice the widest stored bucket: a row pruned
-#: at this age is already folded into every rollup bucket it can belong to,
-#: including the widest one, twice over.
+#: How long a raw beacon is kept, and what that buys.
+#:
+#: `RETENTION_S` is the HORIZON: how far back the rollup reaches, twice the
+#: widest stored bucket so the widest display range has a full bucket's worth
+#: of slack either side of its leading edge.
+#:
+#: `RAW_KEEP_S` is longer, and the difference is the whole correctness of the
+#: fold. A bucket is stored on the fold that CLOSES it -- the first one where
+#: its entire span is behind the horizon -- and a bucket becomes complete at
+#: exactly the instant its last beacon is pruned. Prune at the horizon and
+#: the two coincide: every fold finds the newest closable bucket's rows
+#: already gone, and either drops the bucket or stores it with its tail
+#: missing. So the raw table keeps `RETENTION_S` PLUS one widest bucket PLUS
+#: one fold interval, which is what leaves a closable bucket's rows on the
+#: table at the moment it closes.
 RETENTION_S = 2 * max(LATENCY_BUCKETS)
+
+#: The interval at which the fold runs. A bucket must still be readable one
+#: interval after it closes, so the raw retention carries a fold's slack.
+FOLD_INTERVAL_S = 3600
+
+#: What the raw table actually keeps, and where `prune` deletes below.
+RAW_KEEP_S = RETENTION_S + max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
 
 #: Value ceiling per part. A timing part is milliseconds and a beacon is
 #: bounded by human patience; an hour is far past anything a page legitimately
@@ -233,7 +252,20 @@ def store(conn, user_id: int,
 
 
 def retention_cutoff(now: datetime) -> datetime:
-    """The instant `prune` deletes at."""
+    """The instant `prune` deletes below: the oldest row still on the table.
+
+    Also the oldest instant the live pass can read, so a range wider than
+    this is clamped to it and reports the window it really used.
+    """
+    return now - timedelta(seconds=RAW_KEEP_S)
+
+
+def rollup_horizon(now: datetime) -> datetime:
+    """The instant a rollup bucket must END behind to be complete.
+
+    A bucket is stored once, whole, and never revised: it is written by the
+    fold that closes it and the raw rows it needs are gone by the next one.
+    """
     return now - timedelta(seconds=RETENTION_S)
 
 
