@@ -235,6 +235,7 @@ def _ratchet_push_run() -> str:
 # pylint: disable-next=too-many-statements
 def test_ratchet_push_job_pushes_with_the_job_token():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
+    workflow = _tests_workflow()
     job = _ratchet_push_job()
     run = _ratchet_push_run()
 
@@ -252,6 +253,13 @@ def test_ratchet_push_job_pushes_with_the_job_token():
     assert job["timeout-minutes"] == "15"
     assert job["permissions"] == {"contents": "write"}
     assert "environment" not in job, job.get("environment")
+    # The admission reads job outputs: a dropped ratchet_changed mapping
+    # would degrade the raise path fail-green (the download's if reads
+    # an empty output and skips the artifact), so both mappings are
+    # pinned here.
+    assert workflow["jobs"]["pytest"]["outputs"] == {
+        "ratchet_changed": "${{ steps.ratchet.outputs.changed }}",
+        "suite_measured": "${{ steps.suite_bench.outputs.measured }}"}
     steps = job["steps"]
     assert len(steps) == 3
     download, suite_download, push = steps
@@ -340,10 +348,31 @@ def test_the_tests_callee_is_capped_high_enough_for_the_token_push():
              if (job.get("uses") or "")
              == "./.github/workflows/tests.yml"]
     assert len(calls) == 1
-    assert calls[0]["permissions"] == {
+    call = calls[0]
+    assert call["permissions"] == {
         "contents": "write",
         "pull-requests": "write",
     }
+    # No secret is forwarded to the callee: the call maps no secrets,
+    # and the callee's workflow_call trigger declares none either.
+    assert "secrets" not in call
+    workflow_call = (_tests_workflow().get("on") or {}).get(
+        "workflow_call") or {}
+    assert "secrets" not in workflow_call
+
+
+def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
+    # Each side's digest is pinned separately elsewhere; the EQUALITY is
+    # pinned here -- refresh-pricing could not move its postgres image
+    # alone without this failing.
+    tests_image = (
+        yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8"))
+        ["jobs"]["pytest"]["services"]["postgres"]["image"])
+    refresh_image = (
+        yaml.safe_load(REFRESH_WORKFLOW.read_text(encoding="utf-8"))
+        ["jobs"]["refresh"]["services"]["postgres"]["image"])
+    assert tests_image == refresh_image
+    assert tests_image.startswith("postgres:16@sha256:")
 
 
 def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_one_wiring():
