@@ -22,6 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 REPO_ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
 
+SUITE_COST = {
+    "collection": {"measured": 12.5, "floor": 14.0},
+    "run": {"measured": 304.9, "floor": 306.4},
+    "residual": {"measured": 6.3, "floor": 7.8},
+}
+
 
 def _load(name):
     """Import a scripts/ci module by path.
@@ -48,7 +54,7 @@ def _guard():
     return _load("thresholds_guard")
 
 
-def _document(baseline=None, suppression=None):
+def _document(baseline=None, suppression=None, suite=None):
     return {
         "schema_version": 1,
         "coverage": {
@@ -58,6 +64,7 @@ def _document(baseline=None, suppression=None):
         "module_size_baseline": baseline if baseline is not None else {},
         "pylint_suppression_baseline": (
             suppression if suppression is not None else {}),
+        "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
     }
 
 
@@ -244,3 +251,87 @@ def test_main_prints_each_forbidden_move(tmp_path, capsys):
     assert "module_size_baseline.backend/api.py" in captured.err
     assert "never lowered by hand" in captured.err
     assert "never raised or added by hand" in captured.err
+
+
+def test_suite_cost_raised_fails(tmp_path):
+    # A suite phase's number is a cost ceiling: the bot only ever
+    # tightens it down, so an upward move is a hand-raise and fails.
+    # (Both fields must move together to keep the loader's 1.5 gap, so
+    # this paired shape is the only raise a head document can carry.)
+    base = _document()
+    head = _document()
+    head["suite_cost"]["run"] = {"measured": 310.0, "floor": 311.5}
+    assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_suite_cost_tightened_is_clean(tmp_path):
+    # The bot shape: a cheaper run moves both fields of one phase down
+    # and leaves the other phases exactly where they were.
+    base = _document()
+    head = _document()
+    head["suite_cost"]["run"] = {"measured": 300.0, "floor": 301.5}
+    assert _guard_result(tmp_path, base, head) == 0
+
+
+def test_suite_cost_removed_fails(tmp_path):
+    # The loader refuses a document missing the member, so a wholesale
+    # deletion goes red at load; write() would refuse the bytes, so the
+    # hand-placed shape goes straight through the guard's --head.
+    base = _document()
+    head = _document()
+    del head["suite_cost"]
+    base_path = _written(tmp_path, base, "base.json")
+    head_path = tmp_path / "head.json"
+    head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 1
+
+
+def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
+    # A base predating the family carries no suite_cost record: the
+    # change introducing one is its seed, not a move (the #389 shape).
+    base = _document()
+    del base["suite_cost"]
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base), encoding="utf-8")
+    head_path = _written(tmp_path, _document(), "head.json")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 0
+
+
+def test_suite_cost_added_to_established_base_fails(tmp_path):
+    # Once the base carries the family, a phase appearing in the head
+    # that the base lacks is not a seed — but the loader refuses an
+    # unknown phase outright, so this shape goes red at load.
+    base = _document()
+    head = _document()
+    head["suite_cost"]["warmup"] = {"measured": 1.0, "floor": 2.5}
+    base_path = _written(tmp_path, base, "base.json")
+    head_path = tmp_path / "head.json"
+    head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 1
+
+
+def test_main_prints_the_suite_cost_remedy(tmp_path, capsys):
+    base = _document()
+    head = _document()
+    head["suite_cost"]["run"] = {"measured": 310.0, "floor": 311.5}
+    assert _guard_result(tmp_path, base, head) == 1
+    captured = capsys.readouterr()
+    assert "suite_cost.run.measured" in captured.err
+    assert "suite cost budget is never raised by hand" in captured.err
+
+
+def test_guard_rejects_a_decimal_spelled_head_record(tmp_path):
+    # The head is loaded through the loader (strict bytes); the base is
+    # trusted, but its numbers still arrive as Decimals: a suite record
+    # spelled with two decimal places in the base is refused by
+    # normalise, which is what names the path.
+    base = _document()
+    base["suite_cost"]["run"] = {"measured": "304.90", "floor": "306.4"}
+    head_path = _written(tmp_path, _document(), "head.json")
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base), encoding="utf-8")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 1
