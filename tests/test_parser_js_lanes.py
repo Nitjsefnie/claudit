@@ -488,7 +488,7 @@ def _token_breakdown_source() -> str:
     parse the file's JSX elsewhere)."""
     src = APP_JSX.read_text(encoding="utf-8")
     start = src.index("function computeTokenBreakdown")
-    end = src.index("\n// Paired token/cost breakdown bars", start)
+    end = src.index("\nfunction TokenBreakdownPanel", start)
     return src[start:end]
 
 
