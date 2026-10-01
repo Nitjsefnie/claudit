@@ -71,14 +71,17 @@ on:
       - '.github/ci-thresholds.json'
   workflow_dispatch:
 
-# Read-only at workflow level. Tests needs pull-requests: write for its
-# informational PR comment; its ratchet push is the callee's ratchet-push
-# job, which takes the deploy key from the master-push environment, not
-# from a forwarded secret. CodeQL needs security-events: write for SARIF
-# upload. Deploy-key pushes start workflows, unlike GITHUB_TOKEN pushes:
-# the hourly pricing commit intentionally gets an aggregate verdict on
-# master's tip, while the ratchet commit stays silent because this trigger
-# ignores its file.
+# Read-only at workflow level except where a leg says otherwise. Tests
+# needs pull-requests: write for its informational PR comment, and
+# contents: write because its ratchet-push job pushes the ratchet data
+# with the job's own token (issue #479: the master-push deploy key's
+# secret resolved empty inside the callee -- environments belong to the
+# top-level workflow, and the key keeps its two other consumers, the
+# pricing bot's push job and the deploy path). A GITHUB_TOKEN push
+# starts no workflow runs, so the ratchet commit stays silent by
+# construction; deploy-key pushes DO start workflows, which is why the
+# hourly pricing commit intentionally gets an aggregate verdict on
+# master's tip.
 permissions:
   contents: read
 
@@ -138,12 +141,12 @@ jobs:
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
     uses: ./.github/workflows/tests.yml
     permissions:
-      # The callee's pytest job reads contents and posts the informational
-      # patch-coverage comment on a pull request (issue #129). The callee's
-      # ratchet-push job takes the deploy key from the master-push
-      # environment directly, so no secret is forwarded here. The caller
-      # grants only the scopes needed to read contents and post that comment.
-      contents: read
+      # The caller's grant CAPS what the callee can use: the pytest job
+      # narrows to contents: read for the suite and the informational
+      # patch-coverage comment (issue #129), and the ratchet-push job
+      # needs contents: write for its token push (issue #479) -- no
+      # secret is forwarded here.
+      contents: write
       pull-requests: write
 
   test-data:
