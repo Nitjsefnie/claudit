@@ -188,6 +188,21 @@ class InstructionCounter:
     def available(self) -> bool:
         return not self.reason
 
+    @property
+    def armed(self) -> bool:
+        """Whether the interpreter is still firing events at this tool.
+
+        Read back from ``sys.monitoring`` rather than from the window
+        stack, because the failure that matters is the events staying
+        enabled: the callback would go on running for every instruction
+        the rest of the process retires, long after the measurement. A
+        leaked window stack would be a wrong number; leaked events are a
+        wrong bill.
+        """
+        if not self.available:
+            return False
+        return bool(self._monitoring.get_events(TOOL_ID))
+
     def _open(self, key: str) -> list:
         cell = self.totals.setdefault(key, [0])
         self._stack.append(cell)

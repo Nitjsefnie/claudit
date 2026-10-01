@@ -103,9 +103,12 @@ def test_counting_counts_only_inside_its_window():
                 total += i
             return total
 
+        assert not counter.armed, "a fresh counter is not counting"
         work(1000)                      # warm, outside every window
         with counter.window("inside"):
+            assert counter.armed, "the window counts while it is open"
             work(5000)
+        assert not counter.armed, "the window stops counting when it closes"
         inside = counter.value("inside")
         assert inside > 0
         # Work outside every window reaches no counter: an identical call
