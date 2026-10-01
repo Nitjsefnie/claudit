@@ -283,7 +283,7 @@ code {
 /* Sessions list */
 .sessions-page { padding: 18px 22px 32px; max-width: 1400px; margin: 0 auto; width: 100%; }
 .page-head { margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+.page-head h1 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
 .sort-row { display: flex; align-items: center; gap: 8px; }
 .sort-row .right { margin-left: auto; }
 /* Filter chips (sessions list, filterbar) */
@@ -546,7 +546,6 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
-.cache-view h2:first-child { margin-top: 0; }
 .cache-view table {
   border-collapse: collapse;
   font-size: 14px;
