@@ -1,4 +1,4 @@
-"""Startup applies backend/schema.sql, so a deploy cannot outrun its DB.
+"""Startup applies the schema files, so a deploy cannot outrun its DB.
 
 Issue #43: schema_check() only asserted that `files` existed, so a
 checkout that pulled code writing a new column started clean and then
@@ -261,6 +261,57 @@ def test_schema_path_is_module_relative():
     """Resolved next to db.py, so the service's cwd is irrelevant."""
     assert db.SCHEMA_PATH.name == "schema.sql"
     assert db.SCHEMA_PATH.is_file()
+
+
+def test_every_schema_file_is_module_relative_and_present():
+    """The whole schema, not just its first file, must resolve and exist.
+
+    A boot that stamped the schema while silently skipping a file would look
+    current and then fail every query against the missing table, so the file
+    list is checked as a list.
+    """
+    assert db.SCHEMA_PATHS[0] is db.SCHEMA_PATH
+    for path in db.SCHEMA_PATHS:
+        assert path.parent == db.SCHEMA_PATH.parent, path
+        assert path.is_file(), path
+
+
+def test_the_stamp_covers_every_schema_file(monkeypatch):
+    """Editing any file's bytes must move the stamp, or the DDL is skipped.
+
+    The stamp is what makes a re-apply happen; a file the stamp ignored
+    would never be applied to a database already stamped current. Pinned by
+    dropping a file from the list and reading the concatenation back: it is
+    the concatenation that is the stamp's input, and it omits whatever the
+    list omits.
+    """
+    assert len(db.SCHEMA_PATHS) >= 2, "the split must be real, not vestigial"
+    whole = db._read_schema()  # pylint: disable=protected-access
+    tail = db.SCHEMA_PATHS[1]
+    monkeypatch.setattr(db, "SCHEMA_PATHS", db.SCHEMA_PATHS[:1])
+    first_only = db._read_schema()  # pylint: disable=protected-access
+    assert first_only == db.SCHEMA_PATH.read_text(encoding="utf-8")
+    assert whole.startswith(first_only)
+    assert tail.read_text(encoding="utf-8") in whole
+
+
+def test_apply_schema_creates_the_web_metrics_tables(app_with_fresh_data):
+    """A boot against a database missing them creates them.
+
+    This is the end-to-end half of the split: `web_metrics` is only useful
+    if a plain startup creates it, and nothing else in the suite would fail
+    if apply_schema quietly stopped reading the second file.
+    """
+    with db.viz_conn() as c:
+        c.execute("DROP TABLE IF EXISTS web_metrics_rollup, web_metrics")
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+    db.apply_schema()
+    with db.viz_conn() as c:
+        names = {r[0] for r in c.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_name LIKE 'web_metrics%'").fetchall()}
+    assert names == {"web_metrics", "web_metrics_rollup"}
 
 
 def test_startup_applies_the_schema_before_checking_it(monkeypatch):

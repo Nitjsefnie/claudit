@@ -25,9 +25,7 @@ from starlette.responses import StreamingResponse
 
 from backend import db, events, r2
 from backend.api_cache import router as cache_router
-from backend.api_common import (
-    HEATMAP_TZ, _bucket_seconds, _iso, _parse_range,
-)
+from backend.api_common import HEATMAP_TZ, _bucket_seconds, _iso, _parse_range
 from backend.api_dashboard import router as dashboard_router
 from backend.api_export import router as export_router
 from backend.api_sessions import router as sessions_router
