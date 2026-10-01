@@ -1,69 +1,45 @@
 name: speed
 
-# Did THIS CHANGE make the test suite slower?
+# Did THIS CHANGE make the test suite do more work?
 #
-# THE MEASUREMENT ONLY MEANS ANYTHING BECAUSE BOTH BUILDS RUN HERE. A
-# GitHub runner's speed varies by roughly a factor of two between jobs, so
-# a duration recorded in one job compared against a duration recorded in
-# another measures the runners, not the code. This job checks out the
-# baseline AND this commit, runs both on the same machine, and reports the
-# ratio. That is what makes a 30% budget a real threshold rather than a
-# coin flip.
+# THE GATE IS A COMMITTED INSTRUCTION-COUNT RATCHET (issue #452). The
+# old gate compared runner WALL-CLOCK durations between two checkouts,
+# A/B/A/B against a pinned baseline release; a runner's speed varies by
+# roughly a factor of two between jobs, so the ratio measured the
+# runners as much as the code. It is replaced by an A-ONLY bench
+# (scripts/ci/suite_bench.py): one pytest pass over a pinned fixture
+# (scripts/ci/suite_bench_files.txt), with sys.monitoring's INSTRUCTION
+# events counting every bytecode the interpreter retires, partitioned
+# into collection / run / residual. A count is exact -- the same tree
+# retires the same count on a loaded machine and an idle one, and the
+# bench re-execs with PYTHONHASHSEED=0 so it is identical across runs
+# by construction. The committed suite_cost budgets in
+# .github/ci-thresholds.json ARE the baseline: no baseline-release
+# checkout, no merge-base computation, no dual checkout, no dual venv,
+# no interleaved rounds, no comparator, no JUnit. Wall time is
+# telemetry at most, and the only time reading the bench takes is
+# time.process_time() -- never a gating input.
 #
-# THE BASELINE DEPENDS ON THE EVENT. On a push to master the question is
-# "did this push slow the suite since the last release", so the baseline
-# is the latest release. On a pull request the question is "did THIS
-# BRANCH make the suite slower", and the last release would fold every
-# commit merged to master since the release into the number — all
-# attributed to whoever opened the pull request. So the base side is the
-# branch's real merge base, computed with `git merge-base` against the
-# freshly fetched base branch after checkout; the event payload's
-# `base.sha` is where the PR was opened from, which by run time need not
-# be the merge base. On a master push with no release yet there is nothing
-# to compare against and the job says so and exits green; a pull request
-# always has a merge base, so PR runs always measure.
+# The budgets are ratchet data: a phase's ceiling sits exactly 1.5
+# (million instructions) above its recorded measured value, and only
+# the tighten bot on a master push may move them, downward only. The
+# gate here (--check) fails a phase over its ceiling; the remedy is to
+# make the suite cheaper, or the doctrine's re-seed path when the
+# fixture list or the interpreter pin legitimately changed.
 #
-# THE WARM-UP IS DISCARDED AND THE ROUNDS ARE PAIRED. A runner's first
-# round pays a cold page cache, so it is systematically the slowest; fold
-# it in anywhere and that bias lands in whichever pair it reaches.
-# Interleaving spreads neighbour noise but cannot remove a warm-up bias
-# that always lands on the first pair. So the run executes ROUNDS + 1
-# interleaved rounds per side: round 0 runs both sides and is thrown away,
-# never reported and never compared, and rounds 1..ROUNDS are read as
-# pairs — round i of the baseline against round i of this commit. Each
-# pair's ratio is its head total over its base total, over the tests
-# passing in BOTH reports of that pair, and the verdict is the MEDIAN of
-# the paired ratios — so one noisy pair cannot fail an otherwise clean
-# branch. ROUNDS counts pairs: 2 pairs plus the warm-up is 6 suite runs
-# per speed run, up from 4.
+# THE PYTHON MICRO IS PINNED to the exact version the seed was measured
+# with. A count is exact for one interpreter; a runner-side drift to a
+# newer 3.13.x would move the counts out from under the committed
+# ceilings -- the same reason the JavaScript coverage gate pins the
+# exact node (issue #266).
 #
-# Each side installs ITS OWN pinned dependencies. A release that got
-# slower because a bumped library got slower is a real regression, and
-# holding dependencies fixed across the comparison would hide exactly
-# that.
-#
-# The comparison itself — intersect on test node id, so adding or removing
-# tests cannot move the number, with the median of paired ratios as the
-# verdict — lives in scripts/ci/compare_durations.py, which has its own
-# tests. Its module docstring carries the full paired-rounds rationale.
-#
-# CALIBRATION, so the 30% budget is not a guess. Two runs of IDENTICAL
-# code, back to back on one machine, moved the shared-test total by 1.7%
-# while individual tests moved by up to 370% — measured under the previous
-# minimum-across-rounds statistic. That is the whole argument for gating
-# on the median paired ratio (noise ~2%, budget 30%, comfortable margin)
-# and treating any single test's number as unreliable; until a fresh
-# calibration is taken under this one, the "spread across pairs" line
-# every run reports is the equivalent evidence for how far a pair can
-# drift on identical code.
-#
-# A FORK'S CODE RUNS HERE. This is the one gate that deliberately EXECUTES
-# a pull request's tree; every other gate only parses it. So the job names
-# an environment: an in-repo branch gets `speed-benchmark`, which carries
-# no protection rules and starts without ceremony, while a fork's pull
-# request gets `fork-speed-benchmark`, which requires a reviewer's
-# approval before the job starts. That approval is the admission gate for
-# fork-supplied code in this workflow.
+# A FORK'S CODE RUNS HERE. The bench executes the checked-out tree, so
+# this is still the one gate that deliberately EXECUTES pull-request
+# code; the dual environment is its admission gate: an in-repo branch
+# gets `speed-benchmark`, which carries no protection rules and starts
+# without ceremony, while a fork's pull request gets
+# `fork-speed-benchmark`, which requires a reviewer's approval before
+# the job starts.
 
 on:
   # Trigger ownership moved to ci-gate.yml (issue #127): push and
@@ -91,7 +67,10 @@ concurrency:
 jobs:
   speed:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # One measured pass took ~115 s on the seeding box; the bound
+    # exists so a hung run fails loud, with a wide margin over the
+    # measurement (an unmeasured bound is a future false alarm).
+    timeout-minutes: 15
 
     # The dual-environment fork gate. Both names must exist as
     # environments: `speed-benchmark` with no protection rules,
@@ -102,7 +81,10 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # The bench fixture runs the scratch-DB machinery, so the
+        # service is load-bearing. Pinned by digest, the same image the
+        # tests leg measures against.
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -120,117 +102,25 @@ jobs:
       PGPORT: "5432"
       PGUSER: postgres
       PGPASSWORD: postgres
-      # Fractional slowdown that fails the job.
-      MAX_REGRESSION: "0.30"
-      # Number of COMPARED pairs. The run executes ROUNDS + 1 rounds per
-      # side; round 0 is the discarded warm-up.
-      ROUNDS: "2"
 
     steps:
-      - name: Find the baseline release
-        id: baseline
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        # `gh api` on a 404 prints its JSON error body to STDOUT and exits
-        # nonzero. The first version of this step ended in `|| true`, which
-        # discarded the exit code and assigned that blob to $tag — so the
-        # "no release yet" guard saw a non-empty string, fell through, and
-        # handed actions/checkout a refspec made of JSON. Hence both belts
-        # below: branch on the EXIT CODE, then validate the SHAPE, so no
-        # payload can ever reach a git command as a ref.
-        run: |
-          tag=""
-          if out="$(gh api -H "Cache-Control: no-cache" \
-                    "repos/$REPO/releases/latest" --jq '.tag_name' 2>/dev/null)"; then
-            tag="$out"
-          fi
-          case "$tag" in
-            null) tag="" ;;
-            *[!A-Za-z0-9._-]*)
-              echo "Unexpected payload where a tag was expected; treating" >&2
-              echo "as 'no baseline' rather than passing it to git." >&2
-              tag=""
-              ;;
-          esac
-          if [ -z "$tag" ]; then
-            echo "tag=" >> "$GITHUB_OUTPUT"
-            echo "No release exists yet, so there is no baseline to compare"
-            echo "against. This becomes a real gate once release.yml cuts one."
-            {
-              echo "### Test speed"
-              echo
-              echo "Skipped: no release exists yet to use as a baseline."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "tag=$tag" >> "$GITHUB_OUTPUT"
-            echo "Baseline: $tag"
-          fi
-
-      - name: Check out this commit
-        if: steps.baseline.outputs.tag != '' || github.event_name == 'pull_request'
-        # Default checkout: the branch tip on push, the PR merge ref on
-        # pull_request — the same tree every other gate tests, i.e. what
-        # GitHub would actually land. The FULL history is fetched because
-        # the merge-base step below walks ancestry across both sides of
-        # the branch; a depth-1 clone would leave the head commit's
-        # parents missing and the computation would fail.
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: head
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Find the pull-request merge base
-        id: merge_base
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # The event payload's base.sha is the merge base AT OPEN TIME. After
-        # force-pushes or merges to master it is not the branch's merge base
-        # any more, and benchmarking against the wrong commit answers
-        # nobody's question — so compute it, against the freshly fetched
-        # tip of the base branch.
-        run: |
-          cd head
-          git fetch --no-tags \
-            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
-            "refs/heads/${BASE_REF}"
-          sha="$(git merge-base "${HEAD_SHA}" "FETCH_HEAD")"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Merge base of ${HEAD_SHA} and origin/${BASE_REF}: $sha"
-
-      - name: Check out the baseline release
-        if: steps.baseline.outputs.tag != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.baseline.outputs.tag }}
-          path: base
-          persist-credentials: false
-
-      - name: Check out the pull-request merge base
-        if: steps.merge_base.outputs.sha != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.merge_base.outputs.sha }}
-          path: base
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
+        # The exact micro the committed seed was measured with: a count
+        # is exact for one interpreter, and a runner-side drift would
+        # move the counts out from under the committed ceilings.
         with:
-          python-version: "3.13"
+          python-version: "3.13.14"
 
-      # The pip cache restores on every event but is saved only from a push
-      # of master: `cache: pip` saves in a post-job step that runs after the
-      # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126). Both sides'
-      # requirements are already checked out here, so the key's hashFiles
-      # sees them; it changes whenever either side's pins move.
+      # The pip cache restores on every event but is saved only from a
+      # push of master: `cache: pip` saves in a post-job step that runs
+      # after the pull-request checkout, so untrusted code would write
+      # the cross-run cache a trusted run later installs from (issue
+      # #126). The key hashes the SINGLE tree's requirement files --
+      # the A/B design's base+head pair is gone with the dual checkout.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -238,53 +128,43 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('base/backend/requirements.txt', 'head/backend/requirements.txt') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
           restore-keys: |
             pip-${{ runner.os }}-3.13-
 
       - name: Install postgresql-client
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
+        # The scratch-DB layer shells out to psql; the client must
+        # match the service's major version.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          curl -fsSL --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-16
 
-      - name: Build one virtualenv per side
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
-        # Separate environments because the two sides pin different
-        # versions, and a shared one would silently benchmark whichever
-        # resolved last against both trees.
+      - name: Install dependencies
+        # backend/requirements.txt already pins pytest, pytest-asyncio
+        # and httpx2; requirements-test.txt adds only the coverage
+        # toolchain, so neither pin exists in two places.
         run: |
-          for side in base head; do
-            python -m venv "venv-$side"
-            "venv-$side/bin/python" -m pip install --quiet --upgrade pip
-            "venv-$side/bin/python" -m pip install --quiet \
-              -r "$side/backend/requirements.txt"
-          done
-          echo "base pins:"; "venv-base/bin/python" -m pip freeze | head -20
-          echo "head pins:"; "venv-head/bin/python" -m pip freeze | head -20
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
 
-      # Saved here, not in a post-job step: the venv builds above populated
-      # the cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126). The third clause skips the
-      # save when no measurement is armed (no release on a master push) —
-      # the install steps above were skipped too, so there is nothing to
-      # save and no pip cache directory to hold it.
+      # Saved here, not in a post-job step: the install above populated
+      # the cache, and the gate keeps every event but a push of master
+      # from writing cross-run state (issue #126).
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: >-
-          github.event_name == 'push' && github.ref == 'refs/heads/master'
-          && (steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != '')
+          github.event_name == 'push'
+          && github.ref == 'refs/heads/master'
         with:
           path: |
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('base/backend/requirements.txt', 'head/backend/requirements.txt') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
 
       - name: Wait for postgres
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
         run: |
           for _ in $(seq 1 30); do
             pg_isready -q && exit 0
@@ -292,83 +172,23 @@ jobs:
           done
           echo "postgres never became ready"; exit 1
 
-      - name: Run both suites, interleaved, in pairs
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
-        # A failing test does NOT fail this job: tests.yml owns that
-        # verdict, and here a non-passing testcase is simply excluded from
-        # the comparison (see compare_durations.py). What this step must
-        # guarantee is that a usable report exists for every COMPARED
-        # round, so it checks for them explicitly rather than trusting an
-        # exit code it deliberately ignores.
-        #
-        # Sequential, never parallel: two suites sharing a runner would
-        # not be a speed measurement.
-        run: |
-          mkdir -p reports/warmup
-          # Round 0 is the discarded warm-up. It is written outside the
-          # reports/base-* and reports/head-* globs the comparison reads,
-          # so nothing has to remember to exclude it, and it is uploaded
-          # with the rest because the size of what it absorbs is the
-          # evidence for doing it at all.
-          for side in base head; do
-            echo "::group::$side warm-up (discarded)"
-            ( cd "$side" && "$GITHUB_WORKSPACE/venv-$side/bin/python" -m pytest \
-                tests/ -q -p no:cacheprovider --tb=no \
-                --junitxml="$GITHUB_WORKSPACE/reports/warmup/$side.xml" ) \
-              && echo "$side warm-up: all passed" \
-              || echo "$side warm-up: some tests did not pass (excluded)"
-            echo "::endgroup::"
-          done
+      - name: Measure and gate the suite cost
+        # One pass, no warm-up, no statistics: instruction counts are
+        # exact. The shared composite action measures into RUNNER_TEMP,
+        # prints the phase table into the step summary, and gates every
+        # phase against the committed ceilings -- a phase over budget
+        # fails this job.
+        uses: ./.github/actions/suite-bench
+        with:
+          mode: gate
+          measurement: ${{ runner.temp }}/suite-measurement.json
 
-          for round in $(seq 1 "$ROUNDS"); do
-            for side in base head; do
-              echo "::group::$side round $round"
-              ( cd "$side" && "$GITHUB_WORKSPACE/venv-$side/bin/python" -m pytest \
-                  tests/ -q -p no:cacheprovider --tb=no \
-                  --junitxml="$GITHUB_WORKSPACE/reports/$side-$round.xml" ) \
-                && echo "$side round $round: all passed" \
-                || echo "$side round $round: some tests did not pass (excluded)"
-              echo "::endgroup::"
-            done
-          done
-
-          missing=0
-          for round in $(seq 1 "$ROUNDS"); do
-            for side in base head; do
-              f="reports/$side-$round.xml"
-              if [ ! -s "$f" ]; then
-                echo "MISSING or empty: $f" >&2
-                missing=1
-              fi
-            done
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "A suite produced no JUnit report — it did not run at all," >&2
-            echo "which is a setup failure, not a speed result." >&2
-            exit 1
-          fi
-          ls -la reports/
-
-      - name: Compare
-        if: steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != ''
-        env:
-          BASE_LABEL: ${{ steps.baseline.outputs.tag || steps.merge_base.outputs.sha }}
-        # The comparator comes from the HEAD checkout, so an improvement to
-        # the comparison itself takes effect on the commit that makes it
-        # rather than one release later.
-        run: |
-          # shellcheck disable=SC2046
-          python3 head/scripts/ci/compare_durations.py \
-            --base $(ls reports/base-*.xml) \
-            --head $(ls reports/head-*.xml) \
-            --max-regression "$MAX_REGRESSION" \
-            --base-label "$BASE_LABEL" \
-            --summary-file "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload JUnit reports
-        if: ${{ !cancelled() && (steps.baseline.outputs.tag != '' || steps.merge_base.outputs.sha != '') }}
+      - name: Upload the suite measurement
+        if: ${{ !cancelled() }}
+        # Telemetry only: the gate above reads the same file this
+        # uploads, so a red gate's numbers are always inspectable.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: speed-junit-reports
-          path: reports/
-          if-no-files-found: warn
+          name: suite-measurement
+          path: ${{ runner.temp }}/suite-measurement.json
+          if-no-files-found: error

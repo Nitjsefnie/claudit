@@ -330,9 +330,10 @@ ten gate legs into **`ci gate / aggregate`**. Documentation-only changes
 (`*.md`, `PRESENTATION.txt`, `examples/`, `.claude/`, licences) skip the
 expensive legs by classification and still pass. The per-workflow table
 is in CONTRIBUTING.md; two behaviours documented only here: `speed.yml`
-skips green while no release exists (master pushes and dispatches only),
-and `refresh-pricing.yml` deliberately keeps its no-cache setup despite
-the pip-cache rule. The master-push deploy key lives in the `master-push`
+gates one measured pytest pass against committed instruction budgets
+(scripts/ci/suite_bench.py; no baseline release involved), and
+`refresh-pricing.yml` deliberately keeps its no-cache setup despite the
+pip-cache rule. The master-push deploy key lives in the `master-push`
 GitHub environment, reachable only from master; each bot's push runs in
 its own key-only job that receives the tested data as an artifact, runs
 no test/dependency/upstream code, and stops its ssh-agent after the

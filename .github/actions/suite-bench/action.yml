@@ -1,0 +1,63 @@
+name: Suite cost bench
+description: >-
+  Measure one pytest pass over the pinned fixture in instructions and,
+  when the caller asks, hold every phase to its committed budget. Shared
+  by the speed leg (mode "gate": measure, gate) and the tests leg's bot
+  feed (mode "record": measure only -- the speed leg owns the gate).
+  The caller uploads the measurement.
+
+# A composite action because .github/workflows/tests.yml sits exactly on
+# its per-file size ratchet entry, and that ratchet's answer to growth
+# is to move code out, never to raise the entry (SV-CI-RATCHETS). The
+# bench's own explanation lives with the bench (scripts/ci/suite_bench.py);
+# this is the CI shape of it:
+#
+#   measure ONCE, into a file the caller's gate or ratchet reads
+#     -> print the human report into the step summary
+#     -> gate every phase against the committed ceilings, when the
+#        caller asks for it (nonzero on a phase over its ceiling, which
+#        fails the caller's job)
+#
+# The measurement path is an input so the caller and this action agree
+# on one file; it is read into an env var, never interpolated into the
+# run block (no template-injection surface).
+
+inputs:
+  mode:
+    description: 'gate: measure, gate, upload. record: measure, upload.'
+    required: false
+    default: gate
+  measurement:
+    description: 'Absolute path for the measurement JSON.'
+    required: true
+
+outputs:
+  measured:
+    description: 'true when the measurement was written'
+    value: ${{ steps.measure.outputs.measured }}
+
+runs:
+  using: composite
+  steps:
+    - name: Measure the suite cost
+      id: measure
+      shell: bash
+      env:
+        MEASUREMENT: ${{ inputs.measurement }}
+      run: |
+        set -euo pipefail
+        python scripts/ci/suite_bench.py --write "$MEASUREMENT" --summary "$GITHUB_STEP_SUMMARY"
+        echo "measured=true" >> "$GITHUB_OUTPUT"
+
+    - name: Gate on the committed budgets
+      # The check's exit code IS the step's: a phase over its recorded
+      # ceiling fails the caller's job, naming the phase, the measured
+      # value and the ceiling.
+      if: inputs.mode == 'gate'
+      shell: bash
+      env:
+        MEASUREMENT: ${{ inputs.measurement }}
+      run: |
+        set -euo pipefail
+        python scripts/ci/suite_bench.py --check "$MEASUREMENT"
+

@@ -276,32 +276,36 @@ def test_the_gate_modules_touch_no_wall_clock():
     # The only time-module member any bench module may name is
     # process_time — the portable fallback, telemetry only. A wall read
     # in the gate's path would make the verdict machine-speed-dependent
-    # again, which is the regression this family exists to close.
-    allowed = {"process_time"}
+    # again, which is the regression this family exists to close. The
+    # net is wider than the imports: ANY `<name>.<wall-member>` shape
+    # and ANY bare wall-member call is flagged, imported or not — a
+    # planted `time.perf_counter()` that forgot its own import must
+    # still be caught (mutation M9).
+    wall = {"perf_counter", "perf_counter_ns", "monotonic",
+            "monotonic_ns", "time", "gmtime", "strftime"}
     seen = {}
     for name in ("suite_bench.py", "suite_phases.py", "suite_report.py",
                  "suite_ratchet.py"):
         tree = ast.parse(
             (SCRIPTS_CI / name).read_text(encoding="utf-8"))
-        imported_aliases = {}
+        offenders = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    imported_aliases[alias.asname or alias.name] = (
-                        alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if node.module == "time":
-                        imported_aliases[alias.asname or alias.name] = "time"
-            elif (isinstance(node, ast.Attribute)
+            if (isinstance(node, ast.Attribute)
                     and isinstance(node.value, ast.Name)
-                    and imported_aliases.get(node.value.id) == "time"):
-                seen.setdefault(name, set()).add(node.attr)
-        offenders = seen.get(name, set()) - allowed
+                    and node.attr in wall):
+                offenders.add(node.attr)
+            elif (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in wall):
+                offenders.add(node.func.id)
+        seen[name] = offenders
         assert not offenders, (name, offenders)
     # The instrument is really in use somewhere: the pin would also pass
     # a tree where process_time was quietly dropped from the fallback.
-    assert any("process_time" in members for members in seen.values()), seen
+    source = " ".join(
+        (SCRIPTS_CI / member).read_text(encoding="utf-8")
+        for member in ("suite_bench.py", "suite_phases.py"))
+    assert "time.process_time()" in source
 
 
 def test_committed_fixture_files_exist_and_pass_marker():

@@ -61,6 +61,11 @@
 !/.github/workflows/
 /.github/workflows/*
 !/.github/workflows/*.yml
+!/.github/actions/
+/.github/actions/*
+!/.github/actions/suite-bench/
+/.github/actions/suite-bench/*
+!/.github/actions/suite-bench/action.yml
 
 # ---- backend/ — FastAPI app ------------------------------------------------
 # `!/backend/*.py` is deliberately unanchored-free (no `**`): it matches only

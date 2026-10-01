@@ -1,10 +1,10 @@
 """The root VERSION file and its exposure through /health.
 
 VERSION is the single source of truth for the release machinery:
-`.github/workflows/release.yml` tags when it changes, and `speed.yml`
-benchmarks HEAD against the release it names. Both read the file with
-`cat`, so its shape matters as much as its content — a stray second line
-or a `v` prefix would produce a malformed tag.
+`.github/workflows/release.yml` tags when it changes and `/health`
+reports it. The release machinery reads the file with `cat`, so its
+shape matters as much as its content — a stray second line or a `v`
+prefix would produce a malformed tag.
 """
 from __future__ import annotations
 
