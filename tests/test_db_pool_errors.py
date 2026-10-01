@@ -29,7 +29,7 @@ import pytest
 from backend import db
 from tests import scratch_db
 
-_BAD_DSN = "postgresql:///claudit_test_no_such_db_449"
+_BAD_DSN = "postgresql:///no_such_db_449"
 
 
 @pytest.fixture(name="bad_pool_env")
