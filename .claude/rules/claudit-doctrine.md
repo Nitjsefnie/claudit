@@ -983,15 +983,18 @@ never hand-set numbers in a workflow.
   `scripts/ci/suite_bench_files.txt`, measured by `scripts/ci/suite_bench.py`
   with `sys.monitoring`'s INSTRUCTION events (the `process_time`
   fallback is telemetry that fails closed at `--check`). This is the
-  speed gate's instrument — runner wall is void, a count is exact — and
-  the gap sits ABOVE the measured value because the number is a cost
+  speed gate's instrument — runner wall is void, and a count is exact
+  within one environment state (a bounded across-state wobble is
+  observed; the bench itself records its bound) — and the gap sits ABOVE
+  the measured value because the number is a cost
   ceiling, not a quality floor. Seeded via the loader's writer
   (`suite_ratchet.py --seed`, only when the member is absent);
   tightened by the master-push bot (`suite_ratchet.py --tighten`,
   past the 1.5 hysteresis, both fields, never raised). The interpreter
   micro is pinned in the workflows that run the bench. Sanctioned
-  RE-SEED: when the fixture list or the interpreter pin legitimately
-  changes, the stale member is deleted and the new workload's counts
+  RE-SEED: when the recorded workload legitimately changes — the
+  fixture list, the interpreter pin, or the code the pinned tests
+  execute — the stale member is deleted and the new workload's counts
   seeded through the loader's writer, in the same reviewed gate-definer
   change.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
