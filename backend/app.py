@@ -419,12 +419,15 @@ async def root_index(request: Request) -> Response:
 
 
 # A script ELEMENT's open tag is a `<script` outside any element's
-# content; inside one it is raw text that ends at the first `</script`
+# content; inside one it is raw text that ends at the first end tag
 # (issue #439). Both patterns carry the word-boundary so `<scriptx` —
 # not a script element, and a shape no template should emit — is left
-# alone.
+# alone. The end tag admits what a browser admits: anything up to the
+# tag's own `>` is an attribute list to it, so `</script/>` and
+# `</script foo="1">` close the element as surely as `</script>` does,
+# and missing one leaves the NEXT element without its nonce.
 _SCRIPT_OPEN_RE = re.compile(r"<script\b", re.IGNORECASE)
-_SCRIPT_CLOSE_RE = re.compile(r"</script\s*>", re.IGNORECASE)
+_SCRIPT_CLOSE_RE = re.compile(r"</script\b[^>]*>", re.IGNORECASE)
 
 
 def _nonce_script_elements(html: str, nonce: str) -> str:
@@ -437,6 +440,11 @@ def _nonce_script_elements(html: str, nonce: str) -> str:
     literal — a SyntaxError that stops every page load (#439). The
     window.BRAND payload rides an inline script, so walking the raw
     text of each element is what keeps it out of reach.
+
+    Conservation is the other half: removing the injected attribute
+    returns the input byte for byte, tag casing included. The walk
+    REWRITES a document rather than scanning it, so a tail it dropped
+    would be as invisible to a reader as a tag it missed.
     """
     out: list[str] = []
     pos = 0
@@ -445,13 +453,14 @@ def _nonce_script_elements(html: str, nonce: str) -> str:
         if open_match is None:
             break
         out.append(html[pos:open_match.start()])
-        out.append(f'<script nonce="{nonce}"')
+        out.append(f'{open_match.group(0)} nonce="{nonce}"')
         pos = open_match.end()
-        # Content is raw text: it runs to the first `</script`, and any
-        # `<script` within it is payload, not an element.
+        # Content is raw text: it runs to the first end tag, and any
+        # `<script` within it is payload, not an element. An
+        # UNTERMINATED element runs to the end of the document, which
+        # the trailing append below emits like any other tail.
         close_match = _SCRIPT_CLOSE_RE.search(html, pos)
         if close_match is None:
-            pos = len(html)
             break
         out.append(html[pos:close_match.start()])
         pos = close_match.start()
