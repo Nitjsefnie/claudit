@@ -473,7 +473,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T14:54:04Z",
+  "provider_rates_fetched": "2026-10-01T15:54:16Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1115,6 +1115,14 @@
           "fresh": 0.04,
           "from": "2026-10-01T09:36:43Z",
           "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-10-01T15:10:57Z",
+          "output": 0.5,
           "read": 0.02
         }
       ],
@@ -2448,6 +2456,14 @@
           "from": "2026-10-01T10:21:43Z",
           "output": 0.84,
           "read": 0.008
+        },
+        {
+          "create_1h": 0.141,
+          "create_5m": 0.141,
+          "fresh": 0.141,
+          "from": "2026-10-01T14:51:17Z",
+          "output": 0.564,
+          "read": 0.0141
         }
       ],
       "Relace": [
@@ -25926,6 +25942,22 @@
           "from": "2026-09-30T11:10:58Z",
           "output": 2.6,
           "read": 0.13
+        },
+        {
+          "create_1h": 1.0,
+          "create_5m": 1.0,
+          "fresh": 1.0,
+          "from": "2026-10-01T15:00:58Z",
+          "output": 2.0,
+          "read": 0.1
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-10-01T15:10:59Z",
+          "output": 0.4,
+          "read": 0.1
         }
       ],
       "Relace": [
@@ -33362,6 +33394,15 @@
           "note": "86% off",
           "output": 0.5544,
           "read": 0.00588
+        },
+        {
+          "create_1h": 0.17424,
+          "create_5m": 0.17424,
+          "fresh": 0.17424,
+          "from": "2026-10-01T15:16:14Z",
+          "note": "86.8% off",
+          "output": 0.52272,
+          "read": 0.005544
         }
       ],
       "Cloudflare": [
@@ -34168,6 +34209,15 @@
           "note": "36% off",
           "output": 1.796352,
           "read": 0.08832
+        },
+        {
+          "create_1h": 0.362496,
+          "create_5m": 0.362496,
+          "fresh": 0.362496,
+          "from": "2026-10-01T15:35:58Z",
+          "note": "36% off",
+          "output": 1.7424,
+          "read": 0.08832
         }
       ],
       "NextBit": [
@@ -34872,6 +34922,14 @@
           "from": "2026-10-01T14:25:57Z",
           "output": 3.5,
           "read": 0.1748
+        },
+        {
+          "create_1h": 0.1642,
+          "create_5m": 0.1642,
+          "fresh": 0.1642,
+          "from": "2026-10-01T15:30:54Z",
+          "output": 3.5,
+          "read": 0.1642
         }
       ],
       "Sail Research": [
@@ -44414,6 +44472,15 @@
           "note": "20% off",
           "output": 0.4,
           "read": 0.028
+        },
+        {
+          "create_1h": 0.105,
+          "create_5m": 0.105,
+          "fresh": 0.105,
+          "from": "2026-10-01T15:35:55Z",
+          "note": "30% off",
+          "output": 0.35,
+          "read": 0.0245
         }
       ],
       "NextBit": [
