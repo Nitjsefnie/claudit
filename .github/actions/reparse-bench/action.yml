@@ -1,0 +1,41 @@
+name: Reparse CPU gate
+description: >-
+  Measure the CPU work of one reparse pass over the mini fixture mirror,
+  split by phase, and hold every phase to its recorded share of that pass.
+
+# A composite action because .github/workflows/tests.yml sits exactly on
+# its per-file size ratchet entry, and that ratchet's answer to growth is
+# to move code out, never to raise the entry (SV-CI-RATCHETS). The bench's
+# own explanation lives with the bench (scripts/ci/reparse_bench.py); this
+# is the CI shape of it:
+#
+#   measure ONCE, into a file the caller's ratchet step can read
+#     -> print the human report into the step summary
+#     -> gate every phase against the committed floors (nonzero on a
+#        phase over its share, which fails the caller's job)
+#
+# The measurement path is an input so the caller and this action agree on
+# one file; it lands in the workspace, which is a throwaway CI checkout.
+
+inputs:
+  measurement:
+    description: Workspace-relative path for the measurement JSON.
+    required: false
+    default: reparse-bench.json
+
+runs:
+  using: composite
+  steps:
+    - name: Measure and gate the reparse hot path
+      shell: bash
+      env:
+        MEASUREMENT: ${{ inputs.measurement }}
+      run: |
+        set -euo pipefail
+        {
+          echo '### Reparse CPU'
+          echo
+          python3 scripts/ci/reparse_bench.py \
+            --write "$MEASUREMENT" --report
+        } >> "$GITHUB_STEP_SUMMARY"
+        python3 scripts/ci/reparse_bench.py --check "$MEASUREMENT"

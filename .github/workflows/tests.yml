@@ -299,6 +299,11 @@ jobs:
           echo "JavaScript coverage measured ${js_measured}% " \
             "against floor ${floor}%"
 
+      - name: Reparse CPU gate
+        id: reparse
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        uses: ./.github/actions/reparse-bench
+
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
@@ -374,12 +379,14 @@ jobs:
       - name: Ratchet the thresholds
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
-        # write it. Raises either coverage floor when justified, and
-        # --tighten follows shrunk files down; growth is never written
-        # here, the gate steps stay its gate.
+        # be able to write it. The ratchets raise either coverage floor
+        # (python from the full suite, javascript from the JS gate step)
+        # and tighten the reparse phase shares, --tighten follows shrunk
+        # files down; growth is never written here, the gates stay gates.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
+                && steps.reparse.outcome == 'success'
                 && github.event_name == 'push'
                 && github.ref == 'refs/heads/master' }}
         # JS_MEASURED travels by env, not by template expansion, so the
@@ -393,6 +400,7 @@ jobs:
           python3 scripts/ci/ratchet.py --measured "${measured}"
           python3 scripts/ci/ratchet.py --language javascript \
             --measured "${JS_MEASURED}"
+          python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
