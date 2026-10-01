@@ -468,8 +468,10 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
     The list lives in scripts/ci/node_test_files.txt, one `tests/…` path
     per line; tests.yml feeds it to pytest and this test pins the file's
     content to the files containing `["node"` under tests/ — the command
-    the workflow comment used to cite by hand (issue #433: the hand-list
-    had drifted four files behind what it claimed to derive from).
+    the workflow comment cites, `grep -lF '["node"' tests/*.py` (the
+    fixed-string -F is load-bearing: unquoted-bracket grep exits 2 —
+    issue #433: the hand-list had drifted four files behind what it
+    claimed to derive from).
     """
     list_file = REPO_ROOT / "scripts" / "ci" / "node_test_files.txt"
     assert list_file.exists(), (
@@ -482,9 +484,10 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
         if '["node"' in path.read_text(encoding="utf-8"))
     assert listed == derived, (
         "the measured set (scripts/ci/node_test_files.txt) no longer equals "
-        "grep -l '[\"node\"' tests/*.py: a node-executing test file was "
+        "grep -lF '[\"node\"' tests/*.py: a node-executing test file was "
         "added or removed without updating the list")
     runs = _run_bodies(_workflow("tests.yml"))
-    assert any("node_test_files.txt" in run for run in runs), (
-        "tests.yml no longer consumes scripts/ci/node_test_files.txt; the "
-        "pinned list no longer drives the JavaScript coverage measurement")
+    assert any("$(cat scripts/ci/node_test_files.txt)" in run for run in runs), (
+        "tests.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
+        "via $(cat ...); the pinned list no longer drives the JavaScript "
+        "coverage measurement")

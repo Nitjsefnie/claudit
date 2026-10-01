@@ -22,7 +22,7 @@ same instant.
 THE BOUND. One git lookup, one open-PR listing, one run list per open
 head. No check runs are created, nothing is written back: this is a
 report, and its deliverable is the step summary naming the stale heads
-that must rebase or rerun once the aggregate becomes required.
+that must rebase or rerun now that the aggregate is required.
 """
 from __future__ import annotations
 
@@ -204,8 +204,8 @@ def write_summary(path, stale, scanned):
         '### Gate freshness',
         '',
         f'{len(stale)} of {scanned} open pull-request head(s) on '
-        f'{BASE_BRANCH} must rebase or rerun once `{CHECK_NAME}` becomes '
-        'a required check:',
+        f'{BASE_BRANCH} must rebase or rerun to satisfy the required '
+        f'`{CHECK_NAME}` check:',
         '',
     ]
     if stale:
