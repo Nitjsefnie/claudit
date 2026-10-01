@@ -384,3 +384,20 @@ def test_the_relocated_helpers_are_still_the_ones_the_tree_uses():
             f"panel-gating.js no longer publishes window.{name}")
         assert f"window.{name}(" in app, (
             f"app.jsx calls {name} bare -- it moved out of the file")
+
+
+def test_the_panel_surfaces_the_window_the_answer_was_read_over():
+    """`since` is in the payload for this line and nowhere else.
+
+    The rollup holds only closed buckets, so a range wider than the raw
+    table is answered over less than it asked for. The endpoint clamps and
+    reports the window; if the panel drops it, a reader sees a 30-day label
+    over 4 days of data with nothing saying so. The backend docstring names
+    the panel as the thing that shows it, so this is that claim pinned.
+    """
+    src = _strip_line_comments(PANEL.read_text(encoding="utf-8"))
+    assert "body.since" in src, (
+        "the panel never reads `since`, so the window the answer was read "
+        "over is never shown")
+    assert "window from" in src, (
+        "`since` is read but not rendered — the clamp is still invisible")

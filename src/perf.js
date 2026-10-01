@@ -168,6 +168,15 @@
   // sign-in fetch part is read from it rather than guessed at. It is only
   // consulted when the login page's marker says a sign-in really happened:
   // Navigation Timing exists on every navigation, including a plain load.
+  //
+  // It is NOT the same interval as the other two journeys' `fetch`, and the
+  // panel's three rows sit side by side, so say so here where a reader of
+  // this function will see it: this one spans the whole chain (the POST,
+  // the 303, and the GET of `/` that follows it), where a dashboard or
+  // Inspector `fetch` is one endpoint's wait. Comparing a sign-in fetch
+  // against the other two compares a chain with a request. When Navigation
+  // Timing is absent the part is simply not sent, and the panel's em dash
+  // says "not measured" rather than charging the network to the client.
   function navigationFetchMs() {
     const p = typeof performance !== 'undefined' ? performance : null;
     if (!p || typeof p.getEntriesByType !== 'function') return null;
