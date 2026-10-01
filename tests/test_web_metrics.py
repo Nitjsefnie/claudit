@@ -43,20 +43,22 @@ PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
 def _closed_ts() -> datetime:
     """An instant whose bucket has CLOSED at EVERY stored width.
 
-    A bucket is stored by the fold that closes it, so a rollup assertion
-    needs beacons far enough back. How far is bounded on both sides, and the
-    band between the bounds is exactly `FOLD_INTERVAL_S` wide:
+    A bucket is closed once its span has passed (`web_metrics.rollup_horizon`
+    is `now`, because the sink stamps every beacon server-side), so the widest
+    width is the last to close and it sets the distance: a seed a full widest
+    bucket plus a margin back is closed at every width at once, which is what
+    lets one instant serve a test that folds at all four.
 
-        readable   age <  RAW_KEEP_S   = RETENTION_S + widest + 1 fold
-        closed     age >  RETENTION_S + widest      (the widest bucket)
-
-    which leaves one hour to sit in. That is not slack to be generous with —
-    it IS the design, and a test that drifts off it is telling the truth
-    about a real constraint rather than being flaky. The mid-band instant is
-    used, against `PINNED_NOW` so the boundary is never the thing under test.
+    A live-path assertion wants the opposite, and says so with `_recent_ts`.
     """
     return PINNED_NOW - timedelta(
-        seconds=web_metrics.RETENTION_S + max(LATENCY_BUCKETS) + 1800)
+        seconds=max(LATENCY_BUCKETS) + 1800)
+
+
+#: The fold's clock, pinned. Every rollup assertion below reads its instants
+#: from here, because the band a seed must land in is exactly one bucket
+#: width wide and a live clock puts it on the boundary.
+PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(name="pinned")

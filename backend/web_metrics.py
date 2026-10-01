@@ -89,42 +89,37 @@ MAX_BEACONS = 50
 #: cap is what it says it is.
 MAX_ROWS_PER_USER = 20_000
 
-#: How long a raw beacon is kept, and what that buys.
+#: The horizon the FOLD closes buckets at, and the working set the raw table
+#: keeps for it. Both are "now"-relative, and both were a full retention
+#: window wrong before a cross-model review of this branch found it.
 #:
-#: `RETENTION_S` is the HORIZON: how far back the rollup reaches, twice the
-#: widest stored bucket so the widest display range has a full bucket's worth
-#: of slack either side of its leading edge.
+#: **`rollup_horizon` is `now`.** A bucket `[s, s+W)` is complete the moment
+#: its span has passed, because `POST /api/metrics` stamps `ts` server-side: a
+#: beacon can only ever carry `ts = now`, so nothing can still arrive inside a
+#: bucket whose span has closed. Closing buckets a retention window early buys
+#: no safety and costs a great deal -- the newest beacons stay OUT of the
+#: rollup entirely, and a reader serving wide ranges from the rollup alone
+#: then reports a strict SUBSET of what a narrower range reports. Measured on
+#: a ten-day corpus with hourly folds: `4d` served 97 beacons, `5d` served
+#: 54, and the default `all` served 42 of 240.
 #:
-#: `RAW_KEEP_S` is longer, and the difference is the whole correctness of the
-#: fold: it makes a PARTIAL read of a closed bucket impossible, at any fold,
-#: so a stored bucket is whole by construction rather than by luck.
+#: **`RAW_KEEP_S` is the fold's working set, not a history.** A bucket closing
+#: on the fold at `now` started as early as `now - 2W` -- it closed at
+#: `s + W <= now` and `s` sits on the `W` lattice -- so the read window has
+#: to reach back two widths, plus a fold interval so the boundary cannot land
+#: between a prune and a fold. Two widths is what makes a PARTIAL read of a
+#: closed bucket impossible at every fold rather than unlikely at most of them:
+#: with one, the fold that catches a bucket the instant it closes stores it
+#: short, and nothing repairs it, because the window advances with `now` and a
+#: bucket the window has cut off stays cut off for good. That is what stranded
+#: a 24-hour bucket with 22 of its 24 beacons after three skipped folds.
 #:
-#: A bucket `[s, s+W)` is closed once `s + W <= horizon`, and `horizon` is
-#: `now - RETENTION_S`. On the `W` lattice the smallest such `s` therefore
-#: satisfies
-#:
-#:     s > (now - RETENTION_S - W) - W  =  now - RETENTION_S - 2W
-#:
-#: So EVERY closed bucket starts after `now - RETENTION_S - 2W`, and the read
-#: window has to reach back to there. One width of slack is not enough, which
-#: is the trap this constant exists to close: with `R + W` the newest closing
-#: bucket's oldest beacons sit just outside the window, the fold stores it
-#: short, and nothing later can repair it -- the window advances with `now`,
-#: so a bucket the window has cut off stays cut off for good. The earlier
-#: value had exactly that shape and stranded a 24-hour bucket with 22 of its
-#: 24 beacons after three skipped hourly folds, permanently and silently.
-#:
-#: Two widths, plus a fold interval of slack for the boundary itself.
-RETENTION_S = 2 * max(LATENCY_BUCKETS)
-
-#: The interval at which the fold runs, and the slack kept past the width that
-#: makes the invariant above hold. Not load-bearing for correctness -- the
-#: two widths are -- but it keeps the oldest closed bucket comfortably inside
-#: the window rather than exactly on its edge.
+#: The ROLLUP is the durable record and nothing prunes it. The raw table holds
+#: about two and a quarter days of a few rows per page view -- a working set,
+#: not a history -- so a reader MUST union the raw tail back in, or a range
+#: longer than the working set answers from a subset of its own data.
 FOLD_INTERVAL_S = 6 * 3600
-
-#: What the raw table actually keeps, and where `prune` deletes below.
-RAW_KEEP_S = RETENTION_S + 2 * max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
+RAW_KEEP_S = 2 * max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
 
 #: Value ceiling per part. A timing part is milliseconds and a beacon is
 #: bounded by human patience; an hour is far past anything a page legitimately
@@ -237,8 +232,13 @@ def parse_batch(payload: object) -> list[tuple[str, str, str, str, float]]:
 
 
 def over_cap(conn, user_id: int, now: datetime) -> bool:
-    """True when this user already holds `MAX_ROWS_PER_USER` recent rows."""
-    since = now - timedelta(seconds=RETENTION_S)
+    """True when this user already holds `MAX_ROWS_PER_USER` rows.
+
+    Counted over the whole raw window, which is what the per-user ceiling is
+    about: the table is a working set, so a count against anything shorter
+    would let a looping client refill a pruned window forever.
+    """
+    since = now - timedelta(seconds=RAW_KEEP_S)
     row = conn.execute(
         db.sql_text("""
         SELECT 1 FROM web_metrics
@@ -276,10 +276,12 @@ def retention_cutoff(now: datetime) -> datetime:
 def rollup_horizon(now: datetime) -> datetime:
     """The instant a rollup bucket must END behind to be complete.
 
-    A bucket is stored once, whole, and never revised: it is written by the
-    fold that closes it and the raw rows it needs are gone by the next one.
+    `now`, and the reason is the sink rather than a policy choice: it stamps
+    every beacon's `ts` server-side, so a bucket whose span has passed can
+    never still gain a member. A bucket is stored once, whole, and never
+    revised -- the fold that closes it writes it, the next leaves it alone.
     """
-    return now - timedelta(seconds=RETENTION_S)
+    return now
 
 
 def utcnow() -> datetime:
