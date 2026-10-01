@@ -988,7 +988,11 @@ never hand-set numbers in a workflow.
   observed; the bench itself records its bound) — and the gap sits ABOVE
   the measured value because the number is a cost
   ceiling, not a quality floor. Seeded via the loader's writer
-  (`suite_ratchet.py --seed`, only when the member is absent);
+  (`suite_ratchet.py --seed`, only when the member is absent) FROM A
+  RUNNER MEASUREMENT — the environment the gate and the master-push
+  record path share; `residual` is environment-sensitive (a
+  workstation reads ~2.4M below a runner on identical code), so a
+  non-runner seed would gate runners red;
   tightened by the master-push bot (`suite_ratchet.py --tighten`,
   past the 1.5 hysteresis, both fields, never raised). The interpreter
   micro is pinned in the workflows that run the bench. Sanctioned
