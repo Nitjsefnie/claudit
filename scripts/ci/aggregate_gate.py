@@ -7,9 +7,9 @@ the job carries `if: always()` and this module owns the fold over the
 needs document the workflow passes in as JSON:
 
 - a leg's `success` passes, and so does its `skipped` when and only
-  when the classifier's `docs_only` output narrowed it —
-  documentation-only runs narrow the expensive legs without any check
-  ever going missing;
+  when a classifier output narrowed it — `docs_only` skips every leg,
+  `data_only` skips every leg outside CHEAP_LEGS — so narrowing runs
+  still report without any check ever going missing;
 - any other result (`failure`, `cancelled`, anything unrecognised)
   fails the aggregate and is named in the verdict;
 - a leg the document lacks at all fails it too, so the fold and the
@@ -50,16 +50,42 @@ EXPECTED_LEGS = ('classify', 'tests', 'test-data', 'lint', 'types', 'eslint',
 PASSED = 'passed'
 FAILED = 'failed'
 
+# The legs the data-only class still runs: lint and the boot-and-serve
+# check. Pinned in lockstep with the workflow by tests
+# (tests/test_workflow_ci_gate.py, issue #455).
+CHEAP_LEGS = frozenset({'lint', 'smoke'})
 
-def docs_only(needs):
-    """The classifier's docs_only output, read fail-closed."""
+
+def _classify_output(needs, name):
+    """A classifier output, read fail-closed."""
     classify = needs.get('classify')
     if not isinstance(classify, dict):
         return False
     outputs = classify.get('outputs')
     if not isinstance(outputs, dict):
         return False
-    return outputs.get('docs_only') == 'true'
+    return outputs.get(name) == 'true'
+
+
+def docs_only(needs):
+    """The classifier's docs_only output, read fail-closed."""
+    return _classify_output(needs, 'docs_only')
+
+
+def data_only(needs):
+    """The classifier's data_only output, read fail-closed."""
+    return _classify_output(needs, 'data_only')
+
+
+def _narrowed(name, needs):
+    """Whether classification legitimately skips leg `name`.
+
+    A docs-only run skips every leg; a data-only run skips every leg
+    OUTSIDE the cheap set — lint and smoke are why the class exists.
+    """
+    if docs_only(needs):
+        return True
+    return data_only(needs) and name not in CHEAP_LEGS
 
 
 def fold(needs):
@@ -77,7 +103,7 @@ def fold(needs):
         entries.append((name, result))
         if result == 'success':
             continue
-        if result == 'skipped' and docs_only(needs):
+        if result == 'skipped' and _narrowed(name, needs):
             continue
         failures.append(f'{name}={result}')
     return (not failures and not missing), failures, missing, entries
@@ -94,6 +120,14 @@ def decide(needs):
             return PASSED, (
                 f'docs-only change: {len(skipped)} gate legs skipped by '
                 f'classification ({joined}); the aggregate still reports')
+        if data_only(needs):
+            skipped = sorted(name for name, result in entries
+                             if result == 'skipped')
+            joined = ', '.join(skipped)
+            cheap = ', '.join(sorted(CHEAP_LEGS))
+            return PASSED, (
+                f'data-only change: {len(skipped)} gate legs skipped by '
+                f'classification ({joined}); cheap legs ran ({cheap})')
         joined = ', '.join(f'{name}={result}' for name, result in entries)
         return PASSED, f'all {len(entries)} legs succeeded: {joined}'
     parts = []
@@ -106,13 +140,15 @@ def decide(needs):
 
 def render(needs, verdict, message):
     """The markdown step summary: the verdict plus one row per leg."""
-    narrowed = 'true' if docs_only(needs) else 'false'
     lines = [
         '### ci gate',
         '',
         f'verdict: **{verdict}**',
         '',
-        f'docs-only narrowing: {narrowed}',
+        f'docs-only narrowing: '
+        f'{"true" if _classify_output(needs, "docs_only") else "false"}',
+        f'data-only narrowing: '
+        f'{"true" if _classify_output(needs, "data_only") else "false"}',
     ]
     classify = needs.get('classify')
     reason = ((classify or {}).get('outputs') or {}).get('reason')
@@ -127,8 +163,12 @@ def render(needs, verdict, message):
     ]
     for name in sorted(needs):
         result = (needs[name] or {}).get('result') or '(none)'
-        note = ' (docs-only narrowing)' if (
-            result == 'skipped' and docs_only(needs)) else ''
+        note = ''
+        if result == 'skipped':
+            if docs_only(needs):
+                note = ' (docs-only narrowing)'
+            elif data_only(needs) and name not in CHEAP_LEGS:
+                note = ' (data-only narrowing)'
         lines.append(f'| {name} | {result}{note} |')
     return '\n'.join(lines) + '\n'
 

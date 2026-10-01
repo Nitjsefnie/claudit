@@ -60,6 +60,17 @@ def _ci_gate():
     return _load(CI_GATE)
 
 
+def _aggregate_module():
+    spec = importlib.util.spec_from_file_location(
+        "aggregate_gate_shape",
+        ROOT / "scripts" / "ci" / "aggregate_gate.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["aggregate_gate_shape"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _tests_workflow():
     return _load(TESTS_WORKFLOW)
 
@@ -124,11 +135,36 @@ def test_ci_gate_jobs_are_exactly_the_non_leg_jobs_plus_the_legs():
             == set(module.NON_LEG_JOBS) | set(LEG_IDS))
 
 
-def test_every_leg_is_conditioned_on_the_docs_only_output():
+def test_legs_are_conditioned_on_the_narrowing_outputs():
+    # Issue #455: a bot-data-only change (src/pricing.json alone) runs
+    # only the cheap legs; every other leg needs BOTH narrowing outputs
+    # false. The cheap set is pinned in lockstep with the aggregate
+    # module's CHEAP_LEGS, so a leg cannot change class in one place.
+    cheap = _aggregate_module().CHEAP_LEGS
+    assert set(cheap) == {"lint", "smoke"}
     doc = _ci_gate()
     for leg in LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""
-        assert "needs.classify.outputs.docs_only != 'true'" in gate, leg
+        if leg in cheap:
+            assert gate == (
+                "needs.classify.outputs.docs_only != 'true'"), leg
+        else:
+            assert gate == (
+                "needs.classify.outputs.docs_only != 'true' "
+                "&& needs.classify.outputs.data_only != 'true'"), leg
+
+
+def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():
+    # The fold accepts a skipped leg under data_only only OUTSIDE the
+    # cheap set, and the workflow runs the cheap set under data_only —
+    # the same tuple, so the two files cannot disagree silently.
+    module = _aggregate_module()
+    assert module.CHEAP_LEGS == frozenset({"lint", "smoke"})
+    doc = _ci_gate()
+    for leg in LEG_IDS:
+        gate = doc["jobs"][leg].get("if") or ""
+        runs_under_data_only = "data_only" not in gate
+        assert runs_under_data_only == (leg in module.CHEAP_LEGS), leg
 
 
 def test_master_push_runs_get_a_per_sha_concurrency_group():
@@ -157,9 +193,10 @@ def test_master_push_runs_get_a_per_sha_concurrency_group():
     assert _ci_gate()["concurrency"]["cancel-in-progress"] == "true"
 
 
-def test_classify_job_outputs_docs_only():
+def test_classify_job_outputs_the_narrowing_outputs():
     outputs = _ci_gate()["jobs"]["classify"].get("outputs") or {}
     assert "docs_only" in outputs
+    assert "data_only" in outputs
 
 
 def test_classify_job_reads_actions_for_the_verified_base_walk():

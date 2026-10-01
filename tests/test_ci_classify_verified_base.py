@@ -117,7 +117,7 @@ def test_push_classifies_since_the_last_run_whose_legs_executed():
             return GREEN_JOBS if url.split("/")[-2] == "29" else ""
         return "AGENTS.md\n.github/workflows/tests.yml\n"
 
-    docs_only, reason = classify.classify(
+    docs_only, _data, reason = classify.classify(
         {"name": "push", "repository": "o/r",
          "before": INTERVENING_SHA, "sha": PUSH_SHA},
         run,
@@ -147,7 +147,7 @@ def test_push_walks_past_a_docs_only_run_whose_legs_all_skipped():
                     else GREEN_JOBS)
         return "docs/guide.md\n"
 
-    docs_only, _ = classify.classify(
+    docs_only, _data, _reason = classify.classify(
         {"name": "push", "repository": "o/r",
          "before": INTERVENING_SHA, "sha": PUSH_SHA},
         run,
@@ -187,7 +187,7 @@ def test_push_walks_past_a_failed_base_run():
         return ("backend/app.py\nREADME.md\n"
                 if f"/compare/{BASE_SHA}..." in url else "README.md\n")
 
-    docs_only, reason = classify.classify(
+    docs_only, _data, reason = classify.classify(
         {"name": "push", "repository": "o/r",
          "before": INTERVENING_SHA, "sha": PUSH_SHA},
         run,
@@ -219,7 +219,7 @@ def test_push_walks_past_a_timed_out_base_run():
         return ("backend/app.py\nREADME.md\n"
                 if f"/compare/{BASE_SHA}..." in url else "README.md\n")
 
-    docs_only, reason = classify.classify(
+    docs_only, _data, reason = classify.classify(
         {"name": "push", "repository": "o/r",
          "before": INTERVENING_SHA, "sha": PUSH_SHA},
         run,
@@ -252,7 +252,7 @@ def test_push_with_no_successful_run_over_runs():
         return "README.md\n"
 
     assert classify.changed_paths(events, run) is None
-    docs_only, reason = classify.classify(events, run)
+    docs_only, _data, reason = classify.classify(events, run)
     assert docs_only is False
     assert "full gate set" in reason
 
@@ -277,7 +277,7 @@ def test_push_skips_runs_that_are_not_completed_without_a_jobs_read():
             return GREEN_JOBS
         return "NOTICE\n"
 
-    docs_only, _ = classify.classify(
+    docs_only, _data, _reason = classify.classify(
         {"name": "push", "repository": "o/r",
          "before": INTERVENING_SHA, "sha": PUSH_SHA},
         run,
@@ -324,7 +324,7 @@ def test_push_with_no_verified_base_over_runs():
         )
 
     assert classify.changed_paths(events, cancelled_only) is None
-    docs_only, reason = classify.classify(events, cancelled_only)
+    docs_only, _data, reason = classify.classify(events, cancelled_only)
     assert docs_only is False
     assert "full gate set" in reason
 
