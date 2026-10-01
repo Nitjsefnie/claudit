@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T21:53:41Z",
+  "provider_rates_fetched": "2026-10-01T22:53:29Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -35118,6 +35118,22 @@
           "from": "2026-10-01T21:26:23Z",
           "output": 3.5,
           "read": 0.259
+        },
+        {
+          "create_1h": 0.2645,
+          "create_5m": 0.2645,
+          "fresh": 0.2645,
+          "from": "2026-10-01T22:16:13Z",
+          "output": 3.5,
+          "read": 0.2645
+        },
+        {
+          "create_1h": 0.1431,
+          "create_5m": 0.1431,
+          "fresh": 0.1431,
+          "from": "2026-10-01T22:41:13Z",
+          "output": 3.5,
+          "read": 0.1431
         }
       ],
       "Sail Research": [
@@ -40429,6 +40445,14 @@
           "fresh": 0.22,
           "from": "2026-10-01T21:36:17Z",
           "output": 4.4,
+          "read": 0.2
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-01T21:56:40Z",
+          "output": 3.39,
           "read": 0.2
         }
       ],
@@ -46007,6 +46031,14 @@
           "fresh": 1.0,
           "from": "2026-10-01T09:46:42Z",
           "output": 0.75,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": "2026-10-01T22:31:18Z",
+          "output": 0.5,
           "read": 0.03
         }
       ],
