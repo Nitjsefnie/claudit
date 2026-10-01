@@ -117,6 +117,7 @@
 !/scripts/ci/
 /scripts/ci/*
 !/scripts/ci/*.py
+!/scripts/ci/*.txt
 !/scripts/plots/
 /scripts/plots/*
 !/scripts/plots/*.py

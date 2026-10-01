@@ -1,7 +1,7 @@
 name: gate freshness
 
-# Lists the open pull-request heads that must rebase or rerun once
-# `ci gate / aggregate` becomes a required check: those whose latest
+# Lists the open pull-request heads that must rebase or rerun to
+# satisfy the required `ci gate / aggregate` check: those whose latest
 # ci-gate run predates the workflow's first commit on master, or that
 # have none. The decision lives in scripts/ci/gate_freshness.py; its
 # module docstring is the contract and tests/test_gate_freshness.py

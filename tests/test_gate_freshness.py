@@ -1,8 +1,8 @@
 """Unit tests for the gate-freshness head selection.
 
-Once the aggregate becomes a required check, heads that predate it (or
-never ran it) cannot go green until they rebase or rerun; this script
-names that set so only they rebase, instead of the manager rebinding
+The aggregate is a required check, and heads that predate it (or never
+ran it) cannot go green until they rebase or rerun; this script names
+that set so only they rebase, instead of the manager rebinding
 blindly. The tests pin the selection logic: a head is stale when its
 latest `ci gate / aggregate` run predates the first commit carrying
 ci-gate.yml, or when it has none.
