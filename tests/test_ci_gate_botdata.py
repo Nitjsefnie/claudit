@@ -122,42 +122,31 @@ def test_write_outputs_records_the_data_only_narrowing(tmp_path):
 # aggregate_gate: the data-only fold
 # ---------------------------------------------------------------------------
 
-LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
-        "smoke", "audit", "actionlint", "speed", "codeql")
+# Lockstep with the fold's own leg tuple, not a copy of the modules
+# file's: the pins here judge exactly the document aggregate_gate
+# expects, and a leg added there moves this document with it.
+LEGS = aggregate.EXPECTED_LEGS
 
 
-def _needs(**overrides):
-    """A green needs document, with per-leg result overrides.
+def _needs(cheap="success", expensive="skipped", data_only="true",
+           docs_only="false"):
+    """A needs document shaped for the data-only fold pins.
 
-    Key a leg as ``<name>__result`` to set its result, ``docs_only`` /
-    ``data_only`` to flip the classifier outputs.
+    Cheap legs sit at ``cheap``, every other leg at ``expensive``, so
+    the helper states the class split once instead of each test looping
+    over legs by hand.
     """
-    doc = {
-        "classify": {"result": "success", "outputs": {"docs_only": "false",
-                                                      "data_only": "false"}},
-    }
+    doc = {"classify": {"result": "success",
+                        "outputs": {"docs_only": docs_only,
+                                    "data_only": data_only}}}
     for leg in LEGS[1:]:
-        doc[leg] = {"result": "success"}
-    doc["classify"]["outputs"]["docs_only"] = overrides.pop(
-        "docs_only", "false")
-    doc["classify"]["outputs"]["data_only"] = overrides.pop(
-        "data_only", "false")
-    for key, value in overrides.items():
-        name = key.removesuffix("__result")
-        if name == "classify":
-            doc["classify"]["result"] = value
-        else:
-            doc[name] = {"result": value}
+        doc[leg] = {"result": cheap if leg in aggregate.CHEAP_LEGS
+                    else expensive}
     return doc
 
 
 def test_aggregate_data_only_skips_pass_and_names_the_cheap_legs():
-    doc = _needs(data_only="true")
-    for leg in LEGS[1:]:
-        doc[leg] = {
-            "result": "skipped" if leg not in aggregate.CHEAP_LEGS
-            else "success"}
-    verdict, message = aggregate.decide(doc)
+    verdict, message = aggregate.decide(_needs())
     assert verdict == aggregate.PASSED
     assert "data-only" in message
     for cheap in sorted(aggregate.CHEAP_LEGS):
@@ -168,10 +157,7 @@ def test_aggregate_data_only_cannot_skip_the_cheap_legs():
     # Fail closed: a data-only run that skipped lint or smoke anyway is
     # a fold/workflow disagreement, and the aggregate must go red — the
     # boot-and-serve check is why the class exists.
-    doc = _needs(data_only="true")
-    for leg in LEGS[1:]:
-        doc[leg] = {"result": "skipped"}
-    verdict, message = aggregate.decide(doc)
+    verdict, message = aggregate.decide(_needs(cheap="skipped"))
     assert verdict == aggregate.FAILED
     assert "lint=skipped" in message
     assert "smoke=skipped" in message
@@ -181,8 +167,7 @@ def test_aggregate_data_only_output_missing_reads_as_not_data_only():
     # Fail closed: a classify entry without the data_only output cannot
     # turn a skipped leg into a pass.
     doc = _needs()
-    doc["classify"] = {"result": "success", "outputs": {
-        "docs_only": "false"}}
+    doc["classify"]["outputs"] = {"docs_only": "false"}
     doc["tests"] = {"result": "skipped"}
     verdict, message = aggregate.decide(doc)
     assert verdict == aggregate.FAILED
@@ -192,7 +177,7 @@ def test_aggregate_data_only_output_missing_reads_as_not_data_only():
 def test_aggregate_non_data_only_skip_fails():
     # A skip beside a data_only=false output is still a disagreement,
     # the way a non-docs skip has always been.
-    doc = _needs(data_only="false")
+    doc = _needs(data_only="false", expensive="success")
     doc["speed"] = {"result": "skipped"}
     verdict, message = aggregate.decide(doc)
     assert verdict == aggregate.FAILED
@@ -200,12 +185,8 @@ def test_aggregate_non_data_only_skip_fails():
 
 
 def test_aggregate_summary_names_the_data_only_narrowing(tmp_path):
-    doc = _needs(data_only="true")
+    doc = _needs()
     doc["classify"]["outputs"]["reason"] = "bot-data-only change: 1 paths"
-    for leg in LEGS[1:]:
-        doc[leg] = {
-            "result": "skipped" if leg not in aggregate.CHEAP_LEGS
-            else "success"}
     summary = tmp_path / "summary.md"
     assert aggregate.main_with(doc, summary_path=str(summary)) == 0
     text = summary.read_text(encoding="utf-8")
