@@ -213,7 +213,7 @@ def test_model_ids_survive_verbatim_in_both_parsers():
 
     models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol"]
     lines: list[dict] = [_turn(1, models[0])]
-    for i, model in enumerate(models):
+    for i in range(len(models)):
         lines.append(_snapshot(2 * i + 2, 1_000 * (i + 1)))
         if i + 1 < len(models):
             lines.append(_turn(2 * i + 3, models[i + 1]))
