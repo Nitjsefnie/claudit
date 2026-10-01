@@ -459,6 +459,7 @@ def test_capformodel_lane_caps():
         fable: capForModel('claude-fable-5-1'),
         haiku: capForModel('claude-haiku-4-5'),
         sonnet45: capForModel('claude-sonnet-4-5'),
+        sonnet5: capForModel('claude-sonnet-5'),
         capsKeys: Object.keys(globalThis.__caps),
       }}));
     """
@@ -477,6 +478,10 @@ def test_capformodel_lane_caps():
     assert got["fable"] == 1_000_000
     assert got["haiku"] == 200_000
     assert got["sonnet45"] == 200_000
+    # The one row where the table and the family fallback disagree, so a
+    # dropped or mis-valued row would silently draw sonnet's 200k cap line
+    # where the 1M row says it should.
+    assert got["sonnet5"] == 1_000_000
     # Issue #472: the table is keyed on the canonical name the display
     # produces, which keeps the vendor prefix — a bare key would sit
     # unreached and every Claude model would fall to the default cap.
@@ -491,7 +496,7 @@ def test_capformodel_ignores_case():
       const src = {json.dumps(_capformodel_source())};
       eval(src);
       console.log(JSON.stringify({{
-        mixed: capForModel('Claude-Haiku-4-5'),
+        mixed: capForModel('Claude-Sonnet-5'),
       }}));
     """
     proc = subprocess.run(
@@ -499,7 +504,9 @@ def test_capformodel_ignores_case():
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["mixed"] == 200_000
+    # The same row the table/fallback disagreement covers: only the
+    # lowercasing lookup finds it, so this is what pins that hunk.
+    assert json.loads(proc.stdout)["mixed"] == 1_000_000
 
 
 # --------------------------------------------------------------------------
