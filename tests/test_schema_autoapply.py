@@ -138,6 +138,75 @@ def test_apply_schema_widens_an_integer_user_session_user_id(
         c.commit()
 
 
+def test_apply_schema_widens_an_integer_web_metrics_user_id(
+    app_with_fresh_data,
+):
+    """A database whose `web_metrics.user_id` was INTEGER is widened to
+    BIGINT at startup, and re-applying on an already-BIGINT column changes
+    nothing. The deployed sink raised
+    `psycopg.errors.NumericValueOutOfRange: integer out of range` on a real
+    beacon from a named user, because the session layer reports the auth
+    database's BIGINT id and the column could not hold it — so the live
+    table is INTEGER and only this path can reach a BIGINT one.
+    """
+    def _user_id_type():
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name='web_metrics' AND column_name='user_id'"
+            ).fetchone()
+        return row[0] if row else None
+
+    with db.viz_conn() as c:
+        c.execute("ALTER TABLE web_metrics "
+                  "ALTER COLUMN user_id TYPE INTEGER")
+        c.commit()
+    assert _user_id_type() == "integer"
+
+    # A beacon the narrow column cannot store, so the widening is proved by
+    # the write it unblocks and not only by the catalog.
+    with db.viz_conn() as c:
+        with pytest.raises(psycopg.errors.NumericValueOutOfRange):
+            c.execute(
+                "INSERT INTO web_metrics (user_id, metric, value) "
+                "VALUES (%s, %s, %s)", (2**31 + 7, "dashboard_open", 12.0))
+        c.rollback()
+
+    # Issue #387: apply_schema skips the DDL while the content stamp
+    # matches, so an out-of-band type change needs the stamp cleared to
+    # force the re-apply under test.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM schema_stamp")
+        c.commit()
+
+    db.apply_schema()
+    assert _user_id_type() == "bigint"
+
+    # Idempotent, and the widened column now holds the id that overflowed.
+    db.apply_schema()
+    assert _user_id_type() == "bigint"
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO web_metrics (user_id, metric, value) "
+            "VALUES (%s, %s, %s)", (2**31 + 7, "dashboard_open", 12.0))
+        c.commit()
+    with db.viz_conn() as c:
+        got = c.execute(
+            "SELECT user_id FROM web_metrics WHERE user_id = %s",
+            (2**31 + 7,)).fetchone()
+    assert got is not None and got[0] == 2**31 + 7
+
+    # The index the sink's per-user row cap rides on survives the rewrite:
+    # a dropped index would leave `over_cap` scanning the table and nothing
+    # would say so.
+    with db.viz_conn() as c:
+        indexed = c.execute(
+            "SELECT 1 FROM pg_index i "
+            "JOIN pg_class t ON t.oid = i.indrelid "
+            "WHERE t.relname = 'web_metrics' AND i.indisvalid").fetchall()
+    assert indexed, "web_metrics lost its indexes across the widening"
+
+
 def test_apply_schema_is_idempotent_and_preserves_data(app_with_fresh_data):
     """Re-applying on every boot must not disturb existing rows."""
     with db.viz_conn() as c:
