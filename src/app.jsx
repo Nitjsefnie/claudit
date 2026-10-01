@@ -230,6 +230,8 @@ function App() {
     transcriptLoaderRef.current = makeTranscriptLoader({
       fetchText: fetchTranscriptText,
       parse: text => {
+        // Network wait over; parsing is the client half of the split.
+        window.perf.closeFetch('inspector_open');
         const { events, meta } = window.parseTranscript(text);
         const stats = window.computeSessionStats(events, meta);
         return { events, meta, stats };
@@ -331,9 +333,11 @@ function App() {
     const run = mintRunSignal();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
     setDashFetch(window.dashboardFetch.start());
+    window.perf.openJourney('dashboard_open');
     window.dashboardFetch.load(`/api/dashboard?range=${activeRange}${q}`, { signal: run.signal })
       .then(b => {
         if (!run.isCurrent()) return;
+        window.perf.closeFetch('dashboard_open');
         setBackendDash(b);
         setDashFetch(window.dashboardFetch.loaded());
         // Announce only once the refetch the event asked for has
@@ -367,6 +371,7 @@ function App() {
     if (!backendOn) return;
     const es = new EventSource('/api/events', { withCredentials: true });
     const onIngest = e => {
+      window.perf.sseUpdate();
       refreshRef.current = window.ingestChangeSummary(e);
       setDashNonce(n => n + 1);
     };
@@ -391,6 +396,7 @@ function App() {
 
   function loadFromBackend(sessionId) {
     transcriptSessionIdRef.current = sessionId;
+    window.perf.openJourney('inspector_open');
     return transcriptLoaderRef.current(sessionId);
   }
 
@@ -700,47 +706,8 @@ function backendDashToShape(b) {
   };
 }
 
-// Which of the four token panels to draw.
-//
-// A panel whose series is zero in every bucket is noise: it occupies a
-// grid cell to say nothing. The backend already decided this and sent
-// `token_types`, so mirror that when it is present rather than
-// second-guessing it; the synthetic preview has no such list, so fall
-// back to summing the events.
-//
-// Cache Create is the one panel that is not 1:1 with a wire field — it
-// plots cache_5m + cache_1h — so it survives if EITHER half did.
-function tokenPanels(events, tokenTypes) {
-  const live = tokenTypes
-    ? new Set(tokenTypes)
-    : new Set(['input_tokens', 'output_tokens', 'thinking_tokens',
-               'cache_5m_tokens', 'cache_1h_tokens', 'cache_read_tokens']
-      .filter(f => {
-        const key = { input_tokens: 'input_tokens', output_tokens: 'output_tokens',
-                      thinking_tokens: 'thinking_tokens',
-                      cache_5m_tokens: 'ephemeral_5m', cache_1h_tokens: 'ephemeral_1h',
-                      cache_read_tokens: 'cache_read' }[f];
-        return events.some(e => (e[key] || 0) !== 0);
-      }));
-  return {
-    input: live.has('input_tokens'),
-    output: live.has('output_tokens'),
-    // Subset of output: its own panel, never part of `any` arithmetic
-    // beyond deciding whether to draw it.
-    thinking: live.has('thinking_tokens'),
-    cacheCreate: live.has('cache_5m_tokens') || live.has('cache_1h_tokens'),
-    cacheRead: live.has('cache_read_tokens'),
-    any: live.size > 0,
-  };
-}
-
-// Non-token series (churn, cost) carry no backend declaration, so the
-// same "all zero across the range" rule is applied here. A project that
-// never edits a file otherwise gets two permanently flat churn panels.
-function hasSeries(events, key) {
-  return events.some(e => (e[key] || 0) !== 0);
-}
-
+// Which of the four token panels to draw, and its non-token sibling, are in
+// src/panel-gating.js now (#436).
 function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
   return (
     <header className="topbar">
@@ -776,29 +743,6 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
 // ─────────────────────────────────────────────────────────────────
 // Dashboard view
 // ─────────────────────────────────────────────────────────────────
-
-function computeSessions(events) {
-  if (!events.length) return { sessions: [], windowBoundaries: [] };
-  // 30-min gap = new session; 5-hour gap = window boundary
-  const sorted = events.slice().sort((a, b) => a.ts - b.ts);
-  const sessions = [];
-  const windowBoundaries = [];
-  let cur = { start: sorted[0].ts, end: sorted[0].ts, events: [sorted[0]] };
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].ts - sorted[i-1].ts;
-    if (gap > 30 * 60 * 1000) {
-      cur.end = sorted[i-1].ts;
-      sessions.push(cur);
-      if (gap > 5 * 60 * 60 * 1000) windowBoundaries.push((sorted[i].ts + sorted[i-1].ts)/2);
-      cur = { start: sorted[i].ts, end: sorted[i].ts, events: [sorted[i]] };
-    } else {
-      cur.events.push(sorted[i]);
-      cur.end = sorted[i].ts;
-    }
-  }
-  sessions.push(cur);
-  return { sessions, windowBoundaries };
-}
 
 // Compute Token Breakdown rows (tokens + TTL-split cost per type) from a
 // set of hourly events. Shared by TokenBreakdownPanel; the per-panel model
@@ -924,6 +868,29 @@ function TokenBreakdownPanel({ events }) {
   );
 }
 
+function computeSessions(events) {
+  if (!events.length) return { sessions: [], windowBoundaries: [] };
+  // 30-min gap = new session; 5-hour gap = window boundary
+  const sorted = events.slice().sort((a, b) => a.ts - b.ts);
+  const sessions = [];
+  const windowBoundaries = [];
+  let cur = { start: sorted[0].ts, end: sorted[0].ts, events: [sorted[0]] };
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i].ts - sorted[i - 1].ts;
+    if (gap > 30 * 60 * 1000) {
+      cur.end = sorted[i - 1].ts;
+      sessions.push(cur);
+      if (gap > 5 * 60 * 60 * 1000) windowBoundaries.push((sorted[i].ts + sorted[i - 1].ts) / 2);
+      cur = { start: sorted[i].ts, end: sorted[i].ts, events: [sorted[i]] };
+    } else {
+      cur.events.push(sorted[i]);
+      cur.end = sorted[i].ts;
+    }
+  }
+  sessions.push(cur);
+  return { sessions, windowBoundaries };
+}
+
 function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch }) {
   // `synth` is null until /api/dashboard lands. Render anyway: the four
   // backend panels below (Tool Usage, Reply Latency, Tool Error Rate,
@@ -932,6 +899,15 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // for it — a measured 6.9s before they even started, turning a parallel
   // fan-out into a serial chain. They depend only on project/range/models.
   const hasData = !!synth;
+  // Issue #436: the dashboard journey closes on the first DATA-BEARING
+  // render, not on mount -- a journey closed on mount would report a page
+  // that rendered nothing. Keyed on the request state, so each openJourney
+  // above, SSE refetches included, is closed by the response feeding it.
+  useEffect(() => {
+    if (!hasData || dashFetch.status !== window.dashboardFetch.READY) return;
+    window.perf.markUsable();
+    window.perf.closeJourney('dashboard_open');
+  }, [hasData, dashFetch]);
   const {
     events = [], limitHits = [], range: dataRange, costByModel: backendByModel,
     tokensByModel: backendTokensByModel,
@@ -954,7 +930,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // no grid cell. Backend-declared for token types, summed here for the
   // derived and churn series.
   const panels = useMemo(
-    () => tokenPanels(events, tokenTypes), [events, tokenTypes]);
+    () => window.tokenPanels(events, tokenTypes), [events, tokenTypes]);
 
   const totals = useMemo(() => {
     const t = { input: 0, output: 0, cc: 0, cr: 0, cost: 0, eph5: 0, eph1h: 0,
@@ -1063,7 +1039,10 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       )}
 
       {hasData && (<>
-      <div className="dash-grid">
+      {/* Read by src/perf.js walking UP from a shifted node: a Layout
+          Instability entry names the elements that moved, so the nearest
+          marked ancestor is the region it is attributed to (#436). */}
+      <div className="dash-grid" data-perf-region="panel_grid">
         {panels.input && (
         <window.TimeSeriesPanel title="Input Tokens"  events={events} valueKey="input_tokens"
           color={window.dashboardCol.inputTokens} range={range} binMs={binMs} />)}
@@ -1082,13 +1061,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         {panels.any && (
         <window.TimeSeriesPanel title="Total Tokens"  events={events.map(e => ({...e, _t: e.input_tokens+e.output_tokens+e.cache_create+e.cache_read}))}
           valueKey="_t" color={window.dashboardCol.totalTokens} range={range} binMs={binMs} />)}
-        {hasSeries(events, 'cost_usd') && (
+        {window.hasSeries(events, 'cost_usd') && (
         <window.TimeSeriesPanel title="Cost (USD)"    events={events} valueKey="cost_usd"
           color={window.dashboardCol.costUSD} range={range} binMs={binMs} isCurrency />)}
-        {hasSeries(events, 'lines_added') && (
+        {window.hasSeries(events, 'lines_added') && (
         <window.TimeSeriesPanel title="Lines Added"   events={events} valueKey="lines_added"
           color={window.dashboardCol.linesAdded} range={range} binMs={binMs} />)}
-        {hasSeries(events, 'lines_deleted') && (
+        {window.hasSeries(events, 'lines_deleted') && (
         <window.TimeSeriesPanel title="Lines Deleted" events={events} valueKey="lines_deleted"
           color={window.dashboardCol.linesDeleted} range={range} binMs={binMs} />)}
       </div>
@@ -1162,6 +1141,16 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         <div className="dash-latency">
           <window.ReplyLatencyPanel
             models={models}
+            project={activeProject}
+            range={activeRange}
+            nonce={dashNonce} />
+        </div>
+      )}
+
+      {/* Self-fetching like the four above; hidden when unmeasured (#436). */}
+      {backendOn && (
+        <div className="dash-resp">
+          <window.WebMetricsPanel
             project={activeProject}
             range={activeRange}
             nonce={dashNonce} />
@@ -1258,6 +1247,16 @@ function SessionView({ tx }) {
   const [dense, setDense] = useState(false);
   const [view, setView] = useState('timeline'); // timeline | ctx
   const viewId = useId();
+  // Issue #436: the Inspector journey ends when the transcript is on
+  // screen. Keyed on the transcript itself — a new object per load — so
+  // a re-render cannot re-close a closed journey. Above the `if (!tx)`
+  // return below, as hooks must be.
+  const renderedTx = useRef(null);
+  useEffect(() => {
+    if (!tx || renderedTx.current === tx) return;
+    renderedTx.current = tx;
+    window.perf.closeJourney('inspector_open');
+  }, [tx]);
 
 
   if (!tx) {
@@ -1318,8 +1317,9 @@ function SessionView({ tx }) {
     }
   };
 
+  // data-perf-region: the Inspector's region, as named on the grid above.
   return (
-    <div className="session-view">
+    <div className="session-view" data-perf-region="inspector">
       <div className="page-head"><h1>Inspector</h1></div>
       <SessionHeader stats={tx.stats} />
       <div style={{
