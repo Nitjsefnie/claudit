@@ -80,7 +80,9 @@ createdb claudit_auth
 psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
 config JSONB NOT NULL DEFAULT '{}'::jsonb)"
 
-cp backend/.env.example .env      # then edit: DATABASE_URL_VIZ, R2_*, ADMIN_TOKEN
+cp backend/.env.example .env      # then edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
+                                  # DATABASE_URL_AUTH=postgresql:///claudit_auth (the .env.example default,
+                                  # postgresql:///users, names a database this block does not create)
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
 

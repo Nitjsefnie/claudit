@@ -274,47 +274,50 @@ every window closes on its own once one clean run completes.
 ```bash
 createdb claudit
 psql claudit -f backend/schema.sql
-cp backend/.env.example .env  # edit values
+createdb claudit_auth
+psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
+config JSONB NOT NULL DEFAULT '{}'::jsonb)"
+cp backend/.env.example .env  # edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-You also need an **auth database**: a second Postgres database holding
-the `users` table the login page reads. claudit owns no schema for it —
-in production it is provisioned and populated by your own user-management
-process, and the application only ever READS it. Startup aborts on
-`db.schema_check()` unless that table exists and carries the two columns
-the login lookup reads, so create it before the first boot:
+The second database is the **auth database**, holding the `users` table
+the login page reads. claudit owns no schema for it — in production it is
+provisioned and populated by your own user-management process, and the
+application only ever READS it. Set `DATABASE_URL_AUTH` to point at it
+(`postgresql:///claudit_auth` above; the shipped `backend/.env.example`
+defaults to `postgresql:///users`, a database this quick start does not
+create).
 
-```bash
-createdb claudit_auth
-psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
-config JSONB NOT NULL DEFAULT '{}'::jsonb)"
-```
+`db.schema_check()` aborts startup unless that table exists and carries
+the two columns the login lookup reads, and it is deliberately strict
+about both:
 
-Point `DATABASE_URL_AUTH` in `.env` at that database
-(`DATABASE_URL_AUTH=postgresql:///claudit_auth`; the shipped example
-defaults to a database named `users`).
+- `user_id` must be an integer type and `config` must be `JSONB`. Those
+  two are the whole of the login lookup's SQL
+  (`SELECT config FROM users WHERE user_id = %s`), and the same minimal
+  shape `scripts/ci/smoke.py` builds for its own fixture. A wrong type
+  aborts with `auth DB users.user_id must be an integer type (smallint,
+  integer or bigint), got 'text'`.
+- A table keyed by `id` rather than `user_id` used to pass the check and
+  500 every login with `UndefinedColumn` — issue #368 tightened it to the
+  two columns above.
+- The connecting role needs `SELECT` on the table. It is the database,
+  not the application, that is the real boundary: claudit issues no write
+  against the auth DB, but a `GRANT`-less role cannot read it either, and
+  startup then aborts with `auth DB: role '<role>' lacks SELECT on
+  'users'`. So when `DATABASE_URL_AUTH` connects as a role other than the
+  table's owner, run `GRANT SELECT ON users TO <role>` too.
 
-`user_id` must be an integer type and `config` must be `JSONB`; those two
-are the whole of the login lookup's SQL, and the same minimal shape
-`scripts/ci/smoke.py` builds for its own fixture. A table named anything
-other than `users`, one living outside the `public` schema, or one whose
-`user_id` is `text` is rejected at startup by the same check (issue #368 —
-an earlier check let those through, and they 500ed every login with
-`UndefinedColumn`).
+A table outside the `public` schema aborts with the same
+`no 'users' table visible` message an unreachable database produces, so
+check the schema as well as the DSN.
 
-The connecting role needs `SELECT` on the table. It is the database, not
-the application, that is the real boundary: claudit issues no write
-against the auth DB, but a `GRANT`-less role cannot read it either, and
-startup then aborts with `auth DB: role '<role>' lacks SELECT on 'users'`.
-So when `DATABASE_URL_AUTH` connects as a role other than the table's
-owner, run `GRANT SELECT ON users TO <role>` too.
-
-The table starts empty, so there is no account to sign in with yet — see
-[Auth](#auth) for the credential shape your user-management process writes
-into `config`.
+The table starts empty, so there is no credentialed account yet —
+**Continue as guest** on the sign-in page gets you in without one, and
+[Auth](#auth) has the credential shape a real sign-in needs.
 
 The first request blocks while ingest runs (~30s on a warm DB,
 several minutes for a cold cache against the full `claude` bucket).
