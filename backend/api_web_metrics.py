@@ -1,10 +1,15 @@
 """The `/api/metrics` beacon sink and the `/api/web-metrics` readout.
 
 Two routes, deliberately thin. The sink's decisions all live in
-`backend.web_metrics` (the closed vocabulary, the clamps, the per-user cap);
-this module is the HTTP shape around them. The readout is the same
-rollup-or-live fork `/api/reply-latency` uses, for the same reason, and the
-caveat the fork carries is written out at `_pool`.
+`backend.web_metrics` (the closed vocabulary, the clamps, the caps); this
+module is the HTTP shape around them.
+
+The readout forks on ONE question — does the requested range FIT the raw
+working set? — and the answer decides everything. If it does, the range is
+read from `web_metrics` outright and is exact. If it does not, it is read
+from stored buckets PLUS the raw tail those buckets do not yet cover, and the
+result is a blend; `exact: false` in the payload says so, and the panel says
+it on its face. What the blend costs is written out at `_pool`.
 
 Auth is `session.auth_middleware` by path prefix, not a decorator (see
 `backend/api.py`), which is what makes the sink's two gates free:
@@ -291,8 +296,9 @@ def _series_live(rng: str, bucket_s: int, since: datetime,
     history than the caller asked for. The clamped instant goes back in the
     payload so the panel can say what it is showing.
 
-    This is the DEFAULT pass, not the fallback: it is exact, and the raw
-    table is small (a few rows per page view) for as long as it is retained.
+    This is the pass for a range the working set covers, and the ONLY one of
+    the two that is exact. The raw table is small — a few rows per page view
+    — for as long as it is kept, which is what makes that affordable.
     """
     window = max(since, web_metrics.retention_cutoff(now))
     with db.viz_conn() as conn:

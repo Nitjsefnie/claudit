@@ -28,9 +28,11 @@ Three deliberate choices, each load-bearing downstream:
   A *vocabulary* violation is the opposite — it is a bug in our own frontend,
   and dropping it silently would hide it, so it is a 400.
 
-The raw table is append-only and pruned to `RETENTION_S` by the rollup pass
-(`backend.ingest_rollup_web_metrics.py`) once the row is in every stored
-bucket; the rollup is what outlives the prune.
+The raw table is a WORKING SET, pruned to `RAW_KEEP_S` by the rollup
+pass (`backend/ingest_rollup_web_metrics.py`) once the row is inside
+every stored bucket. The ROLLUP is the durable record and nothing prunes
+it, which is why a reader serving a range longer than the working set
+has to union the raw tail back in rather than read the rollup alone.
 """
 from __future__ import annotations
 
