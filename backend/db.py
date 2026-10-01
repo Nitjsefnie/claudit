@@ -15,11 +15,20 @@ import logging
 import os
 import threading
 from contextlib import closing, contextmanager
-from pathlib import Path
 from typing import LiteralString, cast
 
 import psycopg
 from psycopg_pool import ConnectionPool
+
+# The schema, as an ordered list of files applied under one content
+# stamp (issue #436). Re-exported because `db.SCHEMA_PATH` and
+# `db.SCHEMA_PATHS` are the names the startup tests reach for, and
+# the list itself lives in schema_files so this module stays inside
+# the module-size ratchet's 500-line ceiling.
+# pylint: disable=unused-import
+from backend.schema_files import (  # noqa: F401
+    SCHEMA_PATH, SCHEMA_PATHS, read_schema,
+)
 
 log = logging.getLogger("claudit.db")
 
@@ -194,38 +203,6 @@ def auth_conn():
         yield conn
 
 
-# backend/schema.sql, resolved next to this module so the working
-# directory the service was started from does not matter.
-SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
-
-# The schema, as an ORDERED list of files, all applied in one transaction
-# under one content stamp (issue #436). Splitting is not a preference: the
-# module-size ratchet records schema.sql at exactly its current line count,
-# a recorded size it never raises and never seeds again for an existing
-# family, so any table added there fails the gate permanently. The ratchet's
-# own stated remedy is to relocate the code into a new module, and that is
-# what a second file is. `web_metrics` went out first; schema.sql is
-# otherwise untouched and stays first in the list, because its statements
-# are the ones the rest of the file's ALTERs depend on.
-SCHEMA_PATHS = (
-    SCHEMA_PATH,
-    Path(__file__).resolve().parent / "schema_web_metrics.sql",
-)
-
-
-def _read_schema() -> str:
-    """Every schema file's DDL, in order, as one script.
-
-    Concatenated rather than executed file by file so the whole schema —
-    including the trailing file — is one transaction, one advisory lock and
-    one stamp. A separate transaction per file would let a crash between them
-    leave a database stamped as current with a table missing, which is the
-    exact half-applied state SV-SCHEMA-AUTOAPPLY exists to prevent.
-    """
-    return "\n".join(
-        path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)
-
-
 # Arbitrary but fixed key for the advisory lock the migration holds.
 # Two processes starting at once would otherwise run the same DDL
 # concurrently: IF NOT EXISTS makes each statement individually safe, but
@@ -324,7 +301,7 @@ def apply_schema() -> None:
     additive subset of the stamped file's, and the next boot of THIS
     build fast-paths again.
     """
-    ddl = _read_schema()
+    ddl = read_schema()
     stamp = hashlib.sha256(ddl.encode("utf-8")).hexdigest()
     with viz_conn() as c:
         if _stamp_version(c) == stamp:
