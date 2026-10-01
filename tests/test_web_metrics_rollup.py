@@ -22,6 +22,7 @@ from test_web_metrics import (  # noqa: F401  (fixtures re-exposed below)
 )
 
 from backend import db, web_metrics
+from backend.api_web_metrics import web_metrics_readout
 from backend.api_web_metrics import _series_live
 from backend.api_common import _bucket_seconds
 from backend.constants import LATENCY_BUCKETS
@@ -280,7 +281,7 @@ def test_a_range_the_raw_beacons_still_cover_is_exact(viz, pinned, client):
     """
     for hours in (1, 6, 12, 24, 36, 48):
         span = timedelta(hours=hours)
-        assert span.total_seconds() <= web_metrics.RETENTION_S
+        assert span.total_seconds() <= web_metrics.RAW_KEEP_S
         assert _bucket_seconds(span) not in LATENCY_BUCKETS, (
             f"{hours}h now folds to a stored width, so a range the raw rows "
             f"cover is answered from the rollup and blended")
@@ -411,58 +412,48 @@ def test_sink_rows_reach_the_readout_end_to_end(viz, pinned, client):
 
 @pytest.fixture(name="closing_horizon")
 def _closing_horizon_fixture(monkeypatch):
-    """A horizon and a read window with the REAL relationship between them.
+    """The shipped horizon, which is `now`, and the shipped read window.
 
-    `short_horizon` collapses the horizon but leaves the read window thirty
-    days wide, which makes a partial read impossible and would make the case
-    below vacuous. Here `read_from` sits exactly where the shipped constants
-    put it relative to the horizon -- one bucket width plus one fold interval
-    behind it -- so a bucket CAN close inside the read window's leading edge,
-    which is the condition the case is about.
+    There is nothing to collapse any more: `rollup_horizon` IS `now`, and the
+    read window is `retention_cutoff`. An earlier version of this suite
+    shortened the horizon to reach a closed bucket in a few folds, and that is
+    exactly the fiction this case exists to catch — so the fixture now uses
+    the real relationship and the case says so.
     """
-    monkeypatch.setattr(web_metrics, "rollup_horizon",
-                        lambda now: now - timedelta(hours=2))
-    # Derived from the shipped constants rather than restated, so narrowing
-    # RAW_KEEP_S in the module is a change this fixture follows — and the
-    # case below goes red, which is the point of the case.
-    monkeypatch.setattr(
-        web_metrics, "retention_cutoff",
-        lambda now: now - timedelta(
-            seconds=2 * 3600
-            + web_metrics.RAW_KEEP_S - web_metrics.RETENTION_S))
+    return monkeypatch
 
 
-def test_a_bucket_caught_mid_closing_is_repaired_by_a_later_fold(
+def test_the_fold_that_closes_a_bucket_stores_all_of_it(
         viz, closing_horizon):
-    """Skipped folds must not strand a bucket with a partial population.
+    """The fold that CLOSES a bucket stores all of it, and it stays whole.
 
-    The closing window is a full bucket width plus one fold interval, so a
-    fold can catch a bucket that has just closed while its oldest beacons
-    are still inside the read window but not inside THAT fold's. Written
-    with DO NOTHING, three skipped hourly folds stranded the 24-hour bucket
-    with 22 of its 24 beacons, permanently and silently -- which is the same
-    shape as the defect this suite was written for, one order smaller.
+    Not a repair test: there is no repair. The read window reaches back two
+    widths, so every closed bucket is whole when it is first read, and the
+    row is never revised. An earlier version of this suite tested a
+    `read_from` discriminator that let a later fold replace a partial row --
+    which could not work, because the window advances with `now` and a bucket
+    the window has cut off never becomes whole again. The fix was to size
+    the window from the arithmetic, and this is what that has to keep doing.
 
-    So: fold, skip, fold again, and the row must end up whole. The
-    discriminator is the stored `read_from` -- a later fold that skipped
-    ahead read from an EARLIER lower bound, so its population is a superset
-    and it is allowed to replace the row.
+    So: fold at the instant the day-bucket closes, and the row must already
+    hold all 24 beacons; then fold again at +1h, +2h, +24h and +400h, with a
+    backfilled beacon inside the closed bucket in between, and it must not
+    move.
     """
     # The shipped value, asserted before the behaviour: the fixture above
     # derives its window FROM `RAW_KEEP_S`, so narrowing the constant narrows
     # the fixture with it and this case would stay green. What was wrong was
     # the constant, so the constant is what needs the assertion.
     #
-    # A closed bucket `[s, s+W)` has s > now - RETENTION_S - 2W (see the
-    # derivation on web_metrics.RAW_KEEP_S), so the read window must reach
+    # A closed bucket `[s, s+W)` has s > now - 2W (see the derivation on
+    # web_metrics.RAW_KEEP_S), so the read window must reach
     # back at least that far. One width instead of two leaves the newest
     # closing bucket's oldest beacons outside it, and nothing later repairs
     # that — the window advances with now, so a cut-off bucket stays cut off.
-    assert web_metrics.RAW_KEEP_S >= (
-        web_metrics.RETENTION_S + 2 * max(LATENCY_BUCKETS)), (
-        f"RAW_KEEP_S = {web_metrics.RAW_KEEP_S} is less than "
-        f"RETENTION_S + 2 widths, so a fold that catches a bucket the moment "
-        f"it closes stores it short and can never repair it")
+    assert web_metrics.RAW_KEEP_S >= 2 * max(LATENCY_BUCKETS), (
+        f"RAW_KEEP_S = {web_metrics.RAW_KEEP_S} is less than two bucket "
+        f"widths, so a fold that catches a bucket the moment it closes "
+        f"stores it short and can never repair it")
 
     # A fold at the instant the day-bucket [base, base+24h) CLOSES, which is
     # when a fold is most likely to catch it at the window's edge: the
@@ -512,3 +503,72 @@ def test_a_later_fold_does_not_rewrite_a_whole_row(viz, closing_horizon):
     after = _rollup_rows(viz, 86400)
     assert after == before, (
         "a beacon backfilled into a closed bucket rewrote a stored row")
+
+
+def test_a_wider_range_never_serves_fewer_beacons(viz, pinned):
+    """The regression a cross-model review found, pinned as an inequality.
+
+    The reader served wide ranges from the rollup ALONE, and the rollup holds
+    only closed buckets — so the newest beacons, and everything since the last
+    fold, were in no bucket at all. The result was not a slightly stale
+    number: a WIDER range reported FEWER beacons than a narrower one, and the
+    default `all` view served 42 of 240 on a ten-day corpus.
+
+    So the property is the whole assertion: fold hourly across a corpus, then
+    walk the ranges and require the count to be non-decreasing, and the widest
+    to reach every beacon.
+    """
+    base = PINNED_NOW - timedelta(hours=240)
+    with db.viz_conn() as conn:
+        for hour in range(240):
+            conn.execute(
+                "INSERT INTO web_metrics (ts, user_id, metric, part, region,"
+                " phase, value) VALUES (%s, 1, 'dashboard_open', 'total',"
+                " '', '', 1.0)", (base + timedelta(hours=hour),))
+        conn.commit()
+    # Fold as the scheduler does: hourly, ending now.
+    for hour in range(240):
+        moment = base + timedelta(hours=hour)
+        web_metrics.utcnow = lambda moment=moment: moment
+        rebuild_web_metrics_rollup()
+
+    seen = []
+    for rng in ("1d", "4d", "5d", "7d", "30d", "all"):
+        body = web_metrics_readout(rng=rng)
+        seen.append((rng, body["series"][0]["n"] if body["series"] else 0))
+    counts = [n for _, n in seen]
+    assert counts == sorted(counts), (
+        f"a wider range served fewer beacons than a narrower one: {seen}")
+    assert counts[-1] == 240, (
+        f"`all` served {counts[-1]} of 240 beacons with hourly folds in "
+        f"place — the tail is not being unioned back in: {seen}")
+
+
+def test_since_names_the_data_served_not_the_range_asked_for(viz, pinned):
+    """`since` existed to stop the reader believing a longer label.
+
+    On the rollup path it used to echo the REQUESTED window while the data
+    stopped short of it, which is the exact lie the field was added to
+    prevent. It must name the oldest data the answer rests on.
+    """
+    base = PINNED_NOW - timedelta(hours=240)
+    with db.viz_conn() as conn:
+        for hour in range(240):
+            conn.execute(
+                "INSERT INTO web_metrics (ts, user_id, metric, part, region,"
+                " phase, value) VALUES (%s, 1, 'dashboard_open', 'total',"
+                " '', '', 1.0)", (base + timedelta(hours=hour),))
+        conn.commit()
+    for hour in range(240):
+        moment = base + timedelta(hours=hour)
+        web_metrics.utcnow = lambda moment=moment: moment
+        rebuild_web_metrics_rollup()
+
+    body = web_metrics_readout(rng="all")
+    since = datetime.fromisoformat(body["since"].replace("Z", "+00:00"))
+    oldest = min(b["ts"] for b in body["buckets"])
+    assert since <= datetime.fromisoformat(oldest.replace("Z", "+00:00")), (
+        f"`since` ({since}) is LATER than the oldest bucket served "
+        f"({oldest}), so the panel would claim less history than it shows")
+    assert since <= PINNED_NOW - timedelta(hours=200), (
+        "`since` echoed the requested window instead of the data served")
