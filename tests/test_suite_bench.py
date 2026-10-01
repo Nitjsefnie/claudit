@@ -419,6 +419,22 @@ def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
         assert list(compiled.glob(f"{pinned}.cpython-*.pyc")), pinned
 
 
+def test_the_count_is_the_same_from_a_bare_tree_and_an_inherited_one(mini_suite):
+    # The claim behind the warm-up, asserted directly rather than through
+    # its mechanism: a measurement must not read differently because of
+    # the bytecode caches the checkout arrived with. Each run below starts
+    # from a PURGED tree, so the two runs differ in nothing the bench did
+    # not establish itself, and every phase's instruction count must
+    # match. process_time is telemetry and is deliberately not compared.
+    counts = []
+    for name in ("bare.json", "inherited.json"):
+        _purge_bytecode_caches(mini_suite)
+        measurement = _measure(mini_suite, name=name)
+        counts.append({phase: value['million_instructions']
+                       for phase, value in measurement['phases'].items()})
+    assert counts[1] == counts[0], f'bare {counts[0]} vs {counts[1]}'
+
+
 def test_measure_releases_the_monitoring_tool_id(mini_suite):
     # close() is not optional: its docstring promises the tool id goes
     # back, and an in-process caller that measured once must not leave

@@ -29,7 +29,8 @@ connects on its own.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+import functools
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,10 @@ _AnyFn = ast.FunctionDef | ast.AsyncFunctionDef
 # with the reason. Empty today: every flagged test either requests a DB
 # fixture or carries the explicit mark.
 MARK_ALLOWLIST: dict[str, str] = {
+    "test_db_marker.py:test_the_derivation_roots_a_fixture_through_"
+    "another_module":
+        "parses seeded source strings; the server call is inside the "
+        "string the fixture is derived from, never called here",
     "test_version.py:test_health_error_branch_reports_version":
         "monkeypatches db.viz_conn with a function that raises, so the "
         "health endpoint's error branch runs with no server at all",
@@ -92,11 +97,21 @@ class _StubItem:
         self.marks.append(marker.name)
 
 
-def _modules() -> Iterator[tuple[str, ast.Module, str]]:
-    """(module name, AST, source) for every Python file in tests/."""
+@functools.cache
+def _modules() -> tuple[tuple[str, ast.Module, str], ...]:
+    """(module name, AST, source) for every Python file in tests/.
+
+    Cached: both scanners below derive from the same tree, and reading
+    and parsing every test module once per scanner was most of this
+    file's cost (issue #496). Nothing here writes a test module, so one
+    read per process answers the same question one read per call does.
+    """
+    modules = []
     for path in sorted(TESTS_DIR.glob("*.py")):
         source = path.read_text(encoding="utf-8")
-        yield path.stem, ast.parse(source, filename=str(path)), source
+        modules.append(
+            (path.stem, ast.parse(source, filename=str(path)), source))
+    return tuple(modules)
 
 
 def _dotted(node: ast.expr) -> str:
@@ -181,21 +196,32 @@ def _rooted_fixture_names(fixtures: dict[str, dict[str, str]],
             for reg, fname in mapping.items() if fname in rooted[mod]}
 
 
-def _derive_db_fixtures() -> set[str]:
-    """The DB-rooted fixture names, re-derived from tests/*.py.
+def _derive_from_modules(modules) -> set[str]:
+    """The DB-rooted fixture names, re-derived from `modules`.
 
     A fixture (or the helper it calls) is DB-rooted when its body
     mentions a server call, or when it requests — as a parameter — a
     fixture already known rooted. Iterated to a fixpoint across every
     module, because fixture parameters refer to registered names that
     another module may define.
+
+    Takes its modules as an argument so a seeded tree can be run through
+    exactly this code, which is what makes the optimisation's parity
+    testable against the full-sweep form rather than against a copy.
     """
-    modules = list(_modules())
     funcs = {name: _functions(tree) for name, tree, _ in modules}
     fixtures = _registered_fixtures(modules)
     rooted = {name: _mention_roots(funcs[name], source)
               for name, _, source in modules}
 
+    # The names a function's PARAMETERS can root, as an incremental
+    # union rather than a fresh sweep of every module's fixture map per
+    # function per round. `rooted` is the sweep's only moving input and
+    # it only ever grows by one defining function in one module, so the
+    # union gains exactly that module's names for that function: the
+    # value here is `_rooted_fixture_names(fixtures, rooted)` at every
+    # point of use, at a thousandth of the visits (issue #496).
+    rooted_names = _rooted_fixture_names(fixtures, rooted)
     changed = True
     while changed:
         changed = False
@@ -206,12 +232,19 @@ def _derive_db_fixtures() -> set[str]:
                 calls = {n.func.id for n in ast.walk(fn)
                          if isinstance(n, ast.Call)
                          and isinstance(n.func, ast.Name)}
-                rooted_params = (_arg_names(fn)
-                                 & _rooted_fixture_names(fixtures, rooted))
+                rooted_params = _arg_names(fn) & rooted_names
                 if calls & rooted[mod] or rooted_params:
                     rooted[mod].add(fname)
+                    rooted_names |= {reg for reg, owner
+                                     in fixtures[mod].items()
+                                     if owner == fname}
                     changed = True
     return _rooted_fixture_names(fixtures, rooted)
+
+
+def _derive_db_fixtures() -> set[str]:
+    """The DB-rooted fixture names, re-derived from tests/*.py."""
+    return _derive_from_modules(_modules())
 
 
 def _marked_db(fn: _AnyFn) -> bool:
@@ -260,6 +293,100 @@ def test_the_registry_equals_what_the_source_derives():
     assert "fresh_db" in derived, (
         "fresh_db — the canonical DB root fixture — no longer derives "
         "as DB-rooted; the split has silently gone empty.")
+
+
+def _derive_by_sweep(modules) -> set[str]:
+    """The derivation exactly as it read before the incremental union.
+
+    The control the optimisation is measured against: it asks
+    `_rooted_fixture_names` for a full sweep of every module's fixture
+    map at every call, which is what `_derive_from_modules` used to do.
+    """
+    funcs = {name: _functions(tree) for name, tree, _ in modules}
+    fixtures = _registered_fixtures(modules)
+    rooted = {name: _mention_roots(funcs[name], source)
+              for name, _, source in modules}
+    changed = True
+    while changed:
+        changed = False
+        for mod, fns in funcs.items():
+            for fname, fn in fns.items():
+                if fname in rooted[mod]:
+                    continue
+                calls = {n.func.id for n in ast.walk(fn)
+                         if isinstance(n, ast.Call)
+                         and isinstance(n.func, ast.Name)}
+                rooted_params = (_arg_names(fn)
+                                 & _rooted_fixture_names(fixtures, rooted))
+                if calls & rooted[mod] or rooted_params:
+                    rooted[mod].add(fname)
+                    changed = True
+    return _rooted_fixture_names(fixtures, rooted)
+
+
+def _seeded_modules() -> tuple:
+    """Three modules chained by parameter name, as (name, AST, source).
+
+    `seeded_root` mentions a server call, so it is a root from the first
+    round. `late_root` roots only once `seeded_root` is a rooted NAME --
+    the step where the union gains something the initial sweep could not
+    carry. `consumer` then roots through `late_root`, and it is
+    REGISTERED, so a union that dropped the delta would leave it
+    unrooted: the seeded violation this parity pair has to catch.
+    """
+    sources = {
+        "seeded": 'import pytest\n\n\n@pytest.fixture\n'
+                  'def seeded_root():\n    return viz_conn()\n',
+        "late": 'import pytest\n\n\n@pytest.fixture\n'
+                'def late_root(seeded_root):\n    return None\n',
+        "consumer": 'import pytest\n\n\n@pytest.fixture\n'
+                    'def consumer(late_root):\n    return None\n',
+    }
+    return tuple((name, ast.parse(src), src) for name, src in sources.items())
+
+
+def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
+    # Parity on REAL sources, both forms over the same slice: a union
+    # that dropped or double-counted a name would move a fixture in or
+    # out of the registry this module guards. The slice is the largest
+    # few real test modules, not the whole tree -- running the sweep
+    # form over all of it is the very cost this change removes, and a
+    # guard that costs more than the thing it guards is not a guard.
+    biggest = sorted(_modules(), key=lambda m: -len(m[2]))[:4]
+    assert len(biggest) == 4, biggest
+    assert _derive_from_modules(biggest) == _derive_by_sweep(biggest)
+
+
+def test_the_incremental_derivation_equals_the_full_sweep_on_seeded_modules():
+    # The same pair on a seeded tree whose transitive chain runs THROUGH
+    # the union's delta, and which ends in a registered fixture that must
+    # be rooted. Both forms are the production code path: `_sweep` is the
+    # pre-optimisation control, `_derive_from_modules` is what ships, so
+    # breaking the union fails here rather than passing vacuously.
+    modules = _seeded_modules()
+    derived = _derive_from_modules(modules)
+    assert derived == _derive_by_sweep(modules)
+    assert derived == {"seeded_root", "late_root", "consumer"}
+
+
+def test_the_module_cache_re_reads_after_its_cache_is_cleared(
+        tmp_path, monkeypatch):
+    # `_modules` is cached per process, which is only sound because
+    # nothing here writes a test module. Pin the escape hatch anyway: a
+    # cleared cache must see a file that appeared after the first read,
+    # so the cache can never be the reason a new test module goes
+    # unscanned.
+    monkeypatch.setattr(sys.modules[__name__], "TESTS_DIR", tmp_path)
+    (tmp_path / "test_seeded_scan.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8")
+    _modules.cache_clear()
+    assert [name for name, _, _ in _modules()] == ["test_seeded_scan"]
+    (tmp_path / "test_second_scan.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8")
+    assert [name for name, _, _ in _modules()] == ["test_seeded_scan"]
+    _modules.cache_clear()
+    assert sorted(name for name, _, _ in _modules()) == [
+        "test_second_scan", "test_seeded_scan"]
 
 
 def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
