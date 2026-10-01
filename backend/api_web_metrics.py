@@ -199,12 +199,13 @@ def _assemble(rng: str, bucket_s: int, bucket_rows: list, series_rows: list,
 def _stored_width(requested: int) -> int:
     """The narrowest STORED width that can carry a range, never a bare one.
 
-    Each width's rollup accumulates only about `RAW_KEEP_S` of history — the
-    window its own folds can read — so a width the rollup does not store has
-    no history at all, and a stored width narrower than needed has only a
-    couple of widths' worth. Serving a four-day range from a 15-minute
-    bucket's rollup therefore answered a 96-hour question with 54 hours of
-    data, which is a clamp wearing a bucket's clothes.
+    A width's rollup accumulates only what its own folds could read, and a
+    fold reads `RAW_KEEP_S` behind `now`. So a width the rollup does not
+    STORE has no history at all, and a stored width finer than the range
+    needs has barely started — a 15-minute bucket's rollup is a couple of
+    hours deep. Serving a four-day range from that answered a 96-hour
+    question with 54 hours of data, which is a clamp wearing a bucket's
+    clothes.
 
     So: the narrowest stored width at least as wide as asked for, and the
     widest stored width when none is. Coarser buckets mean a coarser series,
