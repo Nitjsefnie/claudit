@@ -82,6 +82,16 @@ def _document(suite=None):
         "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(suite) if suite is not None else None,
+        # The loader requires EVERY top-level family, so a synthetic
+        # suite_cost document must also carry a valid reparse family. It
+        # is inert here — nothing in this module reads it.
+        "reparse": {
+            phase: {
+                metric: {"measured": 10.0, "floor": 11.5}
+                for metric in _thresholds().REPARSE_METRICS
+            }
+            for phase in _thresholds().REPARSE_PHASES
+        },
     }
 
 

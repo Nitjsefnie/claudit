@@ -323,6 +323,8 @@ def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base), encoding="utf-8")
     head_path = _written(tmp_path, _document(), "head.json")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 0
 
 
 def test_reparse_phase_raised_fails(tmp_path):
@@ -394,6 +396,8 @@ def test_suite_cost_added_to_established_base_fails(tmp_path):
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
     head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 1
 
 
 def test_reparse_family_seed_to_arbitrary_values_is_clean(tmp_path):

@@ -524,6 +524,14 @@ def _document(reparse):
         "reparse": reparse,
         "module_size_baseline": {},
         "pylint_suppression_baseline": {},
+        # The loader requires EVERY top-level family, so a synthetic
+        # reparse document must also carry a valid suite_cost family. It
+        # is inert here — nothing in this module reads it.
+        "suite_cost": {
+            phase: {"measured": Decimal("10.0"),
+                    "floor": Decimal("10.0") + Decimal("1.5")}
+            for phase in thresholds.SUITE_COST_PHASES
+        },
     }
 
 

@@ -135,6 +135,7 @@ def _coverage_moves(base, head):
                     f'{before[field]} -> {after[field]}')
     return moves
 
+
 def _suite_cost_moves(base, head, established):
     """A suite cost budget that RISES.
 

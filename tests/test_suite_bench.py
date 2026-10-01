@@ -134,6 +134,19 @@ def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0")):
             }
             for phase in ("collection", "run", "residual")
         },
+        # The loader requires EVERY top-level family, so a synthetic
+        # suite_cost document must also carry a valid reparse family.
+        # It is inert here — nothing in this module reads it.
+        "reparse": {
+            phase: {
+                metric: {
+                    "measured": Decimal("10.0"),
+                    "floor": Decimal("10.0") + module.CALIBRATION_GAP,
+                }
+                for metric in module.REPARSE_METRICS
+            }
+            for phase in module.REPARSE_PHASES
+        },
     }
     target = tmp_path / "thresholds.json"
     module.write(target, doc)
