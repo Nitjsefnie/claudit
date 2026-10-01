@@ -40,6 +40,11 @@ from datetime import datetime, timedelta, timezone
 from backend import db
 from backend.constants import LATENCY_BUCKETS
 
+#: The user_id every anonymous session shares. Mirrors
+#: `backend.session.GUEST_USER_ID`, named here rather than imported so the
+#: vocabulary module keeps no dependency on the session layer.
+GUEST_USER_ID = 0
+
 #: The three journeys the frontend times, and the two measurement classes it
 #: observes on every page. `dashboard_open` / `inspector_open` / `signin` are
 #: interaction-to-rendered; `layout_shift` and `longtask` are the continuous
@@ -88,6 +93,15 @@ MAX_BEACONS = 50
 #: costs the operator the same as a real one. Counted, not estimated, so the
 #: cap is what it says it is.
 MAX_ROWS_PER_USER = 20_000
+
+#: The same ceiling for an ANONYMOUS session, and a good deal lower.
+#: Asymmetry here is about trust, not worth: a guest is anonymous by
+#: construction, so nothing about its beacons is attributable and no
+#: reputation stands behind them, while a named user's row count is bounded
+#: by the fact that they will notice a runaway. Guests also share `user_id =
+#: 0` with every other guest, so one caller can otherwise spend the whole
+#: anonymous budget and crowd out everyone else's.
+MAX_ROWS_PER_GUEST = 2_000
 
 #: The horizon the FOLD closes buckets at, and the working set the raw table
 #: keeps for it. Both are "now"-relative, and both were a full retention
@@ -231,12 +245,17 @@ def parse_batch(payload: object) -> list[tuple[str, str, str, str, float]]:
     return [normalise(beacon) for beacon in beacons]
 
 
-def over_cap(conn, user_id: int, now: datetime) -> bool:
-    """True when this user already holds `MAX_ROWS_PER_USER` rows.
+def cap_for(user_id: int) -> int:
+    """The row ceiling for this session, anonymous or named."""
+    return MAX_ROWS_PER_GUEST if user_id == GUEST_USER_ID else MAX_ROWS_PER_USER
 
-    Counted over the whole raw window, which is what the per-user ceiling is
-    about: the table is a working set, so a count against anything shorter
-    would let a looping client refill a pruned window forever.
+
+def over_cap(conn, user_id: int, now: datetime) -> bool:
+    """True when this session already holds its ceiling in rows.
+
+    Counted over the whole raw window, which is what the ceiling is about: the
+    table is a working set, so a count against anything shorter would let a
+    looping client refill a pruned window forever.
     """
     since = now - timedelta(seconds=RAW_KEEP_S)
     row = conn.execute(
@@ -245,9 +264,26 @@ def over_cap(conn, user_id: int, now: datetime) -> bool:
          WHERE user_id = %s AND ts >= %s
          LIMIT 1 OFFSET %s
         """),
-        (user_id, since, MAX_ROWS_PER_USER - 1),
+        (user_id, since, cap_for(user_id) - 1),
     ).fetchone()
     return row is not None
+
+
+def guest_share(conn, since: datetime) -> tuple[int, int]:
+    """(guest rows, all rows) over the window the answer rests on.
+
+    Guests are NOT excluded from the readout — this host is guest-heavy, and
+    a panel blind to its own traffic is the worse failure. But an anonymous
+    session is a single shared `user_id`, so a panel whose numbers are mostly
+    one anonymous caller has to LOOK skewed rather than read as a population.
+    This is the number that lets it.
+    """
+    row = conn.execute(
+        db.sql_text("""
+        SELECT COUNT(*) FILTER (WHERE user_id = %s), COUNT(*)
+          FROM web_metrics WHERE ts >= %s
+        """), (GUEST_USER_ID, since)).fetchone()
+    return int(row[0] or 0), int(row[1] or 0)
 
 
 def store(conn, user_id: int,

@@ -3,7 +3,7 @@
 // beacons, read back from /api/web-metrics.
 //
 // Modelled on ReplyLatencyPanel: a self-fetching panel taking
-// { project, range, nonce }, fetching its own endpoint with
+// { range, nonce }, fetching its own endpoint with
 // credentials: 'same-origin', mounted alongside the other backend panels
 // so its request goes out in parallel with /api/dashboard rather than
 // waiting for it.
@@ -62,21 +62,31 @@ const PERF_HEAD = Object.assign({}, PERF_CELL, {
   textAlign: 'left', color: 'var(--muted)', fontWeight: 600,
 });
 
-function WebMetricsPanel({ project, range, nonce }) {
+function WebMetricsPanel({ range, nonce }) {
   const [body, setBody] = useState(null);
 
   useEffect(() => {
-    const q = project ? `&project=${encodeURIComponent(project)}` : '';
-    fetch(`/api/web-metrics?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    // `range` only. A `project=` was appended here and silently ignored —
+    // /api/web-metrics has no project filter, because a browser beacon
+    // carries no project: the client is a page, not a session on a project.
+    // A parameter the server drops is worse than no parameter, since the
+    // URL claims a narrowing the answer does not have.
+    fetch(`/api/web-metrics?range=${range || 'all'}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => setBody(b))
       .catch(err => console.error('web-metrics fetch failed', err));
-  }, [project, range, nonce]);
+  }, [range, nonce]);
 
   const series = (body && body.series) || [];
   // true only on the live pass; the rollup pass blends per-bucket values.
   const exact = !!(body && body.exact);
   const since = (body && body.since) || '';
+  // F2 disclosure. Guests are deliberately IN this population -- the host
+  // is guest-heavy and a panel blind to its own traffic is the worse
+  // failure -- but every anonymous session shares one user_id, so a
+  // panel mostly made of one caller has to LOOK that way.
+  const guests = (body && body.guests) || 0;
+  const beacons = (body && body.beacons) || 0;
 
   // One row per journey: the names the sink's table admits. A journey
   // with no rows still gets its line, with em dashes throughout, because
@@ -115,9 +125,15 @@ function WebMetricsPanel({ project, range, nonce }) {
 
   // The one-sentence readout the accessible name carries, built from the
   // same rows the table below shows so the two cannot drift.
-  const headline = `${measured} of 3 journeys measured; layout instability `
-    + `${perfScore(shiftTotal)} over ${shiftSamples} shifts; main thread `
-    + `blocked ${perfMs(blockTotal)} over ${blockSamples} tasks.`;
+  // "layout instability" and "blocked" both read as per-view metrics, and
+  // neither is: each is a SUM over every visit in the range, across every
+  // user. A cumulative layout shift of 4.0 is not a CLS of 4.0 — CLS is
+  // per page view and capped at 1. The labels say summed, because that is
+  // what the number is.
+  const headline = `${measured} of 3 journeys measured; layout shift `
+    + `${perfScore(shiftTotal)} summed over ${shiftSamples} shifts; main `
+    + `thread blocked ${perfMs(blockTotal)} summed over ${blockSamples} `
+    + `tasks; ${guests} of ${beacons} beacons from guests.`;
   const description = exact
     ? 'True percentiles, measured live on this view.'
     : 'Approximate: the per-bucket values are blended by sample count, '
@@ -199,11 +215,14 @@ function WebMetricsPanel({ project, range, nonce }) {
         gap: 12, marginTop: 12,
       }}>
         {[
-          { name: 'layout instability', metric: 'layout_shift', fmt: perfScore,
+          { name: 'layout shift, summed', metric: 'layout_shift',
+            fmt: perfScore,
             total: shiftTotal, samples: shiftSamples, sample: 'shifts observed',
             by: groups('layout_shift', 'region') },
-          { name: 'main-thread blocking', metric: 'longtask', fmt: perfMs,
-            total: blockTotal, samples: blockSamples, sample: 'long tasks observed',
+          { name: 'main-thread blocking, summed', metric: 'longtask',
+            fmt: perfMs,
+            total: blockTotal, samples: blockSamples,
+            sample: 'long tasks observed',
             by: groups('longtask', 'phase') },
         ].map(block => (
           <div key={block.metric}>
