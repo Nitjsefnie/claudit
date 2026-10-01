@@ -65,6 +65,7 @@ def _doc(hosts: dict[str, list[dict]]) -> dict:
         "models": {MODEL: [{"from": None, **RATE_A}]},
         "providers": {MODEL: copy.deepcopy(hosts)},
         "provider_rates_fetched": "2026-01-01T00:00:00Z",
+        "long_context_models": [],
         "openrouter": {"data_region": "global",
                        "models": {MODEL: {"id": MODEL_ID}}},
     }
