@@ -180,6 +180,23 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
             starts[0] if begin else None, schedules)
 
 
+def _long_context_members(doc: dict) -> frozenset[str]:
+    """The long-context meter's membership, checked: distinct non-empty
+    strings, each naming a models-table key (the meter rides that table's
+    rate rows, so a key with no row is a typo the loader refuses)."""
+    members = doc.get("long_context_models", [])
+    if (not isinstance(members, list)
+            or not all(isinstance(k, str) and k for k in members)
+            or len(set(members)) != len(members)):
+        raise ValueError(
+            "long_context_models: not a list of distinct non-empty keys")
+    unknown = [k for k in members if k not in doc["models"]]
+    if unknown:
+        raise ValueError(
+            f"long_context_models: {unknown} name no models-table key")
+    return frozenset(members)
+
+
 def load_tables(doc: dict) -> RateTables:
     """Every rate table, derived from the parsed pricing.json, in file order."""
     model_rates: dict[str, dict] = {}
@@ -202,16 +219,6 @@ def load_tables(doc: dict) -> RateTables:
                 provider_dated[model, host] = windows
             if start is not None:
                 provider_starts[model, host] = start
-    members = doc.get("long_context_models", [])
-    if (not isinstance(members, list)
-            or not all(isinstance(k, str) and k for k in members)
-            or len(set(members)) != len(members)):
-        raise ValueError(
-            "long_context_models: not a list of distinct non-empty keys")
-    unknown = [k for k in members if k not in doc["models"]]
-    if unknown:
-        raise ValueError(
-            f"long_context_models: {unknown} name no models-table key")
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
@@ -229,7 +236,7 @@ def load_tables(doc: dict) -> RateTables:
             | {end for windows in provider_dated.values() for end, _ in windows}
             | set(provider_starts.values())
         ),
-        "LONG_CONTEXT_MODELS": frozenset(members),
+        "LONG_CONTEXT_MODELS": _long_context_members(doc),
     }
 
 
