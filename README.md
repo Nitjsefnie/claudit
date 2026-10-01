@@ -392,7 +392,7 @@ verification where it can run, a dummy remainder run on top where it
 cannot or would run cheaper — so account ids cannot be enumerated
 from the login endpoint (a stored hash versioned above the target
 count still costs longer). The login rate limiter counts 5 failures
-per IP+user pair per 5-minute window.
+per IP+user pair and 20 per IP, per 5-minute window.
 Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
 guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
