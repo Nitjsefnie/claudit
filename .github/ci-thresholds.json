@@ -36,20 +36,20 @@
   },
   "reparse_cpu": {
     "parse_body": {
-      "floor": 87.4,
-      "measured": 85.9
+      "floor": 86.4,
+      "measured": 84.9
     },
     "residual": {
-      "floor": 7.1,
-      "measured": 5.6
+      "floor": 6.8,
+      "measured": 5.3
     },
     "sidecar": {
       "floor": 1.5,
       "measured": 0.0
     },
     "sniff": {
-      "floor": 12.8,
-      "measured": 11.3
+      "floor": 12.2,
+      "measured": 10.7
     }
   },
   "schema_version": 1,
