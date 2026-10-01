@@ -151,5 +151,20 @@ function CodeBlock({ children, max }) {
 
 Object.assign(window, {
   TOOL_COLORS, TYPE_META, shortTime, toolGlyph, inputPreview, eventOneLine,
-  renderEditDiff, KV, CodeBlock,
+  renderEditDiff, KV, CodeBlock, ingestChangeSummary,
 });
+
+// One-line what-changed for the live region, read off the ingest_done
+// payload (the run summary backend/ingest broadcasts). Shapes it cannot
+// read degrade to '' -- the announcement is then just "Data refreshed".
+function ingestChangeSummary(e) {
+  let s = null;
+  try { s = JSON.parse(e.data); } catch (_) { return ''; }
+  if (!s || typeof s !== 'object') return '';
+  const parts = [];
+  const n = (k, one, many) => { if (s[k] > 0) parts.push(`${s[k]} ${s[k] === 1 ? one : many}`); };
+  n('inserted', 'new file', 'new files');
+  n('reparsed', 'file updated', 'files updated');
+  n('deleted', 'file removed', 'files removed');
+  return parts.join(', ');
+}
