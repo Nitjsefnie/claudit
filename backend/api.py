@@ -31,6 +31,7 @@ from backend.api_common import (
 from backend.api_dashboard import router as dashboard_router
 from backend.api_export import router as export_router
 from backend.api_sessions import router as sessions_router
+from backend.api_web_metrics import router as web_metrics_router
 from backend.cache import cache_response
 from backend.constants import (CTX_BUCKET_MAX, CTX_BUCKET_WIDTH,
                                LATENCY_BUCKETS)
@@ -40,6 +41,7 @@ router.include_router(export_router)
 router.include_router(dashboard_router)
 router.include_router(sessions_router)
 router.include_router(cache_router)
+router.include_router(web_metrics_router)
 
 
 @router.get("/me")
