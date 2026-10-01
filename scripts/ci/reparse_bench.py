@@ -389,6 +389,9 @@ def _parser():
                              'committed floors; nonzero when a phase is over')
     parser.add_argument('--machine', action='store_true',
                         help='print the reading as key=value fields')
+    parser.add_argument('--report', type=Path, metavar='MEASUREMENT',
+                        help='print the human report of a written '
+                             'measurement, measuring nothing')
     parser.add_argument('--passes', type=int, default=PASSES,
                         help='timed passes over the corpus')
     parser.add_argument('--warmup', type=int, default=WARMUP_PASSES,
@@ -411,6 +414,10 @@ def main(argv=None):
             return 0
         if args.check is not None:
             return reparse_report.check(args.check, args.thresholds)
+        if args.report is not None:
+            print(reparse_report.report(
+                reparse_report.measurement_from_file(args.report)))
+            return 0
         measurement = measure_in_child(args.passes, args.warmup)
         if args.write is not None:
             reparse_report.write_measurement(args.write, measurement)
