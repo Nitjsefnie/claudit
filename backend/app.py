@@ -427,6 +427,22 @@ async def root_css() -> Response:
     )
 
 
+@app.get("/favicon.ico")
+async def root_favicon() -> Response:
+    """The tab icon: public (a browser fetches it before any sign-in),
+    byte-identical to the committed public/favicon.ico -- a 32x32 ICO
+    (PNG-compressed) hand-generated for the dark theme: the topbar's
+    teal chevron on the --bg surface. Declared by index.html's
+    <link rel="icon"> (issue #448); img-src 'self' admits the
+    same-origin fetch, and no data: URI can stand in for it.
+    """
+    return FileResponse(
+        str(_PUBLIC / "favicon.ico"),
+        media_type="image/x-icon",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 # /src/* is mounted via StaticFiles. The middleware gates it because the
 # path doesn't start with /api or /admin and isn't in _AUTH_PUBLIC_PATHS.
 app.mount("/src", StaticFiles(directory=str(_SRC)), name="src")

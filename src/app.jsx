@@ -412,34 +412,39 @@ function App() {
   return (
     <div className="app-root">
       <TopBar route={route} setRoute={setRoute} isGuest={isGuest} backendOn={backendOn} range={activeRange} project={activeProject} />
-      {backendOn && !isGuest && projects && (
-        <ProjectPicker
-          projects={projects}
-          active={activeProject}
-          onChange={setActiveProject}
-        />
-      )}
-      {backendOn && (
-        <RangePicker active={activeRange} onChange={setActiveRange} />
-      )}
-      {/* Mounted as soon as the backend is known: Dashboard's four
-          self-fetching panels must go out in parallel, not after. */}
-      {route === 'dashboard' && (dashData || backendOn) && <Dashboard synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} dashFetch={dashFetch} />}
-      {route === 'sessions' && dashData && (
-        <window.SessionsList
-          synth={dashData}
-          onOpen={(sid) => backendOn ? loadFromBackend(sid) : setRoute('session')}
-        />
-      )}
-      {route === 'cache' && backendOn && (
-        <div>
-          <window.CacheView project={activeProject} range={activeRange} />
-          <window.ContextGrowthAgg project={activeProject} range={activeRange} />
-        </div>
-      )}
-      {route === 'session' && (transcriptError
-        ? <div className="err">{transcriptError}</div>
-        : <SessionView tx={tx} />)}
+      {/* The page's one main landmark: the pickers and every route's
+          content sit inside it; the topbar and the live region stay
+          outside (issue #447). */}
+      <main id="main">
+        {backendOn && !isGuest && projects && (
+          <ProjectPicker
+            projects={projects}
+            active={activeProject}
+            onChange={setActiveProject}
+          />
+        )}
+        {backendOn && (
+          <RangePicker active={activeRange} onChange={setActiveRange} />
+        )}
+        {/* Mounted as soon as the backend is known: Dashboard's four
+            self-fetching panels must go out in parallel, not after. */}
+        {route === 'dashboard' && (dashData || backendOn) && <Dashboard synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} dashFetch={dashFetch} />}
+        {route === 'sessions' && dashData && (
+          <window.SessionsList
+            synth={dashData}
+            onOpen={(sid) => backendOn ? loadFromBackend(sid) : setRoute('session')}
+          />
+        )}
+        {route === 'cache' && backendOn && (
+          <div>
+            <window.CacheView project={activeProject} range={activeRange} />
+            <window.ContextGrowthAgg project={activeProject} range={activeRange} />
+          </div>
+        )}
+        {route === 'session' && (transcriptError
+          ? <><div className="page-head"><h1>Inspector</h1></div><div className="err">{transcriptError}</div></>
+          : <SessionView tx={tx} />)}
+      </main>
       {/* Live region for the SSE ingest_done refresh (issue #117).
           Mounted here, outside the panel tree, so no re-render can
           unmount it; polite + atomic so it never interrupts or steals
@@ -1045,6 +1050,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
     <div className="dashboard">
+      <div className="page-head"><h1>Overview</h1></div>
       <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
       {summary.kind === 'data' && (
       <div className="dash-summary">
@@ -1273,6 +1279,7 @@ function SessionView({ tx }) {
     return (
       <div className="session-empty">
         <div className="drop-card">
+          <div className="page-head"><h1>Inspector</h1></div>
           <div className="drop-title">No session selected</div>
           <div className="drop-sub">Pick a session from the Sessions list to inspect its
             timeline, tool calls, and context growth.</div>
@@ -1328,6 +1335,7 @@ function SessionView({ tx }) {
 
   return (
     <div className="session-view">
+      <div className="page-head"><h1>Inspector</h1></div>
       <SessionHeader stats={tx.stats} />
       <div style={{
         display: 'flex', gap: 6, alignItems: 'center',
@@ -1368,9 +1376,9 @@ function SessionView({ tx }) {
             ))}
           </div>
         </aside>
-        <main className="session-detail">
+        <section className="session-detail" aria-label="Event detail">
           <window.EventDetail event={sel} dense={dense} />
-        </main>
+        </section>
       </div>
       )}
     </div>

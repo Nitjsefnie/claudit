@@ -26,6 +26,7 @@ window.CacheView = function CacheView({ project, range }) {
 
   return (
     <div className="cache-view">
+      <div className="page-head"><h1>Cache</h1></div>
       <h2>CACHE / TOKEN USAGE</h2>
       <PerModelTable rows={data.per_model} sessionTotal={data.session_total} />
 
