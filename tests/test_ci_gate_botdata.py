@@ -1,12 +1,13 @@
-"""The ci-gate bot-data class: classifier and fold pins (issue #455).
+"""The ci-gate bot-data class: classifier and fold pins (issues #455, #488).
 
-The bot-data classification (src/pricing.json alone -> the cheap class)
-and the aggregate fold's data-only branch are the issue-455 additions
-to the ci-gate classifier and aggregate fold, so their pins live in
-their own module rather than growing test_ci_gate_modules.py past the
-test size ceiling. Loader shape matches that file: scripts/ci is not a
-package and deliberately has no __init__.py — it holds standalone CI
-entry points, so both modules load by path here too.
+The bot-data classification (the refresh bot's exact push signature ->
+the cheap class) and the aggregate fold's data-only branch are the
+issue-455/-488 additions to the ci-gate classifier and aggregate fold,
+so their pins live in their own module rather than growing
+test_ci_gate_modules.py past the test size ceiling. Loader shape
+matches that file: scripts/ci is not a package and deliberately has no
+__init__.py — it holds standalone CI entry points, so both modules load
+by path here too.
 """
 from __future__ import annotations
 
@@ -32,27 +33,6 @@ classify = _load("classify_changes")
 aggregate = _load("aggregate_gate")
 
 
-# ---------------------------------------------------------------------------
-# classify_changes: the bot-data class
-# ---------------------------------------------------------------------------
-
-
-def test_bot_data_pattern_set_is_the_refresh_bots_file():
-    # The refresh bot's ONLY generated-data file, as a rooted filter
-    # pattern. Deliberately NOT in DOC_PATTERNS: a rate-data change must
-    # still get its boot-and-serve check (smoke) and lint, just not the
-    # whole matrix — the refresh job ran the full suite against the new
-    # rates BEFORE pushing, so re-running it here verifies nothing.
-    assert classify.BOT_DATA_PATTERNS == ("src/pricing.json",)
-
-
-def test_bot_data_pattern_is_rooted():
-    assert classify.matches("src/pricing.json", "src/pricing.json")
-    assert not classify.matches("src/pricing.json", "src/pricing.jsonx")
-    assert not classify.matches("src/pricing.json", "x/src/pricing.json")
-    assert not classify.matches("src/pricing.json", "backend/pricing.json")
-
-
 DOCS = [
     "README.md", "docs/guide.md", "PRESENTATION.txt", "examples/a.txt",
     "examples/s/b.txt", ".claude/rules/x.md", "LICENSE", "NOTICE",
@@ -65,23 +45,50 @@ CODE = [
 ]
 
 
-def test_is_bot_data_partition():
-    assert classify.is_bot_data("src/pricing.json")
-    for path in (DOCS + CODE + ["src/parser.js", "src/pricing.py"]):
-        assert not classify.is_bot_data(path), path
+# ---------------------------------------------------------------------------
+# classify_changes: the bot-data class
+# ---------------------------------------------------------------------------
 
 
-def test_data_only_requires_a_nonempty_all_bot_data_set():
+def test_bot_signature_is_exactly_the_refresh_bots_pair():
+    # The hourly refresh appends rate entries to src/pricing.json and
+    # bumps PRICING_VERSION in backend/constants.py in the SAME commit
+    # (SV-RATE-REFRESH), so a bot push changes exactly this pair. A
+    # signature, not a filter: the cheap class exists for generated data
+    # the refresh job ran the full suite against BEFORE pushing, and
+    # only this exact set carries that pre-test.
+    assert classify.BOT_SIGNATURE == frozenset(
+        {"src/pricing.json", "backend/constants.py"})
+
+
+def test_data_only_requires_the_exact_signature():
     assert not classify.data_only([])
-    assert classify.data_only(["src/pricing.json"])
-    for intruder in DOCS + CODE:
-        assert not classify.data_only(["src/pricing.json", intruder]), intruder
+    assert classify.data_only(["src/pricing.json", "backend/constants.py"])
+    # Listing order and duplicates are set noise, not a third path.
+    assert classify.data_only(
+        ["backend/constants.py", "src/pricing.json", "src/pricing.json"])
 
 
-def test_classify_bot_data_only_gets_the_cheap_class():
+def test_data_only_refuses_a_third_path():
+    for intruder in (DOCS + CODE + ["src/parser.js", "src/pricing.py"]):
+        assert not classify.data_only(
+            ["src/pricing.json", "backend/constants.py", intruder]), intruder
+
+
+def test_data_only_refuses_either_half_alone():
+    # constants.py without pricing.json is ordinary code. pricing.json
+    # without constants.py narrows the issue-455 class on purpose: the
+    # bot never produces it (SV-RATE-REFRESH bumps in the same commit),
+    # so a lone hand-edited rate file has no pre-test behind it and runs
+    # the full matrix.
+    assert not classify.data_only(["backend/constants.py"])
+    assert not classify.data_only(["src/pricing.json"])
+
+
+def test_classify_the_bots_signature_gets_the_cheap_class():
     docs_only, data_only, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "src/pricing.json\n",
+        lambda argv: "src/pricing.json\nbackend/constants.py\n",
     )
     assert (docs_only, data_only) == (False, True)
     assert "data-only" in reason
