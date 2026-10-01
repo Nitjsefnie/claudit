@@ -308,7 +308,7 @@ function App() {
   }, [backendOn, isGuest, activeRange, dashNonce]);
 
   // Model list — distinct raw model strings + counts. Frontend dedups
-  // by short name (e.g. claude-opus-4-7-* → opus-4-7).
+  // by canonical name (e.g. claude-opus-4-7-20251101 → claude-opus-4-7).
   useEffect(() => {
     if (!backendOn) return;
     fetch('/api/models', { credentials: 'same-origin' })
@@ -592,8 +592,8 @@ function backendAggregateRange(events, bucketS) {
 
 function backendDashToShape(b) {
   // Canonicalize raw backend model strings ("claude-opus-4-7-20251101")
-  // to short names ("opus-4-7") ONCE here, so every downstream consumer
-  // (model colors, Cost by Model labels, burn-rate dots) agrees.
+  // to canonical names ("claude-opus-4-7") ONCE here, so every downstream
+  // consumer (model colors, Cost by Model labels, burn-rate dots) agrees.
   const short = m => window.shortModelName(m || 'unknown');
   const events = (b.hourly || []).map((h, i) => ({
     ts: Date.parse(h.hour),
