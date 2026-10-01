@@ -6,7 +6,7 @@ __all__ = (
     "rebuild_rollup", "rebuild_tool_rollup", "rebuild_tool_error_rollup",
     "rebuild_dispatch_rollup", "rebuild_dispatch_brief_rollup",
     "rebuild_ctx_cost_rollup", "rebuild_agent_rollup",
-    "rebuild_latency_rollup",
+    "rebuild_latency_rollup", "rebuild_web_metrics_rollup",
 )
 
 from backend.ingest_rollup_hourly import (  # noqa: F401
@@ -15,6 +15,9 @@ from backend.ingest_rollup_hourly import (  # noqa: F401
     rebuild_rollup, rebuild_tool_error_rollup, rebuild_tool_rollup,
 )
 from backend.ingest_rollup_latency import rebuild_latency_rollup  # noqa: F401
+from backend.ingest_rollup_web_metrics import (  # noqa: F401
+    rebuild_web_metrics_rollup,
+)
 from backend.ingest_rollup_state import (  # noqa: F401
     purge_suppressed, recompute_canonical, resolve_teammate_agent_types,
 )

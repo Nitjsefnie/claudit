@@ -459,6 +459,71 @@ CREATE TABLE IF NOT EXISTS latency_rollup (
 CREATE INDEX IF NOT EXISTS latency_rollup_lookup_idx
   ON latency_rollup (bucket_s, project_id, bucket);
 
+-- Frontend performance telemetry (issue #436), the browser side of what
+-- latency_rollup measures on the model side. Two tables, same split as
+-- everywhere else: the raw beacons, and percentile rollups keyed on the
+-- LATENCY_BUCKET widths.
+--
+-- `metric`, `part`, `region` and `phase` are CLOSED vocabularies enforced by
+-- backend/web_metrics.py at the sink, not by a CHECK constraint: the sink is
+-- the only writer, it refuses an unknown term with a 400, and the set is small
+-- enough that a rollup row count stays bounded. An unconstrained TEXT column
+-- would let a bug mint a new grain per request.
+--
+-- `value` is milliseconds for the timing parts (fetch / client / total /
+-- block) and a dimensionless Layout Instability score for `shift`; the sink
+-- clamps each to its part's own range. `region` and `phase` are '' on a row
+-- that does not carry them, so the rollup grain is uniform rather than NULL-
+-- bearing.
+--
+-- NOT project-scoped and not user-private: a beacon names a journey, not a
+-- session, and guests may send them (backend/session._guest_denied leaves
+-- /api/metrics alone). `user_id` is 0 for a guest, exactly as the session
+-- layer reports it.
+CREATE TABLE IF NOT EXISTS web_metrics (
+  id       BIGSERIAL   PRIMARY KEY,
+  ts       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_id  INTEGER     NOT NULL DEFAULT 0,
+  metric   TEXT        NOT NULL,
+  part     TEXT        NOT NULL DEFAULT '',
+  region   TEXT        NOT NULL DEFAULT '',
+  phase    TEXT        NOT NULL DEFAULT '',
+  value    DOUBLE PRECISION NOT NULL
+);
+
+-- The sink's per-user row count, and the rollup's time window, both read on
+-- ts; the per-user cap counts (user_id, ts) so it is served by this index.
+CREATE INDEX IF NOT EXISTS web_metrics_ts_idx ON web_metrics (ts);
+CREATE INDEX IF NOT EXISTS web_metrics_user_ts_idx ON web_metrics (user_id, ts);
+-- The rollup rebuild groups by the whole grain inside the retention window.
+CREATE INDEX IF NOT EXISTS web_metrics_grain_idx
+  ON web_metrics (metric, part, region, phase, ts);
+
+-- Percentiles DO NOT COMPOSE, so — exactly like latency_rollup — one row is
+-- stored per display-bucket width, each computed from the whole population of
+-- its own bucket. `total` is the exception: a pure SUM composes, and it is what
+-- the layout-shift score and the long-task blocking readout need (a CLS is a
+-- sum of shift values, not a percentile of them).
+--
+-- There is no all-projects row: unlike reply latency, a browser metric has no
+-- project to filter by, so one row per grain per bucket is the whole answer.
+CREATE TABLE IF NOT EXISTS web_metrics_rollup (
+  bucket_s  INTEGER     NOT NULL,
+  bucket    TIMESTAMPTZ NOT NULL,
+  metric    TEXT        NOT NULL,
+  part      TEXT        NOT NULL DEFAULT '',
+  region    TEXT        NOT NULL DEFAULT '',
+  phase     TEXT        NOT NULL DEFAULT '',
+  n         BIGINT      NOT NULL,
+  p50       DOUBLE PRECISION,
+  p75       DOUBLE PRECISION,
+  total     DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (bucket_s, bucket, metric, part, region, phase)
+);
+
+CREATE INDEX IF NOT EXISTS web_metrics_rollup_lookup_idx
+  ON web_metrics_rollup (bucket_s, metric, bucket);
+
 -- Only ~19% of records carry a reply_latency_s; a partial covering index
 -- keeps the live path (and the rollup build) off the other 81%.
 CREATE INDEX IF NOT EXISTS records_latency_idx ON records (ts)
