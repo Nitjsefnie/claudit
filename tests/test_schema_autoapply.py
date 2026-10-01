@@ -285,11 +285,19 @@ def test_the_stamp_covers_every_schema_file(monkeypatch):
     the concatenation that is the stamp's input, and it omits whatever the
     list omits.
     """
-    assert len(db.SCHEMA_PATHS) >= 2, "the split must be real, not vestigial"
-    whole = db._read_schema()  # pylint: disable=protected-access
-    tail = db.SCHEMA_PATHS[1]
-    monkeypatch.setattr(db, "SCHEMA_PATHS", db.SCHEMA_PATHS[:1])
-    first_only = db._read_schema()  # pylint: disable=protected-access
+    from backend import schema_files  # pylint: disable=import-outside-toplevel
+
+    # Patched on the module that OWNS the list, not on `db`: db re-exports the
+    # names, and a re-export is a second binding rather than the live one, so
+    # narrowing db's copy would leave the reader reading the whole schema and
+    # the case would prove nothing.
+    assert len(schema_files.SCHEMA_PATHS) >= 2, \
+        "the split must be real, not vestigial"
+    whole = schema_files.read_schema()
+    tail = schema_files.SCHEMA_PATHS[1]
+    monkeypatch.setattr(schema_files, "SCHEMA_PATHS",
+                        schema_files.SCHEMA_PATHS[:1])
+    first_only = schema_files.read_schema()
     assert first_only == db.SCHEMA_PATH.read_text(encoding="utf-8")
     assert whole.startswith(first_only)
     assert tail.read_text(encoding="utf-8") in whole
