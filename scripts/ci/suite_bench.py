@@ -14,10 +14,15 @@ This bench replaces that with a committed instruction-count ratchet:
   One pass over the pinned fixture (``suite_bench_files.txt``), no
   statistics, no warm-up, ``PYTHONHASHSEED=0`` by re-exec: repeated
   runs in one state are identical (five-run probes, two seed values).
-  ACROSS states the counts wobble by an observed +/-0.7M in ``run``
-  and +/-0.2M in ``residual`` (under half the 1.5 gap; ``collection``
-  stable in every observation; the 0.7M spread appeared on identical
-  fixture bytes across a changed machine state). The gate reads the
+  ACROSS machine families the counts are not portable: within one
+  family the observed wobble is <=0.7M in ``run`` and <=0.2M in
+  ``residual`` (``collection`` stable in every same-tree observation),
+  while this box's ``residual`` reads ~2.4M BELOW a GitHub runner's on
+  identical code -- the session-level code outside the wrapped phases
+  is environment-sensitive. The budgets are therefore SEEDED FROM A
+  RUNNER MEASUREMENT, the environment the gate and the master-push
+  record path share, and the 1.5 gap covers runner-to-runner spread.
+  The gate reads the
   committed file, so one gate's verdict is one state's reading, and
   ``--check`` refuses a measurement not taken under
   ``PYTHONHASHSEED=0``. The partition into collection / run /

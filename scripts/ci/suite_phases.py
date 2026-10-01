@@ -25,9 +25,12 @@ Two instruments:
   retire the same number of bytecodes on a loaded machine and an idle
   one, and the re-exec with ``PYTHONHASHSEED=0`` holds set-iteration
   order fixed, which is the one input left to hash order (pytest walks
-  sets in several places). Across states the counts wobble by an
-  observed +/-0.7M in ``run`` and +/-0.2M in ``residual`` (under half
-  the 1.5-unit gap; ``collection`` stable in every observation).
+  sets in several places). Across machine families the counts are not
+  portable: within one family the observed wobble is <=0.2M, while
+  ``residual`` reads ~2.4M higher on a GitHub runner than on this
+  benchmark box (the session-level code outside the wrapped phases is
+  environment-sensitive), which is why the budgets are seeded from a
+  runner measurement.
 - ``ProcessTimeSink`` accumulates ``time.process_time()`` per phase.
   It is the portable fallback when no ``sys.monitoring`` is available,
   and telemetry-only in every case: a CPU-time reading drifts with the
