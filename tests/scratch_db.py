@@ -9,6 +9,7 @@ Deliberately free of `backend` imports except inside
 `scratch_viz_database`: conftest imports this module before it claims
 DATABASE_URL_VIZ, and backend.app would claim it first.
 """
+import itertools
 import os
 import re
 import secrets
@@ -26,7 +27,14 @@ RUN_PREFIX = f"{NAME_ROOT}_run_"
 # A leftover younger than this may belong to a run still in progress.
 STALE_AFTER_S = 6 * 3600
 
-SCHEMA = Path(__file__).resolve().parents[1] / "backend" / "schema.sql"
+# Every schema file, in the order db.SCHEMA_PATHS applies them. A test
+# database missing a table the app reads fails in a way that looks like a
+# product bug, so the fixture applies the whole schema and not just its
+# first file (issue #436 added the second).
+SCHEMA = (
+    Path(__file__).resolve().parents[1] / "backend" / "schema.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_web_metrics.sql",
+)
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"
     r"(?:_[a-z0-9_]+)?$")
@@ -105,15 +113,23 @@ def create_empty_database(name: str) -> None:
             sql.Identifier(name)))
 
 
-def create_database(label: str, schema: Path | None = SCHEMA) -> str:
-    """This run's database for `label`, with `schema` applied if given."""
+def create_database(label: str, schema=SCHEMA) -> str:
+    """This run's database for `label`, with `schema` applied if given.
+
+    `schema` is one path, a sequence of them, or None. Every file goes to
+    psql in ONE invocation, so the fixture cannot leave a half-applied
+    schema the way a per-file loop would.
+    """
     hold_run_lease()
     name = db_name(label)
     create_empty_database(name)
     if schema is not None:
+        files = [schema] if isinstance(schema, Path) else list(schema)
+        if not files:
+            raise ValueError("schema must name at least one file, or be None")
         proc = subprocess.run(
             ["psql", "-q", "-X", "-v", "ON_ERROR_STOP=1", "-d", name,
-             "-f", str(schema)],
+             *itertools.chain.from_iterable(("-f", str(f)) for f in files)],
             capture_output=True, text=True, check=False)
         if proc.returncode:
             raise RuntimeError(f"applying schema to {name} failed:\n{proc.stderr}")

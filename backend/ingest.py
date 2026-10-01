@@ -58,18 +58,16 @@ from backend.ingest_walk import (  # noqa: F401  (re-export)  # pylint: disable=
     _stored_version_is_newer, _track_project, _track_walked_project,
 )
 # Re-exported so `ingest.recompute_canonical(...)` and friends keep
-# resolving after the split; _rebuild_derived_state is their caller.
+# resolving after the split; _rebuild_derived_state calls them.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
-    rebuild_dispatch_brief_rollup,
-    rebuild_dispatch_rollup, rebuild_latency_rollup, rebuild_rollup,
-    rebuild_tool_error_rollup, rebuild_tool_rollup,
-    rebuild_web_metrics_rollup,
-    recompute_canonical, resolve_teammate_agent_types,
+    rebuild_dispatch_brief_rollup, rebuild_dispatch_rollup,
+    rebuild_latency_rollup, rebuild_rollup, rebuild_tool_error_rollup,
+    rebuild_tool_rollup, rebuild_web_metrics_rollup, recompute_canonical,
+    resolve_teammate_agent_types,
 )
 from backend.ingest_scope import (  # noqa: F401  (re-export)
-    begin_scope, current_scope,
-    finish_scope, mark_complete,
+    begin_scope, current_scope, finish_scope, mark_complete,
 )
 from backend.project_aliases import rekey_folded_projects
 # The run-row module owns the public-facing error formatter.
@@ -90,9 +88,9 @@ log = logging.getLogger("claudit.ingest")
 # ~40min — so a cron landed on top of a startup reparse and both walked the
 # whole bucket: duplicate R2 GETs, duplicate parses, competing writes, and two
 # sets of rollup rebuilds. The second run also built its todo list before the
-# first had committed anything, so it redid work already done.
-# Non-blocking: a skipped run is correct behaviour, not an error — the next
-# hourly tick picks up whatever is left.
+# first had committed anything, so it redid work already done. Non-blocking:
+# a skipped run is correct behaviour, not an error — the next hourly tick
+# picks up whatever is left.
 _RUN_LOCK = threading.Lock()
 
 # Advisory-lock key for the db-wide ingest lock (_db_run_lock below). A
@@ -376,14 +374,13 @@ def _persist_one(obj, proj, parsed, parser_version,
 def _rebuild_derived_state() -> int:
     """Canonical flags and teammate roles, then the rollups that read them.
 
-    Each bounded phase checks for shutdown. An abort skips later phases; the
-    next successful run rebuilds. Returns rows changed by mutating phases.
+    Each bounded phase checks for shutdown; an abort skips later phases and
+    the next run rebuilds. Returns rows changed by mutating phases.
     """
     # Order matters: suppression removes rows the canonical pass would
-    # otherwise rank, the alias fold re-keys identity first, and the
-    # rollups read is_canonical and agent_type. The names resolve through
-    # this module's globals at call time, so a test can monkeypatch any
-    # phase on `ingest` itself; the reprice partial carries should_stop.
+    # otherwise rank, the alias fold re-keys identity first, and the rollups
+    # read is_canonical and agent_type. The names resolve through this
+    # module's globals, so a test can monkeypatch any phase on `ingest`.
     reprice = partial(reprice_stale, should_stop=_check_shutdown)
     phases: tuple[tuple[str, Callable[[], int]], ...] = (
         ("suppressed", purge_suppressed),
@@ -399,10 +396,7 @@ def _rebuild_derived_state() -> int:
         ("latency_rollup", rebuild_latency_rollup),
         ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
         ("agent_rollup", rebuild_agent_rollup),
-        # Browser performance telemetry (issue #436). Last, and the only
-        # phase reading a table no ingest phase writes: it folds `web_metrics`
-        # over the retention window and prunes, so it depends on nothing
-        # above and nothing above depends on it.
+        # Issue #436: the only phase reading a table no other phase writes.
         ("web_metrics_rollup", rebuild_web_metrics_rollup),
     )
     changed = 0

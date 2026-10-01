@@ -77,6 +77,10 @@
 !/backend/.env.example
 !/backend/requirements.txt
 !/backend/schema.sql
+# The schema is an ordered list of files now (db.SCHEMA_PATHS, issue #436);
+# every one of them is shipped, so the block names the family back rather
+# than one file.
+!/backend/schema_*.sql
 
 # ---- examples/ — sample systemd unit ---------------------------------------
 !/examples/
