@@ -461,3 +461,23 @@ def _measurement_with(shares, counted=None):
         phase_cpu_s={name: 0.0 for name in bench.PHASES},
         instruction_per_file=(dict.fromkeys(bench.PHASES, None) if counted
                               is None else counted))
+
+
+def test_the_corpus_endpoint_is_built_with_as_uri_not_an_f_string():
+    """The spelling half, because the behavioural half cannot fire on Linux.
+
+    `as_uri()` and f'file://{path}' produce the IDENTICAL string on POSIX, so
+    the assertion above — which checks what r2 makes of the URL — passes with
+    either construction here and only bites on the Windows legs. Since the
+    defect was invisible everywhere except the platform that failed, the
+    construction itself has to be pinned, and that is a source-text
+    assertion: it is the only form that can distinguish two expressions that
+    agree on the platform running the test.
+    """
+    source = BENCH.read_text(encoding='utf-8')
+    assert 'MIRROR.as_uri()' in source, (
+        "the corpus endpoint is not built with as_uri(); on Windows the "
+        "f-string form parses to an empty path and every Windows leg fails")
+    assert "f'file://{MIRROR}'" not in source, (
+        "the f-string form is back: it is correct on POSIX and produces an "
+        "empty URL path on Windows")

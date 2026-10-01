@@ -155,7 +155,14 @@ def _pin_corpus_env():
     process that changed the environment after importing the bench still
     measures the fixture.
     """
-    os.environ['R2_ENDPOINT'] = f'file://{MIRROR}'
+    # `as_uri()`, never an f-string. On Windows a path is `C:\\mirror`, and
+    # f'file://{path}' then reads as the URL `file://C:\mirror` — a HOST named
+    # C: with an EMPTY path, which r2._is_file_mode() hands the walk as the
+    # bucket root and it refuses ("bucket root '' is not a directory"). Every
+    # Windows leg of the matrix failed on exactly that before this line was
+    # as_uri(); r2.py's own comment on Windows file URLs names the shape
+    # (file:///C:/mirror/) and as_uri() is what produces it.
+    os.environ['R2_ENDPOINT'] = MIRROR.as_uri()
     os.environ['R2_BUCKET'] = BUCKET
 
 
