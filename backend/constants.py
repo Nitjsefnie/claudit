@@ -60,9 +60,9 @@ def _read_version() -> str:
     """Repo version from the root VERSION file, or "unknown".
 
     The file is the single source of truth: `.github/workflows/release.yml`
-    tags a release when it changes, and `speed.yml` compares against the
-    release it names. Read once at import — it cannot change under a
-    running process without a redeploy.
+    tags a release when it changes, and `/health` reports it to a
+    deploy. Read once at import — it cannot change under a running
+    process without a redeploy.
 
     A deploy that omits the file (a tarball, a partial checkout) gets
     "unknown" rather than a crash: /health reporting an unknown version is

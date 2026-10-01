@@ -227,31 +227,50 @@ def _ratchet_push_run() -> str:
     return step["run"]
 
 
+# The pin is one function on purpose: the job's shape is one
+# observation, and splitting it would let half the shape rot silently.
+# pylint: disable-next=too-many-statements
 def test_ratchet_push_job_takes_the_key_from_the_master_push_environment():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
     workflow = _tests_workflow()
     job = _ratchet_push_job()
     run = _ratchet_push_run()
 
-    # Job shape: the key-only job sits beside the keyless suite jobs and
-    # receives the tested ratchet data as an artifact.
+    # Job shape: the key-only job sits beside the keyless suite jobs
+    # and receives the tested ratchet data as an artifact. Admission is
+    # a raise-worthy run OR a measured one (the suite-cost tighten).
     assert job["environment"] == "master-push"
     assert job["needs"] == "pytest"
-    assert job["if"] == "needs.pytest.outputs.ratchet_changed == 'true'"
+    assert job["if"] == (
+        "needs.pytest.outputs.ratchet_changed == 'true' "
+        "|| needs.pytest.outputs.suite_measured == 'true'")
     assert job["timeout-minutes"] == "15"
     assert job["permissions"] == {"contents": "read"}
     assert workflow["jobs"]["pytest"]["outputs"] == {
-        "ratchet_changed": "${{ steps.ratchet.outputs.changed }}"}
+        "ratchet_changed": "${{ steps.ratchet.outputs.changed }}",
+        "suite_measured": "${{ steps.suite_bench.outputs.measured }}"}
     steps = job["steps"]
-    assert len(steps) == 2
-    download, push = steps
+    assert len(steps) == 3
+    download, suite_download, push = steps
     assert download["name"] == "Download the ratchet data"
+    assert download["if"] == (
+        "needs.pytest.outputs.ratchet_changed == 'true'")
     assert download["uses"] == (
         "actions/download-artifact@"
         "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
     assert download["with"] == {
         "name": "ratchet-push",
         "path": "${{ runner.temp }}/ratchet-data",
+    }
+    assert suite_download["name"] == "Download the suite measurement"
+    assert suite_download["if"] == (
+        "needs.pytest.outputs.suite_measured == 'true'")
+    assert suite_download["uses"] == (
+        "actions/download-artifact@"
+        "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
+    assert suite_download["with"] == {
+        "name": "suite-measurement",
+        "path": "${{ runner.temp }}/suite-data",
     }
     assert ("actions/download-artifact@"
             "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in raw)
@@ -283,9 +302,19 @@ def test_ratchet_push_job_takes_the_key_from_the_master_push_environment():
     assert ("git -C \"$RUNNER_TEMP/ratchet-repo\" "
             "config user.name 'github-actions[bot]'" in run)
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
-    assert ("Ratchet ci-thresholds: raise coverage floor / tighten size "
-            "baseline (automated)" in run)
+    assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
+            "baselines (automated)" in run)
     assert "Co-Authored-By: GLM-5.3-Flash <noreply@z.ai>" in run
+    # The suite-cost tighten: a downward-only data operation, then the
+    # no-change guard that lets a no-op tighten end the job quietly.
+    assert "suite_ratchet.py" in run
+    assert ('--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json"'
+            in run)
+    assert run.index("suite_ratchet.py") < run.index(
+        'add .github/ci-thresholds.json')
+    assert "status --porcelain .github/ci-thresholds.json" in run
+    assert run.index("status --porcelain") < run.index("commit -m")
+    assert "nothing to commit" in run
     assert 'git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master' in run
     assert 'git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master' in run
     assert "the ratchet push was rejected while master stood still" in run

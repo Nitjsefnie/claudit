@@ -977,6 +977,23 @@ never hand-set numbers in a workflow.
   and `scripts/` (`tests/` stays outside), checked and tightened by
   `scripts/ci/suppression_baseline.py` under the same never-added,
   never-raised, only-shrinks rules as module size.
+- Suite cost (`suite_cost`): per-phase instruction counts (millions of
+  bytecode instructions, one decimal; phases `collection`, `run`,
+  `residual`) of ONE pytest pass over the pinned fixture
+  `scripts/ci/suite_bench_files.txt`, measured by `scripts/ci/suite_bench.py`
+  with `sys.monitoring`'s INSTRUCTION events (the `process_time`
+  fallback is telemetry that fails closed at `--check`). This is the
+  speed gate's instrument — runner wall is void, a count is exact — and
+  the gap sits ABOVE the measured value because the number is a cost
+  ceiling, not a quality floor. Seeded via the loader's writer
+  (`suite_ratchet.py --seed`, only when the member is absent);
+  tightened by the master-push bot (`suite_ratchet.py --tighten`,
+  past the 1.5 hysteresis, both fields, never raised). The interpreter
+  micro is pinned in the workflows that run the bench. Sanctioned
+  RE-SEED: when the fixture list or the interpreter pin legitimately
+  changes, the stale member is deleted and the new workload's counts
+  seeded through the loader's writer, in the same reviewed gate-definer
+  change.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
