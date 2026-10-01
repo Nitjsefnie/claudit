@@ -297,7 +297,10 @@ def main():
 
     if not events:
         print(f"No API calls found for {period_label}.", file=sys.stderr)
-        sys.exit(1)
+        # Exit 3 = no data (issue #445), distinct from 1 (genuine failure)
+        # and 2 (argparse), so GET /api/export maps it to a 4xx instead of
+        # serving "no data" as a server fault.
+        sys.exit(3)
 
     print(f"Found {len(events)} API calls for {period_label}.", file=sys.stderr)
 

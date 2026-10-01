@@ -54,6 +54,13 @@ _STALE_EXPORT_MIN_AGE_S = 2 * _EXPORT_TIMEOUT_S
 # exactly what this module creates.
 _EXPORT_TMP_PREFIX = "claudit_export_"
 
+# The plot script signals "no data for the range/project" with exit 3
+# (scripts/plots/ccusage_plot_db.py's empty path — issue #445), distinct
+# from 1 (genuine failure) and 2 (argparse). An empty result set is a
+# normal outcome, so it earns a 404, not a 500 that reads as a server
+# fault.
+_NO_DATA_EXIT = 3
+
 
 def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]:
     """Construct the argv for the plot subprocess. Every value-taking
@@ -113,9 +120,11 @@ async def _reap(proc: asyncio.subprocess.Process) -> bool:
 
 async def _render_export(argv: list[str], out_path: str) -> None:
     """Run the plot subprocess, bounded by _EXPORT_TIMEOUT_S. Raises
-    HTTPException(503) on timeout or when the interpreter died of a missing
-    module (an EXPORT_PYTHON environment problem), HTTPException(500) on
-    any other non-zero exit. The child is killed and its pipes are drained on
+    HTTPException(404) when the child signals no data for the range or
+    project (exit 3 — an empty outcome, not a failure), HTTPException(503)
+    on timeout or when the interpreter died of a missing module (an
+    EXPORT_PYTHON environment problem), HTTPException(500) on any other
+    non-zero exit. The child is killed and its pipes are drained on
     timeout, cancellation, or another exception while communicating."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -134,6 +143,10 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         except BaseException:
             await _reap(proc)
             raise
+        if proc.returncode == _NO_DATA_EXIT:
+            raise HTTPException(
+                404, "no data to render for the requested range or project"
+            ) from None
         if proc.returncode != 0:
             text = (stderr or b"").decode("utf-8", "replace")
             tail = text[-500:]

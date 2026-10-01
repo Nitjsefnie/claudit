@@ -155,15 +155,67 @@ def test_export_missing_module_child_is_503_naming_export_python(
     assert "EXPORT_PYTHON" in str(excinfo.value.detail)
 
 
-def test_export_other_child_failure_stays_500(app_with_data, tmp_path):
+@pytest.mark.parametrize("rc, stderr_text", [
+    (1, "some other failure"),
+    (4, ""),
+])
+def test_export_other_child_failure_stays_500(app_with_data, tmp_path, rc, stderr_text):
     """Any other nonzero exit keeps the plain 500 — only the missing-module
-    shape is classified."""
+    shape and the no-data exit (3, issue #445) are classified. rc 4 pins
+    the boundary above the no-data code."""
     out_path = str(tmp_path / "out.png")
+    child = [sys.executable, "-c",
+             f"import sys; sys.stderr.write({stderr_text!r}); sys.exit({rc})"]
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(api_export._render_export(  # pylint: disable=protected-access
-            _failing_child_argv("some other failure"), out_path))
+            child, out_path))
     assert excinfo.value.status_code == 500
     assert str(excinfo.value.detail) == "export render failed"
+
+
+def test_export_no_data_child_is_404(app_with_data, tmp_path):
+    """The plot child's no-data exit (rc 3) maps to a 404, not a 500 —
+    'no data in range' is an empty outcome, not a render failure (issue
+    #445). 3 is distinct from 1 (genuine failure → 500) and 2 (argparse
+    → 500)."""
+    out_path = str(tmp_path / "out.png")
+    child = [sys.executable, "-c", "import sys; sys.exit(3)"]
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(api_export._render_export(  # pylint: disable=protected-access
+            child, out_path))
+    assert excinfo.value.status_code == 404
+    assert "no data" in str(excinfo.value.detail).lower()
+
+
+def test_export_no_data_range_answers_404_not_500(app_with_data, monkeypatch, tmp_path):
+    """End to end through the REAL plot child (EXPORT_PYTHON = the test
+    interpreter, so matplotlib and psycopg are importable): an export for
+    a project with no records must not answer 500 — the child's no-data
+    exit maps to 404 (issue #445). On unfixed code the child exits 1 on
+    its empty path and this 500s — that is the RED."""
+    monkeypatch.setattr(api_export, "_EXPORT_PYTHON", sys.executable)
+    out_path = str(tmp_path / "out.png")
+    argv = api_export.build_export_argv("all", "does-not-exist", out_path)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(api_export._render_export(  # pylint: disable=protected-access
+            argv, out_path))
+    assert excinfo.value.status_code == 404
+    assert "no data" in str(excinfo.value.detail).lower()
+
+
+def test_plot_db_no_data_exits_distinct_code(monkeypatch, request, app_with_data):
+    """The plot script signals 'no data' with exit 3 — distinguishable from
+    a genuine failure (1) and argparse (2) — so the API can answer 4xx
+    instead of 500 for an empty range/project (issue #445). A nonexistent
+    project filter yields zero events regardless of fixture timestamps."""
+    mod = _load_plot_db_module(monkeypatch, request)
+    monkeypatch.setattr(sys, "argv", [
+        "ccusage_plot_db.py", "--all", "--project=does-not-exist",
+        "--output=nothing.png",
+    ])
+    with pytest.raises(SystemExit) as excinfo:
+        mod.main()
+    assert excinfo.value.code == 3
 
 
 def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch, request):
