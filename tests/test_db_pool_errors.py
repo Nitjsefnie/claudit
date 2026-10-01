@@ -27,6 +27,7 @@ import psycopg
 import pytest
 
 from backend import db
+from tests import scratch_db
 
 _BAD_DSN = "postgresql:///claudit_test_no_such_db_449"
 
@@ -63,3 +64,28 @@ def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     assert "does not exist" in msg
     assert "DATABASE_URL_AUTH" in msg
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
+
+
+def test_auth_pool_rejects_a_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #460: the auth pool's connections are read-only at the
+    server, so a write reaching the auth DB fails loudly instead of
+    committing (the doctrine's read-only invariant, enforced)."""
+    name = scratch_db.create_database("auth_ro")
+    monkeypatch.setenv("DATABASE_URL_AUTH", f"postgresql:///{name}")
+    db.reset_auth_pool()
+    try:
+        conn_admin = psycopg.connect(f"postgresql:///{name}", autocommit=True)
+        conn_admin.execute(  # pylint: disable=no-member
+            "CREATE TABLE users (user_id integer PRIMARY KEY, "
+            "config jsonb NOT NULL)")
+        conn_admin.execute(  # pylint: disable=no-member
+            "INSERT INTO users VALUES (1, '{}'::jsonb)")
+        conn_admin.close()  # pylint: disable=no-member
+        with db.auth_conn() as conn:
+            with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+                conn.execute(
+                    "UPDATE users SET config = %s::jsonb WHERE user_id = 1",
+                    ("{}",))
+    finally:
+        db.reset_auth_pool()
+        scratch_db.drop_database(name)

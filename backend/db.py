@@ -127,7 +127,13 @@ def auth_pool() -> ConnectionPool:
         _AUTH = ConnectionPool(
             dsn,
             min_size=1, max_size=4, timeout=10,
-            kwargs={"autocommit": True},
+            kwargs={"autocommit": True,
+                    # claudit only READS the auth DB — enforce it at the
+                    # server on every connection the pool opens, so a
+                    # future write raises ReadOnlySqlTransaction instead
+                    # of committing (issue #460). The option rides the
+                    # startup packet, so pool reconnects inherit it.
+                    "options": "-c default_transaction_read_only=on"},
             check=ConnectionPool.check_connection,
             # Same explicit open as the viz pool above.
             open=True,
