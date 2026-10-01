@@ -89,6 +89,17 @@ def url_attr(url: str) -> str | None:
     over-refusing a config value is safe and visible, under-refusing
     is XSS.
 
+    A RAW BACKSLASH is refused wherever it appears (#438). The URL
+    parser maps ``\\`` to ``/`` for a special scheme — http(s) here —
+    so ``/\\host`` is the ``//host`` scheme-relative escape spelled the
+    other way, and ``https://\\host`` names a different host than the
+    value reads as; a tab or newline between the two is stripped by the
+    parser and turns ``/\\t\\host`` into the same escape. Refusing the
+    character outright closes the shape wherever the parser would read
+    it as a ``/``, on either branch, and costs a real URL nothing: the
+    parser rewrites every raw ``\\`` to ``/`` anyway, so one that means
+    itself is spelled ``%5C`` and stays put.
+
     A refused value drops the link — a display-only setting must not
     take the service down at startup — and logs a warning, so the
     operator sees the misconfiguration (SV-BRAND-ESCAPE).
@@ -96,11 +107,12 @@ def url_attr(url: str) -> str | None:
     value = url.strip(_C0_SPACE)
     if not value:
         return None
-    if not _URL_ATTR_RE.match(value):
+    if not _URL_ATTR_RE.match(value) or "\\" in value:
         log.warning(
             "refusing %r as a URL attribute (SV-BRAND-ESCAPE): only "
             "http:// and https:// URLs and site-relative paths "
-            "(leading /) are allowed; dropping the link",
+            "(leading /, no backslash — a browser reads it as /) are "
+            "allowed; dropping the link",
             value,
         )
         return None

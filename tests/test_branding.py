@@ -11,9 +11,11 @@ escaped at the JS level, so it cannot close the <script> it lives in.
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -141,6 +143,121 @@ def test_brand_rides_the_existing_injection_script(page_client):
 
 
 # ---------------------------------------------------------------------------
+# The CSP nonce rewrite vs. a brand value containing `<script` (#439)
+# ---------------------------------------------------------------------------
+
+
+def _script_elements(html: str) -> list[tuple[str, str]]:
+    """(open tag, content) of every script ELEMENT in `html`, walking the
+    way a browser does: an element's content is RAW TEXT ending at the
+    first `</script`, so a `<script` sequence inside one is CONTENT, not
+    another element. The distinction is the whole of #439 — a regex that
+    ignores it counts the brand payload's `<script` as an element."""
+    elements: list[tuple[str, str]] = []
+    pos = 0
+    while True:
+        open_match = _SCRIPT_OPEN_RE.search(html, pos)
+        if open_match is None:
+            return elements
+        close = _SCRIPT_CLOSE_RE.search(html, open_match.end())
+        if close is None:
+            elements.append((open_match.group(0), html[open_match.end():]))
+            return elements
+        elements.append((open_match.group(0),
+                         html[open_match.end():close.start()]))
+        pos = close.end()
+
+
+_SCRIPT_OPEN_RE = re.compile(r"<script\b[^>]*>", re.I)
+_SCRIPT_CLOSE_RE = re.compile(r"</script\s*>", re.I)
+
+
+def _raw_js_script_bodies(html: str) -> list[str]:
+    """The content of every script element meant to be plain JavaScript —
+    skipping `type="text/babel"`, which is JSX the browser compiles in
+    place and node rightly rejects."""
+    return [body for tag, body in _script_elements(html)
+            if "text/babel" not in tag]
+
+
+def _node_parses(js: str) -> tuple[bool, str]:
+    """(does node accept this as JavaScript, the error it printed)."""
+    res = subprocess.run(["node", "--check", "-"], input=js,
+                         capture_output=True, text=True, check=False)
+    if res.returncode == 0:
+        return True, ""
+    lines = [ln for ln in res.stderr.strip().splitlines() if ln.strip()]
+    named = [ln for ln in lines if "Error" in ln]
+    return False, (named[0] if named else (lines[0] if lines else ""))
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_brand_containing_an_open_script_tag_leaves_the_page_loadable(
+        page_client, monkeypatch):
+    """#439: a brand value may legally contain the text `<script` — it is
+    hostile but not forbidden config. The per-response nonce rewrite must
+    not reach INSIDE the bootstrap script's JSON payload and inject its
+    attribute's raw quotes there, which terminates the JS string literal
+    and takes down every page load. The served inline script must still
+    parse as JavaScript, checked by node itself."""
+    monkeypatch.setenv("APP_TITLE", "Overview <script>alert(1)</script>")
+    served = page_client.get("/").text
+
+    bodies = _raw_js_script_bodies(served)
+    bootstrap = [b for b in bodies if "window.BRAND" in b]
+    assert bootstrap, "the bootstrap script must still be in the page"
+    for body in bootstrap:
+        ok, err = _node_parses(body)
+        assert ok, f"bootstrap script is not valid JS: {err}\n{body}"
+
+    # And the value survived as a string, quotes and all: a hostile-but-
+    # legal config value degrades to a cosmetic string.
+    assert '"Overview <script>alert(1)<\\/script>"' in served
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_bootstrap_stays_valid_js_for_every_script_unsafe_brand(
+        page_client, monkeypatch):
+    """The whole script-unsafe set in one value: each sequence
+    script_json neutralises, plus a bare `<script` which it does not have
+    to neutralise (it cannot close the tag) but the nonce rewrite must
+    still not confuse for an element."""
+    monkeypatch.setenv(
+        "APP_TITLE",
+        'a<script src="/x">b</script>c<!--d e'
+        'f"g"h\'i\'j</script>k',
+    )
+    served = page_client.get("/").text
+    for body in _raw_js_script_bodies(served):
+        ok, err = _node_parses(body)
+        assert ok, f"served inline script is not valid JS: {err}\n{body}"
+
+
+@pytest.mark.parametrize("title", [
+    None,
+    "Overview <script>alert(1)</script>",
+    '</script><script src="/x">',
+])
+def test_every_served_script_element_carries_the_nonce(
+        page_client, monkeypatch, title):
+    """The invariant #439's fix rests on, checked under a hostile brand
+    value too: the rewrite tags script ELEMENTS, so every element the
+    browser sees carries the response's nonce, and the `<script` the
+    payload carries never becomes an extra untagged element."""
+    if title is not None:
+        monkeypatch.setenv("APP_TITLE", title)
+    resp = page_client.get("/")
+    served = resp.text
+    match = re.search(r"'nonce-([^']+)'", resp.headers["content-security-policy"])
+    assert match, "every page load carries a fresh CSP nonce"
+    nonce = match.group(1)
+    elements = _script_elements(served)
+    assert elements
+    for tag, _body in elements:
+        assert f'nonce="{nonce}"' in tag, f"untagged script element: {tag}"
+
+
+# ---------------------------------------------------------------------------
 # FastAPI / OpenAPI title
 # ---------------------------------------------------------------------------
 
@@ -218,14 +335,106 @@ def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
     "vbscript:MsgBox",
     "//evil.example/steal",
+    # #438: the URL parser maps `\` to `/` for special schemes, so these
+    # are the `//` scheme-relative shape spelled with a backslash.
+    "/\\evil.example/steal",
+    "/\\\\evil.example",
+    "/\t\\evil.example",
+    "/\n\\evil.example",
+    "/\r\\evil.example",
+    # A bare leading `\` alone resolves same-origin (the parser reads it as
+    # a relative path); refused anyway, because the rule is positional
+    # and a value this shape reaches in one browser may not in another.
+    "\\evil.example/steal",
+    # ... and the same ride on the http(s) branch's authority.
+    "https://\\evil.example",
+    "https:///\\evil.example",
+    "http:\\\\evil.example",
 ])
 def test_url_attr_refuses_every_non_allowlisted_shape(value):
     """#365: an allow-list, not a javascript: deny-list. Refused in every
     spelling a browser normalises — mixed case, leading whitespace and
     C0 controls the URL parser strips, an inner tab it removes, an HTML
     entity the attribute parser decodes before the URL parser runs —
-    plus data: and vbscript:, and the scheme-relative `//` shape."""
+    plus data: and vbscript:, the scheme-relative `//` shape, and #438's
+    backslash spelling of it (`/\\host`, which browsers read as
+    `//host`)."""
     assert branding.url_attr(value) is None
+
+
+# The values #438 pins as still valid, asserted on the exact body the
+# function returns — a refusal must be the ONLY thing that changes.
+# Absolute http(s) URLs name the operator's own notice host, so any host
+# is allowed there; a SITE-RELATIVE value must stay on this origin.
+_ABSOLUTE_URLS = [
+    "https://ex.example/privacy",
+    "http://ex.example/privacy",
+    "https://ex.example/privacy?v=1#top",
+    "https://ex.example/a%5Cb",
+]
+_SITE_RELATIVE_URLS = [
+    "/privacy",
+    "/privacy/notice?a=1",
+    "/privacy#top",
+    "/a%5Cb",
+]
+
+
+@pytest.mark.parametrize("value", _ABSOLUTE_URLS + _SITE_RELATIVE_URLS)
+def test_url_attr_accepts_the_still_valid_values_unchanged(value):
+    """#438 must not narrow the allow-list: each of these comes back as
+    its own body, so a backslash guard cannot have broken a legitimate
+    privacy-notice URL (a backslash that means itself is spelled `%5C`)."""
+    assert branding.url_attr(value) == value
+
+
+def test_url_attr_accepts_a_backslash_percent_encoded():
+    """The URL parser leaves `%5C` alone, so refusing a raw `\\` costs a
+    real URL nothing (node: new URL('/a%5Cb', base) stays same-origin)."""
+    assert branding.url_attr("/a%5Cb") == "/a%5Cb"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_every_accepted_site_relative_url_resolves_same_origin():
+    """#438, the property the site-relative branch exists to provide:
+    whatever `url_attr` hands back goes into an href, and a browser
+    resolves it against this origin. Run through node's own WHATWG URL
+    parser — the implementation this check claims to model — so a shape
+    the repo reasons about wrongly fails here instead of in a browser.
+
+    The refused shapes beside it are the other half: each resolves OFF
+    this origin, which is why it must be refused (and over-refusing a
+    config value is safe and visible — a dropped link, never a page
+    pointing at someone else's host)."""
+    base = "https://op.example/dashboard"
+    origin = "https://op.example"
+    offsite = [
+        "/\\evil.example", "/\\\\evil.example", "/\t\\evil.example",
+        "https://\\evil.example", "https:///\\evil.example",
+        "//evil.example", "javascript:alert(1)",
+    ]
+    candidates = _SITE_RELATIVE_URLS + offsite
+    script = (
+        "const out = [];"
+        # A JSON array literal is a valid JS array literal.
+        f"for (const v of {json.dumps(candidates)}) {{"
+        f"  out.push([v, new URL(v, {base!r}).href]);"
+        "} console.log(JSON.stringify(out));"
+    )
+    res = subprocess.run(["node", "-e", script], capture_output=True,
+                         text=True, check=True)
+    resolved = dict(json.loads(res.stdout))
+
+    for value in _SITE_RELATIVE_URLS:
+        assert branding.url_attr(value) is not None, value
+        assert resolved[value].startswith(origin + "/"), (
+            f"{value!r} resolves off-origin: {resolved[value]}")
+
+    for value in offsite:
+        assert not resolved[value].startswith(origin + "/"), (
+            f"{value!r} no longer resolves off-origin, so it no longer "
+            f"needs refusing: {resolved[value]}")
+        assert branding.url_attr(value) is None, value
 
 
 def test_url_attr_refusal_is_visible_to_the_operator(caplog):
