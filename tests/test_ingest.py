@@ -11,6 +11,7 @@ import pytest
 
 from backend import api, cache, constants, db, ingest
 from backend.api_dashboard import dashboard
+from backend.api_web_metrics import web_metrics_readout
 from tests import scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -258,6 +259,7 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
     warmed = (
         dashboard, api.activity_heatmap, api.tool_usage,
         api.tool_error_rate, api.reply_latency, api.list_projects,
+        web_metrics_readout,
     )
     # The warms run on a background pool; give them a bounded moment.
     deadline = time.time() + 60
