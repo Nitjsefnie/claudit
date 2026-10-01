@@ -23,16 +23,43 @@
 -- session, and guests may send them (session._guest_denied leaves
 -- /api/metrics alone). `user_id` is 0 for a guest, as the session layer
 -- reports it. The (user_id, ts) index serves the sink's per-user row cap.
+--
+-- `user_id` is BIGINT because the session layer reports the AUTH database's
+-- user_id, and there that column is a BIGINT: a named user's id exceeds int4
+-- on this host, and an INTEGER here raised
+-- `psycopg.errors.NumericValueOutOfRange: integer out of range` in the
+-- sink's executemany on a real beacon from a logged-in user. Guests (0) are
+-- what the sink was exercised with, so the narrower column was never held to
+-- a value it could not store.
 CREATE TABLE IF NOT EXISTS web_metrics (
   id       BIGSERIAL   PRIMARY KEY,
   ts       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  user_id  INTEGER     NOT NULL DEFAULT 0,
+  user_id  BIGINT      NOT NULL DEFAULT 0,
   metric   TEXT        NOT NULL,
   part     TEXT        NOT NULL DEFAULT '',
   region   TEXT        NOT NULL DEFAULT '',
   phase    TEXT        NOT NULL DEFAULT '',
   value    DOUBLE PRECISION NOT NULL
 );
+
+-- The guarded, idempotent widening for a database created while the column
+-- was still INTEGER: a no-op once it is BIGINT. This is the same shape, and
+-- the same allowance, as `user_session.user_id` in schema.sql — a pure
+-- int->bigint widening is inert for an older binary, which only ever wrote
+-- ids that fit and reads them indifferent to the column's width; nothing
+-- drops, nothing narrows (SV-SCHEMA-AUTOAPPLY's guarded exceptions).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = 'web_metrics'::regclass
+       AND attname = 'user_id'
+       AND NOT attisdropped
+       AND atttypid = 'integer'::regtype
+  ) THEN
+    ALTER TABLE web_metrics ALTER COLUMN user_id TYPE BIGINT;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS web_metrics_ts_idx ON web_metrics (ts);
 CREATE INDEX IF NOT EXISTS web_metrics_user_ts_idx ON web_metrics (user_id, ts);
