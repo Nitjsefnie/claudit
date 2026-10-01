@@ -38,6 +38,15 @@ LOGIN = ROOT / "backend" / "login_page.py"
 _H1_SITES = {"app.jsx": 4, "sessions-list.jsx": 1, "cache-view.jsx": 1}
 
 
+def _src_files() -> list[Path]:
+    """Every .js and .jsx file under src/: the censuses cover both, so a
+    heading or landmark in a node-executed .js file cannot hide from
+    them either.
+    """
+    return sorted(p for p in (ROOT / "src").rglob("*")
+                  if p.suffix in (".js", ".jsx"))
+
+
 def _strip_line_comments(src: str) -> str:
     """Drop `//` line comments so prose ABOUT the wiring is not read as
     the wiring. The lookbehind spares `https://` (a colon precedes those
@@ -86,7 +95,7 @@ def test_every_page_renders_exactly_one_h1():
     assert cache_view.count("<h1") == 1
     assert "<h1>Cache</h1>" in cache_view
     # Tree census: no other h1 site may appear anywhere in src/.
-    for path in sorted((ROOT / "src").rglob("*.jsx")):
+    for path in _src_files():
         n = len(re.findall(r"<h1\b", _strip_line_comments(
             path.read_text(encoding="utf-8"))))
         assert n == _H1_SITES.get(path.name, 0), (
@@ -111,7 +120,7 @@ def test_main_landmark_is_unique_and_shell_level():
     """Exactly one <main> exists across the src tree: the shell's, in
     App's own render, wrapping the pickers and every route branch."""
     hits = []
-    for path in sorted((ROOT / "src").rglob("*.jsx")):
+    for path in _src_files():
         src = _strip_line_comments(path.read_text(encoding="utf-8"))
         hits.extend(
             (path.name, src.count("\n", 0, m.start()) + 1)
