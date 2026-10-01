@@ -173,11 +173,13 @@ jobs:
           echo "postgres never became ready"; exit 1
 
       - name: Measure and gate the suite cost
-        # One pass, no warm-up, no statistics: instruction counts are
-        # exact. The shared composite action measures into RUNNER_TEMP,
-        # prints the phase table into the step summary, and gates every
-        # phase against the committed ceilings -- a phase over budget
-        # fails this job.
+        # One counted pass, no statistics: instruction counts are exact.
+        # The bench compiles the tree first, OUTSIDE the counted window,
+        # so the count does not depend on the caches this checkout
+        # arrived with. The shared composite action measures into
+        # RUNNER_TEMP, prints the phase table into the step summary, and
+        # gates every phase against the committed ceilings -- a phase
+        # over budget fails this job.
         uses: ./.github/actions/suite-bench
         with:
           mode: gate
