@@ -61,6 +61,14 @@ def _document(measured="92.6", floor="91.1"):
         },
         "module_size_baseline": {},
         "pylint_suppression_baseline": {},
+        "suite_cost": {
+            "collection": {"measured": Decimal("25.8"),
+                           "floor": Decimal("27.3")},
+            "run": {"measured": Decimal("309.8"),
+                    "floor": Decimal("311.3")},
+            "residual": {"measured": Decimal("6.5"),
+                         "floor": Decimal("8.0")},
+        },
     }
 
 

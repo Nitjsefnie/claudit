@@ -26,11 +26,25 @@ COVERAGE_LANGUAGES = ('python', 'javascript')
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
 BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline')
-_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *BASELINE_MEMBERS)
+# The suite-cost family: one instruction budget per phase of a pytest run
+# over the pinned bench fixture (scripts/ci/suite_bench.py). A cost
+# ceiling only ever TIGHTENS downward; the direction guard forbids the
+# upward move. The phase names live here, with the loader that validates
+# the document carrying them, so the bench cannot measure under one name
+# and record under another.
+SUITE_COST_FAMILY = 'suite_cost'
+SUITE_COST_PHASES = ('collection', 'run', 'residual')
+SUITE_COST_UNIT = 'million_instructions'
+_SUITE_COST_FIELDS = ('measured', 'floor')
+_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', SUITE_COST_FAMILY,
+                     *BASELINE_MEMBERS)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
     'thresholds': 'field: {field}',
     'coverage': 'coverage language: {field}',
+    SUITE_COST_FAMILY: 'suite cost phase: {field}',
+    **{f'{SUITE_COST_FAMILY}.{phase}': f'suite cost {phase}: {{field}}'
+       for phase in SUITE_COST_PHASES},
 }
 _INVALID_PATH_CHARS = set('<>:"|?*')
 _DEVICE_NAMES = {
@@ -104,6 +118,23 @@ def coverage_value(value, name):
     return result
 
 
+def instruction_value(value, name):
+    """A suite-cost number: one-decimal, finite, never negative.
+
+    Millions of instructions have no natural upper bound, unlike
+    coverage's 0..100: the bound here is the one the semantics impose
+    (a count cannot be negative), and the one-decimal spelling is what
+    the bench writes and the ratchet records.
+    """
+    result = _number(value, name)
+    if result < 0:
+        raise ValueError(f'{name} must be non-negative')
+    exponent = result.as_tuple().exponent
+    if not isinstance(exponent, int) or exponent != -1:
+        raise ValueError(f'{name} must have exactly one decimal place')
+    return result
+
+
 def _path_component_safe(component):
     safe = bool(component) and component not in ('.', '..')
     safe = safe and component.rstrip(' .') == component
@@ -167,9 +198,40 @@ def normalise(data):
     normalised = {
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
+        SUITE_COST_FAMILY: _suite_cost(data[SUITE_COST_FAMILY]),
     }
     for member in BASELINE_MEMBERS:
         normalised[member] = _baseline(data[member], member)
+    return normalised
+
+
+def _suite_cost(family):
+    """Validate one suite_cost member: three phases, ceilings above.
+
+    Each phase record carries measured and floor, the floor the ceiling
+    a run must stay under and so exactly the calibration gap ABOVE the
+    measured value — the mirror of coverage, whose floor sits below its
+    quality number.
+    """
+    if not isinstance(family, dict):
+        raise ValueError(f'{SUITE_COST_FAMILY} must be an object')
+    _required_fields(family, SUITE_COST_PHASES, SUITE_COST_FAMILY)
+    normalised = {}
+    for phase in SUITE_COST_PHASES:
+        prefix = f'{SUITE_COST_FAMILY}.{phase}'
+        record = family[phase]
+        _required_fields(record, _SUITE_COST_FIELDS, prefix)
+        measured = instruction_value(record['measured'],
+                                     f'{prefix}.measured')
+        floor = instruction_value(record['floor'], f'{prefix}.floor')
+        if floor <= measured:
+            raise ValueError(f'{prefix}.floor must be above measured')
+        if floor - measured != CALIBRATION_GAP:
+            raise ValueError(f'{prefix} calibration gap must be 1.5')
+        normalised[phase] = {
+            'measured': measured,
+            'floor': floor,
+        }
     return normalised
 
 
@@ -202,6 +264,11 @@ def coverage(data, language):
     normalised = normalise(data)
     record = normalised['coverage'][language]
     return record['measured'], record['floor']
+
+
+def suite_cost(data):
+    """The committed suite-cost budgets: {phase: {measured, floor}}."""
+    return dict(normalise(data)[SUITE_COST_FAMILY])
 
 
 def module_size_baseline(data):

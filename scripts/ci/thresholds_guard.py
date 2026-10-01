@@ -58,6 +58,19 @@ BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
     'module, reduce the complexity, or seed a new family through the '
     'loader\'s writer in a reviewed gate-definer change.')
+SUITE_COST_REMEDY = (
+    'A suite cost budget is never raised by hand: the ratchet only '
+    'tightens it downward on master when a cheaper run justifies it, so '
+    'buy headroom by making the suite cheaper or by the doctrine\'s '
+    're-seed path when the fixture list or interpreter pin changes.')
+
+# A stand-in for a member the base predates, so a base missing it still
+# validates: it is never compared against (the family is not in
+# ``established``), only carried.
+_ABSENT_SUITE_COST = {
+    phase: {'measured': Decimal('0.0'), 'floor': Decimal('1.5')}
+    for phase in thresholds.SUITE_COST_PHASES
+}
 
 
 def _is_core_family(rel):
@@ -85,7 +98,34 @@ def _load_base(path):
                    if member in data}
     for member in thresholds.BASELINE_MEMBERS:
         data.setdefault(member, {})
+    if thresholds.SUITE_COST_FAMILY in data:
+        established.add(thresholds.SUITE_COST_FAMILY)
+    else:
+        data.setdefault(thresholds.SUITE_COST_FAMILY, _ABSENT_SUITE_COST)
     return thresholds.normalise(data), established
+
+
+def _suite_cost_moves(base, head, established):
+    """A suite cost budget that RISES.
+
+    Each phase's number is a cost ceiling, so its ratchet only ever
+    moves down: an upward move is the hand-raise the never-rules forbid,
+    a downward one is the tighten. A family the base predates carries no
+    record, so the change introducing one is its seed and not a move at
+    all.
+    """
+    if thresholds.SUITE_COST_FAMILY not in established:
+        return []
+    moves = []
+    before = base[thresholds.SUITE_COST_FAMILY]
+    after = head[thresholds.SUITE_COST_FAMILY]
+    for phase in thresholds.SUITE_COST_PHASES:
+        for field in ('measured', 'floor'):
+            if after[phase][field] > before[phase][field]:
+                moves.append(
+                    f'{thresholds.SUITE_COST_FAMILY}.{phase}.{field}: '
+                    f'{before[phase][field]} -> {after[phase][field]}')
+    return moves
 
 
 def forbidden_moves(base, head, established):
@@ -99,6 +139,8 @@ def forbidden_moves(base, head, established):
                 moves.append(
                     f'coverage.{language}.{field}: '
                     f'{before[field]} -> {after[field]}')
+
+    moves.extend(_suite_cost_moves(base, head, established))
 
     measured = None
     for member in thresholds.BASELINE_MEMBERS:
@@ -146,6 +188,7 @@ def main(argv=None):
             print(f'forbidden move: {move}', file=sys.stderr)
         print(COVERAGE_REMEDY, file=sys.stderr)
         print(BASELINE_REMEDY, file=sys.stderr)
+        print(SUITE_COST_REMEDY, file=sys.stderr)
         return 1
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
