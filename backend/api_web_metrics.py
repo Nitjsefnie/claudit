@@ -21,7 +21,7 @@ Auth is `session.auth_middleware` by path prefix, not a decorator (see
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -102,7 +102,10 @@ def web_metrics_readout(
     history under a longer label. The panel reads `since` and shows it.
     """
     delta = _parse_range(rng)
-    now = datetime.now(timezone.utc)
+    # web_metrics' own clock, not datetime.now(): the rollup pass and this
+    # endpoint have to agree on "now" for a range to select the buckets the
+    # fold stored, and one named function is what lets a test pin both.
+    now = web_metrics.utcnow()
     since, bucket_s = now - delta, _bucket_seconds(delta)
     if bucket_s in LATENCY_BUCKETS:
         return _series_from_rollup(rng, bucket_s, since)

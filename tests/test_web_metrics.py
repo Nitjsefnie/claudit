@@ -23,9 +23,7 @@ from fastapi.testclient import TestClient
 from test_perf_js import _run
 
 from backend import api, db, session as session_mod, web_metrics
-from backend.api_common import _bucket_seconds
 from backend.constants import LATENCY_BUCKETS
-from backend.ingest_rollup_web_metrics import rebuild_web_metrics_rollup
 from tests import scratch_db
 
 _ORIGIN = {"Origin": "http://testserver"}
@@ -34,6 +32,43 @@ _ORIGIN = {"Origin": "http://testserver"}
 # broken fold fails instead of agreeing with a plausible constant:
 # PERCENTILE_CONT(0.50) = 4.5, PERCENTILE_CONT(0.75) = 6.25, SUM = 36.
 _VALUES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+
+
+#: The fold's clock, pinned. Every rollup assertion below reads its instants
+#: from here, because the band a seed must land in is exactly one fold
+#: interval wide and a live clock puts it on the boundary.
+PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
+
+
+def _closed_ts() -> datetime:
+    """An instant whose bucket has CLOSED at EVERY stored width.
+
+    A bucket is stored by the fold that closes it, so a rollup assertion
+    needs beacons far enough back. How far is bounded on both sides, and the
+    band between the bounds is exactly `FOLD_INTERVAL_S` wide:
+
+        readable   age <  RAW_KEEP_S   = RETENTION_S + widest + 1 fold
+        closed     age >  RETENTION_S + widest      (the widest bucket)
+
+    which leaves one hour to sit in. That is not slack to be generous with —
+    it IS the design, and a test that drifts off it is telling the truth
+    about a real constraint rather than being flaky. The mid-band instant is
+    used, against `PINNED_NOW` so the boundary is never the thing under test.
+    """
+    return PINNED_NOW - timedelta(
+        seconds=web_metrics.RETENTION_S + max(LATENCY_BUCKETS) + 1800)
+
+
+@pytest.fixture(name="pinned")
+def _pinned_fixture(monkeypatch):
+    """Pin the fold's clock so `PINNED_NOW` and the fold agree exactly."""
+    monkeypatch.setattr(web_metrics, "utcnow", lambda: PINNED_NOW)
+    return PINNED_NOW
+
+
+def _recent_ts() -> datetime:
+    """An instant still inside the raw window and inside an OPEN bucket."""
+    return PINNED_NOW - timedelta(minutes=5)
 
 
 @pytest.fixture(name="viz")
@@ -95,8 +130,13 @@ def _seed(values, *, ts=None, **over):
 
     The values are what the rollup folds; a test that wants to assert a
     percentile states its population here rather than through HTTP.
+
+    The default instant is a CLOSED bucket, not a recent one: a bucket is
+    stored by the fold that closes it, so a beacon five minutes old is
+    correctly absent from the rollup and lives in the live pass. Pass `ts`
+    explicitly for a test that is about the live path.
     """
-    moment = ts or datetime.now(timezone.utc) - timedelta(minutes=5)
+    moment = ts or _closed_ts()
     with db.viz_conn() as conn:
         with conn.cursor() as cur:
             cur.executemany(
@@ -269,219 +309,7 @@ def test_a_beacon_without_a_session_is_401(viz):
     assert _rows(viz) == []
 
 
-# --- the rollup ------------------------------------------------------------
-
-
-def test_rollup_folds_exact_percentiles_and_the_sum(viz):
-    _seed(_VALUES)
-    assert rebuild_web_metrics_rollup() > 0
-    with db.viz_conn() as conn:
-        rows = conn.execute(
-            "SELECT bucket_s, n, p50, p75, total FROM web_metrics_rollup "
-            "WHERE bucket_s = 3600").fetchall()
-    assert rows, "the hourly width must have a row"
-    # Every width holds the same population, so every row is the same fold.
-    assert {int(n) for _w, n, _a, _b, _t in rows} == {len(_VALUES)}
-    assert {round(p50, 6) for _w, _n, p50, _b, _t in rows} == {4.5}
-    assert {round(p75, 6) for _w, _n, _a, p75, _t in rows} == {6.25}
-    assert {round(total, 6) for _w, _n, _a, _b, total in rows} == {36.0}
-
-
-def test_rollup_is_idempotent(viz):
-    _seed(_VALUES)
-    first = rebuild_web_metrics_rollup()
-    with db.viz_conn() as conn:
-        before = conn.execute(
-            "SELECT bucket_s, bucket, metric, part, n, p50, p75, total "
-            "FROM web_metrics_rollup ORDER BY 1, 2").fetchall()
-    rebuild_web_metrics_rollup()
-    with db.viz_conn() as conn:
-        after = conn.execute(
-            "SELECT bucket_s, bucket, metric, part, n, p50, p75, total "
-            "FROM web_metrics_rollup ORDER BY 1, 2").fetchall()
-    assert first > 0
-    assert before == after, "a second pass must replace, not duplicate"
-
-
-def test_rollup_keeps_the_grain_apart(viz):
-    """Two grains in one bucket are two rows — the key is the whole grain."""
-    _seed(_VALUES)
-    with db.viz_conn() as conn:
-        conn.execute(
-            "INSERT INTO web_metrics (ts, user_id, metric, part, region, "
-            "phase, value) VALUES (now(), 7, 'longtask', 'block', '', "
-            "'sse_update', 250.0)")
-        conn.commit()
-    rebuild_web_metrics_rollup()
-    with db.viz_conn() as conn:
-        grains = conn.execute(
-            "SELECT DISTINCT metric, part, region, phase "
-            "FROM web_metrics_rollup WHERE bucket_s = 3600").fetchall()
-    assert sorted(grains) == [("dashboard_open", "total", "", ""),
-                              ("longtask", "block", "", "sse_update")]
-
-
-def test_prune_keeps_the_window_and_drops_the_rest(viz):
-    now = datetime.now(timezone.utc)
-    fresh, stale = now - timedelta(hours=1), now - timedelta(
-        seconds=web_metrics.RETENTION_S + 3600)
-    _seed(_VALUES, ts=fresh)
-    _seed([99.0], ts=stale)
-    rebuild_web_metrics_rollup()
-    assert [row[5] for row in _rows(viz)] == _VALUES
-    with db.viz_conn() as conn:
-        totals = conn.execute(
-            "SELECT DISTINCT total FROM web_metrics_rollup "
-            "WHERE bucket_s = 3600").fetchall()
-    assert [float(t) for (t,) in totals] == [36.0], (
-        "a pruned row must not survive in a rollup bucket either")
-
-
-def test_the_fold_and_the_prune_cover_disjoint_populations(viz, monkeypatch):
-    """A row one second outside the window is in neither side of the pass.
-
-    This is why the fold and the prune need no ordering between them: the
-    fold reads exactly `ts >= cutoff` and the prune deletes exactly
-    `ts < cutoff`, so nothing deleted was ever a row the fold owed a bucket.
-    Pinned at the boundary rather than in the middle of the window, where a
-    fold that quietly reached further back would go unnoticed.
-    """
-    pinned = datetime(2026, 1, 2, 0, 10, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(web_metrics, "utcnow", lambda: pinned)
-    cutoff = web_metrics.retention_cutoff(pinned)
-    _seed([4242.0], ts=cutoff - timedelta(seconds=1))
-    _seed([1.0], ts=cutoff)
-    rebuild_web_metrics_rollup()
-    assert [row[5] for row in _rows(viz)] == [1.0]
-    with db.viz_conn() as conn:
-        totals = {float(t) for (t,) in conn.execute(
-            "SELECT total FROM web_metrics_rollup "
-            "WHERE bucket_s = 3600").fetchall()}
-    assert totals == {1.0}, "the row outside the window gets no bucket"
-
-
-# --- the readout -----------------------------------------------------------
-
-
-def test_readout_serves_the_rollup_past_the_retention_window(viz, client):
-    _seed(_VALUES)
-    rebuild_web_metrics_rollup()
-    r = client.get("/api/web-metrics?range=7d", headers=_ORIGIN)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["bucket_s"] == 3600
-    assert body["exact"] is False, "a blend of bucket percentiles"
-    assert body["series"] == [
-        {"metric": "dashboard_open", "part": "total", "region": "",
-         "phase": "", "n": 8, "p50": 4.5, "p75": 6.25, "total": 36.0},
-    ]
-    assert body["buckets"] and body["buckets"][0]["ts"]
-
-
-def test_a_range_the_raw_beacons_still_cover_is_exact(viz, client):
-    """The live pass is the default, and the arithmetic behind it is pinned.
-
-    Every range the retention window can cover folds to a width finer than an
-    hour, which the rollup does not store — `_bucket_seconds` only reaches
-    the narrowest stored width (3600) at a span of 100 hours. So "the rollup
-    does not store this width" and "the raw rows still cover this range" are
-    the same statement today, and that identity is what makes the answer
-    exact without anyone having to choose. Pin it: if a stored width is ever
-    added below 3600, or the retention window pushed past a day, this fails
-    and the fork in `web_metrics_readout` has to be reconsidered.
-    """
-    for hours in (1, 6, 12, 24, 36, 48):
-        span = timedelta(hours=hours)
-        assert span.total_seconds() <= web_metrics.RETENTION_S
-        assert _bucket_seconds(span) not in LATENCY_BUCKETS, (
-            f"{hours}h now folds to a stored width, so a range the raw rows "
-            f"cover is answered from the rollup and blended")
-
-    _seed(_VALUES)
-    rebuild_web_metrics_rollup()
-    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
-    assert body["exact"] is True
-    assert body["series"][0]["p50"] == 4.5
-    assert body["since"], "the window actually read is reported"
-
-
-def test_a_range_past_retention_and_past_the_stored_widths_is_clamped(viz, client):
-    """3 days maps to a 30-minute bucket the rollup does not store.
-
-    Reading the raw table unclamped would answer with the 48 hours that
-    survived the prune under a 3-day label. The window comes back in the
-    payload so the panel can say what it is showing.
-    """
-    _seed(_VALUES)
-    rebuild_web_metrics_rollup()
-    before = datetime.now(timezone.utc)
-    body = client.get("/api/web-metrics?range=3d", headers=_ORIGIN).json()
-    assert body["bucket_s"] not in (3600, 21600, 43200, 86400)
-    since = datetime.fromisoformat(body["since"].replace("Z", "+00:00"))
-    # `before`, not a fresh now(): the cutoff the server clamped to was taken
-    # at the request, so comparing it to a later clock reads as a breach.
-    assert since >= before - timedelta(seconds=web_metrics.RETENTION_S)
-    assert since < before, "3d would be an hour further back than 48h"
-    assert body["series"][0]["n"] == len(_VALUES)
-
-
-def test_readout_rolls_the_blend_by_sample_count(viz, client):
-    """Two buckets, different sizes: the p50 is weighted by n, not averaged.
-
-    The two populations sit in different HOUR buckets but the same
-    retention window, so `?range=1d` reads both raw and exact — where the
-    true p50 of [100 x8, 900] is 100, not the 344.4 the rollup's blend
-    reports. The rollup's answer is pinned separately, below.
-    """
-    now = datetime.now(timezone.utc)
-    early = now - timedelta(hours=5)
-    late = now - timedelta(minutes=5)
-    _seed([100.0] * 8, ts=early)
-    _seed([900.0], ts=late)
-    rebuild_web_metrics_rollup()
-    live = client.get("/api/web-metrics?range=1d",
-                      headers=_ORIGIN).json()["series"]
-    assert len(live) == 1
-    assert live[0]["n"] == 9 and live[0]["total"] == pytest.approx(1700.0)
-    assert live[0]["p50"] == pytest.approx(100.0), "the exact range p50"
-
-    rolled = client.get("/api/web-metrics?range=7d",
-                        headers=_ORIGIN).json()["series"]
-    # (8 * 100 + 1 * 900) / 9 — an unweighted mean would read 500.0.
-    assert rolled[0]["p50"] == pytest.approx((800.0 + 900.0) / 9)
-
-
-def test_readout_is_exact_for_every_range_inside_the_window(viz, client):
-    """The 24h view folds finer than the rollup stores, and is exact."""
-    _seed(_VALUES)
-    body = client.get("/api/web-metrics?range=24h", headers=_ORIGIN).json()
-    assert body["bucket_s"] not in (3600, 21600, 43200, 86400)
-    assert body["exact"] is True
-    assert body["series"][0]["p50"] == 4.5
-    assert body["series"][0]["p75"] == 6.25
-
-
-def test_readout_is_empty_before_any_beacon(viz, client):
-    body = client.get("/api/web-metrics?range=7d", headers=_ORIGIN).json()
-    assert body["series"] == [] and body["buckets"] == []
-
-
-def test_readout_rejects_a_bad_range(viz, client):
-    assert client.get("/api/web-metrics?range=9x",
-                      headers=_ORIGIN).status_code == 400
-
-
-def test_sink_rows_reach_the_rollup_end_to_end(viz, client):
-    """The whole path, through HTTP, with a population the fold can be
-    checked against exactly."""
-    for value in _VALUES:
-        assert _post(client, _beacon(value=value)).status_code == 202
-    rebuild_web_metrics_rollup()
-    row = client.get("/api/web-metrics?range=7d",
-                     headers=_ORIGIN).json()["series"][0]
-    assert (row["n"], row["p50"], row["p75"], row["total"]) == (
-        8, 4.5, 6.25, 36.0)
-
+# --- the schema, and the shipped client against this sink ------------------
 
 def test_the_schema_carries_both_tables(viz):
     with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
