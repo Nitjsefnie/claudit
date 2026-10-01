@@ -31,13 +31,19 @@ _SHUTDOWN_LABEL = "aborted: shutdown requested"
 
 
 def _insert_open_run(started_before_s: int = 3600) -> int:
-    """Book a crash-shaped leftover: an open row, started in the past."""
+    """Book a crash-shaped leftover: an open row, started in the past.
+
+    Counter sentinels ride along: the sweep must write only
+    finished_at/error, and a mutant adding a column to its SET must not
+    survive on NULLs it only appears to leave.
+    """
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
-            "INSERT INTO ingest_runs (started_at, trigger) VALUES (%s, %s) "
-            "RETURNING id",
+            "INSERT INTO ingest_runs (started_at, trigger, r2_listed, "
+            "reparsed, inserted, deleted, newer) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (datetime.now(timezone.utc) - timedelta(seconds=started_before_s),
-             "startup"),
+             "startup", 9, 8, 7, 2, 1),
         )
         run_row = cur.fetchone()
         assert run_row is not None  # INSERT ... RETURNING always yields
@@ -66,15 +72,20 @@ def test_sweep_stale_runs_closes_only_open_rows(fresh_db):
         stale_id = _insert_open_run()
         c.commit()
 
-    # The plant is asserted before the sweep: a failed plant must fail
+    # The plants are asserted before the sweep: a failed plant must fail
     # here, not read as a sweep verdict below.
     with db.viz_conn() as c:
         planted = c.execute(
-            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            "SELECT finished_at FROM ingest_runs WHERE id = %s",
             (stale_id,)).fetchone()
-    assert planted is not None and planted[0] is None and planted[1] is None
+    assert planted is not None and planted[0] is None
 
-    assert ingest.sweep_stale_runs() == 1
+    # The sweep is age-blind by design: under the lock, ANY open row is
+    # ownerless, however young — so a seconds-old leftover is planted
+    # beside the hour-old one and both must close. A mutant gating the
+    # sweep on an age threshold dies here.
+    young_id = _insert_open_run(started_before_s=0)
+    assert ingest.sweep_stale_runs() == 2
     with db.viz_conn() as c:
         done = c.execute(
             "SELECT started_at, finished_at, trigger, r2_listed, reparsed, "
@@ -82,16 +93,31 @@ def test_sweep_stale_runs_closes_only_open_rows(fresh_db):
             "WHERE id = %s",
             (done_id,)).fetchone()
         stale = c.execute(
-            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
+            "SELECT started_at, finished_at, trigger, r2_listed, reparsed, "
+            "inserted, deleted, newer, error FROM ingest_runs "
+            "WHERE id = %s",
             (stale_id,)).fetchone()
-    assert done is not None and stale is not None
+        young = c.execute(
+            "SELECT started_at, finished_at, trigger, r2_listed, reparsed, "
+            "inserted, deleted, newer, error FROM ingest_runs "
+            "WHERE id = %s",
+            (young_id,)).fetchone()
+    assert done is not None and stale is not None and young is not None
     # Every column, sentinel-seeded: a mutant adding a column to the
     # sweep's SET must not survive on NULLs it only appears to leave.
     assert done == (done_started, done_finished, "cron", 7, 6, 5, 1, 0,
                     "closed by the run")
-    assert stale[0] is not None
-    assert stale[1] == _CRASH_LABEL
-    assert stale[1] != _SHUTDOWN_LABEL
+    for row in (stale, young):
+        # (started_at, finished_at, trigger, r2_listed, reparsed,
+        #  inserted, deleted, newer, error)
+        assert row[1] is not None
+        assert row[2] == "startup"
+        assert row[8] == _CRASH_LABEL
+        assert row[8] != _SHUTDOWN_LABEL
+        # The sweep writes only finished_at/error; every planted column
+        # stands, and the row closed after it started.
+        assert row[3:8] == (9, 8, 7, 2, 1)
+        assert row[0] <= row[1]
     assert ingest.sweep_stale_runs() == 0
 
 
