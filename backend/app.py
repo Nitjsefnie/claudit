@@ -405,17 +405,58 @@ async def root_index(request: Request) -> Response:
         return m.group(0).replace(path, f"{path}?v={v}")
 
     html = re.sub(r'(?:src|data-pricing)="(/src/[^"?]+)"', _bust_src, html)
-    # Every <script> tag carries the response's CSP nonce (kept LAST so
-    # it sees the final HTML). The two inline scripts are admitted by it
-    # directly, and Babel standalone propagates a text/babel source
-    # tag's nonce onto the inline script element it generates for the
-    # compiled output (see _CSP_TEMPLATE), so script-src needs no
-    # 'unsafe-inline'. The unpkg tags need no nonce (host + SRI admit
-    # them); marking them is harmless.
+    # Every script ELEMENT's open tag carries the response's CSP nonce
+    # (kept LAST so it sees the final HTML). The two inline scripts are
+    # admitted by it directly, and Babel standalone propagates a
+    # text/babel source tag's nonce onto the inline script element it
+    # generates for the compiled output (see _CSP_TEMPLATE), so
+    # script-src needs no 'unsafe-inline'. The unpkg tags need no nonce
+    # (host + SRI admit them); marking them is harmless.
     nonce = getattr(request.state, "csp_nonce", None)
     if nonce:
-        html = html.replace("<script", f'<script nonce="{nonce}"')
+        html = _nonce_script_elements(html, nonce)
     return HTMLResponse(html)
+
+
+# A script ELEMENT's open tag is a `<script` outside any element's
+# content; inside one it is raw text that ends at the first `</script`
+# (issue #439). Both patterns carry the word-boundary so `<scriptx` —
+# not a script element, and a shape no template should emit — is left
+# alone.
+_SCRIPT_OPEN_RE = re.compile(r"<script\b", re.IGNORECASE)
+_SCRIPT_CLOSE_RE = re.compile(r"</script\s*>", re.IGNORECASE)
+
+
+def _nonce_script_elements(html: str, nonce: str) -> str:
+    """Put ``nonce`` on every script ELEMENT's open tag, and only there.
+
+    A blanket ``replace("<script", ...)`` also fires inside script
+    content, where a brand value carrying the literal text `<script`
+    survives ``branding.script_json`` (it cannot close the tag) and
+    would receive the attribute's raw quotes inside a JS string
+    literal — a SyntaxError that stops every page load (#439). The
+    window.BRAND payload rides an inline script, so walking the raw
+    text of each element is what keeps it out of reach.
+    """
+    out: list[str] = []
+    pos = 0
+    while True:
+        open_match = _SCRIPT_OPEN_RE.search(html, pos)
+        if open_match is None:
+            break
+        out.append(html[pos:open_match.start()])
+        out.append(f'<script nonce="{nonce}"')
+        pos = open_match.end()
+        # Content is raw text: it runs to the first `</script`, and any
+        # `<script` within it is payload, not an element.
+        close_match = _SCRIPT_CLOSE_RE.search(html, pos)
+        if close_match is None:
+            pos = len(html)
+            break
+        out.append(html[pos:close_match.start()])
+        pos = close_match.start()
+    out.append(html[pos:])
+    return "".join(out)
 
 
 @app.get("/app.css")
