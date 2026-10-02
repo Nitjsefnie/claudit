@@ -24,6 +24,8 @@ _SAMPLE_REASONS = {
         "multiple log series match one endpoint",
     "one or more endpoints have no matching series": "log is missing endpoint history",
     "latest log state disagrees with the listed price": "log disagrees with listing",
+    "the listing lags the price log": "listing lags log",
+    "no in-force log state matches the listing": "no matching log state",
     "no series joined to the listed host": "no matching log series",
     "series has null input or output, or no complete state": "log has incomplete rates",
     "selected endpoint has no usable history": "no endpoint history",
