@@ -1,35 +1,69 @@
 name: gate freshness
 
-# Lists the open pull-request heads that must rebase or rerun to
-# satisfy the required `ci gate / aggregate` check: those whose latest
-# ci-gate run predates the workflow's first commit on master, or that
-# have none. The decision lives in scripts/ci/gate_freshness.py; its
+# Publishes a `gate freshness` check run on every open pull-request
+# head: red iff master holds a commit the head lacks whose changed
+# paths intersect the gate trigger set — the workflows, local actions
+# and CI scripts; the ratchet data, scanner, lint and type configs; the
+# requirements files (scripts/ci/gate_trigger_set.py derives and pins
+# the set). The decision lives in scripts/ci/gate_freshness.py; its
 # module docstring is the contract and tests/test_gate_freshness.py
-# pins the selection logic.
+# pins it, alongside the wiring pins here.
 #
-# workflow_dispatch-only, on purpose: no ruleset reads this workflow's
-# own check (the deliverable is the step summary naming the stale
-# heads), so nothing else should spend the API calls it takes. Run it
-# when binding the ruleset:
+# WHY. A head tested before a master gate-definer commit (especially a
+# ratchet tighten of .github/ci-thresholds.json) holds a stale green;
+# merging on it lands master red (issue #495). Each master push
+# re-publishes every open head, so a tighten flips the heads it
+# strands red within a run, and a pull_request_target event re-publishes
+# the event's own head when it pushes or is retargeted.
 #
-#     gh workflow run gate-freshness.yml
+# TRIGGER EXCEPTION. Every gate suite's push trigger ignores
+# .github/ci-thresholds.json, so the bot's tighten commit triggers no
+# suite. THIS workflow deliberately does not carry that exemption:
+# reacting to tightens is its purpose, and it is a one-minute
+# publisher that runs no suite.
 #
-# and read the run's summary for the head list.
+# TRUST MODEL (pull_request_target is privileged). The checkout is the
+# base side only — on pull_request_target, github.ref is the base
+# branch — and nothing from a pull-request tree executes: the head SHA
+# arrives through GF_HEAD_SHA, is fetched as git objects only, and a
+# hostile SHA fails the compare, which publishes red (fail closed).
+# Event values reach the script only through env, never through the
+# run: block.
+#
+# REQUIREMENT. The check is advisory until an operator adds the name
+# `gate freshness` to the require-ci-aggregate ruleset's required
+# status checks; the publisher is built so that addition alone makes
+# it blocking.
 
-on:
-  workflow_dispatch:
+on:  # zizmor: ignore[dangerous-triggers] the publisher checks out the base side only, never executes pull-request code, and reads the head SHA as metadata through env
+  push:
+    branches:
+      - master
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
 
+# contents: read pays for the full-depth checkout; pull-requests: read
+# is the open-PR list read; checks: write is the per-head check-run
+# POST. Nothing else is granted.
 permissions:
-  # contents: read pays for the checkout; pull-requests: read is what
-  # the open-PR list read needs; actions: read is what the per-head
-  # workflow-run lists need. Without its grant either read 403s and
-  # the run dies before writing the summary.
   contents: read
   pull-requests: read
-  actions: read
+  checks: write
 
+# One group per trusted identity: a master push groups by its pushed
+# SHA, a pull_request_target event by the GitHub-assigned PR number.
+# No party can mint a colliding key, and runs never cancel one another
+# (cancel-in-progress: false) — the publishers serialize, and the last
+# writer evaluated against a freshly fetched master, so its verdict is
+# the current one.
 concurrency:
-  group: gate-freshness
+  group: gate-freshness-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -37,20 +71,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      # Same grant as the workflow block above, spelled on the job too:
-      # the script's two API reads need pull-requests and actions.
       contents: read
       pull-requests: read
-      actions: read
+      checks: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The first-ci-gate-commit lookup walks history for the commit
-          # that added the workflow; a shallow clone has no such commit.
+          # The compare walks master's history per head (rev-list over
+          # the merge base), so the checkout carries full history.
           fetch-depth: 0
           persist-credentials: false
 
-      - name: List the heads the required aggregate strands
+      - name: Publish gate freshness on the open heads
         env:
           GH_TOKEN: ${{ github.token }}
+          GF_PR: ${{ github.event.pull_request.number || '' }}
+          GF_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
         run: python3 scripts/ci/gate_freshness.py
