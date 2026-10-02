@@ -23,7 +23,7 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _classify_error, _flatten_result_text,
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
-from backend.bash_churn import BashCommand, bash_churn, replace_churn
+from backend.bash_churn import BashCommand, replace_churn
 from backend import bash_churn_errors, bash_reads
 from backend.prompt_gate import _is_prompt_text
 from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
@@ -163,13 +163,14 @@ def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
     separate POSITIVE series per issue #10 — deletions are NOT
     encoded as negative additions.
 
-    Edit, Write and Bash are the names handled (no MultiEdit /
-    NotebookEdit rows exist in the corpus at all). Bash carries the
-    bulk of it: under bypass permissions the model edits through the
-    shell, so `backend.bash_churn` recovers what the command text
-    enumerates directly — heredoc bodies written to a file, inline
-    patch hunks, literal python replacements — and 0 for everything
-    that would need the command to be RUN to know.
+    Two names reach this: `Edit` and `Write` (no MultiEdit /
+    NotebookEdit rows exist in the corpus at all). A Bash call never
+    does — Bash carries the bulk of it, and its caller hands the
+    command to `BashCommand.churn()`, backed by the same
+    `backend.bash_churn` scanners that recover from the command text
+    what only running it would otherwise tell: heredoc bodies written
+    to a file, inline patch hunks, literal python replacements — and 0
+    for everything that needs the command to be RUN to know.
     Edit's old/new are diffed (`replace_churn`): repeated context is not churn.
     Known approximations: an Edit with replace_all=true is counted
     once (the call does not say how many occurrences exist), and a
@@ -186,8 +187,6 @@ def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
             _line_count(str(tool_input.get("content", "") or "")),
             0,
         )
-    if name == "Bash":
-        return bash_churn(str(tool_input.get("command", "") or ""))
     return 0, 0
 
 
