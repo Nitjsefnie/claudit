@@ -45,7 +45,7 @@ import sys
 # tests/test_workflow_ci_gate.py pins this tuple against the workflow's
 # needs list, so the two cannot drift apart.
 EXPECTED_LEGS = ('classify', 'tests', 'test-data', 'lint', 'types', 'eslint',
-                 'smoke', 'audit', 'actionlint', 'speed', 'codeql')
+                 'smoke', 'audit', 'actionlint', 'codeql')
 
 PASSED = 'passed'
 FAILED = 'failed'
@@ -128,8 +128,9 @@ def decide(needs):
             return PASSED, (
                 f'data-only change: {len(skipped)} gate legs skipped by '
                 f'classification ({joined}); cheap legs ran ({cheap})')
-        joined = ', '.join(f'{name}={result}' for name, result in entries)
-        return PASSED, f'all {len(entries)} legs succeeded: {joined}'
+        # One sentence, naming no legs: the per-leg results are the
+        # table's job (issue #517) -- the enumeration read twice.
+        return PASSED, f'all {len(entries)} legs succeeded'
     parts = []
     if failures:
         parts.append('failing legs: ' + ', '.join(sorted(failures)))

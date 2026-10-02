@@ -398,7 +398,7 @@ def test_an_empty_family_is_refused_with_and_without_the_marker():
     # emptiness rather than presence would normalise it to the same
     # absent family only the marker authorises — so a hand-deleted
     # budget would reach the no-budget state on any tree, with the
-    # direction guard and the speed gate both reading it as legal.
+    # direction guard and the suite-cost gate both reading it as legal.
     # Both verdicts passed EXPLICITLY, because the widened class must
     # not be reachable without the marker that widens it — and because
     # a verdict read from the ambient tree would make this control
@@ -597,9 +597,9 @@ def test_the_guard_still_refuses_a_lowered_coverage_value(tmp_path):
 
 def test_the_gate_passes_through_with_no_budget_and_says_so(
         tmp_path, marker_tree, capsys):
-    # The speed gate on a re-seed commit: there is nothing to compare
-    # the measurement against, and the gate must say THAT rather than
-    # claim the run was within budget.
+    # The suite-cost gate on a re-seed commit: there is nothing to
+    # compare the measurement against, and the gate must say THAT
+    # rather than claim the run was within budget.
     document = tmp_path / "ci-thresholds.json"
     thresholds.write(document,
                      thresholds.normalise(_document(False), True))

@@ -9,7 +9,7 @@ check still reports. The invariants pinned here:
   `workflow_call`;
 - the aggregate job runs with `if: always()` and needs every leg, so it
   reports even when legs fail, skip or never start;
-- trigger ownership really moved: the ten callees no longer carry
+- trigger ownership really moved: the nine callees no longer carry
   `push`/`pull_request`, and ci-gate's push trigger keeps the ratchet
   bot's paths-ignore so its commit never starts the suite;
 - the aggregate's expected-leg list and the workflow's needs list cannot
@@ -45,10 +45,10 @@ TESTS_WORKFLOW = WORKFLOWS / "tests.yml"
 REFRESH_WORKFLOW = WORKFLOWS / "refresh-pricing.yml"
 RATCHET_PUSH_WORKFLOW = WORKFLOWS / "ratchet-push.yml"
 
-# The ten gate workflows ci-gate calls, plus the classifier job.
+# The nine gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
     "tests.yml", "test-data.yml", "lint.yml", "types.yml", "eslint.yml",
-    "smoke.yml", "audit.yml", "actionlint.yml", "speed.yml", "codeql.yml",
+    "smoke.yml", "audit.yml", "actionlint.yml", "codeql.yml",
 )
 LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
 
@@ -419,6 +419,22 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     workflow_call = (_tests_workflow().get("on") or {}).get(
         "workflow_call") or {}
     assert "secrets" not in workflow_call
+
+
+def test_the_canary_job_is_named_for_what_it_is():
+    # Issue #514: the bare job ran the calibration gates but displayed
+    # as `tests / pytest`, identical in shape to the six portability
+    # legs. The `name:` is the check-run name; the JOB ID stays `pytest`
+    # (the needs lists, the aggregate fold and the classifier key on
+    # ids, and nothing in the repo pins the old check string -- grepped,
+    # not remembered). The pinned micro is part of the name because the
+    # name is what a red run is read by.
+    pytest_job = _tests_workflow()["jobs"]["pytest"]
+    assert pytest_job.get("name") == (
+        "pytest + calibration gates (canary, pinned 3.13.14)")
+    portable = _tests_workflow()["jobs"]["pytest-portable"]
+    assert portable.get("name") == (
+        "pytest (${{ matrix.os }}, ${{ matrix.python-version }})")
 
 
 def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():

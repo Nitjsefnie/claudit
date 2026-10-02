@@ -8,12 +8,13 @@ run could still be cancelled or pending-superseded through them:
   outright (`cancel-in-progress: true` on a per-ref group), stranding a
   cancelled check on that SHA — which release.yml's waiter refuses (issue
   #366);
-- ``test-data.yml`` runs the longest remaining gate leg, and
-  ``speed.yml`` keeps the shape too (its bench is minutes since issue
-  #452): with per-ref push groups a third concurrent master push
-  cancelled a merely-pending leg run — GitHub keeps at most one PENDING
-  run per group, whatever `cancel-in-progress` says — and that middle
-  commit's aggregate folded red (issue #409, observed on 1f0470e).
+- ``test-data.yml`` runs the longest remaining gate leg: with per-ref
+  push groups a third concurrent master push cancelled a merely-pending
+  leg run — GitHub keeps at most one PENDING run per group, whatever
+  `cancel-in-progress` says — and that middle commit's aggregate folded
+  red (issue #409, observed on 1f0470e). speed.yml held the shape too
+  until issue #515 folded its bench into the tests canary, whose group
+  is per-ref BY DESIGN: it is the queue that serializes master runs.
 
 The invariant: on a push the group is the workflow name plus the pushed SHA,
 so no two master pushes ever share a group. Pull requests keep the
@@ -38,12 +39,11 @@ PER_SHA_SUFFIX = (
 
 # workflow file -> expected `cancel-in-progress`: version-guard stays an
 # unconditional true (its per-SHA push groups make that a no-op on pushes,
-# so the cancel only ever hits superseded PR runs); the two legs keep the
-# PR-only expression. A push run's group is unique, so neither value can
+# so the cancel only ever hits superseded PR runs); the remaining leg keeps
+# the PR-only expression. A push run's group is unique, so neither value can
 # cancel or replace one.
 EXPECTED_CANCEL = {
     "version-guard.yml": "true",
-    "speed.yml": "${{ github.event_name == 'pull_request' }}",
     "test-data.yml": "${{ github.event_name == 'pull_request' }}",
 }
 
