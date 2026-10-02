@@ -1,0 +1,6 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"turn.prompt","input":[{"type":"text","text":"run echo hi"}],"origin":{"kind":"user"},"time":1782740973442}
+{"type":"context.append_loop_event","event":{"type":"step.begin","uuid":"00000000-0000-4000-8000-0000000000d1","turnId":"0","step":1},"time":1782740973462}
+{"type":"context.append_loop_event","event":{"type":"tool.call","uuid":"tool_Synthetic01Example","turnId":"0","step":1,"toolCallId":"tool_Synthetic01Example","name":"Read","args":{"path":"/x/README.md"}},"time":1782740977270}
+{"type":"context.append_loop_event","event":{"type":"tool.result","parentUuid":"tool_Synthetic01Example","toolCallId":"tool_Synthetic01Example","result":{"output":"ok"}},"time":1782740977271}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":3275,"output":72,"inputCacheRead":15104,"inputCacheCreation":0},"usageScope":"turn","time":1782740977271}
