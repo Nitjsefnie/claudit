@@ -85,7 +85,8 @@ def _repository(path: Path, message: str) -> Path:
     return path
 
 
-def _commit_thresholds(repo: Path, family: bool) -> None:
+def _commit_thresholds(repo: Path, family: bool,
+                       message: str = "record thresholds") -> None:
     """Commit the document the family-present bound reads, with or
     without the suite-cost family.
 
@@ -99,7 +100,7 @@ def _commit_thresholds(repo: Path, family: bool) -> None:
         {"suite_cost": {"run": {}}} if family else {})
     document.write_text(json.dumps(payload), encoding="utf-8")
     _git(repo, "add", ".github/ci-thresholds.json")
-    _git(repo, "commit", "-q", "-m", "record thresholds")
+    _git(repo, "commit", "-q", "-m", message)
 
 
 def _document(suite_cost=True, measured="95.6", floor="94.1"):
@@ -336,6 +337,22 @@ def test_the_bound_closes_on_a_present_family_at_the_head_itself(
     _commit_thresholds(repo, family=False)
     _git(repo, "commit", "-q", "--allow-empty", "-m", "seed the family")
     _commit_thresholds(repo, family=True)
+    reseed.clear_cache()
+    assert reseed.in_flight(repo) is False
+
+
+def test_a_marker_on_a_family_present_commit_opens_nothing(tmp_path):
+    # The bound outranks the marker, whatever the message says. The
+    # marker sits here on the very commit that restores the family — an
+    # off-doctrine placement (its documented home is the family-ABSENT
+    # delete) — and the family-absent commit above it is a hand
+    # deletion. The bound closes the window at that commit, so the
+    # misplaced marker below it is never consulted.
+    repo = _repository(tmp_path / "r", "seed the base")
+    _commit_thresholds(repo, family=True)
+    _commit_thresholds(repo, family=False, message="delete, no marker")
+    _commit_thresholds(repo, family=True, message=f"restore {MARKER}")
+    _commit_thresholds(repo, family=False, message="hand delete, no marker")
     reseed.clear_cache()
     assert reseed.in_flight(repo) is False
 
