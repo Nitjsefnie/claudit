@@ -93,26 +93,49 @@ class _StubItem:
         self.marks.append(marker.name)
 
 
+def _scan_relevant(source: str) -> bool:
+    """Whether a test module can contribute to either scanner below.
+
+    The vocabulary gate that keeps this file's cost from scaling with
+    the size of unrelated test files (issue #510): a module that names
+    no fixture and reaches no server is invisible to both the registry
+    derivation and the marking guard, and is neither read into the AST
+    nor walked. Fail-closed, because every match the scanners make is
+    verbatim text: a fixture def's decorator carries the substring
+    ``fixture``, and a server reach is a Name/Attribute id or raw
+    segment text, each spelled verbatim in the source — so a skip can
+    only save the walk, never hide a violation. Pinned by the plant
+    tests below and by the vocabulary-free-module test.
+    """
+    return 'fixture' in source or any(tok in source for tok in SERVER_CALLS)
+
+
 @functools.cache
 def _modules(
         directory: Path | None = None) -> tuple[tuple[str, ast.Module, str], ...]:
-    """(module name, AST, source) for every Python file in `directory`.
+    """(module name, AST, source) for every relevant Python file in
+    `directory`.
 
     Defaults to tests/ itself. Cached per directory: both scanners below
     derive from the same tree, and reading and parsing every test module
     once per scanner was most of this file's cost (issue #496).
 
-    The cache is keyed on the directory, and that is load-bearing rather
-    than tidy. A test that re-points this at a directory of its own and
-    leaves the result cached would hand every later reader — including
-    the marking guard below, which runs after it by definition order —
-    that directory instead of the real tree. The guard would then find
-    nothing to flag and pass, which reads exactly like a clean file.
+    Modules the vocabulary gate (``_scan_relevant``) excludes are not
+    here: a module that names no fixture and reaches no server cannot
+    move either scanner's verdict. The cache is keyed on the directory,
+    and that is load-bearing rather than tidy. A test that re-points
+    this at a directory of its own and leaves the result cached would
+    hand every later reader — including the marking guard below, which
+    runs after it by definition order — that directory instead of the
+    real tree. The guard would then find nothing to flag and pass,
+    which reads exactly like a clean file.
     """
     root = TESTS_DIR if directory is None else directory
     modules = []
     for path in sorted(root.glob("*.py")):
         source = path.read_text(encoding="utf-8")
+        if not _scan_relevant(source):
+            continue
         modules.append(
             (path.stem, ast.parse(source, filename=str(path)), source))
     return tuple(modules)
@@ -388,11 +411,13 @@ def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
     # which reads exactly like a clean file. `_modules` keys on the
     # directory, so this holds no matter what the caller does.
     (tmp_path / "test_seeded_scan.py").write_text(
-        "def test_ok():\n    assert True\n", encoding="utf-8")
+        "import pytest\n\n\n@pytest.fixture\ndef seeded():\n"
+        "    return None\n", encoding="utf-8")
     assert [name for name, _, _ in _modules(tmp_path)] == [
         "test_seeded_scan"]
     (tmp_path / "test_second_scan.py").write_text(
-        "def test_ok():\n    assert True\n", encoding="utf-8")
+        "import pytest\n\n\n@pytest.fixture\ndef other():\n"
+        "    return None\n", encoding="utf-8")
     # The cached entry for THAT directory still stands ...
     assert [name for name, _, _ in _modules(tmp_path)] == [
         "test_seeded_scan"]
@@ -404,9 +429,18 @@ def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
     assert "test_db_marker" in {name for name, _, _ in _modules()}
 
 
-def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
+def _marking_offenders(directory: Path | None = None) -> list[str]:
+    """Tests reaching a server with neither a DB fixture nor the mark.
+
+    Scans only modules whose text names a server call: a module without
+    one has no rooted test (a root is a Name/Attribute id or raw
+    segment text, both verbatim in the source), so scanning it can add
+    no offender and is pure walk cost (issue #510).
+    """
     offenders = []
-    for mod_name, tree, source in _modules():
+    for mod_name, tree, source in _modules(directory):
+        if not any(tok in source for tok in SERVER_CALLS):
+            continue
         funcs = _functions(tree)
         rooted = _mention_roots(funcs, source)
         # The same helper-call closure the registry derivation uses:
@@ -438,10 +472,65 @@ def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
             if MARK_ALLOWLIST.get(entry):
                 continue
             offenders.append(entry)
-    assert not offenders, (
+    return offenders
+
+
+def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
+    assert not _marking_offenders(), (
         "tests that reach a PostgreSQL server through a scratch_db call "
         "with neither a DB fixture in their parameter list nor "
         "@pytest.mark.db — the portable CI matrix would run them and "
         "fail on the missing server. Add the mark, request a DB "
         "fixture, or allowlist the entry here with a reason: "
-        + ", ".join(offenders))
+        + ", ".join(_marking_offenders()))
+
+
+# ---- the vocabulary gate's fail-closed pins (issue #510) ------------
+
+# The server token, split: this file's own text must never contain it,
+# so the marking guard never sees this file as rooted (the same trick
+# _seeded_modules uses).
+SERVER = 'viz_' 'conn'
+
+
+def test_a_seeded_server_call_is_flagged_without_the_mark(tmp_path):
+    # Mutation proof for the gate: a fresh file whose only server
+    # reach is spelled inside it must still be flagged.
+    (tmp_path / "test_planted.py").write_text(
+        "def test_reaches_the_server():\n"
+        f"    return {SERVER}()\n", encoding="utf-8")
+    assert _marking_offenders(tmp_path) == [
+        "test_planted.py:test_reaches_the_server"]
+
+
+def test_a_seeded_server_call_with_a_db_fixture_is_clean(tmp_path):
+    # The complement: the same reach with a registered DB fixture in
+    # the parameter list is not an offender — the guard flags the
+    # missing registration, not the reach.
+    (tmp_path / "test_planted.py").write_text(
+        "def test_reaches_the_server(fresh_db):\n"
+        f"    return {SERVER}()\n", encoding="utf-8")
+    assert _marking_offenders(tmp_path) == []
+
+
+def test_a_seeded_rooted_fixture_arrives_in_the_derived_registry(tmp_path):
+    # The registry scan's plant: a fresh fixture-defining file whose
+    # fixture is rooted must arrive in the derived set — the registry
+    # guard would then fail until it is registered in db_marker.
+    # Spelled with odd decorator spacing on purpose: the gate admits
+    # on the `fixture` substring, so spacing cannot dodge it.
+    (tmp_path / "test_planted.py").write_text(
+        "import pytest\n\n\n@pytest .fixture\n"
+        f"def grown():\n    return {SERVER}()\n", encoding="utf-8")
+    assert "grown" in _derive_from_modules(_modules(tmp_path))
+
+
+def test_a_vocabulary_free_module_is_not_scanned(tmp_path):
+    # The structural cost pin (issue #510): a module that names no
+    # fixture and reaches no server never enters the module list the
+    # scanners walk, so adding one re-prices the suite by nothing but
+    # the gate's own substring check.
+    (tmp_path / "test_plain.py").write_text(
+        "import os\n\n\ndef test_ok():\n    assert os.sep == '/'\n",
+        encoding="utf-8")
+    assert _modules(tmp_path) == ()

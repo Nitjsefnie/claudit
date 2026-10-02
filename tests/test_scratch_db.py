@@ -404,10 +404,44 @@ _FORBIDDEN = re.compile(
     re.IGNORECASE)
 
 
-def _code(path: Path) -> str:
+def _db_vocab(text: str) -> bool:
+    """Whether a file's text can hold anything _FORBIDDEN matches in code.
+
+    The gate that keeps this scan from tokenizing every unrelated
+    module (issue #510): each forbidden alternative's literals are
+    verbatim in the source when the pattern matches the token stream
+    (single-token literals are contiguous; the two words of the
+    statement form are separate tokens, each present in full), so a
+    casefolded text check admits a strict superset of code matches.
+    A file failing it is excluded without the tokenizer, and the
+    verdict is identical.
+    """
+    low = text.casefold()
+    name_root = scratch_db.NAME_ROOT.casefold()
+    # The literals below are split-spelled: this file's own code text
+    # must not carry them whole, or the guard would flag it.
+    return (name_root in low
+            or "create" "db" in low
+            or "drop" "db" in low
+            or ("create" in low and "database" in low)
+            or ("drop" in low and "database" in low))
+
+
+def _code(text: str) -> str:
     """The source without its comments; strings and docstrings stay."""
-    toks = tokenize.generate_tokens(io.StringIO(path.read_text(encoding="utf-8")).readline)
+    toks = tokenize.generate_tokens(io.StringIO(text).readline)
     return " ".join(t.string for t in toks if t.type != tokenize.COMMENT)
+
+
+def _db_text(path: Path) -> str | None:
+    """The file's text when its vocabulary gate admits it, else None.
+
+    Reading once and gating before the tokenizer keeps a vocabulary-
+    free module out of the comment-stripping pass entirely (issue
+    #510); None is the caller's skip signal.
+    """
+    text = path.read_text(encoding="utf-8")
+    return text if _db_vocab(text) else None
 
 
 def offending_files(root: Path) -> list[str]:
@@ -416,7 +450,8 @@ def offending_files(root: Path) -> list[str]:
     return sorted(str(p.relative_to(root)).replace(os.sep, "/")
                   for p in root.rglob("*.py")
                   if p.name != "scratch_db.py"
-                  and _FORBIDDEN.search(_code(p)))
+                  and (text := _db_text(p)) is not None
+                  and _FORBIDDEN.search(_code(text)))
 
 
 def test_no_test_names_creates_or_drops_a_database_outside_the_helper():
@@ -440,3 +475,25 @@ def test_the_guard_catches_every_plant_and_ignores_comments(tmp_path):
     (tmp_path / "test_comment.py").write_text(
         f"# see {scratch_db.RUN_PREFIX}* and the drop" "db it replaced\nx = 1\n")
     assert offending_files(tmp_path) == sorted(plants)
+
+
+def test_the_guard_catches_a_multiline_statement_string(tmp_path):
+    # The gate-admission case a single-line substring check cannot
+    # see as a match: the two statement words separated by a newline
+    # INSIDE one string literal. The vocabulary conjunct (both words
+    # present in the text) must admit the file so the token text,
+    # which keeps strings whole, still matches.
+    path = tmp_path / "test_planted.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text('SQL = """CREATE\n   DATABASE x"""\n', encoding="utf-8")
+    assert offending_files(tmp_path) == ["test_planted.py"]
+
+
+def test_a_vocabulary_free_file_is_not_tokenized(tmp_path):
+    # The structural cost pin (issue #510): a file whose text names
+    # neither the scratch-db name, db-building commands, nor a
+    # create/drop database phrase is excluded before the tokenizer.
+    (tmp_path / "test_plain.py").write_text(
+        "import os\n\n\ndef test_ok():\n    assert os.sep == '/'\n",
+        encoding="utf-8")
+    assert _db_text(tmp_path / "test_plain.py") is None
