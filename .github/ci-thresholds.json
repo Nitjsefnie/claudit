@@ -1,8 +1,8 @@
 {
   "coverage": {
     "javascript": {
-      "floor": 88.9,
-      "measured": 90.4
+      "floor": 90.7,
+      "measured": 92.2
     },
     "python": {
       "floor": 94.1,
