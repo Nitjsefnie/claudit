@@ -537,3 +537,15 @@ def test_new_family_seed_carrying_the_identity_is_clean(tmp_path):
     head_path = _written(tmp_path, head, "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
+
+
+def test_suite_cost_identity_removed_from_established_family_fails(tmp_path):
+    # The third shape of the identity rule: the family kept, the
+    # identity silently dropped. The changed and added shapes above are
+    # byte-identical in the budgets, and so is this one, so the identity
+    # branch is the only thing that can go red here — the mutant that
+    # exempts removals (`after is not None and after != before`)
+    # survived every other test in the branch.
+    base = _document(suite=_with_identity(SUITE_COST, 40000))
+    head = _document()
+    assert _guard_result(tmp_path, base, head) == 1

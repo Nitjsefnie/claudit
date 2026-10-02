@@ -1036,8 +1036,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   derivation, the version-literal guard, the scratch-DB scan) spend
   per-line over ``tests/``, so a change to that tree's content moves
   the counts with no fixture, interpreter or machine change. Every
-  measurement and every seed records the workload identity
-  `tests_tree_lines` (the tests/*.py line total); the gate names a
+  measurement records the workload identity `tests_tree_lines` (the
+  tests/*.py line total) whenever its tree has one, and a seed writes
+  it beside the budgets when its reading carries it; the gate names a
   drifted identity when a phase breaches instead of reading it as
   slowness, and the guard refuses a hand-moved identity on an
   established family — the sanctioned re-seed, measured on the tree
