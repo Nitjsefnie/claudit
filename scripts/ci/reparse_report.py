@@ -168,6 +168,16 @@ def _counted(measurement: Measurement, phase: str) -> Decimal | None:
     return per_file[phase] if per_file else None
 
 
+# How the gate reads each GATED metric off one measurement, and the unit
+# it reports it in — one entry per thresholds.REPARSE_GATED_METRICS
+# member. The gate reads the enforced set through that constant rather
+# than spelling a metric, so widening the set cannot leave this loop
+# comparing a metric nobody chose; a member with no entry here refuses
+# rather than passing uncompared, which is the shape of the defect issue
+# #513 exists to close.
+_GATED = {'bytecodes': (_counted, COUNT_UNIT)}
+
+
 def _over_budget(measurement: Measurement, floors: dict) -> list:
     """Every phase over a GATED recorded budget, and every phase the gate
     could not read.
@@ -180,15 +190,21 @@ def _over_budget(measurement: Measurement, floors: dict) -> list:
     over = []
     reason = measurement.instruction_note
     for phase in PHASES:
-        counted = _counted(measurement, phase)
-        if counted is None:
-            over.append(f'{phase}: NOT MEASURED'
-                        f'{f" ({reason})" if reason else ""}')
-            continue
-        count_floor = floors[phase]['bytecodes']['floor']
-        if counted > count_floor:
-            over.append(f'{phase}: {counted} {COUNT_UNIT}, '
-                        f'floor {count_floor}')
+        for metric in thresholds.REPARSE_GATED_METRICS:
+            entry = _GATED.get(metric)
+            if entry is None:
+                raise ValueError(
+                    f'no reader for the gated metric {metric!r}: nothing '
+                    f'would compare {phase} against it')
+            read, unit = entry
+            counted = read(measurement, phase)
+            if counted is None:
+                over.append(f'{phase}: NOT MEASURED'
+                            f'{f" ({reason})" if reason else ""}')
+                continue
+            floor = floors[phase][metric]['floor']
+            if counted > floor:
+                over.append(f'{phase}: {counted} {unit}, floor {floor}')
     return over
 
 
