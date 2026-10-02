@@ -81,6 +81,10 @@ url = next((arg for arg in sys.argv[1:] if arg.startswith("repos/")), "")
 with open(os.environ["GITHUB_STUB_LOG"], "a", encoding="utf-8") as log:
     log.write(url + "\\n")
 if "/runs?" in url:
+    # The base the walk returns. BEFORE, never HEAD: a self-compare
+    # (base == sha) is a shape the real API answers with zero files and
+    # the classifier has no branch for, so the harness would be agreeing
+    # with the code it is testing instead of exercising it.
     print("{head} completed success 4242")
 elif "/jobs?" in url:
     print("tests success")
@@ -97,7 +101,7 @@ class Classified(NamedTuple):
     it, and the classifier's own exit status."""
 
     written: str
-    reads: list
+    reads: list[str]
     returncode: int
 
 
@@ -115,7 +119,7 @@ def _legs(gate):
 def _stub_gh(directory, paths):
     """An executable stub `gh` on PATH that answers the push-path reads."""
     script = directory / "gh"
-    script.write_text(STUB_GH.format(head=HEAD, paths=list(paths)),
+    script.write_text(STUB_GH.format(head=BEFORE, paths=list(paths)),
                       encoding="utf-8")
     script.chmod(0o755)
     return script
@@ -126,7 +130,9 @@ def _run_classifier(tmp_path, paths=None, writes=True):
 
     PR_NUMBER is empty and BEFORE_SHA is a 40-hex commit, the shape of
     the refresh bot's own push (issue #540's run 37057914441). Returns
-    the step-output file's text and the reads the stub answered.
+    the step-output file's text, the reads the stub answered, and the
+    classifier's own exit status — the third is what the fail-closed
+    test rests on.
     """
     paths = BOT_PATHS if paths is None else paths
     out = tmp_path / "step-outputs.txt"
@@ -169,6 +175,7 @@ MODELLED_READS = ("/runs?", "/jobs?", "/compare/")
 
 def _only_modelled_reads(run):
     """The classifier asked the stub only reads the stub models."""
+    assert run.reads, "the stub was never asked a read"
     unmodelled = [url for url in run.reads
                   if not any(part in url for part in MODELLED_READS)]
     assert not unmodelled, f'the stub was asked a read it does not model: {unmodelled}'
@@ -284,7 +291,11 @@ def test_every_leg_needs_the_classifier():
     # `if:`-shaped pin still green. The `needs:` hop is the limb sitting
     # one line below the `if:` every other pin reads.
     for name, job in _legs(_ci_gate()).items():
-        assert "classify" in (job.get("needs") or []), name
+        needs = job.get("needs")
+        # `needs: classify` parses as the scalar, where `in` would be a
+        # SUBSTRING test and a job named `pre-classify` would pass.
+        assert "classify" in ([needs] if isinstance(needs, str)
+                              else (needs or [])), name
 
 
 # ---------------------------------------------------------------------------
