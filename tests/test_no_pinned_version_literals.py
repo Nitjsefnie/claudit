@@ -23,6 +23,7 @@ stale excuses cannot accumulate.
 from __future__ import annotations
 
 import ast
+import functools
 import io
 import re
 import tokenize
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from backend import pricing
+from tests import scan_gate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -282,14 +284,77 @@ def _marker_lines(source: str) -> set[int]:
     return found
 
 
+@functools.lru_cache(maxsize=8)
+def _wanted_pattern(wanted: frozenset[str]) -> re.Pattern[str]:
+    """One alternation matching any wanted row name."""
+    return re.compile("|".join(map(re.escape, sorted(wanted))))
+
+
+def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
+                 wanted_hosts: frozenset[str] = frozenset()) -> bool:
+    """Whether one module's source can hold anything check() can flag.
+
+    The fail-closed gate that keeps this file's tree scan (issue #510)
+    from walking every unrelated module. Every clause admits a strict
+    superset of the shapes detect()/check() flag, so a skip only saves
+    the walk, never hides a site:
+
+    - a marker comment carries ``sv-test-data`` verbatim in the text;
+    - a version name is an attribute id (verbatim in text), a string
+      constant (verbatim or — split or escaped — folded into
+      ``co_consts``, which resolve both), a setenv/setattr string
+      argument (same const), or dead-but-verbatim text;
+    - the committed-document reference is an attribute id or a module
+      path-bind constant, spelled verbatim in text or folded into
+      consts;
+    - a rate call's name is an identifier, verbatim in text or in
+      ``co_names``; its wanted literal folds into a wanted row, so its
+      normalised spelling contains that row's name — the lowered,
+      dots-to-dashes haystack (the same fold ``pricing._normalise``
+      applies) still contains it, and the case-exact host names are
+      matched against the raw text as well.
+
+    Not covered — the gate would need a walk per file to close these,
+    which is the cost it exists to remove — and unreachable from a
+    flagged shape short of steganography: vocabulary spelled only
+    inside a dead branch (``if 0:``) AND split or escaped there, and a
+    wanted/path-bind value embedded by escape inside a LONGER literal
+    in a shape position. The compile-coverage property in
+    test_scan_gate fails loudly if the interpreter's folding changes.
+    """
+    if "sv-test-data" in source:
+        return True
+    if ("pricing.json" in source or "PRICING_JSON" in source
+            or any(v in source for v in VERSION_NAMES)
+            or any(r in source for r in RATE_CALL_NAMES)):
+        return True
+    consts, names = scan_gate.module_vocab(source)
+    if (any(v in consts or v in names for v in VERSION_NAMES)
+            or "pricing.json" in consts or "PRICING_JSON" in names):
+        return True
+    if not any(r in source or r in names for r in RATE_CALL_NAMES):
+        return False
+    wanted = wanted_models | wanted_hosts
+    pattern = _wanted_pattern(wanted)
+    return bool(pattern.search(source.lower().replace(".", "-"))) or bool(
+        pattern.search(source))
+
+
 def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
           wanted_hosts: frozenset[str] = frozenset()) -> list[str]:
     """Every problem in one module's source, as messages naming the line.
 
     A flagged site of either family without an allow marker on its own
     line, and a marker on a line that carries no flagged site of ANY
-    family (marker rot), are both problems.
+    family (marker rot), are both problems. The gate (``_scan_admits``)
+    first asks whether the source can hold either at all and skips the
+    AST walk and the tokenizer when it cannot — for the real tests/
+    tree, most modules cannot, which is what keeps this file's pinned
+    scan from re-pricing with the tree's size (issue #510).
     """
+    if not _scan_admits(source, wanted_models=wanted_models,
+                        wanted_hosts=wanted_hosts):
+        return []
     sites = detect(source, wanted_models=wanted_models,
                    wanted_hosts=wanted_hosts)
     site_lines = {site.line for site in sites}
@@ -563,13 +628,85 @@ def test_rot_fails_when_a_live_row_site_is_removed():
     assert "line 1" in problems[1] and "rot" in problems[1]
 
 
-def test_the_tests_tree_holds_no_unmarked_site_and_no_rotted_marker():
+def _tree_problems(tests_dir: Path) -> list[str]:
+    """check() over a whole tree, as ``path:message`` strings."""
     wanted_models = frozenset(pricing.MODEL_RATES)
     wanted_hosts = frozenset(host for _, host in pricing.PROVIDER_RATES)
     problems = []
-    for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
+    for path in sorted(tests_dir.rglob("*.py")):
         for message in check(path.read_text(encoding="utf-8"),
                              wanted_models=wanted_models,
                              wanted_hosts=wanted_hosts):
             problems.append(f"{path.name}:{message}")
-    assert not problems, "\n".join(problems)
+    return problems
+
+
+def test_the_tests_tree_holds_no_unmarked_site_and_no_rotted_marker():
+    assert not _tree_problems(REPO_ROOT / "tests"), (
+        "tests/ holds a site the guard flags, or a rotted marker — "
+        + "\n".join(_tree_problems(REPO_ROOT / "tests")))
+
+
+def test_a_seeded_version_literal_is_flagged_in_a_fresh_file(tmp_path):
+    (tmp_path / "test_planted.py").write_text(
+        "def test_uses_a_version_constant(monkeypatch):\n"
+        "    monkeypatch.setenv('PARSER_VERSION', '999')\n", encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_seeded_split_spelled_literal_is_flagged(tmp_path):
+    # Adjacent literals fold: the text never spells the name, the
+    # compiler's consts do.
+    (tmp_path / "test_planted.py").write_text(
+        "def test_uses_a_version_constant(monkeypatch):\n"
+        "    monkeypatch.setenv('PARSER' '_VERSION', '999')\n",
+        encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_seeded_escape_spelled_literal_is_flagged(tmp_path):
+    (tmp_path / "test_planted.py").write_text(
+        "def test_uses_a_version_constant(monkeypatch):\n"
+        "    monkeypatch.setenv('PARSER\\x5fVERSION', '999')\n",
+        encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_seeded_marker_without_a_site_is_rot(tmp_path):
+    (tmp_path / "test_planted.py").write_text(
+        "X = 1  # sv-test-data: allow (rot)\n", encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "rot" in problems[0]
+
+
+def test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file(tmp_path):
+    # The dotted spelling: the gate's haystack fold (lower, dots to
+    # dashes) must still admit it, because detect() normalises and
+    # would flag it.
+    model = sorted(pricing.MODEL_RATES)[0]
+    dotted = model.replace("-", ".")
+    (tmp_path / "test_planted.py").write_text(
+        "def test_prices_a_live_row():\n"
+        f"    return rate_for('{dotted}')\n", encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_seeded_host_literal_is_flagged_case_exactly(tmp_path):
+    host = sorted({h for _, h in pricing.PROVIDER_RATES})[0]
+    (tmp_path / "test_planted.py").write_text(
+        "def test_prices_a_host():\n"
+        f"    return resolve(model, '{host}')\n", encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_module_without_the_scan_vocabulary_is_skipped():
+    # The structural cost pin (issue #510): a source that names
+    # nothing the scanner can flag is not walked at all.
+    source = "import os\n\n\ndef test_ok():\n    return os.sep\n"
+    assert check(source) == []
+    assert not _scan_admits(source)
