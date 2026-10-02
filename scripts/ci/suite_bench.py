@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure one pytest run's cost in instructions, phase by phase.
 
-The speed gate's instrument (issue #452). The old gate compared
+The suite-cost gate's instrument (issue #452). The old gate compared
 WALL-CLOCK durations between two checkouts, A/B/A/B, against a pinned
 baseline release; a runner's speed varies by roughly a factor of two
 between jobs, so the ratio measured the runners as much as the code.

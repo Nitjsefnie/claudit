@@ -75,9 +75,9 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         # The exact micro the suite-cost seed was measured with: this
-        # job's bench step is the RECORD path feeding the tighten, and a
-        # floating alias drifting to a cheaper 3.13.x could tighten the
-        # ceilings below what the pinned gate interpreter measures.
+        # job's bench both gates and feeds the tighten bot, and a
+        # runner-side drift to a cheaper 3.13.x would move the counts
+        # out from under the committed ceilings (issue #266's reason).
         with:
           python-version: "3.13.14"
 
