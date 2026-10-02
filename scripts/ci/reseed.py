@@ -21,24 +21,39 @@ guard's upward-move refusal is untouched, and the marker buys the
 ABSENCE only — never a raised budget, which is the next commit's seed,
 taken from a runner measurement artifact and never hand-derived.
 
-WHERE THE MARKER IS READ. Two revisions, never a walk:
+WHERE THE MARKER IS READ. A bounded walk, never a single read (issue
+#511: a tolerance scoped to HEAD/HEAD^2 lasted exactly one commit — the
+#509 incident, where the hourly pricing bot landed on the delete before
+the seed):
 
-- ``HEAD``. A push checkout, and a master tip after its rebase, IS the
-  declaring commit.
-- ``HEAD^2``, which resolves only for a merge commit. A pull-request
-  run checks out the MERGE commit, whose own message is GitHub's and
-  carries no marker; its second parent is the pull request's head,
-  which is what declared it. One level, and only when the object is
-  there: a shallow checkout that lacks the parent simply does not see
-  the marker, which fails CLOSED — the tree is gated exactly as it is
-  today — never open.
-
-A missing git, an unreadable revision and a marker two commits back all
-read the same way: no marker, and the tree is gated as it always was.
+- The walk starts at HEAD and reads back over the ancestry, BOTH
+  parents at a merge, the second one first: a pull-request run checks
+  out the MERGE commit, whose own message is GitHub's and carries no
+  marker, and the pull request's head — the lineage that declared the
+  marker — hangs off it as the second parent.
+- The walk ends at the last family-present commit: a commit whose
+  committed document carries the suite_cost family is one where the
+  window the marker opens is closed, so an old declaration below it can
+  never exempt a later family-absent document. Presence is judged on
+  the committed `.github/ci-thresholds.json` at each visited commit —
+  presence of the key only, never its shape: the loader judges a
+  present family's shape at the tip, exactly as it does today (an empty
+  family is refused, marker or no marker).
+- The whole walk is additionally bounded at _MAX_VISITS commits,
+  fail-closed: a history with no family-present commit within ten
+  visits of HEAD — no thresholds file at all, or a history longer than
+  the cap — reads as no marker, and the tree is gated exactly as it
+  always was.
+- Every commit read fails closed individually: a missing git, an
+  unreadable revision (a shallow CI checkout's boundary among them) and
+  a message without the marker all read the same way — that commit
+  contributes nothing, and the walk continues only where git can still
+  answer.
 """
 from __future__ import annotations
 
 import functools
+import json
 import subprocess
 from pathlib import Path
 
@@ -49,56 +64,125 @@ ROOT = Path(__file__).resolve().parents[2]
 # reached by an ordinary word.
 MARKER = '[suite-cost-re-seed]'
 
+# The family whose absence the marker buys, spelled here because
+# importing thresholds for it would put the git-reading module on every
+# loader consumer's import graph — the same reason thresholds itself
+# reaches this module only lazily, inside verdict(). Mirrors
+# thresholds.SUITE_COST_FAMILY; a test pins the two together.
+_SUITE_COST_FAMILY = 'suite_cost'
+# Where the document sits at any commit, relative to the repository
+# root: the file thresholds.THRESHOLDS resolves to. The walk asks git
+# for THIS path at each visited commit — the committed history, never
+# the working tree.
+_THRESHOLDS_AT = '.github/ci-thresholds.json'
+
 # A message is READ here, not executed: git is asked for text, with a
 # bound so an unresponsive repository cannot hang a gate step.
 _TIMEOUT = 10
 
+# The walk's second bound, after the family-present one: the re-seed
+# series is short by construction — the base, the delete, the commits
+# that land on the delete before the seed (the hourly bot among them),
+# back to the base — and ten visits bound it with room to spare. A
+# longer window than that fails closed and needs the walk widened, not
+# silently tolerated.
+_MAX_VISITS = 10
 
-def _revision_message(root: Path, revision: str) -> str | None:
-    """One revision's message, or None when git cannot answer for it.
 
-    ``-1`` bounds the walk to the revision named and nothing before it,
-    which is what makes this a two-revision read rather than the log of
-    the branch.
+def _run(root: Path, *args: str) -> subprocess.CompletedProcess | None:
+    """One bounded git read, or None when git cannot answer.
+
+    Everything the walk learns comes through here, so the fail-closed
+    shape is one helper's shape: a missing git, a signal, a timeout and
+    a nonzero exit all read as "no answer".
     """
     try:
         proc = subprocess.run(
-            ['git', '-C', str(root), 'log', '-1', '--format=%B', revision],
+            ['git', '-C', str(root), *args],
             capture_output=True, check=False, timeout=_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
         return None
+    return proc
+
+
+def _revision_message(root: Path, revision: str) -> str | None:
+    """One revision's message, or None when git cannot answer for it.
+
+    ``-1`` bounds the read to the revision named and nothing before it,
+    which is what keeps this a per-commit read rather than the log of
+    the branch.
+    """
+    proc = _run(root, 'log', '-1', '--format=%B', revision)
+    if proc is None:
+        return None
     return proc.stdout.decode('utf-8', 'replace')
 
 
+def _parents(root: Path, revision: str) -> list[str]:
+    """A revision's parents, or [] when git cannot answer for it."""
+    proc = _run(root, 'show', '-s', '--format=%P', revision)
+    if proc is None:
+        return []
+    return proc.stdout.decode('ascii', 'replace').split()
+
+
+def _family_present(root: Path, revision: str) -> bool:
+    """Whether the document committed at ``revision`` carries the
+    suite-cost family.
+
+    Presence only. A commit whose document git cannot produce or json
+    cannot parse is NOT family-present: the window stays open and the
+    walk continues — the visit cap and the shallow boundary of a CI
+    checkout are what close it. That is deliberate, not lax: a missing
+    file cannot close a window defined on the file's own content, and
+    the loader still judges the tip's document on its own bytes.
+    """
+    proc = _run(root, 'show', f'{revision}:{_THRESHOLDS_AT}')
+    if proc is None:
+        return False
+    try:
+        document = json.loads(proc.stdout)
+    except ValueError:
+        return False
+    return isinstance(document, dict) and _SUITE_COST_FAMILY in document
+
+
+def _declares(root: Path) -> bool:
+    """Whether any commit the bounded walk reads carries the marker."""
+    seen: set[str] = set()
+    queue: list[str] = ['HEAD']
+    while queue and len(seen) < _MAX_VISITS:
+        revision = queue.pop(0)
+        if revision in seen:
+            continue
+        seen.add(revision)
+        message = _revision_message(root, revision)
+        if message is None:
+            continue
+        if MARKER in message:
+            return True
+        if _family_present(root, revision):
+            continue
+        # Second parent first: at a pull-request merge it is the pull
+        # request's head — the lineage that declares.
+        queue.extend(reversed(_parents(root, revision)))
+    return False
+
+
 @functools.lru_cache(maxsize=8)
-def declared(root: Path | None = None) -> tuple[str, ...]:
-    """The messages this tree's declaring commit is read from.
+def in_flight(root: Path | None = None) -> bool:
+    """Whether this tree declares a suite-cost re-seed in flight.
 
     Cached because the loader asks on every read and the suite reads it
-    hundreds of times: one probe per tree per process. A caller that
+    hundreds of times: one walk per tree per process. A caller that
     changes the tree underneath itself (a test building a repository in
     a tmp path) calls ``clear_cache()`` first.
     """
-    root = ROOT if root is None else root
-    head = _revision_message(root, 'HEAD')
-    if head is None:
-        return ()
-    # HEAD^2 resolves only for a merge commit, so asking for it IS the
-    # merge test: a push checkout's HEAD has one parent, the lookup
-    # fails, and that failure is the answer we want.
-    second = _revision_message(root, 'HEAD^2')
-    if second is None or second == head:
-        return (head,)
-    return (head, second)
-
-
-def in_flight(root: Path | None = None) -> bool:
-    """Whether this tree declares a suite-cost re-seed in flight."""
-    return any(MARKER in message for message in declared(root))
+    return _declares(ROOT if root is None else root)
 
 
 def clear_cache() -> None:
     """Drop the cached probe so a caller may read another tree."""
-    declared.cache_clear()
+    in_flight.cache_clear()

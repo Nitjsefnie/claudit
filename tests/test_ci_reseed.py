@@ -8,10 +8,11 @@ commit whose document carries no budget at all.
 
 The marker is that intermediate step, and every test below pins one of
 the three things that must stay true while it exists: what declares a
-re-seed (the commit message, one level, and nothing further back), what
-the marker buys (the family's ABSENCE, and nothing else), and what it
-must not buy (a raised budget, an ungated measurement, a crash in the
-ratchet).
+re-seed (the marker message, read by a bounded walk from HEAD back to
+the last family-present commit, so the tolerance spans the whole
+delete-then-seed sequence and not one commit of it), what the marker
+buys (the family's ABSENCE, and nothing else), and what it must not
+buy (a raised budget, an ungated measurement, a crash in the ratchet).
 """
 from __future__ import annotations
 
@@ -82,6 +83,23 @@ def _repository(path: Path, message: str) -> Path:
     _git(path, "commit", "-q", "-m", message)
     reseed.clear_cache()
     return path
+
+
+def _commit_thresholds(repo: Path, family: bool) -> None:
+    """Commit the document the family-present bound reads, with or
+    without the suite-cost family.
+
+    Minimal bytes on purpose: the walk asks only whether the committed
+    document CARRIES the family — presence, never shape — so the
+    synthetic document carries the key and nothing else.
+    """
+    document = repo / ".github" / "ci-thresholds.json"
+    document.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        {"suite_cost": {"run": {}}} if family else {})
+    document.write_text(json.dumps(payload), encoding="utf-8")
+    _git(repo, "add", ".github/ci-thresholds.json")
+    _git(repo, "commit", "-q", "-m", "record thresholds")
 
 
 def _document(suite_cost=True, measured="95.6", floor="94.1"):
@@ -194,7 +212,12 @@ def _measurement_file(path: Path, counts=None, instrument="instruction_count",
 def test_the_marker_is_the_documented_spelling():
     # A spelling change is a doctrine change: the marker is documented
     # as this token, and every commit that depends on it spells it so.
+    # The family literal is pinned with it because reseed spells its
+    # own copy — importing thresholds for the constant would put the
+    # git-reading module on every loader consumer's import graph.
     assert MARKER == '[suite-cost-re-seed]'
+    # pylint: disable-next=protected-access
+    assert reseed._SUITE_COST_FAMILY == thresholds.SUITE_COST_FAMILY
 
 
 def test_a_plain_head_declares_nothing(tmp_path):
@@ -217,8 +240,8 @@ def test_a_marker_anywhere_in_the_message_declares_a_reseed(tmp_path):
 
 def test_the_head_behind_a_pull_request_merge_declares_a_reseed(tmp_path):
     # A pull-request run checks out the MERGE commit, whose own message
-    # is GitHub's and carries no marker; its second parent is the pull
-    # request's head, which is what declared it.
+    # is GitHub's and carries no marker; the pull request's head, which
+    # is what declared it, hangs off it as the second parent.
     base = _repository(tmp_path / "base", "base")
     _git(base, "checkout", "-q", "-b", "feature")
     _git(base, "commit", "-q", "--allow-empty", "-m", f"delete {MARKER}")
@@ -226,16 +249,93 @@ def test_the_head_behind_a_pull_request_merge_declares_a_reseed(tmp_path):
     _git(base, "merge", "-q", "--no-ff", "feature",
          "-m", "Merge pull request #1 from a/feature")
     reseed.clear_cache()
-    assert "Merge pull request" in reseed.declared(base)[0]
     assert reseed.in_flight(base) is True
 
 
-def test_a_marker_two_commits_back_is_not_this_commit(tmp_path):
-    # One level, never a walk: an old declaration does not keep a later
-    # commit's document exempt forever.
+def test_a_marker_beneath_the_pr_head_declares_through_the_merge(tmp_path):
+    # The same shape with a pull-request branch that grew after the
+    # delete: the marker is no longer the merge's second parent itself,
+    # so a read scoped to HEAD and HEAD^2 misses it (its own HEAD^2 is
+    # the follow-up commit). The walk descends into the declared
+    # lineage and reads it there.
+    base = _repository(tmp_path / "base", "base")
+    _git(base, "checkout", "-q", "-b", "feature")
+    _git(base, "commit", "-q", "--allow-empty", "-m", f"delete {MARKER}")
+    _git(base, "commit", "-q", "--allow-empty", "-m", "address review")
+    _git(base, "checkout", "-q", "main")
+    _git(base, "merge", "-q", "--no-ff", "feature",
+         "-m", "Merge pull request #2 from a/feature")
+    reseed.clear_cache()
+    assert reseed.in_flight(base) is True
+
+
+def test_a_commit_on_top_of_the_marker_still_declares_it(tmp_path):
+    # The #509 shape: the hourly pricing bot landed on the delete
+    # before the seed, and a tolerance scoped to HEAD/HEAD^2 lasted
+    # exactly one commit — the bot commit was HEAD with no marker and
+    # HEAD^2 resolved to nothing. The walk reads back past it, so the
+    # window stays open until the family-present bound or the visit
+    # cap, whichever comes first.
     repo = _repository(tmp_path / "r", f"delete {MARKER}")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "bot: refresh rates")
+    reseed.clear_cache()
+    assert reseed.in_flight(repo) is True
+
+
+def test_the_walk_reads_a_marker_at_its_tenth_visit(tmp_path):
+    # The cap's inner edge: the declaring commit is the tenth commit the
+    # walk reads, exactly at the bound, and is still read.
+    repo = _repository(tmp_path / "r", f"deep {MARKER}")
+    for number in range(9):
+        _git(repo, "commit", "-q", "--allow-empty", "-m", f"bot {number}")
+    reseed.clear_cache()
+    assert reseed.in_flight(repo) is True
+
+
+def test_the_walk_fails_closed_past_its_cap(tmp_path):
+    # The cap's outer edge: the declaring commit is the ELEVENTH commit,
+    # one past the bound, and nothing below it is read. Fail closed —
+    # the tree is gated exactly as a tree with no marker at all.
+    repo = _repository(tmp_path / "r", f"deep {MARKER}")
+    for number in range(10):
+        _git(repo, "commit", "-q", "--allow-empty", "-m", f"bot {number}")
+    reseed.clear_cache()
+    assert reseed.in_flight(repo) is False
+
+
+def test_a_marker_beyond_the_family_present_bound_declares_nothing(
+        tmp_path):
+    # The bound is family presence, not the cap: once the seed has
+    # restored the family, the window is closed, and a LATER
+    # family-absent commit (a hand deletion, no marker) is not exempt —
+    # the declaring commit lies below the bound and is never read.
+    # Each commit here carries the real document, so the bound is
+    # found by content.
+    repo = _repository(tmp_path / "r", "seed the base")
+    _commit_thresholds(repo, family=True)
+    _git(repo, "commit", "-q", "--allow-empty", "-m", f"delete {MARKER}")
+    _commit_thresholds(repo, family=False)
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "seed the family")
+    _commit_thresholds(repo, family=True)
     _git(repo, "commit", "-q", "--allow-empty",
-         "-m", "feat: unrelated follow-up")
+         "-m", "delete again, no marker")
+    _commit_thresholds(repo, family=False)
+    reseed.clear_cache()
+    assert reseed.in_flight(repo) is False
+
+
+def test_the_bound_closes_on_a_present_family_at_the_head_itself(
+        tmp_path):
+    # The bound, checked at the first visit: a tree whose own committed
+    # document carries the family stops the walk immediately, whatever
+    # declares below it — the seed commit itself is gated strictly, and
+    # strictly is exactly what a family-present document satisfies.
+    repo = _repository(tmp_path / "r", "seed the base")
+    _commit_thresholds(repo, family=True)
+    _git(repo, "commit", "-q", "--allow-empty", "-m", f"delete {MARKER}")
+    _commit_thresholds(repo, family=False)
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "seed the family")
+    _commit_thresholds(repo, family=True)
     reseed.clear_cache()
     assert reseed.in_flight(repo) is False
 

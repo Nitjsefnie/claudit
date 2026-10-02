@@ -103,11 +103,14 @@ SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
 _TOP_LEVEL_FIELDS = ('schema_version', 'coverage',
                      REPARSE_FAMILY, *BASELINE_MEMBERS)
-# The suite-cost family is required like the rest, EXCEPT on a commit
-# that declares the sanctioned re-seed in flight (reseed.py): the
-# delete-then-seed sequence needs one commit whose document carries no
-# budget at all, and that commit names itself with the marker. It is the
-# only absence the loader tolerates, and only for this family.
+# The suite-cost family is required like the rest, EXCEPT while a
+# re-seed is in flight (reseed.py): the delete-then-seed sequence needs
+# commits whose documents carry no budget at all, and the declaring
+# commit names the window with the marker. The tolerance spans the
+# whole sequence — the walk (reseed.py) keeps it alive across the
+# commits that land on the delete before the seed, and the bound is the
+# last family-present commit — and it is the only absence the loader
+# tolerates, and only for this family.
 _RESEED_OPTIONAL_FIELDS = (SUITE_COST_FAMILY,)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
@@ -144,8 +147,8 @@ def verdict(reseed_in_flight=None):
         return reseed_in_flight
     # Imported HERE rather than at module scope: reseed shells out to
     # git, and every consumer of this loader — the reparse bench among
-    # them, the reparse bench among them, whose measured bytecode
-    # counts are the gate's own instrument —
+    # them, whose measured bytecode counts are the gate's own
+    # instrument —
     # would otherwise carry a module that reads a commit message to
     # answer a question it never asks.
     # pylint: disable-next=import-outside-toplevel
