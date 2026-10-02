@@ -515,10 +515,16 @@ def test_every_step_running_job_declares_timeout_minutes():
     assert not offenders, offenders
 
 
-def test_gate_freshness_is_dispatch_only_and_runs_the_script():
+def test_gate_freshness_publishes_on_push_and_pr_targets():
+    # Issue #495: every master push re-publishes every open head, and a
+    # pull_request_target event re-publishes the event's own head,
+    # filtered to the base it protects. The dispatch-only advisory era
+    # is gone.
     doc = _load(GATE_FRESHNESS)
     on = doc.get("on") or {}
-    assert list(on) == ["workflow_dispatch"], on
+    assert sorted(on) == ["pull_request_target", "push"], on
+    assert on["push"].get("branches") == ["master"]
+    assert on["pull_request_target"].get("branches") == ["master"]
     steps = [step for job in doc["jobs"].values()
              for step in (job.get("steps") or [])]
     runs = [step.get("run") or "" for step in steps]
