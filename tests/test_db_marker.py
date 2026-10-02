@@ -490,6 +490,7 @@ def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
 # The server token, split: this file's own text must never contain it,
 # so the marking guard never sees this file as rooted (the same trick
 # _seeded_modules uses).
+# pylint: disable-next=implicit-str-concat
 SERVER = 'viz_' 'conn'
 
 
@@ -510,7 +511,7 @@ def test_a_seeded_server_call_with_a_db_fixture_is_clean(tmp_path):
     (tmp_path / "test_planted.py").write_text(
         "def test_reaches_the_server(fresh_db):\n"
         f"    return {SERVER}()\n", encoding="utf-8")
-    assert _marking_offenders(tmp_path) == []
+    assert not _marking_offenders(tmp_path)
 
 
 def test_a_seeded_rooted_fixture_arrives_in_the_derived_registry(tmp_path):
@@ -533,4 +534,4 @@ def test_a_vocabulary_free_module_is_not_scanned(tmp_path):
     (tmp_path / "test_plain.py").write_text(
         "import os\n\n\ndef test_ok():\n    assert os.sep == '/'\n",
         encoding="utf-8")
-    assert _modules(tmp_path) == ()
+    assert not _modules(tmp_path)
