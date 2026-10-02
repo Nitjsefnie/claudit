@@ -23,14 +23,14 @@ concurrency:
 
 jobs:
   pytest:
+    # The name IS the check-run name (issue #514); the job id stays.
+    name: pytest + calibration gates (canary, pinned 3.13.14)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     permissions:
       # Reads contents for the suite; writes only the informational
-      # patch-coverage comment (issue #129). The ratchet data is
-      # published by the top-level ratchet-push.yml workflow (issue
-      # #479); this job only stages and uploads it.
+      # patch-coverage comment (issues #129, #479).
       contents: read
       pull-requests: write
 
@@ -250,9 +250,8 @@ jobs:
       - name: Coverage gate
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         # A RATCHET, not a target: the floor is committed data, seeded
-        # 1.5 under the measured coverage that recorded it. On a master
-        # push the workflow raises it once coverage climbs more than the
-        # hysteresis (1.5) above the recorded measured — never lowered.
+        # 1.5 under the measured coverage that recorded it; master
+        # raises it past the hysteresis, never lowers it.
         run: |
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
           python -m coverage report "--fail-under=${floor}" --precision=1
@@ -302,8 +301,7 @@ jobs:
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
-        # or crossed its ceiling (production 500 / test 700) fails here,
-        # on every event; master additionally tightens below.
+        # or crossed its ceiling fails here; master tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
         run: python3 scripts/ci/size_baseline.py
 
@@ -316,12 +314,10 @@ jobs:
 
       - name: Threshold direction guard
         # The bots are the only writers the ratchet data needs (issue
-        # #388): a lowered coverage value, a raised entry, an added
-        # entry under the frozen core families, or a raised suite-cost
-        # budget fails here, so the never-rules no longer depend on
-        # review. Legal moves are exactly the bots' plus the sanctioned
-        # seeds. Runs on pull_request (merge base) and push; dispatch
-        # has no base and skips — the PR is the gate.
+        # #388): a lowered coverage value, a raised reparse budget or
+        # entry, or a raised suite-cost budget fails here. Runs on
+        # pull_request (merge base) and push; dispatch skips -- the PR
+        # is the gate.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
         env:
           REPO: ${{ github.repository }}
@@ -345,23 +341,24 @@ jobs:
             --base "$RUNNER_TEMP/base-thresholds.json" \
             --head .github/ci-thresholds.json
 
-      - name: Measure the suite cost
-        # The bot's other input: one bench pass over the pinned fixture
-        # (the shared composite action). Master pushes only -- the
-        # measurement feeds the tighten bot; the gate lives in speed.yml.
+      - name: Measure and gate the suite cost
+        # One bench pass per run (issue #515): the shared composite
+        # action measures the pinned fixture and holds every phase to
+        # its committed ceiling -- speed.yml's gate, folded here.
+        # Master pushes feed the same measurement to the tighten bot
+        # (ratchet-push.yml) via the upload below.
         id: suite_bench
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
-                && steps.jscov.outcome == 'success'
-                && github.event_name == 'push'
-                && github.ref == 'refs/heads/master' }}
+                && steps.jscov.outcome == 'success' }}
         uses: ./.github/actions/suite-bench
         with:
-          mode: record
           measurement: ${{ runner.temp }}/suite-measurement.json
 
       - name: Upload the suite measurement
-        # The artifact is the tested state the bot job tightens from.
-        if: ${{ !cancelled() && steps.suite_bench.outcome == 'success' }}
+        # The artifact is the tested state the bot job tightens from,
+        # and a red gate's numbers stay inspectable: it uploads
+        # whenever the bench RAN, not only when its gate passed.
+        if: ${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: suite-measurement
@@ -380,6 +377,7 @@ jobs:
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
                 && steps.reparse.outcome == 'success'
+                && steps.suite_bench.outcome == 'success'
                 && github.event_name == 'push'
                 && github.ref == 'refs/heads/master' }}
         # JS_MEASURED travels by env, not by template expansion, so the
@@ -450,8 +448,8 @@ jobs:
         with:
           # Depth 2, not the default 1: the suite-cost re-seed marker
           # is read from the pull request's head one level under the
-          # merge commit, which a depth-1 clone does not carry. The
-          # full reasoning is on speed.yml's checkout (issue #502).
+          # merge commit, which a depth-1 clone does not carry (issue
+          # #502; scripts/ci/reseed.py).
           fetch-depth: 2
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.

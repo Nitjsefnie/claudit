@@ -185,10 +185,10 @@ def test_aggregate_non_data_only_skip_fails():
     # A skip beside a data_only=false output is still a disagreement,
     # the way a non-docs skip has always been.
     doc = _needs(data_only="false", expensive="success")
-    doc["speed"] = {"result": "skipped"}
+    doc["test-data"] = {"result": "skipped"}
     verdict, message = aggregate.decide(doc)
     assert verdict == aggregate.FAILED
-    assert "speed=skipped" in message
+    assert "test-data=skipped" in message
 
 
 def test_aggregate_summary_names_the_data_only_narrowing(tmp_path):

@@ -139,11 +139,12 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
     loads the cached bytecode after that, and the compile costs about
     as much again as the load: the same tree measured 29.1M
     instructions at collection with no caches present and 14.2M with
-    them. The two callers did not agree on that -- ``speed.yml``
-    measures on a fresh checkout and ``tests.yml`` measures after the
-    suite has run in the same working tree -- so the gate read one
-    number and the tighten bot wrote the other into the committed
-    budgets, leaving a ceiling no run could satisfy (issue #496).
+    them. Before #499 the two call sites did not agree on that -- the
+    leg's bench measured a fresh checkout while the canary's measured
+    after the suite had run in the same working tree -- so the gate
+    read one number and the tighten bot wrote the other into the
+    committed budgets, leaving a ceiling no run could satisfy
+    (issue #496).
 
     So the bench establishes the state rather than inheriting it: one
     collect-only pass compiles the fixture's modules, and pytest writes
