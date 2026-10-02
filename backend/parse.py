@@ -201,16 +201,14 @@ WRITE_TOOLS = ("Edit", "Write", "NotebookEdit")
 READ_TOOLS = ("Read",)
 
 
-def _tool_access(name: str, tool_input: dict,
-                 cwd: str) -> tuple[str | None, list[str], list[str]]:
+def _tool_access(name: str, tool_input: dict) -> tuple[str | None, list[str], list[str]]:
     """(read_kind, read targets, write targets) for one tool CALL.
 
-    Three shapes reach this. `Read` names its file outright. `Edit`,
-    `Write` and `NotebookEdit` name a file they change. Everything else
-    that reads goes through Bash, where the target has to be recovered
-    from the command TEXT — which is most of the intake in practice:
-    under bypass permissions the harness prefers shell commands, so
-    `Read` sees a small minority of the files actually opened.
+    Two shapes reach this. `Read` names its file outright. `Edit`,
+    `Write` and `NotebookEdit` name a file they change. A Bash call
+    never does: its caller hands the command to `bash_reads.scan_command`
+    with the command text it already parsed, so every other name is a
+    tool this module takes no read or write target from.
 
     A `Read` with an offset or limit is a SLICE, exactly as `sed -n`
     is: it put part of the file in context, not the file.
@@ -224,8 +222,6 @@ def _tool_access(name: str, tool_input: dict,
             return None, [], []
         sliced = bool(tool_input.get("offset") or tool_input.get("limit"))
         return ("slice" if sliced else "whole"), [path], []
-    if name == "Bash":
-        return bash_reads.scan(str(tool_input.get("command", "") or ""), cwd)
     return None, [], []
 
 
@@ -279,7 +275,7 @@ def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
         r_kind, r_targets, w_targets = bash_reads.scan_command(command, cwd)
     else:
         added, deleted = _tool_churn(name, args)
-        r_kind, r_targets, w_targets = _tool_access(name, args, cwd)
+        r_kind, r_targets, w_targets = _tool_access(name, args)
     a_type, a_model, p_chars, brief = _dispatch_args(name, args)
     return {
         "idx": idx,

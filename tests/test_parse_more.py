@@ -353,7 +353,7 @@ def test_rereads_compare_supported_windows_spellings_only(first, second, expecte
 @pytest.mark.parametrize("name", ["Write", "Edit", "NotebookEdit"])
 def test_raw_windows_write_invalidates_equivalent_read_without_rewriting(name):
     first, written = "C:/Work/f.py", r"c:\Work\f.py"
-    kind, reads, writes = parse._tool_access(name, {"file_path": written}, r"C:\Work")  # pylint: disable=protected-access
+    kind, reads, writes = parse._tool_access(name, {"file_path": written})  # pylint: disable=protected-access
     rows = [{"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None},
             {"read_kind": kind, "read_targets": reads, "write_targets": writes, "is_error": False, "is_reread": None},
             {"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None}]
