@@ -87,4 +87,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GF_PR: ${{ github.event.pull_request.number || '' }}
           GF_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          GF_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: python3 scripts/ci/gate_freshness.py

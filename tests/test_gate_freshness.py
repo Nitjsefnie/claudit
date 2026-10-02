@@ -11,8 +11,12 @@ the workflow wiring that drives the script.
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,14 +65,14 @@ HEAD = "a" * 40
 
 def test_no_missing_commits_is_fresh():
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{HEAD}": "",
     })
     assert gf.missing_commit_files(stub, MASTER, HEAD) == []
 
 
 def test_missing_commit_files_parses_log_blocks():
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}":
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{HEAD}":
             _commits_output([
                 ("c" * 40, ["backend/app.py"]),
                 ("d" * 40, [".github/workflows/ci-gate.yml", "README.md"]),
@@ -79,6 +83,44 @@ def test_missing_commit_files_parses_log_blocks():
         ("c" * 40, ["backend/app.py"]),
         ("d" * 40, [".github/workflows/ci-gate.yml", "README.md"]),
     ]
+
+
+def test_missing_commit_files_parses_the_producer_bytes(tmp_path):
+    """Real `git log` bytes through the parser: pins the block shape.
+
+    `git log --format=%H` emits sha, blank line, files (no separator
+    blank between entries) on git 2.47.3; `--pretty=format:%H` emits
+    sha, files, blank. The stub tests pin the parser's own assumption;
+    this one pins the producer, per environment.
+    """
+    sp = subprocess
+    if shutil.which("git") is None:
+        raise AssertionError("git must exist to pin the producer shape")
+
+    def git(*args):
+        sp.run(("git", *args), cwd=tmp_path, check=True,
+               capture_output=True, text=True)
+    git("init", "-q", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@t",
+        "commit", "-q", "--allow-empty", "-m", "base")
+    base_sha = sp.run(("git", "rev-parse", "HEAD"), cwd=tmp_path,
+                      capture_output=True, text=True,
+                      check=True).stdout.strip()
+    (tmp_path / "g.yaml").write_text("x\n", encoding="utf-8")
+    git("add", "g.yaml")
+    git("-c", "user.name=t", "-c", "user.email=t@t",
+        "commit", "-q", "-m", "touch a trigger-shaped path")
+    head_sha = sp.run(("git", "rev-parse", "HEAD"), cwd=tmp_path,
+                      capture_output=True, text=True,
+                      check=True).stdout.strip()
+
+    def run_git(argv):
+        out = sp.run(argv, cwd=tmp_path, capture_output=True, text=True,
+                     check=True)
+        return out.stdout
+
+    commits = gf.missing_commit_files(run_git, "HEAD", base_sha)
+    assert commits == [(head_sha, ["g.yaml"])], commits
 
 
 def test_git_failure_raises_query_error():
@@ -109,7 +151,7 @@ def test_no_trigger_hit_returns_none():
 
 def test_head_verdict_fresh():
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{HEAD}": "",
     })
     conclusion, title, _summary = gf.head_verdict(
         stub, MASTER, HEAD, lambda path: False)
@@ -119,7 +161,7 @@ def test_head_verdict_fresh():
 
 def test_head_verdict_stale():
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}":
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{HEAD}":
             _commits_output([("d" * 40, [".github/ci-thresholds.json"])]),
     })
     conclusion, title, summary = gf.head_verdict(
@@ -199,6 +241,20 @@ def test_env_selects_single_pr_mode():
                       "repo": ""}]
 
 
+def test_env_single_pr_mode_carries_the_fork_repo():
+    heads = gf.heads_for_run(
+        {gf.ENV_PR: "9", gf.ENV_HEAD_SHA: HEAD,
+         gf.ENV_HEAD_REPO: "someone/claudit"}, [])
+    assert heads[0]["repo"] == "someone/claudit"
+
+
+def test_env_single_pr_mode_survives_a_non_numeric_number():
+    heads = gf.heads_for_run(
+        {gf.ENV_PR: "nine", gf.ENV_HEAD_SHA: HEAD},
+        [_pr(7)])
+    assert [head["number"] for head in heads] == [7]
+
+
 def test_env_without_sha_falls_back_to_all_heads():
     pulls = [_pr(7), _pr(8, base="main")]
     heads = gf.heads_for_run({gf.ENV_PR: "9"}, pulls)
@@ -227,8 +283,8 @@ def test_main_publishes_one_check_per_open_head(monkeypatch, tmp_path):
     run_gh, _ = _capture_gh()
     pulls = [_pr(7), _pr(8, sha="b" * 40)]
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
-        f"git log -m --name-only --format=%H {MASTER} ^{'b' * 40}":
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{'a' * 40}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{'b' * 40}":
             _commits_output([("d" * 40, ["scripts/ci/gate_freshness.py"])]),
     })
     monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
@@ -264,7 +320,7 @@ def test_main_global_read_failure_publishes_nothing(monkeypatch):
 def test_main_single_pr_mode_publishes_exactly_one_check(monkeypatch):
     run_gh, _ = _capture_gh()
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{'a' * 40}": "",
     })
     monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
     published = []
@@ -280,7 +336,7 @@ def test_main_single_pr_mode_publishes_exactly_one_check(monkeypatch):
 
 def test_main_failed_publish_exits_nonzero(monkeypatch):
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{'a' * 40}": "",
     })
     monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
     attempts = []
@@ -300,7 +356,7 @@ def test_main_failed_publish_exits_nonzero(monkeypatch):
 
 def test_dry_run_publishes_nothing(monkeypatch):
     stub = _git_stub({
-        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+        f"git log -m --name-only --pretty=format:%H {MASTER} ^{'a' * 40}": "",
     })
     monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
     published = []
@@ -321,13 +377,19 @@ def _workflow_text():
             ).read_text(encoding="utf-8")
 
 
+def _workflow_doc():
+    # BaseLoader, not safe_load: YAML 1.1 parses the bare key `on` as
+    # the boolean True, and these tests read the trigger map by name.
+    return yaml.load(_workflow_text(), Loader=yaml.BaseLoader) or {}
+
+
 def test_workflow_runs_on_master_push_and_pr_events():
-    text = _workflow_text()
-    assert "push:" in text
-    assert "pull_request_target:" in text
-    assert "master" in text
-    for event_type in ("opened", "synchronize", "reopened", "edited"):
-        assert event_type in text
+    on = _workflow_doc().get("on") or {}
+    assert sorted(on) == ["pull_request_target", "push"]
+    assert on["push"]["branches"] == ["master"]
+    assert on["pull_request_target"]["branches"] == ["master"]
+    assert sorted(on["pull_request_target"]["types"]) == [
+        "edited", "opened", "reopened", "synchronize"]
 
 
 def test_workflow_pins_the_script_and_the_event_env():
@@ -337,6 +399,8 @@ def test_workflow_pins_the_script_and_the_event_env():
     assert "github.event.pull_request.number" in text
     assert "GF_HEAD_SHA:" in text
     assert "github.event.pull_request.head.sha" in text
+    assert "GF_HEAD_REPO:" in text
+    assert "github.event.pull_request.head.repo.full_name" in text
 
 
 def test_workflow_checks_out_full_depth_base_only():
@@ -346,9 +410,13 @@ def test_workflow_checks_out_full_depth_base_only():
 
 
 def test_workflow_has_the_write_permission_and_a_safe_concurrency():
-    text = _workflow_text()
-    assert "checks: write" in text
-    assert "pull-requests: read" in text
-    assert "contents: read" in text
-    assert "concurrency:" in text
-    assert "cancel-in-progress: false" in text
+    doc = _workflow_doc()
+    granted = {**doc["permissions"], **doc["jobs"]["freshness"]["permissions"]}
+    assert granted == {"contents": "read", "pull-requests": "read",
+                       "checks": "write"}
+
+
+def test_workflow_run_blocks_stay_free_of_interpolation():
+    for job in _workflow_doc()["jobs"].values():
+        for step in job.get("steps") or []:
+            assert "${{" not in (step.get("run") or ""), step
