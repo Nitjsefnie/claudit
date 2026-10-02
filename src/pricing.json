@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-02T00:54:03Z",
+  "provider_rates_fetched": "2026-10-02T01:53:40Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -17391,6 +17391,14 @@
           "note": "30% off",
           "output": 0.924,
           "read": 0.0196
+        },
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": "2026-10-02T01:06:16Z",
+          "output": 1.32,
+          "read": 0.028
         }
       ],
       "Reka": [
@@ -34746,6 +34754,14 @@
           "note": "34% off",
           "output": 2.8776,
           "read": 0.099
+        },
+        {
+          "create_1h": 1.45,
+          "create_5m": 1.45,
+          "fresh": 1.45,
+          "from": "2026-10-02T01:06:17Z",
+          "output": 4.36,
+          "read": 0.15
         }
       ],
       "Reka": [
@@ -37661,6 +37677,14 @@
           "from": "2026-10-01T17:50:52Z",
           "output": 4.2,
           "read": 0.44
+        },
+        {
+          "create_1h": 0.33,
+          "create_5m": 0.33,
+          "fresh": 0.33,
+          "from": "2026-10-02T01:01:25Z",
+          "output": 4.2,
+          "read": 0.264
         }
       ]
     },
@@ -45200,6 +45224,14 @@
           "fresh": 0.02,
           "from": "2026-10-01T06:17:02Z",
           "output": 0.3,
+          "read": 0.01
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-10-02T01:31:17Z",
+          "output": 0.55,
           "read": 0.01
         }
       ],
