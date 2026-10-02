@@ -232,8 +232,14 @@ def test_bot_shaped_raise_is_clean(tmp_path):
     base = _thresholds().load(THRESHOLDS_PATH)
     head = copy.deepcopy(base)
     for lang in ("python", "javascript"):
-        measured = round(
-            float(base["coverage"][lang]["measured"]) + 0.5, 1)
+        measured = min(
+            round(float(base["coverage"][lang]["measured"]) + 0.5, 1),
+            100.0)
+        # A raise must stay inside the loader's domain (values above 100.0
+        # are refused) and stay a raise: the clamp's tripwire reds loudly
+        # in the far-future case where the committed measured is already
+        # at the ceiling, instead of passing vacuously on a no-op head.
+        assert measured > float(base["coverage"][lang]["measured"])
         head["coverage"][lang] = {
             "measured": measured,
             "floor": round(measured - float(GAP), 1),
