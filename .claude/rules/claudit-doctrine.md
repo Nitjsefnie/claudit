@@ -1020,10 +1020,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `scripts/ci/suite_bench_files.txt`, measured by
   `scripts/ci/suite_bench.py` with `sys.monitoring`'s INSTRUCTION
   events (the `process_time` fallback is telemetry that fails closed
-  at `--check`). This is the speed gate's instrument — runner wall is void, and a
-  count is exact for one (tree content, interpreter, library set) —
-  issue #524's series drew exact repeats across the runner fleet and a
-  12-vCPU box on identical trees — and the gap sits ABOVE the measured value because the number is a
+  at `--check`). This is the suite-cost gate's instrument — runner wall is void, and a
+  count is exact within one environment state (the bench records its
+  across-state bound) — and the gap sits ABOVE the measured value because the number is a
   cost ceiling, not a quality floor. Seeded via the loader's writer
   (`suite_ratchet.py --seed`, only when the member is absent) FROM A
   RUNNER MEASUREMENT — the environment the gate and the master-push
@@ -1050,11 +1049,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   gate-definers, never one. The first deletes the stale member under
   the commit-message marker `[suite-cost-re-seed]`
   (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a
-  family-absent document; the speed gate then prints `no suite_cost
+  family-absent document; the suite-cost gate then prints `no suite_cost
   budget — re-seed in flight` and exits 0, and the guard reads the
   removal as legal. The second seeds the new counts through the
   loader's writer (`suite_ratchet.py --seed`) FROM A RUNNER
-  MEASUREMENT — the `suite-speed-measurement` / `suite-measurement`
+  MEASUREMENT — the `suite-measurement`
   artifact of the red master run the re-seed answers, cited by run id
   in the PR body, never hand-derived. Against a base that predates the
   family, those entries are a brand-new member's seed. One change
