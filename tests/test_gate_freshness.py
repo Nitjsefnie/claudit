@@ -1,17 +1,17 @@
-"""Unit tests for the gate-freshness head selection.
+"""Unit tests for the gate-freshness publisher.
 
-The aggregate is a required check, and heads that predate it (or never
-ran it) cannot go green until they rebase or rerun; this script names
-that set so only they rebase, instead of the manager rebinding
-blindly. The tests pin the selection logic: a head is stale when its
-latest `ci gate / aggregate` run predates the first commit carrying
-ci-gate.yml, or when it has none.
+The check goes red on an open head when master holds a commit the head
+lacks whose changed paths hit the gate trigger set. These tests pin
+the compare (per-commit changed paths vs the set), the fail shapes
+(unreadable per-head compare publishes red on that head; a global read
+failure publishes nothing and exits nonzero; a failed publish is
+retried once and then exits nonzero), the single-PR event mode, and
+the workflow wiring that drives the script.
 """
 from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,100 +30,325 @@ def _load(name):
 
 gf = _load("gate_freshness")
 
-GATE_TIME = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
-BEFORE = "2026-09-25T11:00:00+00:00"
-AFTER = "2026-09-25T13:00:00+00:00"
+
+def _git_stub(mapping):
+    """A run_git answering from `mapping` (command joined by spaces)."""
+    def run(argv):
+        key = " ".join(argv)
+        if key not in mapping:
+            raise gf.QueryError(f"unmapped command: {key}")
+        return mapping[key]
+    return run
 
 
-def _pr(number, base="master", sha: str | None = "a" * 40):
-    return {"number": number, "base": base, "sha": sha}
+def _commits_output(entries):
+    """`git log -m --name-only --format=%H` shaped output."""
+    blocks = ["\n".join([sha, *files]) for sha, files in entries]
+    return "\n\n".join(blocks) + "\n\n" if blocks else ""
 
 
-def test_no_run_at_all_means_stale():
-    stale = gf.select_stale([_pr(7)], {"a" * 40: []}, GATE_TIME)
-    assert [entry["number"] for entry in stale] == [7]
-    assert "no" in stale[0]["reason"]
+def _pr(number, base="master", sha="a" * 40):
+    return {
+        "number": number,
+        "base": {"ref": base},
+        "head": {"sha": sha, "repo": {"full_name": "Nitjsefnie/claudit"}},
+    }
 
 
-def test_run_predating_the_gate_commit_means_stale():
-    stale = gf.select_stale(
-        [_pr(7)], {"a" * 40: [{"id": 11, "run_started_at": BEFORE}]}, GATE_TIME)
-    assert [entry["number"] for entry in stale] == [7]
-    assert "11" in stale[0]["reason"]
-    assert BEFORE in stale[0]["reason"]
+MASTER = "1" * 40
+HEAD = "a" * 40
 
 
-def test_run_at_or_after_the_gate_commit_is_fresh():
-    stale = gf.select_stale(
-        [_pr(7)], {"a" * 40: [{"id": 11, "run_started_at": AFTER}]}, GATE_TIME)
-    assert stale == []
+def test_no_missing_commits_is_fresh():
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}": "",
+    })
+    assert gf.missing_commit_files(stub, MASTER, HEAD) == []
 
 
-def test_latest_run_decides():
-    sha = "a" * 40
-    runs = [{"id": 11, "run_started_at": BEFORE},
-            {"id": 12, "run_started_at": AFTER}]
-    assert gf.select_stale([_pr(7)], {sha: runs}, GATE_TIME) == []
-
-    ordered = list(reversed(runs))
-    assert gf.select_stale([_pr(7)], {sha: ordered}, GATE_TIME) == []
-
-
-def test_earlier_run_order_in_the_list_does_not_decide():
-    # The latest run is selected by (started_at, id), never by list order.
-    sha = "a" * 40
-    runs = [{"id": 99, "run_started_at": BEFORE},
-            {"id": 12, "run_started_at": BEFORE}]
-    stale = gf.select_stale([_pr(7)], {sha: runs}, GATE_TIME)
-    assert len(stale) == 1
-    assert "99" in stale[0]["reason"]
+def test_missing_commit_files_parses_log_blocks():
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}":
+            _commits_output([
+                ("c" * 40, ["backend/app.py"]),
+                ("d" * 40, [".github/workflows/ci-gate.yml", "README.md"]),
+            ]),
+    })
+    commits = gf.missing_commit_files(stub, MASTER, HEAD)
+    assert commits == [
+        ("c" * 40, ["backend/app.py"]),
+        ("d" * 40, [".github/workflows/ci-gate.yml", "README.md"]),
+    ]
 
 
-def test_unreadable_start_time_counts_as_stale():
-    # A run whose start time cannot be read cannot be proven at or after
-    # the gate commit, so it must not read as fresh.
-    stale = gf.select_stale(
-        [_pr(7)], {"a" * 40: [{"id": 11, "started_at": "garbage"}]},
-        GATE_TIME)
-    assert len(stale) == 1
+def test_git_failure_raises_query_error():
+    stub = _git_stub({})
+    try:
+        gf.missing_commit_files(stub, MASTER, HEAD)
+    except gf.QueryError:
+        pass
+    else:
+        raise AssertionError("expected QueryError")
 
 
-def test_pull_requests_off_the_gated_base_are_not_reported():
-    stale = gf.select_stale(
-        [_pr(1, base="main"), _pr(2, base="master")], {}, GATE_TIME)
-    assert [entry["number"] for entry in stale] == [2]
+# --- the trigger hit and the verdict ---------------------------------------
+
+def test_first_trigger_hit_names_the_commit_and_path():
+    commits = [
+        ("c" * 40, ["backend/app.py"]),
+        ("d" * 40, ["README.md", ".github/workflows/ci-gate.yml"]),
+    ]
+    hit = gf.first_trigger_hit(commits, lambda path: path.endswith(".yml"))
+    assert hit == ("d" * 40, ".github/workflows/ci-gate.yml")
+
+
+def test_no_trigger_hit_returns_none():
+    commits = [("c" * 40, ["backend/app.py"])]
+    assert gf.first_trigger_hit(commits, lambda path: False) is None
+
+
+def test_head_verdict_fresh():
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}": "",
+    })
+    conclusion, title, _summary = gf.head_verdict(
+        stub, MASTER, HEAD, lambda path: False)
+    assert conclusion == "success"
+    assert MASTER[:12] in title
+
+
+def test_head_verdict_stale():
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{HEAD}":
+            _commits_output([("d" * 40, [".github/ci-thresholds.json"])]),
+    })
+    conclusion, title, summary = gf.head_verdict(
+        stub, MASTER, HEAD,
+        lambda path: path == ".github/ci-thresholds.json")
+    assert conclusion == "failure"
+    assert "d" * 12 in title
+    assert ".github/ci-thresholds.json" in title
+    assert "Rebase" in summary
+
+
+def test_head_verdict_unreadable_compare_publishes_red():
+    def broken(argv):
+        raise gf.QueryError("fetch failed")
+
+    conclusion, title, summary = gf.head_verdict(
+        broken, MASTER, HEAD, lambda path: False)
+    assert conclusion == "failure"
+    assert "unreadable" in title.lower()
+    assert "fetch failed" in summary
+
+
+# --- publishing -------------------------------------------------------------
+
+def _capture_gh(fail_first=0):
+    calls = []
+
+    def run(argv):
+        calls.append(list(argv))
+        if len(calls) <= fail_first:
+            raise gf.QueryError("api down")
+        return "{}"
+
+    return run, calls
+
+
+def test_publish_check_posts_the_named_check():
+    run_gh, calls = _capture_gh()
+    gf.publish_check(run_gh, "Nitjsefnie/claudit", HEAD, "success",
+                     "Fresh against master 111111111111",
+                     "nothing the head lacks is gate-defining")
+    assert len(calls) == 1
+    argv = calls[0]
+    joined = " ".join(argv)
+    assert "repos/Nitjsefnie/claudit/check-runs" in joined
+    assert "name=gate freshness" in joined
+    assert f"head_sha={HEAD}" in joined
+    assert "status=completed" in joined
+    assert "conclusion=success" in joined
+    assert "output[title]=Fresh" in joined
+
+
+def test_publish_with_retry_succeeds_after_one_failure():
+    run_gh, calls = _capture_gh(fail_first=1)
+    gf.publish_with_retry(run_gh, "Nitjsefnie/claudit", HEAD, "success",
+                          "t", "s")
+    assert len(calls) == 2
+
+
+def test_publish_with_retry_raises_after_two_failures():
+    run_gh, _ = _capture_gh(fail_first=2)
+    try:
+        gf.publish_with_retry(run_gh, "Nitjsefnie/claudit", HEAD, "success",
+                              "t", "s")
+    except gf.QueryError:
+        pass
+    else:
+        raise AssertionError("expected QueryError")
+
+
+# --- the event mode ---------------------------------------------------------
+
+def test_env_selects_single_pr_mode():
+    heads = gf.heads_for_run(
+        {gf.ENV_PR: "9", gf.ENV_HEAD_SHA: HEAD}, [])
+    assert heads == [{"number": 9, "sha": HEAD, "base": "master",
+                      "repo": ""}]
+
+
+def test_env_without_sha_falls_back_to_all_heads():
+    pulls = [_pr(7), _pr(8, base="main")]
+    heads = gf.heads_for_run({gf.ENV_PR: "9"}, pulls)
+    assert [head["number"] for head in heads] == [7]
+
+
+def test_pulls_mode_uses_scannable_heads_only():
+    heads = gf.heads_for_run(
+        {}, [_pr(7), _pr(8, base="main"), _pr(9, sha="short")])
+    assert [head["number"] for head in heads] == [7]
 
 
 def test_scannable_is_the_predicate_selection_and_counting_share():
-    assert gf.scannable(_pr(1))
-    assert not gf.scannable(_pr(2, base="main"))
-    assert not gf.scannable(_pr(3, sha="short"))
-    assert not gf.scannable(_pr(4, sha=None))
+    assert gf.scannable(gf.heads_for_run({}, [_pr(1)])[0])
+    assert not gf.scannable(
+        {"number": 2, "sha": "a" * 40, "base": "main", "repo": ""})
+    assert not gf.scannable(
+        {"number": 3, "sha": "short", "base": "master", "repo": ""})
+    assert not gf.scannable(
+        {"number": 4, "sha": None, "base": "master", "repo": ""})
 
 
-def test_unusable_head_sha_is_skipped():
-    stale = gf.select_stale(
-        [_pr(1, sha="nope"), _pr(2)], {}, GATE_TIME)
-    assert [entry["number"] for entry in stale] == [2]
+# --- main wiring ------------------------------------------------------------
+
+def test_main_publishes_one_check_per_open_head(monkeypatch, tmp_path):
+    run_gh, _ = _capture_gh()
+    pulls = [_pr(7), _pr(8, sha="b" * 40)]
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+        f"git log -m --name-only --format=%H {MASTER} ^{'b' * 40}":
+            _commits_output([("d" * 40, ["scripts/ci/gate_freshness.py"])]),
+    })
+    monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
+    monkeypatch.setattr(gf, "_open_pulls", lambda repository: pulls)
+    monkeypatch.setattr(gf, "run_gh", run_gh, raising=False)
+    published = []
+    monkeypatch.setattr(gf, "publish_check",
+                        lambda *args, **kw: published.append(args[2]))
+    monkeypatch.setattr(gf, "ensure_head_objects",
+                        lambda run_git, heads, repository: None)
+    exit_code = gf.main_impl(
+        run_git=stub, run_gh=run_gh, repository="Nitjsefnie/claudit",
+        env={}, summary_path=None)
+    assert exit_code == 0
+    assert sorted(published) == ["a" * 40, "b" * 40]
 
 
-def test_two_stale_heads_are_both_reported():
-    stale = gf.select_stale([_pr(1, sha="a" * 40), _pr(2, sha="b" * 40)],
-                            {}, GATE_TIME)
-    assert [entry["number"] for entry in stale] == [1, 2]
+def test_main_global_read_failure_publishes_nothing(monkeypatch):
+    def broken(argv):
+        raise gf.QueryError("no api")
+
+    monkeypatch.setattr(gf, "resolve_master_tip",
+                        lambda run_git: (_ for _ in ()).throw(
+                            gf.QueryError("master unreadable")))
+    monkeypatch.setattr(gf, "_open_pulls", lambda repository: (_ for _ in ()).throw(
+        gf.QueryError("list unreadable")))
+    exit_code = gf.main_impl(
+        run_git=broken, run_gh=broken, repository="Nitjsefnie/claudit",
+        env={}, summary_path=None)
+    assert exit_code == 1
 
 
-def test_summary_renders_the_stale_list(tmp_path):
-    stale = gf.select_stale([_pr(7)], {"a" * 40: []}, GATE_TIME)
-    summary = tmp_path / "summary.md"
-    gf.write_summary(str(summary), stale, scanned=1)
-    text = summary.read_text(encoding="utf-8")
-    assert "#7" in text
-    assert "no" in text
+def test_main_single_pr_mode_publishes_exactly_one_check(monkeypatch):
+    run_gh, _ = _capture_gh()
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+    })
+    monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
+    published = []
+    monkeypatch.setattr(gf, "publish_check",
+                        lambda *args, **kw: published.append(args[2]))
+    exit_code = gf.main_impl(
+        run_git=stub, run_gh=run_gh, repository="Nitjsefnie/claudit",
+        env={gf.ENV_PR: "7", gf.ENV_HEAD_SHA: "a" * 40},
+        summary_path=None)
+    assert exit_code == 0
+    assert published == ["a" * 40]
 
 
-def test_summary_with_no_stale_heads_says_so(tmp_path):
-    summary = tmp_path / "summary.md"
-    gf.write_summary(str(summary), [], scanned=3)
-    text = summary.read_text(encoding="utf-8")
-    assert "3" in text
+def test_main_failed_publish_exits_nonzero(monkeypatch):
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+    })
+    monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
+    attempts = []
+
+    def failing_publish(*args, **kw):
+        attempts.append(args[2])
+        raise gf.QueryError("check-runs down")
+
+    monkeypatch.setattr(gf, "publish_check", failing_publish)
+    exit_code = gf.main_impl(
+        run_git=stub, run_gh=None, repository="Nitjsefnie/claudit",
+        env={gf.ENV_PR: "7", gf.ENV_HEAD_SHA: "a" * 40},
+        summary_path=None)
+    assert exit_code == 1
+    assert len(attempts) == 2  # retried once, then gave up visibly
+
+
+def test_dry_run_publishes_nothing(monkeypatch):
+    stub = _git_stub({
+        f"git log -m --name-only --format=%H {MASTER} ^{'a' * 40}": "",
+    })
+    monkeypatch.setattr(gf, "resolve_master_tip", lambda run_git: MASTER)
+    published = []
+    monkeypatch.setattr(gf, "publish_check",
+                        lambda *args, **kw: published.append(args[2]))
+    exit_code = gf.main_impl(
+        run_git=stub, run_gh=None, repository="Nitjsefnie/claudit",
+        env={gf.ENV_PR: "7", gf.ENV_HEAD_SHA: "a" * 40},
+        summary_path=None, dry_run=True)
+    assert exit_code == 0
+    assert not published
+
+
+# --- the workflow wiring ----------------------------------------------------
+
+def _workflow_text():
+    return (REPO_ROOT / ".github" / "workflows" / "gate-freshness.yml"
+            ).read_text(encoding="utf-8")
+
+
+def test_workflow_runs_on_master_push_and_pr_events():
+    text = _workflow_text()
+    assert "push:" in text
+    assert "pull_request_target:" in text
+    assert "master" in text
+    for event_type in ("opened", "synchronize", "reopened", "edited"):
+        assert event_type in text
+
+
+def test_workflow_pins_the_script_and_the_event_env():
+    text = _workflow_text()
+    assert "python3 scripts/ci/gate_freshness.py" in text
+    assert "GF_PR:" in text
+    assert "github.event.pull_request.number" in text
+    assert "GF_HEAD_SHA:" in text
+    assert "github.event.pull_request.head.sha" in text
+
+
+def test_workflow_checks_out_full_depth_base_only():
+    text = _workflow_text()
+    assert "fetch-depth: 0" in text
+    assert "persist-credentials: false" in text
+
+
+def test_workflow_has_the_write_permission_and_a_safe_concurrency():
+    text = _workflow_text()
+    assert "checks: write" in text
+    assert "pull-requests: read" in text
+    assert "contents: read" in text
+    assert "concurrency:" in text
+    assert "cancel-in-progress: false" in text
