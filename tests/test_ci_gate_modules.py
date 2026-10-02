@@ -440,7 +440,7 @@ def test_main_writes_full_run_over_an_unhandled_event(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
-        "smoke", "audit", "actionlint", "speed", "codeql")
+        "smoke", "audit", "actionlint", "codeql")
 
 
 def _needs(**overrides):
@@ -474,9 +474,11 @@ def test_aggregate_expected_legs_cover_the_ci_gate_jobs():
 
 
 def test_aggregate_all_green_passes():
+    # Issue #517: the success verdict is ONE sentence -- the per-leg
+    # results are the table's job, not the message's.
     verdict, message = aggregate.decide(_needs())
     assert verdict == aggregate.PASSED
-    assert "tests=success" in message
+    assert message == f"all {len(LEGS)} legs succeeded"
 
 
 def test_aggregate_one_failed_fails_and_names_it():
@@ -503,9 +505,9 @@ def test_aggregate_non_docs_skip_fails():
 
 
 def test_aggregate_cancelled_fails():
-    verdict, message = aggregate.decide(_needs(speed__result="cancelled"))
+    verdict, message = aggregate.decide(_needs(codeql__result="cancelled"))
     assert verdict == aggregate.FAILED
-    assert "speed=cancelled" in message
+    assert "codeql=cancelled" in message
 
 
 def test_aggregate_missing_fails():

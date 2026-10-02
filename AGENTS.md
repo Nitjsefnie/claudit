@@ -342,12 +342,12 @@ tree `VERSION`; `/health` reports it.
 **Push a batch of commits once, not one at a time**: intermediate runs
 tell you nothing; only the tip matters.
 
-`ci-gate.yml` owns the push/PR surface and folds ten gate legs into
+`ci-gate.yml` owns the push/PR surface and folds nine gate legs into
 **`ci gate / aggregate`**; the per-workflow catalogue lives in
 CONTRIBUTING.md. Documentation-only changes (`*.md`, `PRESENTATION.txt`,
 `examples/`, `.claude/`, licences) skip the expensive legs by
-classification and still pass. Two deliberate shapes, not drift:
-`speed.yml` gates one measured pytest pass against committed
+classification and still pass. Two deliberate shapes, not drift: the
+tests canary runs the suite-cost bench and gates it against committed
 instruction budgets (`scripts/ci/suite_bench.py`), and
 `refresh-pricing.yml` deliberately keeps its no-cache setup despite the
 pip-cache rule.

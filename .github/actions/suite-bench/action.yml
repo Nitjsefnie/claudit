@@ -1,10 +1,9 @@
 name: Suite cost bench
 description: >-
-  Measure one pytest pass over the pinned fixture in instructions and,
-  when the caller asks, hold every phase to its committed budget. Shared
-  by the speed leg (mode "gate": measure, gate) and the tests leg's bot
-  feed (mode "record": measure only -- the speed leg owns the gate).
-  The caller uploads the measurement.
+  Measure one pytest pass over the pinned fixture in instructions and
+  hold every phase to its committed budget. Since issue #515 the tests
+  canary is the only caller: one bench pass per run -- measure, gate --
+  and the caller uploads the measurement.
 
 # A composite action because .github/workflows/tests.yml sits exactly on
 # its per-file size ratchet entry, and that ratchet's answer to growth
@@ -14,19 +13,14 @@ description: >-
 #
 #   measure ONCE, into a file the caller's gate or ratchet reads
 #     -> print the human report into the step summary
-#     -> gate every phase against the committed ceilings, when the
-#        caller asks for it (nonzero on a phase over its ceiling, which
-#        fails the caller's job)
+#     -> gate every phase against the committed ceilings (a phase over
+#        its ceiling exits nonzero and fails the caller's job)
 #
 # The measurement path is an input so the caller and this action agree
 # on one file; it is read into an env var, never interpolated into the
 # run block (no template-injection surface).
 
 inputs:
-  mode:
-    description: 'gate: measure, gate, upload. record: measure, upload.'
-    required: false
-    default: gate
   measurement:
     description: 'Absolute path for the measurement JSON.'
     required: true
@@ -53,7 +47,6 @@ runs:
       # The check's exit code IS the step's: a phase over its recorded
       # ceiling fails the caller's job, naming the phase, the measured
       # value and the ceiling.
-      if: inputs.mode == 'gate'
       shell: bash
       env:
         MEASUREMENT: ${{ inputs.measurement }}

@@ -1,13 +1,10 @@
-"""Workflow wiring: the speed leg runs the bench and gates on it.
+"""Workflow wiring: the canary measures and gates the suite bench.
 
-The old speed.yml compared wall-clock durations between two checkouts
-(A/B/A/B against a pinned baseline release); the new one measures one
-run's instruction counts and gates them against the committed
-suite_cost budgets. Every case here pins the NEW shape by its DECODED
-scalars -- exact expressions, exact commands, exact artifact names --
-not the presence of a script text, and the accompanying mutation table
-(in the introducing change's report) proves each pin dies on its
-mutant.
+The old speed.yml measured one pass in a leg of its own; since issue
+#515 the tests canary owns the measurement AND the gate (one bench pass
+per ci-gate run), and speed.yml is gone. Every case here pins the shape
+by its DECODED scalars -- exact expressions, exact commands, exact
+artifact names -- not the presence of a script text.
 """
 from __future__ import annotations
 
@@ -33,8 +30,6 @@ TIGHTEN_CMD = (
     '--thresholds '
     '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
 BENCH_ACTION = "./.github/actions/suite-bench"
-
-MASTER_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/master'"
 
 
 def _load(name):
@@ -71,23 +66,10 @@ def _find_step(job, needle):
     return matches[0]
 
 
-# --- speed.yml ---------------------------------------------------------------
-
-def test_speed_job_keeps_its_name_gate_and_fork_environment():
-    doc = _load("speed.yml")
-    assert doc["name"] == "speed"
-    job = _job(doc, "speed")
-    # The bench still EXECUTES pull-request code, so the fork
-    # admission gate is load-bearing; the decoded expression, exact.
-    assert job["environment"] == (
-        "${{ github.event.pull_request.head.repo.fork "
-        "&& 'fork-speed-benchmark' || 'speed-benchmark' }}")
-    # Least privilege at the workflow level, which the leg inherits.
-    assert doc["permissions"] == {"contents": "read"}
-
+# --- the bench lives in the tests canary -------------------------------------
 
 def test_the_bench_action_measures_and_gates():
-    """The composite action's own shape: measure, then gate on demand."""
+    """The composite action's own shape: measure, then gate."""
     action = yaml.load(
         (ROOT / ".github" / "actions" / "suite-bench" / "action.yml")
         .read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
@@ -101,7 +83,10 @@ def test_the_bench_action_measures_and_gates():
     assert action["outputs"]["measured"]["value"] == (
         "${{ steps.measure.outputs.measured }}")
     gate = steps[1]
-    assert gate["if"] == "inputs.mode == 'gate'"
+    # One mode only: the canary always gates after measuring (issue
+    # #515). The record-vs-gate split died with the second leg.
+    assert "if" not in gate
+    assert "mode" not in (action.get("inputs") or {})
     lines = _run_lines(gate)
     # The check's exit code must be the LAST command of its step: the
     # step fails when the bench's gate fails, whatever else the block
@@ -109,169 +94,88 @@ def test_the_bench_action_measures_and_gates():
     assert lines[-1] == CHECK_CMD
 
 
-def test_speed_job_runs_the_bench_action_in_gate_mode():
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    bench = [step for step in _steps(job)
-             if step.get("uses") == BENCH_ACTION]
-    assert len(bench) == 1
-    assert bench[0]["with"]["mode"] == "gate"
-    assert bench[0]["with"]["measurement"] == (
-        "${{ runner.temp }}/suite-measurement.json")
+def test_speed_yml_is_gone():
+    # The fold (issue #515): one bench pass per ci-gate run, in the
+    # tests canary; a second workflow to run it again is a regression.
+    assert not (WORKFLOWS / "speed.yml").exists()
 
 
-def test_speed_job_uploads_the_measurement():
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    uploads = [step for step in _steps(job)
-               if (step.get("uses") or "").startswith(
-                   "actions/upload-artifact")]
-    assert len(uploads) == 1
-    upload = uploads[0]
-    # NOT tests.yml's `suite-measurement`: both legs run in the same
-    # ci-gate run, and one name shared by two uploads made the tighten
-    # bot's download-by-name a coin toss between them (issue #496).
-    assert upload["with"]["name"] == "suite-speed-measurement"
-    assert upload["with"]["path"] == (
-        "${{ runner.temp }}/suite-measurement.json")
-    assert upload["with"]["if-no-files-found"] == "error"
-
-
-def test_the_two_suite_measurement_uploads_cannot_collide():
-    # The bot (ratchet-push.yml) reads one artifact by name out of the
-    # triggering run: `suite-measurement`, which tests.yml publishes.
-    # speed.yml publishes a second measurement of the same pass, so the
-    # two names must differ or the bot cannot say which one it read.
-    speed = _load("speed.yml")
-    tests = _load("tests.yml")
-
-    def _upload_names(doc, job):
-        return [((step.get("with") or {}).get("name"))
-                for step in _steps(_job(doc, job))
-                if (step.get("uses") or "").startswith(
-                    "actions/upload-artifact")
-                and "suite" in str((step.get("with") or {}).get("name"))]
-
-    speed_names = _upload_names(speed, "speed")
-    tests_names = _upload_names(tests, "pytest")
-    assert speed_names == ["suite-speed-measurement"]
-    assert tests_names == ["suite-measurement"]
-    assert not set(speed_names) & set(tests_names)
-
-
-def test_speed_job_measures_on_postgres():
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    # The fixture runs the scratch-DB machinery, so the service is
-    # load-bearing: the image is pinned by digest, exactly the one the
-    # tests leg measures against.
-    image = job["services"]["postgres"]["image"]
-    assert image == (
-        "postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a0"
-        "9590fad07b2246bfa4b54")
-    wait = _find_step(job, "pg_isready")
-    assert wait["run"]
-    env = job["env"]
-    assert env["PGHOST"] == "localhost"
-    assert env["PGPORT"] == "5432"
-    assert env["PGUSER"] == "postgres"
-
-
-def test_speed_job_never_compares_two_checkouts():
-    # The A/B design is GONE, and the things that existed only to serve
-    # it are gone with it: no baseline-release lookup, no merge-base,
-    # no dual checkout, no interleaved rounds, no comparator, no JUnit.
-    text = (WORKFLOWS / "speed.yml").read_text(encoding="utf-8")
-    for gone in ("compare_durations", "merge_base", "MAX_REGRESSION",
-                 "ROUNDS", "junitxml", "venv-base", "venv-head",
-                 "releases/latest"):
-        assert gone not in text, gone
-
-
-def test_speed_job_pip_cache_shape():
-    # Restore runs on every event (no `if`); save runs only from a
-    # master push, directly after the dependency install, under a key
-    # that hashes the SINGLE tree's requirement files (the A/B design's
-    # base+head key is gone).
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    steps = _steps(job)
-    restores = [step for step in steps
-                if (step.get("uses") or "").startswith(
-                    "actions/cache/restore")]
-    saves = [step for step in steps
-             if (step.get("uses") or "").startswith("actions/cache/save")]
-    assert len(restores) == 1 and len(saves) == 1
-    assert "if" not in restores[0]
-    assert saves[0]["if"] == (
-        "github.event_name == 'push' "
-        "&& github.ref == 'refs/heads/master'")
-    install_index = steps.index(_find_step(job, "pip install -r"))
-    assert steps.index(saves[0]) == install_index + 1
-    expected_key = (
-        "pip-${{ runner.os }}-3.13-"
-        "${{ hashFiles('backend/requirements.txt', "
-        "'requirements-test.txt') }}")
-    assert restores[0]["with"]["key"] == expected_key
-    assert saves[0]["with"]["key"] == expected_key
-
-
-def test_speed_job_pins_the_seed_interpreter():
-    # The budgets are exact instruction counts: a runner-side Python
-    # drift would move them out from under the committed ceilings, so
-    # the exact micro the seed was measured with is pinned (the node
-    # coverage pin's reason, issue #266).
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    setups = [step for step in _steps(job)
-              if (step.get("uses") or "").startswith("actions/setup-python")]
-    assert len(setups) == 1
-    assert setups[0]["with"]["python-version"] == "3.13.14"
-
-
-def test_speed_job_timeout_is_bound_and_margin_sized():
-    doc = _load("speed.yml")
-    job = _job(doc, "speed")
-    # Measured: one bench pass ~115 s on the seeding box under
-    # instrumentation; 15 minutes is a >6x margin, and the bound exists
-    # so a hung run fails loud instead of billing the hour.
-    assert job["timeout-minutes"] == "15"
-
-
-# --- tests.yml (the measure-and-stage side) ----------------------------------
-
-def test_tests_job_measures_on_master_pushes_only():
+def test_tests_job_measures_and_gates_on_every_event():
     doc = _load("tests.yml")
     job = _job(doc, "pytest")
     bench = [step for step in _steps(job)
              if step.get("uses") == BENCH_ACTION]
     assert len(bench) == 1
-    assert bench[0]["id"] == "suite_bench"
-    # Record mode: the tests leg only measures -- the gate lives in
-    # speed.yml, and the push lives in ratchet-push.yml.
-    assert bench[0]["with"]["mode"] == "record"
-    assert bench[0]["if"] == (
+    bench = bench[0]
+    assert bench["id"] == "suite_bench"
+    # The gate runs wherever the canary runs -- every non-docs,
+    # non-data event. Only a green suite and a green JavaScript
+    # coverage pass are worth measuring.
+    assert bench["with"] == {
+        "measurement": "${{ runner.temp }}/suite-measurement.json"}
+    assert bench["if"] == (
         "${{ !cancelled() && steps.pytest.outcome == 'success' "
-        "&& steps.jscov.outcome == 'success' && "
-        "github.event_name == 'push' "
-        "&& github.ref == 'refs/heads/master' }}")
+        "&& steps.jscov.outcome == 'success' }}")
+
+    # One artifact name, and it is the bot's feed. A red gate's numbers
+    # stay inspectable: the upload runs whenever the bench ran at all.
     uploads = [step for step in _steps(job)
                if (step.get("uses") or "").startswith(
                    "actions/upload-artifact")
                and (step.get("with") or {}).get("name")
                == "suite-measurement"]
     assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload["if"] == (
+        "${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}")
+    assert upload["with"]["path"] == (
+        "${{ runner.temp }}/suite-measurement.json")
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert upload["with"]["retention-days"] == "1"
+
+    # A red bench gate must not stage ratchet data inside the failed
+    # job, whatever the run-level fold does with it.
+    ratchet = [step for step in _steps(job)
+               if step.get("name") == "Ratchet the thresholds"]
+    assert len(ratchet) == 1
+    ratchet_if = ratchet[0].get("if") or ""
+    assert "steps.suite_bench.outcome == 'success'" in ratchet_if
+
+    # The push lives in ratchet-push.yml, not here.
+    assert not _job(doc, "pytest").get("outputs")
 
 
-def test_tests_job_publishes_no_outputs_any_more():
-    # Dead wiring since issue #479: the push job that consumed
-    # ratchet_changed/suite_measured moved to ratchet-push.yml, and the
-    # artifact presence IS the signal there (its list step reads the
-    # triggering run's artifacts). The job-level outputs mapping must
-    # not silently return.
-    doc = _load("tests.yml")
-    assert not (_job(doc, "pytest").get("outputs")), (
-        "the pytest job's outputs relay died with the in-callee push job")
+def test_the_suite_measurement_upload_is_unique_repo_wide():
+    # The bot (ratchet-push.yml) reads one artifact name out of the
+    # triggering run. Two uploads of one name in the same ci-gate run
+    # made that download a coin toss (issue #496); the fold (issue
+    # #515) leaves exactly ONE publisher of the measurement.
+    uploaders = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = _load(path.name)
+        for job_id, job in (doc.get("jobs") or {}).items():
+            for step in (job or {}).get("steps") or []:
+                name = (step.get("with") or {}).get("name") or ""
+                if (step.get("uses") or "").startswith(
+                        "actions/upload-artifact") and "suite" in name:
+                    uploaders.append(f"{path.name}:{job_id}:{name}")
+    assert uploaders == ["tests.yml:pytest:suite-measurement"]
+
+
+def test_the_canary_never_compares_two_checkouts():
+    # The A/B design is GONE, and the things that existed only to serve
+    # it are gone with it: no baseline-release lookup, no merge-base,
+    # no dual checkout, no interleaved rounds, no comparator, no JUnit.
+    for name in (WORKFLOWS / "tests.yml",
+                 ROOT / ".github" / "actions" / "suite-bench" / "action.yml"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for gone in ("compare_durations", "merge_base", "MAX_REGRESSION",
+                     "ROUNDS", "junitxml", "venv-base", "venv-head",
+                     "releases/latest"):
+            assert gone not in text, (name, gone)
+
+
+# --- ratchet-push.yml (the bot side) -----------------------------------------
 
 
 # --- ratchet-push.yml (the bot side) -----------------------------------------
@@ -355,21 +259,17 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
     assert close_index < tighten_index
 
 
-def test_both_bench_paths_pin_the_seed_interpreter():
+def test_the_bench_runner_pins_the_seed_interpreter():
     # The budgets are exact instruction counts for ONE interpreter. The
-    # gate (speed.yml) and the record path (tests.yml's pytest job,
-    # whose measurement feeds the tighten) must run the same exact
-    # micro: a floating record-side alias that drifts to a cheaper
-    # 3.13.x lets the bot tighten ceilings below what the pinned gate
-    # interpreter measures -- a red gate with no legal raise.
-    for name, job_id in (("speed.yml", "speed"), ("tests.yml", "pytest")):
-        doc = _load(name)
-        job = _job(doc, job_id)
-        setups = [step for step in _steps(job)
-                  if (step.get("uses") or "").startswith(
-                      "actions/setup-python")]
-        assert len(setups) == 1, name
-        assert setups[0]["with"]["python-version"] == "3.13.14", name
+    # canary is both the gate and the record path now (issue #515), so
+    # its exact micro the seed was measured with is all that is left to
+    # pin (the node coverage pin's reason, issue #266).
+    doc = _load("tests.yml")
+    job = _job(doc, "pytest")
+    setups = [step for step in _steps(job)
+              if (step.get("uses") or "").startswith("actions/setup-python")]
+    assert len(setups) == 1
+    assert setups[0]["with"]["python-version"] == "3.13.14"
 
 
 def _suite_jobs():

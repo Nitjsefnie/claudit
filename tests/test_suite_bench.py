@@ -405,10 +405,11 @@ def _purge_bytecode_caches(root):
 def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
     # The count must not depend on the caches the checkout arrived with:
     # compiling a module costs about as much again as loading it, and
-    # the two callers did not agree on whether the compile had already
-    # happened -- speed.yml measures a fresh checkout, tests.yml
-    # measures after the suite has run. warm_bytecode_caches draws that
-    # split outside the counted window, and this is the control: from a
+    # before #499 the two call sites did not agree on whether the
+    # compile had already happened -- the bench leg measured a fresh
+    # checkout, the canary measured after the suite had run.
+    # warm_bytecode_caches draws that split outside the counted window,
+    # and this is the control: from a
     # tree carrying no bytecode caches at all, one measurement must
     # leave EVERY pinned file compiled. Without the warm-up the tree
     # would still be bare, and the gate would read one number while

@@ -27,9 +27,9 @@ name: ci gate
 # legs, and recorded a red aggregate on the superseded commit, which
 # release.yml's waiter then refuses — a VERSION commit raced by a bot
 # push could not release. The legs keep their own groups, and the long
-# one — test-data (speed's bench is minutes since #452) — is per-SHA on
-# a push too (issues #366, #409): each commit carries its own run, so
-# no push cancels or pending-supersedes another's. The remaining legs keep
+# one — test-data — is per-SHA on a push (issues #366, #409): each
+# commit carries its own run, so no push cancels or pending-supersedes
+# another's. The remaining legs keep
 # per-ref groups (the caller's ref), where concurrent master runs
 # queue — and
 # GitHub keeps at most one PENDING run per group, so a third concurrent
@@ -45,7 +45,7 @@ name: ci gate
 # executed (scripts/ci/classify_changes.py). A cancelled run's CODE is
 # therefore not forgotten either way.
 #
-# TRIGGER OWNERSHIP. The ten gate workflows below are called as
+# TRIGGER OWNERSHIP. The nine gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
 # daily, codeql weekly) and `workflow_dispatch`, and they carry no
 # `push` or `pull_request` trigger any more — this file owns that
@@ -55,9 +55,10 @@ name: ci gate
 # pr-gate.yml and claim.yml are untouched and outside the aggregate.
 #
 # A FORK'S CODE RUNS IN THE LEGS, exactly as before the move: the legs
-# run on the merge ref with the caller's permissions, and the callee
-# that executes pull-request code (speed) keeps its dual-environment
-# fork admission from speed.yml itself.
+# run on the merge ref with the caller's permissions. The suite-cost
+# bench lives in the tests canary since issue #515 and, like the suite
+# itself, executes pull-request code on the pull_request trust model —
+# no secrets, read-only token.
 
 on:
   pull_request:
@@ -183,11 +184,6 @@ jobs:
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
     uses: ./.github/workflows/actionlint.yml
 
-  speed:
-    needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/speed.yml
-
   codeql:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
@@ -201,7 +197,7 @@ jobs:
 
   aggregate:
     needs: [classify, tests, test-data, lint, types, eslint, smoke, audit,
-            actionlint, speed, codeql]
+            actionlint, codeql]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
