@@ -109,7 +109,10 @@ PRICING_VERSION = "154"
 # 2 — the web-metrics fold refuses a bucket it cannot read whole, and its
 #     read window reaches back to the oldest raw row while a stalled pass has
 #     left the working set wide (issue #475).
-DERIVED_STATE_VERSION = "2"
+# 3 — the canonical winner prefers an attributed-model copy over an
+#     unattributed one (issue #529): re-ranking every stored uuid requires
+#     one complete derived rebuild, no reparse.
+DERIVED_STATE_VERSION = "3"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from

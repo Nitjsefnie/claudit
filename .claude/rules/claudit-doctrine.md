@@ -12,8 +12,8 @@ This rule is the parse spec. `backend/parse.py` and the in-browser
   into `records`).
 - Cross-file UUID dedup, resolved at ingest into `records.is_canonical`
   (SV-CANONICAL-FLAG): the winner is what
-  `DISTINCT ON (uuid) ORDER BY uuid, file_key` picks. No persisted
-  Phase 2 rollup.
+  `DISTINCT ON (uuid) ORDER BY uuid, <unattributed-last>, file_key`
+  picks. No persisted Phase 2 rollup.
 - `<task-notification>` ref detection for sub-agent jsonls.
 - Sidecar `data/subagents/agent-*.jsonl` resolution.
 - Context turns: backend `_build_ctx_turns` / browser `computeTurnStats`
@@ -209,9 +209,13 @@ code change.
 ## Dedup is a flag, not a read-time sort (SV-CANONICAL-FLAG)
 
 `records.is_canonical` marks the row
-`DISTINCT ON (r.uuid) ORDER BY r.uuid, r.file_key` would select;
-`line_num` breaks ties within a `file_key`. NULL-`uuid` rows (legacy)
-are always canonical.
+`DISTINCT ON (r.uuid) ORDER BY r.uuid, <unattributed-last>, r.file_key`
+would select: the copy whose model is attributed beats an unattributed
+one — the lane fallback `unknown`, the Claude fallback `(unknown)` and
+NULL all count unattributed (issue #529: a forked Codex rollout's
+replayed prefix stores `unknown`, and its `subagents/…` key sorts before
+its parent's) — then `r.file_key`; `line_num` breaks ties within a
+`file_key`. NULL-`uuid` rows (legacy) are always canonical.
 
 Reads MUST filter `WHERE is_canonical` and MUST NOT reintroduce
 `DISTINCT ON (uuid)`: that re-sorts the whole table per read.
@@ -227,7 +231,8 @@ distinct. The column defaults to TRUE, so a migrated-but-unrecomputed DB
 over-counts rather than drops rows.
 
 Changing the winner rule changes `recompute_canonical()` and
-`src/parser.js` in lockstep (SV-PARSER-SPEC).
+`src/record-dedup.js` (the browser dedup parser.js calls) in lockstep
+(SV-PARSER-SPEC).
 
 `tool_uses.is_canonical` is the same rule keyed on `tool_use_id`, set in
 the same pass — a compaction sidecar (`agent-acompact-*`) replays the

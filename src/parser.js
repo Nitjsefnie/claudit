@@ -83,7 +83,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
   const meta = [];
   const lines = text.split('\n');
   const seenReq = new Map(); // merge key -> usage event (for streaming merge)
-  const seenUuids = (opts && opts.seenUuids) || null; // optional cross-file dedup
+  // Optional cross-file dedup: Map uuid -> whether the kept copy's model is
+  // attributed (issue #529's winner rule, SV-CANONICAL-FLAG).
+  const seenUuids = (opts && opts.seenUuids) || null;
 
   function mergeUsageMax(existing, incoming) {
     // Recursive max merge: numeric fields take max, nested dicts merge
@@ -246,14 +248,11 @@ window.parseTranscript = function parseTranscript(text, opts) {
 
     // Cross-file dedup (directory / multi-load mode). Two files holding
     // the SAME API call — typically a session's main jsonl and one of its
-    // agent-*.jsonl files — share an inner record `uuid`. Skip the second
-    // occurrence so cost / turn / tool counts don't double-count.
-    if (seenUuids) {
-      const recUuid = obj.uuid;
-      if (recUuid) {
-        if (seenUuids.has(recUuid)) continue;
-        seenUuids.add(recUuid);
-      }
+    // agent-*.jsonl files — share an inner record `uuid`; the winner rule
+    // and its caller contract live in src/record-dedup.js (issue #529).
+    if (seenUuids && typeof obj.uuid === 'string' && obj.uuid
+        && window.recordDedup.decide(seenUuids, obj, meta) === 'skip') {
+      continue;
     }
 
     // An offset-less ISO timestamp is UTC (issue #376, mirrors parse_common._to_dt): unstamped, Date.parse reads the viewer's zone.

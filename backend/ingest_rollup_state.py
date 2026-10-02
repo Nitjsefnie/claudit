@@ -10,6 +10,16 @@ from backend.ingest_scope import Scope, current_scope
 
 log = logging.getLogger("claudit.ingest")
 
+# The canonical winner prefers an ATTRIBUTED copy (issue #529): a forked
+# Codex rollout replays its parent's history with no model declaration in
+# front of it, and a multi-model fork has no sole-model fallback, so its
+# replayed copies store model `unknown` — and their `subagents/…` file key
+# sorts before the parent's `wire.jsonl`, so a bare file_key ordering let
+# them win the dedup and the Models panel showed usage every other copy
+# attributes as `unknown`. NULL is unattributed too. `unknown` is the lane
+# parsers' fallback; `(unknown)` is the Claude path's.
+_UNATTRIBUTED = "(COALESCE(model, '') IN ('', 'unknown', '(unknown)'))"
+
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
     """Use an explicit scope, or the active ingest's scope."""
@@ -148,12 +158,13 @@ def recompute_canonical(scope: Scope | None = None) -> int:
         conn.execute("SET LOCAL work_mem = '64MB'")
         if not incremental:
             cur = conn.execute(
-                """
+                f"""
                 UPDATE records r SET is_canonical = w.canon
                   FROM (
                     SELECT file_key, line_num,
                            (uuid IS NULL OR ROW_NUMBER() OVER (
-                              PARTITION BY uuid ORDER BY file_key, line_num
+                              PARTITION BY uuid
+                              ORDER BY {_UNATTRIBUTED}, file_key, line_num
                             ) = 1) AS canon
                       FROM records
                   ) w
@@ -163,13 +174,13 @@ def recompute_canonical(scope: Scope | None = None) -> int:
             )
             changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
             cur = conn.execute(
-                """
+                f"""
                 UPDATE tool_uses t SET is_canonical = w.canon
                   FROM (
                     SELECT file_key, line_num, idx,
                            (tool_use_id IS NULL OR ROW_NUMBER() OVER (
                               PARTITION BY tool_use_id
-                              ORDER BY file_key, line_num, idx
+                              ORDER BY {_UNATTRIBUTED}, file_key, line_num, idx
                             ) = 1) AS canon
                       FROM tool_uses
                   ) w
@@ -183,11 +194,12 @@ def recompute_canonical(scope: Scope | None = None) -> int:
             assert incremental_scope is not None
             if incremental_scope.affected_uuids:
                 rows = conn.execute(
-                    """
+                    f"""
                     WITH winners AS (
                       SELECT file_key, line_num,
                              ROW_NUMBER() OVER (
-                               PARTITION BY uuid ORDER BY file_key, line_num
+                               PARTITION BY uuid
+                               ORDER BY {_UNATTRIBUTED}, file_key, line_num
                              ) = 1 AS canon
                         FROM records WHERE uuid = ANY(%s)
                     ), changed AS (
@@ -221,12 +233,12 @@ def recompute_canonical(scope: Scope | None = None) -> int:
 
             if incremental_scope.affected_tool_use_ids:
                 rows = conn.execute(
-                    """
+                    f"""
                     WITH winners AS (
                       SELECT file_key, line_num, idx,
                              ROW_NUMBER() OVER (
                                PARTITION BY tool_use_id
-                               ORDER BY file_key, line_num, idx
+                               ORDER BY {_UNATTRIBUTED}, file_key, line_num, idx
                              ) = 1 AS canon
                         FROM tool_uses WHERE tool_use_id = ANY(%s)
                     ), changed AS (

@@ -22,6 +22,7 @@ plausible.
 | fixture | lines | what it carries |
 |---|---|---|
 | `rollout_fork_prefix.jsonl` | 47 | a fork — `session_meta` whose `session_id` is the PARENT thread's and whose `id` is this file's own — opening on 40,000,000 inherited cumulative tokens; 20 `token_count` events of which 2 repeat the previous snapshot; ~98% cache-read rate; declares no model |
+| `rollout_fork_model_switch.jsonl` | 13 | a fork like `rollout_fork_prefix.jsonl` that replays its parent's history (two `token_count` events reproducing the parent's cumulative totals, with NO model declaration in front) and THEN declares two models — `gpt-5.6-sol` at its first `turn_context`, `gpt-5.6-terra` at a second — so the replayed prefix has no sole-model answer and its records stay `unknown` with file-local uuids the parent's copies can beat (SV-CANONICAL-FLAG's winner prefers an attributed copy). The parent they replay is built by `tests/test_canonical_model_attribution.py` |
 | `rollout_model_switch.jsonl` | 48 | a mid-session model switch, `gpt-5.6-sol` through line 28 and `gpt-5.6-terra` from line 29, with `token_count` records on both sides; five turns including one `turn_aborted`; no `session_meta`, so it stands in for a window cut from the middle of a file |
 | `rollout_settings_switch.jsonl` | 3 | a model switch carried ONLY by `thread_settings_applied` — a `turn_context` names `gpt-5.6-sol`, the settings record names `gpt-5.6-terra`, and the one `token_count` after it lands before any `turn_context` re-declares — so a parser that ignores the settings record bills the request under the old model and rate |
 | `rollout_sole_model_prefix.jsonl` | 25 | five `token_count` records BEFORE the file's only model declaration (line 20) — the backfill case a fork's replayed history creates |
@@ -65,6 +66,13 @@ being able to catch a wrong parser, which is what these rules are for.
 7. **Requests within a thread must land on distinct cumulative totals**,
    because `<session_id>:<total_tokens>` is the record uuid that dedups a
    replayed request across files.
+8. **The replayed prefix of `rollout_fork_model_switch.jsonl` must keep no
+   model declaration in front of it**, and its cumulative totals must stay
+   exactly the two the parent built by
+   `tests/test_canonical_model_attribution.py` reproduces. A declaration
+   moved ahead of the replay would give the prefix a model and silently
+   retire the fixture from testing the unattributed replay the canonical
+   winner has to beat.
 
 ## What they deliberately do NOT cover
 

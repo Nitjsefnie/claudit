@@ -25,7 +25,7 @@
     "src/dashboard-charts-extra.jsx": 3495,
     "src/dashboard-charts.jsx": 1331,
     "src/parser-lanes.js": 714,
-    "src/parser.js": 1024
+    "src/parser.js": 1023
   },
   "pylint_suppression_baseline": {
     "backend/bash_dash_c.py": 2,
