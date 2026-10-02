@@ -152,3 +152,54 @@ def test_unknown_survives_when_no_copy_attributes_the_usage(
     assert len(rows) == 2, rows
     assert all(model == "unknown" and canon is True
                for _, _, model, canon in rows)
+
+
+def _claude_copy(model: str | None, output_tokens: int) -> str:
+    """One Claude assistant line: model omitted entirely when None, which
+    parse.py stores as the '(unknown)' fallback."""
+    message = {"role": "assistant",
+               "usage": {"input_tokens": 100,
+                         "cache_creation_input_tokens": 0,
+                         "cache_read_input_tokens": 0,
+                         "output_tokens": output_tokens}}
+    if model is not None:
+        message["model"] = model
+    return json.dumps(
+        {"type": "assistant", "timestamp": "2026-05-07T10:00:00Z",
+         "uuid": "u-shared", "requestId": "req-1", "sessionId": "sessU",
+         "message": message}, separators=(",", ":")) + "\n"
+
+
+def test_a_claude_unknown_copy_loses_to_an_attributed_copy(
+        fresh_db, monkeypatch, tmp_path):
+    """The Claude path's unattributed fallback is `(unknown)`, with
+    parens — the other member of the winner rule's shared vocabulary. A
+    copy carrying it must lose to an attributed copy exactly as a lane
+    `unknown` copy does, here with the unattributed copy in the
+    file_key-first position the old rule would have picked."""
+    root = tmp_path / "mirror"
+    for proj, model, out in (
+            ("aaa-proj", None, 200),                    # -> '(unknown)'
+            ("zzz-proj", "claude-sonnet-4-5", 300)):
+        d = root / "mini" / proj / "sessU"
+        d.mkdir(parents=True)
+        (d / "sessU.jsonl").write_text(_claude_copy(model, out))
+    monkeypatch.setenv("R2_ENDPOINT", root.as_uri() + "/")
+    monkeypatch.setenv("R2_BUCKET", "mini")
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    with db.viz_conn() as c:
+        rows = c.execute(
+            """
+            SELECT file_key, model, is_canonical
+              FROM records WHERE uuid = 'u-shared'
+             ORDER BY file_key
+            """,
+        ).fetchall()
+    assert len(rows) == 2, rows
+    by_project = {fk.split("/")[1]: (model, canon)
+                  for fk, model, canon in rows}
+    assert by_project["aaa-proj"] == ("(unknown)", False)
+    assert by_project["zzz-proj"] == ("claude-sonnet-4-5", True)
