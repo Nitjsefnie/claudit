@@ -311,6 +311,16 @@ def test_dedup_of_two_unattributed_copies_keeps_the_first():
         {"model": "(unknown)", "output": 200}]
 
 
+def test_dedup_pinned_on_the_lane_unknown_fallback_member():
+    """The None fallback pins '(unknown)'; the lane fallback spells its
+    member 'unknown' outright, and must classify as unattributed the same
+    way — the JS half of the shared vocabulary, each member pinned."""
+    lane_unknown = _claude_line("u-1", "unknown", "lane fallback copy", 200)
+    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300)
+    assert _node_dedup_survivor(lane_unknown, known) == [
+        {"model": "claude-sonnet-4-5", "output": 300}]
+
+
 # --------------------------------------------------------------------------
 # Per-provider rates (pricing.PROVIDER_RATES)
 # --------------------------------------------------------------------------
