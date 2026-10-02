@@ -146,10 +146,32 @@ def bound_names(tree: ast.Module) -> set:
     return bound
 
 
+def _parameter_names(tree: ast.Module) -> set:
+    """Every function PARAMETER the module spells, in any scope.
+
+    A callee that is one of these is a value the caller passed in, which
+    the reader cannot resolve to a parse function — and a name bound
+    elsewhere in the module would otherwise hide that.
+    """
+    names: set = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        arguments = node.args
+        for group in (arguments.posonlyargs, arguments.args,
+                      arguments.kwonlyargs):
+            names.update(argument.arg for argument in group)
+        for extra in (arguments.vararg, arguments.kwarg):
+            if extra is not None:
+                names.add(extra.arg)
+    return names
+
+
 def unresolved(tree: ast.Module, module: str) -> list:
     """Call expressions this reader cannot resolve, which it REFUSES."""
     found = []
     bound = bound_names(tree)
+    parameters = _parameter_names(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -159,4 +181,16 @@ def unresolved(tree: ast.Module, module: str) -> list:
         elif isinstance(func, ast.Name) and (
                 func.id not in bound and func.id not in BUILTINS):
             found.append(f'{module}: unbound callee {func.id!r}')
+        elif isinstance(func, ast.Name) and func.id in parameters:
+            # `callback(payload)`: the target is whatever the caller
+            # passed, and a same-named binding elsewhere in the module
+            # would let it read as resolved.
+            found.append(f'{module}: callee is a parameter: {func.id!r}')
+        elif isinstance(func, ast.Subscript) and not isinstance(
+                func.value, (ast.Name, ast.Attribute)):
+            # A lookup of a constant the walk cannot name is a call whose
+            # target it knows nothing about; a Name or an Attribute base is
+            # the two forms the reader DOES resolve.
+            found.append(f'{module}: subscript of '
+                         f'{type(func.value).__name__}')
     return found

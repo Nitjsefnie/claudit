@@ -142,7 +142,7 @@ def test_the_walk_refuses_a_call_it_cannot_resolve(tmp_path):
         "def parse_file(file_key, blob):\n    return mystery(file_key)\n",
         encoding='utf-8')
     (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return _stub()\n", encoding='utf-8')
+        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
     (backend / "agent_sidecar.py").write_text(
         "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
         encoding='utf-8')
@@ -169,6 +169,38 @@ def test_the_walk_refuses_a_missing_surface_module(tmp_path):
         walk.reachable_surface(tmp_path)
 
 
+def test_a_class_reached_from_another_module_expands_into_its_methods(tmp_path):
+    # The class-expansion must read the methods off the callee's OWN
+    # module. Reading them off the module whose function made the call
+    # expands it to nothing, and a same-module class cannot tell the two
+    # readings apart — which is why this builds one in a DIFFERENT module,
+    # reached only from `parse`.
+    backend = _stub_tree(tmp_path)
+    (backend / "parse.py").write_text(
+        "from backend.key_layout import InLaneTree\n\n"
+        "def parse_file(file_key, blob):\n"
+        "    return InLaneTree().helper()\n", encoding='utf-8')
+    (backend / "parse_lanes.py").write_text(
+        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
+    (backend / "agent_sidecar.py").write_text(
+        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
+        encoding='utf-8')
+    (backend / "key_layout.py").write_text(
+        "class InLaneTree:\n"
+        "    def __init__(self):\n        self.x = 1\n"
+        "    def helper(self):\n        return self.other()\n"
+        "    def other(self):\n        return 2\n"
+        "    def never_called(self):\n        return 3\n",
+        encoding='utf-8')
+    reached = walk.reachable_surface(tmp_path)
+    assert "key_layout.InLaneTree" not in reached, (
+        "a class has no code object and could never be exercised")
+    for method in ("helper", "other", "never_called"):
+        assert f"key_layout.InLaneTree.{method}" in reached, (
+            f"a reached class must reach its own method {method}, including "
+            "one only reachable through self")
+
+
 def test_a_class_is_reached_in_all_its_methods_but_is_not_itself_a_finding():
     # `_LineWalk` is instantiated by the pass, so every method is a path
     # the corpus has to have walked; the class itself has no code object
@@ -177,6 +209,82 @@ def test_a_class_is_reached_in_all_its_methods_but_is_not_itself_a_finding():
     assert "parse._LineWalk" not in reached
     assert "parse._LineWalk.handle_assistant_line" in reached
     assert "parse._LineWalk._record_tool_uses" in reached
+
+
+def test_a_lookup_of_a_container_held_on_a_module_resolves(tmp_path):
+    # `mod.TABLE[fmt](...)` is the same grammar as the bare-name form the
+    # walk already reads; a Subscript arm that only accepts a Name base
+    # drops it silently.
+    backend = _stub_tree(tmp_path)
+    (backend / "parse_lanes.py").write_text(
+        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
+    (backend / "agent_sidecar.py").write_text(
+        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
+        encoding='utf-8')
+    (backend / "key_layout.py").write_text(
+        "def classify(key):\n    return 1\n\n"
+        "def never_called(key):\n    return 2\n\n"
+        "TABLE = {'a': classify}\n", encoding='utf-8')
+    (backend / "parse.py").write_text(
+        "from backend import key_layout\n\n"
+        "def parse_file(file_key, blob):\n"
+        "    return key_layout.TABLE['a'](file_key)\n", encoding='utf-8')
+    reached = walk.reachable_surface(tmp_path)
+    assert "key_layout.classify" in reached, (
+        "a module-attribute lookup of a container must resolve to the "
+        "functions the container holds")
+
+
+def test_a_container_built_inside_a_function_is_read(tmp_path):
+    # Over-approximating on purpose: two functions may each build a table
+    # under one name, and adding both is the safe direction for a coverage
+    # gate. Dropping one is not.
+    backend = _stub_tree(tmp_path)
+    (backend / "parse_lanes.py").write_text(
+        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
+    (backend / "agent_sidecar.py").write_text(
+        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
+        encoding='utf-8')
+    (backend / "key_layout.py").write_text(
+        "def hidden(key):\n    return 1\n\n"
+        "def build(fmt):\n"
+        "    TABLES = {'a': hidden}\n"
+        "    return TABLES[fmt](1)\n", encoding='utf-8')
+    (backend / "parse.py").write_text(
+        "from backend import key_layout\n\n"
+        "def parse_file(file_key, blob):\n"
+        "    return key_layout.build('a')\n", encoding='utf-8')
+    assert "key_layout.hidden" in walk.reachable_surface(tmp_path)
+
+
+def test_the_walk_refuses_a_call_through_a_parameter(tmp_path):
+    # `callback(payload)`: the target is whatever the caller passed. A
+    # same-named binding elsewhere in the module would otherwise let it
+    # read as resolved, and the call would be dropped in silence.
+    backend = _stub_tree(tmp_path)
+    (backend / "parse_lanes.py").write_text(
+        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
+    (backend / "agent_sidecar.py").write_text(
+        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
+        encoding='utf-8')
+    (backend / "parse.py").write_text(
+        "def parse_file(file_key, blob):\n"
+        "    return _run(handler)\n\n"
+        "def _run(handler):\n    return handler(1)\n", encoding='utf-8')
+    with pytest.raises(ValueError, match='callee is a parameter'):
+        walk.reachable_surface(tmp_path)
+
+
+def test_the_walk_refuses_a_lookup_it_cannot_name(tmp_path):
+    # `f()['k']()` and friends: a subscript whose base is neither a Name
+    # nor an Attribute is a callee the walk knows nothing about.
+    backend = _stub_tree(tmp_path)
+    (backend / "parse.py").write_text(
+        "def _make():\n    return {}\n\n"
+        "def parse_file(file_key, blob):\n"
+        "    return _make()['k'](file_key)\n", encoding='utf-8')
+    with pytest.raises(ValueError, match='subscript of'):
+        walk.reachable_surface(tmp_path)
 
 
 def test_a_nested_def_is_not_a_finding_of_its_own():
@@ -254,7 +362,11 @@ def test_the_committed_allowlist_excuses_nothing_the_corpus_could_walk():
     allowed = surface.allowlist_entries()
     reached = walk.reachable_surface()
     assert surface.stale_allowlist(reached, allowed) == []
-    assert allowed, "the committed allowlist should record its one excuse"
+    # The committed allowlist's one entry excuses a DEAD branch, filed as
+    # #505; when that branch is deleted the entry must go with it, and this
+    # is what says so at the moment it happens.
+    assert allowed, ("the committed allowlist should still record its one "
+                     "excuse; if #505 landed, delete the entry too")
 
 
 # --- the corpus itself -------------------------------------------------------
@@ -276,18 +388,41 @@ def _corpus():
     return surface.corpus(bench.corpus(), bench.Entry)
 
 
-def test_the_surface_corpus_is_the_mirror_plus_every_committed_sample():
-    mirror = {entry.key for entry in bench.corpus()}
-    corpus = _corpus()
-    keys = [entry.key for entry in corpus]
-    assert set(keys[:len(mirror)]) == mirror
-    assert len(keys) == len(set(keys))
-    samples = {key for key in keys if key not in mirror}
-    on_disk = {path.relative_to(REPO_ROOT / "fixtures").as_posix()
-               for name in surface.SURFACE_SAMPLES
-               for path in sorted(
-                   (REPO_ROOT / "fixtures" / name).rglob("*.jsonl"))}
-    assert samples == on_disk
+def test_the_surface_corpus_keeps_the_mirror_and_adds_the_samples():
+    # Not a re-glob of `corpus()`'s own two directories — that cannot
+    # fail. What can: the union DROPS a mirror entry, repeats a key, or
+    # stops being larger than the mirror (which is what makes the samples
+    # worth walking at all).
+    mirror = [entry.key for entry in bench.corpus()]
+    keys = [entry.key for entry in _corpus()]
+    assert len(keys) == len(set(keys)), "a corpus key is listed twice"
+    assert set(mirror) <= set(keys), "a mirror transcript was dropped"
+    samples = set(keys) - set(mirror)
+    assert len(samples) > len(mirror), (
+        "the samples no longer add to the corpus: the union has collapsed "
+        "onto the mirror, so the gate is measuring only what the bench "
+        "already measures")
+    assert "parser/kimi_code_min.jsonl" in samples, (
+        "a known lane sample is absent from the corpus")
+
+
+def test_the_gate_refuses_when_the_mirror_loses_a_format():
+    # The union answers "do the committed fixtures walk every parse path?".
+    # This is the narrower question the bench's NUMBER depends on, and it
+    # has to be a claim of the gate's own: the samples carry all four
+    # formats, so a mirror that loses one leaves the union green.
+    mirror = bench.corpus()
+    assert surface.mirror_gap(mirror) == [], surface.mirror_gap(mirror)
+    claude_only = [entry for entry in mirror
+                   if "/sessions/" not in entry.key]
+    assert surface.mirror_gap(claude_only) == [
+        "codex", "kimi-code", "legacy"]
+
+
+def test_a_report_naming_an_absent_format_never_reads_as_a_pass():
+    text = surface.report([], '', ["codex", "legacy"])
+    assert "no longer carries" in text
+    assert "every reachable function was exercised" not in text
 
 
 def test_the_surface_corpus_reads_nothing_but_committed_bytes():
