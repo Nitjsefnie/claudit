@@ -99,6 +99,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Depth 2, so the suite-cost re-seed marker is readable from
+          # the pull request's head one level under the merge commit
+          # (scripts/ci/reseed.py); see tests.yml's portable job for the
+          # full reasoning. This job runs the suite, so it reads the
+          # committed document like every other leg that does.
+          fetch-depth: 2
           # No step in this job pushes; persist-credentials: false keeps
           # the token out of .git/config for any later step to reuse.
           persist-credentials: false

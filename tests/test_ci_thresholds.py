@@ -25,21 +25,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
 
 
-def _load():
-    """Import scripts/ci/thresholds.py by path.
+def _load(name="thresholds"):
+    """Import a scripts/ci module by path.
 
     scripts/ci is not a package and deliberately has no __init__.py — it
     holds standalone CI entry points, not an importable library.
     """
-    path = REPO_ROOT / "scripts" / "ci" / "thresholds.py"
-    spec = importlib.util.spec_from_file_location("thresholds", path)
+    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules["thresholds"] = module
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
 
+reseed = _load("reseed")
 thresholds = _load()
 
 GAP = Decimal("1.5")
@@ -91,6 +92,20 @@ def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
     }
 
 
+def subprocess_committed_bytes():
+    """The COMMITTED document's bytes, from git rather than the disk.
+
+    The bytes come from git, not the working-tree file: a Windows
+    autocrlf checkout delivers CRLF on disk, and a pin has to hold on
+    every platform's checkout.
+    """
+    git_meta.require_own_git_metadata(REPO_ROOT)
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
+         f"HEAD:{THRESHOLDS_PATH.relative_to(REPO_ROOT).as_posix()}"],
+        capture_output=True, check=True).stdout
+
+
 def _written_document(tmp_path, **kwargs):
     target = tmp_path / "ci-thresholds.json"
     payload = json.loads(json.dumps(_document(**kwargs), default=float))
@@ -127,7 +142,7 @@ def test_javascript_coverage_language_accepted(tmp_path):
 
 
 def test_normalised_document_keeps_exact_values():
-    doc = thresholds.normalise(_document(measured="92.6", floor="91.1"))
+    doc = thresholds.normalise(_document(measured="92.6", floor="91.1"), False)
     record = doc["coverage"]["python"]
     assert record["measured"] == Decimal("92.6")
     assert record["floor"] == Decimal("91.1")
@@ -141,7 +156,7 @@ def test_write_publishes_canonical_bytes(tmp_path):
     assert text.endswith("\n")
     assert text == json.dumps(
         json.loads(text), indent=2, sort_keys=True) + "\n"
-    assert thresholds.load(target) == thresholds.normalise(doc)
+    assert thresholds.load(target) == thresholds.normalise(doc, False)
 
 
 def test_unknown_top_level_key_refused(tmp_path):
@@ -294,15 +309,10 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     # drift. The bytes come from git, not the working-tree file: a
     # Windows autocrlf checkout delivers CRLF on disk, and the pin has
     # to hold on every platform's checkout.
-    git_meta.require_own_git_metadata(REPO_ROOT)
     doc = thresholds.load(THRESHOLDS_PATH)
     target = tmp_path / "canonical.json"
     thresholds.write(target, doc)
-    committed = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
-         f"HEAD:{THRESHOLDS_PATH.relative_to(REPO_ROOT).as_posix()}"],
-        capture_output=True, check=True).stdout
-    assert committed == target.read_bytes()
+    assert subprocess_committed_bytes() == target.read_bytes()
 
 
 def test_coverage_floor_cli_prints_floor():
@@ -358,7 +368,7 @@ def test_missing_suppression_member_refused(tmp_path):
     del payload["pylint_suppression_baseline"]
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="missing field"):
-        thresholds.load(target)
+        thresholds.load(target, False)
 
 
 def test_suppression_member_entries_validated_like_size_entries(tmp_path):
@@ -382,35 +392,67 @@ def test_committed_suppression_member_loads():
         assert count > 0
 
 
-def test_committed_suite_cost_member_loads():
-    # The committed suite_cost member loads through the reader, carries
-    # exactly the bench's phases, and every ceiling sits the calibration
-    # gap above its measured value (a cost's gap sits above).
+def test_committed_suite_cost_family_matches_the_committed_bytes():
+    # The committed document loads, and its suite_cost family — the one
+    # property every consumer relies on — carries exactly the bench's
+    # phases with every ceiling the calibration gap above its measured
+    # value (a cost's gap sits above).
+    #
+    # The pin is on the DOCUMENT, not on the commit: the sanctioned
+    # re-seed (issue #502) makes an absent family admissible for one
+    # commit, and a pin that skipped there would run on no commit at
+    # all. So this asserts the family when the document carries one and
+    # says plainly when it does not — which is itself the shape the
+    # delete commit has, so the delete commit is covered too.
     doc = thresholds.load(THRESHOLDS_PATH)
-    phases = thresholds.suite_cost(doc)
-    assert tuple(sorted(phases)) == tuple(
+    recorded = thresholds.suite_cost(doc)
+    present = b'"suite_cost"' in subprocess_committed_bytes()
+    assert (recorded != {}) is present, (
+        "the reader and the committed bytes disagree about the family")
+    if not present:
+        assert reseed.in_flight(REPO_ROOT), (
+            "the family is absent on a tree that declares no re-seed: "
+            "the loader tolerated a document the marker does not authorise")
+        return
+    assert tuple(sorted(recorded)) == tuple(
         sorted(thresholds.SUITE_COST_PHASES))
     for phase in thresholds.SUITE_COST_PHASES:
-        measured, floor = phases[phase]["measured"], phases[phase]["floor"]
+        measured, floor = recorded[phase]["measured"], recorded[phase]["floor"]
         assert isinstance(measured, Decimal)
         assert floor == measured + thresholds.CALIBRATION_GAP
 
 
 def test_suite_cost_reader_returns_the_committed_phases():
-    doc = thresholds.normalise(_document())
+    doc = thresholds.normalise(_document(), False)
     phases = thresholds.suite_cost(doc)
     assert phases == SUITE_COST
+
+
+def test_a_marker_admits_an_absent_family_without_forbidding_a_present_one():
+    # What the marker actually promises (issue #502): a family-ABSENT
+    # document is admissible. It does NOT promise the family is absent,
+    # and it must not forbid a document that carries one — the seed
+    # commit restores the family, and a copy-pasted marker must not make
+    # that state unreadable. The narrow claim is the loadable one; the
+    # over-claim ("a marked commit records no budget") is what redded
+    # the seed commit in review.
+    doc = thresholds.normalise(_document(), False)
+    assert thresholds.suite_cost(doc, True) == thresholds.suite_cost(doc, False)
+    assert thresholds.normalise(doc, True) == doc
 
 
 def test_missing_suite_cost_member_refused(tmp_path):
     # A document omitting the member is refused outright, like the
     # suppression baseline: every consumer can read the family unguarded.
+    # The refusal is asked for explicitly, because load()'s default
+    # answers the TREE (scripts/ci/reseed.py) and this tree's commit may
+    # declare the sanctioned re-seed that makes the absence legal.
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
     del payload["suite_cost"]
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="missing field"):
-        thresholds.load(target)
+        thresholds.load(target, False)
 
 
 @pytest.mark.parametrize("phase", thresholds.SUITE_COST_PHASES)

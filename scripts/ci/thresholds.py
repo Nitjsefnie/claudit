@@ -3,13 +3,40 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import stat
 import sys
 import tempfile
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
+from typing import Callable
+
+# scripts/ci holds standalone CI entry points, not an importable
+# package, so a run from the scripts directory finds its siblings by
+# name; a caller that loaded this module BY PATH (the tests do) has not
+# put that directory on sys.path, and appending it here is what makes
+# the same import work from both.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.append(str(Path(__file__).resolve().parent))
+# pylint: disable-next=import-outside-toplevel
+validate = importlib.import_module('thresholds_validate')
+
+# The moved validators, re-bound here so every existing caller and test
+# keeps spelling them as they always have (thresholds.coverage_value and
+# so on): the split moved WHERE a value is judged, not its name. The
+# annotations are load-bearing: the sibling is reached by importlib,
+# which is untyped, and a bare alias would leave every value here an
+# unconstrained Any.
+_Number = Callable[[object, str], Decimal]
+_Path = Callable[[str], str]
+_number: _Number = validate.number
+_module_path: _Path = validate.module_path
+coverage_value: _Number = validate.coverage_value
+instruction_value: _Number = validate.instruction_value
+share_value: _Number = validate.share_value
+count_value: _Number = validate.count_value
 
 THRESHOLDS = (Path(__file__).resolve().parents[2]
               / '.github' / 'ci-thresholds.json')
@@ -64,8 +91,13 @@ SUITE_COST_PHASES = ('collection', 'run', 'residual')
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
 _TOP_LEVEL_FIELDS = ('schema_version', 'coverage',
-                     REPARSE_FAMILY, SUITE_COST_FAMILY,
-                     *BASELINE_MEMBERS)
+                     REPARSE_FAMILY, *BASELINE_MEMBERS)
+# The suite-cost family is required like the rest, EXCEPT on a commit
+# that declares the sanctioned re-seed in flight (reseed.py): the
+# delete-then-seed sequence needs one commit whose document carries no
+# budget at all, and that commit names itself with the marker. It is the
+# only absence the loader tolerates, and only for this family.
+_RESEED_OPTIONAL_FIELDS = (SUITE_COST_FAMILY,)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
     'thresholds': 'field: {field}',
@@ -83,158 +115,61 @@ _FIELD_LABELS = {
        f'reparse CPU {phase} {metric}: {{field}}'
        for phase in REPARSE_PHASES for metric in REPARSE_METRICS},
 }
-_INVALID_PATH_CHARS = set('<>:"|?*')
-_DEVICE_NAMES = {
-    'CON', 'PRN', 'AUX', 'NUL',
-    *(f'COM{number}' for number in range(1, 10)),
-    *(f'LPT{number}' for number in range(1, 10)),
-}
 
 
-def _reject_constant(value):
-    raise ValueError(f'non-finite JSON number: {value}')
+def verdict(reseed_in_flight=None):
+    """The re-seed verdict to validate under: asked of the TREE unless a
+    caller states one.
 
-
-def _object_pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f'duplicate JSON key: {key}')
-        result[key] = value
-    return result
-
-
-def _decode(raw):
-    try:
-        text = raw.decode('utf-8') if isinstance(raw, bytes) else raw
-        return json.loads(
-            text, parse_float=Decimal, parse_int=Decimal,
-            parse_constant=_reject_constant, object_pairs_hook=_object_pairs)
-    except UnicodeDecodeError as error:
-        raise ValueError(f'invalid thresholds JSON: {error}') from None
-    except json.JSONDecodeError as error:
-        raise ValueError(f'invalid thresholds JSON: {error}') from None
-
-
-def _number(value, name):
-    if isinstance(value, bool) or not isinstance(
-            value, (int, float, Decimal)):
-        raise ValueError(f'{name} must be a JSON number')
-    try:
-        result = value if isinstance(value, Decimal) else Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        raise ValueError(f'{name} must be a JSON number') from None
-    if not result.is_finite():
-        raise ValueError(f'{name} must be finite')
-    return result
-
-
-def _required_fields(value, expected, name):
-    if not isinstance(value, dict):
-        raise ValueError(f'{name} must be an object')
-    label = _FIELD_LABELS.get(name, f'field: {name}.{{field}}')
-    for field in expected:
-        if field not in value:
-            raise ValueError(f'missing {label.format(field=field)}')
-    expected_set = set(expected)
-    for field in value:
-        if field not in expected_set:
-            raise ValueError(f'unknown {label.format(field=field)}')
-
-
-def coverage_value(value, name):
-    result = _number(value, name)
-    if result < 0 or result > 100:
-        raise ValueError(f'{name} must be between 0.0 and 100.0')
-    exponent = result.as_tuple().exponent
-    # The canonical spelling of a coverage number carries exactly one
-    # decimal place (92.0, never 92 or 92.00): it is what the ratchet
-    # writes and what coverage --precision=1 measures.
-    if not isinstance(exponent, int) or exponent != -1:
-        raise ValueError(f'{name} must have exactly one decimal place')
-    return result
-
-
-def instruction_value(value, name):
-    """A suite-cost number: one-decimal, finite, never negative.
-
-    Millions of instructions have no natural upper bound, unlike
-    coverage's 0..100: the bound here is the one the semantics impose
-    (a count cannot be negative), and the one-decimal spelling is what
-    the bench writes and the ratchet records.
+    This and ``load`` are the only places the tree is consulted, and
+    every helper that re-validates a document another helper produced
+    asks through here. ``normalise`` takes NO default for exactly that
+    reason: with one, a helper two calls deep could silently read strict
+    while its caller read the tree, and a document the loader accepted
+    would be refused one frame lower -- on the master-only ratchet step,
+    on every push.
     """
-    result = _number(value, name)
-    if result < 0:
-        raise ValueError(f'{name} must be non-negative')
-    exponent = result.as_tuple().exponent
-    if not isinstance(exponent, int) or exponent != -1:
-        raise ValueError(f'{name} must have exactly one decimal place')
-    return result
+    if reseed_in_flight is not None:
+        return reseed_in_flight
+    # Imported HERE rather than at module scope: reseed shells out to
+    # git, and every consumer of this loader — the reparse bench among
+    # them, whose measured CPU share is the gate's own instrument —
+    # would otherwise carry a module that reads a commit message to
+    # answer a question it never asks.
+    # pylint: disable-next=import-outside-toplevel
+    reseed = importlib.import_module('reseed')
+    return reseed.in_flight()
 
 
-def share_value(value, name):
-    """A reparse phase's share: a percent of the pass's own CPU.
+def _required_fields(value, expected, name, optional=()):
+    """The moved field check, with this module's family labels."""
+    return validate.required_fields(
+        value, expected, name, _FIELD_LABELS, optional)
 
-    The same shape and bounds as a coverage value — a bounded percentage
-    carrying exactly one decimal place — read as a share of the run
-    rather than of a corpus. Zero is a real reading (a phase this corpus
-    never reaches, like the sidecar step), not an absence.
+
+def normalise(data, reseed_in_flight):
+    """The document in canonical form, or a refusal naming the offender.
+
+    ``reseed_in_flight`` is REQUIRED and is the re-seed marker's verdict
+    (reseed.py), never a mode a caller picks for its own convenience:
+    with it, the suite-cost family may be ABSENT, and stays absent in the
+    result, so the document's bytes round-trip unchanged. Everything else
+    — the family's own validation when it is present, the required
+    fields, the unknown-key refusal — is unchanged, so a marker can buy
+    the absence and nothing else.
+
+    No default: the caller is the only one who knows whether it is
+    holding a document the loader accepted or one it just built. ``None``
+    is not accepted here either — ask through ``verdict()``, so the tree
+    is consulted in one named place rather than by omission.
     """
-    return coverage_value(value, name)
-
-
-def count_value(value, name):
-    """A reparse phase's cost: hundreds of bytecodes per file.
-
-    Bounded below only: the number is a count, so it has no natural
-    ceiling, and it carries the same one-decimal spelling as every other
-    recorded number. Zero is a real reading, not an absence.
-    """
-    result = _number(value, name)
-    if result < 0:
-        raise ValueError(f'{name} must not be negative')
-    exponent = result.as_tuple().exponent
-    if not isinstance(exponent, int) or exponent != -1:
-        raise ValueError(f'{name} must have exactly one decimal place')
-    return result
-
-
-def _path_component_safe(component):
-    safe = bool(component) and component not in ('.', '..')
-    safe = safe and component.rstrip(' .') == component
-    safe = safe and component.upper().split('.', 1)[0] not in _DEVICE_NAMES
-    safe = safe and not any(char in _INVALID_PATH_CHARS
-                            for char in component)
-    safe = safe and not any(
-        ord(char) < 32 or 127 <= ord(char) <= 159
-        or 0xD800 <= ord(char) <= 0xDFFF for char in component)
-    if not safe:
-        return False
-    try:
-        return len(component.encode('utf-8')) <= 240
-    except UnicodeEncodeError:
-        return False
-
-
-def _module_path(value):
-    if not isinstance(value, str) or not value or '\\' in value:
-        raise ValueError(f'unsafe module path: {value!r}')
-    if value.startswith('/') or value.startswith('//'):
-        raise ValueError(f'unsafe module path: {value!r}')
-    try:
-        encoded_length = len(value.encode('utf-8'))
-    except UnicodeEncodeError:
-        raise ValueError(f'unsafe module path: {value!r}') from None
-    if encoded_length > 240:
-        raise ValueError(f'unsafe module path: {value!r}')
-    components = value.split('/')
-    if not all(_path_component_safe(c) for c in components):
-        raise ValueError(f'unsafe module path: {value!r}')
-    return value
-
-
-def normalise(data):
-    _required_fields(data, _TOP_LEVEL_FIELDS, 'thresholds')
+    if not isinstance(reseed_in_flight, bool):
+        raise ValueError('reseed_in_flight must be a bool, not None: ask '
+                         'thresholds.verdict() for the tree answer')
+    required = (_TOP_LEVEL_FIELDS if reseed_in_flight
+                else _TOP_LEVEL_FIELDS + _RESEED_OPTIONAL_FIELDS)
+    _required_fields(data, required, 'thresholds',
+                     _RESEED_OPTIONAL_FIELDS if reseed_in_flight else ())
     schema = _number(data['schema_version'], 'schema_version')
     if schema != _SCHEMA_VERSION or schema != schema.to_integral_value():
         raise ValueError(
@@ -263,8 +198,15 @@ def normalise(data):
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
         REPARSE_FAMILY: _reparse(data[REPARSE_FAMILY]),
-        SUITE_COST_FAMILY: _suite_cost(data[SUITE_COST_FAMILY]),
     }
+    if SUITE_COST_FAMILY in data:
+        # PRESENCE, never emptiness: `"suite_cost": {}` is a family that
+        # is present and malformed, and validating on emptiness would
+        # normalise it to the same absent family only the marker can
+        # authorise — a hand-deleted budget reaching the no-budget
+        # state on any tree. Here it is refused, marker or no marker,
+        # exactly as master refused it.
+        normalised[SUITE_COST_FAMILY] = _suite_cost(data[SUITE_COST_FAMILY])
     for member in BASELINE_MEMBERS:
         normalised[member] = _baseline(data[member], member)
     return normalised
@@ -308,7 +250,7 @@ def _reparse(family):
     measurement would fail a gate no change could satisfy.
     """
     _required_fields(family, REPARSE_PHASES, REPARSE_FAMILY)
-    validate = {'share': share_value, 'bytecodes': count_value}
+    by_metric = {'share': share_value, 'bytecodes': count_value}
     normalised = {}
     for phase in REPARSE_PHASES:
         record = family[phase]
@@ -319,8 +261,8 @@ def _reparse(family):
             pair = record[metric]
             label = f'{prefix}.{metric}'
             _required_fields(pair, _COVERAGE_FIELDS, label)
-            measured = validate[metric](pair['measured'], f'{label}.measured')
-            floor = validate[metric](pair['floor'], f'{label}.floor')
+            measured = by_metric[metric](pair['measured'], f'{label}.measured')
+            floor = by_metric[metric](pair['floor'], f'{label}.floor')
             if floor <= measured:
                 raise ValueError(f'{label}.floor must be above measured')
             if floor - measured != CALIBRATION_GAP:
@@ -344,35 +286,57 @@ def _baseline(baseline, member):
     return dict(sorted(normalised.items()))
 
 
-def load(path=THRESHOLDS):
+def load(path=THRESHOLDS, reseed_in_flight=None):
+    """Read and validate a thresholds document.
+
+    ``reseed_in_flight`` defaults to the tree's own verdict
+    (reseed.in_flight), so every reader — the gates, the ratchets, the
+    tests that pin the committed document against the tree — gets the
+    one sanctioned tolerance without having to remember to ask for it,
+    and a caller that means to be strict passes False explicitly. An
+    unreadable tree is not a marker: the probe fails closed, and the
+    document is gated exactly as it is today.
+    """
     target = Path(path)
     try:
         raw = target.read_bytes()
     except OSError as error:
         raise ValueError(f'cannot read thresholds: {error}') from None
-    return normalise(_decode(raw))
+    return normalise(validate.decode(raw),
+                     verdict(reseed_in_flight))
 
 
-def coverage(data, language):
+# The family readers below re-normalise the document they are handed, so
+# each asks the SAME question load() asks, and defaults to the same
+# answer: a reader handed a document read under the re-seed tolerance
+# must not then refuse it, and a caller that means to be strict says so.
+def coverage(data, language, reseed_in_flight=None):
     if language not in COVERAGE_LANGUAGES:
         raise ValueError(f'unknown coverage language: {language}')
-    normalised = normalise(data)
+    normalised = normalise(data, verdict(reseed_in_flight))
     record = normalised['coverage'][language]
     return record['measured'], record['floor']
 
 
-def suite_cost(data):
-    """The committed suite-cost budgets: {phase: {measured, floor}}."""
-    return dict(normalise(data)[SUITE_COST_FAMILY])
+def suite_cost(data, reseed_in_flight=None):
+    """The committed suite-cost budgets: {phase: {measured, floor}}.
+
+    Empty on a re-seed commit, which declares the family absent: the
+    caller is then the seed step that reads counts from a measurement,
+    not a gate reading a budget.
+    """
+    family = normalise(data, verdict(reseed_in_flight))
+    return dict(family.get(SUITE_COST_FAMILY, {}))
 
 
-def module_size_baseline(data):
-    return dict(normalise(data)['module_size_baseline'])
+def module_size_baseline(data, reseed_in_flight=None):
+    normalised = normalise(data, verdict(reseed_in_flight))
+    return dict(normalised['module_size_baseline'])
 
 
-def reparse(data):
+def reparse(data, reseed_in_flight=None):
     """The reparse bench's records: phase -> metric -> measured/floor."""
-    return dict(normalise(data)[REPARSE_FAMILY])
+    return dict(normalise(data, verdict(reseed_in_flight))[REPARSE_FAMILY])
 
 
 def _json_ready(value):
@@ -385,14 +349,16 @@ def _json_ready(value):
     return value
 
 
-def _render(data):
-    normalised = normalise(data)
+def _render(data, reseed_in_flight):
+    reseed_in_flight = verdict(reseed_in_flight)
+    normalised = normalise(data, reseed_in_flight)
     ready = _json_ready(normalised)
     text = json.dumps(
         ready, ensure_ascii=True, indent=2, sort_keys=True,
         allow_nan=False) + '\n'
     encoded = text.encode('utf-8')
-    if normalise(_decode(encoded)) != normalised:
+    if normalise(validate.decode(encoded), verdict(
+            reseed_in_flight)) != normalised:
         raise ValueError('serialized thresholds failed validation')
     return encoded
 
@@ -405,10 +371,15 @@ def _remove_temp(path):
         pass
 
 
-def write(path, data):
-    """Validate and atomically replace ``path`` with canonical JSON bytes."""
+def write(path, data, reseed_in_flight=None):
+    """Validate and atomically replace ``path`` with canonical JSON bytes.
+
+    A re-seed commit's document round-trips like any other: the absent
+    family is written back absent, and the round-trip check validates
+    under the same verdict the reader will.
+    """
     target = Path(path)
-    payload = _render(data)
+    payload = _render(data, verdict(reseed_in_flight))
     mode = None
     try:
         mode = stat.S_IMODE(target.stat().st_mode)
@@ -442,12 +413,12 @@ def write(path, data):
             _remove_temp(temporary_path)
 
 
-def _reparse_pair(data, phase_metric, field):
+def _reparse_pair(data, phase_metric, field, reseed_in_flight=None):
     """One recorded number for one phase and metric, named in the error
     it raises: an unknown phase or metric is a caller mistake, and the
     loader's own messages speak of the document."""
     phase, metric = phase_metric
-    records = reparse(data)
+    records = reparse(data, reseed_in_flight)
     if phase not in records:
         raise ValueError(f'unknown reparse phase: {phase}')
     if metric not in records[phase]:

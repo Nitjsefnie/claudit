@@ -17,6 +17,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -164,7 +165,7 @@ def test_seed_writes_canonical_bytes(tmp_path):
     assert text == json.dumps(
         json.loads(text), indent=2, sort_keys=True) + "\n"
     assert thresholds.load(target) == thresholds.normalise(
-        thresholds.load(target))
+        thresholds.load(target), False)
 
 
 def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
@@ -262,11 +263,20 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
     # The committed document, copied to tmp_path and passed through the
     # seed-refusal and tighten paths, keeps canonical bytes: the bot's
     # writes are the loader's writes.
+    #
+    # The sanctioned re-seed (issue #502) deletes the family for one
+    # commit, so this seeds it into the tmp copy when it is absent rather
+    # than skipping: the property under test is the round trip, and it
+    # holds on the delete commit too.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = tmp_path / "ci-thresholds.json"
     target.write_bytes(
         subprocess_committed_bytes())
+    if thresholds.suite_cost(thresholds.load(target)) == {}:
+        assert ratchet.main([
+            "--seed", str(_measurement_file(tmp_path, COUNTS)),
+            "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert tuple(sorted(doc["suite_cost"])) == (
         "collection", "residual", "run")

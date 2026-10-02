@@ -1042,9 +1042,29 @@ never hand-set numbers in a workflow.
   micro is pinned in the workflows that run the bench. Sanctioned
   RE-SEED: when the recorded workload legitimately changes — the
   fixture list, the interpreter pin, or the code the pinned tests
-  execute — the stale member is deleted and the new workload's counts
-  seeded through the loader's writer, in the same reviewed gate-definer
-  change.
+  execute — it lands as TWO reviewed gate-definers, never one. The
+  first deletes the stale member under the commit-message marker
+  `[suite-cost-re-seed]` (`scripts/ci/reseed.py`), which is the only
+  way `thresholds.load` accepts a family-absent document: the speed
+  gate then prints `no suite_cost budget — re-seed in flight` and exits
+  0, and the guard reads the removal as the legal direction it is. The
+  second seeds the new counts through the loader's writer
+  (`suite_ratchet.py --seed`) FROM A RUNNER MEASUREMENT — the
+  `suite-speed-measurement` / `suite-measurement` artifact of the red
+  master run the re-seed answers, cited by run id in the PR body, never
+  hand-derived; against a base that predates the family, those entries
+  are a brand-new member's seed and already legal to the direction
+  guard. One change cannot do both: the guard refuses an upward move
+  the base already carries, so the intermediate has to be its own
+  commit, and that commit's message is what declares it. The marker's
+  scope is that DELETE: it makes an absent family admissible, so the
+  seed commit does not carry it — a document that restores the family
+  is valid either way, and the seed commit is the one that restores it.
+  Every helper that re-validates a document the loader produced asks
+  the same verdict the loader asked (`thresholds.verdict()`), because a
+  suite-cost budget mid-re-seed is no reason to refuse to raise a
+  coverage calibration; `normalise` takes the verdict as a required
+  argument so no helper can read strict by omission.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
@@ -1053,9 +1073,12 @@ never hand-set numbers in a workflow.
   ratchet had when the guard landed) or for an unmeasured path. What
   stays legal is exactly the bots' move set plus the two sanctioned
   seeds: a raise, a tighten, a brand-new member's entries, and a new
-  measured family's one-time seed. The truth of every seed is pinned by
-  the committed-document-matches-tree tests, which run on the same
-  merge ref.
+  measured family's one-time seed — plus the suite-cost family's
+  REMOVAL, which the loader admits only on a commit carrying the
+  re-seed marker. The guard's upward-move refusal is not among them: a
+  marker buys the absence, never a raised budget. The truth of every
+  seed is pinned by the committed-document-matches-tree tests, which
+  run on the same merge ref.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
   `92.00`) — what the ratchet writes, `coverage --precision=1` measures
   and the JS gate's `toFixed(1)` reads. The document is always the

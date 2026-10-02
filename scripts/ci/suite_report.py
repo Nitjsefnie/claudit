@@ -49,6 +49,9 @@ _OVER_BUDGET_REMEDY = (
     'cheaper, or use the doctrine\'s re-seed path when the fixture list '
     'or the interpreter pin legitimately changed. A recorded budget is '
     'never raised by hand.')
+# The pass-through's own line, shared by the gate's stdout and by the
+# step summary so the two never disagree about what this run was.
+NO_BUDGET_LINE = 'no suite_cost budget — re-seed in flight'
 
 
 def _spelling(value, label):
@@ -174,6 +177,14 @@ def check(path, thresholds_path=None) -> int:
 
     A counts-less measurement (the process_time fallback) fails closed:
     the absence of an instruction count is not a pass.
+
+    The ONE pass-through is a document that declares no budget at all:
+    the sanctioned re-seed's intermediate commit, whose message carries
+    the marker (reseed.py) and which the loader therefore accepts. The
+    measurement is still taken, still uploaded and still checked for
+    gateability — there is simply nothing to compare it against until
+    the next commit seeds the family. Every other missing budget, and
+    every over-budget phase, fails exactly as before.
     """
     measurement = measurement_from_file(path)
     if measurement.counts is None:
@@ -186,8 +197,12 @@ def check(path, thresholds_path=None) -> int:
               f'(hash seed {measurement.hash_seed!r}): its counts are '
               'not comparable with the committed budgets', file=sys.stderr)
         return 1
-    budgets = thresholds.suite_cost(
-        thresholds.load(thresholds_path or thresholds.THRESHOLDS))
+    budgets = thresholds.load(
+        thresholds_path or thresholds.THRESHOLDS).get(
+            thresholds.SUITE_COST_FAMILY, {})
+    if not budgets:
+        print(NO_BUDGET_LINE)
+        return 0
     over = _over_budget(measurement.counts, budgets)
     if over:
         print('suite cost over its recorded budget:', file=sys.stderr)
@@ -197,6 +212,21 @@ def check(path, thresholds_path=None) -> int:
         return 1
     print(summary_line(measurement.counts))
     return 0
+
+
+def gate_verdict(thresholds_path, code: int) -> str:
+    """The step summary's verdict line, in the gate's own words.
+
+    'within budget' would be a false statement on a re-seed commit,
+    which is gated against nothing at all; the summary says so.
+    """
+    if code:
+        return '**OVER BUDGET**'
+    committed = thresholds.load(
+        thresholds_path or thresholds.THRESHOLDS)
+    if not committed.get(thresholds.SUITE_COST_FAMILY):
+        return f'**{NO_BUDGET_LINE}**'
+    return '**within budget**'
 
 
 def summary_line(counts: dict) -> str:

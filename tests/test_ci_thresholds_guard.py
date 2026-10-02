@@ -47,6 +47,10 @@ def _load(name):
     return module
 
 
+def _reseed():
+    return _load("reseed")
+
+
 def _thresholds():
     return _load("thresholds")
 
@@ -301,18 +305,23 @@ def test_suite_cost_tightened_is_clean(tmp_path):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_suite_cost_removed_fails(tmp_path):
+def test_suite_cost_removed_needs_the_redeclare_marker(tmp_path):
     # The loader refuses a document missing the member, so a wholesale
     # deletion goes red at load; write() would refuse the bytes, so the
-    # hand-placed shape goes straight through the guard's --head.
+    # hand-placed shape goes straight through the guard's --head. The
+    # ONE exception is the sanctioned re-seed's delete (issue #502),
+    # which the loader admits only on a commit carrying the marker — so
+    # the verdict follows THIS tree's own declaration.
     base = _document()
     head = _document()
     del head["suite_cost"]
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
     head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
+    declared = _reseed().in_flight(REPO_ROOT)
     assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == 1
+        "--base", str(base_path),
+        "--head", str(head_path)]) == (0 if declared else 1)
 
 
 def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
