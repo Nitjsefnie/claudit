@@ -89,7 +89,7 @@ def test_the_gate_step_is_identified_so_the_ratchet_can_require_it(workflow):
     assert _step(workflow, GATE_STEP).get("id") == "reparse"
 
 
-def test_only_a_master_push_may_tighten_the_reparse_shares(workflow):
+def test_only_a_master_push_may_tighten_the_reparse_bytecodes(workflow):
     """A pull request runs untrusted code and must not write the recorded data.
 
     All four conditions are checked by name, because dropping ANY of them
