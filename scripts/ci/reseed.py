@@ -26,14 +26,18 @@ WHERE THE MARKER IS READ. A bounded walk, never a single read (issue
 #509 incident, where the hourly pricing bot landed on the delete before
 the seed):
 
-- The walk starts at HEAD and reads back over the ancestry, BOTH
-  parents at a merge, the second one first: a pull-request run checks
-  out the MERGE commit, whose own message is GitHub's and carries no
-  marker, and the pull request's head — the lineage that declared the
-  marker — hangs off it as the second parent.
+- The walk starts at HEAD and reads back over the ancestry — every
+  parent, with the pull-request head's lineage first (a GitHub merge
+  has two parents and the head is the second; an octopus merge queues
+  them all): a pull-request run checks out the MERGE commit, whose own
+  message is GitHub's and carries no marker, and the pull request's
+  head — the lineage that declared the marker — hangs off it as the
+  second parent.
 - The walk ends at the last family-present commit: a commit whose
   committed document carries the suite_cost family is one where the
-  window the marker opens is closed, so an old declaration below it can
+  window the marker opens is closed, whatever the commit's message
+  says — a marker is honored only where the family it authorises
+  absence from is actually gone — so an old declaration below it can
   never exempt a later family-absent document. Presence is judged on
   the committed `.github/ci-thresholds.json` at each visited commit —
   presence of the key only, never its shape: the loader judges a
@@ -161,12 +165,17 @@ def _declares(root: Path) -> bool:
         message = _revision_message(root, revision)
         if message is None:
             continue
-        if MARKER in message:
-            return True
+        # The bound is evaluated FIRST, so a family-present commit
+        # closes the window whatever its message says — a marker is
+        # honored only where the family it authorises absence from is
+        # actually gone (the sanctioned delete is family-absent).
         if _family_present(root, revision):
             continue
-        # Second parent first: at a pull-request merge it is the pull
-        # request's head — the lineage that declares.
+        if MARKER in message:
+            return True
+        # Every parent, reversed: at a pull-request merge the LAST
+        # listed parent is the pull request's head — the lineage that
+        # declares — so it is visited first.
         queue.extend(reversed(_parents(root, revision)))
     return False
 
