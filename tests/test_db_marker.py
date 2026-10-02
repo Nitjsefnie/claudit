@@ -57,8 +57,9 @@ SERVER_CALLS = frozenset({
 _AnyFn = ast.FunctionDef | ast.AsyncFunctionDef
 
 # Tests the scan flags whose bodies provably never reach a server, each
-# with the reason. Empty today: every flagged test either requests a DB
-# fixture or carries the explicit mark.
+# with the reason. Every entry names a test that EXISTS: an entry for a
+# name no test carries excuses nothing, and reads as cover while the real
+# offender is left to be found.
 MARK_ALLOWLIST: dict[str, str] = {
     "test_version.py:test_health_error_branch_reports_version":
         "monkeypatches db.viz_conn with a function that raises, so the "

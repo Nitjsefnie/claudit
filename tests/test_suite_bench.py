@@ -430,12 +430,12 @@ def test_repeated_measurements_from_a_purged_tree_agree(mini_suite):
     # between invocations would break. process_time is telemetry and is
     # deliberately not compared.
     counts = []
-    for name in ("bare.json", "inherited.json"):
+    for name in ("first.json", "second.json"):
         _purge_bytecode_caches(mini_suite)
         measurement = _measure(mini_suite, name=name)
         counts.append({phase: value['million_instructions']
                        for phase, value in measurement['phases'].items()})
-    assert counts[1] == counts[0], f'bare {counts[0]} vs {counts[1]}'
+    assert counts[1] == counts[0], f'first {counts[0]} vs {counts[1]}'
 
 
 def test_measure_releases_the_monitoring_tool_id(mini_suite):
