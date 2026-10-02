@@ -23,9 +23,12 @@ A 3.13.x micro release, or a pinned pytest patch release, can move a
 hot path's bytecode count by more than the gap; the interpreter is
 pinned to the exact micro version in the workflows that run the bench,
 and a legitimately moved workload (fixture list or interpreter pin) is
-the doctrine's sanctioned re-seed path: delete the stale member, seed
-the new counts through the loader's writer, in the same reviewed
-gate-definer change.
+the doctrine's sanctioned re-seed path: two reviewed gate-definer
+changes — the first deletes the stale member under the
+``[suite-cost-re-seed]`` marker, the second seeds the new counts
+through the loader's writer from a RUNNER measurement. One change
+cannot do both, because the guard refuses an upward move the base
+already carries.
 
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways. It imports nothing but the loader, so the data operation stays
@@ -45,9 +48,10 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
+    from . import reseed, thresholds
 else:
     thresholds = importlib.import_module('thresholds')
+    reseed = importlib.import_module('reseed')
 
 CALIBRATION_GAP = Decimal('1.5')
 TIGHTEN_HYSTERESIS = Decimal('1.5')
@@ -92,19 +96,20 @@ def seed(data, counts):
     """Return a document with the family seeded, or raise when present.
 
     ``data`` is the RAW document as its bytes carry it: the seed's
-    target is exactly the document the member is ABSENT from (the
-    loader that requires the family cannot even read such bytes, which
-    is what makes this a one-time path). Seeding over a recorded family
-    is refused: overwriting would need its own justification, and the
-    sanctioned one is the doctrine's re-seed -- delete the stale member,
-    commit the new counts in the same reviewed change -- not a quiet
-    rewrite by a bot.
+    target is exactly the document the member is ABSENT from, which the
+    loader only reads on the re-seed marker commit that deleted it
+    (reseed.py). Seeding over a recorded family is refused: overwriting
+    would need its own justification, and the sanctioned one is the
+    doctrine's re-seed -- delete the stale member first, commit the new
+    counts second, both reviewed gate-definers -- not a quiet rewrite by
+    a bot.
     """
     if data.get(_family):
         raise ValueError(
             f'{_family} is already recorded: seeding would overwrite '
-            'recorded budgets. Delete the stale member in the same '
-            'reviewed change if the workload legitimately changed.')
+            'recorded budgets. Delete the stale member under the '
+            f'{reseed.MARKER} marker first if the workload '
+            'legitimately changed.')
     candidate = dict(data)
     candidate[_family] = {
         phase: {
@@ -116,7 +121,10 @@ def seed(data, counts):
         }
         for phase in PHASES
     }
-    return thresholds.normalise(candidate)
+    # Strict, by fact and not by default: the candidate this builds
+    # always carries the family, so there is nothing for the marker to
+    # excuse. The re-seed's tolerance is the loader's, not the seed's.
+    return thresholds.normalise(candidate, False)
 
 
 def load_for_seed(path):
@@ -141,7 +149,7 @@ def tightenable(data, counts):
     with every comparison reversed. Phases are independent ceilings: a
     run that tightens one leaves the others exactly where they were.
     """
-    candidate = thresholds.normalise(data)
+    candidate = thresholds.normalise(data, thresholds.verdict())
     moves = {}
     for phase in PHASES:
         if phase not in counts:
@@ -159,13 +167,13 @@ def update(data, counts):
     moves = tightenable(data, counts)
     if not moves:
         return None
-    candidate = thresholds.normalise(data)
+    candidate = thresholds.normalise(data, thresholds.verdict())
     for phase, measured in moves.items():
         candidate[_family][phase] = {
             'measured': measured,
             'floor': measured + CALIBRATION_GAP,
         }
-    return thresholds.normalise(candidate)
+    return thresholds.normalise(candidate, thresholds.verdict())
 
 
 def _parser():
@@ -198,6 +206,14 @@ def main(argv=None):
                       f'(ceiling {candidate[_family][phase]["floor"]})')
             return 0
         data = thresholds.load(args.thresholds)
+        if not data.get(_family):
+            # The sanctioned re-seed's intermediate commit carries no
+            # budget to tighten, by declaration. Tightening nothing is
+            # the whole answer, and saying so beats a crash on an
+            # absent family the marker made legal.
+            print('no suite_cost budget — re-seed in flight: '
+                  'nothing to tighten')
+            return 0
         candidate = update(data, counts)
         if candidate is None:
             print('no suite phase beat its recorded budget by more than '

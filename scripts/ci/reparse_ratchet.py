@@ -86,7 +86,7 @@ def tightenable(data, readings):
     reversed. The two metrics of one phase are independent: a cheaper
     share says nothing about the count.
     """
-    candidate = thresholds.normalise(data)
+    candidate = thresholds.normalise(data, thresholds.verdict())
     moves = {}
     for phase in thresholds.REPARSE_PHASES:
         if phase not in readings:
@@ -110,13 +110,13 @@ def update(data, readings):
     moves = tightenable(data, readings)
     if not moves:
         return None
-    candidate = thresholds.normalise(data)
+    candidate = thresholds.normalise(data, thresholds.verdict())
     for _label, (phase, metric, measured) in moves.items():
         candidate[thresholds.REPARSE_FAMILY][phase][metric] = {
             'measured': measured,
             'floor': measured + CALIBRATION_GAP,
         }
-    return thresholds.normalise(candidate)
+    return thresholds.normalise(candidate, thresholds.verdict())
 
 
 def _parser():

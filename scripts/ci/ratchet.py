@@ -48,9 +48,17 @@ def read_calibration(data, language='python'):
     return thresholds.coverage(data, language)
 
 
-def update(data, measured, language='python'):
-    """Return an updated document, or ``None`` when no raise is justified."""
-    candidate = thresholds.normalise(data)
+def update(data, measured, language='python', reseed_in_flight=None):
+    """Return an updated document, or ``None`` when no raise is justified.
+
+    ``reseed_in_flight`` defaults to the tree's own verdict, like every
+    other re-validation of a document another helper produced: a suite
+    cost budget mid-re-seed is no reason to refuse to RAISE a coverage
+    calibration, and reading strict here would redden the master-only
+    ratchet step on every push for as long as the re-seed is in flight.
+    """
+    declared = thresholds.verdict(reseed_in_flight)
+    candidate = thresholds.normalise(data, declared)
     measured = _measurement(measured)
     recorded_measured, _floor = read_calibration(candidate, language)
     should_raise = measured - recorded_measured > RAISE_HYSTERESIS
@@ -60,7 +68,7 @@ def update(data, measured, language='python'):
         'measured': measured,
         'floor': measured - CALIBRATION_GAP,
     }
-    return thresholds.normalise(candidate)
+    return thresholds.normalise(candidate, declared)
 
 
 def _parser():

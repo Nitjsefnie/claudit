@@ -106,6 +106,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Depth 2, not the default 1: the suite-cost re-seed marker
+          # is read from this job's own HEAD and, on a pull-request
+          # run, from the pull request's head one level under the merge
+          # commit (scripts/ci/reseed.py). A depth-1 clone of a merge
+          # ref has no parent to read, so the marker resolves to
+          # nothing and the gate would fail closed on the very commit
+          # that declares it (issue #502). One level is what the marker
+          # needs; this leg needs nothing else.
+          fetch-depth: 2
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
