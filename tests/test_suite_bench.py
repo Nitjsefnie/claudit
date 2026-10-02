@@ -98,20 +98,39 @@ def _measure(mini_suite, name="m.json", seed=None):
     return json.loads((mini_suite / name).read_text(encoding="utf-8"))
 
 
-def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0")):
+def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0"),
+                    identity=None):
     """A thresholds document whose suite budgets sit `lift` against the
     measurement: lift 0.0 puts every ceiling exactly the gap above the
     measured value (the seed shape, the gate must accept); lift -1.6
     puts each ceiling one increment BELOW a phase (the gate must
     refuse). A recorded value is clamped at 0.0 -- the loader's
     non-negative bound -- so a phase whose measurement cannot cover the
-    gap passes honestly rather than being forced under."""
+    gap passes honestly rather than being forced under. ``identity``
+    writes the workload identity into the family (SV-CI-RATCHETS); None
+    leaves the field out, the pre-feature document shape."""
     path = SCRIPTS_CI / "thresholds.py"
     spec = importlib.util.spec_from_file_location("thresholds", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules["thresholds"] = module
     spec.loader.exec_module(module)
+    suite = {
+        phase: {
+            "measured": max(
+                Decimal(measurement["phases"][phase]
+                        ["million_instructions"]) + lift,
+                Decimal("0.0")).quantize(Decimal("0.1")),
+            "floor": (max(
+                Decimal(measurement["phases"][phase]
+                        ["million_instructions"]) + lift,
+                Decimal("0.0")).quantize(Decimal("0.1"))
+                + module.CALIBRATION_GAP),
+        }
+        for phase in ("collection", "run", "residual")
+    }
+    if identity is not None:
+        suite["tests_tree_lines"] = identity
     doc = {
         "schema_version": 1,
         "coverage": {
@@ -121,20 +140,7 @@ def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0")):
         },
         "module_size_baseline": {},
         "pylint_suppression_baseline": {},
-        "suite_cost": {
-            phase: {
-                "measured": max(
-                    Decimal(measurement["phases"][phase]
-                            ["million_instructions"]) + lift,
-                    Decimal("0.0")).quantize(Decimal("0.1")),
-                "floor": (max(
-                    Decimal(measurement["phases"][phase]
-                            ["million_instructions"]) + lift,
-                    Decimal("0.0")).quantize(Decimal("0.1"))
-                    + module.CALIBRATION_GAP),
-            }
-            for phase in ("collection", "run", "residual")
-        },
+        "suite_cost": suite,
         # The loader requires EVERY top-level family, so a synthetic
         # suite_cost document must also carry a valid reparse family.
         # It is inert here — nothing in this module reads it.
@@ -465,3 +471,61 @@ def test_measure_releases_the_monitoring_tool_id(mini_suite):
         assert fresh.available, fresh.reason
     finally:
         fresh.close()
+
+
+def test_measurement_records_the_workload_identity(mini_suite):
+    # The seed binds a budget to the workload it measured: the
+    # measurement records the total line count of the scanned tree,
+    # tests/*.py, which the tree-scanning tests spend per-line over
+    # (SV-CI-RATCHETS, issue #524).
+    (mini_suite / "tests").mkdir()
+    (mini_suite / "tests" / "sub").mkdir()
+    (mini_suite / "tests" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (mini_suite / "tests" / "sub" / "b.py").write_text(
+        "y = 2\nz = 3\n", encoding="utf-8")
+    measurement = _measure(mini_suite)
+    assert measurement["tests_tree_lines"] == 3
+
+
+def test_measurement_without_a_tests_tree_records_zero(mini_suite):
+    # A tree with no tests/ has no scanned workload: the identity is an
+    # honest 0, not a refusal — the mini suites carry no tests/ tree.
+    measurement = _measure(mini_suite)
+    assert measurement["tests_tree_lines"] == 0
+
+
+def test_gate_names_workload_drift_on_a_breach(mini_suite, tmp_path):
+    # A phase over its ceiling under a changed workload is a different
+    # diagnosis from a regression: the gate says which one it is.
+    measurement = _measure(mini_suite)
+    target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"),
+                             identity=40000)
+    result = _run_bench(
+        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    assert result.returncode == 1
+    assert "workload identity drifted" in result.stderr
+    assert "re-seed" in result.stderr
+
+
+def test_gate_names_workload_drift_within_the_ceiling(mini_suite, tmp_path):
+    # Under the ceiling the drift is a note, not a verdict: the
+    # hysteresis absorbs small tree changes, and the note is the early
+    # warning a re-seed can be scheduled against.
+    measurement = _measure(mini_suite)
+    target = _thresholds_for(tmp_path, measurement, identity=40000)
+    result = _run_bench(
+        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    assert result.returncode == 0
+    assert "workload identity drifted" in result.stdout
+
+
+def test_gate_without_the_identity_reads_unchanged(mini_suite, tmp_path):
+    # A document (or measurement) predating the field behaves exactly as
+    # before: no identity to compare, no drift to name.
+    measurement = _measure(mini_suite)
+    target = _thresholds_for(tmp_path, measurement)
+    result = _run_bench(
+        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    assert result.returncode == 0
+    assert "workload identity drifted" not in result.stdout
+    assert "workload identity drifted" not in result.stderr

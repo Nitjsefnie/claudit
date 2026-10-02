@@ -1021,8 +1021,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `scripts/ci/suite_bench.py` with `sys.monitoring`'s INSTRUCTION
   events (the `process_time` fallback is telemetry that fails closed
   at `--check`). This is the speed gate's instrument — runner wall is void, and a
-  count is exact within one environment state (the bench records its
-  across-state bound) — and the gap sits ABOVE the measured value because the number is a
+  count is exact for one (tree content, interpreter, library set) —
+  issue #524's series drew exact repeats across the runner fleet and a
+  12-vCPU box on identical trees — and the gap sits ABOVE the measured value because the number is a
   cost ceiling, not a quality floor. Seeded via the loader's writer
   (`suite_ratchet.py --seed`, only when the member is absent) FROM A
   RUNNER MEASUREMENT — the environment the gate and the master-push
@@ -1030,9 +1031,21 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   non-runner seed would gate runners red; tightened by the master-push
   bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis, both
   fields, never raised). The interpreter micro is pinned in the
-  workflows that run the bench. Sanctioned RE-SEED: when the recorded
+  workflows that run the bench. The budgets are BOUND TO THE WORKLOAD
+  THEY MEASURED: the fixture's tree-scanning tests (the db-marker
+  derivation, the version-literal guard, the scratch-DB scan) spend
+  per-line over ``tests/``, so a change to that tree's content moves
+  the counts with no fixture, interpreter or machine change. Every
+  measurement and every seed records the workload identity
+  `tests_tree_lines` (the tests/*.py line total); the gate names a
+  drifted identity when a phase breaches instead of reading it as
+  slowness, and the guard refuses a hand-moved identity on an
+  established family — the sanctioned re-seed, measured on the tree
+  the seed describes, is the only writer. Sanctioned RE-SEED: when the recorded
   workload legitimately changes — the fixture list, the interpreter
-  pin, or the code the pinned tests execute — it lands as TWO reviewed
+  pin, the code the pinned tests execute, or the scanned tree's
+  content (issue #524: the day's 345.9→348.6 step was #518's +643 test
+  lines moving the scans, not a runner change) — it lands as TWO reviewed
   gate-definers, never one. The first deletes the stale member under
   the commit-message marker `[suite-cost-re-seed]`
   (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a

@@ -493,3 +493,47 @@ def test_reparse_remedy_is_printed_for_a_reparse_move(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "reparse.sniff.share.measured" in err
     assert "never raised by hand" in err
+
+
+def _with_identity(suite, lines):
+    family = copy.deepcopy(suite)
+    family["tests_tree_lines"] = lines
+    return family
+
+
+def test_suite_cost_identity_moved_fails(tmp_path):
+    # The workload identity is the seed's binding to the workload it
+    # measured (issue #524): only the sanctioned re-seed writes it, and
+    # that path deletes the family first — the marker's commit is the
+    # one whose base lacks the family, so the identity always arrives as
+    # part of a new family's seed. On an established family, a moved
+    # identity is a hand-edit and fails.
+    base = _document(suite=_with_identity(SUITE_COST, 40000))
+    head = _document(suite=_with_identity(SUITE_COST, 40250))
+    assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_suite_cost_identity_added_to_established_family_fails(tmp_path):
+    # Same rule, addition shape: an identity arriving on a family the
+    # base already carries did not come from a seed (a seed's base
+    # predates the family whole), so it is a hand-add and fails.
+    base = _document()
+    head = _document(suite=_with_identity(SUITE_COST, 40000))
+    assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_new_family_seed_carrying_the_identity_is_clean(tmp_path):
+    # The sanctioned re-seed's seed commit: the base predates the family
+    # (the marker's delete), so the family and its identity arrive
+    # together and are not a move at all.
+    base = _document()
+    base.pop("suite_cost")
+    head = _document(suite=_with_identity(SUITE_COST, 40000))
+    # The base is family-absent, the one document shape the writer only
+    # publishes on a marker commit; its bytes are placed directly, as
+    # test_new_member_seeded_is_clean does.
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
+    head_path = _written(tmp_path, head, "head.json")
+    assert _guard().main([
+        "--base", str(base_path), "--head", str(head_path)]) == 0
