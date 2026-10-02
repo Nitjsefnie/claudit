@@ -23,7 +23,6 @@ stale excuses cannot accumulate.
 from __future__ import annotations
 
 import ast
-import functools
 import io
 import re
 import tokenize
@@ -284,37 +283,28 @@ def _marker_lines(source: str) -> set[int]:
     return found
 
 
-@functools.lru_cache(maxsize=8)
-def _wanted_pattern(wanted: frozenset[str]) -> re.Pattern[str]:
-    """One alternation matching any wanted row name."""
-    return re.compile("|".join(map(re.escape, sorted(wanted))))
-
-
-def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
-                 wanted_hosts: frozenset[str] = frozenset()) -> bool:
+def _scan_admits(source: str) -> bool:
     """Whether one module's source can hold anything check() can flag.
 
     The fail-closed gate that keeps this file's tree scan (issue #510)
     from walking every unrelated module: every clause admits a strict
     superset of the shapes detect()/check() flag, so a skip only saves
     the walk, never hides a site. A marker comment carries
-    ``sv-test-data`` verbatim in the text. A version name is an
-    attribute id, a string constant, or a setenv/setattr argument —
-    verbatim in text when spelled plainly, folded into ``co_consts``
-    (which resolve both splits and escapes) when not. The committed-
-    document reference is an attribute id or a module path-bind
-    constant: verbatim in text, or folded into consts. A rate call's
-    name is an identifier (text or ``co_names``), and its wanted
-    literal folds into a wanted row — so its normalised spelling
-    contains that row's name, and the lowered, dots-to-dashes haystack
-    (the fold ``pricing._normalise`` applies) still contains it; the
-    case-exact host names are matched against the raw text as well.
+    ``sv-test-data`` verbatim in the text, and a rate call's name is an
+    identifier, so both are admitted on the text alone. A version name
+    is an attribute id, a string constant, or a setenv/setattr
+    argument — verbatim in text when spelled plainly, folded into
+    ``co_consts`` (which resolve both splits and escapes) when not,
+    where the clause compares it by equality, the way its shapes do.
+    The committed-document reference is an attribute id or a module
+    path-bind constant: verbatim in text, folded into consts, or
+    carried as a SUBSTRING of a longer constant, matched the way
+    detect matches it.
 
     Not covered, and unreachable from a flagged shape short of
     steganography: vocabulary spelled only inside a dead branch
-    (``if 0:``) AND split or escaped there, and a wanted/path-bind
-    value embedded by escape inside a LONGER literal. test_scan_gate's
-    property fails loudly if the interpreter's folding changes.
+    (``if 0:``) AND split or escaped there. test_scan_gate's property
+    fails loudly if the interpreter's folding changes.
     """
     if "sv-test-data" in source:
         return True
@@ -323,15 +313,13 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
             or any(r in source for r in RATE_CALL_NAMES)):
         return True
     consts, names = scan_gate.module_vocab(source)
-    if (any(v in consts or v in names for v in VERSION_NAMES)
-            or "pricing.json" in consts or "PRICING_JSON" in names):
-        return True
-    if not any(r in source or r in names for r in RATE_CALL_NAMES):
-        return False
-    wanted = wanted_models | wanted_hosts
-    pattern = _wanted_pattern(wanted)
-    return bool(pattern.search(source.lower().replace(".", "-"))) or bool(
-        pattern.search(source))
+    # Each consts/names clause matches the way its shape matches: the
+    # version names by equality (setattr/setenv compare the whole
+    # argument), the path bind by substring (detect folds a substring
+    # test over the value), the module reference by attribute name.
+    return (any(v in consts or v in names for v in VERSION_NAMES)
+            or any("pricing.json" in c for c in consts)
+            or "PRICING_JSON" in names)
 
 
 def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
@@ -345,8 +333,7 @@ def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
     walk and tokenizer when it cannot — most tree modules cannot, which
     is what keeps this pinned scan from re-pricing with tree size.
     """
-    if not _scan_admits(source, wanted_models=wanted_models,
-                        wanted_hosts=wanted_hosts):
+    if not _scan_admits(source):
         return []
     sites = detect(source, wanted_models=wanted_models,
                    wanted_hosts=wanted_hosts)
@@ -671,9 +658,9 @@ def test_a_seeded_marker_without_a_site_is_rot(tmp_path):
 
 
 def test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file(tmp_path):
-    # The dotted spelling: the gate's haystack fold (lower, dots to
-    # dashes) must still admit it, because detect() normalises and
-    # would flag it.
+    # The dotted spelling: the text clause admits on the rate call's
+    # name alone, and detect() normalises the literal before matching,
+    # so the plant is flagged whatever the literal's spelling.
     model = sorted(pricing.MODEL_RATES)[0]
     dotted = model.replace("-", ".")
     (tmp_path / "test_planted.py").write_text(
@@ -690,6 +677,17 @@ def test_a_seeded_host_literal_is_flagged_case_exactly(tmp_path):
         f"    return resolve(model, '{host}')\n", encoding="utf-8")
     problems = _tree_problems(tmp_path)
     assert len(problems) == 1 and "line 2" in problems[0]
+
+
+def test_a_seeded_split_path_bind_in_a_longer_literal_is_flagged(tmp_path):
+    # The substring clause's plant: a split spelling folded into a
+    # LONGER constant, which neither the text nor an equality test over
+    # consts carries — detect matches it as a substring, so the gate
+    # must too.
+    (tmp_path / "test_planted.py").write_text(
+        "DOC = ROOT / 'src/pricing' '.json'\n", encoding="utf-8")
+    problems = _tree_problems(tmp_path)
+    assert len(problems) == 1 and "path bind" in problems[0]
 
 
 def test_a_module_without_the_scan_vocabulary_is_skipped():
