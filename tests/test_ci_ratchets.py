@@ -221,11 +221,12 @@ def test_main_unreadable_thresholds_fails(tmp_path, capsys):
 # --- the reparse CPU ratchet -------------------------------------------------
 #
 # The coverage ratchet only ever moves UP: more measured coverage is a
-# better number. A reparse phase's share of the pass is a cost, so this
+# better number. A reparse phase's recorded bytecodes are a cost, so this
 # ratchet mirrors every rule with the direction inverted — it only ever
 # moves DOWN, one phase at a time, and a slower or within-hysteresis
 # reading tightens nothing. The yardsticks are the same two constants,
-# in the bench's own unit.
+# in the bench's own unit. The per-phase share is NOT tightened: it stopped
+# being a budget with issue #513 and is telemetry the measurement carries.
 
 def _reparse_ratchet():
     return _load("reparse_ratchet")
@@ -254,19 +255,31 @@ def test_no_tighten_within_hysteresis():
 
 def test_tighten_beyond_hysteresis():
     ratchet = _reparse_ratchet()
-    updated = ratchet.update(_document(), _readings(**{"sniff.share": "8.4"}))
+    updated = ratchet.update(_document(), _readings(**{"sniff.bytecodes": "8.4"}))
     assert updated is not None
-    record = updated["reparse"]["sniff"]["share"]
+    record = updated["reparse"]["sniff"]["bytecodes"]
     assert record["measured"] == Decimal("8.4")
     assert record["floor"] == Decimal("9.9")
     # Nothing outside the tightened phase moved.
     assert updated["schema_version"] == 1
     assert updated["coverage"] == _document()["coverage"]
     assert updated["module_size_baseline"] == {}
-    assert updated["reparse"]["parse_body"]["share"] == {
+    assert updated["reparse"]["parse_body"]["bytecodes"] == {
         "measured": Decimal("10.0"), "floor": Decimal("11.5")}
-    assert updated["reparse"]["sniff"]["bytecodes"] == {
-        "measured": Decimal("10.0"), "floor": Decimal("11.5")}
+
+
+def test_a_tighter_share_tightens_nothing():
+    """A share below every recorded value moves no budget (issue #513).
+
+    The ratchet writes the numbers the gate holds phases to, and the
+    gate holds bytecodes. Tightening a share would spend a master's
+    commit on a proportion whose run-to-run spread is wider than the
+    gap it is compared against.
+    """
+    ratchet = _reparse_ratchet()
+    assert ratchet.update(_document(), _readings(**{"sniff.share": "1.0"})) is None
+    assert ratchet.update(
+        _document(), _readings(**{"parse_body.share": "0.1"})) is None
 
 
 def test_slower_measurement_never_raises_the_budget():
@@ -275,10 +288,9 @@ def test_slower_measurement_never_raises_the_budget():
     assert ratchet.update(_document(), _readings("90.0")) is None
 
 
-def test_each_phase_and_metric_tightens_on_its_own_measurement():
-    # Phases are independent ceilings, and so are the two metrics of one
-    # phase: a cheaper share says nothing about the count, and the
-    # ratchet must not carry either with the other.
+def test_each_phase_tightens_on_its_own_measurement():
+    # Phases are independent ceilings, so a run that tightens one of
+    # them leaves the others exactly where they were.
     ratchet = _reparse_ratchet()
     updated = ratchet.update(_document(), _readings(**{
         "residual.bytecodes": "2.0"}))
@@ -320,7 +332,7 @@ def test_measurement_missing_a_phase_refused():
 def test_reparse_measured_with_two_decimals_rejected():
     ratchet = _reparse_ratchet()
     with pytest.raises(ValueError, match="exactly one decimal place"):
-        ratchet.update(_document(), _readings(**{"sniff.share": "8.45"}))
+        ratchet.update(_document(), _readings(**{"sniff.bytecodes": "8.45"}))
 
 
 def test_floor_for_is_measured_plus_the_gap():
@@ -356,17 +368,17 @@ def test_reparse_main_tightens_from_a_written_measurement(tmp_path, capsys):
     ratchet = _reparse_ratchet()
     target = _written(tmp_path)
     measurement = _measurement_file(
-        tmp_path, _readings(**{"parse_body.share": "4.0"}))
+        tmp_path, _readings(**{"parse_body.bytecodes": "4.0"}))
     assert ratchet.main([
         "--measured-file", str(measurement),
         "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
-    assert doc["reparse"]["parse_body"]["share"] == {
+    assert doc["reparse"]["parse_body"]["bytecodes"] == {
         "measured": Decimal("4.0"), "floor": Decimal("5.5")}
-    assert doc["reparse"]["sniff"]["share"] == {
+    assert doc["reparse"]["sniff"]["bytecodes"] == {
         "measured": Decimal("10.0"), "floor": Decimal("11.5")}
     out = capsys.readouterr().out
-    assert "tightened the parse_body share budget" in out
+    assert "tightened the parse_body bytecodes budget" in out
     assert "11.5 -> 5.5" in out
     # The coverage calibrations are untouched by a reparse tighten.
     assert doc["coverage"]["python"]["measured"] == Decimal("92.6")

@@ -373,8 +373,9 @@ jobs:
         # Only measurements from a master push may move the recorded
         # calibration — a pull request runs untrusted code and must not
         # be able to write it. The ratchets raise either coverage floor
-        # and tighten the reparse phase shares; growth is never written
-        # here, the gates stay gates.
+        # and tighten the reparse phase bytecode counts (the per-phase
+        # shares are telemetry since #513 and nothing tightens them);
+        # growth is never written here, the gates stay gates.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'

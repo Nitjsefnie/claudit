@@ -1,7 +1,7 @@
 name: Reparse CPU gate
 description: >-
   Measure the CPU work of one reparse pass over the mini fixture mirror,
-  split by phase, and hold every phase to its recorded share of that pass.
+  split by phase, and hold every phase to its recorded bytecode count.
 
 # A composite action because .github/workflows/tests.yml sits exactly on
 # its per-file size ratchet entry, and that ratchet's answer to growth is
@@ -10,9 +10,11 @@ description: >-
 # is the CI shape of it:
 #
 #   measure ONCE, into a file the caller's ratchet step can read
-#     -> print the human report into the step summary
-#     -> gate every phase against the committed floors (nonzero on a
-#        phase over its share, which fails the caller's job)
+#     -> print the human report into the step summary (per-phase shares
+#        ride along as TELEMETRY; only the counts gate, issue #513)
+#     -> gate every phase against the committed count ceilings (nonzero
+#        on a phase over its count, or on a count that was never taken,
+#        which fails the caller's job)
 #
 # The measurement path is an input so the caller and this action agree on
 # one file; it lands in the workspace, which is a throwaway CI checkout.

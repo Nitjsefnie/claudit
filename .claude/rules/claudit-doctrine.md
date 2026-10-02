@@ -956,30 +956,45 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   measurement fails a gate no change can satisfy.
 - Reparse (`reparse`): one record per phase of one reparse pass
   (`scripts/ci/reparse_bench.py`, called from `tests.yml` through
-  `.github/actions/reparse-bench`), each phase carrying TWO
-  instruments, both ratcheted, because each sees something the other
-  cannot:
-  - `share` — the phase's percent of that run's own CPU,
-    `time.process_time()` (never wall). Scale-free
-    inside one run; it catches work MOVING between phases, and cannot
-    catch the pass getting slower as a whole.
+  `.github/actions/reparse-bench`), each phase carrying TWO instruments
+  because each sees something the other cannot — and only ONE of them
+  gates (issue #513):
   - `bytecodes` — hundreds of bytecode instructions per file, counted
     with `sys.monitoring`'s INSTRUCTION event
     (`scripts/ci/reparse_phases.py`). Exact: the same tree retires the
     same number on a loaded machine and an idle one, under any
-    `PYTHONHASHSEED`. It catches the uniform per-file
-    slowdown, and needs no amplification to be stable; its gap is sized
-    for interpreter drift, not for noise.
+    `PYTHONHASHSEED`. It catches the uniform per-file slowdown, and
+    needs no amplification to be stable; its gap is sized for
+    interpreter drift, not for noise. This is the GATED instrument: the
+    enforced set is `thresholds.REPARSE_GATED_METRICS`, which the gate
+    reads, and it fails closed — a count that was not taken fails the
+    gate, because a gate whose only instrument is missing must not read
+    as a pass.
+  - `share` — the phase's percent of that run's own CPU,
+    `time.process_time()` (never wall). Scale-free inside one run; it
+    shows where the pass spends its work, and it is still measured,
+    printed and recorded — but it is TELEMETRY: nothing compares it
+    against the recorded share budgets and the ratchet never tightens
+    them. A proportion of a timed run is not a count of work: its
+    runner-to-runner spread measures 1.9-2.7 points against the 1.5-point
+    gap it would be judged against (#500, #506), and it moves when the
+    corpus MIX shifts between formats of different parse cost even with
+    no code path slower and every count under its own ceiling (PR #512).
+    The measurement doctrine's own principle decides it: counters gate,
+    derived proportions do not. The share members STAY in
+    `.github/ci-thresholds.json`, carrying the reading they recorded, and
+    the loader and the direction guard keep validating and defending them
+    like any recorded number; nothing fails on them.
   Both are costs: `floor = measured + 1.5`, and
   `scripts/ci/reparse_ratchet.py` mirrors `ratchet.py` with every
-  comparison reversed, one phase and metric at a time. The pass is
+  comparison reversed, one gated phase at a time. The pass is
   decomposed by wrapping the callables the real path calls, and the
   residual — everything they do not account for — is a phase of its
   own, named and ratcheted, so an unmeasured phase cannot hide inside a
   measured one. `perf stat`'s machine-instruction count rides along as
   a CROSS-CHECK and nothing more: it prices a whole process rather
   than a phase, and needs a counter facility a hosted runner may
-  refuse. When either instrument is unavailable the bench prints NOT
+  refuse. When an instrument is unavailable the bench prints NOT
   MEASURED with the reason — an absent measurement must never read as
   a passing one. Never raise a floor by hand, for any reason.
 - Module size (`module_size_baseline`): every tracked `*.py` under

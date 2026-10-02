@@ -49,13 +49,12 @@ _SCHEMA_VERSION = 1
 # over backend/, javascript from the node-executing tests over the src
 # files they load (src/**/*.js; node parses no JSX).
 COVERAGE_LANGUAGES = ('python', 'javascript')
-# The unit the reparse bench records (scripts/ci/reparse_bench.py): each
-# phase's share of one reparse pass's own CPU work, in percent. A share
-# rather than an absolute cost because a ratio inside one run does not
-# drift with the machine or the co-tenant load the way an absolute
-# total does — see the docstring of _reparse for the rest.
+# The unit the reparse bench records for a phase share (scripts/ci/
+# reparse_bench.py): the phase's percent of one reparse pass's own CPU
+# work. Telemetry since issue #513 — still measured, still stored, no
+# longer compared against anything (see REPARSE_GATED_METRICS).
 REPARSE_UNIT = 'percent_of_pass_cpu'
-# The second instrument's unit: hundreds of bytecode instructions per
+# The gated instrument's unit: hundreds of bytecode instructions per
 # file, counted with sys.monitoring's INSTRUCTION event. Exact, so it
 # needs no amplification and no tolerance — which is also why its gap is
 # sized for interpreter drift rather than for noise.
@@ -67,11 +66,23 @@ REPARSE_COUNT_UNIT = 'bytecode_hundreds_per_file'
 # fields move down) and its gap sits above the measured value; see
 # _reparse, and _suite_cost for the same rule stated for suite_cost.
 REPARSE_FAMILY = 'reparse'
-# The two instruments recorded per phase, and why both are here: a share
-# is scale-free inside one run and catches work MOVING between phases; a
-# bytecode count is exact and catches the pass getting slower as a WHOLE,
-# which a share cannot see because every phase grows together.
+# The two instruments RECORDED per phase. Both are measured and stored:
+# a share shows where the pass spends its CPU, which is worth having
+# beside the gate's own number.
 REPARSE_METRICS = ('bytecodes', 'share')
+# The instruments the gate and the ratchet act on — bytecodes alone
+# (issue #513). A share is a PROPORTION of a timed run, not a count of
+# work, and it fails as a gate twice over: its runner-to-runner spread
+# measures 1.9-2.7 points against the 1.5-point gap it would be compared
+# against (#500, #506), and it moves when the corpus MIX shifts between
+# formats of different parse cost even with no code path slower and
+# every count under its own ceiling (PR #512). The measurement doctrine's
+# own principle settles it: counters gate, derived proportions do not.
+# The share members STAY in the document, carrying the reading they
+# recorded, and the loader and the direction guard keep treating them as
+# recorded numbers; nothing compares against them, so nothing fails on
+# them and the ratchet no longer tightens them.
+REPARSE_GATED_METRICS = ('bytecodes',)
 # The phases the reparse bench splits a pass into — the same names it
 # instruments (scripts/ci/reparse_bench.py reads them from here, so the
 # document and the measurement cannot disagree about what a phase is).
@@ -133,7 +144,8 @@ def verdict(reseed_in_flight=None):
         return reseed_in_flight
     # Imported HERE rather than at module scope: reseed shells out to
     # git, and every consumer of this loader — the reparse bench among
-    # them, whose measured CPU share is the gate's own instrument —
+    # them, the reparse bench among them, whose measured bytecode
+    # counts are the gate's own instrument —
     # would otherwise carry a module that reads a commit message to
     # answer a question it never asks.
     # pylint: disable-next=import-outside-toplevel
@@ -242,9 +254,10 @@ def _suite_cost(family):
 def _reparse(family):
     """Validate the reparse bench's per-phase calibrations.
 
-    Two records per phase — a percent share of the pass's own CPU and a
-    bytecode count — each with its gap ABOVE the measured value, because
-    a cost's floor is the ceiling it may be exceeded by. Writing it the
+    Two records per phase — a percent share of the pass's own CPU, which
+    is telemetry since issue #513, and the bytecode count the gate holds
+    a phase to — each with its gap ABOVE the measured value, because a
+    cost's floor is the ceiling it may be exceeded by. Writing it the
     coverage way round (floor = measured - gap) would put the ceiling
     BELOW the measurement that recorded it, and every later run at that
     measurement would fail a gate no change could satisfy.

@@ -569,26 +569,15 @@ def test_check_passes_while_every_phase_is_within_its_floor(tmp_path):
     thresholds.write(thresholds_path, _document(_budgets()))
     path = tmp_path / "m.json"
     report_module.write_measurement(path, _measurement_with(
-        {name: Decimal("9.0") for name in bench.PHASES}))
+        {name: Decimal("9.0") for name in bench.PHASES},
+        {name: Decimal("1.0") for name in bench.PHASES}))
     assert bench.main(["--check", str(path), "--thresholds",
                        str(thresholds_path)]) == 0
 
 
-def test_check_fails_on_a_phase_over_its_share_floor(tmp_path):
-    thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(_budgets()))
-    shares = {name: Decimal("9.0") for name in bench.PHASES}
-    shares["parse_body"] = Decimal("40.0")
-    path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(shares))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 1
-
-
 def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys):
-    # The share and the count are gated separately, and a phase over
-    # either one fails: the count is what catches a uniform slowdown,
-    # where every share stays put.
+    # The count is what catches a uniform slowdown, where every share
+    # stays put, so it is the one the gate holds a phase to.
     thresholds_path = tmp_path / "ci-thresholds.json"
     thresholds.write(thresholds_path, _document(_budgets()))
     counted = {name: Decimal("1.0") for name in bench.PHASES}
@@ -601,20 +590,99 @@ def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "parse_body: 40.0" in err
     assert "sniff" not in err, "only the offending phase is named"
+    assert "never raised by hand" in err
+
+
+def test_check_ignores_a_share_over_its_floor(tmp_path, capsys):
+    """A share no longer gates (issue #513) — it is telemetry.
+
+    A phase share is a proportion of a timed run: its runner-to-runner
+    spread measures wider than the 1.5-point gap it is compared against
+    (#500, #506), and it moves when the corpus MIX shifts between
+    formats of different parse cost even with no code path slower and
+    every count under its ceiling (PR #512). The recorded share budgets
+    stay in the document as the reading they recorded; nothing is
+    compared against them.
+    """
+    thresholds_path = tmp_path / "ci-thresholds.json"
+    thresholds.write(thresholds_path, _document(_budgets()))
+    shares = {name: Decimal("99.9") for name in bench.PHASES}
+    path = tmp_path / "m.json"
+    report_module.write_measurement(path, _measurement_with(
+        shares, {name: Decimal("1.0") for name in bench.PHASES}))
+    assert bench.main(["--check", str(path), "--thresholds",
+                       str(thresholds_path)]) == 0
+    out = capsys.readouterr().out
+    assert "99.9" in out, "the share is still printed, as telemetry"
+
+
+def test_check_passes_a_share_over_floor_against_the_COMMITTED_budgets(tmp_path):
+    """The same claim against the real document, whose values the ratchet
+    moves on master — so nothing here is pinned, only the invariant: a
+    count of zero is under any floor a positive measured value can
+    produce (thresholds.py refuses floor <= measured, and a measured
+    count is never negative)."""
+    path = tmp_path / "m.json"
+    report_module.write_measurement(path, _measurement_with(
+        {name: Decimal("99.9") for name in bench.PHASES},
+        {name: Decimal("0.0") for name in bench.PHASES}))
+    assert bench.main(["--check", str(path),
+                       "--thresholds", str(thresholds.THRESHOLDS)]) == 0
+
+
+def test_check_fails_when_the_gated_count_was_not_measured(tmp_path, capsys):
+    """Fail closed: the count is the ONLY instrument the gate holds, so an
+    absent one is an absent gate, not a passing one. An interpreter
+    without `sys.monitoring` must not silence the step, and the reason
+    the bench recorded has to travel with the refusal."""
+    thresholds_path = tmp_path / "ci-thresholds.json"
+    thresholds.write(thresholds_path, _document(_budgets()))
+    path = tmp_path / "m.json"
+    report_module.write_measurement(path, _measurement_with(
+        {name: Decimal("9.0") for name in bench.PHASES})._replace(
+            instruction_counts={'available': False,
+                                'reason': 'no INSTRUCTION event'},
+            instruction_note='no INSTRUCTION event'))
+    assert bench.main(["--check", str(path), "--thresholds",
+                       str(thresholds_path)]) == 1
+    err = capsys.readouterr().err
+    assert "NOT MEASURED" in err
+    assert "no INSTRUCTION event" in err
 
 
 def test_check_names_the_offending_phase(tmp_path, capsys):
     thresholds_path = tmp_path / "ci-thresholds.json"
     thresholds.write(thresholds_path, _document(_budgets()))
-    shares = {name: Decimal("9.0") for name in bench.PHASES}
-    shares["sniff"] = Decimal("40.0")
+    counted = {name: Decimal("1.0") for name in bench.PHASES}
+    counted["sniff"] = Decimal("40.0")
     path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(shares))
+    report_module.write_measurement(path, _measurement_with(
+        {name: Decimal("9.0") for name in bench.PHASES}, counted))
     assert bench.main(["--check", str(path), "--thresholds",
                        str(thresholds_path)]) == 1
     err = capsys.readouterr().err
-    assert "sniff: 40.0% of the pass, floor 11.5%" in err
+    assert "sniff: 40.0" in err
     assert "never raised by hand" in err
+
+
+def test_the_report_calls_the_share_telemetry_not_a_budget():
+    """The printed label is what a reader takes the number's status from;
+    a share printed in the same column as the gated counts reads as one."""
+    measurement = _measurement_with(
+        {name: Decimal("9.0") for name in bench.PHASES},
+        {name: Decimal("1.0") for name in bench.PHASES})
+    text = report_module.report(measurement)
+    assert "telemetry" in text
+    assert "share" in text
+
+
+def test_the_gate_holds_exactly_the_bytecode_budgets():
+    """The enforced set is named in one place, and the share is not in
+    it — so a later metric cannot join the gate by being added to the
+    recorded one."""
+    assert thresholds.REPARSE_GATED_METRICS == ("bytecodes",)
+    assert "share" in thresholds.REPARSE_METRICS, (
+        "the share stays recorded; it only stops gating")
 
 
 def _document(reparse):

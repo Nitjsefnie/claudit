@@ -2,25 +2,30 @@
 """Tighten the recorded reparse CPU budgets from a measured bench run.
 
 The mirror of ``ratchet.py`` with the direction inverted. Coverage is a
-quality number, so its ratchet only ever raises; a reparse phase's share
-of the pass is a cost, so this one only ever TIGHTENS, one phase at a
-time: a phase whose measured share beats the recorded ``measured`` by
-more than the hysteresis has both its fields rewritten downward, and
+quality number, so its ratchet only ever raises; a reparse phase's
+recorded bytecodes are a cost, so this one only ever TIGHTENS, one phase
+at a time: a phase whose measured count beats the recorded ``measured``
+by more than the hysteresis has both its fields rewritten downward, and
 anything slower — or within the hysteresis — justifies no change at all
 and leaves the file untouched. The yardsticks are the same 1.5 constants
-the coverage ratchet uses, in the bench's own unit (percent of the
-pass's CPU).
+the coverage ratchet uses, in the bench's own unit (hundreds of
+bytecodes per file).
+
+Only the GATED instruments are tightened (issue #513), which is the
+bytecode count alone. The per-phase share is telemetry — measured and
+recorded, compared against by nothing — and its runner-to-runner spread
+is wider than the gap a tighten would move, so chasing it would spend a
+master's commit on the machine's distribution of CPU rather than on the
+parse.
 
 The gap sits ABOVE the measured value because a phase's ``floor`` is a
-ceiling a run's share must stay under, not a lower bound a run's quality
+ceiling a run's count must stay under, not a lower bound a run's quality
 must clear; writing it the coverage way round would put the ceiling
 below the measurement that recorded it, and every later run at that
 measurement would fail a gate no change could satisfy.
 
 Phases are independent ceilings, so a run that tightens one of them
-leaves the others exactly where they were: a share only means something
-against the total it was measured in, and the totals are the whole run
-every time.
+leaves the others exactly where they were.
 
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways, and one module with two directions would make every reader ask
@@ -83,15 +88,15 @@ def tightenable(data, readings):
     ``readings`` is ``{phase: {metric: value}}``. A pair tightens when it
     beats its recorded value by more than the hysteresis — the same rule
     the coverage ratchet applies to a raise, with every comparison
-    reversed. The two metrics of one phase are independent: a cheaper
-    share says nothing about the count.
+    reversed. Only the GATED metrics are read (issue #513): the share
+    rides along in every measurement, and nothing here moves it.
     """
     candidate = thresholds.normalise(data, thresholds.verdict())
     moves = {}
     for phase in thresholds.REPARSE_PHASES:
         if phase not in readings:
             raise ValueError(f'the measurement carries no {phase} phase')
-        for metric in thresholds.REPARSE_METRICS:
+        for metric in thresholds.REPARSE_GATED_METRICS:
             if metric not in readings[phase]:
                 raise ValueError(
                     f'the measurement carries no {metric} for {phase}')
@@ -131,9 +136,10 @@ def _parser():
 def _readings(path: Path) -> dict:
     """The measurement file's per-phase, per-metric readings.
 
-    A phase with no count (an interpreter without sys.monitoring) is left
-    out rather than read as zero: a zero would tighten a floor that no
-    run can justify.
+    The share is carried because every measurement records it, not
+    because anything here acts on it. A phase with no count (an
+    interpreter without sys.monitoring) is left out rather than read as
+    zero: a zero would tighten a floor that no run can justify.
     """
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
@@ -162,7 +168,7 @@ def main(argv=None):
                   f'{TIGHTEN_HYSTERESIS}: nothing to tighten')
             return 0
         for phase in thresholds.REPARSE_PHASES:
-            for metric in thresholds.REPARSE_METRICS:
+            for metric in thresholds.REPARSE_GATED_METRICS:
                 before = recorded[phase][metric]
                 after = candidate[thresholds.REPARSE_FAMILY][phase][metric]
                 if after != before:
