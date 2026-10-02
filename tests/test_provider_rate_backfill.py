@@ -229,5 +229,5 @@ def test_backfill_leaves_a_row_backed_only_by_a_future_point_untouched(tmp_path,
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL]["Wafer"] == old
     assert "untouched Wafer" in out
-    assert "latest log state disagrees with the listed price" in out
+    assert "no in-force log state matches the listing" in out
     assert pricing_path.read_text(encoding="utf-8") == original

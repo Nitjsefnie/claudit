@@ -290,7 +290,22 @@ def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path,
     assert rc == 0 and not err
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL][HOST][-1] == _entry(STAMP, RATE_C)
-    assert f"{HOST}" in out and "disagrees" in out
+    assert f"{HOST}" in out and \
+        "no in-force state of the listed-pricing log matches the listing" in out
+    assert f"sampled   {HOST}" in out
+
+
+def test_a_listing_lagging_the_log_samples_with_the_lag_notice(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:10:00Z", RATE_B)]
+
+    rc, out, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states, endpoint_rates=RATE_A)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A)]
+    assert "the listing lags the listed-pricing log" in out
     assert f"sampled   {HOST}" in out
 
 
@@ -398,7 +413,7 @@ def test_a_future_log_point_is_sampled_not_committed_as_the_newest_entry(
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(STAMP, RATE_B)]
-    assert "disagrees" in out
+    assert "no in-force state of the listed-pricing log matches the listing" in out
 
 
 def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(

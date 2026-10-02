@@ -47,6 +47,14 @@ def _append_joined_rows(
             result.notices.append(
                 f"listed-pricing log disagrees with the listing for "
                 f"{model} via {host}; the host was sampled")
+        elif reason and "lags the price log" in reason:
+            result.notices.append(
+                f"the listing lags the listed-pricing log for "
+                f"{model} via {host}; the host was sampled")
+        elif reason and "no in-force log state matches the listing" in reason:
+            result.notices.append(
+                f"no in-force state of the listed-pricing log matches the listing "
+                f"for {model} via {host}; the host was sampled")
         if reason and reason.startswith("series has unusable pricing entries:"):
             result.notices.append(
                 f"listed-pricing entries are unusable for {model} via {host}; "

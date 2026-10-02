@@ -8,7 +8,6 @@ left for the hourly refresh's detection-time sampler.
 from __future__ import annotations
 
 import json
-import math
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
@@ -16,6 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
+from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
 from refresh_prices import (RefreshError, lists_a_fee, rates_of, tag_region)
 from backend import pricing as rate_pricing
 
@@ -23,36 +23,11 @@ MODELS_URL = "https://openrouter.ai/api/v1/models"
 LOG_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
 ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 _RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
-_POINT_FIELDS = ("input", "output", "cacheRead", "cacheWrite", "discount")
-_REQUIRED_POINTS = frozenset({"input", "output"})
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 FetchModels = Callable[[], object]
 FetchLog = Callable[[str], object]
 FetchEndpoints = Callable[[str], object]
-
-
-class PriceLogError(ValueError):
-    """A listed-pricing response that cannot safely back a provider row."""
-
-
-@dataclass(frozen=True)
-class Point:
-    """One field's value at an OpenRouter log instant."""
-
-    at: datetime
-    value: float | None
-
-
-@dataclass(frozen=True)
-class PriceSeries:
-    """One endpoint's independently timestamped rates."""
-
-    endpoint_id: str
-    provider_name: str
-    provider_slug: str
-    fields: dict[str, tuple[Point, ...]]
-    scheduled: bool
 
 
 @dataclass(frozen=True)
@@ -103,79 +78,6 @@ def _fetch_json(url: str) -> object:
         url, headers={"User-Agent": "claudit-refresh-provider-rates"})
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
-
-
-def _instant(value: object, where: str) -> datetime:
-    """Parse the log's UTC ISO-8601 spelling, which must end in Z."""
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise PriceLogError(f"{where}: at is not an ISO-8601 UTC instant ending in Z")
-    try:
-        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
-    except ValueError as exc:
-        raise PriceLogError(f"{where}: at {value!r} is not a valid UTC instant") from exc
-    if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
-        raise PriceLogError(f"{where}: at {value!r} is not UTC")
-    return parsed
-
-
-def _field_points(value: object, where: str) -> tuple[Point, ...]:
-    if not isinstance(value, list):
-        raise PriceLogError(f"{where}: points are not a list")
-    points: list[Point] = []
-    for index, item in enumerate(value):
-        point_where = f"{where}[{index}]"
-        if not isinstance(item, dict) or "at" not in item or "value" not in item:
-            raise PriceLogError(f"{point_where}: point needs 'at' and 'value'")
-        at = _instant(item["at"], point_where)
-        raw = item["value"]
-        if raw is None:
-            number = None
-        elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
-            try:
-                number = float(raw)
-            except (OverflowError, ValueError):
-                number = float("inf")
-            if not math.isfinite(number) or number < 0:
-                raise PriceLogError(
-                    f"{point_where}: value is not a finite non-negative number or null")
-        else:
-            raise PriceLogError(f"{point_where}: value is not a finite non-negative number or null")
-        if points and at <= points[-1].at:
-            raise PriceLogError(f"{point_where}: points are not strictly ordered by at")
-        points.append(Point(at, number))
-    return tuple(points)
-
-
-def read_log_payload(payload: object) -> list[PriceSeries]:
-    """Validate a complete listed-pricing response before using any series."""
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        raise PriceLogError("response has no data object")
-    raw_series = data.get("series")
-    if not isinstance(raw_series, list):
-        raise PriceLogError("data.series is not a list")
-    series_list: list[PriceSeries] = []
-    for index, raw in enumerate(raw_series):
-        where = f"data.series[{index}]"
-        if not isinstance(raw, dict):
-            raise PriceLogError(f"{where} is not an object")
-        identity = []
-        for key in ("endpointId", "providerName", "providerSlug"):
-            value = raw.get(key)
-            if not isinstance(value, str) or not value:
-                raise PriceLogError(f"{where}.{key} is not a non-empty string")
-            identity.append(value)
-        fields: dict[str, tuple[Point, ...]] = {}
-        for field in _POINT_FIELDS:
-            if field not in raw and field in _REQUIRED_POINTS:
-                raise PriceLogError(f"{where}.{field} is missing")
-            fields[field] = _field_points(raw.get(field, []), f"{where}.{field}")
-        schedule = raw.get("schedule", [])
-        if not isinstance(schedule, list):
-            raise PriceLogError(f"{where}.schedule is not a list")
-        series_list.append(PriceSeries(
-            identity[0], identity[1], identity[2], fields, bool(schedule)))
-    return series_list
 
 
 def _rounded(value: float) -> float:
@@ -341,6 +243,35 @@ def _series_rates(series: PriceSeries) -> tuple[float, ...] | None:
     return _rate_vector(entries.pop())
 
 
+def _earlier_state_vectors(series: PriceSeries) -> set[tuple[float, ...]]:
+    """The series' in-force rate states before its newest one."""
+    entries = entries_for_series(series)
+    if not isinstance(entries, list) or not entries:
+        return set()
+    entries.pop()  # the newest state; everything before it is "earlier"
+    # Pylint cannot follow entries_for_series's optional-list return; the
+    # isinstance guard above narrows it (as in the tests' module header).
+    # pylint: disable=not-an-iterable
+    return {_rate_vector(entry) for entry in entries}
+
+
+def _divergence_class(series: PriceSeries,
+                      endpoint_rates: list[dict[str, float]]) -> str:
+    """Name which side of a log/listing divergence the listing sits on.
+
+    A disagreement between OpenRouter's listing and its own in-force log
+    points is either the listing still at an earlier logged state (lagging
+    — transient while the listing catches up) or at a state the log's
+    in-force points never held (ahead of the truncation, or the log is
+    stale for this host). Either way the host samples for the cycle;
+    naming the class tells a human which side moved.
+    """
+    listed = {_rate_vector(rates) for rates in endpoint_rates}
+    if listed & _earlier_state_vectors(series):
+        return "the listing lags the price log"
+    return "no in-force log state matches the listing"
+
+
 def _match_series_to_endpoints(
         host_series: list[PriceSeries],
         endpoint_rates: list[dict[str, float]]) -> tuple[dict[int, PriceSeries] | None, str | None]:
@@ -352,7 +283,7 @@ def _match_series_to_endpoints(
         candidates = [i for i, rates in enumerate(endpoint_rates)
                       if _rate_vector(rates) == latest]
         if not candidates:
-            return None, "latest log state disagrees with the listed price"
+            return None, _divergence_class(item, endpoint_rates)
         if len(candidates) != 1:
             return None, f"{len(candidates)} endpoints at one current price"
         endpoint_index = candidates[0]
