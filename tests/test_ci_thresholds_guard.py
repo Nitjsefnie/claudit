@@ -224,22 +224,38 @@ def test_suppression_entry_raised_fails(tmp_path):
 def test_bot_shaped_raise_is_clean(tmp_path):
     # The load-bearing compatibility constraint: a synthetic bot commit —
     # ratchet.py's raise, measured and floor moving up together — must
-    # keep passing the guard.
+    # keep passing the guard. The head values derive from the loaded
+    # committed document at run time: the ratchet raising the committed
+    # calibration past any hardcoded pair is the mechanism working, and
+    # this test must stay green as it moves (SV-TEST-DATA — never pin
+    # repository-managed data).
     base = _thresholds().load(THRESHOLDS_PATH)
     head = copy.deepcopy(base)
-    head["coverage"]["python"] = {"measured": 97.3, "floor": 95.8}
-    head["coverage"]["javascript"] = {"measured": 91.7, "floor": 90.2}
+    for lang in ("python", "javascript"):
+        measured = round(
+            float(base["coverage"][lang]["measured"]) + 0.5, 1)
+        head["coverage"][lang] = {
+            "measured": measured,
+            "floor": round(measured - float(GAP), 1),
+        }
     assert _guard_result(tmp_path, base, head) == 0
 
 
 def test_bot_shaped_tighten_is_clean(tmp_path):
     # The other bot shape: --tighten follows shrunk files down and drops
     # a graduated entry; the suppression tighten does the same for counts.
+    # The moved entries are picked from the loaded document at run time
+    # (SV-TEST-DATA — a hardcoded key or value breaks when the ratchet
+    # graduates the file or tightens the count past it).
     base = _thresholds().load(THRESHOLDS_PATH)
     head = copy.deepcopy(base)
-    head["module_size_baseline"]["backend/ingest.py"] = 640
-    del head["module_size_baseline"]["backend/parse_kimi.py"]
-    head["pylint_suppression_baseline"]["backend/ingest_fetch.py"] = 3
+    sized = sorted(head["module_size_baseline"])
+    assert len(sized) >= 2
+    head["module_size_baseline"][sized[0]] -= 1
+    del head["module_size_baseline"][sized[1]]
+    suppressed = sorted(head["pylint_suppression_baseline"])
+    assert suppressed
+    head["pylint_suppression_baseline"][suppressed[0]] -= 1
     assert _guard_result(tmp_path, base, head) == 0
 
 
