@@ -148,16 +148,20 @@ def _coverage_moves(base, head):
 
 
 def _suite_cost_moves(base, head, established):
-    """A suite cost budget that RISES.
+    """A suite cost budget that RISES, or an identity that moved by hand.
 
     Each phase's number is a cost ceiling, so its ratchet only ever
     moves down: an upward move is the hand-raise the never-rules forbid,
-    a downward one is the tighten. A family the base predates carries no
-    record, so the change introducing one is its seed and not a move at
-    all. A family the HEAD omits is the sanctioned re-seed's delete: the
-    loader accepts that document only on a commit carrying the marker
-    (reseed.py), so it cannot be an accident, and a removal is the
-    bots' own legal direction like any other.
+    a downward one is the tighten. The workload identity
+    (``tests_tree_lines``, issue #524) is the seed's binding to the
+    workload it measured: only the sanctioned re-seed writes it, and
+    that path deletes the family first -- the marker's commit is the
+    one whose base lacks the family, so the identity always arrives as
+    part of a new family's seed. On an established family, an added or
+    changed identity is a hand-edit and fails; a family the HEAD omits
+    is the sanctioned delete and leaves with the family wholesale. A
+    family the base predates carries no record, so the change
+    introducing one is its seed and not a move at all.
     """
     if thresholds.SUITE_COST_FAMILY not in established:
         return []
@@ -172,6 +176,13 @@ def _suite_cost_moves(base, head, established):
                 moves.append(
                     f'{thresholds.SUITE_COST_FAMILY}.{phase}.{field}: '
                     f'{before[phase][field]} -> {after[phase][field]}')
+    before_identity = before.get(thresholds.SUITE_COST_IDENTITY)
+    after_identity = after.get(thresholds.SUITE_COST_IDENTITY)
+    if after_identity != before_identity:
+        moves.append(
+            f'{thresholds.SUITE_COST_FAMILY}.'
+            f'{thresholds.SUITE_COST_IDENTITY}: '
+            f'{before_identity} -> {after_identity}')
     return moves
 
 

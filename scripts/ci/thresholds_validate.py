@@ -194,3 +194,14 @@ def module_path(value):
     if not all(_path_component_safe(c) for c in components):
         raise ValueError(f'unsafe module path: {value!r}')
     return value
+
+
+def suite_identity(value, name):
+    """The suite-cost seed's workload identity (issue #524): the
+    scanned tree's line count. A positive whole number — a Decimal
+    that is integral passes, because decode parses every JSON number
+    as Decimal."""
+    result = number(value, name)
+    if result <= 0 or result != result.to_integral_value():
+        raise ValueError(f'{name} must be a positive integer')
+    return int(result)
