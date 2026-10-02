@@ -1,0 +1,3 @@
+{
+  "bash_reads.scan": "UNREACHABLE, not merely unexercised: _tool_use_row hands every Bash call to bash_reads.scan_command with the BashCommand it already built, so parse._tool_access's `if name == \"Bash\": return bash_reads.scan(...)` branch can never be entered — its only caller is reached under `else`, i.e. for a non-Bash tool. No fixture can exercise it; fixing the dead branch is the fix, filed as an issue rather than done here because removing it is a parser change outside this bench's scope."
+}

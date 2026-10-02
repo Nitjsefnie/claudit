@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from backend import cache, db, ingest
-from tests import scratch_db
+from tests import mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -68,15 +68,19 @@ def test_full_scope_orphan_sweep_evicts_cached_transcripts(
             for fk, etag in c.execute(
                 "SELECT file_key, r2_etag FROM files").fetchall()
         ]
-    assert len(keys) == 5
-    assert len(set(keys)) == 5
+    # The mirror's transcript count, read from its tree: it carries the
+    # lane layout's wires too (issue #503), and what is asserted is that
+    # the sweep takes exactly the rows the listing held.
+    transcripts = mini_mirror.counts()["transcripts"]
+    assert len(keys) == transcripts
+    assert len(set(keys)) == transcripts
     for key in keys:
         cache.transcript_cache.put(key, b'{"body": true}\n')
 
     for p in mini_r2_env.rglob("*.jsonl"):
         p.unlink()
     result = ingest.run_ingest(trigger="manual")
-    assert result["deleted"] == 5
+    assert result["deleted"] == transcripts
 
     for key in keys:
         assert cache.transcript_cache.get(key) is None

@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, constants, db, ingest, lane_projects, project_aliases, r2
-from tests import scratch_db
+from tests import mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -346,13 +346,14 @@ def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
             rolled = dict(c.execute(
                 "SELECT project_id, COUNT(*) FROM usage_rollup GROUP BY 1"
             ).fetchall())
-        assert _owners() == {"projB": 5}, (
+        assert _owners() == mini_mirror.folded_owners("projA", "projB"), (
             "every file in the mirror lands on the target id")
         assert src_rows == 0, "the emptied source project row is gone"
         assert tgt_rows == 1, "the target project row exists"
         assert target == "projB"
-        assert set(rolled) == {"projB"} and sum(rolled.values()) > 0, (
+        assert set(rolled) == set(mini_mirror.project_ids()) - {"projA"}, (
             "usage_rollup was rebuilt after the fold and carries the target id")
+        assert "projB" in rolled and sum(rolled.values()) > 0
         if pass_number == 0:
             with db.viz_conn() as c:
                 c.execute(
@@ -383,7 +384,7 @@ def test_alias_added_after_first_ingest_folds_without_a_reparse(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
     assert stored == {constants.PARSER_VERSION}, (
         "folding is not a reparse: the stored parser_version is unchanged")
-    assert _owners() == {"projB": 5}
+    assert _owners() == mini_mirror.folded_owners("projA", "projB")
 
 
 def test_alias_row_deleted_no_reparse_no_lane_pass_keeps_existing_claude_rows_at_target(
@@ -399,7 +400,7 @@ def test_alias_row_deleted_no_reparse_no_lane_pass_keeps_existing_claude_rows_at
         c.commit()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert _owners() == {"projB": 5}
+    assert _owners() == mini_mirror.folded_owners("projA", "projB")
 
 
 def _assert_lane_project_is_folded(target: str, slug: str,
