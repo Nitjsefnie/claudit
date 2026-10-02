@@ -200,6 +200,9 @@ src/              — served at /src/* (in-browser Babel)
   pricing.json    — every rate table (SV-RATE-DATA)
   parser-lanes.js — browser lane parser + window.LONG_CONTEXT_*
                     (SV-PARSER-SPEC lockstep)
+  record-dedup.js — browser half of the canonical winner rule
+                    (SV-CANONICAL-FLAG): the attributed copy wins a
+                    shared uuid
   dashboard-binning.js — bin width, never finer than the server bucket
   dashboard-fetch.js — the Overview's /api/dashboard request state:
                     loading / empty / error outcomes (plain JS, so node
