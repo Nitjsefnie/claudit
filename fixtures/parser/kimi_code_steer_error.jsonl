@@ -1,0 +1,11 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1783000000000}
+{"type":"turn.prompt","time":1783000001000,"input":[{"type":"text","text":"start"}],"origin":{"kind":"user"}}
+{"type":"context.append_loop_event","time":1783000002000,"event":{"type":"step.begin","uuid":"step-1","turnId":"t1","step":1}}
+{"type":"turn.steer","time":1783000002500,"input":[{"type":"text","text":"actually stop"}]}
+{"type":"context.append_message","time":1783000003000,"message":{"role":"user","content":[{"type":"text","text":"actually stop"}]}}
+{"type":"context.append_loop_event","time":1783000004000,"event":{"type":"tool.call","uuid":"tc-edit","turnId":"t1","step":2,"toolCallId":"call-edit","name":"Edit","args":{"old_string":"one\ntwo\n","new_string":"one\nTWO\nthree\n"}}}
+{"type":"context.append_loop_event","time":1783000005000,"event":{"type":"tool.result","toolCallId":"call-edit","result":{"isError":false,"output":"patched"}}}
+{"type":"context.append_message","time":1783000005500,"message":{"role":"assistant","content":[{"type":"text","text":"calling"}],"toolCalls":[{"type":"function","id":"call-fn","function":{"name":"Shell","arguments":"{\"command\": \"ls\"}"}}]}}
+{"type":"context.append_message","time":1783000006000,"message":{"role":"tool","toolCallId":"call-fn","isError":false,"content":[{"type":"text","text":"a b"}]}}
+{"type":"llm.error","time":1783000006500,"kind":"quota_exhausted","message":"out of extra usage"}
+{"type":"usage.record","time":1783000007000,"model":"kimi-k2-7-code","usage":{"inputOther":100,"output":20,"inputCacheRead":0,"inputCacheCreation":0}}

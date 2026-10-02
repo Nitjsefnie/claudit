@@ -1,0 +1,5 @@
+{"timestamp":"2026-09-10T08:44:15Z","type":"session_meta","payload":{"session_id":"00000000-0000-4000-8000-0000000000c0"}}
+{"timestamp":"2026-09-10T08:44:16Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-09-10T08:44:17Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_synthetic01","name":"exec","input":"tools.exec_command({\"cmd\":\"hi\"})"}}
+{"timestamp":"2026-09-10T08:44:18Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_synthetic01","output":[{"type":"input_text","text":"ok"}]}}
+{"timestamp":"2026-09-10T08:44:19Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":76353,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":671,"reasoning_output_tokens":545,"total_tokens":77024},"last_token_usage":{"input_tokens":76353,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":671,"reasoning_output_tokens":545,"total_tokens":77024}}}}

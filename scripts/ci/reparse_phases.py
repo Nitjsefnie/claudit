@@ -73,7 +73,14 @@ _SCALE = Decimal(100)
 
 
 class Counts(NamedTuple):
-    """One counted run: bytecodes per phase, and the total they partition."""
+    """One counted run: bytecodes per phase, and the total they partition.
+
+    ``executed`` names the parse-surface functions the run retired an
+    instruction in, which is what the surface gate diffs the reachable set
+    against (issue #503). It is populated only when the caller supplies
+    the code-object table, and an empty one then means "nothing was
+    looked for", never "nothing ran".
+    """
     available: bool
     reason: str
     phase_bytecodes: dict
@@ -81,6 +88,7 @@ class Counts(NamedTuple):
     files: int
     passes: int
     overhead_per_call: int
+    executed: frozenset = frozenset()
 
 
 def partition(total, sniff, parse_file, sidecar) -> dict:
@@ -159,12 +167,19 @@ class InstructionCounter:
     # static reader cannot see its members. Every call below is guarded
     # by the availability check that sets `reason`.
     # pylint: disable=no-member
-    def __init__(self, name: str = 'reparse-bench'):
+    def __init__(self, name: str = 'reparse-bench', qualnames: dict | None = None):
         # Each key holds a one-element list: a counter the callback can
         # reach without rebinding, and one object per open window.
         self.totals: dict[str, list[int]] = {}
         self.reason = ''
         self._stack: list[list[int]] = []
+        # {code object: "module.qualname"} for the parse surface, and the
+        # functions the run retired an instruction in. Empty means the
+        # caller asked for no surface, which is every caller but the
+        # surface gate's — the lookup is skipped entirely then, so the
+        # ordinary measurement pays nothing for it.
+        self.qualnames: dict = qualnames or {}
+        self.executed: set[str] = set()
         # sys.monitoring is installed by the interpreter, not imported;
         # Any says what that is, and `reason` says whether it is there.
         self._monitoring: Any = getattr(sys, 'monitoring', None)
@@ -181,6 +196,10 @@ class InstructionCounter:
         self._event = self._monitoring.events.INSTRUCTION
 
     def _count(self, code, instruction_offset):
+        if self.qualnames:
+            name = self.qualnames.get(code)
+            if name is not None:
+                self.executed.add(name)
         for cell in self._stack:
             cell[0] += 1
 
@@ -284,14 +303,19 @@ class InstructionCounter:
 
 
 def measure_counts(entries, run_pass, passes: int = COUNT_PASSES,
-                   warmup: int = COUNT_WARMUP) -> Counts:
+                   warmup: int = COUNT_WARMUP,
+                   qualnames: dict | None = None) -> Counts:
     """Count `passes` passes over the corpus, split by phase.
+
+    `qualnames` is the surface gate's `{code object: "module.qualname"}`
+    table; supplying it makes the run also report which surface functions
+    it retired an instruction in.
 
     An unusable counter returns ``available=False`` with the reason and
     no numbers — never zeros, which would read as "this phase retires no
     bytecodes" and quietly tighten a floor.
     """
-    counter = InstructionCounter()
+    counter = InstructionCounter(qualnames=qualnames)
     if not counter.available:
         return Counts(False, counter.reason, {}, None, len(entries),
                       passes, 0)
@@ -323,10 +347,11 @@ def measure_counts(entries, run_pass, passes: int = COUNT_PASSES,
                             counter.value('parse_file'),
                             counter.value('sidecar'))
         total_bytecodes = counter.total
+        executed = frozenset(counter.executed)
     finally:
         counter.close()
     return Counts(True, '', counted, total_bytecodes,
-                  len(entries), passes, overhead)
+                  len(entries), passes, overhead, executed)
 
 
 def bytecodes_per_file(counts: Counts) -> dict:

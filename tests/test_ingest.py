@@ -12,12 +12,12 @@ import pytest
 from backend import api, cache, constants, db, ingest
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
-from tests import scratch_db
+from tests import mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
 
-# One of the five jsonl keys in fixtures/r2_mini, used as the object whose
+# One of the jsonl keys in fixtures/r2_mini, used as the object whose
 # fetch is made to fail. Stored file keys are bucket-qualified.
 _FLAKY_KEY = "claude/projA/sess-A/sess-A.jsonl"
 
@@ -47,21 +47,26 @@ def _mini_r2_env_fixture(monkeypatch):
 
 
 def test_ingest_inserts_one_row_per_jsonl(fresh_db, mini_r2_env):
-    """Mini mirror has 5 jsonls (4 main + 1 peer) under 4 sessions
-    in 2 projects. Expect 5 rows in `files`, 4 with is_main=true,
-    4 distinct session_ids, 2 projects."""
+    """One row per transcript the mirror holds, whatever it holds.
+
+    The counts are the MIRROR's, read from its tree (tests/mini_mirror):
+    the assertion is that the ingest agrees with the corpus it was given,
+    not that the corpus still has the size it had when this test was
+    written. Claude- and lane-layout transcripts alike land here — the
+    mirror grew the lane wires in issue #503."""
+    shape = mini_mirror.counts()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert result["inserted"] == 5
+    assert result["inserted"] == shape["transcripts"]
     with db.viz_conn() as c:
         n = _scalar(c, "SELECT COUNT(*) FROM files")
-        assert n == 5
+        assert n == shape["transcripts"]
         n_main = _scalar(c, "SELECT COUNT(*) FROM files WHERE is_main")
-        assert n_main == 4
+        assert n_main == shape["main"]
         n_sess = _scalar(c, "SELECT COUNT(DISTINCT session_id) FROM files")
-        assert n_sess == 4
+        assert n_sess == shape["sessions"]
         n_proj = _scalar(c, "SELECT COUNT(*) FROM projects")
-        assert n_proj == 2
+        assert n_proj == shape["projects"]
 
 
 def test_records_populated_with_no_write_time_dedup(fresh_db, mini_r2_env):
@@ -111,7 +116,7 @@ def test_parser_version_bump_reparses_all(fresh_db, mini_r2_env, monkeypatch):
     monkeypatch.setattr(
         constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
     result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == 5  # all 5 files
+    assert result["reparsed"] == mini_mirror.counts()["transcripts"]
 
 
 def test_deleted_file_removed(fresh_db, mini_r2_env):
@@ -174,15 +179,17 @@ def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
     """A `*.jsonl.xz` object ingests like its plain form: r2.get_object
     inflates it, the `.jsonl.xz` suffix is stripped for the stem so is_main
     still holds, and records populate. Here sess-A's main file is replaced
-    by an xz copy — still 5 files, still 4 main, with records for sess-A."""
+    by an xz copy — the same file count, the same main count, with records
+    for sess-A."""
     plain = mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl"
     raw = plain.read_bytes()
     (plain.parent / "sess-A.jsonl.xz").write_bytes(lzma.compress(raw))
     plain.unlink()
 
+    shape = mini_mirror.counts()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert result["inserted"] == 5
+    assert result["inserted"] == shape["transcripts"]
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT file_key, is_main, session_id FROM files "
@@ -193,7 +200,7 @@ def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
         assert row[1] is True, "stem after stripping .jsonl.xz == sess-A → is_main"
         assert row[2] == "sess-A"
         n_main = _scalar(c, "SELECT COUNT(*) FROM files WHERE is_main")
-        assert n_main == 4
+        assert n_main == shape["main"]
         n_rec = _scalar(c, "SELECT COUNT(*) FROM records WHERE file_key LIKE '%sess-A.jsonl.xz'")
         assert n_rec > 0, "records populate from decompressed bytes"
 

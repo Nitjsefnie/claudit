@@ -285,7 +285,8 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     with db.viz_conn() as c:
         assert c.execute(
             "SELECT long_context, COUNT(*) FROM records "
-            "WHERE file_key LIKE 'claude/sessions/%' GROUP BY 1"
+            "WHERE file_key LIKE 'claude/sessions/8805b8ac99ad/%' "
+            "GROUP BY 1"
         ).fetchall() == [(True, 3)], (
             "the reprice re-derives the codex rows' flag in both plan "
             "shapes (issue #194): every codex record stores TRUE")

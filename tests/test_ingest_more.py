@@ -106,7 +106,15 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
             "WHERE error_kind IS NOT NULL AND ts IS NOT NULL GROUP BY 1"
         ).fetchall())
     assert rolled == raw
-    assert raw == {"failed": 1, "rejected": 1, "tool_error": 1}
+    # The literal is the PLANTED fixture's own contribution, read from the
+    # raw table scoped to its session: the mirror itself now carries lane
+    # wires (issue #503), one of which settles a failed call of its own,
+    # so the global tally is the planted three plus that one.
+    assert dict(c.execute(
+        "SELECT error_kind, COUNT(*) FROM tool_uses "
+        "WHERE error_kind IS NOT NULL AND ts IS NOT NULL "
+        "AND file_key LIKE '%sess-K%' GROUP BY 1"
+    ).fetchall()) == {"failed": 1, "rejected": 1, "tool_error": 1}
 
 
 def test_dispatch_rollup_totals_match_raw(fresh_db, mini_r2_env):

@@ -116,6 +116,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 MIRROR = ROOT / 'fixtures' / 'r2_mini'
 BUCKET = 'claude'
+# The parse-surface gate (issue #503), run beside the measurement it
+# qualifies: one counted pass over the corpus in a fresh child, no
+# amplification, so it is bounded by the corpus rather than by a budget.
+SURFACE_GATE = Path(__file__).resolve().with_name('reparse_surface.py')
+SURFACE_TIMEOUT_S = 300
 # The unit the recorded per-phase numbers are in: percent of the pass's
 # own CPU. It lives with the loader that validates the document carrying
 # it, so the number's meaning has one source of truth.
@@ -145,6 +150,8 @@ PASSES = 60000
 # more, while 2000 warm-up passes measure the same shares as 400.
 WARMUP_PASSES = 600
 PERF_TIMEOUT_S = 120
+# The surface gate is one counted pass over the corpus in a fresh child:
+# no amplification, so it is bounded by the corpus, not by a budget.
 _QUANTUM = Decimal('0.1')
 
 
@@ -339,6 +346,21 @@ def _plain_child(scratch: Path, passes: int, warmup: int) -> Measurement:
     return reparse_report.measurement_from_file(path)
 
 
+def check_surface() -> int:
+    """The parse-surface gate (issue #503), as a fresh child.
+
+    Always a child, like the measurement: several of the surface's
+    functions sit behind an ``lru_cache``, so a process that had already
+    parsed the corpus once would see the cached path and report a function
+    the corpus does in fact walk.
+    """
+    done = subprocess.run(  # pylint: disable=subprocess-run-check
+        [sys.executable, str(SURFACE_GATE)],
+        capture_output=True, text=True, timeout=SURFACE_TIMEOUT_S, check=False)
+    sys.stderr.write(done.stderr or '')
+    return done.returncode
+
+
 def _child_measurement(path: Path, passes: int, warmup: int,
                        count_passes: int) -> Measurement:  # noqa: D401
     """One child's whole reading: the timed pass and the counted pass."""
@@ -458,6 +480,11 @@ def main(argv=None):
             reparse_report.write_measurement(args.write, measurement)
         print(reparse_report.machine_line(measurement) if args.machine
               else reparse_report.report(measurement))
+        # The measured number and the surface gate are one verdict: a
+        # corpus that stopped exercising a parse path is a worse
+        # measurement than no measurement, because the number it produced
+        # no longer means what the bench says it means.
+        return check_surface()
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)
         return 1

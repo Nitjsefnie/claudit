@@ -1,0 +1,5 @@
+{"timestamp":"2026-10-01T08:44:15Z","type":"session_meta","payload":{"session_id":"00000000-0000-4000-8000-0000000000c1"}}
+{"timestamp":"2026-10-01T08:44:16Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-10-01T08:44:17Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_monitor01","name":"exec","input":"tools.monitor({command:[\"python3\",\"-c\",\"open('out.txt','w').write('one\\\\ntwo')\"]})"}}
+{"timestamp":"2026-10-01T08:44:18Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_monitor01","output":[{"type":"input_text","text":"ok"}]}}
+{"timestamp":"2026-10-01T08:44:19Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110}}}}

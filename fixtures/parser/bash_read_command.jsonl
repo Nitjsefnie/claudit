@@ -1,0 +1,3 @@
+{"type":"user","timestamp":"2026-05-07T10:00:00Z","uuid":"u1","message":{"role":"user","content":"read it"}}
+{"type":"assistant","timestamp":"2026-05-07T10:00:01Z","uuid":"a1","requestId":"req-r1","sessionId":"sess-r1","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cat /work/big.py"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"user","timestamp":"2026-05-07T10:00:02Z","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]}}

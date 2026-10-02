@@ -315,14 +315,22 @@ def test_residual_is_the_divergence_not_a_rounding():
         "is left unmeasured")
 
     # And the currency is one that CAN read zero, or the two assertions
-    # above would hold for any wiring at all. The committed mirror carries
-    # no sidecar, so that phase is instrumented and never reached -- the
+    # above would hold for any wiring at all. The full mirror now carries
+    # a meta.json sidecar (issue #503), so the demonstration uses a corpus
+    # that genuinely has none -- one transcript, no sidecar beside it: the
     # same shape as a residual that is not really measured, and the
-    # instrument reports it as exactly zero.
-    assert counts.phase_bytecodes["sidecar"] == 0, (
-        "the sidecar phase is expected to be unreached on this corpus; if it "
-        "now reads non-zero the fixture grew a meta.json and this "
-        "demonstration that the currency can read zero needs a new one")
+    # instrument reports the unreached phase as exactly zero.
+    unpaired = [entry for entry in bench.corpus() if entry.sidecar_key is None]
+    assert unpaired, "the mirror carries no sidecar-less transcript"
+    bare = phases.measure_counts(unpaired[:1], bench.run_pass,
+                                 passes=phases.COUNT_PASSES)
+    assert bare.phase_bytecodes["parse_body"] > 0, (
+        "the demonstration corpus parses nothing, so it demonstrates "
+        "nothing")
+    assert bare.phase_bytecodes["sidecar"] == 0, (
+        "a corpus with no sidecar retired bytecodes in the sidecar phase: "
+        "the instrument cannot read zero, which is what the assertions "
+        "above rest on")
 
 
 def test_sidecar_phase_is_measured_when_a_sidecar_exists():
