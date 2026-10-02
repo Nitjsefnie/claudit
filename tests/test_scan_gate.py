@@ -88,7 +88,6 @@ def test_the_gate_sees_every_string_constant_in_the_tree():
                     "gate clause")
 
 
-
 def test_constants_survive_implicit_concat():
     consts, _ = scan_gate.module_vocab(
         "X = 'pr' 'icing.example'\n")
