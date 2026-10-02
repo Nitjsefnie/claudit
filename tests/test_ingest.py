@@ -206,8 +206,10 @@ def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
 
 
 def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
-    """The ingest-time flag must select exactly the rows the old read-time
-    `DISTINCT ON (uuid) ORDER BY uuid, file_key` would have kept.
+    """The ingest-time flag must select exactly the rows the read-time
+    `DISTINCT ON (uuid) ORDER BY uuid, <unattributed-last>, file_key`
+    would have kept (issue #529: the copy whose model is attributed beats
+    an unattributed one; NULL counts unattributed).
 
     This is the invariant that lets the read endpoints filter a boolean
     instead of re-sorting the whole table (SV-CANONICAL-FLAG). The mini
@@ -227,7 +229,10 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
             SELECT file_key, line_num FROM (
               (SELECT DISTINCT ON (uuid) file_key, line_num
                  FROM records WHERE uuid IS NOT NULL
-                ORDER BY uuid, file_key, line_num)
+                ORDER BY uuid,
+                         (COALESCE(model, '')
+                          IN ('', 'unknown', '(unknown)')),
+                         file_key, line_num)
               UNION ALL
               (SELECT file_key, line_num FROM records WHERE uuid IS NULL)
             ) t ORDER BY file_key, line_num
