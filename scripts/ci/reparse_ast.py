@@ -30,10 +30,19 @@ that fix — it names what the pass CAN reach, so the second half
   method call on a receiver the module did not import — a foreign
   object's, or a local instance reached through something other than
   ``self`` — is not resolved, because the answer is a type question this
-  walk does not ask. Every surface function is reached through a bare
-  name, a module attribute, a container lookup or ``self``, and a
-  receiver-shape dispatch to one would be invisible. Adding that would
-  mean resolving types; until then this sentence is the bound.
+  walk does not ask. Adding that would mean resolving types; until then
+  this sentence is the bound.
+
+- EVERY OTHER FORM IS REFUSED, not dropped. ``reparse_bindings.unresolved``
+  names a callee the reader cannot resolve and the walk raises rather than
+  returning a shorter surface: an unbound bare name, a name that is a
+  function PARAMETER (the target is whatever the caller passed), a call of
+  a call's result, and a subscript whose base is neither a Name nor an
+  Attribute. Those four are the forms a reader can recognise as
+  unresolvable. The receiver-shape form above is the one it cannot, so it
+  is written down here instead — a hole the walk knows it has is a bound,
+  and one it does not know about is the failure mode this gate exists to
+  prevent.
 """
 from __future__ import annotations
 
@@ -177,16 +186,37 @@ def _reference(node: ast.AST, aliases: dict):
     return None if target is None else (target, node.attr)
 
 
-def _containers(tree: ast.Module, aliases: dict) -> dict:
-    """Local name -> the function references it holds, for a module-level
-    container of them.
+def _item_reference(item: ast.AST, aliases: dict, module: str,
+                    defined: set):
+    """(module, qualname) for one entry of a function table.
+
+    A table holds its entries two ways: `other.mod.func` (a cross-module
+    reference, resolved through the module aliases) and a bare `func` (this
+    module's own). Reading only the first makes a same-module table look
+    like no table at all, and the call it routes silently vanishes.
+    """
+    if isinstance(item, ast.Name) and item.id in defined:
+        return (module, item.id)
+    return _reference(item, aliases)
+
+
+def _containers(tree: ast.Module, aliases: dict, module: str,
+                defined: dict) -> dict:
+    """Local name -> the function references it holds, for a container of
+    them.
 
     ``parse.LANE_PARSERS[fmt](...)`` is a real call into all three lane
     parsers that no attribute expression names, so its edges have to come
     from the constant's own definition.
+
+    The whole tree is scanned, not only the module body, so a table built
+    INSIDE a function is read too. That over-approximates — two functions
+    each with a `TABLES` contribute both tables under one name — and the
+    direction is the safe one for a coverage gate: it can add a function
+    to the surface, never drop one.
     """
     found = {}
-    for node in tree.body:
+    for node in ast.walk(tree):
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
         value = node.value
@@ -195,7 +225,8 @@ def _containers(tree: ast.Module, aliases: dict) -> dict:
         items = (list(value.values) if isinstance(value, ast.Dict)
                  else list(value.elts))
         refs = {ref for item in items
-                if (ref := _reference(item, aliases)) is not None}
+                if (ref := _item_reference(item, aliases, module,
+                                           defined[module])) is not None}
         targets = (node.targets if isinstance(node, ast.Assign)
                    else [node.target])
         for target in targets:
@@ -272,13 +303,30 @@ class _Facts:
             for target in self._resolve(child.func, owner):
                 edges.setdefault(_qualname(owner, name), set()).add(target)
 
-    def _resolve(self, func: ast.AST, owner: str):  # noqa: D401
+    def _resolve_table(self, func: ast.Subscript):
+        """The functions a lookup of a KNOWN table holds.
+
+        `LANE_PARSERS[fmt](...)` and `mod.TABLE[fmt](...)` are real calls
+        into every function the table names, and no attribute expression
+        spells them out, so the edges come from the table's own
+        definition. The base is a Name or an Attribute — the two forms a
+        lookup of a known constant is written in; a base that is neither
+        is refused rather than dropped (see `reparse_bindings.unresolved`).
+        """
+        base = func.value
+        if isinstance(base, ast.Name):
+            yield from self.containers.get(base.id, ())
+        elif isinstance(base, ast.Attribute):
+            target = _reference(base, self.modules)
+            if target is not None:
+                yield from self.all_containers.get(target[0], {}).get(
+                    target[1], ())
+
+    def _resolve(self, func: ast.AST, owner: str):
         """The surface (module, qualname) pairs one call expression names."""
-        if isinstance(func, ast.Subscript) and isinstance(func.value, ast.Name):
-            # `LANE_PARSERS[fmt](...)`: every function the constant holds.
-            if func.value.id in self.containers:
-                yield from self.containers[func.value.id]
-                return
+        if isinstance(func, ast.Subscript):
+            yield from self._resolve_table(func)
+            return
         if isinstance(func, ast.Name):
             name = func.id
             if name in self.functions:
@@ -307,7 +355,7 @@ def _facts(root: Path) -> dict:
     trees = _trees(root)
     defined = {name: _defines(tree) for name, tree in trees.items()}
     aliases = {name: _module_aliases(tree) for name, tree in trees.items()}
-    containers = {name: _containers(tree, aliases[name])
+    containers = {name: _containers(tree, aliases[name], name, defined)
                   for name, tree in trees.items()}
     facts = {}
     for name, tree in trees.items():
@@ -355,10 +403,16 @@ def reachable_surface(root: Path = ROOT) -> dict:
             # pass instantiated it, so each method is a path the corpus has
             # to have walked at least once — and each one's own edges
             # count, which is why they are queued rather than only marked.
-            for name in facts[module].methods.get(target[1], ()):
-                if (module, name) not in seen:
-                    seen.add((module, name))
-                    queue.append((module, name))
+            # The methods come from the callee's OWN module: a class is
+            # routinely constructed from another module's code (`parse`
+            # builds `bash_churn.BashCommand`), and reading the methods
+            # off the module whose function made the call would expand it
+            # to nothing.
+            owner, klass = target
+            for name in facts[owner].methods.get(klass, ()):
+                if (owner, name) not in seen:
+                    seen.add((owner, name))
+                    queue.append((owner, name))
     # A class is a reachability step, not a finding: it has no code object
     # of its own, so leaving it in the surface would name a function that
     # can never be exercised.

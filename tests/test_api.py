@@ -337,8 +337,8 @@ def test_projects(app_with_data):
     r = app_with_data.get("/api/projects")
     assert r.status_code == 200
     body = r.json()
-    # The mirror's projects, read from its tree (issue #503 grew it with
-    # the lane layout): every project the corpus holds is LISTED.
+    # The mirror's projects, from its tree (issue #503 grew it with the
+    # lane layout): every one the corpus holds is LISTED.
     pids = sorted(p["project_id"] for p in body["projects"])
     assert pids == mini_mirror.project_ids()
     # session_count + total_cost drive the picker chip and its ordering.
@@ -504,14 +504,14 @@ def test_cache_session_total_estimated_rate_true_when_any_model_estimated(
 
 def test_cache_session_total_estimated_rate_false_when_all_exact(app_with_data):
     body = app_with_data.get("/api/cache?range=3650d").json()
-    assert body["per_model"], "fixture produced no per-model rows"
-    # Only the Claude rows (issue #503 grew the mirror with lane wires),
-    # and whether a LANE model prices exactly is rate-table data.
-    claude_rows = [m for m in body["per_model"] if m["model"][:7] == "claude-"]
-    assert claude_rows, "fixture produced no Claude per-model rows"
-    assert all(m["estimated_rate"] is False for m in claude_rows)
-    if not any(m["estimated_rate"] for m in body["per_model"]):
-        assert body["session_total"]["estimated_rate"] is False
+    # Only the Claude rows (#503 grew the mirror with lane wires, and a
+    # lane model's exactness is rate-table data); the total is the OR of
+    # every row, so neither direction goes unpinned.
+    claude = [m for m in body["per_model"] if m["model"][:7] == "claude-"]
+    assert claude, "fixture produced no Claude per-model rows"
+    assert all(m["estimated_rate"] is False for m in claude)
+    assert body["session_total"]["estimated_rate"] is any(
+        m["estimated_rate"] for m in body["per_model"])
 
 
 def test_cache_session_total_estimated_rate_false_for_empty_per_model(app_with_data):

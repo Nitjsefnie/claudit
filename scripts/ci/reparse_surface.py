@@ -7,6 +7,22 @@ measurement (issue #503). A corpus that stopped exercising a parse path is
 a worse measurement than no measurement, because the number it produced no
 longer means what the bench says it means.
 
+TWO CORPORA, TWO CLAIMS, and the gate makes both.
+
+- The UNION — the bench's own mirror plus every committed sample — answers
+  "do the committed fixtures walk every reachable parse path?". It is the
+  population: the mirror is nine transcripts, one of which is a single
+  ``ls``, so it cannot exercise the Bash-churn machinery alone, and
+  inventing a second copy of every churn shape to fix that would be worse
+  than reusing the samples the parser tests already drive.
+
+- The MIRROR ALONE answers "does the corpus the bench's NUMBER is measured
+  over still carry every format?". This is checked here, not left to a
+  test elsewhere: the samples duplicate all four formats, so a mirror that
+  loses one leaves the union green while the number stops meaning what the
+  bench says it means. It is the exact regression issue #503 exists to
+  close, and the gate has to be the thing that catches it.
+
 - DENY BY DEFAULT. ``reparse_surface_allowlist.json`` is the only way out
   of a finding, it is a reviewed data file, and every entry carries a
   reason. An entry naming a function the walk no longer reaches is itself
@@ -34,8 +50,10 @@ if str(ROOT) not in sys.path:
 
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+# A sibling in a directory that is not a package, imported only after that
+# directory is on sys.path — which is why it is not at the top.
 # pylint: disable-next=wrong-import-position
-from reparse_ast import reachable_surface, code_objects  # noqa: E402
+from reparse_ast import code_objects, reachable_surface  # noqa: E402
 
 ALLOWLIST = Path(__file__).resolve().parent / 'reparse_surface_allowlist.json'
 
@@ -112,9 +130,10 @@ def gap(entries, run_pass, root: Path = ROOT) -> tuple:
 
     Returns ``(missing, note)``. ``note`` is non-empty when the answer is
     NOT "nothing missing": an unreadable module, an absent counter, a
-    missing allowlist, an excuse for a function that is gone. The gate
-    fails closed on a note, because an unmeasurable surface and a fully
-    covered one must not read alike.
+    missing allowlist, an excuse for a function that is gone, a reachable
+    function the code-object table could not resolve. The gate fails closed
+    on a note, because an unmeasurable surface and a fully covered one must
+    not read alike.
     """
     try:
         surface = reachable_surface(root)
@@ -125,9 +144,14 @@ def gap(entries, run_pass, root: Path = ROOT) -> tuple:
     if stale:
         return None, ('the surface allowlist excuses functions the walk no '
                       'longer reaches: ' + ', '.join(stale))
+    table = code_objects(surface)
+    if len(table) != len(surface):
+        # A name the table cannot resolve to a code object can never be
+        # reported as executed, so it would read as covered for ever.
+        return None, (f'{len(surface) - len(table)} reachable function(s) '
+                      'have no code object the counter can name')
     counts = _phases().measure_counts(
-        entries, run_pass, passes=_phases().COUNT_PASSES, warmup=0,
-        qualnames=code_objects(surface))
+        entries, run_pass, passes=1, warmup=0, qualnames=table)
     if not counts.available:
         return None, counts.reason
     return unexercised(surface, counts.executed, allowed), ''
@@ -145,10 +169,37 @@ def _phases():
     return importlib.import_module('reparse_phases')
 
 
-def report(missing, note: str = '') -> str:
+#: Every format `parse_lanes.sniff_format` recognizes. A mirror that
+#: stops carrying one of them has stopped exercising that lane's parse
+#: path, and the union below would still be green — the samples duplicate
+#: all four. So the gate makes the mirror's coverage a claim of its own
+#: rather than leaving it to one assertion elsewhere.
+SNIFFED_FORMATS = ('claude', 'codex', 'kimi-code', 'legacy')
+
+
+def mirror_gap(mirror_entries) -> list:
+    """Formats the BENCH's own corpus no longer carries.
+
+    The union answers "do the committed fixtures walk every parse path?".
+    This answers the narrower question the bench's number depends on: does
+    the corpus that number is measured over still carry every format?
+    """
+    # Imported here so this module stays importable without the backend
+    # package resolved at import time (the gate is a subprocess).
+    # pylint: disable-next=import-outside-toplevel
+    from backend.parse_lanes import sniff_format
+    return sorted(set(SNIFFED_FORMATS)
+                  - {sniff_format(entry.blob) for entry in mirror_entries})
+
+
+def report(missing, note: str = '', absent: list | None = None) -> str:
     """The human line(s) for a gate run: what ran, what did not."""
     if note:
         return f'parse surface NOT MEASURED: {note}'
+    absent = absent or []
+    if absent and not missing and not note:
+        return ('parse surface: the bench corpus no longer carries: '
+                + ', '.join(absent))
     if not missing:
         return 'parse surface: every reachable function was exercised'
     body = '\n'.join(f'  never exercised: {name}' for name in missing)
@@ -170,9 +221,11 @@ def main(argv=None) -> int:
     if str(Path(__file__).resolve().parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
     bench = importlib.import_module('reparse_bench')
-    missing, note = gap(corpus(bench.corpus(), bench.Entry), bench.run_pass)
-    print(report(missing, note), file=sys.stderr)
-    return 1 if (note or missing) else 0
+    mirror = bench.corpus()
+    missing, note = gap(corpus(mirror, bench.Entry), bench.run_pass)
+    absent = mirror_gap(mirror) if not (note or missing) else []
+    print(report(missing, note, absent), file=sys.stderr)
+    return 1 if (note or missing or absent) else 0
 
 
 if __name__ == '__main__':
