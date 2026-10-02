@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T22:53:29Z",
+  "provider_rates_fetched": "2026-10-01T23:54:11Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -3683,6 +3683,14 @@
           "from": "2026-10-01T21:41:34Z",
           "output": 0.6,
           "read": 0.032
+        },
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": "2026-10-01T22:51:35Z",
+          "output": 0.6,
+          "read": 0.04
         }
       ]
     },
@@ -40454,6 +40462,22 @@
           "from": "2026-10-01T21:56:40Z",
           "output": 3.39,
           "read": 0.2
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-01T23:01:33Z",
+          "output": 3.39,
+          "read": 0.18
+        },
+        {
+          "create_1h": 0.9,
+          "create_5m": 0.9,
+          "fresh": 0.9,
+          "from": "2026-10-01T23:36:13Z",
+          "output": 3.0,
+          "read": 0.15
         }
       ],
       "Io Net": [
@@ -42023,6 +42047,14 @@
           "from": "2026-10-01T20:40:36Z",
           "output": 2.653,
           "read": 0.176
+        },
+        {
+          "create_1h": 0.417,
+          "create_5m": 0.417,
+          "fresh": 0.417,
+          "from": "2026-10-01T23:06:14Z",
+          "output": 2.992,
+          "read": 0.176
         }
       ],
       "Novita": [
@@ -43082,6 +43114,14 @@
           "from": "2026-10-01T10:55:53Z",
           "output": 4.0,
           "read": 0.1454
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-01T23:41:13Z",
+          "output": 4.0,
+          "read": 0.12
         }
       ],
       "Sail Research": [
@@ -46039,6 +46079,14 @@
           "fresh": 0.3,
           "from": "2026-10-01T22:31:18Z",
           "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 1.0,
+          "create_5m": 1.0,
+          "fresh": 1.0,
+          "from": "2026-10-01T23:21:12Z",
+          "output": 0.75,
           "read": 0.03
         }
       ],
