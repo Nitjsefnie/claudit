@@ -370,3 +370,74 @@ def test_both_bench_paths_pin_the_seed_interpreter():
                       "actions/setup-python")]
         assert len(setups) == 1, name
         assert setups[0]["with"]["python-version"] == "3.13.14", name
+
+
+def _suite_jobs():
+    """Every (workflow, job) that runs the suite or the bench, found by
+    READING the workflows rather than by being named here.
+
+    The point of deriving the list is that a new leg running the suite
+    inherits the pin without anyone remembering to add it: naming the
+    legs in this test is what let a third and fourth shallow checkout
+    ship a red gate (#502).
+    """
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = yaml.load(
+            path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+        for job_id, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            runs_suite = any(
+                "pytest" in (step.get("run") or "")
+                or BENCH_ACTION in (step.get("uses") or "")
+                for step in steps)
+            if runs_suite:
+                yield path.name, job_id, job
+
+
+def _reads_the_marker(checkout):
+    """Whether a checkout can resolve the merge commit's pull-request
+    head one level down.
+
+    An ABSENT ``fetch-depth`` IS ``actions/checkout``'s default 1, so
+    the key's absence is the failure rather than an exemption from the
+    check. 0 is the full history the default steps away from.
+    """
+    depth = (checkout.get("with") or {}).get("fetch-depth")
+    return depth is not None and int(depth) != 1
+
+
+def test_the_depth_predicate_reads_an_absent_key_as_the_default():
+    # The predicate's other claim: without this, the `depth is None`
+    # branch is never exercised by the derived scan below (every leg
+    # spells fetch-depth today), so a mutant inverting it survives.
+    assert not _reads_the_marker({})
+    assert not _reads_the_marker({"with": {"fetch-depth": "1"}})
+    assert not _reads_the_marker({"with": {}})
+    assert _reads_the_marker({"with": {"fetch-depth": "2"}})
+    assert _reads_the_marker({"with": {"fetch-depth": "0"}})
+
+
+def test_every_leg_running_the_suite_can_read_the_reseed_marker():
+    # The suite_cost re-seed marker is read from HEAD and, on a
+    # pull-request run, from the pull request's head one level under
+    # the merge commit (scripts/ci/reseed.py). The default depth-1
+    # checkout has no parent at all, so a leg that shallow-checked out
+    # cannot see the marker, the loader fails closed, and every
+    # committed-document test in that leg goes red on the very commit
+    # that declares the re-seed (issue #502).
+    checked = 0
+    for name, job_id, job in _suite_jobs():
+        checkouts = [step for step in _steps(job)
+                     if (step.get("uses") or "").startswith(
+                         "actions/checkout")]
+        if not checkouts:
+            # A job with no checkout of its own has no tree of its own
+            # to read; today none of the derived jobs takes this path,
+            # and `checked` below is what would notice a new one.
+            continue
+        assert len(checkouts) == 1, f"{name}:{job_id}"
+        assert _reads_the_marker(checkouts[0]), (
+            f"{name}:{job_id} checks out at depth 1 and cannot read the "
+            "suite-cost re-seed marker")
+        checked += 1
+    assert checked >= 4, f"only {checked} suite legs found: the scan is broken"

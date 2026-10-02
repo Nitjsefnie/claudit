@@ -21,9 +21,11 @@ longer depends on review:
   a hand-add and fails.
 
 Removals and lowers are the bots' own direction and pass, as does the
-one-time seed of a family the base predates. The truth of seeded values
-is pinned separately, by the committed-document-matches-tree tests, which
-run on the same merge ref.
+one-time seed of a family the base predates, and as does the suite-cost
+family's removal — the sanctioned re-seed's delete-with-marker step,
+which the loader only accepts on the declaring commit. The truth of
+seeded values is pinned separately, by the
+committed-document-matches-tree tests, which run on the same merge ref.
 
 The guard runs from the tree under test, like every other gate step: it
 shares the steps' threat model, closing the accidental and
@@ -115,11 +117,20 @@ def _load_base(path):
     else:
         data[thresholds.REPARSE_FAMILY] = {
             phase: dict(record) for phase, record in _ABSENT_REPARSE.items()}
-    if thresholds.SUITE_COST_FAMILY in data:
+    if data.get(thresholds.SUITE_COST_FAMILY):
         established.add(thresholds.SUITE_COST_FAMILY)
     else:
-        data.setdefault(thresholds.SUITE_COST_FAMILY, _ABSENT_SUITE_COST)
-    return thresholds.normalise(data), established
+        # A base that records no budget — the family predates it, or it
+        # is present and empty — takes the stand-in rather than a
+        # family's worth of phases that are not there to compare. An
+        # ASSIGNMENT, not a setdefault: the empty spelling already has
+        # the key, and leaving it would hand the phase comparison an
+        # empty mapping to index into.
+        data[thresholds.SUITE_COST_FAMILY] = {
+            phase: dict(record)
+            for phase, record in _ABSENT_SUITE_COST.items()}
+    # Strict, and by fact: the stand-in above guarantees a family.
+    return thresholds.normalise(data, False), established
 
 
 def _coverage_moves(base, head):
@@ -143,13 +154,18 @@ def _suite_cost_moves(base, head, established):
     moves down: an upward move is the hand-raise the never-rules forbid,
     a downward one is the tighten. A family the base predates carries no
     record, so the change introducing one is its seed and not a move at
-    all.
+    all. A family the HEAD omits is the sanctioned re-seed's delete: the
+    loader accepts that document only on a commit carrying the marker
+    (reseed.py), so it cannot be an accident, and a removal is the
+    bots' own legal direction like any other.
     """
     if thresholds.SUITE_COST_FAMILY not in established:
         return []
     moves = []
     before = base[thresholds.SUITE_COST_FAMILY]
-    after = head[thresholds.SUITE_COST_FAMILY]
+    after = head.get(thresholds.SUITE_COST_FAMILY)
+    if not after:
+        return []
     for phase in thresholds.SUITE_COST_PHASES:
         for field in ('measured', 'floor'):
             if after[phase][field] > before[phase][field]:
