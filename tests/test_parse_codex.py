@@ -290,6 +290,24 @@ def test_a_file_declaring_several_models_reports_all_of_them():
     assert _codex_declared_models(blob) == {"gpt-5.6-sol", "gpt-5.6-terra"}
 
 
+def test_a_multi_model_fork_keeps_its_replayed_prefix_unknown():
+    """The issue-529 shape: a fork that replays its parent's history and
+    THEN declares two models of its own. No declaration fronts the
+    replayed prefix and two candidates follow it, so no sole-model answer
+    exists — the prefix stays `unknown` and the records it shares with the
+    parent keep the file-local uuids that let the dedup pick the parent's
+    attributed copy (SV-CANONICAL-FLAG)."""
+    blob = (FIX / "rollout_fork_model_switch.jsonl").read_bytes()
+    assert _codex_declared_models(blob) == {"gpt-5.6-sol", "gpt-5.6-terra"}
+    out = _parse("rollout_fork_model_switch.jsonl")
+    assert [(r["line_num"], r["model"], r["uuid"]) for r in out["records"]] == [
+        (4, "unknown", "00000000-0000-4000-8000-000000000001:100500"),
+        (5, "unknown", "00000000-0000-4000-8000-000000000001:110920"),
+        (10, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:215540"),
+        (13, "gpt-5.6-terra", "00000000-0000-4000-8000-000000000001:316040"),
+    ]
+
+
 @pytest.mark.parametrize("raw,expected", [
     ("gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-terra", "gpt-5.6-terra"),
