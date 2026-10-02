@@ -14,6 +14,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from backend import api, app as app_mod, cache, db, ingest
+from tests import mini_mirror
 
 # Pytest discovers imported fixture functions by their fixture marker.
 from tests.test_api import (  # pylint: disable=unused-import
@@ -69,11 +70,16 @@ def test_tool_error_rate_returns_expected_shape(app_with_data):
 def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
     """total_prompts/total_turns count per own timestamp, in range only;
     over an all-covering range that equals the old whole-file SUMs. Mini
-    r2 has one real user prompt (sess-A) and five usage-bearing files
-    (sess-A, sess-B, sess-C main, sess-C agent, sess-D), one ctx_turn."""
+    r2 carried one real user prompt (sess-A) and five usage-bearing files
+    (sess-A, sess-B, sess-C main, sess-C agent, sess-D), one ctx_turn. It
+    now also carries the lane wires (issue #503), so both totals are read
+    off the mirror by running the production parser over it — a transcript
+    is not a prompt, and no inventory can say how many prompts a mirror
+    holds."""
+    totals = mini_mirror.record_totals()
     body = app_with_data.get("/api/dashboard?range=3650d").json()
-    assert body["total_prompts"] == 1
-    assert body["total_turns"] == 5
+    assert body["total_prompts"] == totals["prompt_count"]
+    assert body["total_turns"] == totals["turn_count"]
 
     # Project filter scopes both counts.
     body_b = app_with_data.get("/api/dashboard?range=3650d&project=projB").json()

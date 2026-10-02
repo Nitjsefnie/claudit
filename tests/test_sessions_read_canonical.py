@@ -32,6 +32,7 @@ from pathlib import Path
 # precedent). These tests are read-only, so they can share the
 # module-scoped client.
 from test_api import _app_with_data_fixture  # noqa: F401  pylint: disable=unused-import
+from tests import mini_mirror
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSIONS = ROOT / "backend" / "api_sessions.py"
@@ -70,7 +71,12 @@ def test_list_counts_the_shared_uuid_once(app_with_data):
     carries the shared uuid once, the loser sessions once excluding it."""
     body = app_with_data.get("/api/sessions?limit=500").json()
     items = {i["session_id"]: i for i in body["items"]}
-    assert set(items) == set(_EXPECTED_SESSIONS), sorted(items)
+    # The per-session numbers below are the CLAUDE sessions'; the lane
+    # wires (issue #503) contribute sessions of their own, so the set is
+    # the table's plus the mirror's, and the table still pins every number
+    # it names.
+    assert set(items) == (set(_EXPECTED_SESSIONS)
+                          | set(mini_mirror.session_ids())), sorted(items)
     for sid, (req, inp, out) in _EXPECTED_SESSIONS.items():
         assert items[sid]["request_count"] == req, sid
         assert items[sid]["input_tokens"] == inp, sid

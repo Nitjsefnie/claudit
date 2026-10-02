@@ -24,6 +24,12 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from backend import constants, db, ingest
 
+from tests import mini_mirror
+
+#: How many transcripts the committed mirror holds, read from its
+#: tree (issue #503 grew it with the lane layout).
+_MIRROR = mini_mirror.counts()["transcripts"]
+
 
 def test_newer_stored_parser_version_is_never_reparsed(
         fresh_db, mini_r2_env, caplog):
@@ -124,7 +130,7 @@ def test_older_stored_parser_version_still_reparses(
         constants, "PARSER_VERSION",
         str(int(constants.PARSER_VERSION) + 1))
     result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == 5
+    assert result["reparsed"] == _MIRROR
     assert result["newer"] == 0
     with db.viz_conn() as c:
         stored = c.execute(
@@ -144,7 +150,7 @@ def test_unparsable_stored_parser_version_still_reparses(
         c.execute("UPDATE files SET parser_version = 'not-a-number'")
         c.commit()
     result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == 5
+    assert result["reparsed"] == _MIRROR
     assert result["newer"] == 0
     with db.viz_conn() as c:
         stored = {r[0] for r in c.execute(
