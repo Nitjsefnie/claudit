@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -134,6 +135,12 @@ def _run_classifier(tmp_path, paths=None, writes=True):
     classifier's own exit status — the third is what the fail-closed
     test rests on.
     """
+    if os.name == "nt":
+        pytest.skip(
+            "the stub gh is a POSIX script; Windows resolves an "
+            "extensionless command name to .exe alone, so the "
+            "classifier's `gh` never reaches it and the read log stays "
+            "empty. The two workflow-only pins still run there.")
     paths = BOT_PATHS if paths is None else paths
     out = tmp_path / "step-outputs.txt"
     out.write_text("", encoding="utf-8")
@@ -146,7 +153,7 @@ def _run_classifier(tmp_path, paths=None, writes=True):
     log.write_text("", encoding="utf-8")
     env = dict(os.environ)
     env.update({
-        "PATH": f"{tmp_path}:{env['PATH']}",
+        "PATH": os.pathsep.join((str(tmp_path), env["PATH"])),
         "GITHUB_EVENT_NAME": "push",
         "GITHUB_REPOSITORY": "Nitjsefnie/claudit",
         "GITHUB_SHA": HEAD,
