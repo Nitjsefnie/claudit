@@ -56,6 +56,7 @@ CHECK_NAME = "gate freshness"
 WORKFLOW_ID = "gate-freshness.yml"
 ENV_PR = "GF_PR"
 ENV_HEAD_SHA = "GF_HEAD_SHA"
+ENV_HEAD_REPO = "GF_HEAD_REPO"
 _HEX40 = frozenset("0123456789abcdef")
 
 
@@ -73,14 +74,19 @@ def _hex40(value):
 def missing_commit_files(run_git, master_tip, head_sha):
     """(sha, changed paths) for every master commit the head lacks.
 
-    One `git log` over `master_tip ^head_sha`; `-m` shows merge
-    commits against their first parent, so a merge on master cannot
-    hide its files behind an empty combined diff. Raises QueryError
-    when the head's objects are absent or git fails: the caller
-    publishes red on that head (fail closed).
+    One `git log` over `master_tip ^head_sha`, in the
+    `--pretty=format:%H` spelling whose blocks are sha, files, blank —
+    the shape the parser reads (bare `--format=%H` inserts the blank
+    between sha and files instead, and would parse to nothing). `-m`
+    shows a merge against EACH parent, so its files are the union:
+    over-broad, and fail-closed in this check's direction — a head
+    holding merged content without the merge commit publishes red.
+    Raises QueryError when the head's objects are absent or git fails:
+    the caller publishes red on that head.
     """
     try:
-        out = run_git(["git", "log", "-m", "--name-only", "--format=%H",
+        out = run_git(["git", "log", "-m", "--name-only",
+                       "--pretty=format:%H",
                        master_tip, f"^{head_sha}"])
     except Exception as exc:
         raise QueryError(f"the compare for {head_sha[:12]} failed: {exc}"
@@ -252,8 +258,13 @@ def heads_for_run(env, pulls):
     """
     number, sha = env.get(ENV_PR), env.get(ENV_HEAD_SHA)
     if number and sha:
-        return [{"number": int(number), "sha": sha, "base": BASE_BRANCH,
-                 "repo": ""}]
+        try:
+            number = int(number)
+        except ValueError:
+            number = None
+    if number and sha:
+        return [{"number": number, "sha": sha, "base": BASE_BRANCH,
+                 "repo": env.get(ENV_HEAD_REPO) or ""}]
     heads = []
     for pr in pulls or []:
         if not isinstance(pr, dict):
@@ -351,9 +362,9 @@ def main_impl(run_git, run_gh, repository, env, summary_path,
         print(f"gate freshness: global read failure, publishing "
               f"nothing: {error}", file=sys.stderr)
         return 1
-    single = bool(env.get(ENV_PR)) and bool(env.get(ENV_HEAD_SHA))
-    heads = heads_for_run(env, None)
-    if not single:
+    if env.get(ENV_PR) and env.get(ENV_HEAD_SHA):
+        heads = heads_for_run(env, None)
+    else:
         try:
             heads = heads_for_run(env, _open_pulls(repository))
         except QueryError as error:
