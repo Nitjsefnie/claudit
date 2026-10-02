@@ -37,6 +37,8 @@ coverage_value: _Number = validate.coverage_value
 instruction_value: _Number = validate.instruction_value
 share_value: _Number = validate.share_value
 count_value: _Number = validate.count_value
+_Identity = Callable[[object, str], int]
+suite_identity: _Identity = validate.suite_identity
 
 THRESHOLDS = (Path(__file__).resolve().parents[2]
               / '.github' / 'ci-thresholds.json')
@@ -99,6 +101,12 @@ BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline')
 # and record under another.
 SUITE_COST_FAMILY = 'suite_cost'
 SUITE_COST_PHASES = ('collection', 'run', 'residual')
+# The workload identity the seed binds its budgets to: the total line
+# count of the scanned tree (tests/*.py), which the fixture's
+# tree-scanning tests spend per-line over. A change to that tree moves
+# the counts with no fixture or interpreter change, so a budget without
+# it describes a workload no run can confirm (issue #524).
+SUITE_COST_IDENTITY = 'tests_tree_lines'
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
 _TOP_LEVEL_FIELDS = ('schema_version', 'coverage',
@@ -237,7 +245,8 @@ def _suite_cost(family):
     """
     if not isinstance(family, dict):
         raise ValueError(f'{SUITE_COST_FAMILY} must be an object')
-    _required_fields(family, SUITE_COST_PHASES, SUITE_COST_FAMILY)
+    _required_fields(family, SUITE_COST_PHASES, SUITE_COST_FAMILY,
+                     optional=(SUITE_COST_IDENTITY,))
     normalised = {}
     for phase in SUITE_COST_PHASES:
         prefix = f'{SUITE_COST_FAMILY}.{phase}'
@@ -251,6 +260,10 @@ def _suite_cost(family):
         if floor - measured != CALIBRATION_GAP:
             raise ValueError(f'{prefix} calibration gap must be 1.5')
         normalised[phase] = {'measured': measured, 'floor': floor}
+    identity = family.get(SUITE_COST_IDENTITY)
+    if identity is not None:
+        normalised[SUITE_COST_IDENTITY] = suite_identity(
+            identity, f'{SUITE_COST_FAMILY}.{SUITE_COST_IDENTITY}')
     return normalised
 
 

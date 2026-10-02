@@ -17,6 +17,8 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
@@ -304,3 +306,79 @@ def subprocess_committed_bytes():
         ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
          "HEAD:.github/ci-thresholds.json"],
         capture_output=True, check=True).stdout
+
+
+def test_seed_carries_the_workload_identity(tmp_path):
+    # The seed binds the budget to the workload it measured: the
+    # measurement's tests_tree_lines enters the committed family
+    # (SV-CI-RATCHETS, issue #524).
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    measurement = _measurement_file(tmp_path, COUNTS)
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    payload["tests_tree_lines"] = 41234
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    assert ratchet.main(["--seed", str(measurement),
+                         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["suite_cost"]["tests_tree_lines"] == 41234
+
+
+def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
+    # A measurement that predates the identity seeds a family without
+    # one: the gate then behaves exactly as before this field existed.
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
+                         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["suite_cost"] == {
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")}
+
+
+def test_tighten_preserves_the_identity(tmp_path):
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    measurement = _measurement_file(tmp_path, COUNTS)
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    payload["tests_tree_lines"] = 41234
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    assert ratchet.main(["--seed", str(measurement),
+                         "--thresholds", str(target)]) == 0
+    cheaper = {phase: COUNTS[phase] - Decimal("5.0")
+               for phase in ("collection", "run", "residual")}
+    assert ratchet.main(["--tighten", str(_measurement_file(tmp_path, cheaper)),
+                         "--thresholds", str(target)]) == 0
+    doc = thresholds.load(target)
+    assert doc["suite_cost"]["tests_tree_lines"] == 41234
+    assert doc["suite_cost"]["run"] == {
+        "measured": Decimal("299.9"), "floor": Decimal("301.4")}
+
+
+def test_the_committed_identity_is_a_positive_integral_count(tmp_path):
+    # The workload identity the seed binds to (SV-CI-RATCHETS, issue
+    # #524): optional in the document, a positive integer when present,
+    # carried through the canonical round trip; a refusal names it.
+    thresholds = _thresholds()
+    target = tmp_path / "ci-thresholds.json"
+    doc = _document(suite={
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")})
+    doc["suite_cost"]["tests_tree_lines"] = 41234
+    thresholds.write(target, doc)
+    loaded = thresholds.load(target)
+    assert loaded["suite_cost"]["tests_tree_lines"] == 41234
+    for bad, match in ((0, "positive integer"), (-5, "positive integer"),
+                       (4.2, "positive integer"),
+                       ("41234", "JSON number"), (True, "JSON number")):
+        payload = json.loads(json.dumps(doc, default=float))
+        payload["suite_cost"]["tests_tree_lines"] = bad
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            thresholds.load(target)

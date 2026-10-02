@@ -7,11 +7,17 @@ baseline release; a runner's speed varies by roughly a factor of two
 between jobs, so the ratio measured the runners as much as the code.
 This bench replaces that with a committed instruction-count ratchet:
 
-- A COUNT IS EXACT WITHIN ONE ENVIRONMENT STATE, AND THE BENCH
-  ESTABLISHES THAT STATE ITSELF. ``sys.monitoring``'s
+- A COUNT IS EXACT FOR ONE (TREE CONTENT, INTERPRETER, LIBRARY SET),
+  AND THE BENCH ESTABLISHES THE STATE IT MEASURES UNDER. ``sys.monitoring``'s
   INSTRUCTION event fires once per bytecode the interpreter retires;
-  the same tree under the same interpreter, libraries and machine
-  state retires the same count on a loaded machine and an idle one.
+  the same tree under the same interpreter and libraries retires the
+  same count -- issue #524's series drew exact repeats across the
+  runner fleet and a 12-vCPU box on identical trees (box-vs-runner
+  within 0.5M in ``run``, residual 6.4 = 6.4), through a clean library
+  set. THE LIBRARY SET IS PART OF THE STATE: the box's site-packages
+  carries extra pytest plugins that tax every test, so a local reading
+  comparable with the runners' comes from a venv holding exactly
+  ``backend/requirements.txt`` + ``requirements-test.txt``.
   The state includes the tree's BYTECODE CACHES: the interpreter
   compiles a module the first time it imports it and loads the cached
   bytecode after that, and the two cost about as much again, so the
@@ -20,14 +26,17 @@ This bench replaces that with a committed instruction-count ratchet:
   statistics, one collect-only warm-up pass BEFORE the counted window,
   ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
   identical (five-run probes, two seed values).
-  ACROSS machine families the counts are not portable: within one
-  family the observed wobble is <=0.7M in ``run`` and <=0.2M in
-  ``residual`` (``collection`` stable in every same-tree observation),
-  while this box's ``residual`` reads ~2.4M BELOW a GitHub runner's on
-  identical code -- the session-level code outside the wrapped phases
-  is environment-sensitive. The budgets are therefore SEEDED FROM A
-  RUNNER MEASUREMENT, the environment the gate and the master-push
-  record path share, and the 1.5 gap covers runner-to-runner spread.
+  WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT the pinned
+  tests scan: the fixture's tree-scanning tests spend per-line over
+  ``tests/``, so a tests/-tree change moves the counts with no fixture,
+  interpreter or machine change. A budget therefore describes ONE
+  workload, and every measurement and seed records the workload
+  identity ``tests_tree_lines`` (the tests/*.py line total), which the
+  gate names when a reading against it has drifted (SV-CI-RATCHETS).
+  The session-level code outside the wrapped phases stays
+  environment-sensitive. The budgets are SEEDED FROM A RUNNER
+  MEASUREMENT, the environment the gate and the master-push record
+  path share, and the 1.5 gap covers library and interpreter drift.
   The gate reads the
   committed file, so one gate's verdict is one state's reading, and
   ``--check`` refuses a measurement not taken under
@@ -165,6 +174,23 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
         check=False)
 
 
+def _tests_tree_lines(repo_root: Path) -> int:
+    """The scanned tree's size: the workload identity the seed binds to.
+
+    The fixture's tree-scanning tests (the db-marker derivation, the
+    version-literal guard, the scratch-DB scan) walk ``tests/``
+    recursively, and their cost is per-line over that set: a change to
+    the tree's content moves the counts with no fixture, interpreter or
+    machine change (issue #524's series). A tree with no ``tests/`` has
+    no scanned workload and records an honest 0.
+    """
+    root = repo_root / 'tests'
+    if not root.is_dir():
+        return 0
+    return sum(len(path.read_bytes().splitlines())
+               for path in sorted(root.rglob('*.py')))
+
+
 def measure(fixture: list[Path], repo_root: Path) -> Measurement:
     """One pass over the fixture, partitioned, counted, reported.
 
@@ -222,6 +248,7 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
                for phase in suite_phases.PHASES},
         fixture=str(FIXTURE),
         interpreter=platform.python_version(),
+        tests_tree_lines=_tests_tree_lines(repo_root),
     )
 
 

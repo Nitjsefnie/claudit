@@ -83,6 +83,7 @@ class Measurement(NamedTuple):
     cpu_s: dict
     fixture: str
     interpreter: str
+    tests_tree_lines: int | None = None
 
 
 def measurement_json(measurement: Measurement) -> dict:
@@ -92,6 +93,7 @@ def measurement_json(measurement: Measurement) -> dict:
         'unit': UNIT,
         'hash_seed': measurement.hash_seed,
         'tests': measurement.tests,
+        'tests_tree_lines': measurement.tests_tree_lines,
         'fixture': measurement.fixture,
         'interpreter': measurement.interpreter,
         'phases': {
@@ -152,11 +154,49 @@ def measurement_from_file(path) -> Measurement:
                    for name in PHASES},
             fixture=str(data.get('fixture', '')),
             interpreter=str(data.get('interpreter', '')),
+            tests_tree_lines=_identity(data),
         )
     except (KeyError, AttributeError, TypeError, json.JSONDecodeError) as error:
         raise ValueError(f'unreadable measurement file: {error}') from None
     except OSError as error:
         raise ValueError(f'cannot read the measurement: {error}') from None
+
+
+def _identity(data: dict) -> int | None:
+    """The measurement's workload identity, or None when it predates it.
+
+    Present, never half-present: a recorded identity is a positive
+    integer, and a bool is not an integer here however Python's type
+    system spells it.
+    """
+    identity = data.get('tests_tree_lines')
+    if identity is None:
+        return None
+    if isinstance(identity, bool) or not isinstance(identity, int):
+        raise ValueError(
+            'tests_tree_lines must be a positive integer')
+    return identity
+
+
+def _workload_drift_note(measurement: Measurement, budgets: dict) -> str | None:
+    """Why a reading against this budget is not a regression, if it isn't.
+
+    A budget binds to the workload it measured (SV-CI-RATCHETS): when
+    both identities are known and differ, a breach names the workload
+    change instead of reading as slowness, and a pass within the
+    hysteresis still gets the early warning a re-seed can be scheduled
+    against.
+    """
+    committed = budgets.get(thresholds.SUITE_COST_IDENTITY)
+    measured = measurement.tests_tree_lines
+    if committed is None or measured is None or committed == measured:
+        return None
+    return (f'workload identity drifted: this run scanned '
+            f'{measured} tests-tree lines against a seed recorded at '
+            f'{committed} — the budgets describe a different workload '
+            f'than the one they measured; the doctrine\'s re-seed path, '
+            f'taken against a draw of the current tree, is the remedy '
+            f'(issue #524)')
 
 
 def _over_budget(counts: dict, budgets: dict) -> list:
@@ -209,8 +249,14 @@ def check(path, thresholds_path=None) -> int:
         for line in over:
             print(f'  {line}', file=sys.stderr)
         print(_OVER_BUDGET_REMEDY, file=sys.stderr)
+        drift = _workload_drift_note(measurement, budgets)
+        if drift:
+            print(drift, file=sys.stderr)
         return 1
     print(summary_line(measurement.counts))
+    drift = _workload_drift_note(measurement, budgets)
+    if drift:
+        print(drift)
     return 0
 
 

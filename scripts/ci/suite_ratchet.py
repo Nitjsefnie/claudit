@@ -57,8 +57,30 @@ CALIBRATION_GAP = Decimal('1.5')
 TIGHTEN_HYSTERESIS = Decimal('1.5')
 UNIT = thresholds.SUITE_COST_UNIT
 PHASES = thresholds.SUITE_COST_PHASES
+_IDENTITY = thresholds.SUITE_COST_IDENTITY
 _family = thresholds.SUITE_COST_FAMILY
 _COUNTS = 'million_instructions'
+
+
+def _identity(path: Path):
+    """The measurement's workload identity, or None when it predates it.
+
+    The seed writes it beside the budgets, binding them to the workload
+    they measured (SV-CI-RATCHETS, issue #524); the gate and the guard
+    read it back against exactly the reading that produced it.
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f'cannot read the bench measurement {path}: {error}') from None
+    identity = data.get(_IDENTITY)
+    if identity is None:
+        return None
+    if isinstance(identity, bool) or not isinstance(identity, int):
+        raise ValueError(
+            f'{path}: {_IDENTITY} must be a positive integer')
+    return identity
 
 
 def _phase_counts(path: Path) -> dict:
@@ -92,7 +114,7 @@ def _phase_counts(path: Path) -> dict:
             f'cannot read the bench measurement {path}: {error}') from None
 
 
-def seed(data, counts):
+def seed(data, counts, identity=None):
     """Return a document with the family seeded, or raise when present.
 
     ``data`` is the RAW document as its bytes carry it: the seed's
@@ -102,7 +124,9 @@ def seed(data, counts):
     would need its own justification, and the sanctioned one is the
     doctrine's re-seed -- delete the stale member first, commit the new
     counts second, both reviewed gate-definers -- not a quiet rewrite by
-    a bot.
+    a bot. ``identity`` is the measurement's workload identity: written
+    beside the budgets when the reading carries one, so the committed
+    seed names the workload it measured.
     """
     if data.get(_family):
         raise ValueError(
@@ -121,6 +145,8 @@ def seed(data, counts):
         }
         for phase in PHASES
     }
+    if identity is not None:
+        candidate[_family][_IDENTITY] = identity
     # Strict, by fact and not by default: the candidate this builds
     # always carries the family, so there is nothing for the marker to
     # excuse. The re-seed's tolerance is the loader's, not the seed's.
@@ -198,7 +224,8 @@ def main(argv=None):
         counts = _phase_counts(args.seed or args.tighten)
         if args.seed is not None:
             data, _seeded_fresh = load_for_seed(args.thresholds)
-            candidate = seed(data, counts)
+            candidate = seed(
+                data, counts, _identity(args.seed))
             thresholds.write(args.thresholds, candidate)
             for phase in PHASES:
                 print(f'seeded {phase} '
