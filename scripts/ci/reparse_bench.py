@@ -19,18 +19,21 @@ field guide's findings rather than by a first instinct:
   calls — no reimplementation of the dispatch, no second copy of the
   parse to drift from the first.
 
-- TWO INSTRUMENTS, because each sees something the other cannot. Each
-  phase's SHARE of the run's own CPU is scale-free inside one run: four
-  runs of the same tree on this shared box moved the pass TOTAL by 29%
-  while every phase share stayed inside half a point. That is what
-  catches work MOVING between phases. It cannot catch the parse getting
-  slower as a WHOLE, because every phase grows together — so each phase
-  is also counted in BYTECODE INSTRUCTIONS per file, with
-  ``sys.monitoring``'s INSTRUCTION event (``scripts/ci/reparse_phases``).
-  A count is exact: the same tree retired the same 295,703 bytecodes on
-  every run measured here, on a loaded machine, under any
-  ``PYTHONHASHSEED``. That is the instrument that holds the maintainer's
-  own case, a uniform per-file slowdown.
+- TWO INSTRUMENTS, and only one of them gates (issue #513). Each phase's
+  SHARE of the run's own CPU shows where the pass spends its work, and it
+  is printed, stored and reported — but nothing compares it against a
+  recorded budget, because a proportion of a timed run is not a count of
+  work: its runner-to-runner spread measures 1.9-2.7 points against a
+  1.5-point gap (#500, #506), and it moves when the corpus MIX shifts
+  between formats of different parse cost even with no code path slower
+  and every count under its own ceiling (PR #512). What the gate holds a
+  phase to is BYTECODE INSTRUCTIONS per file, counted with
+  ``sys.monitoring``'s INSTRUCTION event
+  (``scripts/ci/reparse_phases``). A count is exact: the same tree
+  retired the same 295,703 bytecodes on every run measured here, on a
+  loaded machine, under any ``PYTHONHASHSEED``. That is the instrument
+  that holds the maintainer's own case, a uniform per-file slowdown, and
+  the only one whose absence fails the gate rather than passing it.
 
 - COUNTS FROM perf ARE A CROSS-CHECK, NOT A RATCHET (guide: "instruction
   counts do not drift with machine speed"). ``perf stat``'s user-space
@@ -67,13 +70,13 @@ field guide's findings rather than by a first instinct:
   ``WARMUP`` passes run before the clock starts, because the first passes
   of a fresh interpreter cost about 15% more and an un-warmed reading
   would price the interpreter rather than the parse. The amplification
-  is sized for the SHARE, whose noise is the machine's: a phase share
-  spread about 2 points at 20000 passes and about 0.5 at 60000, against a
-  1.5-point yardstick. The counted run needs none of it — one pass is
-  already exact — and takes twenty, because the callback that makes a
-  count exact costs about four times the CPU it measures (measured on
-  this corpus) and would distort every time-based share if both ran in
-  one region.
+  is sized for the reported SHARE and ms/file, whose noise is the
+  machine's: a phase share spread about 2 points at 20000 passes and
+  about 0.5 at 60000. The counted run needs none of it — one pass is
+  already exact, which is what the gate reads — and takes twenty,
+  because the callback that makes a count exact costs about four times
+  the CPU it measures (measured on this corpus) and would distort every
+  time-based share if both ran in one region.
 
   python3 scripts/ci/reparse_bench.py                  # human report
   python3 scripts/ci/reparse_bench.py --machine        # key=value fields
@@ -128,23 +131,21 @@ COUNT_PASSES = reparse_phases.COUNT_PASSES
 # own rather than the amplified timed one.
 PERF_PASSES = 200
 # Fixed amplification, and the warm-up that precedes it. Chosen so the
-# run-to-run spread of a phase share stays inside the 1.5-point yardstick
-# the ratchet moves on — a floor narrower than the measurement's own noise
-# is a coin flip, not a gate. Measured on the shared seeding box: four
-# runs at 5000 passes spread a phase share over about 2 points, four at
-# 20000 over about 2, and four at 60000 over about 0.5 — while the pass
-# TOTAL moved 17% between the same runs, which is the whole reason the
-# ratcheted quantity is a share and not a total. 60000 passes is roughly
-# 21 CPU seconds, about 3% of this job's budget.
+# reported share and ms/file stay readable run to run: measured on the
+# shared seeding box, four runs at 5000 passes spread a phase share over
+# about 2 points, four at 20000 over about 2, and four at 60000 over
+# about 0.5 — while the pass TOTAL moved 17% between the same runs,
+# which is why a share is the only time-based reading here and not a
+# total. Since issue #513 that spread gates nothing, so the number sets
+# how steady the TELEMETRY reads, not whether a run passes; the gate's
+# own instrument is the exact count, which needs no amplification at all.
+# 60000 passes is roughly 21 CPU seconds, about 3% of this job's budget.
 PASSES = 60000
 # 600 warm-up passes is past the knee: an un-warmed pass costs about 15%
 # more, while 2000 warm-up passes measure the same shares as 400.
 WARMUP_PASSES = 600
 PERF_TIMEOUT_S = 120
 _QUANTUM = Decimal('0.1')
-_OVER_BUDGET_REMEDY = (
-    'A reparse phase is over its recorded share of the pass: make that '
-    'phase cheaper. The recorded budget is never raised by hand.')
 
 
 def _pin_corpus_env():

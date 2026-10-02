@@ -177,11 +177,17 @@ floors (always 1.5 below) are committed data in
 run measures more than 1.5 above its recorded value. The same file holds
 the reparse hot path's budget (`scripts/ci/reparse_bench.py`): one
 record per phase of a parse pass, each phase carrying the share of that
-run's own CPU work AND the bytecodes it retires per file, gated the same
-way and tightened only downward. Both are costs, so their floors are the
-ceilings 1.5 above the recorded values and only a phase that got cheaper
-moves them — the inversion the coverage family's `floor = measured - 1.5`
-does not have, because higher coverage is better and a lower CPU cost is. The same file caps
+run's own CPU work AND the bytecodes it retires per file, both recorded
+as costs with their floors the ceilings 1.5 above the recorded values.
+Only the bytecodes GATE (issue #513): a share is a proportion of a timed
+run rather than a count of work, its runner spread measures wider than
+that 1.5-point gap, and it moves when the corpus mix shifts between
+formats of different parse cost even with no code path slower and every
+count under its own ceiling — so it is printed and recorded as telemetry,
+compared against by nothing, and the ratchet tightens only the counts,
+one phase at a time, and only when a phase got cheaper. That is the
+inversion the coverage family's `floor = measured - 1.5` does not have,
+because higher coverage is better and a lower CPU cost is. The same file caps
 every Python file's line count and every tracked `src/**/*.js(x)` file
 too (production 500 / test 700): files over the cap carry baseline
 entries that CI lowers as they shrink, and entries are never added or
@@ -209,7 +215,7 @@ The rest need GitHub and run on their own:
 | Workflow | What it does |
 | --- | --- |
 | `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip the expensive legs; every check still reports), runs the ten gate workflows as reusable legs, and folds them into one `ci gate / aggregate` verdict. Master-push runs are grouped per commit SHA, so a newer push never cancels an older run (issue #358); a deliberate cancel reads never-green. |
-| `tests` | The `ci-gate` pytest leg runs the full suite with coverage, gates and ratchets the reparse hot path's per-phase CPU shares (`.github/actions/reparse-bench`, `scripts/ci/reparse_bench.py`; the bench itself is documented in its own docstring), and raises the committed coverage, file-size or pylint-suppression thresholds when the measurements justify it. The `Threshold direction guard` step also compares `.github/ci-thresholds.json` against the base document and fails a PR or master push that lowers a coverage value, raises an entry, or hand-adds one under the frozen core families (issue #388), so the never-raise/never-lower rule does not depend on review; the bots' raise/tighten and the two sanctioned seeds (a new member, a new measured family) stay legal. The ratchet data (the measured thresholds file and the suite-cost measurement) is staged and uploaded here; the push lives in `ratchet-push.yml`, a top-level `workflow_run` workflow keyed on the ci-gate run's completion (issue #479: the `master-push` deploy key's secret resolves empty inside a `workflow_call` callee, and a `GITHUB_TOKEN` push is rejected by the ruleset's required `aggregate` check). |
+| `tests` | The `ci-gate` pytest leg runs the full suite with coverage, gates and ratchets the reparse hot path's per-phase bytecode counts — the per-phase CPU shares ride along as telemetry, not a gate (`.github/actions/reparse-bench`, `scripts/ci/reparse_bench.py`; the bench itself is documented in its own docstring) — and raises the committed coverage, file-size or pylint-suppression thresholds when the measurements justify it. The `Threshold direction guard` step also compares `.github/ci-thresholds.json` against the base document and fails a PR or master push that lowers a coverage value, raises an entry, or hand-adds one under the frozen core families (issue #388), so the never-raise/never-lower rule does not depend on review; the bots' raise/tighten and the two sanctioned seeds (a new member, a new measured family) stay legal. The ratchet data (the measured thresholds file and the suite-cost measurement) is staged and uploaded here; the push lives in `ratchet-push.yml`, a top-level `workflow_run` workflow keyed on the ci-gate run's completion (issue #479: the `master-push` deploy key's secret resolves empty inside a `workflow_call` callee, and a `GITHUB_TOKEN` push is rejected by the ruleset's required `aggregate` check). |
 | `ratchet-push` | The data-only push half of the ratchets (issue #479): fires on the ci-gate run's completion, and only from a green master push whose tests leg staged data. Its job takes the deploy key from the `master-push` GitHub environment, lists the triggering run's artifacts, downloads the measured thresholds file and suite-cost measurement when present, tightens the suite-cost budgets from the measurement (a downward-only data operation; never raises), and pushes the ratchet commit. It runs no test, dependency or upstream code and stops its ssh-agent after the push. A push refused because master moved is dropped with a notice — the next master run measures and raises instead. Like the pricing bot's deploy-key push, the ratchet commit starts workflow runs, but a `.github/ci-thresholds.json`-only change stays silent in ci-gate by its paths-ignore. |
 | `test-data` | Would a refresh-shaped change — moved rates, bumped version constants — break the suite? Perturbs the tree exactly that way (`scripts/ci/perturb_test_data.py`) and runs the full suite against it on a Postgres 16 service; no coverage, no ratchet — the verdict is the perturbed suite's pass/fail. Runs on three fixed seeds so the verdict is deterministic (the appended `from` stamps are decoupled from the seed, so any seed is safe). A ci-gate leg, skipped on docs-only changes. The second half of SV-TEST-DATA's enforcement. |
 | `test-data-explore` | The daily explorer for `test-data`: draws three wall-clock seeds and runs the same full perturbed suite per seed, naming any failing seed in the run summary. Not a ci-gate leg — a red run means "look at this seed", never "block". |

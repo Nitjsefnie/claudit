@@ -10,15 +10,25 @@ outgrown file moves code rather than growing a baseline entry
 (SV-CI-RATCHETS).
 
 A measurement is a small JSON document carrying TWO instruments over the
-same phases, because each sees something the other cannot:
+same phases, and only one of them gates (issue #513):
 
-- ``share_<phase>`` — the phase's percent of the pass's own CPU time.
-  Scale-free inside one run, so it does not drift with the machine, and
-  it is what catches work MOVING between phases.
 - ``bytecodes_<phase>`` — the phase's bytecode instructions per file, in
   thousands. Exact, so it needs no amplification and no tolerance, and
-  it is what catches the parse getting slower as a WHOLE — the case a
-  share cannot see, because every phase grows together.
+  it is what the gate holds a phase to: it catches the parse getting
+  slower as a WHOLE, where every phase grows together.
+- ``share_<phase>`` — the phase's percent of the pass's own CPU time.
+  TELEMETRY: it shows where the pass spends its CPU, and it is measured,
+  printed and recorded like the count, but nothing compares it against
+  the recorded share budgets. A proportion of a timed run is not a count
+  of work — its runner-to-runner spread (1.9-2.7 points, #500/#506) is
+  wider than the 1.5-point gap it would be judged against, and it moves
+  when the corpus mix shifts between formats of different parse cost even
+  with no code path slower and every count under its own ceiling
+  (PR #512).
+
+Because the count is the only instrument the gate holds, an ABSENT count
+fails it (fail closed): without ``sys.monitoring`` the step would
+otherwise report a pass it never measured.
 
 Numbers go through the file as STRINGS, not JSON numbers: they carry
 exactly one decimal place by contract, and a float would round-trip them
@@ -159,17 +169,24 @@ def _counted(measurement: Measurement, phase: str) -> Decimal | None:
 
 
 def _over_budget(measurement: Measurement, floors: dict) -> list:
-    """Every phase over either of its two recorded budgets."""
+    """Every phase over a GATED recorded budget, and every phase the gate
+    could not read.
+
+    The bytecode count is the whole of the enforced set (issue #513), so
+    an absent count is an absent gate and is listed as a failure with the
+    reason the bench recorded — fail closed, never a silent pass on an
+    instrument that never ran.
+    """
     over = []
+    reason = measurement.instruction_note
     for phase in PHASES:
-        share = measurement.shares[phase]
-        share_floor = floors[phase]['share']['floor']
-        if share > share_floor:
-            over.append(f'{phase}: {share}% of the pass, '
-                        f'floor {share_floor}%')
         counted = _counted(measurement, phase)
+        if counted is None:
+            over.append(f'{phase}: NOT MEASURED'
+                        f'{f" ({reason})" if reason else ""}')
+            continue
         count_floor = floors[phase]['bytecodes']['floor']
-        if counted is not None and counted > count_floor:
+        if counted > count_floor:
             over.append(f'{phase}: {counted} {COUNT_UNIT}, '
                         f'floor {count_floor}')
     return over
@@ -192,8 +209,9 @@ def check(path, thresholds_path=None) -> int:
 
 
 def summary_line(measurement: Measurement) -> str:
-    """One line naming every phase under both of its budgets, for the
-    gate's own voice when it passes."""
+    """One line naming every phase under its gated budget, with the
+    share beside it as the telemetry it is, for the gate's own voice when
+    it passes."""
     parts = []
     for name in PHASES:
         counted = _counted(measurement, name)
@@ -201,7 +219,8 @@ def summary_line(measurement: Measurement) -> str:
         if counted is not None:
             part += f'/{counted}'
         parts.append(part)
-    return 'reparse work within budget (' + ', '.join(parts) + ')'
+    return ('reparse work within budget (' + ', '.join(parts)
+            + '; the share is telemetry, the count after it gates)')
 
 
 # --- reporting ---------------------------------------------------------------
@@ -253,7 +272,8 @@ def report(measurement: Measurement) -> str:
     lines = [
         f'reparse CPU {measurement.cpu_s:.4f} s over '
         f'{measurement.files} transcripts x {measurement.passes} passes '
-        f'({per_file_ms:.4f} ms/file), split by phase:',
+        f'({per_file_ms:.4f} ms/file), split by phase — the '
+        f'{COUNT_UNIT} column is the gate, the share column is telemetry:',
         '',
         *_phase_table(measurement),
         f'  {"sum":<11} {sum(measurement.shares.values()):>5}%',
