@@ -315,8 +315,8 @@ def main(argv=None):
             args.summary.write_text(
                 suite_report.summary_markdown(
                     measurement,
-                    verdict=('**within budget**' if code == 0
-                             else '**OVER BUDGET**')),
+                    verdict=suite_report.gate_verdict(
+                        args.thresholds, code)),
                 encoding='utf-8')
         return code
     except (OSError, ValueError) as main_error:
