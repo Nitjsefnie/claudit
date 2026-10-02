@@ -93,7 +93,7 @@ def measurement_json(measurement: Measurement) -> dict:
         'unit': UNIT,
         'hash_seed': measurement.hash_seed,
         'tests': measurement.tests,
-        'tests_tree_lines': measurement.tests_tree_lines,
+        thresholds.SUITE_COST_IDENTITY: measurement.tests_tree_lines,
         'fixture': measurement.fixture,
         'interpreter': measurement.interpreter,
         'phases': {
@@ -165,16 +165,16 @@ def measurement_from_file(path) -> Measurement:
 def _identity(data: dict) -> int | None:
     """The measurement's workload identity, or None when it predates it.
 
-    Present, never half-present: a recorded identity is a positive
-    integer, and a bool is not an integer here however Python's type
-    system spells it.
+    An integer when present — 0 is an honest reading for a tree with
+    no tests/; positivity is the loader's rule, not this reader's. A
+    bool is not an integer here however Python's type system spells it.
     """
-    identity = data.get('tests_tree_lines')
+    identity = data.get(thresholds.SUITE_COST_IDENTITY)
     if identity is None:
         return None
     if isinstance(identity, bool) or not isinstance(identity, int):
         raise ValueError(
-            'tests_tree_lines must be a positive integer')
+            f'{thresholds.SUITE_COST_IDENTITY} must be an integer')
     return identity
 
 
