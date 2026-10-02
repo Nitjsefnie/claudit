@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-01T23:54:11Z",
+  "provider_rates_fetched": "2026-10-02T00:54:03Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2851,6 +2851,14 @@
           "from": "2026-10-01T20:10:36Z",
           "output": 0.6,
           "read": 0.0264
+        },
+        {
+          "create_1h": 0.027,
+          "create_5m": 0.027,
+          "fresh": 0.027,
+          "from": "2026-10-02T00:21:09Z",
+          "output": 0.6,
+          "read": 0.027
         }
       ],
       "Sail Research": [
@@ -34350,6 +34358,15 @@
           "note": "36% off",
           "output": 1.7424,
           "read": 0.08832
+        },
+        {
+          "create_1h": 0.340288,
+          "create_5m": 0.340288,
+          "fresh": 0.340288,
+          "from": "2026-10-02T00:36:11Z",
+          "note": "36% off",
+          "output": 1.7424,
+          "read": 0.08832
         }
       ],
       "NextBit": [
@@ -40478,6 +40495,14 @@
           "from": "2026-10-01T23:36:13Z",
           "output": 3.0,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-02T00:11:15Z",
+          "output": 3.39,
+          "read": 0.2
         }
       ],
       "Io Net": [
@@ -42055,6 +42080,22 @@
           "from": "2026-10-01T23:06:14Z",
           "output": 2.992,
           "read": 0.176
+        },
+        {
+          "create_1h": 0.893,
+          "create_5m": 0.893,
+          "fresh": 0.893,
+          "from": "2026-10-02T00:01:44Z",
+          "output": 2.992,
+          "read": 0.176
+        },
+        {
+          "create_1h": 0.106,
+          "create_5m": 0.106,
+          "fresh": 0.106,
+          "from": "2026-10-02T00:06:34Z",
+          "output": 2.653,
+          "read": 0.176
         }
       ],
       "Novita": [
@@ -42200,6 +42241,15 @@
           "note": "44.1% off",
           "output": 2.4596,
           "read": 0.14534
+        },
+        {
+          "create_1h": 0.7,
+          "create_5m": 0.7,
+          "fresh": 0.7,
+          "from": "2026-10-02T00:54:03Z",
+          "note": "50% off",
+          "output": 2.2,
+          "read": 0.13
         }
       ],
       "Parasail": [
