@@ -362,11 +362,11 @@ def test_the_committed_allowlist_excuses_nothing_the_corpus_could_walk():
     allowed = surface.allowlist_entries()
     reached = walk.reachable_surface()
     assert surface.stale_allowlist(reached, allowed) == []
-    # The committed allowlist's one entry excuses a DEAD branch, filed as
-    # #505; when that branch is deleted the entry must go with it, and this
-    # is what says so at the moment it happens.
-    assert allowed, ("the committed allowlist should still record its one "
-                     "excuse; if #505 landed, delete the entry too")
+    # #505 deleted the gate's one excuse with the dead branch it excused
+    # (parse._tool_access's Bash arm, which its only caller can never take):
+    # the gate runs at full strictness, and an entry may return only with a
+    # reachable function no fixture can walk.
+    assert allowed == {}
 
 
 # --- the corpus itself -------------------------------------------------------
