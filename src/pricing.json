@@ -482,7 +482,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-02T12:44:26Z",
+  "provider_rates_fetched": "2026-10-02T12:54:16Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1205,6 +1205,14 @@
           "create_5m": 0.04,
           "fresh": 0.04,
           "from": "2026-10-02T10:31:38Z",
+          "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.022,
+          "create_5m": 0.022,
+          "fresh": 0.022,
+          "from": "2026-10-02T12:41:16Z",
           "output": 0.6,
           "read": 0.02
         }
@@ -10067,6 +10075,14 @@
           "from": "2026-10-02T12:16:30Z",
           "output": 1.28,
           "read": 0.0154
+        },
+        {
+          "create_1h": 0.0103,
+          "create_5m": 0.0103,
+          "fresh": 0.0103,
+          "from": "2026-10-02T12:54:16Z",
+          "output": 1.28,
+          "read": 0.0103
         }
       ],
       "SiliconFlow": [
@@ -43472,6 +43488,15 @@
           "note": "51% off",
           "output": 2.156,
           "read": 0.1274
+        },
+        {
+          "create_1h": 0.42,
+          "create_5m": 0.42,
+          "fresh": 0.42,
+          "from": "2026-10-02T12:54:16Z",
+          "note": "70% off",
+          "output": 1.32,
+          "read": 0.078
         }
       ],
       "Parasail": [
