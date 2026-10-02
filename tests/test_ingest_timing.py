@@ -10,6 +10,12 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 from backend import ingest, timing
 
+from tests import mini_mirror
+
+#: How many transcripts the committed mirror holds, read from its
+#: tree (issue #503 grew it with the lane layout).
+_MIRROR = mini_mirror.counts()["transcripts"]
+
 
 _DERIVED_PHASES = (
     "suppressed", "reprice", "aliases", "canonical", "teammates",
@@ -109,8 +115,8 @@ def test_ingest_logs_every_phase_and_run_counts(
     line = lines[0]
     _assert_phase_line(line)
     assert "sum=" in line and "gap=" in line
-    assert "listed=5" in line and "todo=5" in line
-    assert "inserted=5" in line and "reparsed=0" in line
+    assert f"listed={_MIRROR}" in line and f"todo={_MIRROR}" in line
+    assert f"inserted={_MIRROR}" in line and "reparsed=0" in line
     assert "deleted=0" in line and "changed=" in line
     assert "outcome=ok" in line
 

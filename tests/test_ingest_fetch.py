@@ -26,6 +26,12 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import api, app as app_mod, constants, db, events, ingest, ingest_fetch, ingest_runs
+from tests import mini_mirror
+
+#: How many transcripts the committed mirror holds, read from its tree
+#: (issue #503 grew it with the lane layout). A count written down here is
+#: a count every future fixture addition makes wrong.
+_MIRROR = mini_mirror.counts()["transcripts"]
 
 # failed_keys is the PUBLIC key form returned for authenticated triage.
 _FLAKY_PUBLIC_KEY = _FLAKY_KEY.split("/", 1)[1]
@@ -85,7 +91,8 @@ def test_one_failed_object_does_not_abort_the_run(
     result = ingest.run_ingest(trigger="manual")
 
     assert result["failed"] == 1
-    assert result["inserted"] == 4, "the other four files must still persist"
+    assert result["inserted"] == _MIRROR - 1, (
+        "every file but the flaky one must still persist")
     assert result["failed_keys"] == [_FLAKY_PUBLIC_KEY]
     assert result["error"] == "1 object failed after retries"
     event_index = event_names.index("ingest_done")
@@ -96,7 +103,7 @@ def test_one_failed_object_does_not_abort_the_run(
             "SELECT file_key FROM files ORDER BY file_key"
         ).fetchall()]
     assert _FLAKY_KEY not in keys
-    assert len(keys) == 4
+    assert len(keys) == _MIRROR - 1
 
 
 def test_per_object_failure_still_rebuilds_derived_state(
@@ -136,7 +143,7 @@ def test_per_object_failure_still_rebuilds_derived_state(
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1
-    assert result["reparsed"] == 4
+    assert result["reparsed"] == _MIRROR - 1
 
     with db.viz_conn() as c:
         rollup_after = _scalar(c, "SELECT COUNT(*) FROM usage_rollup")
@@ -224,7 +231,7 @@ def test_a_transient_fetch_failure_is_retried_and_recovers(
 
     assert result["failed"] == 0
     assert result["error"] is None
-    assert result["inserted"] == 5
+    assert result["inserted"] == _MIRROR
     assert counts[_FLAKY_KEY] == 3
     assert slept == [0.5, 1.0], "exponential backoff between attempts"
     with db.viz_conn() as c:
@@ -270,10 +277,10 @@ def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
 
     result = ingest.run_ingest(trigger="manual")
 
-    assert result["r2_listed"] == 6
+    assert result["r2_listed"] == _MIRROR + 1  # the corrupt object it adds
     assert result["failed"] == 1
     assert result["error"] == "1 object failed after retries"
-    assert result["inserted"] == 5, "the intact objects are still persisted"
+    assert result["inserted"] == _MIRROR, "the intact objects are still persisted"
     assert counts[_CORRUPT_XZ_KEY] == 1, "a corrupt object must not be re-fetched"
     assert not slept, "and must not sleep between attempts it does not make"
     with db.viz_conn() as c:
@@ -350,7 +357,7 @@ def test_a_parse_failure_is_not_retried(fresh_db, mini_r2_env, monkeypatch):
 
     assert counts[_FLAKY_KEY] == 1, "the GET must not be repeated"
     assert result["failed"] == 1
-    assert result["inserted"] == 4
+    assert result["inserted"] == _MIRROR - 1
     assert "ValueError" not in (result["error"] or "")
 
 
@@ -412,7 +419,7 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
     assert result["failed"] == 0, "it is not a per-object failure"
     assert result["error"] is None, result["error"]
     assert result["vanished"] == 1
-    assert result["reparsed"] == 4, "the other four files are still reparsed"
+    assert result["reparsed"] == _MIRROR - 1, "every other file is still reparsed"
     assert result["deleted"] == 1, "its stale row is swept with the orphans"
     with db.viz_conn() as c:
         stored = _scalar(c, "SELECT COUNT(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,))

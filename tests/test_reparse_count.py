@@ -164,10 +164,20 @@ def test_bytecodes_per_file_is_recorded_in_hundreds():
     for value in per_file.values():
         assert value.as_tuple().exponent == -1
         assert value >= 0
-    # The sidecar step reads 0.0 on this corpus (no meta.json committed),
-    # which is a real reading; the parse body is not.
-    assert per_file["sidecar"] == Decimal("0.0")
+    # The sidecar step is a real reading too: the mirror carries a
+    # meta.json beside one lane wire (issue #503), so it is nonzero. The
+    # unit is what this pins — a sidecar-less corpus of one transcript
+    # must still read exactly 0.0, which is the same demonstration the
+    # bench's own shape test makes.
+    assert per_file["sidecar"] > 0
     assert per_file["parse_body"] > 0
+    unpaired = [entry for entry in bench.corpus() if entry.sidecar_key is None]
+    assert unpaired, "the mirror carries no sidecar-less transcript"
+    bare = phases.bytecodes_per_file(
+        phases.measure_counts(unpaired[:1], bench.run_pass, passes=2))
+    assert bare["sidecar"] == Decimal("0.0"), (
+        "a corpus with no sidecar retired bytecodes in the sidecar phase")
+    assert bare["parse_body"] > 0
     expected = (Decimal(counts.phase_bytecodes["parse_body"])
                 / Decimal(counts.passes * counts.files) / 100)
     assert per_file["parse_body"] == expected.quantize(Decimal("0.1"))

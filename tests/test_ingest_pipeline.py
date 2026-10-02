@@ -15,6 +15,12 @@ from backend import db, ingest
 from backend.ingest_fetch import VanishedObject
 from backend import timing as _timing
 
+from tests import mini_mirror
+
+#: How many transcripts the committed mirror holds, read from its
+#: tree (issue #503 grew it with the lane layout).
+_MIRROR = mini_mirror.counts()["transcripts"]
+
 
 def test_parse_process_count_defaults_and_clamps(monkeypatch):
     monkeypatch.delenv("INGEST_PARSE_PROCESSES", raising=False)
@@ -110,7 +116,7 @@ def test_process_pool_books_a_parse_failure_per_file(
     assert summary["error"] is not None
     with db.viz_conn() as c:
         landed = _scalar(c, "SELECT count(*) FROM files")
-    assert landed == 4, "the flaky file's peers did not land"
+    assert landed == _MIRROR - 1, "the flaky file's peers did not land"
 
 
 def test_process_pool_treats_a_vanished_object_as_not_a_failure(
@@ -178,7 +184,7 @@ def test_process_pool_rerun_reparses_and_counts(
         c.execute("UPDATE files SET parser_version = '0'")
         c.commit()
     third = ingest.run_ingest("test-proc-3")
-    assert third["reparsed"] == 5
+    assert third["reparsed"] == _MIRROR
 
 
 def test_process_pool_timing_line_marks_disjoint_phases(

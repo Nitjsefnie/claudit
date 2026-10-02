@@ -75,3 +75,39 @@ def counts() -> dict:
         sessions.add(info.session_id)
     return {"transcripts": len(object_keys()), "main": mains,
             "sessions": len(sessions), "projects": len(project_ids())}
+
+
+def session_ids() -> list[str]:
+    """Every session id the mirror's transcripts belong to."""
+    # pylint: disable-next=import-outside-toplevel
+    from backend import key_layout
+
+    found = set()
+    for key in object_keys():
+        info = key_layout.classify(key.split("/", 1)[1])
+        if info is not None:
+            found.add(info.session_id)
+    return sorted(found)
+
+
+def record_totals() -> dict:
+    """The mirror's prompt and turn totals, produced by the real parser.
+
+    Some endpoints count over parsed records rather than over the mirror's
+    inventory, and no inventory can answer those: a lane wire and a Claude
+    one are both "a transcript", but one carries a user prompt and a turn
+    and the other may carry several. So the expectation is produced by
+    running the production parser over the mirror, which is the only thing
+    that can say what a transcript parses to.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from backend import parse
+
+    totals = {"prompt_count": 0, "turn_count": 0}
+    root = MIRROR / BUCKET
+    for path in sorted(root.rglob("*.jsonl")):
+        key = f"{BUCKET}/{path.relative_to(root).as_posix()}"
+        parsed = parse.parse_file(key, path.read_bytes())
+        for field in totals:
+            totals[field] += parsed[field]
+    return totals
