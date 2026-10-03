@@ -352,6 +352,21 @@ def test_report_lists_each_sampled_host_with_a_short_reason():
     assert "notices:" not in out
 
 
+def test_the_new_divergence_classes_get_their_short_report_forms():
+    result = refresh.Result(
+        {}, [], [], [], [],
+        {MODEL: {
+            "Wafer": "the listing lags the price log",
+            "Baidu": "no in-force log state matches the listing",
+        }},
+    )
+
+    out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
+
+    assert ("  sampled   Baidu (no matching log state), "
+            "Wafer (listing lags log)") in out
+
+
 def test_sampled_schedule_change_keeps_the_original_report_text():
     listing = refresh.Listing(
         "wafer/fp8", {}, RATE_A, [{"rates": RATE_A}], Decimal(0))
