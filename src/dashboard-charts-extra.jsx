@@ -945,7 +945,7 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
           rows at default 0/4+). */}
       <div style={{
         padding: '8px 14px', borderBottom: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '6px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
         order: 3,
       }}>
@@ -1439,7 +1439,7 @@ function ResponseSizesPanel({ data, bucketS }) {
 
       <div style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '6px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
         order: 99,
       }}>
@@ -1548,16 +1548,16 @@ const _OTHER_COLOR = '#5a627a';
 // Numerator = n_error, denominator = n_total over settled calls
 // (is_error IS NOT NULL); unmatched calls excluded by the API.
 // Shared by every legend checkbox row in this file -- the model, tool
-// and series pickers. The state dimming lives on the SWATCH, never on
-// the label: a label opacity composited --muted to 2.51:1 over
-// --bg-card, below the AA floor (issue #395). The checkbox carries an
-// explicit 24x24 target; the browser default renders 13x13.
+// and series pickers. The checkbox IS the colour key and carries the
+// on/off state itself, so a row shows its colour once: the separate 10px
+// swatch doubled it, and beside it the 24px box was the largest thing in
+// an 11px row (#474). SC 2.5.8 rides its SPACING exception instead --
+// each legend container's '14px 14px' holds row centres 27px apart.
 function LegendCheckboxRow({ id, color, checked, onToggle, name, count }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none' }}>
       <input type="checkbox" checked={checked} onChange={() => onToggle(id)}
-        style={{ accentColor: color, margin: 0, width: 24, height: 24 }} />
-      <span style={{ width: 10, height: 10, background: color, display: 'inline-block', borderRadius: 2, opacity: checked ? 1 : 0.45 }} />
+        style={{ accentColor: color, margin: 0, width: 13, height: 13 }} />
       <span style={{ color: TH_X.text, fontWeight: 600 }}>{name}</span>
       <span style={{ color: TH_X.textDim }}>({count})</span>
     </label>
@@ -1920,7 +1920,7 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
           order: 99 / borderTop layout). */}
       <div style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '6px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
       }}>
         <span>show:</span>
@@ -2305,7 +2305,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
 
       <div style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '6px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
         order: 99,
       }}>
@@ -2631,7 +2631,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
 
       <div style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '6px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
         order: 99,
       }}>
