@@ -17,8 +17,11 @@ log = logging.getLogger("claudit.ingest")
 # sorts before the parent's `wire.jsonl`, so a bare file_key ordering let
 # them win the dedup and the Models panel showed usage every other copy
 # attributes as `unknown`. NULL is unattributed too. `unknown` is the lane
-# parsers' fallback; `(unknown)` is the Claude path's.
-_UNATTRIBUTED = "(COALESCE(model, '') IN ('', 'unknown', '(unknown)'))"
+# parsers' fallback; `(unknown)` is the Claude path's; `<synthetic>` is
+# Claude's harness-fabricated stub model, which names no model at all
+# (issue #563, kept in lockstep with the browser's isAttributed).
+_UNATTRIBUTED = ("(COALESCE(model, '')"
+                 " IN ('', 'unknown', '(unknown)', '<synthetic>'))")
 
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
