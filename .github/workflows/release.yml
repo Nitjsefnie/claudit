@@ -194,6 +194,15 @@ jobs:
           # earlier release run's row on that commit and refuse forever.
           self_path="${SELF_WORKFLOW_REF#"$REPO"/}"
           self_path="${self_path%%@*}"
+          # A repo whose case differs from REPO's leaves the prefix behind,
+          # and anything that is not a path under .github/workflows/ is not
+          # this workflow's file. Hand the selector an EMPTY path there, so
+          # it falls back to the runs listing rather than excluding nothing
+          # that matches a wrong prefix.
+          case "$self_path" in
+            .github/workflows/*) ;;
+            *) self_path="" ;;
+          esac
           deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             gh api --paginate -H "Cache-Control: no-cache" \

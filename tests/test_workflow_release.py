@@ -49,6 +49,17 @@ ubuntu_step_body = pytest.mark.skipif(
            "ubuntu-latest",
 )
 
+# The push-triggered ci-gate run the selector treats as a gate of the
+# commit, its workflow-run listing, and the waiter's own run.
+PUSH_RUN = "37138486204"
+SELF_RUN = "90000000001"
+# A commit that is NOT the default branch's tip, so a dispatch carrying
+# `sha=` for it is recorded against the tip and never reaches a listing
+# filtered by this SHA.
+NON_TIP_SHA = "3b4e41b" + "0" * 32
+SELF_WORKFLOW_REF = ("Nitjsefnie/claudit/.github/workflows/release.yml"
+                     "@refs/heads/master")
+
 WAIT_STEP = "Wait for the other gates on this commit"
 REFUSAL_STEP = "Refuse to re-release an existing tag"
 PROCEEDING = "Every check passed — proceeding."
@@ -74,6 +85,31 @@ def _step_run(step_name: str) -> str:
     raise AssertionError(f"no step named {step_name!r} in release.yml")
 
 
+def _step_env_keys(step_name: str) -> set[str]:
+    """The env var NAMES the named step declares, read out of the workflow.
+
+    The step's own env is part of its shape, so the harness supplies a
+    value for a name the step declares and for no other: a test that
+    injected the values itself would keep a step green after its env line
+    is deleted, because the variable is still set in the process.
+    """
+    for job in (_release()["jobs"] or {}).values():
+        for step in (job or {}).get("steps") or []:
+            if step.get("name") == step_name:
+                return set((step.get("env") or {}))
+    raise AssertionError(f"no step named {step_name!r} in release.yml")
+
+
+# The value each declared step-env name stands for here. GitHub's own
+# expression is not evaluated; the harness substitutes the real shape of
+# what it denotes.
+DECLARED_VALUES = {
+    "SELF_JOB": "release",
+    "SELF_RUN_ID": SELF_RUN,
+    "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
+}
+
+
 def _run_step(body: str, stub: str, env: dict[str, str],
               timeout: float = 60) -> subprocess.CompletedProcess:
     # GitHub Actions runs a run-body under `bash -e`; the stub is a shell
@@ -86,11 +122,10 @@ def _run_step(body: str, stub: str, env: dict[str, str],
         "REPO": "Nitjsefnie/claudit",
         "SHA": "0" * 40,
         "GH_TOKEN": "stubbed",
-        "SELF_JOB": "release",
-        "SELF_RUN_ID": SELF_RUN,
-        "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
         "RUNNER_TEMP": os.environ.get("RUNNER_TEMP", ""),
     }
+    for name in _step_env_keys(WAIT_STEP) & DECLARED_VALUES.keys():
+        full_env[name] = DECLARED_VALUES[name]
     full_env.update(env)
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
@@ -98,18 +133,6 @@ def _run_step(body: str, stub: str, env: dict[str, str],
         env=full_env, capture_output=True, timeout=timeout, check=False,
         encoding="utf-8", errors="replace",
     )
-
-
-# The push-triggered ci-gate run the selector treats as a gate of the
-# commit, its workflow-run listing, and the waiter's own run.
-PUSH_RUN = "37138486204"
-SELF_RUN = "90000000001"
-# A commit that is NOT the default branch's tip, so a dispatch carrying
-# `sha=` for it is recorded against the tip and never reaches a listing
-# filtered by this SHA.
-NON_TIP_SHA = "3b4e41b" + "0" * 32
-SELF_WORKFLOW_REF = ("Nitjsefnie/claudit/.github/workflows/release.yml"
-                     "@refs/heads/master")
 
 
 def _row(status: str, conclusion: str | None, name: str,
@@ -349,16 +372,17 @@ def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
 
 @ubuntu_step_body
 def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
-    # The isolating control for --self-run-id. Every other conjunct of
-    # the self-exclusion already holds without it (the exact name, the
-    # self run's own path), so the flag is the ONLY thing standing
-    # between this row and the judged set: judged, its `in_progress`
-    # status reads as pending and the wait polls to the deadline.
+    # The isolating control for --self-run-id, and the fixture that makes
+    # it one: LISTING LAG. The self run has no row in the runs listing, so
+    # the selector cannot resolve it and the path rule cannot apply to it —
+    # only the exact name AND run id together keep this row out. Judge it
+    # and its `in_progress` status reads as pending, so the wait polls to
+    # the deadline. (With the self run listed, the path rule now drops the
+    # row anyway and the flag is no longer the only conjunct standing.)
     checks = _checks(_row("in_progress", None, "release",
                           run_id=SELF_RUN),
                      _row("completed", "success", "aggregate"))
-    runs = _runs(_run(PUSH_RUN), _run(SELF_RUN,
-                                      path=".github/workflows/release.yml"))
+    runs = _runs(_run(PUSH_RUN))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": runs,
                       "RUNNER_TEMP": str(tmp_path)}, timeout=30)
@@ -368,9 +392,11 @@ def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
 
 @ubuntu_step_body
 def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
-    # The blocked case, through the real step: the push-triggered
-    # release run on this commit failed, and a manual re-cut by dispatch
-    # with `sha=` must not refuse on its predecessor's answer.
+    # Round 1's blocker, through the real step. release.yml's own PUSH run
+    # on this commit failed — the deadline, a transient `gh release
+    # create`, a cancel — and the waiter must not refuse a re-cut of that
+    # commit on its predecessor's answer. The re-cut here is a dispatch of
+    # the TIP, so its own run is in the listing under either source.
     checks = _checks(_row("completed", "failure", "release",
                           run_id="37138518000"),
                      _row("completed", "success", "aggregate"))
@@ -386,16 +412,72 @@ def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
 
 
 @ubuntu_step_body
+def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
+    # The isolating control for the `SELF_WORKFLOW_REF` env line: the same
+    # non-tip re-cut that
+    # test_wait_ignores_a_release_row_whose_own_run_is_stamped_with_the_tip
+    # releases, run with the env line's value absent. Nothing else differs —
+    # --self-path is passed, and it is empty — so what refuses is the step
+    # having nothing to derive the path from, which is the fail-closed
+    # direction a REPO-case mismatch would take.
+    checks = _checks(_row("completed", "failure", "release",
+                          run_id="37138518000"),
+                     _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN, head_sha=NON_TIP_SHA),
+                 _run("37138518000", head_sha=NON_TIP_SHA,
+                      path=".github/workflows/release.yml"))
+    env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
+           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA,
+           "SELF_WORKFLOW_REF": ""}
+    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
+    assert proc.returncode == 1
+    assert "Refusing to release" in proc.stderr
+    assert PROCEEDING not in proc.stdout
+
+
+@ubuntu_step_body
+def test_wait_drops_a_derived_path_that_is_not_under_workflows(tmp_path):
+    # The REPO-case mismatch: a repository whose case differs from the
+    # workflow_ref prefix leaves the prefix in the derived value. Anything
+    # that is not a path under .github/workflows/ is not this workflow's
+    # file, so the step hands the selector an EMPTY path and the listing
+    # fallback still applies — here, no self run is listed, so the earlier
+    # release row is judged and the re-cut refuses rather than excluding by
+    # a wrong prefix.
+    checks = _checks(_row("completed", "failure", "release",
+                          run_id="37138518000"),
+                     _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN, head_sha=NON_TIP_SHA),
+                 _run("37138518000", head_sha=NON_TIP_SHA,
+                      path=".github/workflows/release.yml"))
+    env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
+           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA,
+           "REPO": "nitjsefnie/claudit",
+           "SELF_WORKFLOW_REF": "Nitjsefnie/claudit/"
+                                ".github/workflows/release.yml"
+                                "@refs/heads/master"}
+    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
+    assert proc.returncode == 1
+    assert "Refusing to release" in proc.stderr
+
+
+@ubuntu_step_body
 def test_wait_derives_its_own_path_from_the_workflow_ref(tmp_path):
     # The step does not read its own workflow path off the runs listing:
     # a `workflow_dispatch` carrying `sha=` records its own run against the
     # BRANCH TIP, so a re-cut of a non-tip commit is absent from a listing
     # filtered by the commit's head SHA. Two strips of workflow_ref are the
-    # only source that survives that, and this fixture is the shape it has.
+    # only source that survives that. The script under test is READ OUT OF
+    # THE STEP BODY, not re-typed, so this pins the two strips as the
+    # workflow actually spells them.
+    body = _step_run(WAIT_STEP)
+    strips = [line.strip() for line in body.splitlines()
+              if line.strip().startswith("self_path=")]
+    assert len(strips) == 2, strips
     proc = subprocess.run(
         ["bash", "--noprofile", "--norc", "-c",
-         'self_path="${SELF_WORKFLOW_REF#"$REPO"/}"; '
-         'self_path="${self_path%%@*}"; printf "%s\\n" "$self_path"'],
+         "set -eo pipefail\n" + "\n".join(strips)
+         + '\nprintf "%s\\n" "$self_path"'],
         env={"REPO": "Nitjsefnie/claudit",
              "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
              "PATH": os.environ["PATH"]},
@@ -452,17 +534,24 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     assert "--jq" not in body
     assert "startswith(\"release\")" not in body
     assert "actions/runs?head_sha=$SHA" in body
-    # Both reads page at 100: check-runs' default page is 30, so a commit
-    # with more checks than that silently loses rows to --paginate's
-    # absence if the default is left in place.
+    # Both reads page at 100 alongside --paginate: correctness does not
+    # depend on it (the flag follows the Link headers either way), so this
+    # pins the smaller win — one request per read instead of one per thirty
+    # check runs, on a poll that repeats until the gates finish.
     assert "check-runs?per_page=100" in body
     assert "actions/runs?head_sha=$SHA&per_page=100" in body
     text = RELEASE.read_text(encoding="utf-8")
     assert '${{ github.job }}' in text
     assert '${{ github.run_id }}' in text
+    # The env line is what feeds the path, so it is pinned beside the two
+    # flags it drives: deleting it leaves every behavioural test green
+    # unless one runs the step with the value ABSENT
+    # (test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref).
+    assert '${{ github.workflow_ref }}' in text
+    assert '--self-path "$self_path"' in body
     # Source-level pin for the isolating control: the step's own in-
-    # progress row is excluded only by --self-run-id, so dropping the flag
-    # from the step must fail
+    # progress row is excluded only by --self-run-id when its run is
+    # unlisted, so dropping the flag from the step must fail
     # test_wait_proceeds_with_its_own_job_still_running.
     assert '--self-run-id "$SELF_RUN_ID"' in body
 

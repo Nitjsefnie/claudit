@@ -35,7 +35,8 @@ can positively identify as not-a-gate:
     a `workflow_dispatch` carrying `sha=` records its own run against the
     branch tip and is therefore absent from a listing filtered by head
     SHA — the common re-cut, since the 2700 s deadline fires after the tip
-    has moved on;
+    has moved on. The listing remains the fallback when no path is passed,
+    and an unknown path excludes nothing;
   - a run whose head SHA is a different commit;
   - a run whose event is outside the gate set, with the dispatch case
     closed by the workflow's own path.
@@ -50,6 +51,7 @@ requires ci-gate's own `aggregate` verdict (issue #247), which no amount
 of dropping rows can manufacture.
 
   python3 scripts/ci/release_gate.py --sha <sha> --self-run-id <id> \\
+      --self-path .github/workflows/release.yml \\
       --checks checks.json --runs runs.json
 """
 from __future__ import annotations

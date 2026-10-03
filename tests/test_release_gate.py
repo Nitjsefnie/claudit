@@ -24,7 +24,7 @@ per assertion, that the old expression would have got it wrong:
 - an `issue_comment` run's check is skipped (#579);
 - a `workflow_dispatch` run of a workflow that does not gate the commit is
   skipped (the hourly rate-refresh bot publishes `refresh` / `verdict`
-  rows on master's tip from the box-side dispatch timer);
+  rows on master's tip from an external hourly dispatch);
 - a `workflow_dispatch` run of a workflow that DOES gate the commit is
   judged, so a manually dispatched gate still counts;
 - a run stamped with another commit's SHA is skipped;
@@ -104,12 +104,14 @@ def _run(run_id, event, head_sha=SHA, path=".github/workflows/ci-gate.yml",
             "path": path, "name": name}
 
 
-def _judged(checks, runs, sha=SHA, self_run_id=SELF_RUN, self_path=None):
+def _judged(checks, runs, sha=SHA, self_run_id: str | None = SELF_RUN,
+            self_path=None):
     rows, _ = rg.select(checks, runs, sha, self_run_id, SELF_JOB, self_path)
     return [line.split("\t")[2] for line in rows]
 
 
-def _dropped(checks, runs, sha=SHA, self_run_id=SELF_RUN, self_path=None):
+def _dropped(checks, runs, sha=SHA, self_run_id: str | None = SELF_RUN,
+             self_path=None):
     rows, notes = rg.select(checks, runs, sha, self_run_id, SELF_JOB,
                             self_path)
     return [line.split("\t")[2] for line in rows], len(notes)
@@ -191,9 +193,9 @@ def test_a_schedule_and_a_workflow_run_triggered_check_is_skipped():
 # --- the hourly dispatch that is not a gate ------------------------------
 
 def test_a_dispatch_of_a_workflow_that_never_gates_the_commit_is_skipped():
-    # refresh-pricing.yml runs on no push trigger at all; the box-side
-    # timer dispatches it hourly on master, so `refresh` / `push` /
-    # `verdict` rows sit on master's tip on most hours.
+    # refresh-pricing.yml runs on no push trigger at all; an external
+    # hourly dispatch runs it on master, so `refresh` / `push` / `verdict`
+    # rows sit on master's tip on most hours.
     checks = [_check("refresh", DISPATCH_RUN, conclusion="failure"),
               _check("verdict", DISPATCH_RUN),
               _check("aggregate", PUSH_RUN)]
@@ -248,8 +250,11 @@ def test_an_earlier_release_push_runs_failed_row_is_skipped():
     # PUSH run, so it is in gate_paths and would be judged: once it fails —
     # the 2700 s deadline, a transient `gh release create`, a cancel — a
     # later re-cut of that commit refuses on its predecessor's answer.
-    # Here the re-cut is a dispatch of the TIP, so its own run is in the
-    # listing and the path resolves without --self-path.
+    # Two things drop the predecessor's row here, and neither is
+    # --self-path: the re-cut is a dispatch of the TIP, so its own run IS
+    # in the listing and resolves the path; and the earlier release run is
+    # itself a PUSH run, which is what puts release.yml into gate_paths in
+    # the first place.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push"),
@@ -332,19 +337,30 @@ def test_an_unlisted_self_run_excludes_nothing_by_path():
 
 
 def test_the_waiters_own_in_progress_row_never_blocks_it():
-    # --self-run-id is what places this row: drop the flag and the wait
-    # judges its own unfinished job, sees something pending, and polls to
-    # the deadline. Every other conjunct of the exclusion is derived from
-    # the self run id alone — the exact name matches regardless, and the
-    # path is the workflow's own file whatever the run — so the id is the
-    # only thing keeping this row out.
+    # --self-run-id is what places this row, and the fixture is what makes
+    # it the only thing that can: LISTING LAG. The self run has no row in
+    # the listing, so the selector cannot resolve it and the path rule
+    # cannot apply however well the path is known — only the exact name AND
+    # run id together keep this row out. Judge it and its `in_progress`
+    # status reads as pending, so the wait polls to the deadline.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, OWN_RUN, status="in_progress",
                      conclusion=None)]
-    runs = [_run(PUSH_RUN, "push"),
-            _run(OWN_RUN, "push", path=RELEASE_PATH)]
+    runs = [_run(PUSH_RUN, "push")]
     judged, _ = _dropped(checks, runs, self_path=RELEASE_PATH)
     assert judged == ["aggregate"]
+
+
+def test_the_same_row_is_judged_without_the_self_run_id():
+    # The isolating partner: same fixture, same known path, no run id. Only
+    # the identity limb stood between this row and the judged set.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, OWN_RUN, status="in_progress",
+                     conclusion=None)]
+    runs = [_run(PUSH_RUN, "push")]
+    judged, _ = _dropped(checks, runs, self_run_id=None,
+                         self_path=RELEASE_PATH)
+    assert judged == ["aggregate", SELF_JOB]
 
 
 def test_a_dispatch_row_is_judged_until_a_push_run_proves_otherwise():
