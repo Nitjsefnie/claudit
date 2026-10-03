@@ -302,8 +302,8 @@ def classify(event, run):
                         if path in SETUP_DOC_PATTERNS})
         return (False, False,
                 f'documentation-only change touching the pinned setup '
-                f'docs ({"; ".join(setup)}): running the tests legs so '
-                f'the setup-docs pin fails on this push, not the next '
+                f'docs ({"; ".join(setup)}): running the matrix so the '
+                f'setup-docs pin fails on this push, not the next '
                 f'code-touching one')
     if data_only(paths):
         return (False, True, f'bot-data-only change: {len(paths)} paths')

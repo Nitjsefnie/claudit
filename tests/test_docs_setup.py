@@ -30,9 +30,13 @@ blocks AFTER it are out of scope (CONTRIBUTING's file:// R2 fallback,
 AGENTS's admin-ingest curl). Today no section has a command block
 before the setup block.
 
-Known CI blind spot, accepted for this pin: a docs-only push skips
-every ci-gate leg (the tests leg included), so the drift push itself
-stays green and the pin fires on the next code-touching run.
+Known CI blind spot, closed for this pin by issue #477: a docs-only
+push used to skip every ci-gate leg (the tests leg included), so the
+drift push itself stayed green and the pin fired on the next
+code-touching run. `classify_changes.py` now carves README.md,
+CONTRIBUTING.md and AGENTS.md out of the docs-only class, so a change to
+any of them runs every leg whatever else it touches and this pin fails
+on the same push.
 
 Normalization boundary: each command's trailing ` # ...` inline
 comment is stripped, so a quoted or escaped ` #` literal inside a
