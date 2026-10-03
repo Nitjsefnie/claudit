@@ -484,8 +484,44 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     # Priced at the record's own time: the host's row, and the bare model
     # lane alone — exactly as before the provider table existed.
     tokens: dict[str, Any] = {"fresh": 1000, "eph5": 0, "eph1h": 0, "unsplit_create": 0, "read": 2000, "output": 300}
-    assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], provider="Novita", ts=novita["ts"], **tokens), 6))  # sv-test-data: allow (derived: expected priced from the same loaded tables as the record)
+    assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], ts=novita["ts"], res=pricing.resolve(novita["model"], novita["ts"], "Novita"), **tokens), 6))  # sv-test-data: allow (derived: expected priced from the same loaded tables as the record)
     assert bare["cost_usd"] == pytest.approx(round(pricing.compute_cost(bare["model"], ts=bare["ts"], **tokens), 6))
+
+
+def test_request_fee_folds_into_parse_cost_and_stores_the_column(monkeypatch):
+    """A serving host whose provider row carries a per-request fee (the
+    entry note's RECORDED_FEE, issue #469) prices the fee into the
+    record's cost once per request and stores it on request_fee_usd; a
+    record naming no host — every other lane — stores NULL and prices
+    exactly as before."""
+    fee = 0.0137
+    monkeypatch.setattr(pricing, "PROVIDER_FEES",
+                        {("deepseek/deepseek-v4-1-flash", "Novita"): {0: fee}})
+    # Single-entry row shape: the fee index is 0 at every timestamp, so
+    # the test never leans on the live dated windows (SV-TEST-DATA).
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    out = parse.parse_file("k/s/request_fee.jsonl",
+                           _read("request_fee.jsonl"))
+    fee_rec, bare = out["records"]
+    assert fee_rec["provider"] == "Novita"
+    assert fee_rec["request_fee_usd"] == fee
+    assert bare["request_fee_usd"] is None
+    tokens: dict[str, Any] = {"fresh": 1000, "eph5": 0, "eph1h": 0,
+                              "unsplit_create": 0, "read": 2000,
+                              "output": 300}
+    # The stored cost is the tokens-only price of the same tables plus
+    # exactly one fee — derived, never a pinned rate (SV-TEST-DATA).
+    monkeypatch.setattr(pricing, "PROVIDER_FEES", {})
+    assert fee_rec["cost_usd"] == round(
+        pricing.compute_cost(fee_rec["model"],
+                             ts=fee_rec["ts"], **tokens,
+                             res=pricing.resolve(fee_rec["model"],
+                                                 fee_rec["ts"], "Novita"))  # sv-test-data: allow (derived: expected priced from the same loaded tables as the record)
+        + fee, 6)
+    assert bare["cost_usd"] == pytest.approx(round(
+        pricing.compute_cost(bare["model"], ts=bare["ts"],
+                             fresh=500, eph5=0, eph1h=0, unsplit_create=0,
+                             read=0, output=100), 6))
 
 
 def test_provider_merges_across_streaming_chunks_first_non_null_wins():

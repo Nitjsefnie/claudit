@@ -29,6 +29,7 @@ from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides, _p
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
@@ -328,10 +329,12 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     the detection time, loading the run's own pricing.json."""
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
+    shutil.copy(LOADER_JS, where / "pricing-loader.js")
     shutil.copy(PARSER_JS, where / "parser.js")
     before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()
     script = f"""
       global.window = {{}};
+      require({str(where / "pricing-loader.js")!r});
       require({str(where / "parser.js")!r});
       const K = {{fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
                   read: 'read', out: 'output'}};

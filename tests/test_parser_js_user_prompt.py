@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 FIX = ROOT / "fixtures" / "parser"
 
@@ -26,6 +27,7 @@ pytestmark = pytest.mark.skipif(
 def _user_messages(name):
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const fs = require('fs');
       const text = fs.readFileSync({str(FIX / name)!r}, 'utf8');

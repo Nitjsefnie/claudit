@@ -75,6 +75,8 @@ def _rate_tables_fixture(monkeypatch):
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
     monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "FEES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_FEES", {})
     monkeypatch.setattr(pricing, "DEFAULT_RATES", dict(_R3))
     monkeypatch.setattr(pricing, "_TIER_FALLBACKS", (
         (re.compile(r"fable"), dict(_R4)),
@@ -179,6 +181,20 @@ def _mutations():
                             frozenset({"gpt-9-metered-check"}))
         return "weird-thing-9", None
 
+    def provider_fee(monkeypatch):
+        # A fee-bearing entry note is a rate input resolve() consults
+        # (issue #469): adding or moving the fee must move the pair's
+        # fingerprint, so the reprice pass recomputes instead of
+        # restamping.
+        monkeypatch.setattr(pricing, "PROVIDER_FEES",
+                            {_PROVIDER_PAIR: {0: 0.0137}})
+        return _PROVIDER_MODEL, _PROVIDER_HOST
+
+    def model_fee(monkeypatch):
+        monkeypatch.setattr(pricing, "FEES",
+                            {_AFFECTED_MODEL: {0: 0.045}})
+        return _AFFECTED_MODEL, None
+
     return [
         ("dated window", dated_window),
         ("model list", model_list),
@@ -186,6 +202,8 @@ def _mutations():
         ("provider list", provider_list),
         ("provider schedule", provider_schedule),
         ("provider start", provider_start),
+        ("provider fee", provider_fee),
+        ("model fee", model_fee),
         ("longer key steals", longer_key_steals),
         ("newer family key", newer_family_key_moves_tier),
         ("default rates", default_rates),
@@ -209,6 +227,8 @@ _PROBES: dict[str, tuple[str, str | None]] = {
     "provider list": (_PROVIDER_MODEL, _PROVIDER_HOST),
     "provider schedule": (_PROVIDER_MODEL, _PROVIDER_HOST),
     "provider start": (_PROVIDER_MODEL, _PROVIDER_HOST),
+    "provider fee": (_PROVIDER_MODEL, _PROVIDER_HOST),
+    "model fee": (_AFFECTED_MODEL, None),
     "longer key steals": (f"{_AFFECTED_MODEL}-20260101", None),
     "newer family key": ("claude-sonnet-99", None),
     "default rates": ("weird-thing-9", None),

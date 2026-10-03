@@ -393,7 +393,7 @@ async def root_index(request: Request) -> Response:
         f'href="/app.css?v={int((_PUBLIC / "app.css").stat().st_mtime)}"',
     )
     # Also bust /src/* JSX/JS modules so Babel always picks up the latest,
-    # and the pricing.json URL parser.js reads from its data-pricing.
+    # and the pricing.json URL pricing-loader.js reads from its tag.
     src_root = _PUBLIC.parent / "src"
 
     def _bust_src(m: re.Match) -> str:

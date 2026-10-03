@@ -19,6 +19,7 @@ import pytest
 from backend import parse, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 UTC = timezone.utc
@@ -78,6 +79,7 @@ _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
 def _node_rates():
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const cases = {json.dumps(CASES)};
       const out = cases.map(([m, ts]) => {{
@@ -113,6 +115,7 @@ def test_parser_js_rate_table_matches_backend_pricing():
 def test_parser_js_exposes_the_same_rate_epochs():
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       console.log(JSON.stringify(window.rateEpochs));
     """
@@ -139,6 +142,7 @@ def _node_cost(output_tokens: int) -> float:
     review's own figure."""
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const m = {{ type: 'assistant_usage', line: 1,
                    ts: '2026-06-14T12:00:00Z', model: 'gpt-6-luna',
@@ -195,6 +199,7 @@ def _node_usage_records(text: str) -> list[dict]:
     """The browser's assistant_usage events for one Claude transcript."""
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const {{ meta }} = window.parseTranscript({json.dumps(text)});
       console.log(JSON.stringify(meta
@@ -262,6 +267,7 @@ def _node_dedup_survivor(*files):
     script = f"""
       global.window = {{}};
       require({str(RECORD_DEDUP_JS)!r});
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const seen = new Map();
       const allEvents = [];
@@ -421,6 +427,7 @@ PROVIDER_CASES = [
 def _node_json(body: str):
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       {body}
     """
@@ -572,6 +579,7 @@ def test_parser_js_prompt_gate_matches_backend():
         encoding="utf-8") for name in names}
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(texts)};
       const out = {{}};
@@ -647,6 +655,7 @@ def test_parser_js_reads_an_offset_less_timestamp_as_utc():
     unstamped string would read 22:30Z."""
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
       window.datedRates['claude-opus-4-7'] = [
         {{ endExclusive: Date.parse('2026-09-10T00:00:00Z'),

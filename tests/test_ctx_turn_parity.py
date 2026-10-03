@@ -13,6 +13,7 @@ from backend.parse_lanes import sniff_format
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "fixtures" / "parser"
 PARSER_LANES_JS = ROOT / "src" / "parser-lanes.js"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 CONTEXT_GROWTH_JSX = ROOT / "src" / "context-growth-view.jsx"
 
@@ -43,8 +44,9 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
       const fs = require('fs');
       const path = require('path');
       global.window = {};
-      const [lanesPath, parserPath, viewPath] = __MODULE_PATHS__;
+      const [lanesPath, loaderPath, parserPath, viewPath] = __MODULE_PATHS__;
       require(lanesPath);
+      require(loaderPath);
       require(parserPath);
       const source = fs.readFileSync(viewPath, 'utf8');
       const boundary = source.indexOf('function ContextGrowthView');
@@ -71,7 +73,7 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
     """
     script = script.replace(
         "__MODULE_PATHS__",
-        json.dumps([str(PARSER_LANES_JS), str(PARSER_JS),
+        json.dumps([str(PARSER_LANES_JS), str(LOADER_JS), str(PARSER_JS),
                     str(CONTEXT_GROWTH_JSX)]),
     ).replace(
         "__FIXTURE_PATHS__",

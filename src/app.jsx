@@ -24,7 +24,6 @@ function txToDashData(tx) {
   // algorithm: user-text boundaries → last usage per turn).
   // Rates come from the shared window.modelRates table (parser.js) so the
   // Inspector, Token Breakdown, and this path can never disagree on pricing.
-  const rateFor = window.rateForModel;
   const shortM = (model) => window.shortModelName(model || 'unknown');
 
   // Group all assistant_usage records by sessionId, plus user-text events
@@ -97,7 +96,8 @@ function txToDashData(tx) {
       if ((inp + cc + cr) === 0) continue; // refusal/interrupt
       const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
-      const r = rateFor(u.model, t, u.provider);
+      const res = window.resolveModelRate(u.model, t, u.provider);
+      const r = res.rates;
       const unsplit = Math.max(0, cc - eph5 - eph1h);
       // The Codex long-context meter, exactly as pricing.compute_cost
       // stores it (2x the whole input side, 1.5x output): lane meta
@@ -105,7 +105,7 @@ function txToDashData(tx) {
       // priced flat here would drift from the stored cost_usd.
       const lcIn = u.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
       const lcOut = u.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
-      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000;
+      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000 + (res.fee || 0);
       events.push({
         ts: t,
         session_id: sid,
@@ -744,60 +744,6 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
 // Dashboard view
 // ─────────────────────────────────────────────────────────────────
 
-// Compute Token Breakdown rows (tokens + TTL-split cost per type) from a
-// set of hourly events. Shared by TokenBreakdownPanel; the per-panel model
-// filter passes a pre-filtered subset of events. Cost is always TTL-split
-// (eph5 × c5, eph1h × c1h, unsplit cache_create charged at the 1h rate —
-// an undeclared TTL is assumed to be the main-session norm, see SV-COST-SPLIT).
-function computeTokenBreakdown(events) {
-  const t = { input: 0, output: 0, cc: 0, cr: 0, eph5: 0, eph1h: 0 };
-  for (const e of events) {
-    t.input += e.input_tokens; t.output += e.output_tokens;
-    t.cc += e.cache_create; t.cr += e.cache_read;
-    t.eph5 += e.ephemeral_5m; t.eph1h += e.ephemeral_1h;
-  }
-  const tokenTotal = t.input + t.output + t.cc + t.cr;
-  const ccUnsplit = Math.max(0, t.cc - t.eph5 - t.eph1h);
-
-  const c = { input: 0, output: 0, eph5: 0, eph1h: 0, ccUnsplit: 0, cr: 0 };
-  if (window.rateForModel) {
-    for (const e of events) {
-      // An event without its raw id is priced by the name it still carries (a Claude short name resolves to its family tier — an estimate); one without either lands on the default row.
-      const r = window.rateForModel(e.model_id || e.model, e.ts, e.provider);
-      // The Codex long-context meter, exactly as pricing.compute_cost
-      // stores it (2x the whole input side, 1.5x output): a long-context
-      // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
-      const lcIn = e.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
-      const lcOut = e.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
-      const unsplit = Math.max(0, (e.cache_create || 0) - (e.ephemeral_5m || 0) - (e.ephemeral_1h || 0));
-      c.input     += (e.input_tokens   || 0) * r.fresh * lcIn;
-      c.output    += (e.output_tokens  || 0) * r.out * lcOut;
-      c.eph5      += (e.ephemeral_5m   || 0) * r.c5 * lcIn;
-      c.eph1h     += (e.ephemeral_1h   || 0) * r.c1h * lcIn;
-      c.ccUnsplit += unsplit                  * r.c1h * lcIn; // unsplit at 1h rate
-      c.cr        += (e.cache_read     || 0) * r.read * lcIn;
-    }
-    for (const k of Object.keys(c)) c[k] = c[k] / 1_000_000;
-  }
-  const costTotal = c.input + c.output + c.eph5 + c.eph1h + c.ccUnsplit + c.cr;
-
-  const rows = [
-    { label: 'Input',             value: t.input,  cost: c.input,     color: window.dashboardCol.inputTokens },
-    { label: 'Output',            value: t.output, cost: c.output,    color: window.dashboardCol.outputTokens },
-    { label: 'Cache Create (5m)', value: t.eph5,   cost: c.eph5,      color: window.dashboardCol.cacheCreateTokens },
-    { label: 'Cache Create (1h)', value: t.eph1h,  cost: c.eph1h,     color: '#d488ff' },
-    ...(ccUnsplit > 0
-      ? [{ label: 'Cache Create (unsplit)', value: ccUnsplit, cost: c.ccUnsplit, color: '#7733aa' }]
-      : []),
-    { label: 'Cache Read',        value: t.cr,     cost: c.cr,        color: window.dashboardCol.cacheReadTokens },
-  ].filter(r => r.value > 0).sort((a, b) => b.cost - a.cost);
-
-  return { rows, tokenTotal: tokenTotal || 1, costTotal: costTotal || 1 };
-}
-
-// Paired token/cost breakdown bars with a per-panel model filter, mirroring
-// the model select on Tool Usage Ratio over Time. The filter is client-side
-// (events are already loaded) and applies to both bars at once.
 function TokenBreakdownPanel({ events }) {
   const [activeModel, setActiveModel] = useState('');
 
@@ -816,7 +762,7 @@ function TokenBreakdownPanel({ events }) {
     () => (activeModel ? events.filter(e => e.model === activeModel) : events),
     [events, activeModel]);
   const { rows, tokenTotal, costTotal } = useMemo(
-    () => computeTokenBreakdown(filtered), [filtered]);
+    () => window.computeTokenBreakdown(filtered), [filtered]);
   // A free lane (bonsai-2-27b at $0) gives every row cost 0, and
   // computeTokenBreakdown floors costTotal at 1 to keep the division
   // finite — so the bars would all read "$0 (0.0%)" rather than say

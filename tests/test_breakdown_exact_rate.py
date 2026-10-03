@@ -64,12 +64,12 @@ def _harness() -> str:
         # moves, and one that reaches by NAME keeps working.
         _slice("src/app.jsx", "function backendAggregateRange",
                "\nfunction TopBar"),
-        _slice("src/app.jsx", "function computeTokenBreakdown",
-               "\nfunction TokenBreakdownPanel"),
+        Path("src/token-breakdown.js").read_text(encoding="utf-8"),
     ]
     return f"""
       global.window = {{}};
       require({str(ROOT / 'src' / 'parser-lanes.js')!r});
+      require({str(ROOT / 'src' / 'pricing-loader.js')!r});
       require({str(ROOT / 'src' / 'parser.js')!r});
       require({str(ROOT / 'src' / 'panel-gating.js')!r});
       window.dashboardCol = {{}};
@@ -90,7 +90,7 @@ def _node(body: str) -> dict:
 def _breakdown_of_dashboard(body: dict) -> dict:
     return _node(f"""
       const shaped = backendDashToShape({json.dumps(body)});
-      const bd = computeTokenBreakdown(shaped.events);
+      const bd = window.computeTokenBreakdown(shaped.events);
       console.log(JSON.stringify({{
         costTotal: bd.costTotal,
         models: shaped.events.map(e => e.model),
@@ -153,7 +153,7 @@ def test_breakdown_prices_an_event_without_model_id_by_its_display_name():
         + e.cache_read * rates.read) / 1e6;
       const tier = window.resolveModelRate('opus-4-8').rates;
       const dflt = window.resolveModelRate(undefined).rates;
-      const bd = computeTokenBreakdown(events);
+      const bd = window.computeTokenBreakdown(events);
       console.log(JSON.stringify({
         costTotal: bd.costTotal,
         expected: cost(tier, events[0]) + cost(dflt, events[1]),
@@ -187,7 +187,7 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
           ts: '2026-09-20T12:01:00Z', model: 'claude-sonnet-4-5', usage: usage(2) },
       ];
       const dash = txToDashData({ meta, events: [] });
-      const bd = computeTokenBreakdown(dash.events);
+      const bd = window.computeTokenBreakdown(dash.events);
       console.log(JSON.stringify({
         costTotal: bd.costTotal,
         eventCost: dash.events.reduce((s, e) => s + e.cost_usd, 0),
@@ -357,3 +357,33 @@ def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
                      f"{json.dumps(model_id)})))") == model
         if model != "<synthetic>":
             assert kind == "exact", (model, model_id)
+
+
+def test_breakdown_buckets_absorb_the_per_request_fee():
+    """A fee row's stored cost_usd carries the serving host's per-request
+    fees (issue #469), which no token bucket re-derives: the breakdown
+    scales its buckets to the stored total exactly as the backend fold
+    does, so the bars' sum still decomposes the card's total."""
+    body = """
+      // A stub resolver: 1M fresh at 2.0/M and a 0.0137/request fee, so
+      // the expectation is arithmetic, never a live rate (SV-TEST-DATA).
+      window.resolveModelRate = () => ({
+        rates: { fresh: 2.0, c5: 0, c1h: 0, read: 0, out: 0 }, fee: 0.0137,
+      });
+      const bd = window.computeTokenBreakdown([{
+        input_tokens: 1000000, output_tokens: 0, cache_create: 0,
+        cache_read: 0, ephemeral_5m: 0, ephemeral_1h: 0, requests: 3,
+        model: 'x', model_id: 'x', ts: 0, provider: 'FeeHost',
+        cost_usd: 2.0 + 3 * 0.0137,
+      }]);
+      console.log(JSON.stringify({
+        costTotal: bd.costTotal,
+        input: bd.rows.find(r => r.label === 'Input').cost,
+        sum: bd.rows.reduce((s, r) => s + r.cost, 0),
+      }));
+    """
+    got = _node(body)
+    assert got["costTotal"] == pytest.approx(2.0 + 3 * 0.0137)
+    # The scaled bucket carries the fees; the rows sum to the total.
+    assert got["input"] == pytest.approx(2.0 + 3 * 0.0137)
+    assert got["sum"] == pytest.approx(2.0 + 3 * 0.0137)

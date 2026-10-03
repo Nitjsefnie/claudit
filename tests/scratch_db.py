@@ -30,10 +30,11 @@ STALE_AFTER_S = 6 * 3600
 # Every schema file, in the order db.SCHEMA_PATHS applies them. A test
 # database missing a table the app reads fails in a way that looks like a
 # product bug, so the fixture applies the whole schema and not just its
-# first file (issue #436 added the second).
+# first file (issue #436 added the second, #469 the third).
 SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_web_metrics.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_request_fee.sql",
 )
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"

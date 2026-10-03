@@ -81,7 +81,8 @@ def _seed_records(records, rollup_pairs):
         for line_num, (model, provider, ts, fresh) in enumerate(records, 1):
             cost = pricing.compute_cost(
                 model, fresh=fresh, output=0, eph5=0, eph1h=0,
-                unsplit_create=0, read=0, ts=ts, provider=provider,
+                unsplit_create=0, read=0, ts=ts,
+                res=pricing.resolve(model, ts, provider),
             )
             conn.execute(
                 "INSERT INTO records (file_key, line_num, ts, model, "

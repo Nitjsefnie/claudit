@@ -30,6 +30,7 @@ from backend import parse, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 CHARTS_JSX = ROOT / "src" / "dashboard-charts-extra.jsx"
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -65,7 +66,7 @@ def _browser_lane_output() -> dict:
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};
       for (const [name, text] of Object.entries(fixtures)) {{
@@ -228,7 +229,7 @@ def test_model_ids_survive_verbatim_in_both_parsers():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const {{ events, meta }} = window.parseTranscript(
         {json.dumps(blob.decode())});
       console.log(JSON.stringify(
@@ -281,7 +282,7 @@ def _node_long_context(plan_type: str | None) -> dict:
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const text = {json.dumps(_long_context_blob(plan_type).decode())};
       const {{ events, meta }} = window.parseTranscript(text);
       const s = window.computeSessionStats(events, meta);
@@ -385,7 +386,7 @@ def test_lane_output_carries_the_fields_the_inspector_renders(name):
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};
       for (const [name, text] of Object.entries(fixtures)) {{
@@ -525,12 +526,9 @@ APP_JSX = ROOT / "src" / "app.jsx"
 
 
 def _token_breakdown_source() -> str:
-    """computeTokenBreakdown verbatim from the JSX source (node cannot
-    parse the file's JSX elsewhere)."""
-    src = APP_JSX.read_text(encoding="utf-8")
-    start = src.index("function computeTokenBreakdown")
-    end = src.index("\nfunction TokenBreakdownPanel", start)
-    return src[start:end]
+    """The breakdown fold verbatim (node cannot parse JSX; the fold left
+    app.jsx for its own module when issue #469's fee fold grew it)."""
+    return (ROOT / "src" / "token-breakdown.js").read_text(encoding="utf-8")
 
 
 def test_browser_token_breakdown_applies_the_long_context_meter():
@@ -555,7 +553,7 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       window.dashboardCol = {{}};
       eval({json.dumps(_token_breakdown_source())});
       const events = [
@@ -570,7 +568,7 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
            cache_create: 0, cache_read: 0,
            ephemeral_5m: 0, ephemeral_1h: 0, long_context: false }},
       ];
-      const bd = computeTokenBreakdown(events);
+      const bd = window.computeTokenBreakdown(events);
       console.log(JSON.stringify({{
         costTotal: bd.costTotal,
         input: bd.rows.find(r => r.label === 'Input'),
@@ -630,7 +628,7 @@ def test_browser_inspector_turn_cost_applies_the_long_context_meter():
     script = f"""
       global.window = {{ shortModelName: m => m }};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const text = {json.dumps(_long_context_blob(None).decode())};
       const tx = window.parseTranscript(text);
       const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
@@ -680,7 +678,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
-      require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const {{ events, meta }} = window.parseTranscriptLanes(
         {json.dumps(_NAIVE_LANE_BLOB.decode())});
       const usage = meta.find((m) => m.type === 'assistant_usage');

@@ -27,7 +27,8 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # gate permanently. `web_metrics` went out first; `schema.sql` is otherwise
 # untouched and stays FIRST, because its statements are the ones every later
 # file's ALTERs sit on top of.
-SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql")
+SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
+                _HERE / "schema_request_fee.sql")
 
 
 def read_schema() -> str:

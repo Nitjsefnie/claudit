@@ -193,9 +193,9 @@ The schema is per-file, not per-session (see `backend/schema.sql`):
   context-growth trace inlined as `ctx_turns`.
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
-  output_tokens, eph5_tokens, eph1h_tokens, cost_usd, text_chars,
-  reply_latency_s, stop_reason, effort, thinking_tokens, cli_version,
-  turn_flags, turn_tool_results, long_context, provider,
+  output_tokens, eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd,
+  text_chars, reply_latency_s, stop_reason, effort, thinking_tokens,
+  cli_version, turn_flags, turn_tool_results, long_context, provider,
   pricing_version, rate_fingerprint)`
   PK `(file_key, line_num)` — one row per usage-bearing line after
   per-file Phase 1 max-merge on `request_id`.
@@ -609,6 +609,26 @@ the epoch's representative time, scaled to stored `cost_usd`. The total
 is always exact; the split is exact when every window scales all five
 rates alike, as the live schedules do.
 
+A provider entry's `note` may carry a per-request fee the refresh
+records instead of refusing (`RECORDED_FEES`, SV-RATE-REFRESH): one
+part per fee, `<fee> $<amount>/request not modelled: per-request,
+unpriceable from token counts`, joined with `"; "` beside a discount
+note. Both loaders parse the note into a per-entry fee and refuse a
+fee-shaped part that does not match the shape in full (a real cost is
+never dropped in silence — issue #469); a part with no `/request` in
+it (a discount) parses no fee. The fee in force resolves exactly like
+rates — the entry at the record's own `ts`, the newest entry when `ts`
+is absent — and `pricing.compute_cost` folds it in ONCE per call, so
+`cost_usd` is what the session cost; `records.request_fee_usd` (psql
+only, like `error_text` — no endpoint, panel or rollup) stores it
+beside the cost for provenance. `rate_fingerprint` covers the fees,
+so a note edit reprices the pair. The read-time fold cannot re-derive
+a fee from tokens: a fee row's buckets take their split from the
+token rates and are scaled to the stored total, like a scheduled
+row's (the total stays exact; the split is exact for the tokens).
+Lanes name no serving host, so a lane record's fee is NULL and its
+price is unchanged.
+
 The file keeps the `json.dumps(doc, indent=2, sort_keys=True)` layout,
 so any writer reproduces it and a one-rate change is a one-line diff.
 File order never decides key matching — the LONGEST matching key wins;
@@ -826,9 +846,10 @@ rows never reprice. If it changes any row (a cost or a flag moved — a
 restamp changes none), the run takes a full derived rebuild, since
 repricing can move rollups outside the dirty files. No endpoint, panel
 or rollup reads `pricing_version`. The recomputed state is `cost_usd`
-and the Codex long-context flag (`records.long_context`), re-derived
-from the same columns under the same switch. The completion marker
-follows SV-SCHEMA-AUTOAPPLY.
+(the per-request fee folded in, SV-RATE-DATA), the Codex long-context
+flag (`records.long_context`), and the fee column
+(`records.request_fee_usd`), re-derived from the same columns under the
+same switch. The completion marker follows SV-SCHEMA-AUTOAPPLY.
 
 Pair-qualified staleness: before the keyset loop, the pass classifies
 the stale `(model, provider)` pairs with one DISTINCT scan and

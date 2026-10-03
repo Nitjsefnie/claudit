@@ -54,7 +54,8 @@ def _lines(start: datetime) -> str:
 def _stored_cost(provider, model, fresh, read, output, ts):
     return round(pricing.compute_cost(
         model, fresh=fresh, output=output, eph5=0, eph1h=0,
-        unsplit_create=0, read=read, ts=ts, provider=provider), 6)
+        unsplit_create=0, read=read, ts=ts,
+        res=pricing.resolve(model, ts, provider)), 6)
 
 
 @pytest.fixture(scope="module", name="client")

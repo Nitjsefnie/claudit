@@ -210,15 +210,20 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # long_context is lane-only (parse_common._append_usage_record),
             # provider Claude-only (parse._provider); a record lacking the
             # key stores NULL, and readers COALESCE long_context to FALSE.
-            # pricing_version is NOT a record field: it is stamped here, at
-            # persist time, from constants.PRICING_VERSION, so every reparse
-            # re-stamps the version its freshly computed cost_usd was
-            # priced under (issue #193). rate_fingerprint rides the same
-            # stamping: the pair fingerprint of the rate data this cost
-            # was computed under (issue #351), so a later reprice pass can
+            # request_fee_usd likewise: only a Claude-format record naming
+            # a serving host whose resolved entry carries a fee carries
+            # the key (issue #469). pricing_version is NOT a record field:
+            # it is stamped here, at persist time, from
+            # constants.PRICING_VERSION, so every reparse re-stamps the
+            # version its freshly computed cost_usd was priced under
+            # (issue #193). rate_fingerprint rides the same stamping: the
+            # pair fingerprint of the rate data this cost was computed
+            # under (issue #351), so a later reprice pass can
             # recognise rows whose pair's rates have not moved.
             for rec in parsed["records"]:
-                rec.update({k: rec.get(k) for k in ("long_context", "provider")})
+                rec.update({k: rec.get(k)
+                            for k in ("long_context", "provider",
+                                      "request_fee_usd")})
             cur.executemany(
                 """
                 INSERT INTO records (
@@ -235,6 +240,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   eph5_tokens,
                   eph1h_tokens,
                   cost_usd,
+                  request_fee_usd,
                   text_chars,
                   reply_latency_s,
                   stop_reason,
@@ -261,6 +267,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(eph5_tokens)s,
                   %(eph1h_tokens)s,
                   %(cost_usd)s,
+                  %(request_fee_usd)s,
                   %(text_chars)s,
                   %(reply_latency_s)s,
                   %(stop_reason)s,

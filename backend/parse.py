@@ -29,6 +29,7 @@ from backend.prompt_gate import _is_prompt_text
 from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
                                   _to_dt, iter_lines)
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
+from backend.ctx_input import usage_ctx_input
 from backend.target_paths import target_key
 from backend.json_shape import as_dict, as_list, dict_list
 
@@ -83,29 +84,6 @@ def _merge_key(obj: dict, msg: dict) -> str:
         return req_id
     msg_id = msg.get("id")
     return f"msg:{msg_id}" if isinstance(msg_id, str) and msg_id else ""
-
-
-def _usage_ctx_input(u: dict) -> int:
-    # Per-call context-window size (SV-PARSER-SPEC):
-    # when the harness fans out multiple sub-calls (advisor()/retries),
-    # they get rolled into one `usage` envelope as `iterations`. The
-    # top-level fresh+create+read is the BILLING sum across iterations,
-    # not the peak single-call window. For context-growth panels we
-    # want the peak, so take max-of-iteration-totals when >1 iters.
-    # Single-iter (or absent) → fall back to top-level sum.
-    iters = dict_list(u.get("iterations") or [])
-    if len(iters) > 1:
-        return max(
-            (int(it.get("input_tokens", 0) or 0)
-             + int(it.get("cache_creation_input_tokens", 0) or 0)
-             + int(it.get("cache_read_input_tokens", 0) or 0))
-            for it in iters
-        )
-    return (
-        int(u.get("input_tokens", 0) or 0)
-        + int(u.get("cache_creation_input_tokens", 0) or 0)
-        + int(u.get("cache_read_input_tokens", 0) or 0)
-    )
 
 
 def _flatten_usage(usage: dict) -> dict:
@@ -719,19 +697,18 @@ def _project_record(file_key: str, ev: dict) -> dict:
     eph = as_dict(u.get("cache_creation") or {})
     eph5 = int(eph.get("ephemeral_5m_input_tokens", 0) or 0)
     eph1h = int(eph.get("ephemeral_1h_input_tokens", 0) or 0)
-    unsplit = max(0, create - eph5 - eph1h)
     details = u.get("output_tokens_details") or {}
     thinking = int(details.get("thinking_tokens", 0) or 0) if isinstance(details, dict) else 0
     ts = _to_dt(ev["ts"])
+    res = pricing.resolve(ev["model"], ts, ev.get("provider"))
     cost = pricing.compute_cost(
         ev["model"],
         fresh=fresh, output=output,
         eph5=eph5, eph1h=eph1h,
-        unsplit_create=unsplit, read=read,
+        unsplit_create=max(0, create - eph5 - eph1h), read=read,
         # Dated rates apply to when the tokens were spent, not to
         # when this file happens to be parsed.
-        ts=ts,
-        provider=ev.get("provider"),
+        res=res,
     )
     return {
         "file_key": file_key,
@@ -756,7 +733,9 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "eph5_tokens": eph5,
         "eph1h_tokens": eph1h,
         "cost_usd": round(cost, 6),
-        "ctx_input": _usage_ctx_input(u),
+        # The fee compute_cost folded (issue #469); NULL when none.
+        "request_fee_usd": res.request_fee or None,
+        "ctx_input": usage_ctx_input(u),
     }
 
 

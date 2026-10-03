@@ -8,6 +8,7 @@ tests/test_ingest.py
 tests/test_js_toolchain.py
 tests/test_model_colors.py
 tests/test_parse_non_object.py
+tests/test_parser_js_fees.py
 tests/test_parser_js_lanes.py
 tests/test_parser_js_mirror.py
 tests/test_parser_js_pricing_loader.py

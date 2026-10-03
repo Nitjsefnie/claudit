@@ -23,12 +23,14 @@
 
 <script src="/src/parser-lanes.js"></script>
 <script src="/src/record-dedup.js"></script>
-<script src="/src/parser.js" data-pricing="/src/pricing.json"></script>
+<script src="/src/pricing-loader.js" data-pricing="/src/pricing.json"></script>
+<script src="/src/parser.js"></script>
 <script src="/src/synthetic-data.js"></script>
 <script src="/src/dashboard-binning.js"></script>
 <script src="/src/dashboard-fetch.js"></script>
 <script src="/src/panel-gating.js"></script>
 <script src="/src/timeline-selection.js"></script>
+<script src="/src/token-breakdown.js"></script>
 <!-- Telemetry (issue #436). Loaded before the panels so its buffered
      PerformanceObserver entries start collecting at first paint; the
      index rewrite puts the response's CSP nonce on this tag. -->

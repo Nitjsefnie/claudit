@@ -35,8 +35,10 @@ class RateTables(TypedDict):
     """load_tables' result, keyed by the module attribute each value binds."""
     MODEL_RATES: dict[str, dict]
     DATED_RATES: dict[str, Windows]
+    FEES: dict[str, dict[int, float]]
     PROVIDER_RATES: dict[tuple[str, str], dict]
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
+    PROVIDER_FEES: dict[tuple[str, str], dict[int, float]]
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
@@ -86,6 +88,41 @@ def _is_rate(value: object) -> bool:
             and math.isfinite(value) and value >= 0)
 
 
+# The per-request fee a RECORDED_FEE note records (issue #469). The refresh
+# (scripts/ci/refresh_prices.py fee_notes) writes one part per fee into the
+# entry note, joined with "; " beside a discount note:
+#   `<fee> $<amount>/request not modelled: per-request, unpriceable from
+#    token counts`
+# with the amount a normalized decimal (never an exponent spelling). The
+# loader parses each entry's note into a per-request USD fee, so the fee is
+# PRICED (folded into cost_usd) while its provenance stays in the note.
+_FEE_NOTE = re.compile(
+    r"^[a-z0-9_]+ \$(?P<amount>\d+(?:\.\d+)?)/request not modelled: "
+    r"per-request, unpriceable from token counts$")
+
+
+def _fee_of_note(note: str, at: str) -> float:
+    """A note's per-request fees, summed. A part containing "/request" is
+    fee-shaped and must match the documented shape in full — a fee-shaped
+    part the loader cannot price refuses the file, because silently
+    dropping a real cost is the failure issue #469 records; anything else
+    (a discount note, a future non-fee note) parses no fee."""
+    if not note:
+        return 0.0
+    total = 0.0
+    for part in note.split("; "):
+        if "/request" not in part:
+            continue
+        m = _FEE_NOTE.fullmatch(part)
+        if m is None:
+            raise ValueError(
+                f"{at}: note part {part!r} names a per-request fee but is "
+                "not the documented `<fee> $<amount>/request not modelled: "
+                "per-request, unpriceable from token counts` shape")
+        total += float(m.group("amount"))
+    return total
+
+
 def _hhmm(value: object, at: str) -> int:
     if (isinstance(value, int) and not isinstance(value, bool)
             and 0 <= value <= 2359 and value % 100 < 60):
@@ -130,9 +167,21 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
     return out
 
 
+def _check_entry_fields(entry: dict, at: str) -> None:
+    """An entry's field set and rate values, checked."""
+    fields = set(entry) - {"from", "note", "schedule"}
+    if fields != set(RATE_FIELDS) or "from" not in entry:
+        raise ValueError(f"{at}: fields {sorted(entry)}")
+    bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
+    if bad:
+        raise ValueError(f"{at}: {bad} not a finite non-negative number")
+
+
 def _history(entries: list[dict], where: str, may_begin: bool = False
-             ) -> tuple[dict, Windows, datetime | None, dict[int, list[ScheduleWindow]]]:
-    """A row's append-only history as (list rates, dated windows, start).
+             ) -> tuple[dict, Windows, datetime | None,
+                        dict[int, list[ScheduleWindow]], dict[int, float]]:
+    """A row's append-only history as (list rates, dated windows, start,
+    schedules, fees).
 
     Entries run oldest first; every ``from`` after the first is strictly
     later than the one before. The newest entry is the list price, and
@@ -148,18 +197,14 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
     rates: list[dict] = []
     starts: list[datetime] = []
     schedules: dict[int, list[ScheduleWindow]] = {}
+    fees: dict[int, float] = {}
     for i, entry in enumerate(entries):
         at = f"{where}[{i}]"
-        fields = set(entry) - {"from", "note", "schedule"}
-        if fields != set(RATE_FIELDS) or "from" not in entry:
-            raise ValueError(f"{at}: fields {sorted(entry)}")
+        _check_entry_fields(entry, at)
         if "schedule" in entry:
             if not may_begin:
                 raise ValueError(f"{at}: only a provider row carries a schedule")
             schedules[i] = _schedule(entry["schedule"], at)
-        bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
-        if bad:
-            raise ValueError(f"{at}: {bad} not a finite non-negative number")
         if not isinstance(entry.get("note", ""), str):
             raise ValueError(f"{at}: 'note' is not a string")
         stamp = entry["from"]
@@ -175,9 +220,11 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
         rates.append({f: entry[f] for f in RATE_FIELDS})
     if not rates:
         raise ValueError(f"{where}: empty history")
+    fees = {i: fee for i, entry in enumerate(entries)
+            if (fee := _fee_of_note(entry.get("note", ""), f"{where}[{i}]"))}
     begin = entries[0]["from"] is not None
     return (rates[-1], list(zip(starts[begin:], rates[:-1])),
-            starts[0] if begin else None, schedules)
+            starts[0] if begin else None, schedules, fees)
 
 
 def _long_context_members(doc: dict) -> frozenset[str]:
@@ -199,33 +246,51 @@ def _long_context_members(doc: dict) -> frozenset[str]:
     return frozenset(members)
 
 
-def load_tables(doc: dict) -> RateTables:
-    """Every rate table, derived from the parsed pricing.json, in file order."""
-    model_rates: dict[str, dict] = {}
-    dated_rates: dict[str, Windows] = {}
-    for key, entries in doc["models"].items():
-        model_rates[key], windows, _, _ = _history(entries, key)
-        if windows:
-            dated_rates[key] = windows
+def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict, dict]:
+    """The provider-row tables (rates, dated windows, fees, starts,
+    schedules), one row per (model, host) the document names."""
     provider_rates: dict[tuple[str, str], dict] = {}
     provider_dated: dict[tuple[str, str], Windows] = {}
+    provider_fees: dict[tuple[str, str], dict[int, float]] = {}
     provider_starts: dict[tuple[str, str], datetime] = {}
     provider_schedules: dict[tuple[str, str], dict[int, list[ScheduleWindow]]] = {}
     for model, hosts in doc["providers"].items():
         for host, entries in hosts.items():
-            provider_rates[model, host], windows, start, schedules = _history(
-                entries, f"{model} via {host}", may_begin=True)
+            where = f"{model} via {host}"
+            (provider_rates[model, host], windows, start,
+             schedules, fees) = _history(entries, where, may_begin=True)
             if schedules:
                 provider_schedules[model, host] = schedules
             if windows:
                 provider_dated[model, host] = windows
             if start is not None:
                 provider_starts[model, host] = start
+            if fees:
+                provider_fees[model, host] = fees
+    return (provider_rates, provider_dated, provider_fees, provider_starts,
+            provider_schedules)
+
+
+def load_tables(doc: dict) -> RateTables:
+    """Every rate table, derived from the parsed pricing.json, in file order."""
+    model_rates: dict[str, dict] = {}
+    dated_rates: dict[str, Windows] = {}
+    model_fees: dict[str, dict[int, float]] = {}
+    for key, entries in doc["models"].items():
+        model_rates[key], windows, _, _, fees = _history(entries, key)
+        if windows:
+            dated_rates[key] = windows
+        if fees:
+            model_fees[key] = fees
+    (provider_rates, provider_dated, provider_fees, provider_starts,
+     provider_schedules) = _provider_tables(doc)
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
+        "FEES": model_fees,
         "PROVIDER_RATES": provider_rates,
         "PROVIDER_DATED_RATES": provider_dated,
+        "PROVIDER_FEES": provider_fees,
         "PROVIDER_STARTS": provider_starts,
         "PROVIDER_SCHEDULES": provider_schedules,
         "PROVIDER_RATES_FETCHED": _instant(doc["provider_rates_fetched"],
@@ -263,6 +328,12 @@ PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 # that carries one. A schedule's windows are not rate epochs: see
 # SV-RATE-DATA for how the read-time fold treats a scheduled row.
 PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
+# Per-request fees (issue #469), per history entry that carries one, keyed
+# like PROVIDER_SCHEDULES: windows[i] is entry i, and the newest entry is
+# index len(windows). Parsed from the entry's RECORDED_FEE note; an entry
+# with no fee note is absent.
+FEES = _TABLES["FEES"]
+PROVIDER_FEES = _TABLES["PROVIDER_FEES"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # The Codex long-context meter's membership: dashed models-table keys, the

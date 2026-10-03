@@ -33,7 +33,8 @@ def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
           eph1h=0, unsplit_create=0, read=0):
     return pricing.compute_cost(
         model, fresh=fresh, output=output, eph5=eph5, eph1h=eph1h,
-        unsplit_create=unsplit_create, read=read, ts=ts, provider=provider)
+        unsplit_create=unsplit_create, read=read, ts=ts,
+        res=pricing.resolve(model, ts, provider))
 
 
 def _assert_provider_resolution_returns_loaded_row(
