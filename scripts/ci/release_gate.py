@@ -35,8 +35,9 @@ can positively identify as not-a-gate:
     a `workflow_dispatch` carrying `sha=` records its own run against the
     branch tip and is therefore absent from a listing filtered by head
     SHA — the common re-cut, since the 2700 s deadline fires after the tip
-    has moved on. The listing remains the fallback when no path is passed,
-    and an unknown path excludes nothing;
+    has moved on. A derived path that is not a workflow file is dropped to
+    empty, so the runs listing's path for the self run decides, and nothing
+    is excluded by path when the listing lacks the self run;
   - a run whose head SHA is a different commit;
   - a run whose event is outside the gate set, with the dispatch case
     closed by the workflow's own path.
@@ -171,8 +172,8 @@ def select(check_runs: list[dict], workflow_runs: list[dict], sha: str,
     # `workflow_dispatch` carrying `sha=` records its run against the
     # BRANCH TIP, so a re-cut of a non-tip commit is not in a listing
     # filtered by head SHA. The listing is the fallback for a caller that
-    # passes no path — absent there means unknown, and an unknown path
-    # excludes nothing.
+    # passes no path. Absent there means unknown: nothing is excluded by
+    # path, so a predecessor's row is judged rather than shed.
     if self_path is None and self_run_id is not None:
         self_run = runs_by_id.get(str(self_run_id))
         self_path = self_run.get("path") if self_run else None

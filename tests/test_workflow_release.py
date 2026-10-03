@@ -436,29 +436,36 @@ def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
 
 
 @ubuntu_step_body
-def test_wait_drops_a_derived_path_that_is_not_under_workflows(tmp_path):
+def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workflows(
+        tmp_path):
     # The REPO-case mismatch: a repository whose case differs from the
     # workflow_ref prefix leaves the prefix in the derived value. Anything
     # that is not a path under .github/workflows/ is not this workflow's
-    # file, so the step hands the selector an EMPTY path and the listing
-    # fallback still applies — here, no self run is listed, so the earlier
-    # release row is judged and the re-cut refuses rather than excluding by
-    # a wrong prefix.
+    # file, so the step hands the selector an EMPTY path and the LISTING's
+    # path for the self run decides — which excludes the earlier release
+    # run's row exactly as the matched-case path does, and proceeds.
+    #
+    # The self run IS listed, and that is what makes the two arms differ:
+    # with the guard the empty path falls back and finds it, so the
+    # predecessor's red row is dropped; without the guard the derived value
+    # keeps a prefix nothing matches, and the row is judged and refused.
+    # A fixture with no self run in the listing cannot tell them apart.
     checks = _checks(_row("completed", "failure", "release",
                           run_id="37138518000"),
                      _row("completed", "success", "aggregate"))
-    runs = _runs(_run(PUSH_RUN, head_sha=NON_TIP_SHA),
-                 _run("37138518000", head_sha=NON_TIP_SHA,
+    runs = _runs(_run(PUSH_RUN),
+                 _run(SELF_RUN, path=".github/workflows/release.yml"),
+                 _run("37138518000",
                       path=".github/workflows/release.yml"))
     env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
-           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA,
+           "RUNNER_TEMP": str(tmp_path),
            "REPO": "nitjsefnie/claudit",
            "SELF_WORKFLOW_REF": "Nitjsefnie/claudit/"
                                 ".github/workflows/release.yml"
                                 "@refs/heads/master"}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
-    assert proc.returncode == 1
-    assert "Refusing to release" in proc.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert PROCEEDING in proc.stdout
 
 
 @ubuntu_step_body

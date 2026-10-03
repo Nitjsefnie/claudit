@@ -29,7 +29,8 @@ per assertion, that the old expression would have got it wrong:
   judged, so a manually dispatched gate still counts;
 - a run stamped with another commit's SHA is skipped;
 - and that an UNLISTED self run excludes nothing by path, so the path rule
-  cannot quietly become a no-op when the listing lags;
+  cannot quietly become a no-op when the listing lags — the state in which
+  no path at all, derived or listed, can drop anything;
 
 and the fail-closed side, without which the filter would be a way to lose a
 gate rather than to shed noise:
