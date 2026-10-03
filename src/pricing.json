@@ -436,7 +436,7 @@
           },
           "DeepInfra": {
             "select": "cheapest",
-            "why": "DeepInfra lists one deepseek-v4.1-flash offering twice under deepinfra/fp8 - the 30%-off twin at 0.14 input / 0.42 output / 0.0042 cache read per million, and the list-price twin at 0.3 / 1.2 / 0.006 - identical in tag, quantization, context length and the 131072 completion limit, and differing in nothing but price. Neither carries a schedule or a fee. Taking the cheaper: the twins have no identity but price, so the cheaper is the one the account reaches, and the row already tracks it (its newest entry is the discounted price). The order breaks only when the tracked twin undercuts the other, which the refresh refuses for a human to check."
+            "why": "DeepInfra lists one deepseek-v4.1-flash offering twice under deepinfra/fp8 - the 30%-off twin at 0.14 input / 0.42 output / 0.0042 cache read per million, and the list-price twin at 0.3 / 1.2 / 0.006 - identical in tag, quantization, context length and the 131072 completion limit, and differing in nothing but price. Neither carries a schedule or a fee. Taking the cheaper: the twins have no identity but price, so the cheaper is the one the account reaches, and the row already tracks it (its newest entry is the discounted price). The order breaks only when the other twin undercuts this one, so that the endpoint at the row's price is no longer the cheaper; the refresh refuses that for a human to check."
           }
         }
       },
