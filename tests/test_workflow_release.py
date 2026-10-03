@@ -105,7 +105,7 @@ PUSH_RUN = "37138486204"
 SELF_RUN = "90000000001"
 
 
-def _row(status: str, conclusion: str, name: str,
+def _row(status: str, conclusion: str | None, name: str,
          app: str = "github-actions", run_id: str = PUSH_RUN) -> dict:
     # One check run, as the commit check-runs endpoint returns it.
     return {"name": name, "status": status, "conclusion": conclusion,
@@ -131,11 +131,14 @@ def _runs(*runs: dict) -> str:
 
 # Emulates the wait step's two reads: the commit's check runs and the
 # workflow runs stamped with that SHA. Both arrive via the environment,
-# and the REAL selector runs over them — the stub bypasses no logic.
+# and the REAL selector runs over them — the stub bypasses no logic. An
+# unmodelled gh call FAILS rather than answering: a stub that answers
+# everything proves its assertions against whatever it invented.
 WAIT_STUB = (
     'gh() { case "$*" in '
     '*check-runs*) printf "%s" "$STUB_CHECKS" ;; '
-    '*) printf "%s" "$STUB_RUNS" ;; '
+    '*actions/runs*) printf "%s" "$STUB_RUNS" ;; '
+    '*) echo "WAIT_STUB: unmodelled gh call: $*" >&2; return 1 ;; '
     'esac; }'
 )
 
@@ -150,7 +153,8 @@ COUNTING_STUB = (
     'printf "%s" "$n" > "$STUB_CALLFILE"; '
     'if [ "$n" -eq 1 ]; then printf "%s" "$STUB_CHECKS_FIRST"; '
     'else printf "%s" "$STUB_CHECKS_LATER"; fi ;; '
-    '*) printf "%s" "$STUB_RUNS" ;; '
+    '*actions/runs*) printf "%s" "$STUB_RUNS" ;; '
+    '*) echo "COUNTING_STUB: unmodelled gh call: $*" >&2; return 1 ;; '
     'esac; }'
 )
 
@@ -337,6 +341,44 @@ def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
 
 
 @ubuntu_step_body
+def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
+    # The isolating control for --self-run-id. Every other conjunct of
+    # the self-exclusion already holds without it (the exact name, the
+    # self run's own path), so the flag is the ONLY thing standing
+    # between this row and the judged set: judged, its `in_progress`
+    # status reads as pending and the wait polls to the deadline.
+    checks = _checks(_row("in_progress", None, "release",
+                          run_id=SELF_RUN),
+                     _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN), _run(SELF_RUN,
+                                      path=".github/workflows/release.yml"))
+    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
+                     {"STUB_CHECKS": checks, "STUB_RUNS": runs,
+                      "RUNNER_TEMP": str(tmp_path)}, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert PROCEEDING in proc.stdout
+
+
+@ubuntu_step_body
+def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
+    # The blocked case, through the real step: the push-triggered
+    # release run on this commit failed, and a manual re-cut by dispatch
+    # with `sha=` must not refuse on its predecessor's answer.
+    checks = _checks(_row("completed", "failure", "release",
+                          run_id="37138518000"),
+                     _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN),
+                 _run(SELF_RUN, path=".github/workflows/release.yml"),
+                 _run("37138518000",
+                      path=".github/workflows/release.yml"))
+    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
+                     {"STUB_CHECKS": checks, "STUB_RUNS": runs,
+                      "RUNNER_TEMP": str(tmp_path)}, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert PROCEEDING in proc.stdout
+
+
+@ubuntu_step_body
 def test_wait_times_out_when_only_its_own_job_exists(tmp_path):
     # The selector drops this job, so with nothing else present there is
     # nothing to wait for — and nothing to proceed on.
@@ -361,8 +403,14 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     assert "--jq" not in body
     assert "startswith(\"release\")" not in body
     assert "actions/runs?head_sha=$SHA" in body
-    assert '${{ github.job }}' in RELEASE.read_text(encoding="utf-8")
-    assert '${{ github.run_id }}' in RELEASE.read_text(encoding="utf-8")
+    text = RELEASE.read_text(encoding="utf-8")
+    assert '${{ github.job }}' in text
+    assert '${{ github.run_id }}' in text
+    # Source-level pin for the isolating control: the step's own in-
+    # progress row is excluded only by --self-run-id, so dropping the flag
+    # from the step must fail
+    # test_wait_proceeds_with_its_own_job_still_running.
+    assert '--self-run-id "$SELF_RUN_ID"' in body
 
 
 def test_the_selector_projection_carries_the_app_slug():

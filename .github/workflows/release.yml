@@ -185,7 +185,7 @@ jobs:
           deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             gh api --paginate -H "Cache-Control: no-cache" \
-              "repos/$REPO/commits/$SHA/check-runs" > "$RUNNER_TEMP/checks.json"
+              "repos/$REPO/commits/$SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
             gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
             runs="$(python3 scripts/ci/release_gate.py \

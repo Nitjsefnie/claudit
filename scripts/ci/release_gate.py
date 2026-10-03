@@ -26,17 +26,23 @@ answers a question no commit asked, and is skipped.
 THE FAIL-CLOSED SIDE. This filter may only ever REMOVE a row the module
 can positively identify as not-a-gate:
 
-  - its own job, by exact job name AND run identity — never a name
-    prefix;
+  - its own workflow, by run identity: every row produced by THIS
+    workflow file, at any attempt. An earlier `release` run on the same
+    commit is this job's previous answer — it vouches for nothing the
+    waiter is here to establish, and judging it makes a manual re-cut of
+    a commit whose first release run failed refuse forever;
   - a run whose head SHA is a different commit;
   - a run whose event is outside the gate set, with the dispatch case
     closed by the workflow's own path.
 
 A row whose producing run cannot be resolved at all is JUDGED, not
-skipped: an unresolvable run is not evidence that the row is noise. And
-absence of a gate is caught on the other side of the filter, not here —
-the wait step still requires ci-gate's own `aggregate` verdict (issue
-#247), which no amount of dropping rows can manufacture.
+skipped: an unresolvable run is not evidence that the row is noise. The
+one exception is this job's own, excluded by exact job name when its run
+id is unreadable — a row the waiter cannot place must not make it wait on
+itself, and an exact name is not a prefix. And absence of a gate is
+caught on the other side of the filter, not here — the wait step still
+requires ci-gate's own `aggregate` verdict (issue #247), which no amount
+of dropping rows can manufacture.
 
   python3 scripts/ci/release_gate.py --sha <sha> --self-run-id <id> \\
       --checks checks.json --runs runs.json
@@ -102,7 +108,7 @@ def gate_workflow_paths(workflow_runs: list[dict], sha: str) -> set[str]:
 
 
 def _judged(check_run: dict, runs_by_id: dict[str, dict],
-            gate_paths: set[str], sha: str,
+            gate_paths: set[str], self_path: str | None, sha: str,
             self_run_id: str | None, self_job: str) -> tuple[bool, str]:
     """Whether this check run is a gate of the commit, and why not if not."""
     run_id = run_id_of(check_run)
@@ -114,13 +120,23 @@ def _judged(check_run: dict, runs_by_id: dict[str, dict],
     run = runs_by_id.get(run_id) if run_id is not None else None
     if run is None:
         return True, ""
+    # Every row THIS WORKFLOW produced, at any attempt. The push-triggered
+    # release run on this commit is a push run, so it lands in gate_paths
+    # and would be judged: after it fails — the deadline, a transient
+    # `gh release create`, a cancel — every manual re-cut of the same commit
+    # would refuse on its own predecessor's answer. The self run is not
+    # listed when its own path is unknown, and then nothing is dropped.
+    if self_path is not None and run.get("path") == self_path:
+        return False, "this workflow's own run"
     if run.get("head_sha") != sha:
         return False, f"run {run_id} answers for another commit"
+    # A gate event, or a dispatch of a workflow that also gates this
+    # commit — the latter closed by the runs on this SHA, never by a list
+    # of workflow names.
     event = run.get("event")
-    if event in GATE_EVENTS:
-        return True, ""
-    if event == DISPATCH_EVENT and (
-            not gate_paths or run.get("path") in gate_paths):
+    if event in GATE_EVENTS or (
+            event == DISPATCH_EVENT
+            and (not gate_paths or run.get("path") in gate_paths)):
         return True, ""
     return False, f"run {run_id} event {event} ({run.get('path')})"
 
@@ -142,11 +158,17 @@ def select(check_runs: list[dict], workflow_runs: list[dict], sha: str,
     runs_by_id = {str(run["id"]): run
                   for run in workflow_runs if run.get("id") is not None}
     gate_paths = gate_workflow_paths(workflow_runs, sha)
+    # This run's own workflow file, read off its own run row rather than
+    # configured, so the exclusion cannot drift from the job it runs in.
+    # Absent from the listing means unknown, and an unknown path excludes
+    # nothing.
+    self_run = runs_by_id.get(str(self_run_id)) if self_run_id else None
+    self_path = self_run.get("path") if self_run else None
     rows: list[str] = []
     notes: list[str] = []
     for check_run in check_runs:
-        judged, why = _judged(check_run, runs_by_id, gate_paths, sha,
-                              self_run_id, self_job)
+        judged, why = _judged(check_run, runs_by_id, gate_paths, self_path,
+                              sha, self_run_id, self_job)
         if judged:
             rows.append(row(check_run))
         else:

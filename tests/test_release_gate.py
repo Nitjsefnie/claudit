@@ -17,6 +17,10 @@ per assertion, that the old expression would have got it wrong:
 - a check named exactly `release` from some OTHER run is JUDGED (#557's
   converse — identity is the run, not the name);
 - the waiter's OWN job is still skipped, by exact name and run identity;
+- the waiter's own WORKFLOW is skipped at any attempt — an earlier
+  `release` run on the commit is a push run, so it lands in the gate set
+  and would otherwise make every manual re-cut of a commit whose first
+  release run failed refuse on its predecessor's answer;
 - an `issue_comment` run's check is skipped (#579);
 - a `workflow_dispatch` run of a workflow that does not gate the commit is
   skipped (the hourly rate-refresh bot publishes `refresh` / `verdict`
@@ -24,6 +28,8 @@ per assertion, that the old expression would have got it wrong:
 - a `workflow_dispatch` run of a workflow that DOES gate the commit is
   judged, so a manually dispatched gate still counts;
 - a run stamped with another commit's SHA is skipped;
+- and that an UNLISTED self run excludes nothing by path, so the path rule
+  cannot quietly become a no-op when the listing lags;
 
 and the fail-closed side, without which the filter would be a way to lose a
 gate rather than to shed noise:
@@ -113,6 +119,8 @@ FRESHNESS_RUN = "37138486053"
 DISPATCH_RUN = "37138518367"
 CLAIM_RUN = "37138981898"
 OWN_RUN = SELF_RUN
+RELEASE_PATH = ".github/workflows/release.yml"
+EARLIER_RELEASE_RUN = "300"
 
 
 # --- issue #557: the name is not the waiter -------------------------------
@@ -231,6 +239,75 @@ def test_a_check_run_id_absent_from_the_run_listing_is_judged():
     assert _judged(checks, runs) == ["aggregate", "not-yet-listed"]
 
 
+# --- the waiter's own workflow, at any attempt --------------------------
+
+
+def test_an_earlier_release_runs_failed_row_is_skipped():
+    # The blocker the review reproduced. release.yml's own push run is a
+    # PUSH run on this commit, so it is in gate_paths and would be judged:
+    # once it fails — the 2700 s deadline, a transient `gh release
+    # create`, a cancel — every manual re-cut by dispatch with `sha=` on
+    # the same commit refuses on its own predecessor's answer.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "workflow_dispatch", path=RELEASE_PATH),
+            _run(EARLIER_RELEASE_RUN, "push", path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+
+
+def test_an_earlier_dispatched_release_runs_row_is_skipped():
+    # The same predecessor reached by the other trigger: a dispatch of
+    # release.yml puts release.yml in gate_paths just as a push does.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "push", path=RELEASE_PATH),
+            _run(EARLIER_RELEASE_RUN, "workflow_dispatch",
+                 path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+
+
+def test_a_gate_job_named_release_is_still_judged_with_the_self_run_listed():
+    # The path exclusion is this workflow's FILE, so a gate workflow with
+    # a job of the same name keeps its row — unlike the name rule, which
+    # would have dropped it.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, PUSH_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "workflow_dispatch", path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate", SELF_JOB]
+
+
+def test_an_unlisted_self_run_excludes_nothing_by_path():
+    # The self run's path is read off its own run row; with that row
+    # missing the path is unknown, and an unknown path must not exclude a
+    # predecessor's red row.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(EARLIER_RELEASE_RUN, "push", path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate", SELF_JOB]
+
+
+def test_the_waiters_own_in_progress_row_never_blocks_it():
+    # --self-run-id is what places this row: drop the flag and the wait
+    # judges its own unfinished job, sees something pending, and polls to
+    # the deadline. Only the self run being in the listing at all keeps
+    # its own row out.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, OWN_RUN, status="in_progress",
+                     conclusion=None)]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "push", path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+
+
 def test_a_dispatch_row_is_judged_until_a_push_run_proves_otherwise():
     # Nothing scheduled for this SHA yet: the module cannot tell a gate
     # dispatch from a stray one, so it judges both and lets the wait step
@@ -247,7 +324,8 @@ def test_the_aggregate_verdict_survives_every_exclusion():
     # above may be able to remove it.
     checks = [_check("aggregate", PUSH_RUN), _check(SELF_JOB, OWN_RUN),
               _check("claim", CLAIM_RUN, conclusion="failure")]
-    runs = [_run(PUSH_RUN, "push"), _run(OWN_RUN, "push"),
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "push", path=RELEASE_PATH),
             _run(CLAIM_RUN, "issue_comment",
                  path=".github/workflows/claim.yml", name="claim")]
     rows, _ = rg.select(checks, runs, SHA, SELF_RUN, SELF_JOB)
@@ -301,7 +379,8 @@ def _cli(tmp_path, checks, runs, *extra):
 def test_the_cli_judges_the_gates_and_reports_what_it_dropped(tmp_path):
     checks = [_check("aggregate", PUSH_RUN), _check("claim", CLAIM_RUN),
               _check(SELF_JOB, OWN_RUN)]
-    runs = [_run(PUSH_RUN, "push"), _run(OWN_RUN, "push"),
+    runs = [_run(PUSH_RUN, "push"),
+            _run(OWN_RUN, "push", path=RELEASE_PATH),
             _run(CLAIM_RUN, "issue_comment",
                  path=".github/workflows/claim.yml", name="claim")]
     proc = _cli(tmp_path, checks, runs)
@@ -313,14 +392,40 @@ def test_the_cli_judges_the_gates_and_reports_what_it_dropped(tmp_path):
     assert "skipping check 'release'" in proc.stderr
 
 
-def test_the_cli_reads_stdin_when_asked(tmp_path):
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "--sha", SHA, "--self-run-id", SELF_RUN,
-         "--checks", "-", "--runs", "-"],
-        input=json.dumps({"check_runs": [_check("aggregate", PUSH_RUN)]})
-        + json.dumps({"workflow_runs": [_run(PUSH_RUN, "push")]}),
-        capture_output=True, check=False, timeout=60, encoding="utf-8",
-        errors="replace")
+def _cli_stdin(payload, *flags):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--sha", SHA,
+         "--self-run-id", SELF_RUN, *flags],
+        input=json.dumps(payload), capture_output=True, check=False,
+        timeout=60, encoding="utf-8", errors="replace")
+
+
+def test_the_cli_reads_the_checks_from_stdin(tmp_path):
+    # One half at a time: `sys.stdin` is consumed by the first read, so a
+    # single stdin carrying both documents proves the SECOND read nothing.
+    runs_file = tmp_path / "runs.json"
+    runs_file.write_text(json.dumps({"workflow_runs": [_run(PUSH_RUN, "push")]}),
+                         encoding="utf-8")
+    proc = _cli_stdin({"check_runs": [_check("aggregate", PUSH_RUN)]},
+                      "--checks", "-", "--runs", str(runs_file))
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.splitlines() == [
         "completed\tsuccess\taggregate\tgithub-actions"]
+
+
+def test_the_cli_reads_the_runs_from_stdin(tmp_path):
+    checks_file = tmp_path / "checks.json"
+    checks_file.write_text(
+        json.dumps({"check_runs": [
+            _check("aggregate", PUSH_RUN),
+            _check("claim", CLAIM_RUN, conclusion="failure")]}),
+        encoding="utf-8")
+    proc = _cli_stdin({"workflow_runs": [
+        _run(PUSH_RUN, "push"),
+        _run(CLAIM_RUN, "issue_comment",
+             path=".github/workflows/claim.yml", name="claim")]},
+        "--checks", str(checks_file), "--runs", "-")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [
+        "completed\tsuccess\taggregate\tgithub-actions"]
+    assert "skipping check 'claim'" in proc.stderr
