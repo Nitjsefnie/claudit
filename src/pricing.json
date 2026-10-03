@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T06:54:23Z",
+  "provider_rates_fetched": "2026-10-03T07:53:56Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2821,6 +2821,14 @@
           "from": "2026-10-03T05:35:56Z",
           "output": 0.78,
           "read": 0.013
+        },
+        {
+          "create_1h": 0.026,
+          "create_5m": 0.026,
+          "fresh": 0.026,
+          "from": "2026-10-03T07:40:47Z",
+          "output": 0.78,
+          "read": 0.026
         }
       ],
       "Parasail": [
@@ -3404,6 +3412,14 @@
           "from": "2026-10-03T04:45:43Z",
           "output": 0.6,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-10-03T07:35:41Z",
+          "output": 0.6,
+          "read": 0.02
         }
       ],
       "Sail Research": [
@@ -10383,6 +10399,22 @@
           "from": "2026-10-03T06:46:05Z",
           "output": 1.664,
           "read": 0.01352
+        },
+        {
+          "create_1h": 0.01742,
+          "create_5m": 0.01742,
+          "fresh": 0.01742,
+          "from": "2026-10-03T07:30:49Z",
+          "output": 1.664,
+          "read": 0.01573
+        },
+        {
+          "create_1h": 0.02041,
+          "create_5m": 0.02041,
+          "fresh": 0.02041,
+          "from": "2026-10-03T07:46:01Z",
+          "output": 1.664,
+          "read": 0.01833
         }
       ],
       "Parasail": [
@@ -11117,6 +11149,22 @@
           "from": "2026-10-03T06:40:40Z",
           "output": 1.28,
           "read": 0.0104
+        },
+        {
+          "create_1h": 0.0134,
+          "create_5m": 0.0134,
+          "fresh": 0.0134,
+          "from": "2026-10-03T07:01:17Z",
+          "output": 1.28,
+          "read": 0.0121
+        },
+        {
+          "create_1h": 0.0157,
+          "create_5m": 0.0157,
+          "fresh": 0.0157,
+          "from": "2026-10-03T07:40:48Z",
+          "output": 1.28,
+          "read": 0.0141
         }
       ],
       "SiliconFlow": [
@@ -38266,6 +38314,14 @@
           "from": "2026-10-03T06:31:06Z",
           "output": 4.2,
           "read": 0.099
+        },
+        {
+          "create_1h": 0.9,
+          "create_5m": 0.9,
+          "fresh": 0.9,
+          "from": "2026-10-03T07:40:48Z",
+          "output": 4.2,
+          "read": 0.09
         }
       ],
       "Sail Research": [
@@ -40918,6 +40974,14 @@
           "note": "5% off",
           "output": 0.266,
           "read": 0.00285
+        },
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": "2026-10-03T07:01:15Z",
+          "output": 0.28,
+          "read": 0.003
         }
       ],
       "InferenceNet": [
@@ -40984,6 +41048,14 @@
           "from": "2026-10-03T06:20:39Z",
           "output": 0.28,
           "read": 0.03
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-03T07:35:40Z",
+          "output": 0.28,
+          "read": 0.04
         }
       ],
       "Io Net": [
@@ -41147,6 +41219,14 @@
           "note": "5% off",
           "output": 0.8265,
           "read": 0.0038
+        },
+        {
+          "create_1h": 0.435,
+          "create_5m": 0.435,
+          "fresh": 0.435,
+          "from": "2026-10-03T07:01:16Z",
+          "output": 0.87,
+          "read": 0.004
         }
       ],
       "Novita": [
