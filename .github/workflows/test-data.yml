@@ -143,13 +143,13 @@ jobs:
         # Three absolute seeds — a historical one, a huge one, a
         # mid-range one — each run the full suite, and the loop's first
         # failure fails the step. The stamps are decoupled from the
-        # seed (issue #227), so any seed is safe. The clean-tree
-        # restore precedes every perturb, so no seed ever perturbs a
-        # perturbed tree.
+        # seed (issue #227), so any seed is safe. Before every perturb
+        # the bench restores the pristine pricing document and
+        # constants module byte for byte from what it read at start,
+        # so no seed ever perturbs a perturbed tree; the attribution
+        # lands in the step summary, and the bench's exit — the first
+        # failing suite's — is the step's (issue #456).
         run: |
-          for SEED in 42 1234567890 1720000000; do
-            echo "::notice::perturbed-suite seed=$SEED"
-            git checkout -- src/pricing.json backend/constants.py
-            python scripts/ci/perturb_test_data.py --seed "$SEED"
-            python -m pytest tests/ -q --tb=short -ra
-          done
+          python scripts/ci/perturbed_leg_bench.py \
+            --seed 42 --seed 1234567890 --seed 1720000000 \
+            --summary "$GITHUB_STEP_SUMMARY"
