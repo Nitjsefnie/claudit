@@ -22,9 +22,11 @@ longer depends on review:
 
 Removals and lowers are the bots' own direction and pass, as does the
 one-time seed of a family the base predates, and as does the suite-cost
-family's removal — the sanctioned re-seed's delete-with-marker step,
-which the loader only accepts on the declaring commit. The truth of
-seeded values is pinned separately, by the
+family's removal — the sanctioned re-seed's delete step, whose marker
+the loader honors anywhere in the bounded walk's span from HEAD back to
+the last family-present commit (reseed.py), so commits landing on the
+delete before the seed read the absence through the delete's marker.
+The truth of seeded values is pinned separately, by the
 committed-document-matches-tree tests, which run on the same merge ref.
 
 The guard runs from the tree under test, like every other gate step: it
