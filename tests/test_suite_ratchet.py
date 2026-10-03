@@ -276,12 +276,24 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
     target.write_bytes(
         subprocess_committed_bytes())
     if thresholds.suite_cost(thresholds.load(target)) == {}:
+        # The fallback seed carries the identity, so the positive
+        # assertion below holds on the delete-commit shape too (the
+        # sibling test at test_seed_carries_the_workload_identity pins
+        # the writer half).
+        measurement = _measurement_file(tmp_path, COUNTS)
+        payload = json.loads(measurement.read_text(encoding="utf-8"))
+        payload["tests_tree_lines"] = 41234
+        measurement.write_text(json.dumps(payload), encoding="utf-8")
         assert ratchet.main([
-            "--seed", str(_measurement_file(tmp_path, COUNTS)),
+            "--seed", str(measurement),
             "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
-    assert tuple(sorted(doc["suite_cost"])) == (
-        "collection", "residual", "run")
+    # The workload identity (issue #524) rides beside the budgets on the
+    # committed family — seed-supplied or committed — and the phases are
+    # the invariant it must not displace.
+    assert thresholds.SUITE_COST_IDENTITY in doc["suite_cost"]
+    assert set(doc["suite_cost"]) == {
+        "collection", "run", "residual", thresholds.SUITE_COST_IDENTITY}
     # The member is present, so a seed refuses and changes nothing.
     before = target.read_text(encoding="utf-8")
     assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
@@ -382,3 +394,18 @@ def test_the_committed_identity_is_a_positive_integral_count(tmp_path):
         target.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ValueError, match=match):
             thresholds.load(target)
+
+
+def test_the_suite_cost_reader_returns_phases_without_the_identity():
+    """The accessor is the BUDGET reader (issue #571): the workload
+    identity rides beside the budgets in the family, and a consumer
+    that asks for the budgets must never receive the tree-line count
+    as if it were a phase."""
+    thresholds = _thresholds()
+    doc = _document(suite={
+        phase: {"measured": COUNTS[phase],
+                "floor": COUNTS[phase] + Decimal("1.5")}
+        for phase in ("collection", "run", "residual")})
+    doc["suite_cost"]["tests_tree_lines"] = 41234
+    phases = thresholds.suite_cost(doc)
+    assert set(phases) == set(thresholds.SUITE_COST_PHASES)

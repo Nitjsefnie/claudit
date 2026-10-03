@@ -37,6 +37,8 @@ coverage_value: _Number = validate.coverage_value
 instruction_value: _Number = validate.instruction_value
 share_value: _Number = validate.share_value
 count_value: _Number = validate.count_value
+_Verdict = Callable[..., 'str | None']
+verdict: _Verdict = validate.verdict
 _Identity = Callable[[object, str], int]
 suite_identity: _Identity = validate.suite_identity
 
@@ -137,31 +139,6 @@ _FIELD_LABELS = {
        f'reparse CPU {phase} {metric}: {{field}}'
        for phase in REPARSE_PHASES for metric in REPARSE_METRICS},
 }
-
-
-def verdict(reseed_in_flight=None):
-    """The re-seed verdict to validate under: asked of the TREE unless a
-    caller states one.
-
-    This and ``load`` are the only places the tree is consulted, and
-    every helper that re-validates a document another helper produced
-    asks through here. ``normalise`` takes NO default for exactly that
-    reason: with one, a helper two calls deep could silently read strict
-    while its caller read the tree, and a document the loader accepted
-    would be refused one frame lower -- on the master-only ratchet step,
-    on every push.
-    """
-    if reseed_in_flight is not None:
-        return reseed_in_flight
-    # Imported HERE rather than at module scope: reseed shells out to
-    # git, and every consumer of this loader — the reparse bench among
-    # them, whose measured bytecode counts are the gate's own
-    # instrument —
-    # would otherwise carry a module that reads a commit message to
-    # answer a question it never asks.
-    # pylint: disable-next=import-outside-toplevel
-    reseed = importlib.import_module('reseed')
-    return reseed.in_flight()
 
 
 def _required_fields(value, expected, name, optional=()):
@@ -352,10 +329,13 @@ def suite_cost(data, reseed_in_flight=None):
 
     Empty inside the re-seed window — while any commit in the walk's
     span from HEAD back to the last family-present one carries the
-    delete's marker (reseed.py): no budget exists to read.
+    delete's marker (reseed.py): no budget exists to read. The workload
+    identity (SUITE_COST_IDENTITY) rides beside the budgets, not as one:
+    the accessor returns the phases only (issue #571).
     """
     family = normalise(data, verdict(reseed_in_flight))
-    return dict(family.get(SUITE_COST_FAMILY, {}))
+    return {phase: dict(family[SUITE_COST_FAMILY][phase])
+            for phase in SUITE_COST_PHASES if SUITE_COST_FAMILY in family}
 
 
 def module_size_baseline(data, reseed_in_flight=None):

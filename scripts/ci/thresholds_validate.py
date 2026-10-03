@@ -17,6 +17,7 @@ something outside the tree.
 """
 from __future__ import annotations
 
+import importlib
 import json
 from decimal import Decimal, InvalidOperation
 
@@ -205,3 +206,28 @@ def suite_identity(value, name):
     if result <= 0 or result != result.to_integral_value():
         raise ValueError(f'{name} must be a positive integer')
     return int(result)
+
+
+def verdict(reseed_in_flight=None):
+    """The re-seed verdict to validate under: asked of the TREE unless a
+    caller states one.
+
+    This and ``load`` are the only places the tree is consulted, and
+    every helper that re-validates a document another helper produced
+    asks through here. ``normalise`` takes NO default for exactly that
+    reason: with one, a helper two calls deep could silently read strict
+    while its caller read the tree, and a document the loader accepted
+    would be refused one frame lower -- on the master-only ratchet step,
+    on every push.
+    """
+    if reseed_in_flight is not None:
+        return reseed_in_flight
+    # Imported HERE rather than at module scope: reseed shells out to
+    # git, and every consumer of this loader — the reparse bench among
+    # them, whose measured bytecode counts are the gate's own
+    # instrument —
+    # would otherwise carry a module that reads a commit message to
+    # answer a question it never asks.
+    # pylint: disable-next=import-outside-toplevel
+    reseed = importlib.import_module('reseed')
+    return reseed.in_flight()
