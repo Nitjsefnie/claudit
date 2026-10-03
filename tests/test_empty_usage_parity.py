@@ -16,6 +16,7 @@ from backend import parse
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "parser"
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 EXPECTED = [
     ("empty_usage_record.jsonl", [3, 5], 2, 2),
@@ -35,6 +36,7 @@ def _browser_results() -> dict[str, dict[str, Any]]:
     script = f"""
       global.window = {{}};
       require({json.dumps(str(LANES_JS))});
+      require({json.dumps(str(LOADER_JS))});
       require({json.dumps(str(PARSER_JS))});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};

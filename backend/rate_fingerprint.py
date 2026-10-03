@@ -36,7 +36,7 @@ from backend import long_context, pricing, pricing_load
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
-_STRUCTURE_VERSION = 2
+_STRUCTURE_VERSION = 3
 
 # The modules whose source the logic digest hashes. The reprice pass
 # itself joins them at first use (hashed_modules) — a module-level
@@ -93,6 +93,15 @@ def _windows(windows: pricing_load.Windows | None) -> list[list]:
     return [[_iso(end), _rates(rates)] for end, rates in windows or []]
 
 
+def _fees_doc(fees: dict[int, float] | None, count: int) -> list:
+    """The per-entry per-request fees (issue #469) as one slot per
+    history entry, windows first and the newest entry last: a fee is a
+    rate input resolve() consults, so it fingerprints like the rates and
+    schedules it rides. An entry without a fee slots None."""
+    return [None if not fees else fees.get(index, 0.0)
+            for index in range(count + 1)]
+
+
 def _schedule(
         schedule: list[pricing_load.ScheduleWindow] | None) -> list[list] | None:
     """Schedule windows as [sorted(days) | None, start, end, rates]."""
@@ -110,11 +119,14 @@ def _model_doc(norm: str) -> dict:
     # private resolvers it fingerprints are its direct interface.
     key = pricing._match_key(norm)  # pylint: disable=protected-access
     if key is None:
-        return {"key": None, "list": None, "windows": []}
+        return {"key": None, "list": None, "windows": [], "fees": [None]}
+    windows = pricing.DATED_RATES.get(key)
     return {
         "key": key,
         "list": _rates(pricing.MODEL_RATES.get(key)),
-        "windows": _windows(pricing.DATED_RATES.get(key)),
+        "windows": _windows(windows),
+        "fees": _fees_doc(pricing.FEES.get(key),
+                          len(windows or [])),
     }
 
 
@@ -132,16 +144,19 @@ def _tier(norm: str) -> list | None:
 
 def _provider_doc(norm: str, provider: str) -> dict:
     """The provider-row branch: the folded key, its start, list price,
-    dated windows and the schedule riding each window's history entry."""
+    dated windows, the schedule riding each window's history entry, and
+    the per-entry fees."""
     fold = pricing._provider_key(norm, provider, None)  # pylint: disable=protected-access
     schedules: dict = {}
     start = None
     list_rates = None
+    fees: dict[int, float] | None = None
     windows: list[tuple[datetime, dict]] = []
     if fold is not None:
         schedules = pricing.PROVIDER_SCHEDULES.get(fold, {})
         start = pricing.PROVIDER_STARTS.get(fold)
         list_rates = pricing.PROVIDER_RATES.get(fold)
+        fees = pricing.PROVIDER_FEES.get(fold)
         windows = pricing.PROVIDER_DATED_RATES.get(fold, [])
     return {
         "fold": None if fold is None else [fold[0], fold[1]],
@@ -153,10 +168,14 @@ def _provider_doc(norm: str, provider: str) -> dict:
         ],
         # resolve() consults the schedule riding the NEWEST history
         # entry (index == len(windows)) once every dated window has
-        # ended — on a row with no windows, always. The per-window
-        # entries above cannot carry it, so the fp names it here: a
-        # whole-week schedule on a one-entry row must move the fp.
+        # ended — on a row with a schedule on the tail entry, the tail
+        # is where it rides. The per-window entries above cannot carry
+        # it, so the fp names it here: a whole-week schedule on a
+        # one-entry row must move the fp.
         "tail": _schedule(schedules.get(len(windows))),
+        # The per-entry fees, windows first and the newest entry last,
+        # keyed the same way the schedule tail is (issue #469).
+        "fees": _fees_doc(fees, len(windows)),
     }
 
 

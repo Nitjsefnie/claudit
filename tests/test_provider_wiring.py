@@ -15,12 +15,18 @@ APP = Path(__file__).resolve().parents[1] / "src" / "app.jsx"
 
 
 def _src() -> str:
-    return re.sub(r"(?<![:'\"\w])//.*$", "", APP.read_text(encoding="utf-8"),
-                  flags=re.M)
+    # app.jsx and the extracted token-breakdown module: every app-side
+    # pricing site, wherever the fold it belongs to lives.
+    return re.sub(r"(?<![:'\"\w])//.*$", "", "\n".join(
+        (APP.read_text(encoding="utf-8"),
+         (APP.parent / "token-breakdown.js").read_text(encoding="utf-8"))),
+        flags=re.M)
 
 
 def test_every_browser_pricing_site_passes_the_provider():
-    calls = re.findall(r"\b(?:window\.rateForModel|rateFor)\(([^)]*)\)", _src())
+    calls = re.findall(
+        r"\b(?:window\.rateForModel|window\.resolveModelRate|rateFor)\(([^)]*)\)",
+        _src())
     assert len(calls) == 2, calls
     for args in calls:
         assert "provider" in args.split(",")[-1], args
