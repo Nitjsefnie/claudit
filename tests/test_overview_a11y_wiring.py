@@ -123,8 +123,8 @@ def test_legend_rows_never_dim_their_text():
     label_tag, _ = rows[0]
     assert "opacity" not in label_tag, (
         f"a legend row label dims its text: {label_tag.strip()!r} -- "
-        f"no opacity over --bg-card keeps --muted at 4.5:1; the dimming "
-        f"belongs on the swatch (non-text)")
+        f"no opacity over --bg-card keeps --muted at 4.5:1; the on/off "
+        f"affordance belongs on the checkbox itself (non-text)")
     assert _legend_call_sites() == 6, (
         f"{_legend_call_sites()} of the 6 legend rows use the shared "
         f"LegendCheckboxRow -- the guard would pass vacuously if a site "
@@ -198,23 +198,43 @@ def _legend_box_px(input_tag: str) -> int:
     h = re.search(r"height: (\d+)", input_tag)
     assert w and h, (
         f"the legend checkbox {input_tag.strip()!r} sets no explicit px "
-        f"width/height -- it renders at the 13x13 browser default and no "
-        f"target-size arithmetic is possible")
+        f"width/height -- no target-size arithmetic is possible over the "
+        f"browser's default box")
     assert w.group(1) == h.group(1), (
         f"the legend checkbox is {w.group(1)}x{h.group(1)} -- a "
         f"non-square target")
     return int(w.group(1))
 
 
-def _legend_container_gaps(src: str) -> list[int]:
-    """Every legend container's row gap, in source order.
+def _legend_container_gaps(src: str) -> list[tuple[int, int]]:
+    """Every legend container's (row, column) gap pair, in source order.
 
-    The containers are the five wrapping flex rows that hold a legend's
-    labels: `display: 'flex', flexWrap: 'wrap', gap: 'Npx Npx'`. Parsing
-    ALL of them (and asserting the count) is what stops a sibling
-    `gap: '...'` elsewhere in the file from satisfying a pin."""
-    return [int(m) for m in re.findall(
-        r"display: 'flex', flexWrap: 'wrap', gap: '(\d+)px \d+px'", src)]
+    A legend container is the BLOCK-level wrapping flex row that carries
+    the legend's 11px monospace text -- `display: 'flex'` (the panel
+    toolbars beside it are `inline-flex`, and a panel title is not a flex
+    row at all) together with `flexWrap: 'wrap'` and `fontSize: 11`. The
+    gap is read from THAT style object's own braces -- `{` back to the
+    nearest one before the anchor, `}` to the first after -- so the
+    properties may appear in any order and no sibling container's `gap`
+    can leak in. Anchoring on the property ORDER instead was a false
+    green: a legend container written `display, gap, flexWrap` with a
+    genuine 6px row gap left the spacing pin green, because the regex
+    never matched it at all and the count of five was met by four.
+    """
+    pairs = []
+    for m in re.finditer(re.escape("flexWrap: 'wrap'"), src):
+        open_brace = src.rindex("{", 0, m.start())
+        close_brace = src.index("}", m.end())
+        style = src[open_brace:close_brace]
+        if "display: 'flex'" not in style or "fontSize: 11" not in style:
+            continue  # an inline-flex toolbar, not a legend container
+        g = re.search(r"gap: '(\d+)px(?:\s+(\d+)px)?'", style)
+        assert g, (
+            f"a legend container sets no explicit px gap: {style.strip()!r} "
+            f"-- its rows stack at the spacing exception's threshold")
+        row, col = g.group(1), g.group(2) or g.group(1)
+        pairs.append((int(row), int(col)))
+    return pairs
 
 
 def test_legend_checkboxes_are_proportionate_to_the_legend_text():
@@ -249,7 +269,16 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
 
     The band is taken as the checkbox's own edge. The legend text's line
     box is the same 13px, and any taller child (a longer wrapped name)
-    only pushes the band UP, so this is the conservative direction."""
+    only pushes the band UP, so this is the conservative direction.
+
+    The COLUMN gap is controlled too, not left as an uncontrolled limb
+    of the same literal. Two checkboxes in one row are separated by the
+    row gap, the label's text, and the column gap; with the text
+    measured at zero width the floor on their centre separation is
+    `box + column`. Asserting that floor rather than the measured 37px
+    can only fail when the geometry is definitely too tight -- a real
+    label is always wider than nothing -- so it never passes a layout
+    that violates the exception."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
     rows = _checkbox_rows()
     assert len(rows) == 1, (
@@ -262,14 +291,20 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
     assert len(gaps) == 5, (
         f"{len(gaps)} of the 5 legend containers read as a wrapping flex "
         f"row with an explicit px gap -- one moved or lost its spacing")
-    for gap in gaps:
-        centres = box + gap
+    for row_gap, col_gap in gaps:
+        centres = box + row_gap
         assert centres >= _LEGEND_MIN_CENTRE_SEP_PX, (
-            f"a legend container spaces its rows {gap}px, putting row "
-            f"centres {centres}px apart ({box}px box + {gap}px gap), under "
-            f"the {_LEGEND_MIN_CENTRE_SEP_PX}px SC 2.5.8 spacing "
+            f"a legend container spaces its rows {row_gap}px, putting row "
+            f"centres {centres}px apart ({box}px box + {row_gap}px gap), "
+            f"under the {_LEGEND_MIN_CENTRE_SEP_PX}px SC 2.5.8 spacing "
             f"exception -- their target circles overlap and axe "
             f"target-size fails")
+        same_row = box + col_gap
+        assert same_row >= _LEGEND_MIN_CENTRE_SEP_PX, (
+            f"a legend container spaces its columns {col_gap}px, putting "
+            f"same-row centres at a {same_row}px floor ({box}px box + "
+            f"{col_gap}px gap) before the series name between them -- under "
+            f"the {_LEGEND_MIN_CENTRE_SEP_PX}px SC 2.5.8 spacing exception")
 
 
 # -- Finding 6: the nav exposes its current page -----------------------
