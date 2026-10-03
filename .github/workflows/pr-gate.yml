@@ -4,6 +4,28 @@ name: pr gate
 # comment and close would silently do nothing. The pinned action reads the
 # template at the PR's base SHA and runs no pull-request code; the body
 # reaches it through the API, never through an expression.
+#
+# The pin moved to Nitjsefnie-Actions/pr-gate v2.0.0. `action.yml` is
+# byte-identical across the two pins — every input, default and the composite
+# step are unchanged — so the call site below is untouched by the bump. The
+# script the composite runs is not. Two behaviours a consumer can observe, both
+# recorded in v2.0.0's tag message and its README:
+#
+#   - A run that CLOSES the pull request now exits 2. Exit 0 covers every
+#     termination that leaves the PR open, merged, reopened, or closed by
+#     someone else; exit 1 is an analysis or API failure. Nothing here reads
+#     the exit code, and nothing needs to: release.yml waits on check runs of
+#     the pushed master SHA, a `pull_request_target` run is attached to the
+#     PR's head SHA instead, and a rebase merge never lands that SHA on
+#     master. Only `aggregate` is a required status check, so a red pr gate
+#     blocks no merge.
+#   - The gate's closure power widened. v1.1.0 closed a PR only for a
+#     layout/content failure and left an uncertain reference open with a
+#     corrective comment; v2.0.0 also closes a PR whose checked issue
+#     references fail the claim — an issue that is not assigned to the PR's
+#     author. On a public repository that means a PR opened against an issue
+#     nobody has claimed is closed, not commented on, and reopened once the
+#     assignment exists.
 on:
   pull_request_target:  # zizmor: ignore[dangerous-triggers]
     types: [opened, edited, reopened, ready_for_review]
@@ -31,8 +53,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # A folded scalar, so no trailing version comment: a `#` after the
+      # content line is scalar text, not a comment, and lands in the `uses:`
+      # value. The version is named in the header instead.
       - uses: >-
-          Nitjsefnie-Actions/pr-gate@39b1b91ed861dbb070629e34bf63fe25b916e54d
+          Nitjsefnie-Actions/pr-gate@441f855e54f4f6c98709152f2d2542031dc82f03
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
