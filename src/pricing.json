@@ -433,6 +433,10 @@
             "select": "cheapest",
             "tag": "baseten/fp8",
             "why": "BaseTen lists one deepseek-v4.1-flash offering twice under baseten/fp8 - the global endpoint the account reaches and a dearer US in-region twin (cache read 0.007 against 0.03 per million) - alike in everything else but a 1-token max_completion_tokens listing artifact (32767 against 32768), recorded here as ignored. baseten/fast is a separate tier under its own tag, excluded by the pin. Pinned to baseten/fp8 and taking the cheaper: the keys reach only the global data region, so the cheap-read twin is the one the account is billed by."
+          },
+          "DeepInfra": {
+            "select": "cheapest",
+            "why": "DeepInfra lists one deepseek-v4.1-flash offering twice under deepinfra/fp8 at two prices - fresh 0.14, output 0.42, cache read 0.0042 per million (30% off) against fresh 0.3, output 1.2, cache read 0.006 with no discount - alike in quantization (fp8), context length (1048576), max_completion_tokens (131072) and every other identity field the listing carries, so nothing needs ignoring. Taking the cheaper: it prices lowest on the cheapest rule's first key (cache read), and every rise of the cheap row is reported as a possible twin switch."
           }
         }
       },
