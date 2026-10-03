@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T09:53:44Z",
+  "provider_rates_fetched": "2026-10-03T10:53:33Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -10471,6 +10471,14 @@
           "from": "2026-10-03T08:53:46Z",
           "output": 1.664,
           "read": 0.02795
+        },
+        {
+          "create_1h": 0.03601,
+          "create_5m": 0.03601,
+          "fresh": 0.03601,
+          "from": "2026-10-03T09:55:39Z",
+          "output": 1.664,
+          "read": 0.03601
         }
       ],
       "Parasail": [
@@ -19849,6 +19857,15 @@
           "from": "2026-10-03T01:05:56Z",
           "output": 1.32,
           "read": 0.028
+        },
+        {
+          "create_1h": 0.308,
+          "create_5m": 0.308,
+          "fresh": 0.308,
+          "from": "2026-10-03T10:01:11Z",
+          "note": "30% off",
+          "output": 0.924,
+          "read": 0.0196
         }
       ],
       "Reka": [
@@ -37990,6 +38007,15 @@
           "from": "2026-10-03T01:05:57Z",
           "output": 4.36,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.957,
+          "create_5m": 0.957,
+          "fresh": 0.957,
+          "from": "2026-10-03T10:01:11Z",
+          "note": "34% off",
+          "output": 2.8776,
+          "read": 0.099
         }
       ],
       "Reka": [
@@ -41249,6 +41275,22 @@
           "from": "2026-10-03T09:45:43Z",
           "output": 0.28,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-03T10:01:12Z",
+          "output": 0.28,
+          "read": 0.09
+        },
+        {
+          "create_1h": 0.11,
+          "create_5m": 0.11,
+          "fresh": 0.11,
+          "from": "2026-10-03T10:45:49Z",
+          "output": 0.28,
+          "read": 0.09
         }
       ],
       "Io Net": [
