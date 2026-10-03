@@ -26,15 +26,17 @@ name: pr gate
 #     expression, `closable` in scripts/ci/pr_gate.py. The old pin was
 #     `bool(layout) or not related_may_reference(...)`; v2.0.0 inserts a third
 #     disjunct between them, so a CLAIM failure now closes where it used to
-#     comment: one to twenty checked references where at least one issue is not
-#     assigned to the PR's author. That is the whole of the widening. The two
-#     rules that predate it are unchanged — a layout/content failure closes, and
-#     a body naming no issue reference at all closes as well — and more than
-#     twenty references still leaves the PR open with a corrective comment.
-#     Read the README's one-line summary of this against the code: it inverts
-#     the last of those, and this comment is the corrected form. Not in the
-#     v2.0.0 release notes either, which cover only the exit code, a
-#     stale-object 422 reopen retry, and the claim pin.
+#     comment, whenever one to twenty references were checked: a closing
+#     reference to an issue not assigned to the PR's author, or no checked
+#     issue assigned to the author at all. A mere mention of someone else's
+#     issue beside a claimed one still passes. That is the whole of the
+#     widening. The two rules that predate it are unchanged: a layout/content
+#     failure closes, and so does a failing body naming no issue reference at
+#     all — unless its Related section still carries reference-shaped text such
+#     as a URL, which leaves it open with a corrective comment, as more than
+#     twenty references also do. Nor is the widening in the v2.0.0 release
+#     notes, which cover only the exit code, a stale-object 422 reopen retry,
+#     and the claim pin.
 on:
   pull_request_target:  # zizmor: ignore[dangerous-triggers]
     types: [opened, edited, reopened, ready_for_review]
