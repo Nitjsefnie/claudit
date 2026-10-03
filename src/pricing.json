@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T07:53:56Z",
+  "provider_rates_fetched": "2026-10-03T08:13:12Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2482,6 +2482,14 @@
           "create_5m": 0.021,
           "fresh": 0.021,
           "from": "2026-10-02T11:51:42Z",
+          "output": 0.383,
+          "read": 0.008
+        },
+        {
+          "create_1h": 0.027,
+          "create_5m": 0.027,
+          "fresh": 0.027,
+          "from": "2026-10-03T07:55:53Z",
           "output": 0.383,
           "read": 0.008
         }
@@ -10415,6 +10423,14 @@
           "from": "2026-10-03T07:46:01Z",
           "output": 1.664,
           "read": 0.01833
+        },
+        {
+          "create_1h": 0.02392,
+          "create_5m": 0.02392,
+          "fresh": 0.02392,
+          "from": "2026-10-03T08:10:43Z",
+          "output": 1.664,
+          "read": 0.02392
         }
       ],
       "Parasail": [
@@ -11165,6 +11181,14 @@
           "from": "2026-10-03T07:40:48Z",
           "output": 1.28,
           "read": 0.0141
+        },
+        {
+          "create_1h": 0.0184,
+          "create_5m": 0.0184,
+          "fresh": 0.0184,
+          "from": "2026-10-03T08:01:17Z",
+          "output": 1.28,
+          "read": 0.0184
         }
       ],
       "SiliconFlow": [
@@ -29235,6 +29259,14 @@
           "from": "2026-10-03T06:46:06Z",
           "output": 2.7,
           "read": 0.18
+        },
+        {
+          "create_1h": 0.1988,
+          "create_5m": 0.1988,
+          "fresh": 0.1988,
+          "from": "2026-10-03T08:01:18Z",
+          "output": 2.7,
+          "read": 0.1988
         }
       ],
       "SiliconFlow": [
@@ -41056,6 +41088,14 @@
           "from": "2026-10-03T07:35:40Z",
           "output": 0.28,
           "read": 0.04
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-03T08:05:44Z",
+          "output": 0.28,
+          "read": 0.05
         }
       ],
       "Io Net": [
