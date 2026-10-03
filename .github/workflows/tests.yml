@@ -65,9 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the patch-coverage step's merge-base
-          # computation walks ancestry across both sides of the branch;
-          # a depth-1 clone would leave the merge ref's parents missing.
+          # Full history: the patch-coverage merge-base walk and the
+          # thresholds loader's re-seed walk (scripts/ci/reseed.py,
+          # issue #582) both read ancestry a shallow clone lacks.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
@@ -446,11 +446,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Depth 2, not the default 1: the suite-cost re-seed marker
-          # is read from the pull request's head one level under the
-          # merge commit, which a depth-1 clone does not carry (issue
-          # #502; scripts/ci/reseed.py).
-          fetch-depth: 2
+          # Full history: the thresholds loader's re-seed walk reads up
+          # to _MAX_VISITS commits for the re-seed marker, which may sit
+          # on the BASE side of the merge or under a master tip — no
+          # fixed depth carries it (issue #582). This job runs the
+          # suite, so it reads the loader.
+          fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
           persist-credentials: false
