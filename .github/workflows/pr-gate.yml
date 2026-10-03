@@ -8,24 +8,29 @@ name: pr gate
 # The pin moved to Nitjsefnie-Actions/pr-gate v2.0.0. `action.yml` is
 # byte-identical across the two pins — every input, default and the composite
 # step are unchanged — so the call site below is untouched by the bump. The
-# script the composite runs is not. Two behaviours a consumer can observe, both
-# recorded in v2.0.0's tag message and its README:
+# script the composite runs is not. The old pin is UNTAGGED: pr-gate has only
+# ever released v1.0.0, v1.0.1 and v2.0.0, and 39b1b91 (2026-09-24) predates
+# v1.0.0, so "the v1 line" would be a release that does not exist.
+#
+# Two behaviours a consumer can observe:
 #
 #   - A run that CLOSES the pull request now exits 2. Exit 0 covers every
 #     termination that leaves the PR open, merged, reopened, or closed by
-#     someone else; exit 1 is an analysis or API failure. Nothing here reads
-#     the exit code, and nothing needs to: release.yml waits on check runs of
-#     the pushed master SHA, a `pull_request_target` run is attached to the
-#     PR's head SHA instead, and a rebase merge never lands that SHA on
-#     master. Only `aggregate` is a required status check, so a red pr gate
-#     blocks no merge.
-#   - The gate's closure power widened. v1.1.0 closed a PR only for a
+#     someone else; exit 1 is an analysis or API failure. This one is in
+#     v2.0.0's release notes and its README alike. Nothing here reads the exit
+#     code, and nothing needs to: release.yml waits on check runs of the pushed
+#     master SHA, a `pull_request_target` run is attached to the PR's head SHA
+#     instead, and a rebase merge never lands that SHA on master. Only
+#     `aggregate` is a required status check, so a red pr gate blocks no merge.
+#   - The gate's closure power widened. The old pin closed a PR only for a
 #     layout/content failure and left an uncertain reference open with a
-#     corrective comment; v2.0.0 also closes a PR whose checked issue
-#     references fail the claim — an issue that is not assigned to the PR's
-#     author. On a public repository that means a PR opened against an issue
-#     nobody has claimed is closed, not commented on, and reopened once the
-#     assignment exists.
+#     corrective comment; v2.0.0 also closes a PR whose checked issue references
+#     fail the claim — an issue not assigned to the PR's author. More than
+#     twenty references, or no checked reference at all, are still commented
+#     rather than closed, unless a layout or content failure closes first. This
+#     one is in the README and in scripts/ci/pr_gate.py's `closable` disjunct;
+#     it is NOT in the v2.0.0 release notes, which cover only the exit code, a
+#     stale-object 422 reopen retry, and the claim pin.
 on:
   pull_request_target:  # zizmor: ignore[dangerous-triggers]
     types: [opened, edited, reopened, ready_for_review]

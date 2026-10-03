@@ -17,7 +17,17 @@ name: claim
 #   - A command on a closed issue or a pull request is declined by the ACTION,
 #     loudly — a reply naming the command word and a failed run — where the
 #     v1-era `issue.state` / `issue.pull_request` conditions in the `if:` skipped
-#     the run in silence and the commenter never learned why.
+#     the run in silence and the commenter never learned why. The loud decline
+#     is the point, and it has a cost this repository now carries: an
+#     `issue_comment` run reports against the DEFAULT BRANCH TIP, so a `/claim`
+#     on a closed issue or a pull request leaves a RED `claim` check run on
+#     master's head commit — and release.yml waits on that commit's check runs,
+#     excluding only names starting with "release". A release cut from a master
+#     tip carrying one would be refused for a cause that has nothing to do with
+#     the release. The old `if:` did not prevent this either: v1.1.0 exited 1 on
+#     any comment merely CONTAINING a command word, which is how master commit
+#     26081d5f came to carry a red `claim` beside an all-green aggregate. Both
+#     routes are filed as issue #579; the waiter fix belongs there, not here.
 #   - `max-claims` caps how many open issues one account holds claims on, per
 #     repository role, and `expire` retires an idle claim after 7 days. Neither
 #     input exists on the v1.1.0 pin, so it ran with no cap and no expiry —
