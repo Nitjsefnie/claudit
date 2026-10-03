@@ -218,13 +218,15 @@ def check(path, thresholds_path=None) -> int:
     A counts-less measurement (the process_time fallback) fails closed:
     the absence of an instruction count is not a pass.
 
-    The ONE pass-through is a document that declares no budget at all:
-    the sanctioned re-seed's intermediate commit, whose message carries
-    the marker (reseed.py) and which the loader therefore accepts. The
-    measurement is still taken, still uploaded and still checked for
-    gateability — there is simply nothing to compare it against until
-    the next commit seeds the family. Every other missing budget, and
-    every over-budget phase, fails exactly as before.
+    The ONE pass-through is a tip document that carries no budget at
+    all, inside the re-seed window: some commit in the bounded walk's
+    span — from HEAD back to the last family-present commit — carries
+    the marker (reseed.py), so the loader accepts the absence whether
+    or not the tip itself declares. The measurement is still taken,
+    still uploaded and still checked for gateability — there is simply
+    nothing to compare it against until the seed commit restores the
+    family. Every other missing budget, and every over-budget phase,
+    fails exactly as before.
     """
     measurement = measurement_from_file(path)
     if measurement.counts is None:
@@ -263,8 +265,9 @@ def check(path, thresholds_path=None) -> int:
 def gate_verdict(thresholds_path, code: int) -> str:
     """The step summary's verdict line, in the gate's own words.
 
-    'within budget' would be a false statement on a re-seed commit,
-    which is gated against nothing at all; the summary says so.
+    'within budget' would be a false statement inside the re-seed
+    window, where the tip is gated against nothing at all; the summary
+    says so.
     """
     if code:
         return '**OVER BUDGET**'

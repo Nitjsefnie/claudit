@@ -119,8 +119,10 @@ def seed(data, counts, identity=None):
 
     ``data`` is the RAW document as its bytes carry it: the seed's
     target is exactly the document the member is ABSENT from, which the
-    loader only reads on the re-seed marker commit that deleted it
-    (reseed.py). Seeding over a recorded family is refused: overwriting
+    loader accepts while the delete's marker sits inside the bounded
+    walk's span — any commit from HEAD back to the last family-present
+    commit (reseed.py) — so the seed commit need not carry the marker
+    itself. Seeding over a recorded family is refused: overwriting
     would need its own justification, and the sanctioned one is the
     doctrine's re-seed -- delete the stale member first, commit the new
     counts second, both reviewed gate-definers -- not a quiet rewrite by
@@ -234,10 +236,11 @@ def main(argv=None):
             return 0
         data = thresholds.load(args.thresholds)
         if not data.get(_family):
-            # The sanctioned re-seed's intermediate commit carries no
-            # budget to tighten, by declaration. Tightening nothing is
-            # the whole answer, and saying so beats a crash on an
-            # absent family the marker made legal.
+            # A tree inside the re-seed window — the delete and every
+            # commit that lands on it before the seed — carries no
+            # budget to tighten. Tightening nothing is the whole
+            # answer, and saying so beats a crash on an absent family
+            # the walk found the marker for.
             print('no suite_cost budget — re-seed in flight: '
                   'nothing to tighten')
             return 0
