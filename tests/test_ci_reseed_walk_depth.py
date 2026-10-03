@@ -81,11 +81,11 @@ def _git(root: Path, *args: str) -> str:
 def _build_history(repo: Path) -> None:
     """A marker-on-base history under a GitHub-style merge commit.
 
-    The marker sits TWO bot commits under the base-side tip, so it is
-    four hops under the merge commit: deeper than a depth-2 clone
-    carries, well inside what ``_MAX_VISITS + 1`` hops carry, and
-    reachable in full history whatever master does under an open
-    window.
+    The marker sits TWO bot commits under the base-side tip: three
+    parent-hops from the merge commit (visit 5 in the walk's order), so
+    a depth-2 clone of the merge ref carries neither it nor the
+    family-present base, while ``_MAX_VISITS + 1`` hops carry whatever
+    the walk can visit.
     """
     def commit_doc(present: bool, message: str) -> None:
         doc: dict = {"coverage": {"python": {"measured": 90.0, "floor": 88.5}}}
@@ -125,14 +125,17 @@ def _build_history(repo: Path) -> None:
     _git(repo, "commit", "-m", "pr head: the lineage a marker may ride")
     _git(repo, "checkout", "-q", "master")
     merge_tree = _git(repo, "rev-parse", "pr^{tree}").strip()
-    _git(repo, "commit-tree", merge_tree,
-         "-p", "master", "-p", "pr",
-         "-m", "Merge pull request #1 from Nitjsefnie/pr")
+    merge = _git(repo, "commit-tree", merge_tree,
+                 "-p", "master", "-p", "pr",
+                 "-m", "Merge pull request #1 from Nitjsefnie/pr").strip()
+    # commit-tree writes no ref: point a branch at the merge so the
+    # clones below clone the two-parent shape, not the linear base tip.
+    _git(repo, "update-ref", "refs/heads/merge", merge)
 
 
 def _clone(source: Path, target: Path, depth: int | None) -> Path:
-    """A clone of ``source``; None depth means full history."""
-    args = ["git", "clone", "-q"]
+    """A clone of ``source``'s merge ref; None depth means full history."""
+    args = ["git", "clone", "-q", "--branch", "merge"]
     if depth is not None:
         args += ["--depth", str(depth)]
     # file:// transport: --depth is ignored over a local path.
@@ -149,11 +152,12 @@ def test_marker_on_base_reachable_at_max_visits_plus_one(
         pytest.skip("git is required: this check builds a synthetic history")
     repo = tmp_path / "repo"
     _build_history(repo)
-    merge = _git(repo, "rev-parse", "HEAD").strip()
+    merge = _git(repo, "rev-parse", "refs/heads/merge").strip()
 
     full = _clone(repo, tmp_path / "full", None)
-    # The merge commit itself carries no marker; the walk must reach
-    # the marker four hops down the base side.
+    # The clones' HEAD is the merge commit itself — the walk's root —
+    # and it carries no marker; the walk must reach the marker three
+    # parent-hops down the base side.
     assert merge == _git(full, "rev-parse", "HEAD").strip()
     assert reseed.in_flight(root=full), (
         "a full clone of a marker-on-base merge ref must read the window "
