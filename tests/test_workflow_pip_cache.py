@@ -76,6 +76,31 @@ def test_every_cache_save_directly_follows_the_dependency_install():
                 workflow, job, index)
 
 
+def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
+    # A matrix runs the job once per value. When the save's key varies by
+    # a matrix value (tests.yml keys its python-version matrix that way)
+    # each job writes its own key and all may save. When the key does NOT
+    # vary — the perturbed leg's three seed jobs share one pip key — N
+    # jobs save under it, the losers fail on a key that already exists,
+    # and the leg goes red on a cache race, never on a test. So that case
+    # is pinned to a single matrix value.
+    for workflow, job_id, steps in _jobs():
+        for step in steps:
+            if _action(step) != "actions/cache/save":
+                continue
+            doc = yaml.safe_load(
+                (ROOT / ".github" / "workflows" / workflow).read_text(
+                    encoding="utf-8")) or {}
+            strategy = (doc["jobs"][job_id] or {}).get("strategy") or {}
+            if not strategy.get("matrix"):
+                continue
+            key = (step.get("with") or {}).get("key") or ""
+            if "matrix." in key:
+                continue
+            assert "matrix." in (step.get("if") or ""), (
+                workflow, job_id, step.get("if"))
+
+
 def test_restore_and_save_steps_share_their_cache_key():
     # One key per job, spelled identically in both steps: save stores under
     # exactly the key restore looks up. Whitespace is normalised so a

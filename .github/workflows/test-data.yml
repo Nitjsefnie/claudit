@@ -35,7 +35,17 @@ concurrency:
 
 jobs:
   perturbed-suite:
-    name: perturbed suite
+    name: perturbed suite (seed ${{ matrix.seed }})
+    strategy:
+      # Every seed's own verdict, not the first failure's: the seeds are
+      # independent trees (option A, the #456 ruling), and fail-fast's
+      # cancellation would discard a seed that was still to report.
+      fail-fast: false
+      matrix:
+        # The three fixed seeds of issue #226, one job each — the
+        # measured case put the serial loop at ~16 minutes of suite
+        # wall, three seeds in parallel about -62%.
+        seed: ["42", "1234567890", "1720000000"]
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -113,10 +123,12 @@ jobs:
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # writing cross-run state (issue #126). One seed writes it — the
+      # matrix's three jobs share a cache key, and three racing saves of
+      # one key are not a thing to arbitrate.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.seed == '42'
         with:
           path: |
             ~/.cache/pip
@@ -132,7 +144,7 @@ jobs:
           done
           echo "postgres never became ready"; exit 1
 
-      - name: Perturb and test, per fixed seed
+      - name: Perturb and test
         # The perturbation is the leg's point: this tree is what a
         # refresh bot's commit produces (rates moved, version constants
         # bumped), so the suite runs against data the repository
@@ -141,15 +153,16 @@ jobs:
         # (issue #226): a wall-clock seed made the leg's verdict random
         # — the same tree passing or failing with the day it ran on.
         # Three absolute seeds — a historical one, a huge one, a
-        # mid-range one — each run the full suite, and the loop's first
-        # failure fails the step. The stamps are decoupled from the
-        # seed (issue #227), so any seed is safe. Before every perturb
-        # the bench restores the pristine pricing document and
-        # constants module byte for byte from what it read at start,
-        # so no seed ever perturbs a perturbed tree; the attribution
-        # lands in the step summary, and the bench's exit — the first
-        # failing suite's — is the step's (issue #456).
+        # mid-range one — run as three parallel matrix jobs (option A,
+        # issue #456): each job perturbs its own checkout and runs the
+        # full suite once, so the leg's wall is one suite run instead of
+        # three in sequence, and every seed's own exit is its job's. The
+        # seeds stay independent trees, so the stamps being decoupled
+        # from the seed (issue #227) still holds. Before the perturb the
+        # bench restores the pristine pricing document and constants
+        # module byte for byte from what it read at start; the
+        # attribution lands in this job's step summary (issue #456).
         run: |
           python scripts/ci/perturbed_leg_bench.py \
-            --seed 42 --seed 1234567890 --seed 1720000000 \
+            --seed "${{ matrix.seed }}" \
             --summary "$GITHUB_STEP_SUMMARY"
