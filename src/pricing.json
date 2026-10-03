@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T16:54:46Z",
+  "provider_rates_fetched": "2026-10-03T18:53:51Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1332,6 +1332,22 @@
           "from": "2026-10-03T02:10:48Z",
           "output": 0.6,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-03T18:16:25Z",
+          "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.025,
+          "create_5m": 0.025,
+          "fresh": 0.025,
+          "from": "2026-10-03T18:36:06Z",
+          "output": 0.4,
+          "read": 0.004
         }
       ],
       "Io Net": [
@@ -8783,6 +8799,16 @@
           "from": "2026-10-03T03:00:48Z",
           "output": 0.28,
           "read": 0.028
+        }
+      ],
+      "Cloudflare": [
+        {
+          "create_1h": 0.44,
+          "create_5m": 0.44,
+          "fresh": 0.44,
+          "from": "2026-10-03T18:38:18Z",
+          "output": 1.32,
+          "read": 0.014
         }
       ],
       "DeepInfra": [
@@ -41376,6 +41402,15 @@
           "note": "3% off",
           "output": 0.2716,
           "read": 0.002716
+        },
+        {
+          "create_1h": 0.133,
+          "create_5m": 0.133,
+          "fresh": 0.133,
+          "from": "2026-10-03T18:11:16Z",
+          "note": "5% off",
+          "output": 0.266,
+          "read": 0.00266
         }
       ],
       "Novita": [
@@ -48498,6 +48533,22 @@
           "from": "2026-10-03T13:05:56Z",
           "output": 0.6,
           "read": 0.044
+        },
+        {
+          "create_1h": 0.046,
+          "create_5m": 0.046,
+          "fresh": 0.046,
+          "from": "2026-10-03T18:01:45Z",
+          "output": 0.9,
+          "read": 0.044
+        },
+        {
+          "create_1h": 0.046,
+          "create_5m": 0.046,
+          "fresh": 0.046,
+          "from": "2026-10-03T18:36:07Z",
+          "output": 1.2,
+          "read": 0.044
         }
       ],
       "Io Net": [
@@ -48636,6 +48687,15 @@
           "note": "10% off",
           "output": 0.45,
           "read": 0.027
+        },
+        {
+          "create_1h": 0.1125,
+          "create_5m": 0.1125,
+          "fresh": 0.1125,
+          "from": "2026-10-03T18:11:17Z",
+          "note": "25% off",
+          "output": 0.375,
+          "read": 0.0225
         }
       ],
       "Modal": [
