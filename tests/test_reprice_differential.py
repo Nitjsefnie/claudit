@@ -23,6 +23,8 @@ from __future__ import annotations
 # at module level).
 # pylint: disable=duplicate-code
 
+from typing import Any
+
 import logging
 import time
 from collections.abc import Callable
@@ -70,11 +72,13 @@ _SONNET_END = datetime(2026, 3, 1, tzinfo=UTC)
 # constants local. The one mechanical adaptation: its SELECT names the
 # records.rate_fingerprint column too, because the shared _StaleRow now
 # carries the field; the legacy writes stay exactly the pre-#351 shapes.
+# (records.request_fee_usd joined the same SELECT when issue #469 added
+# it to _StaleRow; the legacy writes stay the pre-#469 shapes.)
 _LEGACY_SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
            ts, long_context, provider, cost_usd, pricing_version,
-           rate_fingerprint
+           rate_fingerprint, request_fee_usd
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -233,8 +237,9 @@ _METER_MODEL = "gpt-5.6-sol"
 
 # One fixed tally for every seeded row: unsplit_create = 2000-250-500.
 _TOKENS = (1000, 2000, 3000, 100, 250, 500)
-_TALLY = {"fresh": 1000, "output": 100, "eph5": 250, "eph1h": 500,
-          "unsplit_create": 1250, "read": 3000}
+_TALLY: dict[str, Any] = {"fresh": 1000, "output": 100,
+                          "eph5": 250, "eph1h": 500,
+                          "unsplit_create": 1250, "read": 3000}
 _STALE = "0"
 
 
@@ -336,7 +341,7 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
     def cost(model, ts, provider=None, long_context=False):
         return round(pricing.compute_cost(
             model, **_TALLY, ts=ts, long_context=long_context,
-            provider=provider), 6)
+            res=pricing.resolve(model, ts, provider)), 6)
 
     def row(model, ts, **kwargs):
         base = {"model": model, "ts": ts, "version": _STALE,
@@ -370,7 +375,7 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
             cost=round(pricing.compute_cost(
                 _METER_MODEL, fresh=300_000, output=100, eph5=250,
                 eph1h=500, unsplit_create=1250, read=3000, ts=_SEED_TS,
-                long_context=True, provider=None), 6),
+                long_context=True), 6),
             fp=fp(_METER_MODEL)),                               # meter TRUE
         row(_METER_MODEL, _SEED_TS, flag=False,
             cost=cost(_METER_MODEL, _SEED_TS),

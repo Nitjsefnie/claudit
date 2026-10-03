@@ -345,8 +345,10 @@ def test_thinking_panel_is_gated_and_never_enters_a_total():
     assert "panels.thinking && (" in src[max(0, idx - 220):idx]
     assert "t.total = t.input + t.output + t.cc + t.cr;" in src
     assert "t.thinking" not in src.split("t.total =")[1][:200]
-    breakdown = src[src.index("function computeTokenBreakdown"):]
-    breakdown = breakdown[:breakdown.index("\n}")]
+    # The breakdown fold lives in its own module (extracted from app.jsx
+    # for the size ratchet); the whole module must stay thinking-free.
+    breakdown = _strip_line_comments(
+        (APP.parent / "token-breakdown.js").read_text(encoding="utf-8"))
     assert "thinking" not in breakdown
 
 
@@ -356,7 +358,13 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
     a cache write with no declared TTL the way backend/pricing does — at
     the 1h rate — or the breakdown disagrees with the stored total it is
     meant to decompose (SV-COST-SPLIT)."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    # Both browser re-derivations: the synthetic preview's per-event cost
+    # (app.jsx) and the breakdown fold (src/token-breakdown.js).
+    src = "\n".join((
+        _strip_line_comments(APP.read_text(encoding="utf-8")),
+        _strip_line_comments(
+            (APP.parent / "token-breakdown.js").read_text(encoding="utf-8")),
+    ))
     assert "(eph1h + unsplit) * r.c1h" in src
     assert "c.ccUnsplit += unsplit                  * r.c1h * lcIn;" in src
     assert "(eph5 + unsplit) * r.c5" not in src

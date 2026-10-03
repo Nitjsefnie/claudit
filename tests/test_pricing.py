@@ -422,7 +422,8 @@ def test_provider_compute_cost_splits_at_the_cutover(
         # bind an int to compute_cost's bool long_context and fails types.
         return pricing.compute_cost(
             w.model, fresh=1_000_000, output=0, eph5=0, eph1h=0,
-            unsplit_create=0, read=0, ts=ts, provider=w.host)
+            unsplit_create=0, read=0, ts=ts,
+            res=pricing.resolve(w.model, ts, w.host))
 
     just_before = cost(w.cutover - timedelta(seconds=1))
     at = cost(w.cutover)

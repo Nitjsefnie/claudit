@@ -16,6 +16,7 @@ from tests.refresh_fixture_builders import _per_token
 
 from tests.test_provider_rate_refresh import (
     GLM,
+    LOADER_JS,
     NOW,
     PARSER_JS,
     PRICING_JSON,
@@ -450,9 +451,11 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     js = tmp_path / "js"
     js.mkdir()
     shutil.copy(run.pricing, js / "pricing.json")
+    shutil.copy(LOADER_JS, js / "pricing-loader.js")
     shutil.copy(PARSER_JS, js / "parser.js")
     proc = subprocess.run(["node", "-e", f"""
       global.window = {{}};
+      require({str(js / "pricing-loader.js")!r});
       require({str(js / "parser.js")!r});
       console.log(JSON.stringify(window.rateEpochs));
     """], capture_output=True, text=True, timeout=60, check=False)

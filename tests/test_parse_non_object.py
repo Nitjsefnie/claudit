@@ -16,6 +16,7 @@ from backend import parse
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "parser"
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 
 LINE_FIXTURES = {
@@ -189,6 +190,7 @@ def _node_parse(transcripts: dict[str, str]) -> dict[str, Any]:
     script = f"""
       global.window = {{}};
       require({json.dumps(str(LANES_JS))});
+      require({json.dumps(str(LOADER_JS))});
       require({json.dumps(str(PARSER_JS))});
       const fixtures = {json.dumps(transcripts)};
       const out = {{}};

@@ -21,6 +21,7 @@ from tests.test_pricing_data import (
     MOVED,
     NEWCOMER,
     ORIGIN,
+    LOADER_JS,
     PARSER_JS,
     P_AFTER,
     P_BEFORE,
@@ -134,9 +135,15 @@ def test_the_page_names_the_file_with_its_own_cache_bust():
                        session_mod.make_guest_session_token())
     page = client.get("/").text
     version = int(_pricing_json().stat().st_mtime)
-    tag = re.search(r'<script[^>]*src="/src/parser\.js[^"]*"[^>]*>', page)
+    tag = re.search(
+        r'<script[^>]*src="/src/pricing-loader\.js[^"]*"[^>]*>', page)
     assert tag, page
     assert f'data-pricing="/src/pricing.json?v={version}"' in tag.group(0)
+    # The parser half loads after its loader and names no pricing of its own.
+    parser_tag = re.search(
+        r'<script[^>]*src="/src/parser\.js[^"]*"[^>]*>', page)
+    assert parser_tag, page
+    assert "data-pricing" not in parser_tag.group(0)
 
 
 @needs_node
@@ -157,6 +164,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     assert want in [int(e.timestamp() * 1000)
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     assert want in _node(tmp_path / "parser.js",
                          "console.log(JSON.stringify(window.rateEpochs));")
@@ -178,6 +186,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
         tmp_path):
     (tmp_path / "pricing.json").write_text(
         json.dumps(_with_newcomer()), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     before = _stamp(_at(CUT) - timedelta(seconds=1))
     got = _node(tmp_path / "parser.js", f"""
@@ -247,6 +256,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     model, host = SCHEDULED
     tables = pricing.load_tables(doc)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
       const stamps = {json.dumps(stamps)};
@@ -321,6 +331,7 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
     stamps = [_stamp(_at(CUT) - timedelta(seconds=1)), CUT,
               _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
       console.log(JSON.stringify({json.dumps(stamps)}.map(
@@ -344,6 +355,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
         json.dumps(_provider_only_doc()), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js",
                 "console.log(JSON.stringify(window.rateEpochs));")
