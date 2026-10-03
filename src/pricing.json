@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T18:53:51Z",
+  "provider_rates_fetched": "2026-10-03T20:54:44Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1348,6 +1348,22 @@
           "from": "2026-10-03T18:36:06Z",
           "output": 0.4,
           "read": 0.004
+        },
+        {
+          "create_1h": 0.04,
+          "create_5m": 0.04,
+          "fresh": 0.04,
+          "from": "2026-10-03T19:46:22Z",
+          "output": 0.6,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.02,
+          "create_5m": 0.02,
+          "fresh": 0.02,
+          "from": "2026-10-03T20:31:07Z",
+          "output": 0.4,
+          "read": 0.003
         }
       ],
       "Io Net": [
@@ -22402,6 +22418,14 @@
           "from": "2026-10-03T04:11:10Z",
           "output": 1.0,
           "read": 0.05
+        },
+        {
+          "create_1h": 0.12,
+          "create_5m": 0.12,
+          "fresh": 0.12,
+          "from": "2026-10-03T19:11:26Z",
+          "output": 0.84,
+          "read": 0.05
         }
       ]
     },
@@ -37670,6 +37694,15 @@
           "note": "36% off",
           "output": 1.703168,
           "read": 0.08832
+        },
+        {
+          "create_1h": 0.237696,
+          "create_5m": 0.237696,
+          "fresh": 0.237696,
+          "from": "2026-10-03T19:06:07Z",
+          "note": "36% off",
+          "output": 1.703168,
+          "read": 0.075072
         }
       ],
       "NextBit": [
@@ -38568,6 +38601,22 @@
           "from": "2026-10-03T09:10:43Z",
           "output": 4.2,
           "read": 0.12
+        },
+        {
+          "create_1h": 0.21,
+          "create_5m": 0.21,
+          "fresh": 0.21,
+          "from": "2026-10-03T20:16:08Z",
+          "output": 4.2,
+          "read": 0.21
+        },
+        {
+          "create_1h": 0.2178,
+          "create_5m": 0.2178,
+          "fresh": 0.2178,
+          "from": "2026-10-03T20:46:10Z",
+          "output": 4.2,
+          "read": 0.22
         }
       ],
       "Sail Research": [
@@ -44265,6 +44314,22 @@
           "from": "2026-10-03T01:15:41Z",
           "output": 4.0,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-03T19:21:07Z",
+          "output": 4.4,
+          "read": 0.2
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-03T20:31:08Z",
+          "output": 4.4,
+          "read": 0.08
         }
       ],
       "Io Net": [
@@ -47146,6 +47211,14 @@
           "from": "2026-10-02T10:11:27Z",
           "output": 4.0,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.1683,
+          "create_5m": 0.1683,
+          "fresh": 0.1683,
+          "from": "2026-10-03T20:46:12Z",
+          "output": 4.0,
+          "read": 0.17
         }
       ],
       "Sail Research": [
@@ -48549,6 +48622,38 @@
           "from": "2026-10-03T18:36:07Z",
           "output": 1.2,
           "read": 0.044
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-03T18:56:21Z",
+          "output": 0.45,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.046,
+          "create_5m": 0.046,
+          "fresh": 0.046,
+          "from": "2026-10-03T19:01:28Z",
+          "output": 1.0,
+          "read": 0.044
+        },
+        {
+          "create_1h": 0.046,
+          "create_5m": 0.046,
+          "fresh": 0.046,
+          "from": "2026-10-03T19:16:18Z",
+          "output": 0.6,
+          "read": 0.044
+        },
+        {
+          "create_1h": 0.034,
+          "create_5m": 0.034,
+          "fresh": 0.034,
+          "from": "2026-10-03T19:56:05Z",
+          "output": 0.6,
+          "read": 0.03
         }
       ],
       "Io Net": [
@@ -50411,6 +50516,14 @@
           "fresh": 0.1,
           "from": "2026-10-03T16:41:13Z",
           "output": 0.9,
+          "read": 0.08
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-03T19:36:08Z",
+          "output": 0.5,
           "read": 0.08
         }
       ],
