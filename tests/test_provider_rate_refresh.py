@@ -101,7 +101,10 @@ def _payloads(doc: dict) -> dict:
     tag, as it is live. BaseTen's deepseek-v4.1-flash lists its two
     endpoints as OpenRouter does: same tag and quantization, cache 0.007/0.03,
     and the 1-token max_completion_tokens artifact (32767/32768) the recorded
-    resolution ignores."""
+    resolution ignores. DeepInfra's deepseek-v4.1-flash lists its one offering
+    twice under deepinfra/fp8 as OpenRouter does, alike in tag, quantization
+    and limits, so the row's own newest entry is the cheaper twin and a dearer
+    one stands beside it, as BaseTen's does."""
     out = {}
     for key, hosts in doc["providers"].items():
         pinned = {host: pin["tag"] for host, pin in
@@ -123,6 +126,11 @@ def _payloads(doc: dict) -> dict:
             us_twin = _endpoint("BaseTen", us_region, tag="baseten/fp8")
             us_twin["max_completion_tokens"] = 32768
             endpoints.append(us_twin)
+            for endpoint in endpoints:
+                if endpoint["provider_name"] == "DeepInfra":
+                    endpoint["tag"] = "deepinfra/fp8"
+            dearer = {**hosts["DeepInfra"][-1], "read": 0.12}
+            endpoints.append(_endpoint("DeepInfra", dearer, tag="deepinfra/fp8"))
         model_id = doc["openrouter"]["models"][key]["id"]
         out[model_id] = {"data": {"id": model_id, "name": model_id,
                                   "endpoints": endpoints}}
@@ -550,6 +558,12 @@ def _pin_novita(tag: str):
 def _baseten_twins(run: Run) -> list[dict]:
     """[cheaper, dearer] by cache read."""
     twins = [e for e in run.endpoints(V41) if e["provider_name"] == "BaseTen"]
+    return sorted(twins, key=lambda e: Decimal(e["pricing"]["input_cache_read"]))
+
+
+def _deepinfra_twins(run: Run) -> list[dict]:
+    """[cheaper, dearer] by cache read, the row's own price first."""
+    twins = [e for e in run.endpoints(V41) if e["provider_name"] == "DeepInfra"]
     return sorted(twins, key=lambda e: Decimal(e["pricing"]["input_cache_read"]))
 
 
