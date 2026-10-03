@@ -23,6 +23,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 import pytest
 
 # The fixtures register on import; pylint only sees names nobody calls.
@@ -46,8 +48,9 @@ _SCHED_RATES = {"fresh": 0.5, "create_5m": 0.625, "create_1h": 1.0,
 _SEED_MODEL = "claude-opus-4-7"
 _SEED_TS = datetime(2026, 5, 7, 10, 0, tzinfo=UTC)
 _SEED_TOKENS = (1_000, 2_000, 3_000, 100, 250, 500)
-_SEED_INPUTS = {"fresh": 1_000, "output": 100, "eph5": 250, "eph1h": 500,
-                "unsplit_create": 1_250, "read": 3_000}
+_SEED_INPUTS: dict[str, Any] = {"fresh": 1_000, "output": 100,
+                                "eph5": 250, "eph1h": 500,
+                                "unsplit_create": 1_250, "read": 3_000}
 
 # The file key every unit test seeds its rows under (fresh_db is
 # per-test, so the name never collides across tests).
@@ -148,6 +151,7 @@ def _seed_parents(c, file_key: str) -> None:
 def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
           cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
           provider: str | None = None,
+          request_fee_usd: float | None = None,
           rate_fingerprint: str | None = None) -> None:  # pylint: disable=redefined-outer-name
     """One record row under seeded project+file parents, with a fixed
     token tally (_SEED_TOKENS) a test prices through compute_cost.
@@ -159,16 +163,15 @@ def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
     hence the shadow of the module import of the same name.
     """
     _seed_parents(c, file_key)
-    fresh, create, read, output, eph5, eph1h = _SEED_TOKENS
     c.execute(
         "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
         "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, provider, pricing_version, "
-        "rate_fingerprint) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (file_key, line_num, ts, model, fresh, create, read,
-         output, eph5, eph1h, cost_usd, provider, pricing_version,
-         rate_fingerprint),
+        "eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd, provider, "
+        "pricing_version, rate_fingerprint) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (file_key, line_num, ts, model, *_SEED_TOKENS,
+         cost_usd, request_fee_usd, provider,
+         pricing_version, rate_fingerprint),
     )
 
 
@@ -196,7 +199,104 @@ def _seeded_cost() -> float:
     as they stand right now."""
     return round(pricing.compute_cost(
         _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        long_context=False, provider=None), 6)
+        long_context=False), 6)
+
+
+# The fee-carrying pair the fee tests seed against, and the synthetic
+# rates/fee it resolves under (SV-TEST-DATA: unlike any real price).
+_FEE_HOST = "FeeHost"
+_FEE_RATES = {"fresh": 1.5, "create_5m": 1.875, "create_1h": 3.0,
+              "read": 0.15, "output": 7.5}
+_FEE = 0.0137
+
+
+def _fee_tables(monkeypatch, *, fee: float | None = _FEE) -> None:
+    """Patch the (model, FeeHost) row in: synthetic list rates, no dated
+    windows (so the fee index is 0 at every timestamp), and the fee."""
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {**pricing.PROVIDER_RATES,
+                         (_SEED_MODEL, _FEE_HOST): dict(_FEE_RATES)})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_FEES",
+                        {(_SEED_MODEL, _FEE_HOST): {0: fee}} if fee else {})
+
+
+def _seeded_provider_cost() -> float:
+    """The seeded tally priced on the FeeHost row — the fee folded in,
+    exactly as compute_cost stores it."""
+    return round(pricing.compute_cost(
+        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
+        long_context=False,
+        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _FEE_HOST)), 6)
+
+
+def test_reprice_folds_the_per_request_fee(fresh_db, monkeypatch):
+    """A stale row of a fee-carrying pair reprices to its tokens-only
+    price plus one fee, and stores the fee on request_fee_usd; a row
+    naming no host keeps the column NULL."""
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
+              provider=_FEE_HOST)
+        _seed(c, _FILE_KEY, 2, pricing_version=None,
+              cost_usd=0.5)
+        c.commit()
+    _fee_tables(monkeypatch)
+    assert ingest_reprice.reprice_stale() == 2
+    with db.viz_conn() as c:
+        fee_row = c.execute(
+            "SELECT cost_usd, request_fee_usd FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+        bare_row = c.execute(
+            "SELECT cost_usd, request_fee_usd FROM records "
+            "WHERE file_key = %s AND line_num = 2", (_FILE_KEY,)).fetchone()
+    assert fee_row is not None and bare_row is not None
+    assert float(fee_row[0]) == _seeded_provider_cost()
+    assert float(fee_row[1]) == _FEE
+    assert float(bare_row[0]) == _seeded_cost()
+    assert bare_row[1] is None
+
+
+def test_reprice_clears_the_fee_column_when_the_fee_moves_away(
+        fresh_db, monkeypatch):
+    """A row priced under an earlier fee keeps following the CURRENT
+    table: the fee gone from the pair's rows, the reprice stores NULL
+    and prices tokens-only again."""
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
+              provider=_FEE_HOST, request_fee_usd=0.99)
+        c.commit()
+    _fee_tables(monkeypatch, fee=None)
+    assert ingest_reprice.reprice_stale() == 1
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT cost_usd, request_fee_usd FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None
+    cost, fee = row
+    assert float(cost) == _seeded_provider_cost()
+    assert fee is None
+
+
+def test_reprice_restamps_when_cost_and_fee_already_match(fresh_db,
+                                                          monkeypatch):
+    """A row whose stored cost and fee already equal the recomputed
+    state takes the restamp path: version advances, nothing changed,
+    the stored fee survives."""
+    _fee_tables(monkeypatch)
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version=None,
+              cost_usd=_seeded_provider_cost(),
+              provider=_FEE_HOST, request_fee_usd=_FEE)
+        c.commit()
+    assert ingest_reprice.reprice_stale() == 0
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT pricing_version, request_fee_usd FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None
+    version, fee = row
+    assert version == constants.PRICING_VERSION
+    assert float(fee) == _FEE
 
 
 def _rows(c) -> list:
@@ -383,7 +483,8 @@ def test_reprice_prices_a_provider_row(fresh_db,
         ts = before_ts if line_num == 1 else after_ts
         assert float(cost) == round(pricing.compute_cost(
             prov.model, **_SEED_INPUTS, ts=ts, long_context=False,
-            provider=prov.host), 6), f"line {line_num} repriced by host"
+            res=pricing.resolve(prov.model, ts, prov.host)), 6), \
+            f"line {line_num} repriced by host"
 
 
 def test_reprice_prices_a_weekly_schedule(fresh_db,
@@ -415,7 +516,7 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
                "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
     assert float(cost) == round(pricing.compute_cost(
         prov.model, **_SEED_INPUTS, ts=ts, long_context=False,
-        provider=prov.host), 6)
+        res=pricing.resolve(prov.model, ts, prov.host)), 6)
 
 
 def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
@@ -533,7 +634,7 @@ def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
     assert float(cost) == round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
         unsplit_create=0, read=0, ts=_SEED_TS, long_context=False,
-        provider="OpenRouter"), 6)
+        res=pricing.resolve("gpt-5.6-sol", _SEED_TS, "OpenRouter")), 6)  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
     assert version == constants.PRICING_VERSION
 
 

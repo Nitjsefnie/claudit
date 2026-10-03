@@ -107,7 +107,8 @@ def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
     assert provider_start > first_epoch_ts
     stored = pricing.compute_cost(
         model, fresh=1_000_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, ts=None, provider=host,
+        unsplit_create=0, read=0, ts=None,
+        res=pricing.resolve(model, None, host),
     )
     assert stored == provider_rates["fresh"]
     row = (model, host, -1, False, 1, 1_000_000, 0, 0, 0, 0, 0, stored)
@@ -410,7 +411,8 @@ def test_a_scheduled_rows_buckets_sum_to_its_stored_total(monkeypatch, schedule)
     tokens = {"fresh": 5_500, "output": 500_000, "read": 2_000_000}
     stored = sum(pricing.compute_cost(model, fresh=tokens["fresh"], output=tokens["output"],
                                       eph5=0, eph1h=0, unsplit_create=0,
-                                      read=tokens["read"], ts=ts, provider=host)
+                                      read=tokens["read"], ts=ts,
+                                      res=pricing.resolve(model, ts, host))
                  for ts in (peak, off_peak))
     row = (model, host, 0, False, 2, 2 * tokens["fresh"], 0,
            2 * tokens["read"], 2 * tokens["output"], 0, 0, stored)
@@ -434,3 +436,28 @@ def test_a_schedule_adds_no_rate_epoch(monkeypatch):
     before = list(pricing.RATE_EPOCHS)
     _install_scheduled_row(monkeypatch, [{"days": ["saturday"], "rates": HALF}])
     assert pricing.RATE_EPOCHS == before
+
+
+def test_fee_row_buckets_scale_to_the_stored_total(monkeypatch):
+    """A fee row's stored total carries the serving host's per-request
+    fees (issue #469), which no token bucket re-derives: like a
+    scheduled row, the buckets take their split from the token rates
+    and are scaled to the stored total, so the decomposition still sums
+    to what it decomposes."""
+    rates = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
+             "read": 0.2, "output": 10.0}
+    fee = 0.0137
+    pair = ("acme/acme-9", "FeeHost")
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: rates})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_FEES", {pair: {0: fee}})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [])
+    stored = 2.0 + 3 * fee  # three records' tokens plus three fees
+    rows = [(*_row("acme/acme-9", -1, fresh=1_000_000, cost=stored)[:1],
+             pair[1], *_row("acme/acme-9", -1, fresh=1_000_000,
+                            cost=stored)[2:])]
+    out = fold_per_model(rows, pair_bounds={})
+    assert len(out) == 1
+    m = out[0]
+    assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
+    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])

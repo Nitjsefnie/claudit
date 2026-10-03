@@ -15,17 +15,17 @@
     "backend/bash_churn.py": 918,
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 674,
-    "backend/parse.py": 875,
+    "backend/parse.py": 854,
     "backend/parse_codex.py": 706,
     "backend/parse_kimi.py": 565,
     "backend/schema.sql": 834,
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 704,
-    "src/app.jsx": 1417,
+    "src/app.jsx": 1363,
     "src/dashboard-charts-extra.jsx": 3495,
     "src/dashboard-charts.jsx": 1331,
     "src/parser-lanes.js": 714,
-    "src/parser.js": 1023
+    "src/parser.js": 666
   },
   "pylint_suppression_baseline": {
     "backend/bash_dash_c.py": 2,

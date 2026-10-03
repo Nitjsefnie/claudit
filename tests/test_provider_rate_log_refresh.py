@@ -405,9 +405,12 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
         browser_dir = tmp_path / "browser"
         browser_dir.mkdir()
         shutil.copy(pricing_path, browser_dir / "pricing.json")
+        shutil.copy(ROOT / "src" / "pricing-loader.js",
+                    browser_dir / "pricing-loader.js")
         shutil.copy(parser_path, browser_dir / "parser.js")
         proc = subprocess.run(
-            ["node", "-e", "global.window = {}; require('./parser.js'); "
+            ["node", "-e", "global.window = {}; "
+             "require('./pricing-loader.js'); require('./parser.js'); "
              "console.log(JSON.stringify(['2031-01-01T00:09:59Z', "
              "'2031-01-01T00:10:00Z', '2031-01-01T00:20:00Z'].map(ts => "
              "window.rateForModel('synthetic/model', ts, 'Wafer').fresh)));"],

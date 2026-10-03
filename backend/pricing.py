@@ -56,8 +56,10 @@ from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable
 from backend.pricing_load import (
     DATED_RATES,
     DEFAULT_RATES,
+    FEES,
     MODEL_RATES,
     PROVIDER_DATED_RATES,
+    PROVIDER_FEES,
     PROVIDER_RATES,
     PROVIDER_RATES_FETCHED,
     PROVIDER_SCHEDULES,
@@ -81,10 +83,11 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
 )
 
 __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
-    "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS", "MODEL_RATES",
-    "PROVIDER_DATED_RATES", "PROVIDER_RATES", "PROVIDER_RATES_FETCHED",
-    "PROVIDER_SCHEDULES", "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS",
-    "RATE_FIELDS", "Windows", "RateTables", "ScheduleWindow", "load_tables",
+    "DATED_RATES", "DEFAULT_RATES", "FEES", "LONG_CONTEXT_MODELS",
+    "MODEL_RATES", "PROVIDER_DATED_RATES", "PROVIDER_FEES",
+    "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
+    "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
+    "Windows", "RateTables", "ScheduleWindow", "load_tables",
 ]
 
 UTC = timezone.utc
@@ -144,6 +147,12 @@ class Resolution:
     # for this record's own time: a fold re-deriving cost at one
     # representative time cannot reproduce them (SV-RATE-DATA).
     scheduled: bool = False
+    # The serving host's per-request fee in force (issue #469): USD this
+    # one request costs beside its tokens, folded into compute_cost's
+    # total and stored on records.request_fee_usd. Zero when the resolved
+    # entry carries no fee note (every non-OpenRouter lane, every
+    # unmodelled listing).
+    request_fee: float = 0.0
 
     @property
     def estimated(self) -> bool:
@@ -303,6 +312,25 @@ def _provider_key(norm: str, provider: str,
     return None
 
 
+def _fee_at(fees: dict, key, windows: Windows | None, ts: datetime | None
+            ) -> float:
+    """The per-request fee of the history entry in force at `ts` — the
+    newest entry (the list price) when `ts` is None, the entry the
+    window walk selects otherwise. Keyed by entry index exactly like
+    PROVIDER_SCHEDULES: windows[i] is entry i, the tail entry is index
+    len(windows)."""
+    if key is None:
+        return 0.0
+    row = fees.get(key)
+    if not row:
+        return 0.0
+    if ts is None:
+        return row.get(len(windows or []), 0.0)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return row.get(sum(1 for end, _ in windows or [] if end <= ts), 0.0)
+
+
 def resolve(model: str, ts: datetime | None = None,
             provider: str | None = None) -> Resolution:
     """Resolve a model id to rates, reporting how confident the match is.
@@ -316,10 +344,15 @@ def resolve(model: str, ts: datetime | None = None,
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
         rates, scheduled = _provider_rates(pkey, ts)
-        return Resolution(rates, "exact", pkey[0], scheduled)
+        return Resolution(rates, "exact", pkey[0], scheduled,
+                          request_fee=_fee_at(
+                              PROVIDER_FEES, pkey,
+                              PROVIDER_DATED_RATES.get(pkey), ts))
     key = _match_key(norm)
     if key is not None:
-        return Resolution(_dated(key, ts), "exact", key)
+        return Resolution(_dated(key, ts), "exact", key,
+                          request_fee=_fee_at(
+                              FEES, key, DATED_RATES.get(key), ts))
     for pattern, rates in _TIER_FALLBACKS:
         if pattern.search(norm):
             return Resolution(rates, "tier")
@@ -342,6 +375,15 @@ def rate_for(model: str, ts: datetime | None = None,
     return resolve(model, ts, provider).rates
 
 
+def request_fee(model: str, ts: datetime | None = None,
+                provider: str | None = None) -> float:
+    """The per-request fee in force for one request (issue #469), resolved
+    exactly like rates: a (model, provider) row's entry note decides, the
+    model row when no provider row applies. Zero when neither carries a
+    fee. Omitting ts yields the list entry's fee."""
+    return resolve(model, ts, provider).request_fee
+
+
 def compute_cost(
     model: str,
     *,
@@ -353,7 +395,7 @@ def compute_cost(
     read: int,
     ts: datetime | None = None,
     long_context: bool = False,
-    provider: str | None = None,
+    res: "Resolution | None" = None,
 ) -> float:
     """USD cost for one request's token tally.
 
@@ -371,10 +413,19 @@ def compute_cost(
     the meter, whatever plan served the rollout (issue #194); no Kimi
     caller passes it (the wire format has no such tier).
 
-    provider is the record's serving host (OpenRouter's message.provider);
-    None prices by the model alone, exactly as before the provider table.
+    A per-request fee the resolved entry's note records (issue #469) is
+    folded in ONCE per call — one call prices one request — so cost_usd
+    is what the session cost. The fee's provenance stays in the provider
+    row's note and in records.request_fee_usd. A caller that also needs
+    the fee split out — or that prices per record on a hot path —
+    resolves once itself and passes `res`: the Resolution carries the
+    rates, the serving host's fee and the record's own timestamp's dated
+    window, so one request costs one resolution and the (model, ts,
+    provider) triple is resolved in exactly one place.
     """
-    r = rate_for(model, ts, provider)
+    if res is None:
+        res = resolve(model, ts)
+    r = res.rates
     in_mult = LONG_CONTEXT_INPUT_MULT if long_context else 1.0
     out_mult = LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0
     return (
@@ -383,4 +434,5 @@ def compute_cost(
         + (eph1h + unsplit_create) * r["create_1h"] * in_mult / 1_000_000
         + read * r["read"] * in_mult / 1_000_000
         + output * r["output"] * out_mult / 1_000_000
+        + res.request_fee
     )

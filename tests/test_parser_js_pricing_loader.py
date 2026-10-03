@@ -10,8 +10,9 @@ direct element of a "schedule" array), not by key name alone — a future
 openrouter.start or a rates object's start parses untouched.
 
 Driven through node like test_parser_js_mirror.py and
-test_provider_rate_refresh.py: a copy of parser.js beside a stand-alone
-copy of pricing.json in a tmp dir — never the repo's real file.
+test_provider_rate_refresh.py: a copy of pricing-loader.js beside a
+stand-alone copy of pricing.json in a tmp dir — never the repo's real
+file.
 """
 import json
 import shutil
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PARSER_JS = ROOT / "src" / "parser.js"
+LOADER_JS = ROOT / "src" / "pricing-loader.js"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node not available"
@@ -93,15 +94,16 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
 
     Returns {error, untouched, rates}: the require's error message, whether
     the doc the loader parsed equals a plain JSON.parse of the same text
-    (the value survived as a number), and — when the loader completed — the
-    day/night schedule rates window.rateForModel resolves, mapped back to
-    the five backend field names.
+    (the value survived as a number), and — when the load completed — the
+    day/night schedule rates the loaded pair resolves, mapped back to the
+    five backend field names.
     """
     where = tmp_path / ("browser" if browser else "node")
     where.mkdir(exist_ok=True)
     fixture = where / "pricing.json"
     fixture.write_text(text, encoding="utf-8")
-    shutil.copy(PARSER_JS, where / "parser.js")
+    shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a
     # plain parse: a reviver that rewrote values (the old _hhmmSpelling)
     # shows up as untouched=false even when nothing else observes the doc.
@@ -114,7 +116,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
             "global.document = {\n"
             "  currentScript: { dataset: { pricing: 'pricing.json' },\n"
             "                   src: require('url').pathToFileURL("
-            f"{json.dumps(str(where / 'parser.js'))}).href }},\n"
+            f"{json.dumps(str(where / 'pricing-loader.js'))}).href }},\n"
             "};\n"
             "global.XMLHttpRequest = class {\n"
             "  open(method, url) { this.responseURL = url; }\n"
@@ -135,8 +137,12 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
         if (captured === null) captured = {{doc: got, text: t}};
         return got;
       }};
-      try {{ require({json.dumps(str(where / "parser.js"))}); }}
+      try {{ require({json.dumps(str(where / "pricing-loader.js"))}); }}
       catch (e) {{ error = String(e.message); }}
+      if (error === null) {{
+        try {{ require({json.dumps(str(where / "parser.js"))}); }}
+        catch (e) {{ error = String(e.message); }}
+      }}
       JSON.parse = realParse;
       let untouched = null;
       if (captured !== null) {{

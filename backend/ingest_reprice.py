@@ -92,7 +92,7 @@ _SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
            ts, long_context, provider, cost_usd, pricing_version,
-           rate_fingerprint
+           rate_fingerprint, request_fee_usd
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -120,9 +120,10 @@ _SQL_RESTAMP = """
 _SQL_REPRICE = """
     UPDATE records r
        SET cost_usd = d.cost, long_context = d.flag,
+           request_fee_usd = d.fee,
            pricing_version = %s, rate_fingerprint = d.f
       FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[],
-                  %s::text[]) AS d(k, n, cost, flag, f)
+                  %s::float8[], %s::text[]) AS d(k, n, cost, flag, fee, f)
      WHERE r.file_key = d.k
        AND r.line_num = d.n
 """
@@ -190,6 +191,7 @@ class _StaleRow(NamedTuple):
     cost_usd: Decimal
     pricing_version: str | None
     rate_fingerprint: str | None
+    request_fee_usd: Decimal | None
 
 
 def _stored_pricing_version_is_newer(stored: str | None,
@@ -240,6 +242,9 @@ def _record_updates(row: _StaleRow) -> dict:
                         > pricing.LONG_CONTEXT_THRESHOLD)
     else:
         long_context = row.long_context
+    # One resolution per row: the same Resolution prices the tokens and
+    # names the fee (the parse path's rule).
+    res = pricing.resolve(row.model, row.ts, row.provider)
     cost = pricing.compute_cost(
         row.model,
         fresh=row.fresh_tokens,
@@ -248,13 +253,17 @@ def _record_updates(row: _StaleRow) -> dict:
         eph1h=row.eph1h_tokens,
         unsplit_create=unsplit_create,
         read=row.cache_read_tokens,
-        ts=row.ts,
         long_context=bool(long_context),
-        provider=row.provider,
+        res=res,
     )
     return {
         "cost_usd": round(cost, 6),
         "long_context": long_context,
+        # The serving host's per-request fee in force (issue #469): the
+        # fee rides inside compute_cost's total; stored beside it so
+        # provenance survives, NULL when none — the same shape a reparse
+        # of the row's bytes would store.
+        "request_fee_usd": res.request_fee or None,
         "pricing_version": constants.PRICING_VERSION,
     }
 
@@ -270,7 +279,10 @@ def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
     is exact for every row this pass (or its predecessor) wrote.
     """
     return (float(row.cost_usd) == updates["cost_usd"]
-            and row.long_context == updates["long_context"])
+            and row.long_context == updates["long_context"]
+            and (float(row.request_fee_usd)
+                 if row.request_fee_usd is not None else None)
+            == updates["request_fee_usd"])
 
 
 def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
@@ -388,7 +400,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                 t0 = time.perf_counter()
                 rows = [_StaleRow(*raw) for raw in raw_rows]
                 restamp_keys: list[tuple[str, int, str]] = []
-                moved: list[tuple[str, int, float, bool | None, str]] = []
+                moved: list[tuple[str, int, float, bool | None,
+                                  float | None, str]] = []
                 for row in rows:
                     if _stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
@@ -403,7 +416,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                     else:
                         moved.append((row.file_key, row.line_num,
                                       updates["cost_usd"],
-                                      updates["long_context"], row_fp))
+                                      updates["long_context"],
+                                      updates["request_fee_usd"],
+                                      row_fp))
                 if ph is not None:
                     marks["recompute"] = (marks.get("recompute", 0.0)
                                           + time.perf_counter() - t0)
@@ -425,7 +440,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                                [r[1] for r in moved],
                                [r[2] for r in moved],
                                [r[3] for r in moved],
-                               [r[4] for r in moved]))
+                               [r[4] for r in moved],
+                               [r[5] for r in moved]))
                 if ph is not None:
                     marks["moved"] = (marks.get("moved", 0.0)
                                       + time.perf_counter() - t0)

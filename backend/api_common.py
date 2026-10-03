@@ -144,7 +144,8 @@ def _accumulate_model_row(
         entry[field] += value
     stored = float(row[11] or 0)
     entry["cost_total"] += stored
-    _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored)
+    _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored,
+                            scaled=res.scheduled or bool(res.request_fee))
 
 
 def _model_row_pricing(
@@ -160,14 +161,19 @@ def _model_row_pricing(
 
 
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
-                            long_context: bool, stored: float) -> None:
+                            long_context: bool, stored: float,
+                            scaled: bool = False) -> None:
     """Price one fold row's tokens into the entry's buckets.
 
     A scheduled row's records were priced by their own time of day, which
     one representative time cannot reproduce: its buckets take their split
-    from these rates and are scaled to its stored total (SV-RATE-DATA).
+    from these rates and are scaled to its stored total (SV-RATE-DATA). A
+    fee row's total carries the serving host's per-request fees (issue
+    #469), which no token bucket re-derives: the same scaling applies, so
+    the decomposition still sums to what it decomposes.
     """
-    target = {"_buckets": dict.fromkeys(entry["_buckets"], 0.0)} if res.scheduled else entry
+    target = {"_buckets": dict.fromkeys(entry["_buckets"], 0.0)} \
+        if (res.scheduled or scaled) else entry
     _accumulate_buckets(
         target, res.rates, tokens["fresh"], tokens["cache_create"],
         tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
