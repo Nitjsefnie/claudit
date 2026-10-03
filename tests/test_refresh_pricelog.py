@@ -377,6 +377,16 @@ def test_a_listing_matching_an_earlier_log_state_names_the_lag_class():
     assert "the listing lags the price log" in match["Wafer"].reason
 
 
+def test_earlier_state_vectors_holds_every_state_before_the_newest():
+    listed, newer = _rates(0.3, 0.8), _rates(0.2, 0.7)
+    item = _add_state(_series(rates=listed), "2026-09-02T00:00:00Z", newer)
+    series = logshape.read_log_payload(_payload(item))[0]
+
+    earlier = pricelog._earlier_state_vectors(series)
+
+    assert earlier == {(0.3, 0.3, 0.3, 0.0, 0.8)}
+
+
 def test_a_series_entirely_after_the_fetch_instant_has_no_state_in_force():
     announced = _rates(0.2, 0.7)
     item = _series(rates=announced)
