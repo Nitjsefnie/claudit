@@ -8,9 +8,10 @@ name: release
 # WHY IT WAITS FOR THE OTHER GATES. A tag is the one artefact here that
 # outlives a mistake — you can force-push a branch, but a release people
 # have pulled is permanent, and cutting one from a red commit publishes
-# the breakage under a version number. So this job blocks on every other
-# check run for the same SHA before it creates anything. That wait is the
-# job; the tagging is three lines.
+# the breakage under a version number. So this job blocks on the gates
+# that vouch for the same SHA before it creates anything — which is not
+# every check run that happens to sit on it (see the wait step).
+# That wait is the job; the tagging is three lines.
 #
 # It deliberately does NOT bump VERSION itself. Deciding that a change is
 # a patch or a minor is a judgement about what changed, and a workflow
@@ -59,6 +60,10 @@ jobs:
       contents: write
       # Reading the other workflows' results for this SHA.
       checks: read
+      # Reading the EVENT and head SHA of the runs behind those results.
+      # The wait judges a check run by the run that produced it, and the
+      # runs listing is the only place the event lives (issues #557, #579).
+      actions: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,8 +152,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.sha || github.sha }}
           REPO: ${{ github.repository }}
+          SELF_JOB: ${{ github.job }}
+          SELF_RUN_ID: ${{ github.run_id }}
         # Polls this commit's check runs until they have all completed,
         # then requires every one of them to have passed.
+        #
+        # WHICH checks is scripts/ci/release_gate.py's whole subject, and
+        # it reads the workflow run that PRODUCED each check rather than
+        # the check's name — a name is not identity (issue #557 dropped
+        # every gate whose name began `release`), and a SHA is not a claim
+        # either (issue #579 judged the `claim` row an `issue_comment` run
+        # stamps on the default branch's tip). That module's docstring
+        # carries the rule and its fail-closed side; the call below is
+        # deliberately dumb.
         #
         # Four details that are each a way this can be wrong:
         #   - it excludes ITSELF, or it would wait on a job that is waiting
@@ -162,16 +178,19 @@ jobs:
         #     proceeds only when the ci gate's own `aggregate` check —
         #     completed, success, from the github-actions app — is among
         #     the rows. No aggregate row, no release: it keeps polling and
-        #     exits 1 at the deadline.
+        #     exits 1 at the deadline. Dropping rows cannot manufacture one:
+        #     `aggregate` is a push-run row.
         run: |
           # RELEASE_WAIT_SECONDS / RELEASE_WAIT_POLL_SECONDS let tests shorten the wait; defaults are production's (2700 s / 20 s).
           deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            runs="$(gh api --paginate \
-              -H "Cache-Control: no-cache" \
-              "repos/$REPO/commits/$SHA/check-runs" \
-              --jq '.check_runs[] | select(.name | startswith("release") | not)
-                    | "\(.status)\t\(.conclusion // "-")\t\(.name)\t\(.app.slug // "-")"')"
+            gh api --paginate -H "Cache-Control: no-cache" \
+              "repos/$REPO/commits/$SHA/check-runs" > "$RUNNER_TEMP/checks.json"
+            gh api --paginate -H "Cache-Control: no-cache" \
+              "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
+            runs="$(python3 scripts/ci/release_gate.py \
+              --sha "$SHA" --self-job "$SELF_JOB" --self-run-id "$SELF_RUN_ID" \
+              --checks "$RUNNER_TEMP/checks.json" --runs "$RUNNER_TEMP/runs.json")"
 
             if [ -z "$runs" ]; then
               echo "no other check runs reported yet, waiting..."

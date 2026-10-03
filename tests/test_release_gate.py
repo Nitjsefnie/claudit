@@ -1,0 +1,326 @@
+"""Unit tests for the release waiter's gate selection.
+
+`release.yml` used to project a commit's check runs through
+`select(.name | startswith("release") | not)`. That dropped its own job and
+two other things as well: any gate whose check name begins `release`
+(issue #557 — the name is not the waiter, and dropping a red one releases
+over it), and, by omission, every check a NON-gate workflow happened to
+publish on the SHA — `claim`, whose `issue_comment` run is stamped with the
+default branch's tip, so one `/claim` comment anywhere in the repository
+puts a red `claim` row on master's head commit (issue #579).
+
+The selection is now scripts/ci/release_gate.py, keyed on the workflow run
+that PRODUCED each check run rather than on the check's name. These pin,
+per assertion, that the old expression would have got it wrong:
+
+- a push-run check named `release-anything` is JUDGED (#557);
+- a check named exactly `release` from some OTHER run is JUDGED (#557's
+  converse — identity is the run, not the name);
+- the waiter's OWN job is still skipped, by exact name and run identity;
+- an `issue_comment` run's check is skipped (#579);
+- a `workflow_dispatch` run of a workflow that does not gate the commit is
+  skipped (the hourly rate-refresh bot publishes `refresh` / `verdict`
+  rows on master's tip from the box-side dispatch timer);
+- a `workflow_dispatch` run of a workflow that DOES gate the commit is
+  judged, so a manually dispatched gate still counts;
+- a run stamped with another commit's SHA is skipped;
+
+and the fail-closed side, without which the filter would be a way to lose a
+gate rather than to shed noise:
+
+- a check whose producing run cannot be resolved is JUDGED;
+- while no push run is known for the commit, a dispatch row is JUDGED;
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = REPO_ROOT / "scripts" / "ci" / "release_gate.py"
+
+SHA = "26081d5f19f53e05d7dce9b01e7b9820f101150f"
+OTHER_SHA = "3b4e41b0000000000000000000000000000000000"
+SELF_RUN = "90000000001"
+SELF_JOB = "release"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("release_gate", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["release_gate"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+rg = _load()
+
+
+def _check(name, run_id, status="completed", conclusion: str | None = "success",
+           app="github-actions"):
+    """One check run, as the commit check-runs endpoint returns it.
+
+    ``conclusion`` is None on an unfinished check, which is what the
+    endpoint sends and what the projection has to read as `-`.
+    """
+    return {
+        "name": name,
+        "status": status,
+        "conclusion": conclusion,
+        "app": {"slug": app},
+        "html_url": (f"https://github.com/Nitjsefnie/claudit/actions/runs/"
+                     f"{run_id}/job/1"),
+    }
+
+
+def _foreign_check(name):
+    """A check run posted by something that is not this repository's CI.
+
+    Its html_url carries no run id, so nothing about which workflow run
+    produced it can be read — the fail-closed shape.
+    """
+    return {
+        "name": name,
+        "status": "completed",
+        "conclusion": "success",
+        "app": {"slug": "acme-ci"},
+        "html_url": "https://acme.example/build/42",
+    }
+
+
+def _run(run_id, event, head_sha=SHA, path=".github/workflows/ci-gate.yml",
+         name="ci gate"):
+    return {"id": int(run_id), "event": event, "head_sha": head_sha,
+            "path": path, "name": name}
+
+
+def _judged(checks, runs, sha=SHA, self_run_id=SELF_RUN):
+    rows, _ = rg.select(checks, runs, sha, self_run_id, SELF_JOB)
+    return [line.split("\t")[2] for line in rows]
+
+
+def _dropped(checks, runs, sha=SHA, self_run_id=SELF_RUN):
+    rows, notes = rg.select(checks, runs, sha, self_run_id, SELF_JOB)
+    return [line.split("\t")[2] for line in rows], len(notes)
+
+
+PUSH_RUN = "37138486204"
+FRESHNESS_RUN = "37138486053"
+DISPATCH_RUN = "37138518367"
+CLAIM_RUN = "37138981898"
+OWN_RUN = SELF_RUN
+
+
+# --- issue #557: the name is not the waiter -------------------------------
+
+def test_a_push_run_check_named_release_anything_is_judged():
+    # `startswith("release")` drops this row whatever it concluded, so a
+    # gate that failed would still release.
+    checks = [_check("release-notes", PUSH_RUN, conclusion="failure"),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push")]
+    assert _judged(checks, runs) == ["release-notes", "aggregate"]
+
+
+def test_a_check_named_exactly_release_from_another_run_is_judged():
+    # Same name as the waiter's own job, different producing run: a real
+    # gate, and dropping it on the name is the same defect one step later.
+    checks = [_check(SELF_JOB, PUSH_RUN, conclusion="failure"),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push")]
+    assert _judged(checks, runs) == [SELF_JOB, "aggregate"]
+
+
+def test_the_waiters_own_job_is_skipped_by_name_and_run_identity():
+    checks = [_check(SELF_JOB, OWN_RUN),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push"), _run(OWN_RUN, "push",
+                                         path=".github/workflows/release.yml")]
+    judged, dropped = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+    assert dropped == 1
+
+
+def test_the_own_job_is_skipped_even_its_run_id_cannot_be_read():
+    # The html_url never fails to parse for Actions' own rows; when it
+    # does, the exact name is still enough, and the wait must not deadlock
+    # on the job that is waiting on it.
+    check = _check(SELF_JOB, OWN_RUN)
+    check["html_url"] = ""
+    assert _judged([check], [_run(PUSH_RUN, "push")]) == []
+
+
+# --- issue #579: a run stamped with another commit's claim ---------------
+
+def test_an_issue_comment_runs_check_is_skipped():
+    # The incident: `claim` / failure from run 37138981898, event
+    # issue_comment, head_sha the master commit under release.
+    checks = [_check("claim", CLAIM_RUN, conclusion="failure"),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(CLAIM_RUN, "issue_comment",
+                 path=".github/workflows/claim.yml", name="claim")]
+    judged, dropped = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+    assert dropped == 1
+
+
+def test_a_schedule_and_a_workflow_run_triggered_check_is_skipped():
+    # ratchet-push.yml is triggered BY ci-gate completing and pushes to
+    # master; its row lands on master's tip for an unrelated event.
+    checks = [_check("ratchet", "1"), _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push"),
+            _run("1", "workflow_run",
+                 path=".github/workflows/ratchet-push.yml", name="ratchet")]
+    assert _judged(checks, runs) == ["aggregate"]
+
+
+# --- the hourly dispatch that is not a gate ------------------------------
+
+def test_a_dispatch_of_a_workflow_that_never_gates_the_commit_is_skipped():
+    # refresh-pricing.yml runs on no push trigger at all; the box-side
+    # timer dispatches it hourly on master, so `refresh` / `push` /
+    # `verdict` rows sit on master's tip on most hours.
+    checks = [_check("refresh", DISPATCH_RUN, conclusion="failure"),
+              _check("verdict", DISPATCH_RUN),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(DISPATCH_RUN, "workflow_dispatch",
+                 path=".github/workflows/refresh-pricing.yml",
+                 name="refresh-pricing")]
+    judged, _ = _dropped(checks, runs)
+    assert judged == ["aggregate"]
+
+
+def test_a_dispatch_of_a_workflow_that_also_gates_the_commit_is_judged():
+    # A gate workflow dispatched by hand at the commit still vouches for
+    # it, and dropping it would lose a gate rather than shed noise.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check("ci-gate-manual", DISPATCH_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"), _run(DISPATCH_RUN, "workflow_dispatch")]
+    assert _judged(checks, runs) == ["aggregate", "ci-gate-manual"]
+
+
+def test_a_run_stamped_with_another_commit_is_skipped():
+    checks = [_check("aggregate", PUSH_RUN),
+              _check("stale", FRESHNESS_RUN)]
+    runs = [_run(PUSH_RUN, "push"),
+            _run(FRESHNESS_RUN, "push", head_sha=OTHER_SHA,
+                 path=".github/workflows/gate-freshness.yml", name="freshness")]
+    assert _judged(checks, runs) == ["aggregate"]
+
+
+# --- fail-closed: what the filter must never drop ------------------------
+
+def test_a_check_whose_producing_run_is_unresolvable_is_judged():
+    # No run id in the html_url, so nothing proves the row is noise.
+    checks = [_foreign_check("external-fancy"),
+              _check("aggregate", PUSH_RUN)]
+    runs = [_run(PUSH_RUN, "push")]
+    assert _judged(checks, runs) == ["external-fancy", "aggregate"]
+
+
+def test_a_check_run_id_absent_from_the_run_listing_is_judged():
+    # The listing is a second API call and can lag the check-runs one.
+    checks = [_check("aggregate", PUSH_RUN), _check("not-yet-listed", "42")]
+    runs = [_run(PUSH_RUN, "push")]
+    assert _judged(checks, runs) == ["aggregate", "not-yet-listed"]
+
+
+def test_a_dispatch_row_is_judged_until_a_push_run_proves_otherwise():
+    # Nothing scheduled for this SHA yet: the module cannot tell a gate
+    # dispatch from a stray one, so it judges both and lets the wait step
+    # keep polling.
+    checks = [_check("aggregate", PUSH_RUN), _check("refresh", DISPATCH_RUN)]
+    runs = [_run(DISPATCH_RUN, "workflow_dispatch",
+                 path=".github/workflows/refresh-pricing.yml",
+                 name="refresh-pricing")]
+    assert _judged(checks, runs) == ["aggregate", "refresh"]
+
+
+def test_the_aggregate_verdict_survives_every_exclusion():
+    # Issue #247's proof the gates ran is a push row, so no exclusion
+    # above may be able to remove it.
+    checks = [_check("aggregate", PUSH_RUN), _check(SELF_JOB, OWN_RUN),
+              _check("claim", CLAIM_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push"), _run(OWN_RUN, "push"),
+            _run(CLAIM_RUN, "issue_comment",
+                 path=".github/workflows/claim.yml", name="claim")]
+    rows, _ = rg.select(checks, runs, SHA, SELF_RUN, SELF_JOB)
+    assert len(rows) == 1
+    assert rows[0].split("\t")[1:] == ["success", "aggregate", "github-actions"]
+
+
+# --- the projection and the two API shapes -------------------------------
+
+def test_parse_pages_merges_the_pages_gh_printed():
+    raw = (json.dumps({"total_count": 2,
+                       "check_runs": [{"name": "a"}]}) + "\n"
+           + json.dumps({"total_count": 2, "check_runs": [{"name": "b"}]}))
+    assert [c["name"] for c in rg.parse_pages(raw, "check_runs")] == ["a", "b"]
+
+
+def test_parse_pages_ignores_a_page_without_the_key():
+    raw = json.dumps({"message": "Not Found"}) + "\n" + json.dumps(
+        {"workflow_runs": [{"id": 1}]})
+    assert rg.parse_pages(raw, "workflow_runs") == [{"id": 1}]
+
+
+def test_run_id_is_read_from_the_actions_url_only():
+    assert rg.run_id_of(_check("x", "12345")) == "12345"
+    assert rg.run_id_of(_foreign_check("x")) is None
+    assert rg.run_id_of({"html_url": ""}) is None
+
+
+def test_the_row_projection_carries_status_conclusion_name_and_app():
+    assert rg.row(_check("tests", "1", status="queued", conclusion=None)) \
+        == "queued\t-\ttests\tgithub-actions"
+    assert rg.row({"name": "n"}) == "\t-\tn\t-"
+
+
+# --- the CLI the workflow step actually calls ---------------------------
+
+def _cli(tmp_path, checks, runs, *extra):
+    checks_file = tmp_path / "checks.json"
+    runs_file = tmp_path / "runs.json"
+    checks_file.write_text(json.dumps({"check_runs": checks}),
+                           encoding="utf-8")
+    runs_file.write_text(json.dumps({"workflow_runs": runs}), encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--sha", SHA,
+         "--self-run-id", SELF_RUN, "--self-job", SELF_JOB,
+         "--checks", str(checks_file), "--runs", str(runs_file), *extra],
+        capture_output=True, check=False, timeout=60, encoding="utf-8",
+        errors="replace")
+
+
+def test_the_cli_judges_the_gates_and_reports_what_it_dropped(tmp_path):
+    checks = [_check("aggregate", PUSH_RUN), _check("claim", CLAIM_RUN),
+              _check(SELF_JOB, OWN_RUN)]
+    runs = [_run(PUSH_RUN, "push"), _run(OWN_RUN, "push"),
+            _run(CLAIM_RUN, "issue_comment",
+                 path=".github/workflows/claim.yml", name="claim")]
+    proc = _cli(tmp_path, checks, runs)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [
+        "completed\tsuccess\taggregate\tgithub-actions"]
+    assert "skipping check 'claim'" in proc.stderr
+    assert "issue_comment" in proc.stderr
+    assert "skipping check 'release'" in proc.stderr
+
+
+def test_the_cli_reads_stdin_when_asked(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--sha", SHA, "--self-run-id", SELF_RUN,
+         "--checks", "-", "--runs", "-"],
+        input=json.dumps({"check_runs": [_check("aggregate", PUSH_RUN)]})
+        + json.dumps({"workflow_runs": [_run(PUSH_RUN, "push")]}),
+        capture_output=True, check=False, timeout=60, encoding="utf-8",
+        errors="replace")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [
+        "completed\tsuccess\taggregate\tgithub-actions"]
