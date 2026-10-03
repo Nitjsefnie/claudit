@@ -26,11 +26,16 @@ answers a question no commit asked, and is skipped.
 THE FAIL-CLOSED SIDE. This filter may only ever REMOVE a row the module
 can positively identify as not-a-gate:
 
-  - its own workflow, by run identity: every row produced by THIS
-    workflow file, at any attempt. An earlier `release` run on the same
-    commit is this job's previous answer — it vouches for nothing the
-    waiter is here to establish, and judging it makes a manual re-cut of
-    a commit whose first release run failed refuse forever;
+  - its own workflow, by that workflow's own path: every row produced by
+    THIS workflow file, at any attempt. An earlier `release` run on the
+    same commit is this job's previous answer — it vouches for nothing
+    the waiter is here to establish, and judging it makes a manual re-cut
+    of a commit whose first release run failed refuse forever. The path
+    comes from the RUN (`--self-path`), not from the runs listing, because
+    a `workflow_dispatch` carrying `sha=` records its own run against the
+    branch tip and is therefore absent from a listing filtered by head
+    SHA — the common re-cut, since the 2700 s deadline fires after the tip
+    has moved on;
   - a run whose head SHA is a different commit;
   - a run whose event is outside the gate set, with the dispatch case
     closed by the workflow's own path.
@@ -153,17 +158,22 @@ def row(check_run: dict) -> str:
 
 
 def select(check_runs: list[dict], workflow_runs: list[dict], sha: str,
-           self_run_id: str | None, self_job: str) -> tuple[list[str], list[str]]:
+           self_run_id: str | None, self_job: str,
+           self_path: str | None = None) -> tuple[list[str], list[str]]:
     """Return (rows to judge, notes on every row dropped, both in order)."""
     runs_by_id = {str(run["id"]): run
                   for run in workflow_runs if run.get("id") is not None}
     gate_paths = gate_workflow_paths(workflow_runs, sha)
-    # This run's own workflow file, read off its own run row rather than
-    # configured, so the exclusion cannot drift from the job it runs in.
-    # Absent from the listing means unknown, and an unknown path excludes
-    # nothing.
-    self_run = runs_by_id.get(str(self_run_id)) if self_run_id else None
-    self_path = self_run.get("path") if self_run else None
+    # This run's own workflow file. The caller reads it off the run itself
+    # (--self-path), which is the only source that survives a dispatch: a
+    # `workflow_dispatch` carrying `sha=` records its run against the
+    # BRANCH TIP, so a re-cut of a non-tip commit is not in a listing
+    # filtered by head SHA. The listing is the fallback for a caller that
+    # passes no path — absent there means unknown, and an unknown path
+    # excludes nothing.
+    if self_path is None and self_run_id is not None:
+        self_run = runs_by_id.get(str(self_run_id))
+        self_path = self_run.get("path") if self_run else None
     rows: list[str] = []
     notes: list[str] = []
     for check_run in check_runs:
@@ -194,6 +204,9 @@ def _parser() -> argparse.ArgumentParser:
                         help="this workflow's job name")
     parser.add_argument("--self-run-id", default="",
                         help="this workflow run's id, when known")
+    parser.add_argument("--self-path", default="",
+                        help="this workflow file's repo-relative path, when "
+                             "known; falls back to the runs listing")
     return parser
 
 
@@ -202,7 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     checks = parse_pages(_read(args.checks), "check_runs")
     runs = parse_pages(_read(args.runs), "workflow_runs")
     rows, notes = select(checks, runs, args.sha,
-                         args.self_run_id or None, args.self_job)
+                         args.self_run_id or None, args.self_job,
+                         args.self_path or None)
     for note in notes:
         print(note, file=sys.stderr)
     for line in rows:

@@ -104,13 +104,14 @@ def _run(run_id, event, head_sha=SHA, path=".github/workflows/ci-gate.yml",
             "path": path, "name": name}
 
 
-def _judged(checks, runs, sha=SHA, self_run_id=SELF_RUN):
-    rows, _ = rg.select(checks, runs, sha, self_run_id, SELF_JOB)
+def _judged(checks, runs, sha=SHA, self_run_id=SELF_RUN, self_path=None):
+    rows, _ = rg.select(checks, runs, sha, self_run_id, SELF_JOB, self_path)
     return [line.split("\t")[2] for line in rows]
 
 
-def _dropped(checks, runs, sha=SHA, self_run_id=SELF_RUN):
-    rows, notes = rg.select(checks, runs, sha, self_run_id, SELF_JOB)
+def _dropped(checks, runs, sha=SHA, self_run_id=SELF_RUN, self_path=None):
+    rows, notes = rg.select(checks, runs, sha, self_run_id, SELF_JOB,
+                            self_path)
     return [line.split("\t")[2] for line in rows], len(notes)
 
 
@@ -242,12 +243,13 @@ def test_a_check_run_id_absent_from_the_run_listing_is_judged():
 # --- the waiter's own workflow, at any attempt --------------------------
 
 
-def test_an_earlier_release_runs_failed_row_is_skipped():
-    # The blocker the review reproduced. release.yml's own push run is a
-    # PUSH run on this commit, so it is in gate_paths and would be judged:
-    # once it fails — the 2700 s deadline, a transient `gh release
-    # create`, a cancel — every manual re-cut by dispatch with `sha=` on
-    # the same commit refuses on its own predecessor's answer.
+def test_an_earlier_release_push_runs_failed_row_is_skipped():
+    # Round 1's blocker. release.yml's own push run on this commit is a
+    # PUSH run, so it is in gate_paths and would be judged: once it fails —
+    # the 2700 s deadline, a transient `gh release create`, a cancel — a
+    # later re-cut of that commit refuses on its predecessor's answer.
+    # Here the re-cut is a dispatch of the TIP, so its own run is in the
+    # listing and the path resolves without --self-path.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push"),
@@ -270,7 +272,42 @@ def test_an_earlier_dispatched_release_runs_row_is_skipped():
     assert judged == ["aggregate"]
 
 
-def test_a_gate_job_named_release_is_still_judged_with_the_self_run_listed():
+TIP_SHA = "5e0c0b10000000000000000000000000000000000"
+
+
+def test_a_re_cut_by_dispatch_of_a_non_tip_commit_proceeds():
+    # Round 2's blocker, and the COMMON re-cut: master's commits are
+    # 30-60 minutes apart, so the 2700 s deadline fires after the tip has
+    # moved. A `workflow_dispatch` with `sha=X` records its OWN run
+    # against the BRANCH TIP, so it is absent from a listing filtered by
+    # X's head SHA — and with no path the selector judged the earlier
+    # release run's row and refused. A regression against master, where
+    # the old name-prefix filter dropped that row.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push", head_sha=OTHER_SHA),
+            _run(EARLIER_RELEASE_RUN, "push", head_sha=OTHER_SHA,
+                 path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs, sha=OTHER_SHA,
+                         self_path=RELEASE_PATH)
+    assert judged == ["aggregate"]
+
+
+def test_that_re_cut_is_refused_without_the_self_path():
+    # The isolating control for --self-path: the listing carries no row for
+    # the self run (it is stamped with the tip), so with no path supplied
+    # the earlier release row is judged and the re-cut refuses. Everything
+    # else about this fixture already holds.
+    checks = [_check("aggregate", PUSH_RUN),
+              _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
+    runs = [_run(PUSH_RUN, "push", head_sha=OTHER_SHA),
+            _run(EARLIER_RELEASE_RUN, "push", head_sha=OTHER_SHA,
+                 path=RELEASE_PATH)]
+    judged, _ = _dropped(checks, runs, sha=OTHER_SHA)
+    assert judged == ["aggregate", SELF_JOB]
+
+
+def test_a_gate_job_named_release_is_still_judged_with_the_self_path():
     # The path exclusion is this workflow's FILE, so a gate workflow with
     # a job of the same name keeps its row — unlike the name rule, which
     # would have dropped it.
@@ -278,14 +315,14 @@ def test_a_gate_job_named_release_is_still_judged_with_the_self_run_listed():
               _check(SELF_JOB, PUSH_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push"),
             _run(OWN_RUN, "workflow_dispatch", path=RELEASE_PATH)]
-    judged, _ = _dropped(checks, runs)
+    judged, _ = _dropped(checks, runs, self_path=RELEASE_PATH)
     assert judged == ["aggregate", SELF_JOB]
 
 
 def test_an_unlisted_self_run_excludes_nothing_by_path():
-    # The self run's path is read off its own run row; with that row
-    # missing the path is unknown, and an unknown path must not exclude a
-    # predecessor's red row.
+    # The listing fallback: with no --self-path and no self run row, the
+    # path is unknown, and an unknown path must not exclude a
+    # predecessor's red row. This is what keeps the fallback fail-closed.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push"),
@@ -297,14 +334,16 @@ def test_an_unlisted_self_run_excludes_nothing_by_path():
 def test_the_waiters_own_in_progress_row_never_blocks_it():
     # --self-run-id is what places this row: drop the flag and the wait
     # judges its own unfinished job, sees something pending, and polls to
-    # the deadline. Only the self run being in the listing at all keeps
-    # its own row out.
+    # the deadline. Every other conjunct of the exclusion is derived from
+    # the self run id alone — the exact name matches regardless, and the
+    # path is the workflow's own file whatever the run — so the id is the
+    # only thing keeping this row out.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, OWN_RUN, status="in_progress",
                      conclusion=None)]
     runs = [_run(PUSH_RUN, "push"),
             _run(OWN_RUN, "push", path=RELEASE_PATH)]
-    judged, _ = _dropped(checks, runs)
+    judged, _ = _dropped(checks, runs, self_path=RELEASE_PATH)
     assert judged == ["aggregate"]
 
 

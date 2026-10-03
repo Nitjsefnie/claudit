@@ -88,6 +88,7 @@ def _run_step(body: str, stub: str, env: dict[str, str],
         "GH_TOKEN": "stubbed",
         "SELF_JOB": "release",
         "SELF_RUN_ID": SELF_RUN,
+        "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
         "RUNNER_TEMP": os.environ.get("RUNNER_TEMP", ""),
     }
     full_env.update(env)
@@ -103,6 +104,12 @@ def _run_step(body: str, stub: str, env: dict[str, str],
 # commit, its workflow-run listing, and the waiter's own run.
 PUSH_RUN = "37138486204"
 SELF_RUN = "90000000001"
+# A commit that is NOT the default branch's tip, so a dispatch carrying
+# `sha=` for it is recorded against the tip and never reaches a listing
+# filtered by this SHA.
+NON_TIP_SHA = "3b4e41b" + "0" * 32
+SELF_WORKFLOW_REF = ("Nitjsefnie/claudit/.github/workflows/release.yml"
+                     "@refs/heads/master")
 
 
 def _row(status: str, conclusion: str | None, name: str,
@@ -379,6 +386,48 @@ def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
 
 
 @ubuntu_step_body
+def test_wait_derives_its_own_path_from_the_workflow_ref(tmp_path):
+    # The step does not read its own workflow path off the runs listing:
+    # a `workflow_dispatch` carrying `sha=` records its own run against the
+    # BRANCH TIP, so a re-cut of a non-tip commit is absent from a listing
+    # filtered by the commit's head SHA. Two strips of workflow_ref are the
+    # only source that survives that, and this fixture is the shape it has.
+    proc = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c",
+         'self_path="${SELF_WORKFLOW_REF#"$REPO"/}"; '
+         'self_path="${self_path%%@*}"; printf "%s\\n" "$self_path"'],
+        env={"REPO": "Nitjsefnie/claudit",
+             "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
+             "PATH": os.environ["PATH"]},
+        capture_output=True, check=False, timeout=30, encoding="utf-8",
+        errors="replace")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == ".github/workflows/release.yml"
+
+
+@ubuntu_step_body
+def test_wait_ignores_a_release_row_whose_own_run_is_stamped_with_the_tip(
+        tmp_path):
+    # Round 2's blocker, through the real step body. SHA is a NON-tip
+    # commit, so the runs listing filtered by that SHA carries no row for
+    # this dispatch — its own run is recorded against the tip — while the
+    # earlier failed release PUSH run on that same commit is present. With
+    # --self-path supplied from workflow_ref the re-cut proceeds; without
+    # it, self_path is unknown and the row is judged.
+    checks = _checks(_row("completed", "failure", "release",
+                          run_id="37138518000"),
+                     _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN, head_sha=NON_TIP_SHA),
+                 _run("37138518000", head_sha=NON_TIP_SHA,
+                      path=".github/workflows/release.yml"))
+    env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
+           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA}
+    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert PROCEEDING in proc.stdout
+
+
+@ubuntu_step_body
 def test_wait_times_out_when_only_its_own_job_exists(tmp_path):
     # The selector drops this job, so with nothing else present there is
     # nothing to wait for — and nothing to proceed on.
@@ -403,6 +452,11 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     assert "--jq" not in body
     assert "startswith(\"release\")" not in body
     assert "actions/runs?head_sha=$SHA" in body
+    # Both reads page at 100: check-runs' default page is 30, so a commit
+    # with more checks than that silently loses rows to --paginate's
+    # absence if the default is left in place.
+    assert "check-runs?per_page=100" in body
+    assert "actions/runs?head_sha=$SHA&per_page=100" in body
     text = RELEASE.read_text(encoding="utf-8")
     assert '${{ github.job }}' in text
     assert '${{ github.run_id }}' in text

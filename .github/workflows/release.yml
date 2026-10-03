@@ -154,6 +154,7 @@ jobs:
           REPO: ${{ github.repository }}
           SELF_JOB: ${{ github.job }}
           SELF_RUN_ID: ${{ github.run_id }}
+          SELF_WORKFLOW_REF: ${{ github.workflow_ref }}
         # Polls this commit's check runs until they have all completed,
         # then requires every one of them to have passed.
         #
@@ -182,6 +183,17 @@ jobs:
         #     `aggregate` is a push-run row.
         run: |
           # RELEASE_WAIT_SECONDS / RELEASE_WAIT_POLL_SECONDS let tests shorten the wait; defaults are production's (2700 s / 20 s).
+          #
+          # github.workflow_ref is `owner/repo/.github/workflows/release.yml@refs/heads/<branch>`
+          # (the same value as GITHUB_WORKFLOW_REF). Two strips give the path
+          # this run's own workflow file has in this checkout. It is read
+          # from the RUN, never from the runs listing below: a dispatch
+          # carrying `sha=` records its own run against the BRANCH TIP, so a
+          # re-cut of a non-tip commit is absent from a listing filtered by
+          # head SHA — and without its path the selector would judge the
+          # earlier release run's row on that commit and refuse forever.
+          self_path="${SELF_WORKFLOW_REF#"$REPO"/}"
+          self_path="${self_path%%@*}"
           deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             gh api --paginate -H "Cache-Control: no-cache" \
@@ -190,6 +202,7 @@ jobs:
               "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
             runs="$(python3 scripts/ci/release_gate.py \
               --sha "$SHA" --self-job "$SELF_JOB" --self-run-id "$SELF_RUN_ID" \
+              --self-path "$self_path" \
               --checks "$RUNNER_TEMP/checks.json" --runs "$RUNNER_TEMP/runs.json")"
 
             if [ -z "$runs" ]; then
