@@ -350,9 +350,9 @@ def coverage(data, language, reseed_in_flight=None):
 def suite_cost(data, reseed_in_flight=None):
     """The committed suite-cost budgets: {phase: {measured, floor}}.
 
-    Empty on a re-seed commit, which declares the family absent: the
-    caller is then the seed step that reads counts from a measurement,
-    not a gate reading a budget.
+    Empty inside the re-seed window — while any commit in the walk's
+    span from HEAD back to the last family-present one carries the
+    delete's marker (reseed.py): no budget exists to read.
     """
     family = normalise(data, verdict(reseed_in_flight))
     return dict(family.get(SUITE_COST_FAMILY, {}))
@@ -403,9 +403,9 @@ def _remove_temp(path):
 def write(path, data, reseed_in_flight=None):
     """Validate and atomically replace ``path`` with canonical JSON bytes.
 
-    A re-seed commit's document round-trips like any other: the absent
-    family is written back absent, and the round-trip check validates
-    under the same verdict the reader will.
+    A family-absent document inside the re-seed window round-trips
+    like any other: the absent family is written back absent, and the
+    round-trip check validates under the same verdict the reader will.
     """
     target = Path(path)
     payload = _render(data, verdict(reseed_in_flight))
