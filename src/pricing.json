@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T20:54:44Z",
+  "provider_rates_fetched": "2026-10-03T21:22:42Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -29470,6 +29470,14 @@
           "from": "2026-10-03T09:01:14Z",
           "output": 2.7,
           "read": 0.2083
+        },
+        {
+          "create_1h": 0.2067,
+          "create_5m": 0.2067,
+          "fresh": 0.2067,
+          "from": "2026-10-03T20:46:09Z",
+          "output": 2.7,
+          "read": 0.21
         }
       ],
       "SiliconFlow": [
@@ -49491,6 +49499,14 @@
           "from": "2026-10-03T05:35:55Z",
           "output": 0.65,
           "read": 0.0455
+        },
+        {
+          "create_1h": 0.04381,
+          "create_5m": 0.04381,
+          "fresh": 0.04381,
+          "from": "2026-10-03T21:06:05Z",
+          "output": 0.65,
+          "read": 0.04381
         }
       ],
       "Parasail": [
@@ -49832,6 +49848,14 @@
           "from": "2026-09-30T05:35:59Z",
           "output": 0.5,
           "read": 0.035
+        },
+        {
+          "create_1h": 0.0337,
+          "create_5m": 0.0337,
+          "fresh": 0.0337,
+          "from": "2026-10-03T20:51:21Z",
+          "output": 0.5,
+          "read": 0.0337
         }
       ],
       "Sail Research": [
