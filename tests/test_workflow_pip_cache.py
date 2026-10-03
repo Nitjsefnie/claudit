@@ -11,6 +11,7 @@ install so the freshly populated cache is what gets saved.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterator
 
@@ -97,8 +98,16 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
             key = (step.get("with") or {}).get("key") or ""
             if "matrix." in key:
                 continue
-            assert "matrix." in (step.get("if") or ""), (
-                workflow, job_id, step.get("if"))
+            gate = step.get("if") or ""
+            # The gate must EXCLUDE the other values, so the pinned shape
+            # is an equality naming a value the matrix actually carries:
+            # a substring check would be satisfied by `matrix.seed != ...`,
+            # which excludes nothing, and any other comparator likewise.
+            pinned = re.search(r"matrix\.(\w+) == '([^']*)'", gate)
+            assert pinned, (workflow, job_id, gate)
+            axis, value = pinned.groups()
+            assert value in strategy["matrix"].get(axis, []), (
+                workflow, job_id, gate)
 
 
 def test_restore_and_save_steps_share_their_cache_key():
