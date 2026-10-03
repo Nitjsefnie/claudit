@@ -11,21 +11,44 @@ name: claim
 # reference implementation this was modelled on calls it `/release` and people
 # arrive expecting that word.
 #
+# This is Nitjsefnie-Actions/claim's own Install block, adopted at v2.0.3. Three
+# of its differences from v1.1.0 are load-bearing here:
+#
+#   - A command on a closed issue or a pull request is declined by the ACTION,
+#     loudly — a reply naming the command word and a failed run — where the
+#     v1-era `issue.state` / `issue.pull_request` conditions in the `if:` skipped
+#     the run in silence and the commenter never learned why. The loud decline
+#     is the point, and it has a cost this repository now carries: an
+#     `issue_comment` run reports against the DEFAULT BRANCH TIP, so a `/claim`
+#     on a closed issue or a pull request leaves a RED `claim` check run on
+#     master's head commit — and release.yml waits on that commit's check runs,
+#     excluding only names starting with "release". A release cut from a master
+#     tip carrying one would be refused for a cause that has nothing to do with
+#     the release. The old `if:` did not prevent this either: v1.1.0 exited 1 on
+#     any comment merely CONTAINING a command word, which is how master commit
+#     26081d5f came to carry a red `claim` beside an all-green aggregate. Both
+#     routes are filed as issue #579; the waiter fix belongs there, not here.
+#   - `max-claims` caps how many open issues one account holds claims on, per
+#     repository role, and `expire` retires an idle claim after 7 days. Neither
+#     input exists on the v1.1.0 pin, so it ran with no cap and no expiry —
+#     the action's own defaults are -1 for both, and `with:` is what makes them
+#     something else.
+#   - `pull-requests: write` joins `issues: write` because the pull-request
+#     decline has to be POSTED on the PR conversation: a token holding only
+#     `issues: write` draws HTTP 403 from that call, and the decline is never
+#     delivered. That account is the v2.0.3 commit's own, and upstream issue
+#     153 — it is not an observation made here. GitHub's REST docs place both
+#     calls under the Issues permission, so this grant answers a reported
+#     refusal rather than the docs.
+#
 # The action handles the attacker-controlled comment body without
 # interpolating it into shell source. The `if:` below is only a cheap
 # prefilter; the exact match happens in the action, because expressions have
-# no trim(). The action itself requires an open issue that is not a pull
-# request and a `User` commenter, so the prefilter saves starting a runner
-# rather than being the only enforcement.
+# no trim(). It saves starting a runner rather than being the only enforcement.
 
 on:
   issue_comment:
     types: [created]
-
-# The narrowest token that can assign. Nothing here reads the tree, so there
-# is no contents: read and no checkout: the job talks to the API only.
-permissions:
-  issues: write
 
 concurrency:
   # Per issue, and NOT cancel-in-progress. Two people claiming at once must
@@ -33,21 +56,40 @@ concurrency:
   # with silence, and cancelling the second would leave it unanswered.
   group: claim-${{ github.event.issue.number }}
   cancel-in-progress: false
+  # The default queue keeps a single pending run per group and cancels it when a
+  # newer claim arrives, so the third claim on a busy issue silently leaves the
+  # second claimer without an answer — the same silence cancel-in-progress:
+  # false exists to prevent. `queue: max` holds up to 100 pending runs, GitHub's
+  # documented cap; GitHub orders them by when each run started waiting and
+  # notes the order is not guaranteed.
+  queue: max
 
 jobs:
   claim:
-    # A pull request is an issue to this event, and its assignees mean
-    # something else. A closed issue cannot be worked. A bot's comment is
-    # never a claim.
+    # Prefilter only: not a bot, and a command word somewhere in the body. The
+    # closed-issue and pull-request conditions belong to the action in v2 —
+    # see the header.
     if: >-
-      github.event.issue.pull_request == null
-      && github.event.issue.state == 'open'
-      && github.event.comment.user.type != 'Bot'
+      github.event.comment.user.type != 'Bot'
       && (contains(github.event.comment.body, '/claim')
           || contains(github.event.comment.body, '/unclaim')
           || contains(github.event.comment.body, '/release'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+
+    # Job level, not workflow level: the grant applies only while the job runs,
+    # and zizmor's pedantic persona reports the workflow-level write scope this
+    # replaced as excessive-permissions. The gate below runs zizmor's DEFAULT
+    # persona, so nothing here is enforced by it yet — the placement is the
+    # least-privilege one, not a fix for a current finding. The narrowest tokens
+    # that can answer a claim. Nothing here reads the tree, so there is no
+    # contents: read and no checkout: the job talks to the API only.
+    permissions:
+      issues: write
+      pull-requests: write
 
     steps:
-      - uses: Nitjsefnie-Actions/claim@ceaadaa096fd249cdeecc137342158ec17347cb9  # v1.1.0
+      - uses: Nitjsefnie-Actions/claim@0c79a0325d8ab789a60c2eeaf751690d2875c39c # v2.0.3
+        with:
+          max-claims: 'read=2, triage=4, write=6, maintain=10, admin=-1'
+          expire: '7'
