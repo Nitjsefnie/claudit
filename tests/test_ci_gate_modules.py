@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -112,10 +113,79 @@ def test_is_documentation_partition():
 
 def test_documentation_only_requires_a_nonempty_all_doc_set():
     assert not classify.documentation_only([])
-    assert classify.documentation_only(["README.md"])
-    assert classify.documentation_only(DOCS)
+    # `docs/guide.md`, not README.md: the pinned setup docs are carved out
+    # of the docs-only class below, whatever else they match.
+    assert classify.documentation_only(["docs/guide.md"])
+    assert classify.documentation_only([p for p in DOCS
+                                       if p not in classify.SETUP_DOC_PATTERNS])
     for intruder in CODE:
         assert not classify.documentation_only(DOCS + [intruder]), intruder
+
+
+# ---------------------------------------------------------------------------
+# classify_changes: the pinned setup docs are not documentation (issue #477)
+# ---------------------------------------------------------------------------
+
+SETUP_DOCS = ["README.md", "CONTRIBUTING.md", "AGENTS.md"]
+
+
+def test_the_setup_doc_set_is_the_pins_own_doc_list():
+    # One set, two consumers: the pin (tests/test_docs_setup.py) asserts
+    # those files' setup blocks stay identical, and the classifier must
+    # keep the tests leg running on the pushes that change them. A doc
+    # added to or dropped from the pin without a matching move here would
+    # leave the push that breaks the pin narrowing over it again.
+    source = (REPO_ROOT / "tests" / "test_docs_setup.py").read_text(
+        encoding="utf-8")
+    block = re.search(r"_DOCS: list\[tuple\[str, Path, str\]\] = \[(.*?)\n\]",
+                      source, re.S)
+    assert block, "the pin's _DOCS table moved -- follow it to its new shape"
+    pinned = set(re.findall(r'ROOT / "([^"]+)"', block.group(1)))
+    assert pinned == set(SETUP_DOCS)
+    assert set(classify.SETUP_DOC_PATTERNS) == pinned
+
+
+def test_a_pinned_setup_doc_is_never_documentation_only():
+    # Issue #477: a `**/*.md`-only diff that edits one of the three skips
+    # every tests leg, so the setup-docs pin cannot fail on the push that
+    # breaks it -- it fires on the next code-touching run instead.
+    for path in SETUP_DOCS:
+        assert classify.is_documentation(path), path
+        assert not classify.documentation_only([path]), path
+        assert not classify.documentation_only(["docs/guide.md", path]), path
+
+
+def test_a_docs_only_diff_touching_a_setup_doc_classifies_tests_class():
+    for path in SETUP_DOCS:
+        docs_only, data_only, reason = classify.classify(
+            {"name": "pull_request", "repository": "o/r",
+             "pull_request": "17"},
+            lambda argv, path=path: f"{path}\ndocs/guide.md\n",
+        )
+        assert (docs_only, data_only) == (False, False), path
+        # The reason names the cause, so a run that skips nothing still
+        # says why it did not narrow.
+        assert "setup" in reason, reason
+
+
+def test_a_docs_only_diff_touching_no_setup_doc_stays_docs_only():
+    docs_only, data_only, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "docs/guide.md\nLICENSE\n",
+    )
+    assert (docs_only, data_only) == (True, False)
+    assert "documentation-only" in reason
+
+
+def test_a_mixed_code_and_docs_diff_touching_a_setup_doc_is_unchanged():
+    # Control: the carve-out narrows nothing here. The diff already ran
+    # every leg, and its reason stays the one naming the code path.
+    docs_only, data_only, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "README.md\nbackend/app.py\n",
+    )
+    assert (docs_only, data_only) == (False, False)
+    assert "outside documentation" in reason
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +447,7 @@ def test_row_without_previous_filename_yields_one_path():
 def test_classify_docs_only():
     docs_only, data_only, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "README.md\nNOTICE\n",
+        lambda argv: "docs/guide.md\nNOTICE\n",
     )
     assert (docs_only, data_only) == (True, False)
     assert "documentation-only" in reason
