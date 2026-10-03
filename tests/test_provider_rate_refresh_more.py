@@ -24,6 +24,7 @@ from tests.test_provider_rate_refresh import (
     UTC,
     V41,
     _baseten_twins,
+    _deepinfra_twins,
     _endpoint,
     _move_openinference,
     _novita_region_twin,
@@ -207,6 +208,45 @@ def test_baseten_is_resolved_by_price_order_as_data():
     assert set(pin) == {"tag", "select", "ignore", "why"}
     assert pin["tag"] == "baseten/fp8"
     assert pin["ignore"] == ["max_completion_tokens"]
+
+
+def test_deepinfra_is_resolved_by_price_order_as_data():
+    """Its two deepinfra/fp8 endpoints agree in tag, quantization and limits,
+    so price order is the only thing telling them apart, and the only thing
+    that names the one the account reaches."""
+    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+    pin = doc["openrouter"]["models"][V41]["resolve"]["DeepInfra"]
+    assert set(pin) == {"select", "why"}
+    assert pin["select"] == "cheapest" and pin["why"]
+
+
+def test_deepinfra_twins_track_the_cheaper_endpoint(tmp_path, capsys):
+    """The row already holds the discounted twin's price, so resolving the
+    host moves nothing: the cheaper of the two is what is tracked."""
+    run = Run(tmp_path)
+    cheaper, dearer = _deepinfra_twins(run)
+    assert Decimal(cheaper["pricing"]["input_cache_read"]) < Decimal(
+        dearer["pricing"]["input_cache_read"])
+    before = run.snapshot()
+    assert run(capsys)[0] == 0
+    assert run.snapshot() == before
+
+
+def test_deepinfra_twins_without_the_recorded_resolution_are_refused(tmp_path, capsys):
+    """Dropping the record leaves the host ambiguous, exactly as the live
+    listing does; the guard refuses rather than guessing a twin."""
+    run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41]["resolve"].pop("DeepInfra"))
+    _refused(run, capsys, f"{V41} via DeepInfra", "deepinfra/fp8")
+
+
+def test_a_flip_in_the_deepinfra_order_is_refused(tmp_path, capsys):
+    """The dearer twin undercutting the one the row tracks: which endpoint the
+    account reaches is a human's call again, not the order's."""
+    run = Run(tmp_path)
+    _, dearer = _deepinfra_twins(run)
+    dearer["pricing"]["input_cache_read"] = "0.0000000001"
+    _refused(run, capsys, f"{V41} via DeepInfra", "order")
 
 
 def test_identical_twins_without_an_override_are_refused(tmp_path, capsys):
