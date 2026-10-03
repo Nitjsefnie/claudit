@@ -382,7 +382,7 @@ def test_earlier_state_vectors_holds_every_state_before_the_newest():
     item = _add_state(_series(rates=listed), "2026-09-02T00:00:00Z", newer)
     series = logshape.read_log_payload(_payload(item))[0]
 
-    earlier = pricelog._earlier_state_vectors(series)
+    earlier = pricelog._earlier_state_vectors(series)  # pylint: disable=protected-access
 
     assert earlier == {(0.3, 0.3, 0.3, 0.0, 0.8)}
 
