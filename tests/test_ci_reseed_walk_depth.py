@@ -53,6 +53,11 @@ reseed = _load()
 # anyway — the reading IS the contract (issue #582).
 MAX_VISITS = reseed._MAX_VISITS  # pylint: disable=protected-access
 
+# A step with this `uses:` runs the suite through the composite bench
+# action without naming pytest anywhere in its own run text — the
+# derivation issue #502 needed after a shallow checkout shipped red.
+BENCH_ACTION = "./.github/actions/suite-bench"
+
 # The loader jobs the explicit table pins (issue #582's fix set): every
 # job in the three other suite-running workflows plus tests.yml's
 # portable cells. tests.yml's primary pytest cell and ratchet-push are
@@ -131,6 +136,12 @@ def _build_history(repo: Path) -> None:
     # commit-tree writes no ref: point a branch at the merge so the
     # clones below clone the two-parent shape, not the linear base tip.
     _git(repo, "update-ref", "refs/heads/merge", merge)
+    # The pin below compares this ref against the clones' HEAD; an
+    # ancestor-directed ref would co-move with the fixture, so the
+    # two-parent shape itself is what pins the root.
+    parents = _git(repo, "show", "-s", "--format=%P",
+                   "refs/heads/merge").split()
+    assert len(parents) == 2, parents
 
 
 def _clone(source: Path, target: Path, depth: int | None) -> Path:
@@ -181,10 +192,12 @@ def test_every_loader_checkout_covers_the_reseed_walk() -> None:
     The loader jobs are named explicitly in LOADER_JOBS — a rename
     fails loudly (KeyError) instead of silently leaving a loader job
     shallow. A generic sweep beside them catches any OTHER job whose
-    steps run pytest or name the thresholds loader, so a new loader
-    job cannot open shallow; the sweep asserts the residue is exactly
-    the ratchet-push job, whose loader runs in a temp repo fetched
-    without a depth bound (pinned at the end).
+    steps run pytest (in its own text or through the suite-bench
+    action, the derivation issue #502 needed) or name the thresholds
+    loader, so a new loader job cannot open shallow; the sweep asserts
+    the residue is exactly the ratchet-push job, whose loader runs in a
+    temp repo fetched without a depth bound (pinned at the end).
+    Every checkout of every loader job is bounded, not just the first.
     """
     workflows = REPO_ROOT / ".github" / "workflows"
     docs = {
@@ -192,43 +205,54 @@ def test_every_loader_checkout_covers_the_reseed_walk() -> None:
         for path in sorted(workflows.glob("*.yml"))
     }
 
-    def checkout_depth(name: str, job_name: str) -> int | None:
+    def checkout_depths(name: str, job_name: str) -> list[int]:
+        """Every checkout depth in the job; an absent fetch-depth is 1.
+
+        actions/checkout fetches depth 1 when the key is absent, so the
+        default is the failure shape, never an exemption.
+        """
         job = (docs[name].get("jobs") or {})[job_name]
-        for step in job.get("steps") or []:
-            if isinstance(step, dict) and "actions/checkout" in (
-                    step.get("uses") or ""):
-                return (step.get("with") or {}).get("fetch-depth", 1)
-        return None
+        return [
+            (step.get("with") or {}).get("fetch-depth", 1)
+            for step in job.get("steps") or []
+            if isinstance(step, dict)
+            and "actions/checkout" in (step.get("uses") or "")
+        ]
 
     for name, job_names in LOADER_JOBS.items():
         for job_name in job_names:
-            depth = checkout_depth(name, job_name)
-            assert depth == 0 or depth >= MAX_VISITS + 1, (
-                f"{name}:{job_name}: fetch-depth {depth} cannot carry the "
-                "re-seed walk's ancestry; use full history (fetch-depth: 0) "
-                "or >= _MAX_VISITS + 1 (issue #582)")
+            depths = checkout_depths(name, job_name)
+            assert depths, f"{name}:{job_name} has no checkout step"
+            for depth in depths:
+                assert depth == 0 or depth >= MAX_VISITS + 1, (
+                    f"{name}:{job_name}: fetch-depth {depth} cannot carry the "
+                    "re-seed walk's ancestry; use full history (fetch-depth: 0) "
+                    "or >= _MAX_VISITS + 1 (issue #582)")
 
-    # Generic sweep: every other job that runs pytest or names the
-    # thresholds loader must satisfy the same bound. The residue (jobs
-    # with no checkout of their own) must be exactly ratchet-push.
+    # Generic sweep: every other job that runs pytest (in its own text
+    # or through the suite-bench action) or names the thresholds loader
+    # must satisfy the same bound. The residue (jobs with no checkout
+    # of their own) must be exactly ratchet-push.
     swept = set()
     for name, doc in docs.items():
         for job_name, job in (doc.get("jobs") or {}).items():
             if not isinstance(job, dict) or (name, job_name) in KNOWN_LOADER_JOBS:
                 continue
             steps = job.get("steps") or []
-            scripts = "\n".join(
-                step.get("run") or "" for step in steps
-                if isinstance(step, dict))
-            if "pytest" not in scripts and "thresholds" not in scripts:
+            if not any(
+                    "pytest" in (step.get("run") or "")
+                    or "thresholds" in (step.get("run") or "")
+                    or BENCH_ACTION in (step.get("uses") or "")
+                    for step in steps if isinstance(step, dict)):
                 continue
             swept.add((name, job_name))
-            depth = checkout_depth(name, job_name)
-            if depth is None:
+            depths = checkout_depths(name, job_name)
+            if not depths:
                 continue  # no checkout: only ratchet-push reaches here
-            assert depth == 0 or depth >= MAX_VISITS + 1, (
-                f"{name}:{job_name}: fetch-depth {depth} cannot carry the "
-                "re-seed walk's ancestry (issue #582)")
+            for depth in depths:
+                assert depth == 0 or depth >= MAX_VISITS + 1, (
+                    f"{name}:{job_name}: fetch-depth {depth} cannot carry the "
+                    "re-seed walk's ancestry (issue #582)")
     assert swept == {("tests.yml", "pytest"), ("ratchet-push.yml", "push")}, (
         f"unexpected additional loader jobs: "
         f"{sorted(swept - {('tests.yml', 'pytest'), ('ratchet-push.yml', 'push')})}")
