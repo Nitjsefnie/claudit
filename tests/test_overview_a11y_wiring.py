@@ -11,8 +11,14 @@ suite stays green. These guards read the sources directly and pin:
    names) through an opacity binding on the row's <label> — muted computes
    4.84:1 over --bg-card at full opacity, 2.51:1 at the old 0.6 (axe
    color-contrast);
-5. every legend checkbox input carries an explicit >= 24x24 target (axe
-   target-size; the default control renders 13x13);
+5. the legend checkbox: its visible box stays in proportion with the 11px
+   legend text and no larger than the 14px panel title (issue #474, which
+   found the 24x24 target this finding installed rendering as the largest
+   element in its row), and the 24x24 target SC 2.5.8 asks for is met by
+   the SPACING exception instead — consecutive rows' centres at least 24px
+   apart, from the shared box constant plus the containers' row gap, on
+   every one of the five containers (axe target-size; the default control
+   renders 13x13);
 6. each TopBar nav button carries `aria-current` bound to its own route
    equality, so the active page is exposed beyond the .on class (axe
    aria-current-valid... its absence left state class-only);
@@ -127,27 +133,95 @@ def test_legend_rows_never_dim_their_text():
 
 def test_legend_rows_keep_a_nontext_state_affordance():
     """The affordance the label opacity provided (which series are
-    toggled on) survives on the swatch -- a non-text element the AA
-    contrast floor does not reach -- rather than on the text."""
+    toggled on) survives on the checkbox itself -- a non-text element
+    the AA contrast floor does not reach -- rather than on the text.
+
+    Since issue #474 the checkbox IS the colour key, so the row holds
+    exactly TWO spans (the series name and its count): the separate 10px
+    swatch is gone, because a tinted checkbox beside a swatch of the
+    same hue showed the series colour twice and made the 24px box the
+    largest thing in an 11px row. Counting spans is the exclusive
+    claim -- re-adding any swatch (or any other decorative span) makes
+    the count 3 and this fires."""
     body = _panel_src("LegendCheckboxRow",
                       _strip_line_comments(EXTRA.read_text(encoding="utf-8")))
-    dimmed = re.findall(
-        r"background: color, display: 'inline-block', borderRadius: 2, "
-        r"opacity: checked \? 1 : 0\.45", body)
-    assert len(dimmed) == 1, (
-        "the shared legend row's swatch carries no non-text state "
-        "dimming -- the affordance the old label opacity provided is "
-        "gone, or moved back onto text")
+    assert body.count("<span") == 2, (
+        f"the shared legend row holds {body.count('<span')} spans, expected "
+        f"2 (the series name and its count) -- a swatch or another "
+        f"decorative span came back, so the row shows its colour twice")
+    # The checkbox, not a swatch beside it, carries the series hue: the
+    # accent binding must sit on the INPUT tag itself. A substring search
+    # over the whole body would also match a swatch's background.
+    rows = _checkbox_rows()
+    assert len(rows) == 1, (
+        f"expected the 1 shared LegendCheckboxRow, found {len(rows)} -- a "
+        f"hand-rolled legend row appeared; reuse the shared component")
+    # rows[0] after the length assert: the same single row, without the
+    # sequence-balance inference pylint cannot make over the helper.
+    input_tag = rows[0][1]
+    assert "accentColor: color" in input_tag, (
+        f"the legend checkbox does not carry the series colour: "
+        f"{input_tag.strip()!r} -- the tint belongs on the input, which is "
+        f"now the row's only colour key")
+    # The checked state is the affordance the old label opacity gave, so
+    # the row must still bind `checked` onto the control and must not
+    # reintroduce an opacity anywhere (finding 4).
+    assert "checked={checked}" in input_tag, (
+        f"the legend checkbox no longer binds `checked`: {input_tag.strip()!r} "
+        f"-- the on/off affordance is gone with the swatch's dimming")
+    assert "opacity" not in body, (
+        "the shared legend row dims something -- text and count hold "
+        "4.84:1 over --bg-card at full strength and no opacity keeps "
+        "--muted at the 4.5:1 AA floor")
 
-
-# -- Finding 4: legend text is never dimmed below AA -------------------
 
 # -- Finding 5: checkbox targets are at least 24x24 --------------------
 
-def test_legend_checkboxes_meet_the_24px_target_floor():
-    """The legend checkboxes rendered at the browser default 13x13
-    (axe target-size); the input's own box is the hit target, so each
-    carries an explicit 24x24."""
+# SC 2.5.8's spacing exception: an undersized target passes when the
+# 24px circles centred on two targets do not MEET, so their centres
+# must be 25px apart. 24 is the tangent case, where the circles touch;
+# issue #474 takes the margin. Measured (headless Chromium, DPR 1): at a
+# 25px separation axe is clean, at 19px it reports 46-66 violations.
+_LEGEND_MIN_CENTRE_SEP_PX = 25
+# The panel title the checkbox must not exceed, measured on the deployed
+# Overview (issue #474's own table): 14px font.
+_LEGEND_TITLE_PX = 14
+
+
+def _legend_box_px(input_tag: str) -> int:
+    """The legend checkbox's rendered edge, read off its inline style.
+
+    Both dimensions must be one literal: a `width` and a `height` that
+    disagree render a non-square target and the spacing arithmetic below
+    is computed from the wrong edge."""
+    w = re.search(r"width: (\d+)", input_tag)
+    h = re.search(r"height: (\d+)", input_tag)
+    assert w and h, (
+        f"the legend checkbox {input_tag.strip()!r} sets no explicit px "
+        f"width/height -- it renders at the 13x13 browser default and no "
+        f"target-size arithmetic is possible")
+    assert w.group(1) == h.group(1), (
+        f"the legend checkbox is {w.group(1)}x{h.group(1)} -- a "
+        f"non-square target")
+    return int(w.group(1))
+
+
+def _legend_container_gaps(src: str) -> list[int]:
+    """Every legend container's row gap, in source order.
+
+    The containers are the five wrapping flex rows that hold a legend's
+    labels: `display: 'flex', flexWrap: 'wrap', gap: 'Npx Npx'`. Parsing
+    ALL of them (and asserting the count) is what stops a sibling
+    `gap: '...'` elsewhere in the file from satisfying a pin."""
+    return [int(m) for m in re.findall(
+        r"display: 'flex', flexWrap: 'wrap', gap: '(\d+)px \d+px'", src)]
+
+
+def test_legend_checkboxes_are_proportionate_to_the_legend_text():
+    """The visible box was 24x24 while the legend text beside it is 11px
+    and the panel title above it 14px (measured, deployed Overview, DPR
+    1), so the checkbox was the largest element in its row. The box must
+    not exceed the title, and both edges must come from one literal."""
     assert len(_checkbox_rows()) == 1, (
         "expected the 1 shared LegendCheckboxRow -- a hand-rolled legend "
         "row appeared; reuse the shared component")
@@ -155,15 +229,47 @@ def test_legend_checkboxes_meet_the_24px_target_floor():
         f"{_legend_call_sites()} of the 6 legend rows use the shared "
         f"component -- the guard would pass vacuously")
     for _, input_tag in _checkbox_rows():
-        w = re.search(r"width: (\d+)", input_tag)
-        h = re.search(r"height: (\d+)", input_tag)
-        assert w and h, (
-            f"the legend checkbox {input_tag.strip()!r} sets no explicit "
-            f"size -- it renders at the 13x13 browser default, below the "
-            f"24x24 target floor")
-        assert int(w.group(1)) >= 24 and int(h.group(1)) >= 24, (
-            f"the legend checkbox renders {w.group(1)}x{h.group(1)} -- "
-            f"below the 24x24 target floor")
+        box = _legend_box_px(input_tag)
+        assert box <= _LEGEND_TITLE_PX, (
+            f"the legend checkbox is {box}x{box}px -- larger than the "
+            f"{_LEGEND_TITLE_PX}px panel title above it")
+
+
+def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
+    """With the box back at 13px the row spacing carries the rule: two
+    undersized targets pass when the 24px circles centred on them do not
+    meet, so consecutive rows' centres must sit at least 25px apart --
+    the band height plus the container's row gap.
+
+    This is the load-bearing half of the fix and it is measured, not
+    assumed: at a 6px gap the centres measured 19px and axe reported 46-66
+    `target-size` violations on a wrapped legend, from 1718px down to
+    320px; at 14 they measure 27px and axe is clean at every width, and a
+    25px separation is clean too (issue #474, headless Chromium, DPR 1).
+
+    The band is taken as the checkbox's own edge. The legend text's line
+    box is the same 13px, and any taller child (a longer wrapped name)
+    only pushes the band UP, so this is the conservative direction."""
+    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    rows = _checkbox_rows()
+    assert len(rows) == 1, (
+        "expected the 1 shared LegendCheckboxRow -- a hand-rolled legend "
+        "row appeared; reuse the shared component")
+    box = _legend_box_px(rows[0][1])
+    gaps = _legend_container_gaps(src)
+    # Six call sites share five containers (ToolUsagePanel renders one
+    # container for its per-tool rows and its Other row).
+    assert len(gaps) == 5, (
+        f"{len(gaps)} of the 5 legend containers read as a wrapping flex "
+        f"row with an explicit px gap -- one moved or lost its spacing")
+    for gap in gaps:
+        centres = box + gap
+        assert centres >= _LEGEND_MIN_CENTRE_SEP_PX, (
+            f"a legend container spaces its rows {gap}px, putting row "
+            f"centres {centres}px apart ({box}px box + {gap}px gap), under "
+            f"the {_LEGEND_MIN_CENTRE_SEP_PX}px SC 2.5.8 spacing "
+            f"exception -- their target circles overlap and axe "
+            f"target-size fails")
 
 
 # -- Finding 6: the nav exposes its current page -----------------------
