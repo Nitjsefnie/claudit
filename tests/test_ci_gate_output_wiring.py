@@ -46,7 +46,10 @@ CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
 # BOT_SIGNATURE is the refresh bot's push, and the file's rates are never
 # read, priced or asserted on here (sv-test-data: allow).
 BOT_PATHS = ["backend/constants.py", "src/pricing.json"]  # sv-test-data: allow
-DOC_PATHS = ["README.md", "docs/guide.md"]
+# Neither is one of the pinned setup docs: the classifier carves those
+# three out of the docs-only class (issue #477), and this file's subject
+# is which legs a narrowing OUTPUT skips.
+DOC_PATHS = ["docs/guide.md", "NOTICE"]
 CODE_PATHS = ["backend/app.py", "src/pricing.json"]  # sv-test-data: allow
 
 # The classifier checks these are 40 hex digits and nothing more
@@ -344,6 +347,22 @@ def test_a_docs_push_skips_every_leg_end_to_end(tmp_path):
     outputs = _parse_step_outputs(run.written)
     assert outputs.get("docs_only") == "true", outputs
     assert _gating_legs(outputs) == set()
+
+
+def test_a_setup_docs_push_runs_the_tests_leg_end_to_end(tmp_path):
+    # Issue #477, at the only level that settles it: the changed set is
+    # documentation by every path pattern, and the leg that pins those
+    # docs' setup blocks still runs against the real ci-gate.yml's
+    # conditions — so a push that deletes a setup step fails on itself.
+    run = _run_classifier(tmp_path, paths=["README.md", "docs/guide.md"])
+    _only_modelled_reads(run)
+    _over_the_verified_base(run)
+    outputs = _parse_step_outputs(run.written)
+    assert outputs.get("docs_only") == "false", outputs
+    assert "README.md" in outputs.get("reason", ""), outputs
+    legs = _gating_legs(outputs)
+    assert legs == set(_legs(_ci_gate())), legs
+    assert "tests" in legs, legs
 
 
 def test_a_classifier_that_writes_nothing_runs_every_leg(tmp_path):

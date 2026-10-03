@@ -12,9 +12,12 @@ this script reads the run's changed paths and emits two outputs,
 aggregate job still reports.
 
 Documentation is the exact set the old deny-lists carried, re-homed as
-classifier patterns. Every fallback over-runs: an event this script
-cannot identify, a file list it cannot read, or a list that may be
-truncated all classify as a full change and run every leg. An API
+classifier patterns, minus the three docs whose setup blocks a test
+guard pins (SETUP_DOC_PATTERNS): the guard lives in the tests leg, so a
+docs-only classification of a change to those files would skip the leg
+that fails it (issue #477). Every fallback over-runs: an event this
+script cannot identify, a file list it cannot read, or a list that may
+be truncated all classify as a full change and run every leg. An API
 failure that under-runs would skip gates over code; one that over-runs
 only wastes minutes.
 
@@ -56,6 +59,19 @@ import subprocess
 # data must run the gates rather than read as documentation.
 DOC_PATTERNS = ('**/*.md', 'PRESENTATION.txt', 'examples/**', '.claude/**',
                 'LICENSE', 'NOTICE', '.gitignore')
+
+# The docs carrying the pinned setup blocks: tests/test_docs_setup.py
+# asserts README's "Quick start", CONTRIBUTING's "Getting it running" and
+# AGENTS's "Build and test commands" keep the same step set (issue #464).
+# A change to any of them is documentation by shape and tested by
+# behavior, so the carve-out below is by FILE, not by section: the gate
+# classifies changed PATHS and never reads content, and a per-section
+# rule would need a content diff this script has no read for. The cost is
+# an over-run -- an edit to a badge above the setup block runs the matrix
+# instead of skipping it -- which is this script's declared direction for
+# every uncertainty ("Every fallback over-runs"). The alternative failure
+# is a green push that broke the pin and finds out hours later.
+SETUP_DOC_PATTERNS = ('README.md', 'CONTRIBUTING.md', 'AGENTS.md')
 
 # The refresh bot's push signature: the hourly refresh appends rate
 # entries to `src/pricing.json` and bumps PRICING_VERSION in
@@ -118,9 +134,21 @@ def is_documentation(path):
     return any(matches(pattern, path) for pattern in DOC_PATTERNS)
 
 
+def touches_setup_docs(paths):
+    """Whether `paths` names any pinned setup doc (see SETUP_DOC_PATTERNS)."""
+    return any(path in SETUP_DOC_PATTERNS for path in paths)
+
+
 def documentation_only(paths):
-    """Whether `paths` is nonempty and every entry is documentation."""
-    return bool(paths) and all(is_documentation(path) for path in paths)
+    """Whether `paths` is a nonempty all-documentation set the gate may
+    narrow over.
+
+    A pinned setup doc is excluded however documentation-shaped it is: the
+    pin that reads those files lives in the tests leg, so classifying such
+    a change docs-only skips the very leg that would fail it (issue #477).
+    """
+    return (bool(paths) and not touches_setup_docs(paths)
+            and all(is_documentation(path) for path in paths))
 
 
 def data_only(paths):
@@ -268,6 +296,15 @@ def classify(event, run):
     if documentation_only(paths):
         return (True, False,
                 f'documentation-only change: {len(paths)} paths')
+    if touches_setup_docs(paths) and all(
+            is_documentation(path) for path in paths):
+        setup = sorted({path for path in paths
+                        if path in SETUP_DOC_PATTERNS})
+        return (False, False,
+                f'documentation-only change touching the pinned setup '
+                f'docs ({"; ".join(setup)}): running the tests legs so '
+                f'the setup-docs pin fails on this push, not the next '
+                f'code-touching one')
     if data_only(paths):
         return (False, True, f'bot-data-only change: {len(paths)} paths')
     outside = sum(1 for path in paths if not is_documentation(path))
