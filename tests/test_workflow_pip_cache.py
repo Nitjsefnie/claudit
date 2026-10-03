@@ -100,12 +100,13 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
                 continue
             gate = step.get("if") or ""
             # The gate must EXCLUDE the other values, so the pinned shape
-            # is an equality naming a value the matrix actually carries:
-            # a substring check would be satisfied by `matrix.seed != ...`,
-            # which excludes nothing, and any other comparator likewise.
-            pinned = re.search(r"matrix\.(\w+) == '([^']*)'", gate)
-            assert pinned, (workflow, job_id, gate)
-            axis, value = pinned.groups()
+            # is exactly ONE equality naming a value the matrix actually
+            # carries: a substring check would be satisfied by
+            # `matrix.seed != ...`, which excludes nothing, and a gate
+            # naming two of them admits a second saver.
+            pinned = re.findall(r"matrix\.(\w+) == '([^']*)'", gate)
+            assert len(pinned) == 1, (workflow, job_id, gate)
+            axis, value = pinned[0]
             assert value in strategy["matrix"].get(axis, []), (
                 workflow, job_id, gate)
 
