@@ -40,8 +40,14 @@ write excepted, and the recorded identity is never corrected by hand
 to fit another tree (SV-CI-RATCHETS).
 
 A separate file from ``ratchet.py`` on purpose: the two move opposite
-ways. It imports nothing but the loader, so the data operation stays
-free of the suite the bench measures.
+ways. The seed binds the budgets to the workload they measured: the
+tree the measurement names must be the tree the seed lands on, so the
+seed path checks the artifact's ``tests_tree_lines`` against the
+checkout it runs in and refuses a mismatch -- the only place a
+wrong-tree seed can still fail mechanically, since once a family
+exists the direction guard refuses the hand correction (issue #598).
+Apart from that check the data operations import nothing but the
+loader, so they stay free of the suite the bench measures.
 
   python3 scripts/ci/suite_ratchet.py --seed m.json
   python3 scripts/ci/suite_ratchet.py --tighten m.json
@@ -61,6 +67,11 @@ if __package__:
 else:
     thresholds = importlib.import_module('thresholds')
     reseed = importlib.import_module('reseed')
+
+# The checkout holding this script: the tree a seed lands on, and the
+# root the bench's tree-line counter walks. Not the --thresholds path,
+# which a test or a bot copies elsewhere.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CALIBRATION_GAP = Decimal('1.5')
 TIGHTEN_HYSTERESIS = Decimal('1.5')
@@ -90,6 +101,48 @@ def _identity(path: Path):
         raise ValueError(
             f'{path}: {_IDENTITY} must be a positive integer')
     return identity
+
+
+def _tree_identity() -> int:
+    """The working tree's ``tests_tree_lines``, as the bench computes it.
+
+    The anchor is this checkout (``REPO_ROOT``), the tree the seed lands
+    on. Lazy ``suite_bench`` import: the data operations stay free of
+    the bench's import surface -- pulling it in would import pytest --
+    and only the CLI's seed mode needs the counter.
+    """
+    if __package__:
+        # pylint: disable-next=relative-beyond-top-level,no-name-in-module,import-outside-toplevel
+        from . import suite_bench
+    else:
+        suite_bench = importlib.import_module('suite_bench')
+    return suite_bench._tests_tree_lines(  # pylint: disable=protected-access
+        REPO_ROOT)
+
+
+def _check_tree_identity(artifact: Path, identity) -> None:
+    """Refuse a seed measured on a different tests tree than this one.
+
+    The sanctioned re-seed measures the FINAL tree the seed lands on,
+    the seed change's own edits included (SV-CI-RATCHETS): the working
+    tree of the checkout running this command is that tree. A
+    measurement whose recorded identity names another tree seeds
+    budgets for a workload this tree does not present, and once a
+    family exists the direction guard refuses the hand correction, so
+    the wrong-tree seed has to fail here, before it is committed
+    (issue #598). An artifact from before the identity existed carries
+    none and keeps the seed's pre-#524 shape: no field, no check.
+    """
+    if identity is None:
+        return
+    tree_lines = _tree_identity()
+    if identity == tree_lines:
+        return
+    raise ValueError(
+        f'{artifact}: the measurement was taken on a tests tree of '
+        f'{identity} lines, but the tree this seed lands on holds '
+        f'{tree_lines}: the sanctioned re-seed measures the final tree '
+        '(SV-CI-RATCHETS); seed from a measurement of THIS tree')
 
 
 def _phase_counts(path: Path) -> dict:
@@ -235,8 +288,9 @@ def main(argv=None):
         counts = _phase_counts(args.seed or args.tighten)
         if args.seed is not None:
             data, _seeded_fresh = load_for_seed(args.thresholds)
-            candidate = seed(
-                data, counts, _identity(args.seed))
+            identity = _identity(args.seed)
+            _check_tree_identity(args.seed, identity)
+            candidate = seed(data, counts, identity)
             thresholds.write(args.thresholds, candidate)
             for phase in PHASES:
                 print(f'seeded {phase} '
