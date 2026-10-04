@@ -30,6 +30,15 @@ through the loader's writer from a RUNNER measurement. One change
 cannot do both, because the guard refuses an upward move the base
 already carries.
 
+That measurement must be of the tree master will hold once the seed
+lands, the seed change's own edits included: the seed PR's own run on
+the commit carrying its final code and tests while its changes are
+open, or — once they have merged — the newest in-window master commit
+whose run measured, a leg-skipping push carrying none. The tree must
+not change between that run and the merge, this seed's own thresholds
+write excepted, and the recorded identity is never corrected by hand
+to fit another tree (SV-CI-RATCHETS).
+
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways. It imports nothing but the loader, so the data operation stays
 free of the suite the bench measures.

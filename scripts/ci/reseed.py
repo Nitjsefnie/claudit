@@ -21,6 +21,19 @@ guard's upward-move refusal is untouched, and the marker buys the
 ABSENCE only — never a raised budget, which is the next commit's seed,
 taken from a runner measurement artifact and never hand-derived.
 
+WHICH RUN SUPPLIES THAT ARTIFACT. The window this module opens is the
+open one — the seed commit is the change that restores the family, so
+its own tree is the one the seed describes — and the seed's source is
+a run of exactly that tree: the seed PR's own run on the commit
+carrying its final code and tests, or, once the window's changes have
+merged, the newest in-window master commit whose run measured. A run
+that skipped the tests leg, or whose suite failed, carries no
+measurement at all, so neither can be the source. The tree must not
+change between that run and the merge, the seed's own write of the
+thresholds file excepted; when it does, the source is a fresh run of
+the final tree. Recorded counts are never adjusted to fit any tree
+(SV-CI-RATCHETS).
+
 WHERE THE MARKER IS READ. A bounded walk, never a single read (issue
 #511: a tolerance scoped to HEAD/HEAD^2 lasted exactly one commit — the
 #509 incident, where the hourly pricing bot landed on the delete before
