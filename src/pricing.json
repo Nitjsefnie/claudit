@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T15:51:41Z",
+  "provider_rates_fetched": "2026-10-04T16:54:27Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1440,6 +1440,14 @@
           "from": "2026-10-04T15:20:30Z",
           "output": 0.3,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.025,
+          "create_5m": 0.025,
+          "fresh": 0.025,
+          "from": "2026-10-04T16:30:46Z",
+          "output": 0.3,
+          "read": 0.016
         }
       ],
       "Io Net": [
@@ -1730,6 +1738,14 @@
           "from": "2026-10-01T20:50:55Z",
           "output": 0.99,
           "read": 0.006
+        },
+        {
+          "create_1h": 0.27,
+          "create_5m": 0.27,
+          "fresh": 0.27,
+          "from": "2026-10-04T16:45:45Z",
+          "output": 1.15,
+          "read": 0.009
         }
       ],
       "Modal": [
@@ -50028,6 +50044,14 @@
           "fresh": 0.16,
           "from": "2026-10-03T13:56:13Z",
           "output": 0.444,
+          "read": 0.04
+        },
+        {
+          "create_1h": 0.135,
+          "create_5m": 0.135,
+          "fresh": 0.135,
+          "from": "2026-10-04T16:05:30Z",
+          "output": 0.357,
           "read": 0.04
         }
       ],
