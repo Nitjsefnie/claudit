@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T16:54:27Z",
+  "provider_rates_fetched": "2026-10-04T17:53:44Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1678,6 +1678,14 @@
           "from": "2026-10-01T08:36:41Z",
           "output": 1.15,
           "read": 0.0055
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-04T17:05:44Z",
+          "output": 1.175,
+          "read": 0.0055
         }
       ],
       "Krea": [
@@ -2639,6 +2647,22 @@
           "fresh": 0.06,
           "from": "2026-10-04T08:45:54Z",
           "output": 0.51,
+          "read": 0.008
+        },
+        {
+          "create_1h": 0.059,
+          "create_5m": 0.059,
+          "fresh": 0.059,
+          "from": "2026-10-04T17:15:29Z",
+          "output": 0.506,
+          "read": 0.008
+        },
+        {
+          "create_1h": 0.058,
+          "create_5m": 0.058,
+          "fresh": 0.058,
+          "from": "2026-10-04T17:30:50Z",
+          "output": 0.5,
           "read": 0.008
         }
       ],
@@ -45034,6 +45058,14 @@
           "from": "2026-10-04T14:40:30Z",
           "output": 5.0,
           "read": 0.07
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-04T17:53:44Z",
+          "output": 5.0,
+          "read": 0.09
         }
       ],
       "Io Net": [
@@ -48075,6 +48107,14 @@
           "from": "2026-10-04T02:25:54Z",
           "output": 4.4,
           "read": 0.0898
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-10-04T17:10:31Z",
+          "output": 4.4,
+          "read": 0.0528
         }
       ],
       "Sail Research": [
