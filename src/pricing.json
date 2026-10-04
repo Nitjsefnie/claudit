@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T21:54:30Z",
+  "provider_rates_fetched": "2026-10-04T22:53:26Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -49728,6 +49728,14 @@
           "from": "2026-10-04T21:25:30Z",
           "output": 0.6,
           "read": 0.035
+        },
+        {
+          "create_1h": 0.044,
+          "create_5m": 0.044,
+          "fresh": 0.044,
+          "from": "2026-10-04T22:25:37Z",
+          "output": 0.6,
+          "read": 0.04
         }
       ],
       "Io Net": [
