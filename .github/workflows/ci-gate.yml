@@ -211,6 +211,46 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check no tracked file carries a merge-conflict marker
+        # A conflict marker is text that looks like prose in a Markdown
+        # file, so only a mechanical check can see it — the claim
+        # repository shipped one through three review rounds with every
+        # gate reading straight past it (claim#56). This is the one tree
+        # read every run gets: a docs-only pull request skips every leg,
+        # and this job runs `always()`, so a marker committed in a
+        # Markdown-only change is red here instead of reaching master. In
+        # this job rather than a new one: the aggregate is the required
+        # status context (`ci gate / aggregate`), and a new job would be
+        # a new context — which means editing the ruleset. Before the
+        # fold: a head failing this check must not fold a green verdict
+        # over a tree that was never clean.
+        run: |
+          # git grep exits 1 for "no match" and above 1 for an error it could
+          # not run, and a guard that reads its own error as a clean tree is
+          # the false green this step exists to prevent.
+          found=0
+          git grep -nI -E '^(<{7}( |$)|>{7}( |$)|={7}$)' -- . || found=$?
+          if [ "$found" -gt 1 ]; then
+            echo "git grep exited $found, so no marker was looked for."
+            exit "$found"
+          fi
+          if [ "$found" -eq 0 ]; then
+            echo "A merge-conflict marker is committed. Resolve the conflict, rebase onto the target branch and push again."
+            exit 1
+          fi
+
+      - name: Refuse a commit whose scope names a workflow outside the ci type
+        # CONTRIBUTING's commit-subject rule allows a workflow's `name:` as
+        # a scope only with type `ci`, and prose no gate reads is a
+        # convention: two merged fix(tests) commits here predate the rule
+        # and are the ambiguity that made the shared-name exemption a
+        # documented one. In this job rather than a new one: a new job
+        # would be a new required status context, which means editing the
+        # ruleset. After the conflict-marker step and before the fold:
+        # both read the head, and a head failing either never folds a
+        # verdict.
+        run: python3 scripts/ci/commit_scopes.py
+
       - name: Fold the leg results into one verdict
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
