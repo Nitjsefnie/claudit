@@ -557,3 +557,31 @@ def test_classify_step_runs_the_module():
     steps = doc["jobs"]["classify"].get("steps") or []
     runs = [step.get("run") or "" for step in steps]
     assert any("scripts/ci/classify_changes.py" in run for run in runs), runs
+
+
+def test_contributing_count_prose_matches_the_workflow_tree():
+    # Issue #621: the two counts the CI section states in words had no
+    # oracle and drifted three times (#604, #618). Pin them to the
+    # structural truth: the leg fold to LEG_WORKFLOWS, the total to the
+    # workflows directory listing, so the next workflow addition reds
+    # the prose in the same push.
+    def _words(n: int) -> str:
+        ones = ("zero", "one", "two", "three", "four", "five", "six",
+                "seven", "eight", "nine", "ten", "eleven", "twelve",
+                "thirteen", "fourteen", "fifteen", "sixteen",
+                "seventeen", "eighteen", "nineteen")
+        tens = ("", "", "twenty", "thirty", "forty", "fifty", "sixty",
+                "seventy", "eighty", "ninety")
+        if n < 20:
+            return ones[n]
+        return tens[n // 10] + ("-" + ones[n % 10] if n % 10 else "")
+
+    prose = " ".join(
+        (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8").split()
+    ).replace("**", "")
+    total = len(list(WORKFLOWS.glob("*.yml")))
+    assert f"{_words(total)} workflows" in prose, total
+    # Both CI-section sites state the fold count in the same words;
+    # one drifting away must red too.
+    assert prose.count(
+        f"the {_words(len(LEG_WORKFLOWS))} gate workflows") >= 2
