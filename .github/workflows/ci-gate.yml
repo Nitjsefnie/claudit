@@ -136,7 +136,7 @@ jobs:
   tests:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/tests.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/tests.yml
     permissions:
       # The caller's grant CAPS what the callee can use, so this is
       # read-only: contents: read for the suite, which checks out and
@@ -155,42 +155,42 @@ jobs:
     # the perturbed suite's pass/fail; no coverage, no ratchet.
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/test-data.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/test-data.yml
 
   lint:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    uses: ./.github/workflows/lint.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/lint.yml
 
   types:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/types.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/types.yml
 
   eslint:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/eslint.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/eslint.yml
 
   smoke:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    uses: ./.github/workflows/smoke.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/smoke.yml
 
   audit:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/audit.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/audit.yml
 
   actionlint:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/actionlint.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/actionlint.yml
 
   codeql:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
-    uses: ./.github/workflows/codeql.yml  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
+    uses: $/.github/workflows/codeql.yml
     permissions:
       # Writing the analysis is the whole point of the callee; the rest
       # stays read-only, as codeql.yml itself declares per job.

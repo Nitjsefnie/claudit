@@ -52,7 +52,7 @@ def test_the_gate_step_exists_and_calls_the_bundled_action(workflow):
     """A gate that is a `run:` line can be retyped into a no-op; a
     composite action's shape is checked in `action.yml` instead."""
     step = _step(workflow, GATE_STEP)
-    assert step.get("uses") == "./.github/actions/reparse-bench", (
+    assert step.get("uses") == "$/.github/actions/reparse-bench", (
         "the gate step no longer calls the bundled composite action")
     assert ACTION.is_file(), (
         f"{ACTION} is gone, so the gate step cannot run at all")
