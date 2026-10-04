@@ -8,7 +8,9 @@ usage in particular must not be repriced by an OpenRouter host's rate.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -542,3 +544,37 @@ def test_fold_of_null_provider_rows_is_unchanged(monkeypatch):
     assert m["cost_buckets"]["output"] == pytest.approx(
         0.5 * rates["output"], abs=1e-4)
     assert m["estimated_rate"] is False
+
+
+def _load_selection():
+    """Import scripts/ci/refresh_selection.py by path (scripts/ci is not a
+    package); the module puts its own directory on sys.path to reach
+    refresh_prices."""
+    path = ROOT / "scripts" / "ci" / "refresh_selection.py"
+    spec = importlib.util.spec_from_file_location("refresh_selection", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["refresh_selection"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_committed_resolve_entry_loads_through_the_override_reader():
+    """Issue #615: a committed openrouter.models.<model>.resolve entry is
+    validated nowhere offline — a malformed entry loads silently and only
+    shows its effect at the hourly refresh run. Iterate every committed
+    resolve map through the selection module's override reader,
+    value-agnostic (no live row, host or price pinned, SV-TEST-DATA): the
+    reader must take every entry with no refusal and no unknown-key
+    residue."""
+    doc = json.loads((ROOT / "src" / "pricing.json").read_text())
+    resolve_maps = {key: model.get("resolve", {})
+                    for key, model in doc["openrouter"]["models"].items()}
+    assert any(resolve_maps.values()), \
+        "the committed file carries no resolve map; the test would validate nothing"
+    reader = _load_selection()._override  # pylint: disable=protected-access
+    for key, resolutions in resolve_maps.items():
+        for host, pin in resolutions.items():
+            override = reader(f"{key} via {host}", pin)
+            residue = set(override) - {"tag", "select", "ignore", "why"}
+            assert not residue, f"{key} via {host}: keys the reader does not know: {sorted(residue)}"
