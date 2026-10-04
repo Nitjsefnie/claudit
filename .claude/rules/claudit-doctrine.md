@@ -783,7 +783,9 @@ same rules:
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with two in-region endpoints at different prices (e.g.
-    quantization variants) and no resolution, named by tag;
+    quantization variants) and no resolution, named by tag — an exact
+    {`p`, `p`/fast} tag pair excepted: the fast-tier rule (below) takes
+    its base endpoint;
   - a stale resolution: a pinned tag not listed, or `cheapest` twins
     that differ beyond price, tie in price order, or have flipped
     order;
@@ -797,6 +799,16 @@ same rules:
   that host untouched with a notice — appending after it would refuse
   the file — and blocks nothing else.
 
+- The fast-tier rule resolves one shape with no human decision: when a
+  host's in-region endpoints are exactly one tagged `p` and one tagged
+  `p/fast` at different prices, the refresh takes the base `p` endpoint
+  automatically and the run's report records it as rule-resolved — a
+  `/fast` tier is a distinct offering under its own tag, not a price
+  twin. The rule fires only where no resolve entry exists for the host
+  (an explicit resolution keeps precedence, refusals included), takes
+  the base whichever of the two is cheaper, and never extends to the
+  price log's own endpoint selection: a {`p`, `p`/fast} host the log
+  would otherwise back needs its base pinned to stay log-backed.
 - The fix is a human decision recorded in
   `openrouter.models.<model>.resolve.<host>`, with a `why`:
   - `{"tag": ...}` takes that tag's endpoint, whatever its region.

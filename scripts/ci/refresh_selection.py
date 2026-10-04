@@ -14,7 +14,10 @@ append machinery lives in refresh_provider_rates.py.
     output; the two combine, the tag narrowing first. "ignore": [fields]
     refines a 'cheapest': the named identity fields are a recorded human
     decision that the endpoints are one offering listed with a listing
-    artifact, so 'cheapest' compares the rest.
+    artifact, so 'cheapest' compares the rest. With no resolution at all,
+    an exact {p, p/fast} tag pair takes the base endpoint by rule and the
+    run's report records it as rule-resolved; every other multi-price
+    shape refuses.
 """
 from __future__ import annotations
 
@@ -192,12 +195,39 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
     prices = list({e.price: e for e in reversed(listed)}.values())
     if len(prices) > 1 and override.get("select") == "cheapest":
         return _cheapest(where, prices, stored, override.get("ignore") or [])
+    if len(prices) > 1 and pin is None:
+        base = _fast_pair(prices)
+        if base is not None:
+            return base, (
+                f"{where}: rule-resolved: the endpoints are exactly {base.tag!r} "
+                f"and {base.tag + '/fast'!r} at two prices; took the base endpoint "
+                "(a /fast tier is a distinct offering, not a price twin)")
     if len(prices) > 1:
         tags = ", ".join(sorted({e.tag or "(untagged)" for e in listed}))
         raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
                            f"{len(prices)} different prices; resolve it in "
                            "openrouter.models.<model>.resolve")
     return (prices[0] if prices else None), None
+
+
+def _fast_pair(prices: list[Listing]) -> Listing | None:
+    """The base endpoint of an exact {p, p/fast} pair at two prices, else
+    None.
+
+    A /fast tier is a distinct throughput offering under its own tag, not a
+    price twin, so the pair needs no human decision: the base endpoint is
+    the one the row tracks, whichever of the two is cheaper. Any other
+    multi-price shape returns None and keeps refusing."""
+    if len(prices) != 2:
+        return None
+    a, b = prices
+    if not a.tag or not b.tag:
+        return None
+    if b.tag == a.tag + "/fast":
+        return a
+    if a.tag == b.tag + "/fast":
+        return b
+    return None
 
 
 def _override(where: str, pin: object) -> dict:
