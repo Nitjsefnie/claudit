@@ -14,6 +14,7 @@ import pytest
 from backend import pricing
 from tests.refresh_fixture_builders import _per_token
 
+from tests.test_provider_rate_log_refresh import _series as _log_series
 from tests.test_provider_rate_refresh import (
     GLM,
     LOADER_JS,
@@ -208,6 +209,50 @@ def test_a_cheapest_pin_on_a_fast_pair_still_refuses() -> None:
     assert selected == {}
     assert set(refused) == {"Fireworks"}
     assert "identical" in refused["Fireworks"]
+
+
+def test_an_untagged_endpoint_is_never_a_fast_pair_base() -> None:
+    """The empty-tag limb: an untagged endpoint is never the base of a fast
+    pair — "" + "/fast" spells "/fast" only as a string accident, so the
+    shape keeps refusing instead of rule-resolving."""
+    untagged = _endpoint("Fireworks", BASE_RATES)
+    untagged["tag"] = ""
+    payload = {"data": {"endpoints": [
+        untagged, _endpoint("Fireworks", FAST_RATES, tag="/fast")]}}
+    selected, refused, _ = refresh.listed_rows(
+        GLM, payload, None, {}, {}, NOW)
+    assert selected == {}
+    assert set(refused) == {"Fireworks"}
+    assert "resolve it in openrouter.models" in refused["Fireworks"]
+
+
+def _fast_log_series(states: list[tuple[str, dict]]) -> dict:
+    """One Fireworks log series, reshaped from the log fixtures' Wafer one."""
+    series = _log_series(states)
+    series["providerName"], series["providerSlug"] = "Fireworks", "fireworks"
+    return series
+
+
+def test_a_fast_pair_does_not_extend_to_the_log_selection() -> None:
+    """SV-RATE-REFRESH's log boundary: the fast-tier rule never extends to
+    the price log's own endpoint selection — a {p, p/fast} host the log
+    would otherwise back stays sampled unless the base endpoint is pinned."""
+    payload = {"data": {"endpoints": [
+        _endpoint("Fireworks", BASE_RATES, tag="fireworks"),
+        _endpoint("Fireworks", FAST_RATES, tag="fireworks/fast"),
+    ]}}
+    series = refresh.refresh_pricelog.read_log_payload({"data": {"series": [
+        _fast_log_series([("2030-12-31T23:00:00Z", BASE_RATES)]),
+        _fast_log_series([("2030-12-31T23:00:00Z", FAST_RATES)]),
+    ]}})
+    unpinned = refresh.refresh_pricelog.join_listed_pricing(
+        payload, series, None, {}, NOW)["Fireworks"]
+    assert unpinned.entries is None
+    assert unpinned.reason == "endpoint selection found 2 endpoints"
+    pinned = refresh.refresh_pricelog.join_listed_pricing(
+        payload, series, None,
+        {"Fireworks": {"tag": "fireworks", "why": "fixture"}}, NOW)["Fireworks"]
+    assert pinned.entries is not None
 
 
 def test_a_new_fast_pair_host_gets_a_row_for_its_base(tmp_path, capsys) -> None:
