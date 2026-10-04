@@ -122,6 +122,130 @@ def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
     assert selected["Modal"].rates == surviving_rates
 
 
+# --- the fast-tier rule -------------------------------------------------------
+# OpenRouter lists a /fast throughput tier under its own tag beside a host's
+# base endpoint. The exact {p, p/fast} pair resolves by rule (issue #623):
+# the base endpoint prices the row. Every other multi-price shape refuses.
+
+BASE_RATES = {"fresh": 0.17, "create_5m": 0.17, "create_1h": 0.17,
+              "read": 0.169, "output": 3.0}
+FAST_RATES = {"fresh": 0.23, "create_5m": 0.23, "create_1h": 0.23,
+              "read": 0.33, "output": 2.6}
+THIRD_RATES = {"fresh": 0.4, "create_5m": 0.4, "create_1h": 0.4,
+               "read": 0.028, "output": 1.1}
+
+
+def _fast_payload(tags: list[str]) -> dict:
+    """A Fireworks listing over the given tags, each at its own price."""
+    rates = [BASE_RATES, FAST_RATES, THIRD_RATES]
+    return {"data": {"endpoints": [
+        _endpoint("Fireworks", rates[i], tag=tags[i]) for i in range(len(tags))]}}
+
+
+def test_a_fast_pair_takes_the_base_endpoint_automatically() -> None:
+    """Issue #623: a /fast tier is a distinct offering under its own tag,
+    not a price twin, so the exact {p, p/fast} pair resolves by rule — the
+    base endpoint prices the row — and the run's report records it as
+    rule-resolved rather than silently."""
+    selected, refused, notices = refresh.listed_rows(
+        GLM, _fast_payload(["fireworks", "fireworks/fast"]), None, {}, {}, NOW)
+    assert refused == {}
+    assert selected["Fireworks"].tag == "fireworks"
+    assert selected["Fireworks"].rates == BASE_RATES
+    assert any("rule-resolved" in notice and "Fireworks" in notice
+               for notice in notices)
+
+
+def test_the_base_is_taken_even_when_the_fast_tier_is_cheaper() -> None:
+    """The rule is shape-based, not price-based: a /fast tier cheaper than
+    its base does not turn the pair into a price-twin choice."""
+    cheap_fast = {**BASE_RATES, "fresh": 0.05, "read": 0.001, "output": 1.0}
+    payload = {"data": {"endpoints": [
+        _endpoint("Fireworks", BASE_RATES, tag="fireworks"),
+        _endpoint("Fireworks", cheap_fast, tag="fireworks/fast"),
+    ]}}
+    selected, refused, _ = refresh.listed_rows(
+        GLM, payload, None, {}, {}, NOW)
+    assert refused == {}
+    assert selected["Fireworks"].rates == BASE_RATES
+
+
+@pytest.mark.parametrize("tags", [
+    pytest.param(["fireworks", "fireworks/fp4"], id="p-and-p-other"),
+    pytest.param(["fireworks", "fireworks/fast", "fireworks/fp4"],
+                 id="fast-pair-plus-a-third-price"),
+    pytest.param(["fireworks/fp4", "fp8"], id="two-non-fast-tags"),
+])
+def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
+    """The rule is narrow: only the exact {p, p/fast} pair, with no resolve
+    entry, resolves itself. Every other multi-price shape keeps refusing,
+    whether the extra tag is a region twin or a third tier."""
+    selected, refused, _ = refresh.listed_rows(
+        GLM, _fast_payload(tags), None, {}, {}, NOW)
+    assert selected == {}
+    assert set(refused) == {"Fireworks"}
+    assert "resolve it in openrouter.models" in refused["Fireworks"]
+
+
+def test_an_explicit_pin_beats_the_fast_tier_rule() -> None:
+    """A resolve entry keeps precedence: a pin on the fast tag tracks the
+    fast endpoint, and no rule-resolved line is reported."""
+    selected, refused, notices = refresh.listed_rows(
+        GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
+        {"Fireworks": {"tag": "fireworks/fast", "why": "fixture"}}, {}, NOW)
+    assert refused == {}
+    assert selected["Fireworks"].tag == "fireworks/fast"
+    assert not any("rule-resolved" in notice for notice in notices)
+
+
+def test_a_cheapest_pin_on_a_fast_pair_still_refuses() -> None:
+    """The auto-rule never rescues an explicit resolution: a 'cheapest' pin
+    on a {p, p/fast} pair keeps refusing — the tags differ, so the twins
+    are not identical."""
+    selected, refused, _ = refresh.listed_rows(
+        GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
+        {"Fireworks": {"select": "cheapest", "why": "fixture"}}, {}, NOW)
+    assert selected == {}
+    assert set(refused) == {"Fireworks"}
+    assert "identical" in refused["Fireworks"]
+
+
+def test_a_new_fast_pair_host_gets_a_row_for_its_base(tmp_path, capsys) -> None:
+    """End to end, the shape that redded master before #623: a host with a
+    stored row at the base price is suddenly listed as {p, p/fast}. The
+    rule takes the base endpoint, the stored row still matches it, and the
+    run is green with the rule-resolved line in its report."""
+    run = Run(tmp_path)
+    seeded = run.endpoint(GLM, "Fireworks")
+    seeded["tag"] = "fireworks"
+    fast = copy.deepcopy(seeded)
+    fast["tag"] = "fireworks/fast"
+    fast["pricing"]["prompt"] = _per_token(0.9)
+    run.endpoints(GLM).append(fast)
+    before = run.snapshot()
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    assert run.snapshot() == before, "the base is the stored price; nothing appends"
+    assert "rule-resolved" in out
+
+
+def test_a_moved_base_price_beside_a_fast_tier_appends_the_base(
+        tmp_path, capsys) -> None:
+    """The rule-resolved base is the row's price: when it moves while the
+    fast tier is listed beside it, the base's move is the one appended."""
+    run = Run(tmp_path)
+    seeded = run.endpoint(GLM, "Fireworks")
+    seeded["tag"] = "fireworks"
+    seeded["pricing"]["prompt"] = _per_token(0.3)
+    fast = copy.deepcopy(seeded)
+    fast["tag"] = "fireworks/fast"
+    fast["pricing"]["prompt"] = _per_token(0.42)
+    run.endpoints(GLM).append(fast)
+    assert run(capsys)[0] == 0
+    entry = run.doc()["providers"][GLM]["Fireworks"][-1]
+    assert (entry["from"], entry["fresh"]) == (STAMP, 0.3)
+
+
 def test_a_host_listed_only_in_a_region_is_reported_vanished(tmp_path, capsys):
     run = Run(tmp_path)
     run.endpoint(GLM, "Cloudflare")["tag"] = "cloudflare/us"
