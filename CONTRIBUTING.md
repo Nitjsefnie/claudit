@@ -128,7 +128,7 @@ a test whose fixture closure reaches a fixture registered in
 the server without any DB fixture carry `@pytest.mark.db` explicitly;
 `tests/test_db_marker.py` holds both halves in place against the source.
 
-CI runs **twenty** workflows. `ci-gate.yml` owns the push/PR
+CI runs **twenty-one** workflows. `ci-gate.yml` owns the push/PR
 surface: it starts on every push to `master` and every pull request
 against it (a pull request's commits are checked once, with no review
 gate first), classifies the changed paths, runs the ten gate
