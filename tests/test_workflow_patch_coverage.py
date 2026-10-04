@@ -233,10 +233,35 @@ class TestPostingSide:
         run = _step(_comment_job(), POST_STEP).get("run") or ""
         assert 'claimed="$(cat pr-number.txt)"' in run
         assert '[ "$claimed" != "$PR_NUMBER" ]' in run
-        # Digits only: the claim is never used as anything but a number.
-        assert "*[!0-9]*)" in run
+        # Digits only, and pinned to the FULL case line with the empty
+        # arm: a bare `*[!0-9]*)` is satisfied by the sibling comment-id
+        # guard further down this same step, so it would go green if the
+        # pr-number check were deleted.
+        assert "''|*[!0-9]*)" in run
+        assert "the artifact names a non-numeric pull request" in run
         # And the mismatch is loud — refusing, not quietly correcting.
         assert "refusing to post" in run
+
+    def test_the_comment_body_has_exactly_one_publisher_repo_wide(self):
+        """One uploader of the name, or the consumer's download is a coin toss.
+
+        The consumer addresses the artifact by name within the triggering
+        run's artifact LIST. A second publisher of `diff-coverage-comment`
+        in the same ci-gate run would make that read ambiguous, so the
+        name is pinned to one upload site repository-wide — the same shape
+        as the suite-measurement pin in tests/test_suite_ci_wiring.py.
+        """
+        uploaders = []
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            doc = _load(path)
+            for job_id, job in (doc.get("jobs") or {}).items():
+                for step in (job or {}).get("steps") or []:
+                    if not (step.get("uses") or "").startswith(
+                            "actions/upload-artifact"):
+                        continue
+                    if (step.get("with") or {}).get("name") == ARTIFACT:
+                        uploaders.append(f"{path.name}:{job_id}")
+        assert uploaders == ["tests.yml:pytest"]
 
     def test_the_body_must_be_an_ordinary_file_and_is_size_capped(self):
         run = _step(_comment_job(), POST_STEP).get("run") or ""
