@@ -70,6 +70,8 @@ def test_explicit_names_every_convention_read_config():
         "backend/requirements.txt",
         "requirements-dev.txt",
         "requirements-test.txt",
+        "requirements-pip-audit.txt",
+        "requirements-zizmor.txt",
         ".pylintrc",
         "setup.cfg",
         "pyrightconfig.json",

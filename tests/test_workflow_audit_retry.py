@@ -1,4 +1,15 @@
-"""Exercise the audit workflow's retry handling with a scripted pip-audit."""
+"""Exercise the audit workflow's retry handling with a scripted pip-audit.
+
+The step audits THREE manifest sets per pass — the co-installed tree
+(backend/requirements.txt + dev + test), then requirements-pip-audit.txt
+and requirements-zizmor.txt each alone (a hash-pinned manifest beside
+un-hashed ones flips pip-audit's one internal resolution into
+--require-hashes mode) — so a clean pass invokes pip-audit 3 times and a
+retry-then-succeed scenario consumes 4 scripted responses (fail, ok,
+ok, ok). A set that fails terminally ends the step, so exhaustion and
+no-retry scenarios never reach the later sets and their counts are
+unchanged.
+"""
 from __future__ import annotations
 
 import os
@@ -13,6 +24,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "audit.yml"
 STEP_NAME = "Audit dependencies"
+
+# A set's clean response; a retry-then-succeed pass scripts one failure
+# followed by a clean response for EVERY set.
+OK = ("audit ok\n", 0)
+
+
+def _pass_after_one_failure(failure: tuple[str, int]) -> list[tuple[str, int]]:
+    return [failure] + [OK] * 3
+
 
 pytestmark = pytest.mark.skipif(
     sys.platform.startswith("win") or shutil.which("bash") is None,
@@ -95,10 +115,10 @@ def test_pypi_503_service_error_retries_and_succeeds(tmp_path: Path):
         "unhealthy for url: https://pypi.org/pypi/boto3/1.43.99/json\n"
         "pip_audit._service.interface.ServiceError: request failed\n"
     )
-    result, calls = _run_audit_step(tmp_path, [(failure, 1), ("audit ok\n", 0)])
+    result, calls = _run_audit_step(tmp_path, _pass_after_one_failure((failure, 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 def test_repeated_pypi_503_service_errors_exhaust_retries_as_failure(
@@ -132,10 +152,11 @@ def test_vulnerability_finding_fails_without_retry(tmp_path: Path):
 
 def test_existing_connection_reset_error_still_retries(tmp_path: Path):
     result, calls = _run_audit_step(
-        tmp_path, [("Connection reset by peer\n", 1), ("audit ok\n", 0)])
+        tmp_path,
+        _pass_after_one_failure(("Connection reset by peer\n", 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 @pytest.mark.parametrize(
@@ -148,21 +169,21 @@ def test_existing_connection_reset_error_still_retries(tmp_path: Path):
 )
 def test_pip_audit_feed_connection_errors_retry(tmp_path: Path, message: str):
     result, calls = _run_audit_step(
-        tmp_path, [(message, 1), ("audit ok\n", 0)])
+        tmp_path, _pass_after_one_failure((message, 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 def test_ssl_error_retries(tmp_path: Path):
     result, calls = _run_audit_step(
         tmp_path,
-        [("requests.exceptions.SSLError: certificate verify failed\n", 1),
-         ("audit ok\n", 0)],
+        _pass_after_one_failure(
+            ("requests.exceptions.SSLError: certificate verify failed\n", 1)),
     )
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 @pytest.mark.parametrize(
@@ -173,10 +194,10 @@ def test_ssl_error_retries(tmp_path: Path):
 )
 def test_bare_gateway_errors_retry(tmp_path: Path, message: str):
     result, calls = _run_audit_step(
-        tmp_path, [(message, 1), ("audit ok\n", 0)])
+        tmp_path, _pass_after_one_failure((message, 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 def test_http_429_retries_then_succeeds(tmp_path: Path):
@@ -185,10 +206,10 @@ def test_http_429_retries_then_succeeds(tmp_path: Path):
         "https://pypi.org/pypi/demo/json\n"
     )
     result, calls = _run_audit_step(
-        tmp_path, [(rate_limit, 1), ("audit ok\n", 0)])
+        tmp_path, _pass_after_one_failure((rate_limit, 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 2
+    assert calls == 4
 
 
 def test_package_named_service_error_is_reported_without_retry(tmp_path: Path):
