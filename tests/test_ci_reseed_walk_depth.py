@@ -56,7 +56,7 @@ MAX_VISITS = reseed._MAX_VISITS  # pylint: disable=protected-access
 # A step with this `uses:` runs the suite through the composite bench
 # action without naming pytest anywhere in its own run text — the
 # derivation issue #502 needed after a shallow checkout shipped red.
-BENCH_ACTION = "./.github/actions/suite-bench"
+BENCH_ACTION = "$/.github/actions/suite-bench"
 
 # The loader jobs the explicit table pins (issue #582's fix set): every
 # job in the three other suite-running workflows plus tests.yml's
