@@ -49,9 +49,12 @@ NOT A GATE (#560)
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +81,40 @@ def _load(path):
     # boolean True, and these tests read the trigger map by name.
     return yaml.load(Path(path).read_text(encoding="utf-8"),
                      Loader=yaml.BaseLoader) or {}
+
+
+def _load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _variant_bodies():
+    """The real render() output per comment variant.
+
+    Composed by the producer itself, so the composer pins pass the
+    producer's actual bytes through — a literal copy here could go
+    silently stale while render() moved.
+    """
+    dc = _load_module(ROOT / "scripts" / "ci" / "diff_coverage.py",
+                      "diff_coverage_614")
+    return {
+        "measured-lines": dc.render(
+            [dc.FileRow("backend/mod.py", 1, 1, 1, [4])],
+            1, 1, 3, unmeasured=[]),
+        "no-measured-lines": dc.render([], 0, 0, 0, unmeasured=[]),
+        "fallback": dc.render(
+            [], 0, 0, 0, unmeasured=["backend/unreached.py"]),
+        "full-coverage": dc.render(
+            [dc.FileRow("backend/mod.py", 2, 0, 0, [])],
+            2, 0, 2, unmeasured=[]),
+    }
+
+
+BODIES = _variant_bodies()
 
 
 def _pytest_job():
@@ -311,6 +348,88 @@ class TestPostingSide:
         run = step.get("run") or ""
         assert MARKER in run
         assert "-X PATCH" in run
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="executes the workflow's bash composer; "
+                           "POSIX-bound — windows runners resolve bare "
+                           "bash to the WSL stub that exits 1")
+class TestCommentComposition:
+    """The comment composers, pinned by execution (issue #614).
+
+    A source-text pin can hold while the composer still garbles its
+    output: the #614 header printf parsed, ran, and printed the header
+    twice over — the first copy carrying the literal text `ref.` and
+    backslash-n pairs in the SHA's place, the second the real SHA —
+    because a sentence continuation had slipped out of
+    the printf format into an argument and bash reuses the format for
+    every argument. Each case here extracts a composer block from the
+    workflow and RUNS it under bash, asserting the composed bytes.
+
+    The comment's variants (compose sites: the POST step for the
+    artifact body, the MARK step for the stale-refusal comment):
+    measured-lines, no-measured-lines, the unmeasured fallback,
+    full-coverage, and the three not-measured reasons.
+    """
+
+    SHA = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f9e8d7c"
+
+    # The MARK step's not-measured wording per ci-gate conclusion. The
+    # expectations are typed here; the workflow's own case mapping RUNS in
+    # the test (the block is extracted from its `case` line), so editing a
+    # wording in the workflow fails here instead of drifting silently.
+    NOT_MEASURED_REASONS = {
+        "success": "a narrowed run (documentation-only or rate-data-only)",
+        "cancelled": "a cancelled ci gate run",
+        "failure": "a ci gate run that concluded failure",
+    }
+
+    def _composer_block(self, step_name, start_anchor="marker="):
+        """Extract from `start_anchor` through `} > comment.md`."""
+        run = _step(_comment_job(), step_name).get("run") or ""
+        lines = run.splitlines()
+        start = next(i for i, line in enumerate(lines)
+                     if line.lstrip().startswith(start_anchor))
+        end = next(i for i, line in enumerate(lines)
+                   if line.lstrip().startswith("}")
+                   and "comment.md" in line)
+        return "\n".join(lines[start:end + 1])
+
+    def _compose(self, tmp_path, step_name, variables, body=None,
+                 start_anchor="marker="):
+        """Run the block with `variables`; return the composed comment."""
+        if body is not None:
+            (tmp_path / "body.md").write_text(body, encoding="utf-8")
+        subprocess.run(
+            ["bash", "-c", self._composer_block(step_name, start_anchor)],
+            cwd=tmp_path, env={**os.environ, **variables},
+            capture_output=True, text=True, check=True)
+        return (tmp_path / "comment.md").read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("variant", sorted(BODIES))
+    def test_post_step_composes_header_then_body_verbatim(
+            self, tmp_path, variant):
+        composed = self._compose(tmp_path, POST_STEP,
+                                 {"HEAD_COMMIT": self.SHA},
+                                 body=BODIES[variant])
+        assert composed == (
+            f"{MARKER}\n\n"
+            f"Patch coverage for commit {self.SHA},"
+            f" measured on the merge ref.\n\n"
+            + BODIES[variant]
+        )
+
+    @pytest.mark.parametrize("conclusion", sorted(NOT_MEASURED_REASONS))
+    def test_mark_step_states_the_not_measured_reason(
+            self, tmp_path, conclusion):
+        composed = self._compose(
+            tmp_path, MARK_STEP, {"RUN_CONCLUSION": conclusion},
+            start_anchor='case "${RUN_CONCLUSION:-}" in')
+        assert composed == (
+            f"{MARKER}\n\n"
+            f"Patch coverage was not measured: "
+            f"{self.NOT_MEASURED_REASONS[conclusion]}.\n"
+        )
 
 
 class TestNotAGate:

@@ -330,8 +330,8 @@ jobs:
           marker='<!-- claudit-diff-coverage -->'
           {
             printf '%s\n\n' "$marker"
-            printf 'Patch coverage for commit %s, measured on the merge' \
-              "ref.\n\n" "$HEAD_COMMIT"
+            printf 'Patch coverage for commit %s, measured on the merge ref.\n\n' \
+              "$HEAD_COMMIT"
             cat body.md
           } > comment.md
           if ! gh api -H 'Cache-Control: no-cache' --paginate \
