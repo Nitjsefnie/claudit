@@ -18,6 +18,12 @@ structure, the way Dependabot itself reads them — a regex over the raw text
 would satisfy a decoy spelling and cannot tell a value from a comment. The
 one exception is the pin comments themselves, which do not survive YAML
 parsing, so that pin is necessarily textual.
+
+Also the CI-tool manifest tripwires (issue #551): Dependabot's pip ecosystem
+reads manifest files, never a workflow `run:` block, so an inline
+`pip install name==ver` pin can only go stale unnoticed — the pins live in
+requirements manifests at the repo root, the zizmor one hash-pinned, and
+audit.yml's audit step covers every manifest in the tree.
 """
 from __future__ import annotations
 
@@ -31,6 +37,43 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CODEQL_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "codeql.yml"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+ZIZMOR_MANIFEST = REPO_ROOT / "requirements-zizmor.txt"
+
+# a pip requirement carrying a version spec — the inline-pin shape
+# Dependabot can never see. Single-char comparison operators need a
+# digit/letter after them so a `> audit.out` redirect never matches.
+_REQ_OPERATOR = re.compile(
+    r"[A-Za-z0-9_.\[\]-]+\s*(==|~=|!=|<=|>=|<(?=[0-9A-Za-z])|>(?=[0-9A-Za-z]))"
+)
+
+
+def _run_blocks(path: Path) -> list[str]:
+    """Every step's `run:` string in one workflow, YAML-decoded."""
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    blocks: list[str] = []
+    for job in (doc.get("jobs") or {}).values():
+        for step in (job or {}).get("steps") or []:
+            run = (step or {}).get("run")
+            if isinstance(run, str):
+                blocks.append(run)
+    return blocks
+
+
+def _pip_install_segments(run: str) -> list[str]:
+    """Each `pip install` command's argument segment, continuations joined."""
+    segments: list[str] = []
+    lines = run.splitlines()
+    for i, line in enumerate(lines):
+        if not re.search(r"\bpip3?\s+install\b", line):
+            continue
+        segment = line
+        j = i
+        while segment.rstrip().endswith("\\") and j + 1 < len(lines):
+            j += 1
+            segment = segment.rstrip().removesuffix("\\") + " " + lines[j]
+        segments.append(segment)
+    return segments
+
 
 # `uses: github/codeql-action/<step>@<sha>  # vX.Y.Z` — text-only, by
 # necessity: a YAML parse drops comments.
@@ -342,4 +385,94 @@ def test_codeql_matrix_analyses_the_workflows() -> None:
     assert category == "/language:${{ matrix.language }}", (
         "the analyze step does not file its SARIF under the matrix's "
         f"language category: {category!r}"
+    )
+
+
+def test_workflow_pip_installs_never_pin_inline() -> None:
+    """A pip install in a workflow installs from a manifest, never a pin.
+
+    Dependabot's pip ecosystem reads requirements manifests, never a
+    workflow `run:` block, so `pip install name==ver` in a step is a pin
+    that can only go stale unnoticed — zizmor sat at 1.29.0 through two
+    releases this way (issue #551). `--upgrade pip` is exempt here: it
+    carries no version operator, and upgrading the installer itself is
+    refresh-pricing/tests/lint's existing shape, not this issue's scope.
+    """
+    offenders = []
+    for path in _workflow_files():
+        for run in _run_blocks(path):
+            for segment in _pip_install_segments(run):
+                if _REQ_OPERATOR.search(segment):
+                    offenders.append(f"{path.name}: {segment.strip()}")
+    assert not offenders, (
+        "a workflow pins a package inline in a run: block, where "
+        "Dependabot's pip ecosystem can never see it — move it into a "
+        "requirements manifest at the repo root: " + repr(offenders)
+    )
+
+
+def test_zizmor_manifest_is_hash_pinned_and_require_hashes_installed() -> None:
+    """The zizmor manifest carries hashes, and its install verifies them.
+
+    actionlint runs before every other gate, so the linter's install is a
+    supply-chain position worth defending: a version pin alone still
+    installs whatever artifact the index serves for that version. The
+    manifest is hash-pinned, and the workflow installs it with
+    --require-hashes, which pip refuses to run against a manifest missing
+    a hash — so the two assertions below fail together by construction.
+    """
+    logical: list[str] = []
+    pending = ""
+    for raw in ZIZMOR_MANIFEST.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.endswith("\\"):
+            pending += line[:-1].strip() + " "
+            continue
+        entry = (pending + line).strip()
+        pending = ""
+        if entry and not entry.startswith("#"):
+            logical.append(entry)
+    requirements = logical
+    assert requirements, f"{ZIZMOR_MANIFEST.name} names no requirement"
+    unpinned = [
+        entry for entry in requirements
+        if not re.match(r"^[A-Za-z0-9_.\[\]-]+==\S+", entry)
+        or "--hash=sha256:" not in entry
+    ]
+    assert not unpinned, (
+        "a requirement in the zizmor manifest lacks a == pin with a hash, "
+        "so --require-hashes would reject the install — every line needs "
+        "the name==version and at least one --hash=sha256: " + repr(unpinned)
+    )
+    installs = [
+        segment for run in _run_blocks(WORKFLOWS_DIR / "actionlint.yml")
+        for segment in _pip_install_segments(run)
+        if "requirements-zizmor.txt" in segment
+    ]
+    assert installs and all(
+        "--require-hashes" in segment and "-r" in segment
+        for segment in installs
+    ), (
+        "the zizmor manifest install does not use --require-hashes -r: "
+        + repr(installs)
+    )
+
+
+def test_audit_gate_covers_every_requirements_manifest() -> None:
+    """Every requirements manifest in the tree is audited by audit.yml.
+
+    The gate's job is "is a version we froze still safe", and a manifest
+    it does not name is frozen outside its view — the manifest Dependabot
+    keeps fresh (issue #551) would be exactly one pip-audit never saw.
+    """
+    audited: set[str] = set()
+    for run in _run_blocks(WORKFLOWS_DIR / "audit.yml"):
+        audited |= set(re.findall(r"--requirement\s+(\S+)", run))
+    manifests = {"backend/requirements.txt"} | {
+        path.name for path in REPO_ROOT.glob("requirements*.txt")
+    }
+    assert audited == manifests, (
+        "audit.yml's --requirement set and the tree's manifests disagree — "
+        f"unaudited: {sorted(manifests - audited)}, "
+        f"phantom: {sorted(audited - manifests)}"
     )
