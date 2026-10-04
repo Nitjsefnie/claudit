@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T17:53:44Z",
+  "provider_rates_fetched": "2026-10-04T18:53:40Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -41781,6 +41781,14 @@
           "from": "2026-10-04T15:40:54Z",
           "output": 4.2,
           "read": 0.45
+        },
+        {
+          "create_1h": 0.85,
+          "create_5m": 0.85,
+          "fresh": 0.85,
+          "from": "2026-10-04T17:50:44Z",
+          "output": 5.0,
+          "read": 0.7
         }
       ]
     },
@@ -45066,6 +45074,14 @@
           "from": "2026-10-04T17:53:44Z",
           "output": 5.0,
           "read": 0.09
+        },
+        {
+          "create_1h": 0.06,
+          "create_5m": 0.06,
+          "fresh": 0.06,
+          "from": "2026-10-04T18:20:28Z",
+          "output": 5.0,
+          "read": 0.05
         }
       ],
       "Io Net": [
@@ -48115,6 +48131,14 @@
           "from": "2026-10-04T17:10:31Z",
           "output": 4.4,
           "read": 0.0528
+        },
+        {
+          "create_1h": 0.136,
+          "create_5m": 0.136,
+          "fresh": 0.136,
+          "from": "2026-10-04T18:05:44Z",
+          "output": 4.4,
+          "read": 0.0898
         }
       ],
       "Sail Research": [
@@ -50628,6 +50652,14 @@
           "from": "2026-10-04T05:20:57Z",
           "output": 0.65,
           "read": 0.04576
+        },
+        {
+          "create_1h": 0.04576,
+          "create_5m": 0.04576,
+          "fresh": 0.04576,
+          "from": "2026-10-04T18:45:28Z",
+          "output": 0.65,
+          "read": 0.03016
         }
       ],
       "Parasail": [
@@ -51115,6 +51147,14 @@
           "from": "2026-10-04T05:15:44Z",
           "output": 0.5,
           "read": 0.0352
+        },
+        {
+          "create_1h": 0.0352,
+          "create_5m": 0.0352,
+          "fresh": 0.0352,
+          "from": "2026-10-04T18:40:44Z",
+          "output": 0.5,
+          "read": 0.0232
         }
       ],
       "Sail Research": [
