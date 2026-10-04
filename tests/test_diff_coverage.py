@@ -339,6 +339,16 @@ class TestRender:
         body = dc.render([], 0, 0, 0, unmeasured=[])
         assert "No" in body  # says why nothing was measured, not "0%"
 
+    def test_no_measured_sentence_is_grammatical(self):
+        """#614: words were missing between 'executable' and the
+        parenthesis, reading 'Lines coverage does not consider
+        executable (...) are excluded'."""
+        body = dc.render([], 0, 0, 0, unmeasured=[])
+        assert ("Lines that coverage does not consider executable "
+                "(blank lines, comments, `else:`) are excluded, and "
+                "changes outside the measured tree have no patch "
+                "figure.") in body
+
     def test_unmeasured_backend_files_are_named(self, tmp_path):
         body = dc.render([dc.FileRow("backend/mod.py", 1, 0, 0, [])],
                          1, 0, 1, unmeasured=["backend/newfile.py"])

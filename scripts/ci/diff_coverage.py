@@ -19,9 +19,9 @@ result it could compute, even 0%, and nonzero only for a hard setup error
 
 Only `backend/` is measured: the suite runs with `--cov=backend`, so tests/
 and scripts/ changes have no patch figure at all - absence from the report
-is scope, not a miss. Within a measured file, lines coverage does not
-consider executable (blank lines, comments, `else:`) are excluded, keeping
-the percentage independent of formatting. A changed backend file the report
+is scope, not a miss. Within a measured file, lines that coverage does
+not consider executable (blank lines, comments, `else:`) are excluded,
+keeping the percentage independent of formatting. A changed backend file the report
 does not name is listed separately: either a module no test imports, or a
 path-spelling mismatch - the one thing absence can mean inside the measured
 tree.
@@ -305,10 +305,11 @@ def render(rows: list[FileRow], covered: int, partial: int, total: int,
             out.append('')
             out.extend(f'- `{path}`' for path in unmeasured)
         else:
-            out.append('No **measured** lines were added. Lines coverage '
-                       'does not consider executable (blank lines, '
-                       'comments, `else:`) are excluded, and changes '
-                       'outside the measured tree have no patch figure.')
+            out.append('No **measured** lines were added. Lines that '
+                       'coverage does not consider executable (blank '
+                       'lines, comments, `else:`) are excluded, and '
+                       'changes outside the measured tree have no '
+                       'patch figure.')
     else:
         executed = covered + partial
         percent = 100.0 * executed / total
