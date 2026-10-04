@@ -68,6 +68,14 @@ def mini_suite_fixture(tmp_path):
     """A synthetic mini pytest suite with its own conftest and bench
     fixture list, shaped like the real one."""
     (tmp_path / "conftest.py").write_text(MINI_CONFTEST, encoding="utf-8")
+    # The bench's nested pytest.main session is rooted HERE, so it reads
+    # this config, never the repo's setup.cfg: without the loop scope set,
+    # pytest-asyncio's configure-stage deprecation warning — swallowed in
+    # a top-level run by Python's default filters — re-enters the OUTER
+    # run's warnings summary from inside these tests (issue #481).
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\nasyncio_default_fixture_loop_scope = function\n",
+        encoding="utf-8")
     (tmp_path / "mini_test_a.py").write_text(MINI_TEST_A, encoding="utf-8")
     (tmp_path / "mini_test_b.py").write_text(MINI_TEST_B, encoding="utf-8")
     fixture = tmp_path / "bench_files.txt"
