@@ -122,3 +122,51 @@ def test_dependabot_groups_action_updates_into_one_pr() -> None:
         'catch-all "*" pattern — a security-updates-only or narrowed group '
         "never bundles the weekly bump and the half-bumps return"
     )
+
+
+def test_every_group_has_a_security_updates_twin() -> None:
+    """A group covers the kind it names, and the kind DEFAULTS to version.
+
+    Security updates are enabled on this repository (verified 2026-10-04
+    via `gh api repos/Nitjsefnie/claudit/automated-security-fixes`), and
+    they skip a version-updates group entirely — one written that way
+    explicitly, and one that simply never names `applies-to`. A codeql-action
+    CVE bump then arrives as one pull request per `uses:` line, leaving init
+    and analyze on different versions — the same red PR the group above
+    exists to prevent (issue #555; Nitjsefnie-Actions/claim PR #38, pr-gate
+    PR #29).
+
+    A twin must match its sibling in EVERY key but `applies-to`, not merely
+    be catch-all: one that narrowed `patterns`, or added
+    `exclude-patterns`, `update-types` or `dependency-type`, still reads as a
+    twin to a membership-only check while bundling a different set — and for
+    `github/codeql-action` that is the very split #555 is about.
+    """
+    doc = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8")) or {}
+    unpaired = []
+    for entry in doc.get("updates") or []:
+        groups = {
+            name: group
+            for name, group in ((entry or {}).get("groups") or {}).items()
+            if isinstance(group, dict)
+        }
+        shape = {
+            name: {k: v for k, v in group.items() if k != "applies-to"}
+            for name, group in groups.items()
+        }
+        kind = {
+            name: group.get("applies-to", "version-updates")
+            for name, group in groups.items()
+        }
+        opposite = {"version-updates": "security-updates",
+                    "security-updates": "version-updates"}
+        for name in groups:
+            if not any(n != name and kind[n] == opposite[kind[name]]
+                       and shape[n] == shape[name] for n in groups):
+                unpaired.append((entry.get("package-ecosystem"), name,
+                                 kind[name], sorted(shape[name])))
+    assert not unpaired, (
+        "a group has no twin of the opposite applies-to kind carrying an "
+        "identical rule, so that kind's bumps arrive unbundled or bundled "
+        "differently: " + repr(unpaired)
+    )

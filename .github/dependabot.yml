@@ -67,6 +67,15 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+      # A group covers version updates only unless it names `applies-to`,
+      # and security updates are enabled here — so a toolchain CVE bump
+      # would arrive one package per PR, leaving eslint, its plugin and
+      # globals on a lockfile that does not install. The twin group below
+      # is what keeps the security bump atomic (issue #555).
+      js-toolchain-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # The workflows pin every action to a commit SHA with the version in a
   # trailing comment. A SHA pin does not move at all — which is the point,
@@ -95,5 +104,19 @@ updates:
     groups:
       actions:
         applies-to: version-updates
+        patterns:
+          - "*"
+      # A group covers its own `applies-to` kind only, and the kind DEFAULTS
+      # to version updates, so a version-updates group — explicit or by
+      # default — is skipped by security updates entirely. They are enabled
+      # here (verified 2026-10-04 via
+      # `gh api repos/Nitjsefnie/claudit/automated-security-fixes`), so
+      # without the twin below a codeql-action CVE bump lands as one PR per
+      # `uses:` line, which splits init and analyze across versions and turns
+      # the security fix itself red at SARIF processing — the exact failure
+      # the group above exists to prevent (issue #555; the same shape as
+      # Nitjsefnie-Actions/claim PR #38 and pr-gate PR #29).
+      actions-security:
+        applies-to: security-updates
         patterns:
           - "*"
