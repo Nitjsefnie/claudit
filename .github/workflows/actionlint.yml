@@ -20,9 +20,14 @@ name: actionlint
 #   every checkout left the job token in .git/config, and no workflow
 #   declared permissions at all.
 #
-# Both tools are pinned. actionlint is verified by checksum rather than
-# trusted from the release page, because a linter that runs before every
-# other gate is a supply-chain position worth defending. It is the FORK
+# Both tools are pinned. actionlint is downloaded and checksum-verified
+# rather than trusted from the release page; zizmor installs through the
+# hash-pinned requirements-zizmor.txt with --require-hashes, which
+# Dependabot's root pip entry watches for version bumps — a version pin
+# inside a run: block is invisible to Dependabot and goes stale unnoticed
+# (issue #551: zizmor sat at 1.29.0 through two releases that way).
+# actionlint is in a supply-chain position worth defending: a linter that
+# runs before every other gate. It is the FORK
 # build, not stock upstream, for the `concurrency` `queue:` key — see
 # ACTIONLINT_REPO below (issue #541). Note what the fork costs that
 # position: the checksum now attests bytes published by the same account
@@ -87,9 +92,9 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126). This job has
-      # no requirements file — zizmor is pinned inline below — so the key
-      # hashes this workflow, and a pin bump starts a fresh cache entry.
+      # cache a trusted run later installs from (issue #126). This job's
+      # only manifest is requirements-zizmor.txt, so the key hashes that
+      # file, and a pin bump starts a fresh cache entry.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -97,7 +102,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('.github/workflows/actionlint.yml') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-zizmor.txt') }}
           restore-keys: |
             pip-${{ runner.os }}-3.13-
 
@@ -115,9 +120,14 @@ jobs:
 
       - name: Install zizmor
         id: install_zizmor
-        run: |
-          python -m pip install --upgrade pip
-          pip install zizmor==1.29.0
+        # --require-hashes verifies every artifact against the manifest's
+        # sha256: a version pin alone still installs whatever artifact the
+        # index serves for that version. There is deliberately NO
+        # `--upgrade pip` here: it installed whatever bytes the index
+        # served, unpinned — an unaudited component ahead of a gate that
+        # audits supply-chain integrity. The runner's preinstalled pip is
+        # far newer than --require-hashes needs.
+        run: python -m pip install --require-hashes -r requirements-zizmor.txt
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
@@ -130,7 +140,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('.github/workflows/actionlint.yml') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-zizmor.txt') }}
 
       - name: actionlint
         id: actionlint
