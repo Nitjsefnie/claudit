@@ -24,6 +24,17 @@ name: audit
 # a notification that accumulates unread. When a fix genuinely is not
 # available yet, add the advisory to --ignore-vuln below WITH a comment
 # saying why and what would clear it — never silence the whole gate.
+#
+# pip-audit is installed from requirements-pip-audit.txt rather than an
+# inline pin in a `run:` block: Dependabot's pip ecosystem reads manifest
+# files, never the pins inside a workflow, so an inline `pip-audit==X`
+# could only go stale unnoticed (issue #551: it sat un-updated while the
+# manifests it audits got Dependabot bumps).
+#
+# There is deliberately NO `python -m pip install --upgrade pip` here. The
+# unreviewed pip upgrade is an unaudited component — the very thing this
+# gate judges — and actionlint.yml carries the same stance for the same
+# reason; the runner's stock pip installs the pinned manifest.
 
 on:
   # Trigger ownership moved to ci-gate.yml (issue #127): push and
@@ -68,9 +79,9 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126). This job has
-      # no requirements file — pip-audit is pinned inline below — so the
-      # key hashes this workflow, and a pin bump starts a fresh cache entry.
+      # cache a trusted run later installs from (issue #126). This job's
+      # only manifest is requirements-pip-audit.txt, so the key hashes that
+      # file, and a pin bump starts a fresh cache entry.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -78,14 +89,18 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('.github/workflows/audit.yml') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-pip-audit.txt') }}
           restore-keys: |
             pip-${{ runner.os }}-3.13-
 
       - name: Install pip-audit
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit==2.10.1
+        # From a manifest rather than an inline pin: Dependabot's pip
+        # ecosystem reads manifest files, never a run: block, so an inline
+        # `pip-audit==X` could only go stale unnoticed (issue #551). No
+        # `--upgrade pip` either: it installed whatever bytes the index
+        # served, unpinned — an unaudited component ahead of the audit
+        # gate itself. The runner's stock pip installs the manifest.
+        run: python -m pip install -r requirements-pip-audit.txt
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
@@ -98,12 +113,19 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('.github/workflows/audit.yml') }}
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('requirements-pip-audit.txt') }}
 
       - name: Audit dependencies
-        # All three requirements files in one invocation so a package
-        # constrained by two of them is resolved once, consistently — the
-        # same way an install would see it.
+        # Each SET below is resolved and audited the way its install
+        # consumes it. The three co-installed trees (runtime + dev + test)
+        # resolve once, consistently — a package constrained by two of
+        # them is resolved the same way an install would see it. The two
+        # CI-tool manifests are audited ALONE, each by its own invocation:
+        # pip-audit resolves all --requirement files in ONE internal pip
+        # dry-run, and a hash-pinned manifest beside an un-hashed one
+        # flips that resolution into --require-hashes mode, which fails on
+        # the hashes the other manifests do not carry (observed on
+        # Nitjsefnie-Actions/pr-gate's first run of this gate).
         #
         # No --ignore-vuln entries at present. Each one added here must
         # carry a comment naming the advisory, why it is not fixable, and
@@ -121,40 +143,46 @@ jobs:
         # as a 404 for a missing package) are checked before ServiceError.
         # Findings and other failures are reported immediately.
         run: |
-          for attempt in 1 2 3; do
-            if pip-audit \
-                 --progress-spinner off \
-                 --requirement backend/requirements.txt \
-                 --requirement requirements-dev.txt \
-                 --requirement requirements-test.txt \
-                 > audit.out 2>&1; then
-              cat audit.out
-              exit 0
-            fi
+          audit_set() {
+            local attempt
+            for attempt in 1 2 3; do
+              if pip-audit --progress-spinner off "$@" > audit.out 2>&1; then
+                cat audit.out
+                return 0
+              fi
 
-            if grep -qiE '4[0-9][0-9] Client Error' audit.out \
-                && ! grep -qiE '429 (Client Error|Too Many Requests)' audit.out; then
-              echo "pip-audit failed with a non-retryable 4xx client error:" >&2
+              if grep -qiE '4[0-9][0-9] Client Error' audit.out \
+                  && ! grep -qiE '429 (Client Error|Too Many Requests)' audit.out; then
+                echo "pip-audit failed with a non-retryable 4xx client error:" >&2
+                cat audit.out >&2
+                return 1
+              fi
+
+              if grep -qiE 'connection (aborted|reset|error)|read timed out|temporary failure in name resolution' audit.out \
+                  || grep -qiE 'Could not connect to (PyPI|OSV).*vulnerability feed' audit.out \
+                  || grep -qiE '(^|[[:space:]])[[:alnum:]_.]*SSLError:' audit.out \
+                  || grep -qiE '5[0-9][0-9] Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|429 (Client Error|Too Many Requests)' audit.out \
+                  || grep -qiE '(^|[[:space:]])(pip_audit\._service\.interface\.)?ServiceError:' audit.out; then
+                echo "attempt $attempt: transport/service failure, retrying"
+                tail -n 5 audit.out
+                sleep $(( attempt * 15 ))
+                continue
+              fi
+
+              echo "pip-audit reported findings:" >&2
               cat audit.out >&2
-              exit 1
-            fi
+              return 1
+            done
 
-            if grep -qiE 'connection (aborted|reset|error)|read timed out|temporary failure in name resolution' audit.out \
-                || grep -qiE 'Could not connect to (PyPI|OSV).*vulnerability feed' audit.out \
-                || grep -qiE '(^|[[:space:]])[[:alnum:]_.]*SSLError:' audit.out \
-                || grep -qiE '5[0-9][0-9] Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|429 (Client Error|Too Many Requests)' audit.out \
-                || grep -qiE '(^|[[:space:]])(pip_audit\._service\.interface\.)?ServiceError:' audit.out; then
-              echo "attempt $attempt: transport/service failure, retrying"
-              tail -n 5 audit.out
-              sleep $(( attempt * 15 ))
-              continue
-            fi
-
-            echo "pip-audit reported findings:" >&2
+            echo "pip-audit exhausted 3 attempts after a transport/service failure:" >&2
             cat audit.out >&2
-            exit 1
-          done
+            return 1
+          }
 
-          echo "pip-audit exhausted 3 attempts after a transport/service failure:" >&2
-          cat audit.out >&2
-          exit 1
+          audit_set \
+            --requirement backend/requirements.txt \
+            --requirement requirements-dev.txt \
+            --requirement requirements-test.txt || exit 1
+
+          audit_set --requirement requirements-pip-audit.txt || exit 1
+          audit_set --requirement requirements-zizmor.txt || exit 1
