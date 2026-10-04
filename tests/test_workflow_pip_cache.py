@@ -11,6 +11,7 @@ install so the freshly populated cache is what gets saved.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterator
 
@@ -74,6 +75,40 @@ def test_every_cache_save_directly_follows_the_dependency_install():
             predecessor = steps[index - 1] if index else {}
             assert "pip install" in (predecessor.get("run") or ""), (
                 workflow, job, index)
+
+
+def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
+    # A matrix runs the job once per value. When the save's key varies by
+    # a matrix value (tests.yml keys its python-version matrix that way)
+    # each job writes its own key and all may save. When the key does NOT
+    # vary — the perturbed leg's three seed jobs share one pip key — N
+    # jobs save under it, the losers fail on a key that already exists,
+    # and the leg goes red on a cache race, never on a test. So that case
+    # is pinned to a single matrix value.
+    for workflow, job_id, steps in _jobs():
+        for step in steps:
+            if _action(step) != "actions/cache/save":
+                continue
+            doc = yaml.safe_load(
+                (ROOT / ".github" / "workflows" / workflow).read_text(
+                    encoding="utf-8")) or {}
+            strategy = (doc["jobs"][job_id] or {}).get("strategy") or {}
+            if not strategy.get("matrix"):
+                continue
+            key = (step.get("with") or {}).get("key") or ""
+            if "matrix." in key:
+                continue
+            gate = step.get("if") or ""
+            # The gate must EXCLUDE the other values, so the pinned shape
+            # is exactly ONE equality naming a value the matrix actually
+            # carries: a substring check would be satisfied by
+            # `matrix.seed != ...`, which excludes nothing, and a gate
+            # naming two of them admits a second saver.
+            pinned = re.findall(r"matrix\.(\w+) == '([^']*)'", gate)
+            assert len(pinned) == 1, (workflow, job_id, gate)
+            axis, value = pinned[0]
+            assert value in strategy["matrix"].get(axis, []), (
+                workflow, job_id, gate)
 
 
 def test_restore_and_save_steps_share_their_cache_key():

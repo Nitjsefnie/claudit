@@ -221,8 +221,18 @@ def _workflow_doc():
             encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
-def test_the_leg_step_calls_the_bench_with_the_fixed_seeds():
+def test_the_leg_runs_one_seed_per_matrix_job():
     (job,) = _workflow_doc()["jobs"].values()
+    strategy = job.get("strategy") or {}
+    # Every seed reports its own verdict (issue #456, option A): the
+    # seeds are independent trees, so fail-fast's cancellation would
+    # discard a seed still to run.
+    assert strategy.get("fail-fast") == "false", strategy
+    # The fixed seeds (issue #226) live in the matrix now, so this is
+    # where the leg's seed policy is pinned: a dropped or added seed
+    # fails here.
+    assert (strategy.get("matrix") or {}).get("seed") == [
+        "42", "1234567890", "1720000000"], strategy
     steps = [step for step in job["steps"]
              if "perturbed_leg_bench" in (step.get("run") or "")]
     assert len(steps) == 1
@@ -232,13 +242,14 @@ def test_the_leg_step_calls_the_bench_with_the_fixed_seeds():
     joined = steps[0]["run"].replace("\\\n", " ")
     lines = [line.strip() for line in joined.splitlines() if line.strip()]
     assert len(lines) == 1
-    # Exact command equality: a dropped seed, a dropped --summary, or a
-    # trailing `|| true` (which would stop the bench's exit being the
-    # step's) all fail this pin. The attribution lands in the step
-    # summary, and the bench's exit code is the step's own.
+    # Exact command equality: a job still looping the seeds itself, a
+    # dropped --summary, or a trailing `|| true` (which would stop the
+    # bench's exit being the step's) all fail this pin. The
+    # attribution lands in the step summary, and the bench's exit code
+    # is the step's own.
     assert " ".join(lines[0].split()) == (
         "python scripts/ci/perturbed_leg_bench.py "
-        "--seed 42 --seed 1234567890 --seed 1720000000 "
+        '--seed "${{ matrix.seed }}" '
         '--summary "$GITHUB_STEP_SUMMARY"')
     # The default is the production invocation: no override here.
     assert "--pytest-args" not in lines[0]
