@@ -15,8 +15,10 @@ EXPLICIT. Files named by hand. Two kinds:
   text: the ratchet data — the correction at this set's core, since a
   tighten raises what the gates demand of the same source tree even
   though it touches nothing in any pull request's diff (issue #495) —
-  the scanner config, and the three requirements files the audit and
-  test legs install from.
+  the scanner config, and the five requirements files the audit, test
+  and lint legs install from or audit (issue #551 added the two CI-tool
+  manifests; a manifest's presence in the set must not depend on a
+  spelling surviving in a workflow text).
 - Gate parameters read by tool DISCOVERY, invisible to the extraction:
   bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
   `.pylintrc` / `setup.cfg` / `pyrightconfig.json` /
@@ -70,6 +72,8 @@ EXPLICIT = (
     "backend/requirements.txt",
     "requirements-dev.txt",
     "requirements-test.txt",
+    "requirements-pip-audit.txt",
+    "requirements-zizmor.txt",
     ".pylintrc",
     "setup.cfg",
     "pyrightconfig.json",
