@@ -399,20 +399,18 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     # A callee's token is capped by the caller's grant at the uses:
     # site. The callee pushes nothing since issue #479 (the ratchet
     # push lives in the top-level ratchet-push.yml workflow, where the
-    # master-push environment's secret resolves), so contents: read
-    # covers every job it declares; pull-requests: write stays for the
-    # pytest job's informational patch-coverage comment. The pytest
-    # job's narrower self-declared block still governs that job.
+    # master-push environment's secret resolves) and, since issue #560,
+    # it posts nothing either — the informational patch-coverage comment
+    # is uploaded as an artifact and posted by the top-level
+    # coverage-comment.yml, which runs no pull-request code. So
+    # contents: read covers every job it declares.
     doc = _ci_gate()
     calls = [job for job in (doc.get("jobs") or {}).values()
              if (job.get("uses") or "")
              == "./.github/workflows/tests.yml"]
     assert len(calls) == 1
     call = calls[0]
-    assert call["permissions"] == {
-        "contents": "read",
-        "pull-requests": "write",
-    }
+    assert call["permissions"] == {"contents": "read"}
     # No secret is forwarded to the callee: the call maps no secrets,
     # and the callee's workflow_call trigger declares none either.
     assert "secrets" not in call
