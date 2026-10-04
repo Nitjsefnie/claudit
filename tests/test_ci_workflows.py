@@ -273,3 +273,73 @@ def test_postgres_service_images_share_one_digest() -> None:
         "the Postgres service images disagree on their digest: "
         f"{dict(sorted(postgres.items()))}"
     )
+
+
+def test_codeql_matrix_analyses_the_workflows() -> None:
+    """The `actions` language stays in the CodeQL matrix (issue #552).
+
+    The workflow files are among the most privileged code here: a bot
+    pushes ratchet commits to master with a deploy key, and the
+    `pull_request_target` gates decide with the base repository's
+    secrets. actionlint and zizmor read them for known-wrong shapes;
+    CodeQL asks a dataflow question of the same files, which the other
+    two do not. Nothing else in the tree fails if the entry is dropped —
+    a shorter matrix is a perfectly valid workflow, and only the missing
+    code-scanning alerts say otherwise — so the tripwire is here.
+
+    `actions` takes no build; every entry carries `build-mode: none`,
+    because this tree has no compiled language for CodeQL to build —
+    CodeQL's own autobuild is not what the entry is declining.
+
+    The matrix is DECLARED, not consumed: an `include` list nothing
+    reads passes the checks above and analyses one language three
+    times. So the plumbing is pinned too — the init step's `languages`
+    and `build-mode`, and the analyze step's `category`, each
+    interpolate the matrix rather than naming a language themselves.
+    A hard-coded `languages: python` under a three-entry matrix is the
+    mutant these last assertions exist for.
+    """
+    doc = yaml.safe_load(CODEQL_WORKFLOW.read_text(encoding="utf-8")) or {}
+    job = (doc.get("jobs") or {}).get("analyze") or {}
+    matrix = job.get("strategy")
+    entries = ((matrix or {}).get("matrix") or {}).get("include") or []
+    languages = [entry.get("language") for entry in entries]
+    assert "actions" in languages, (
+        "the CodeQL matrix no longer analyses the workflow files: "
+        f"{languages}"
+    )
+    assert {"python", "javascript-typescript"} <= set(languages), (
+        f"the CodeQL matrix lost a shipped language: {languages}"
+    )
+    assert all(entry.get("build-mode") == "none" for entry in entries), (
+        "a matrix entry carries a build mode CodeQL would try to run; "
+        f"{entries}"
+    )
+
+    # the oracle must be live: a rename or a dropped step must not
+    # silence the plumbing assertions into a vacuous pass
+    steps = [step for step in (job.get("steps") or []) if isinstance(step, dict)]
+    init = [s for s in steps
+            if (s.get("uses") or "").partition("@")[0].rstrip("/")
+            == "github/codeql-action/init"]
+    analyze = [s for s in steps
+               if (s.get("uses") or "").partition("@")[0].rstrip("/")
+               == "github/codeql-action/analyze"]
+    assert len(init) == 1 and len(analyze) == 1, (
+        f"expected one init and one analyze step, found "
+        f"{len(init)} and {len(analyze)}"
+    )
+    with_ = init[0].get("with") or {}
+    assert with_.get("languages") == "${{ matrix.language }}", (
+        "the init step does not read the matrix's language, so the "
+        f"matrix does not choose what is analysed: {with_.get('languages')!r}"
+    )
+    assert with_.get("build-mode") == "${{ matrix.build-mode }}", (
+        "the init step does not read the matrix's build mode: "
+        f"{with_.get('build-mode')!r}"
+    )
+    category = (analyze[0].get("with") or {}).get("category")
+    assert category == "/language:${{ matrix.language }}", (
+        "the analyze step does not file its SARIF under the matrix's "
+        f"language category: {category!r}"
+    )
