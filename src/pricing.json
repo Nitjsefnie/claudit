@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T12:38:30Z",
+  "provider_rates_fetched": "2026-10-04T14:54:02Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1424,6 +1424,14 @@
           "from": "2026-10-04T11:05:53Z",
           "output": 0.35,
           "read": 0.013
+        },
+        {
+          "create_1h": 0.025,
+          "create_5m": 0.025,
+          "fresh": 0.025,
+          "from": "2026-10-04T14:12:36Z",
+          "output": 0.3,
+          "read": 0.016
         }
       ],
       "Io Net": [
@@ -38047,6 +38055,15 @@
           "note": "36% off",
           "output": 1.980032,
           "read": 0.075072
+        },
+        {
+          "create_1h": 0.237696,
+          "create_5m": 0.237696,
+          "fresh": 0.237696,
+          "from": "2026-10-04T14:35:28Z",
+          "note": "36% off",
+          "output": 2.277056,
+          "read": 0.075072
         }
       ],
       "NextBit": [
@@ -40541,6 +40558,15 @@
           "note": "35.71% off",
           "output": 2.545884,
           "read": 0.0282876
+        },
+        {
+          "create_1h": 0.66,
+          "create_5m": 0.66,
+          "fresh": 0.66,
+          "from": "2026-10-04T13:20:54Z",
+          "note": "50% off",
+          "output": 1.98,
+          "read": 0.022
         }
       ],
       "Together": [
@@ -41681,6 +41707,22 @@
           "create_5m": 0.85,
           "fresh": 0.85,
           "from": "2026-10-04T10:05:45Z",
+          "output": 5.0,
+          "read": 0.7
+        },
+        {
+          "create_1h": 0.55,
+          "create_5m": 0.55,
+          "fresh": 0.55,
+          "from": "2026-10-04T13:15:53Z",
+          "output": 4.2,
+          "read": 0.45
+        },
+        {
+          "create_1h": 0.85,
+          "create_5m": 0.85,
+          "fresh": 0.85,
+          "from": "2026-10-04T14:12:37Z",
           "output": 5.0,
           "read": 0.7
         }
@@ -44442,6 +44484,14 @@
           "from": "2026-10-02T21:31:15Z",
           "output": 3.39,
           "read": 0.175
+        },
+        {
+          "create_1h": 0.55,
+          "create_5m": 0.55,
+          "fresh": 0.55,
+          "from": "2026-10-04T12:45:57Z",
+          "output": 3.39,
+          "read": 0.165
         }
       ],
       "InferenceNet": [
@@ -44944,6 +44994,14 @@
           "from": "2026-10-04T07:05:55Z",
           "output": 5.0,
           "read": 0.04
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-10-04T14:40:30Z",
+          "output": 5.0,
+          "read": 0.07
         }
       ],
       "Io Net": [
@@ -49242,6 +49300,14 @@
           "from": "2026-09-30T11:26:22Z",
           "output": 0.45,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.16,
+          "create_5m": 0.16,
+          "fresh": 0.16,
+          "from": "2026-10-04T12:45:57Z",
+          "output": 0.45,
+          "read": 0.07
         }
       ],
       "InferenceNet": [
