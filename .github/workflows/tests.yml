@@ -29,10 +29,18 @@ jobs:
     timeout-minutes: 30
 
     permissions:
-      # Reads contents for the suite; writes only the informational
-      # patch-coverage comment (issues #129, #479).
+      # Read-only, and nothing less would be: this job checks out and
+      # RUNS the proposed tree (issue #560). It used to carry
+      # `pull-requests: write` for the patch-coverage comment, which put
+      # a write-capable token in reach of every step between `pip
+      # install` and the suite — and on a fork the token is read-only
+      # anyway, so the comment failed there and no fork pull request ever
+      # saw the readout. The comment now crosses a boundary instead:
+      # this job uploads the rendered body, and the top-level
+      # coverage-comment.yml — which checks out nothing and runs no pull
+      # request code — posts it under a token that cannot touch the
+      # suite. The readout stays INFORMATIONAL either way (issue #129).
       contents: read
-      pull-requests: write
 
     services:
       postgres:
@@ -197,55 +205,37 @@ jobs:
             --summary-file "$GITHUB_STEP_SUMMARY" \
             > "$RUNNER_TEMP/diff-coverage.md"
 
-      - name: Post the patch-coverage comment
-        # ONE comment per pull request, UPDATED on later pushes: the
-        # marker is how the bot finds its own comment again.
-        # continue-on-error keeps a failed comment from reddening the
-        # run — the summary above still carries the numbers (issue
-        # #129).
+      - name: Stage the patch-coverage comment
+        # The RENDERED BODY is the only thing that crosses into the
+        # workflow that posts it; no token that can write pull-request
+        # conversation is live in this job (issue #560). `pr-number.txt`
+        # travels beside it and is CHECKED, never obeyed, over there:
+        # this artifact is produced by a run of the pull request's own
+        # tests.yml, so its claim about which pull request it belongs to
+        # carries no authority.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
-        continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          marker='<!-- claudit-diff-coverage -->'
-          {
-            printf '%s\n\n' "$marker"
-            printf 'Patch coverage for commit %s, measured on the merge ref.\n\n' "$HEAD_SHA"
-            cat "$RUNNER_TEMP/diff-coverage.md"
-          } > "$RUNNER_TEMP/comment.md"
-          if ! gh api -H 'Cache-Control: no-cache' --paginate \
-            "repos/$REPO/issues/$PR_NUMBER/comments" \
-            --jq '.[]' > "$RUNNER_TEMP/comments.json"
-          then
-            echo "listing the comments on PR $PR_NUMBER failed" >&2
-            exit 1
-          fi
-          existing="$(
-            jq -s 'map(select(.user.login == "github-actions[bot]" and
-              ((.body // "") | startswith(
-                "<!-- claudit-diff-coverage -->")))) |
-              .[0].id // empty' "$RUNNER_TEMP/comments.json"
-          )"
-          case "$existing" in
-            '')
-              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
-                -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
-              echo 'posted a new patch-coverage comment'
-              ;;
-            *[!0-9]*)
-              echo "comment id is not only digits: $existing" >&2
-              exit 1
-              ;;
-            *)
-              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
-                -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
-              echo "updated patch-coverage comment $existing"
-              ;;
-          esac
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/coverage-comment"
+          cp "$RUNNER_TEMP/diff-coverage.md" \
+            "$RUNNER_TEMP/coverage-comment/body.md"
+          printf '%s\n' "$PR_NUMBER" \
+            > "$RUNNER_TEMP/coverage-comment/pr-number.txt"
+          wc -c < "$RUNNER_TEMP/coverage-comment/body.md"
+
+      - name: Upload the patch-coverage comment
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        # A missing artifact is not this job's failure: coverage-comment.yml
+        # reads its absence as "not measured" and refreshes the marker, and
+        # the readout is informational (issue #129).
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: diff-coverage-comment
+          path: ${{ runner.temp }}/coverage-comment
+          if-no-files-found: error
+          retention-days: 5
 
       - name: Coverage gate
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
