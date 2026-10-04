@@ -30,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 CODEQL_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "codeql.yml"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 # `uses: github/codeql-action/<step>@<sha>  # vX.Y.Z` — text-only, by
 # necessity: a YAML parse drops comments.
@@ -169,4 +170,106 @@ def test_every_group_has_a_security_updates_twin() -> None:
         "a group has no twin of the opposite applies-to kind carrying an "
         "identical rule, so that kind's bumps arrive unbundled or bundled "
         "differently: " + repr(unpaired)
+    )
+
+
+# A container image reference carrying an explicit digest — `name:tag@sha256:…`
+# or `name@sha256:…`. Bare `name` and `name:tag` are floating.
+_DIGESTED_IMAGE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
+# A step that runs an image instead of an action: `uses: docker://image`.
+_DOCKER_REF = "docker://"
+
+
+def _workflow_files() -> list[Path]:
+    """Every workflow file. GitHub reads `.yml` AND `.yaml`."""
+    found = set(WORKFLOWS_DIR.glob("*.yml")) | set(WORKFLOWS_DIR.glob("*.yaml"))
+    return sorted(found)
+
+
+def _job_container_images(job: dict) -> list[tuple[str, str]]:
+    """(label, image) for the containers this job itself runs.
+
+    A job's `container` has two legal shapes: the mapping with an `image`
+    key, and the bare string shorthand (`container: node:20`, documented
+    as "when you only specify a container image, you can omit the image
+    keyword"). Only the mapping shape is handled otherwise, so the
+    shorthand would sail past the gate.
+    """
+    container = job.get("container")
+    if isinstance(container, str) and container:
+        return [("container", container)]
+    if isinstance(container, dict) and container.get("image"):
+        return [("container", container["image"])]
+    return []
+
+
+def _service_images() -> list[tuple[str, str]]:
+    """(where, image) for every container image a workflow runs.
+
+    Enumerated from the workflow grammar, not from the spellings this
+    repository happens to use: a service container
+    (`jobs.<job>.services.<id>.image`), a job's own container (both
+    shapes), and a step that pulls an image directly
+    (`uses: docker://…`). Read from DECODED YAML, so a value is never
+    confused with a comment naming it.
+    """
+    found: list[tuple[str, str]] = []
+    for path in _workflow_files():
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_name, job in (doc.get("jobs") or {}).items():
+            job = job or {}
+            where = f"{path.name}:jobs.{job_name}"
+            for label, image in _job_container_images(job):
+                found.append((f"{where}.{label}", image))
+            for svc_name, svc in (job.get("services") or {}).items():
+                image = (svc or {}).get("image")
+                if image:
+                    found.append(
+                        (f"{where}.services.{svc_name}", image))
+            for index, step in enumerate(job.get("steps") or []):
+                uses = (step or {}).get("uses") or ""
+                if isinstance(uses, str) and uses.startswith(_DOCKER_REF):
+                    found.append((f"{where}.steps[{index}]",
+                                  uses[len(_DOCKER_REF):]))
+    return found
+
+
+def test_every_workflow_container_image_is_digest_pinned() -> None:
+    """No workflow names a container image by a moving tag (issue #559).
+
+    Three of the five workflows that start the suite's Postgres named it
+    `image: postgres:16`, a tag upstream re-points, so the database a CI
+    leg measured against could change under a fixed commit. Every image is
+    pinned to a digest instead.
+    """
+    images = _service_images()
+    # the oracle must be live: a refactor that stopped finding the
+    # containers must not silence this into a vacuous pass
+    assert images, "found no container image in .github/workflows/"
+    unpinned = [(where, image) for where, image in images
+                if not _DIGESTED_IMAGE.match(image)]
+    assert not unpinned, (
+        "container images named by a moving tag or bare name — pin each to "
+        "the digest the other jobs use: " + repr(unpinned)
+    )
+
+
+def test_postgres_service_images_share_one_digest() -> None:
+    """One Postgres image across every workflow that starts one.
+
+    Two digests of the same tag are two databases: a leg's results stop
+    being comparable with a gate leg's, which is the whole reason the
+    publish path pins what it measured on.
+    """
+    postgres = {where: image for where, image in _service_images()
+                if image.split("@", 1)[0].split(":", 1)[0].rsplit(
+                    "/", 1)[-1] == "postgres"}
+    assert postgres, (
+        "no workflow starts a Postgres service — extend this test if the "
+        "image's name changed"
+    )
+    digests = {image.rpartition("@")[2] for image in postgres.values()}
+    assert len(digests) == 1, (
+        "the Postgres service images disagree on their digest: "
+        f"{dict(sorted(postgres.items()))}"
     )
