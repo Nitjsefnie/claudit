@@ -450,7 +450,7 @@ def test_zizmor_manifest_is_hash_pinned_and_require_hashes_installed() -> None:
         if "requirements-zizmor.txt" in segment
     ]
     assert installs and all(
-        "--require-hashes" in segment and "-r" in segment
+        "--require-hashes" in segment and re.search(r"(^|\s)-r\s", segment)
         for segment in installs
     ), (
         "the zizmor manifest install does not use --require-hashes -r: "
