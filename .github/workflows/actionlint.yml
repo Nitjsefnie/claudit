@@ -84,7 +84,7 @@ jobs:
       ACTIONLINT_VERSION: 1.7.12-queue.2
       # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
       # release's own checksums file. Bump all three together.
-      ACTIONLINT_SHA256: a0dcf957422198680421502fd758aec1054a638b33d2e2bfb30a7c236cb9162c
+      ACTIONLINT_SHA256: 2895b2f0f5b4cff420a4a577d609f83d0d3bef256aeef480961e53be01a5a954
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
