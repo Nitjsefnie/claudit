@@ -11,7 +11,7 @@ name: claim
 # reference implementation this was modelled on calls it `/release` and people
 # arrive expecting that word.
 #
-# This is Nitjsefnie-Actions/claim's own Install block, adopted at v2.0.3. Three
+# This is Nitjsefnie-Actions/claim's own Install block, adopted at v2.0.4. Three
 # of its differences from v1.1.0 are load-bearing here:
 #
 #   - A command on a closed issue or a pull request is declined by the ACTION,
@@ -36,10 +36,11 @@ name: claim
 #   - `pull-requests: write` joins `issues: write` because the pull-request
 #     decline has to be POSTED on the PR conversation: a token holding only
 #     `issues: write` draws HTTP 403 from that call, and the decline is never
-#     delivered. That account is the v2.0.3 commit's own, and upstream issue
-#     153 — it is not an observation made here. GitHub's REST docs place both
-#     calls under the Issues permission, so this grant answers a reported
-#     refusal rather than the docs.
+#     delivered. That account is upstream's own — it was reported in the
+#     v2.0.3 commit that added this grant, and in upstream issue 153 — it is
+#     not an observation made here. GitHub's REST docs place both calls under
+#     the Issues permission, so this grant answers a reported refusal rather
+#     than the docs.
 #
 # The action handles the attacker-controlled comment body without
 # interpolating it into shell source. The `if:` below is only a cheap
@@ -89,7 +90,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: Nitjsefnie-Actions/claim@0c79a0325d8ab789a60c2eeaf751690d2875c39c # v2.0.3
+      - uses: Nitjsefnie-Actions/claim@cd8ffd8227e94cdf60ed2580016187353b055cf4 # v2.0.4
         with:
           max-claims: 'read=2, triage=4, write=6, maintain=10, admin=-1'
           expire: '7'
