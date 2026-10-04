@@ -10,15 +10,13 @@
 # version. Cheap here because zizmor ships with no runtime dependencies
 # — zizmor is the manifest's whole transitive tree.
 #
-# 1.30 carries the self-repository audit, which flags every
-# workspace-relative `uses: ./...` in this repository (11 sites). The
-# refs stay workspace-relative for now: GitHub's `$/...` form needs an
-# actionlint that parses it, and the pinned fork predates that syntax
-# (upstream rhysd/actionlint#732; its format checks reject `$/` and the
-# inline `# actionlint: ignore` cannot silence them). Each ref carries a
-# line-level `# zizmor: ignore[self-repository]` justification instead
-# (issue #597, migration tracked in #605); tests/test_ci_workflows.py
-# pins the pairing.
+# 1.30 carries the self-repository audit. The repository's self-repo
+# `uses:` refs take GitHub's `$/...` form (issue #605), which the audit
+# accepts without a suppression; the workspace-relative `uses: ./...`
+# spelling is gone, along with the per-line
+# `# zizmor: ignore[self-repository]` suppressions it forced (issue
+# #597). The pinned actionlint fork parses `$/` (1.7.12-queue.2, upstream
+# rhysd/actionlint#732); tests/test_ci_workflows.py pins the pairing.
 
 zizmor==1.30.1 \
     --hash=sha256:17fda74e15fe41a6aa354ea4cf71fc7ff3cd025cda6584bb6d7466b3f1d00fe6 \

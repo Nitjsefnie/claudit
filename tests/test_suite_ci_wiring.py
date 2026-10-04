@@ -29,7 +29,7 @@ TIGHTEN_CMD = (
     '--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" '
     '--thresholds '
     '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
-BENCH_ACTION = "./.github/actions/suite-bench"
+BENCH_ACTION = "$/.github/actions/suite-bench"
 
 
 def _load(name):

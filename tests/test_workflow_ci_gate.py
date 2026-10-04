@@ -89,9 +89,9 @@ def test_every_reusable_call_points_at_an_existing_callable_workflow():
     doc = _ci_gate()
     for job_id, job in doc["jobs"].items():
         uses = (job or {}).get("uses") or ""
-        if not uses.startswith("./.github/workflows/"):
+        if not uses.startswith("$/.github/workflows/"):
             continue
-        name = uses.removeprefix("./.github/workflows/")
+        name = uses.removeprefix("$/.github/workflows/")
         target = WORKFLOWS / name
         assert target.exists(), (job_id, uses)
         assert "workflow_call" in (_load(target).get("on") or {}), (
@@ -407,7 +407,7 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     doc = _ci_gate()
     calls = [job for job in (doc.get("jobs") or {}).values()
              if (job.get("uses") or "")
-             == "./.github/workflows/tests.yml"]
+             == "$/.github/workflows/tests.yml"]
     assert len(calls) == 1
     call = calls[0]
     assert call["permissions"] == {"contents": "read"}

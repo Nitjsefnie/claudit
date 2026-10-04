@@ -27,13 +27,14 @@ name: actionlint
 # inside a run: block is invisible to Dependabot and goes stale unnoticed
 # (issue #551: zizmor sat at 1.29.0 through two releases that way).
 # actionlint is in a supply-chain position worth defending: a linter that
-# runs before every other gate. It is the FORK
-# build, not stock upstream, for the `concurrency` `queue:` key — see
-# ACTIONLINT_REPO below (issue #541). Note what the fork costs that
-# position: the checksum now attests bytes published by the same account
-# that publishes the linter, so it defends against a tampered download and
-# not against a compromised publisher. Stock upstream's checksum is the
-# independent one, and it is what makes `queue:` unreachable here.
+# runs before every other gate. It is the FORK build, not stock upstream,
+# for the `concurrency` `queue:` key (issue #541) and the `$/`
+# self-repository `uses:` syntax (issue #605) — see ACTIONLINT_REPO below.
+# Note what the fork costs that position: the checksum now attests bytes
+# published by the same account that publishes the linter, so it defends
+# against a tampered download and not against a compromised publisher.
+# Stock upstream's checksum is the independent one, and it is what makes
+# `queue:` and `$/` unreachable here.
 #
 # Suppressions belong at the offending line as a `# zizmor: ignore[rule]`
 # comment WITH a justification (see eslint.yml), never as a raised
@@ -64,21 +65,26 @@ jobs:
     env:
       # NOT stock rhysd/actionlint. The fork carries upstream
       # rhysd/actionlint#654, which is the `concurrency` `queue:` key
-      # claim.yml uses (issue #541). Stock 1.7.12 — the current upstream
-      # release, and what this gate ran until then — rejects the workflow with
-      # `unexpected key "queue" for "concurrency" section` and exits 1. The
-      # inline `# actionlint: ignore` comment does not silence this one, so the
-      # key is unreachable without the patched build. Upstream's README names
-      # three escapes; this takes the patched build over an `-ignore` pattern
-      # because the fork is a strict superset (it still rejects a typo'd key, a
-      # `queue: max` beside `cancel-in-progress: true`, and an unrelated
-      # `timeout-minutes: 5m`) rather than a filtered subset of findings.
-      # Drop the pin back to stock and `queue:` comes out of claim.yml.
+      # claim.yml uses (issue #541), and upstream rhysd/actionlint#732,
+      # which is GitHub's `$/` self-repository `uses:` syntax (issue
+      # #605). Stock 1.7.12 — the current upstream release, and what this
+      # gate ran until issue #541 — rejects the workflow with
+      # `unexpected key "queue" for "concurrency" section` and exits 1,
+      # and its workflow-call and action format checks reject `$/`. The
+      # inline `# actionlint: ignore` comment does not silence either, so
+      # both are unreachable without the patched build. Upstream's
+      # README names three escapes; this takes the patched build over an
+      # `-ignore` pattern because the fork is a strict superset (it still
+      # rejects a typo'd key, a `queue: max` beside `cancel-in-progress:
+      # true`, and an unrelated `timeout-minutes: 5m`) rather than a
+      # filtered subset of findings. Drop the pin back to stock and
+      # `queue:` comes out of claim.yml and the migrated `$/` refs go
+      # back to `./` (and their zizmor suppressions with them).
       ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
-      ACTIONLINT_VERSION: 1.7.12-queue.1
-      # sha256 of actionlint_1.7.12-queue.1_linux_amd64.tar.gz, from the
+      ACTIONLINT_VERSION: 1.7.12-queue.2
+      # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
       # release's own checksums file. Bump all three together.
-      ACTIONLINT_SHA256: dcc2c42a7caaa197dfe63584a3851f62ef260f80b2cf221baaf05479661e1521
+      ACTIONLINT_SHA256: a0dcf957422198680421502fd758aec1054a638b33d2e2bfb30a7c236cb9162c
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
