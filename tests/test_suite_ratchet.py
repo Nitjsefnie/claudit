@@ -261,7 +261,8 @@ def test_the_synthetic_bot_path_seed_then_tighten_then_guard(tmp_path):
         "--base", str(head_path), "--head", str(base_path)]) == 1
 
 
-def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
+def test_seed_then_tighten_on_the_committed_document_round_trips(
+        tmp_path, monkeypatch):
     # The committed document, copied to tmp_path and passed through the
     # seed-refusal and tighten paths, keeps canonical bytes: the bot's
     # writes are the loader's writes.
@@ -279,7 +280,9 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path):
         # The fallback seed carries the identity, so the positive
         # assertion below holds on the delete-commit shape too (the
         # sibling test at test_seed_carries_the_workload_identity pins
-        # the writer half).
+        # the writer half). The tree identity matches this checkout, so
+        # the seed is accepted (issue #598).
+        monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
         measurement = _measurement_file(tmp_path, COUNTS)
         payload = json.loads(measurement.read_text(encoding="utf-8"))
         payload["tests_tree_lines"] = 41234
@@ -320,10 +323,11 @@ def subprocess_committed_bytes():
         capture_output=True, check=True).stdout
 
 
-def test_seed_carries_the_workload_identity(tmp_path):
+def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
     # The seed binds the budget to the workload it measured: the
     # measurement's tests_tree_lines enters the committed family
-    # (SV-CI-RATCHETS, issue #524).
+    # (SV-CI-RATCHETS, issue #524). The artifact must also name the tree
+    # it lands on (issue #598): this one matches, so it seeds through.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
@@ -331,10 +335,32 @@ def test_seed_carries_the_workload_identity(tmp_path):
     payload = json.loads(measurement.read_text(encoding="utf-8"))
     payload["tests_tree_lines"] = 41234
     measurement.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
     assert ratchet.main(["--seed", str(measurement),
                          "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert doc["suite_cost"]["tests_tree_lines"] == 41234
+
+
+def test_seed_refuses_a_measurement_from_another_tree(
+        tmp_path, capsys, monkeypatch):
+    # The identity check is the seed half of SV-CI-RATCHETS' binding
+    # (issue #598): the sanctioned re-seed measures the FINAL tree, so an
+    # artifact whose tests_tree_lines names another tree is refused,
+    # naming both counts, and the committed document is untouched.
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    before = target.read_text(encoding="utf-8")
+    measurement = _measurement_file(tmp_path, COUNTS)
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    payload["tests_tree_lines"] = 41234
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 63211)
+    assert ratchet.main(["--seed", str(measurement),
+                         "--thresholds", str(target)]) == 1
+    assert target.read_text(encoding="utf-8") == before
+    err = capsys.readouterr().err
+    assert "41234" in err and "63211" in err
 
 
 def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
@@ -352,7 +378,7 @@ def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
         for phase in ("collection", "run", "residual")}
 
 
-def test_tighten_preserves_the_identity(tmp_path):
+def test_tighten_preserves_the_identity(tmp_path, monkeypatch):
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
@@ -360,6 +386,7 @@ def test_tighten_preserves_the_identity(tmp_path):
     payload = json.loads(measurement.read_text(encoding="utf-8"))
     payload["tests_tree_lines"] = 41234
     measurement.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
     assert ratchet.main(["--seed", str(measurement),
                          "--thresholds", str(target)]) == 0
     cheaper = {phase: COUNTS[phase] - Decimal("5.0")
@@ -409,3 +436,14 @@ def test_the_suite_cost_reader_returns_phases_without_the_identity():
     doc["suite_cost"]["tests_tree_lines"] = 41234
     phases = thresholds.suite_cost(doc)
     assert set(phases) == set(thresholds.SUITE_COST_PHASES)
+
+
+def test_tree_identity_is_the_benchs_counter():
+    # The seed's tree count IS the bench's (issue #598): the same
+    # algorithm over the same anchor — the checkout holding the script,
+    # not the --thresholds path or the CWD — so the refusal compares
+    # like with like.
+    ratchet = _ratchet()
+    bench = _load("suite_bench")
+    assert ratchet._tree_identity() == bench._tests_tree_lines(  # pylint: disable=protected-access
+        REPO_ROOT)
