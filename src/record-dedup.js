@@ -16,8 +16,11 @@
 // that line's uuid + model and retracts the masked copies itself at end of
 // parse (#562): a stamp is MASKED when its uuid's final verdict is
 // attributed and its own model is unattributed — the loser of the
-// canonical vote, whose entries must leave the output. After all loads a
-// caller concatenating several files' outputs finishes the job with
+// canonical vote, whose entries must leave the output. A requestId merge
+// that folded a surviving fragment's usage into a superseded line's entry
+// re-points that entry to the surviving line at retraction (#568), so the
+// uuid's one usage entry survives, attributed to the winner. After all
+// loads a caller concatenating several files' outputs finishes the job with
 // dropMasked (#563) — the cross-call drop is module code, not a contract
 // the caller has to reimplement; the same masked test, judged on the
 // stamps retract left on the entries.
@@ -42,7 +45,12 @@
       if (prev === false) seen.set(obj.uuid, true);
       else if (prev === undefined) seen.set(obj.uuid, attributed === true);
       // prev === true keeps the standing verdict; the winner is unchanged.
-      if (stamps) stamps.set(line, { uuid: obj.uuid, model: model });
+      if (stamps) stamps.set(line, { uuid: obj.uuid, model: model,
+        // The parser's requestId merge key (parser.js's merge-key shape):
+        // retract re-points a merged entry to a surviving line of the
+        // SAME key only (issue #568), never across API calls.
+        req: obj.requestId || (msg && typeof msg.id === 'string' && msg.id
+          ? 'msg:' + msg.id : '') });
       return 'keep';
     },
 
@@ -56,7 +64,27 @@
         for (let k = list.length - 1; k >= 0; k--) {
           const e = list[k];
           if (!e) continue;
-          const s = stamps.get(e.line);
+          let s = stamps.get(e.line);
+          if (e.type === 'assistant_usage' && maskedBy(seen, s) && s.req) {
+            // issue #568: a requestId merge folded a surviving fragment's
+            // usage into this superseded line's entry. The entry belongs
+            // to a surviving line of the SAME merge key -- prefer the
+            // entry's own uuid's winner; re-point, never drop. (An empty
+            // key never merged, so it never re-points.)
+            let same = null, any = null;
+            for (const [L, t] of stamps) {
+              if (L <= e.line || t.req !== s.req || maskedBy(seen, t)) {
+                continue;
+              }
+              if (t.uuid === s.uuid) same = L;
+              any = L;
+            }
+            const to = same !== null ? same : any;
+            if (to !== null) {
+              const t = stamps.get(to);
+              e.line = to; e.uuid = t.uuid; e.model = t.model; s = t;
+            }
+          }
           if (maskedBy(seen, s)) { list.splice(k, 1); continue; }
           // Stamp only what the entry lacks: meta already carries its own
           // (fallback-applied) model, and it must not lose it.
