@@ -287,7 +287,7 @@ jobs:
       - name: Reparse CPU gate
         id: reparse
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        uses: ./.github/actions/reparse-bench
+        uses: ./.github/actions/reparse-bench  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
@@ -340,7 +340,7 @@ jobs:
         id: suite_bench
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success' }}
-        uses: ./.github/actions/suite-bench
+        uses: ./.github/actions/suite-bench  # zizmor: ignore[self-repository] GitHub's $/ self-repository form needs an actionlint that parses it (upstream rhysd/actionlint#732); migrate and drop this comment together (issue #597)
         with:
           measurement: ${{ runner.temp }}/suite-measurement.json
 

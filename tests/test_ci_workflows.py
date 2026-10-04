@@ -458,6 +458,71 @@ def test_zizmor_manifest_is_hash_pinned_and_require_hashes_installed() -> None:
     )
 
 
+def test_zizmor_pin_carries_the_self_repository_audit() -> None:
+    """The zizmor pin is at least 1.30, the release that audits local uses.
+
+    zizmor 1.30.0 added the self-repository audit (issue #597); below it
+    the gate runs an audit set that no longer matches the current
+    release, and the per-line `# zizmor: ignore[self-repository]`
+    comments the workflows carry are dead suppressions no audit reads. A
+    threshold, not an exact pin: Dependabot's next bump to 1.31+ must
+    keep passing.
+    """
+    match = re.search(
+        r"^zizmor==(\d+)\.(\d+)\.(\d+)\s*\\\\?\s*$",
+        ZIZMOR_MANIFEST.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert match, f"{ZIZMOR_MANIFEST.name} carries no zizmor==X.Y.Z pin"
+    version = tuple(int(part) for part in match.groups())
+    assert version >= (1, 30, 0), (
+        "the zizmor pin is below 1.30, the release that introduced the "
+        "self-repository audit (issue #597) — the local uses: ./ "
+        "suppressions are dead comments below it: "
+        f"{'.'.join(str(part) for part in version)}"
+    )
+
+
+def test_local_uses_carry_self_repository_suppression() -> None:
+    """Every workspace-relative local `uses:` carries its suppression.
+
+    While the refs stay workspace-relative, zizmor >= 1.30 (the
+    self-repository audit) flags each one, and the suppression policy is
+    a line-level ignore WITH a justification, never a raised severity.
+    The refs cannot migrate to GitHub's July-2026 `$/` self-repository
+    form yet: the pinned actionlint fork predates that syntax — its
+    workflow-call and action format checks reject `$/`, and the inline
+    `# actionlint: ignore` cannot silence them (verified against the
+    pinned 1.7.12-queue.1 build; upstream rhysd/actionlint#732 carries
+    the support). Migration and dropping these comments are one change
+    once the fork parses `$/` (issue #605). Scoped to .github/workflows/,
+    the surface the audit gate scans.
+    """
+    directive = "# zizmor: ignore[self-repository]"
+    offenders: list[str] = []
+    for path in _workflow_files():
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if not re.match(r"^\s*uses: \./", line):
+                continue
+            if directive not in line:
+                offenders.append(f"{path.name}:{lineno}: no {directive}")
+                continue
+            if len(line.split(directive, 1)[1].strip()) < 20:
+                offenders.append(
+                    f"{path.name}:{lineno}: suppression carries no "
+                    "justification"
+                )
+    assert not offenders, (
+        "a workspace-relative local uses: reference lacks its line-level "
+        "# zizmor: ignore[self-repository] with a justification, so the "
+        "audit gate goes red on zizmor >= 1.30 — add both, naming what "
+        "would clear it (the actionlint fork parsing $/, see #597): "
+        + repr(offenders)
+    )
+
+
 def test_audit_gate_covers_every_requirements_manifest() -> None:
     """Every requirements manifest in the tree is audited by audit.yml.
 
