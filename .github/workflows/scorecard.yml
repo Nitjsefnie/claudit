@@ -1,0 +1,86 @@
+name: scorecard
+
+# OpenSSF Scorecard is a trend signal rather than a per-commit gate, so it
+# stays off contribution events. A `push` or `pull_request` trigger would
+# make this a second verdict on a commit another workflow already gates —
+# and worse, release.yml's waiter judges every check run produced by a
+# push-event run on the SHA it is about to tag (scripts/ci/release_gate.py's
+# GATE_EVENTS), so a red scorecard on a master push would refuse the
+# release. `schedule` is dropped by that same filter, and a manual dispatch
+# of this workflow is dropped too: release_gate.py judges a dispatch only
+# when it dispatches a workflow that also gates the commit, and this one
+# never gates anything. The one exception release_gate.py cannot resolve is
+# a commit carrying no push- or pull-request run at all, where it judges both
+# rows because it cannot tell a gate dispatch from a stray one; a release's
+# commit always has ci-gate's own push run beside it, so that corner cannot
+# be one. See CONTRIBUTING.md's workflow table.
+on:
+  schedule:
+    # Saturday 02:41 UTC. Off the hour, off Monday, clear of this
+    # repository's other slots — CodeQL Wednesday 03:47, the daily audit
+    # 04:12, the daily secret sweep 05:26 and the explorer 06:47 — and off
+    # the minute of the hourly pricing refresh (:23), so neither job ever
+    # queues behind the other.
+    - cron: '41 2 * * 6'
+  workflow_dispatch:
+
+# Read-only by default: the job below widens this for the two things
+# publishing needs, and nothing else in the file can inherit more.
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    # Published results describe the upstream default branch: a fork's run
+    # files into the fork's store, and another branch's under this name. Skip
+    # rather than publish a different tree than the badge claims.
+    if: ${{ !github.event.repository.fork && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    # Scorecard clones the repository's full history; the ceiling stops a
+    # hung run from sitting in the Actions tab until GitHub's own limit.
+    timeout-minutes: 15
+
+    # Job-level, never workflow-level: upstream refuses to publish from a
+    # workflow that declares write permissions above the job.
+    permissions:
+      # The SARIF upload is what puts the findings in the Security tab.
+      security-events: write
+      # Scorecard signs its published result over OIDC, so a consumer can
+      # verify the score came from this repository's own run.
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Replaces the weekly public-scan result and feeds the API and
+          # badge; free, and the reason this repository scans itself rather
+          # than waiting for the Scorecard project's own infrastructure.
+          publish_results: true
+
+      - name: Upload Scorecard results artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload Scorecard results to code scanning
+        # The same pin codeql.yml's init and analyze carry, so one SARIF
+        # producer speaks one SARIF dialect across both workflows.
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: results.sarif
