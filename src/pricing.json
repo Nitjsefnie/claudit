@@ -478,6 +478,10 @@
           "Mistral": {
             "tag": "mistral/zdr",
             "why": "Mistral lists glm-5.3 under mistral/zdr and mistral/nvfp4, and nvfp4 itself lists at two prices. Pinned to the single mistral/zdr endpoint at the model's list price: a tag pin must name one tag, and nvfp4 alone would leave the host ambiguous."
+          },
+          "Reka": {
+            "tag": "reka",
+            "why": "Reka lists glm-5.3 under two tags: the base reka endpoint the row has always tracked (its history is this endpoint's own log series, currently 0.17/3.0 with 0.169 cache read) and a reka/fast tier (1M context, 35% off) that is dearer on input but cheaper on output and cache read. Pinned to reka: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
           }
         }
       },
