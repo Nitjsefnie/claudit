@@ -38,12 +38,6 @@ def _load(name: str):
 
 cs = _load("commit_scopes")
 
-# Synthetic workflow names for the classification pins — the same
-# single-word names the fixture repos commit below. The tree's own real
-# workflow set is repository-managed data a test never pins (SV-TEST-DATA).
-NAMES = {"tests", "codeql"}
-
-
 # --- the subject grammar -----------------------------------------------------
 
 
