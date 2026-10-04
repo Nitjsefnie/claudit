@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T22:53:26Z",
+  "provider_rates_fetched": "2026-10-04T23:18:12Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -41814,6 +41814,14 @@
           "from": "2026-10-04T21:30:27Z",
           "output": 4.2,
           "read": 0.45
+        },
+        {
+          "create_1h": 0.85,
+          "create_5m": 0.85,
+          "fresh": 0.85,
+          "from": "2026-10-04T23:00:17Z",
+          "output": 5.0,
+          "read": 0.7
         }
       ]
     },
@@ -51912,6 +51920,14 @@
           "fresh": 0.1,
           "from": "2026-10-03T19:36:08Z",
           "output": 0.5,
+          "read": 0.08
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-04T23:05:16Z",
+          "output": 0.27,
           "read": 0.08
         }
       ],
