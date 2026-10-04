@@ -1081,18 +1081,87 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   budget — re-seed in flight` and exits 0, and the guard reads the
   removal as legal. The second seeds the new counts through the
   loader's writer (`suite_ratchet.py --seed`) FROM A RUNNER
-  MEASUREMENT — the `suite-measurement`
-  artifact of the red master run the re-seed answers, cited by run id
-  in the PR body, never hand-derived. Against a base that predates the
-  family, those entries are a brand-new member's seed. One change
-  cannot do both (the guard refuses an upward move the base carries):
-  the delete is its own commit and its message carries the marker. The
-  marker's scope is that delete — the seed commit does not carry it,
-  and it is the commit that restores the family; a restoring document
-  is valid either way. Every helper that re-validates a
-  loader-produced document asks the same verdict the loader asked
-  (`thresholds.verdict()`); `normalise` takes it as a required
-  argument, so no helper can read strict by omission.
+  MEASUREMENT, cited by run id in the PR body, never hand-derived.
+  Against a base that predates the family, those entries are a
+  brand-new member's seed. One change cannot do both (the guard refuses
+  an upward move the base carries): the delete is its own commit and
+  its message carries the marker. The marker's scope is that delete —
+  the seed commit does not carry it, and it is the commit that restores
+  the family; a restoring document is valid either way. Every helper
+  that re-validates a loader-produced document asks the same verdict
+  the loader asked (`thresholds.verdict()`); `normalise` takes it as a
+  required argument, so no helper can read strict by omission.
+
+  **The measuring run measured the tree master will hold once the seed
+  lands, the seed change's own edits included.** A budget binds to the
+  tree it was measured on, so a measured tree master does not hold
+  records numbers no later run reproduces — and the recorded identity
+  catches the resulting drift only when it lies in `tests/` — while the
+  guard admits no hand correction of either, so the repair is another
+  delete+seed pair.
+  Two properties of the run decide it, both read off the canary: the
+  run RAN the tests leg (a docs-only or bot-data push skips that leg and
+  carries no artifact), and the bench RAN (its step is gated on the
+  suite and the JS coverage having succeeded, so a run whose suite
+  failed carries no measurement either). Which run carries both follows
+  from whether the window's changes have merged, not from choice:
+
+  - They have MERGED: the `suite-measurement` artifact of the newest
+    commit the window takes whose ci-gate run RAN the tests leg. A
+    pricing-bot or docs-only push skips it, so the LAST commit is not
+    always a usable source. The measured tree must equal master's tree
+    at the seed, apart from `.github/ci-thresholds.json` and
+    documentation-only paths; when a commit outside those landed after
+    the newest measuring run, take a fresh measurement of the final
+    tree by dispatching ci-gate (`gh workflow run ci-gate.yml --ref
+    master`) — a `workflow_dispatch` run reads no changed paths, so it
+    runs the full gate set, the tests leg and its `suite-measurement`
+    artifact included.
+  - They are still OPEN — the canary went red on a pull request, which
+    includes the seed PR itself: that same artifact from the seed PR's
+    OWN ci-gate run on the commit carrying its FINAL CODE AND TESTS,
+    the last push before the data-only one. So the seed change lands
+    its code and tests, waits for that run, seeds from its artifact,
+    and regenerates the family in a later push touching nothing but
+    `.github/ci-thresholds.json`. That later run is the CHECK, not the
+    source: it must be green and name no workload-identity drift, and
+    it is the first run to read the seeded identity back. Its own
+    values cannot come from its own run — they must exist before the
+    seed commit is written — so the source is always an earlier run.
+
+  Both sources are measured BEFORE the merge: the artifact is retained
+  for a day, and for a seed change touching ONLY
+  `.github/ci-thresholds.json` a master push is path-ignored by
+  ci-gate, so no master run exists afterwards to re-measure against.
+
+  The measured tree MUST NOT CHANGE between the measuring run and the
+  merge; the seed's own write of `.github/ci-thresholds.json`, and
+  documentation-only paths, are the only permitted differences. `tests/`
+  is the part of that tree the recorded identity detects
+  (`tests_tree_lines`), but the budgets bind to every
+  line the pinned tests execute — a pricing bot's `src/pricing.json` and
+  `backend/constants.py` reach them through `tests/conftest.py` — so a
+  code line landing after the measuring run invalidates it the same way.
+  When the tree did change, the source is a fresh run of the FINAL tree;
+  recorded numbers are never adjusted to fit.
+
+  **The window is bounded.** `reseed._MAX_VISITS` caps the marker walk.
+  On master each commit is one visit, and this repository rebase-merges,
+  so master carries no merge commits and a pull request lands as one
+  commit per commit it carries. A pull request's merge-ref run also
+  visits GitHub's merge commit and every commit of the pull request,
+  interleaved breadth-first with master's, so a multi-commit in-window
+  pull request reaches the cap sooner: in-window pull requests land as
+  one commit each, and the window closes while HEAD is fewer than ten
+  visits from the delete. Past that the walk fails CLOSED: it reads as
+  no marker, and the family-absent document is gated as any other is.
+
+  **Closing a window is not re-opening one.** Two separate facts, and
+  the next re-seed needs both: the walk reached a family-present commit
+  — the window this marker opened is closed, so the delete's marker can
+  never exempt a later family-absent document — and a NEW marked delete
+  precedes the new seed. A seed already on master supplies the first;
+  the second is a fresh pair, never the standing one re-used.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
