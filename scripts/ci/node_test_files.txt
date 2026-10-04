@@ -4,6 +4,7 @@ tests/test_ctx_turn_parity.py
 tests/test_dashboard_binning.py
 tests/test_dashboard_fetch_js.py
 tests/test_empty_usage_parity.py
+tests/test_ingest.py
 tests/test_js_toolchain.py
 tests/test_model_colors.py
 tests/test_parse_non_object.py

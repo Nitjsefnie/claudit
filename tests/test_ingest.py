@@ -1,7 +1,9 @@
 import inspect
+import json
 import lzma
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -231,7 +233,7 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
                  FROM records WHERE uuid IS NOT NULL
                 ORDER BY uuid,
                          (COALESCE(model, '')
-                          IN ('', 'unknown', '(unknown)')),
+                          IN ('', 'unknown', '(unknown)', '<synthetic>')),
                          file_key, line_num)
               UNION ALL
               (SELECT file_key, line_num FROM records WHERE uuid IS NULL)
@@ -246,6 +248,113 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
     assert dupes is not None and dupes[0] > 0, (
         "fixture must contain a cross-file duplicate, or this proves nothing"
     )
+
+
+# --------------------------------------------------------------------------
+# The winner rule's shared vocabulary (issue #563): SQL and browser
+# --------------------------------------------------------------------------
+
+# The winner-rule shapes the SQL canonical pass and the browser's
+# record-dedup must decide IDENTICALLY (issue #563): each is one uuid's
+# copies in file_key/arrival order, with the winner copy's arrival label.
+# <synthetic> is Claude's harness-fabricated stub model; it names no
+# model, so it sits in the unattributed class beside the two unknown
+# fallbacks. records.model is NOT NULL, so the legacy-NULL member is
+# unreachable here; the read-time DISTINCT ON test below covers it.
+_REAL_MODEL = "claude-sonnet-4-5"
+_LOCKSTEP_SHAPES = [
+    ("lane-unknown-then-real", [("a", "unknown"), ("b", _REAL_MODEL)], "b"),
+    ("real-then-lane-unknown", [("a", _REAL_MODEL), ("b", "unknown")], "a"),
+    ("empty-model-then-real", [("a", ""), ("b", _REAL_MODEL)], "b"),
+    ("real-then-empty-model", [("a", _REAL_MODEL), ("b", "")], "a"),
+    ("paren-unknown-then-real", [("a", "(unknown)"), ("b", _REAL_MODEL)], "b"),
+    ("real-then-paren-unknown", [("a", _REAL_MODEL), ("b", "(unknown)")], "a"),
+    ("synthetic-then-real", [("a", "<synthetic>"), ("b", _REAL_MODEL)], "b"),
+    ("real-then-synthetic", [("a", _REAL_MODEL), ("b", "<synthetic>")], "a"),
+    ("synthetic-vs-unknown", [("a", "<synthetic>"), ("b", "unknown")], "a"),
+    ("unknown-vs-synthetic", [("a", "unknown"), ("b", "<synthetic>")], "a"),
+]
+
+
+def _seed_winner_shapes(c) -> None:
+    """Seed every lockstep shape: one uuid per shape, one file per copy."""
+    c.execute("INSERT INTO projects (project_id, display_name, first_seen_at, "
+              "last_seen_at) VALUES ('p', 'p', now(), now())")
+    for idx, (_name, copies, _winner) in enumerate(_LOCKSTEP_SHAPES):
+        for pos, (label, model) in enumerate(copies):
+            c.execute(
+                "INSERT INTO files (file_key, project_id, session_id, is_main, "
+                "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+                "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
+                "now(), %s)",
+                (f"shape-{idx}-{label}", constants.PARSER_VERSION))
+            c.execute(
+                "INSERT INTO records (file_key, line_num, uuid, model) "
+                "VALUES (%s, %s, %s, %s)",
+                (f"shape-{idx}-{label}", pos + 1, f"u-{idx}", model))
+
+
+def _sql_winners() -> dict[str, str]:
+    """The winning copy's arrival label per shape, from the flags."""
+    with db.viz_conn() as c:
+        flagged = c.execute(
+            "SELECT file_key, is_canonical FROM records WHERE is_canonical"
+        ).fetchall()
+    winners = {}
+    for file_key, _flag in flagged:
+        if file_key.startswith("shape-"):
+            idx = int(file_key.split("-")[1])
+            winners[_LOCKSTEP_SHAPES[idx][0]] = file_key[-1]
+    return winners
+
+
+def _js_winners() -> dict[str, str]:
+    """The same shapes through the browser's record-dedup, via node."""
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    shapes = {name: [[label, model] for label, model in copies]
+              for name, copies, _winner in _LOCKSTEP_SHAPES}
+    script = f"""
+      global.window = {{}};
+      require({str(_REPO_ROOT / 'src' / 'record-dedup.js')!r});
+      const shapes = {json.dumps(shapes)};
+      const out = {{}};
+      for (const name in shapes) {{
+        const seen = new Map();
+        let winner = null;
+        for (const [label, model] of shapes[name]) {{
+          if (window.recordDedup.decide(seen, {{ uuid: 'u', message: {{ model }} }},
+                                        1, new Map()) === 'keep') {{
+            winner = label;
+          }}
+        }}
+        out[name] = winner;
+      }}
+      console.log(JSON.stringify(out));
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True,
+                          text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_canonical_winner_rule_is_lockstep_with_the_browser(fresh_db):
+    """SV-CANONICAL-FLAG's vocabulary is the contract between the ingest's
+    canonical pass and the browser's record-dedup (issue #563). The SAME
+    shape list drives both halves -- recompute_canonical over seeded rows
+    and record-dedup's decide through node -- and each must crown the same
+    winner per uuid, so a vocabulary edit on either side fails here before
+    it can drift. The shapes cover every unattributed member against a
+    real model in both file orders, plus member-vs-member ties that the
+    file_key/arrival rule must settle the same way."""
+    with db.viz_conn() as c:
+        _seed_winner_shapes(c)
+    ingest.recompute_canonical()
+    sql = _sql_winners()
+    js = _js_winners()
+    want = {name: winner for name, _copies, winner in _LOCKSTEP_SHAPES}
+    assert sql == want, f"SQL winners: {sql}"
+    assert js == want, f"browser winners: {js}"
 
 
 def test_recompute_canonical_is_idempotent(fresh_db, mini_r2_env):

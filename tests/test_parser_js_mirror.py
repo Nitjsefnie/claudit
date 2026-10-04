@@ -232,42 +232,58 @@ def test_parser_js_merges_on_the_backend_key(name):
 # Cross-file dedup: the attributed copy wins the uuid (issue #529)
 # --------------------------------------------------------------------------
 
-def _claude_line(uuid, model, text, output_tokens):
-    message = {"role": "assistant", "content": [{"type": "text", "text": text}],
+def _claude_line(uuid, model, text, output_tokens, tool=None, request_id="req-1"):
+    content = []
+    if tool is not None:
+        content.append({"type": "tool_use", "id": "tu-1", "name": tool,
+                        "input": {}})
+    content.append({"type": "text", "text": text})
+    message = {"role": "assistant", "content": content,
                "usage": {"input_tokens": 100, "output_tokens": output_tokens}}
     if model is not None:
         message["model"] = model
     return json.dumps({"type": "assistant", "timestamp": "2026-05-07T10:00:00Z",
-                       "uuid": uuid, "requestId": "req-1", "sessionId": "sessS",
+                       "uuid": uuid, "requestId": request_id, "sessionId": "sessS",
                        "message": message}, separators=(",", ":")) + "\n"
 
 
-def _node_dedup_survivor(first, second):
-    """The winner view of two files parsed in order through ONE shared
-    seenUuids map (the cross-file dedup mode).
+def _node_dedup_survivor(*files):
+    """The winner view of several files parsed in order through ONE shared
+    seenUuids map (the cross-file dedup mode), followed by the caller's
+    post-load drop through recordDedup.dropMasked -- the drop the old
+    contract left to prose no production caller implemented (issue #563),
+    now module code the test drives the way a caller would.
 
-    A parse call can only retract its OWN events — an earlier call's
-    already-returned meta is the caller's — so the contract is: the parser
-    keeps-or-skips each copy by the map's verdict and upgrades the verdict
-    when an attributed copy lands, and the caller concatenating the files'
-    outputs drops the superseded unattributed copies itself. Its filter is
-    part of the pin: an event whose uuid's final verdict is `true` and
-    which is itself unattributed is a loser copy."""
+    Events are pinned beside meta: computeSessionStats counts tool calls
+    from `events`, so a superseded copy's tool_call entries must leave the
+    output together with its assistant_usage meta (issue #562) -- within a
+    parse call by the end-of-parse retraction, across calls by
+    dropMasked."""
     script = f"""
       global.window = {{}};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(PARSER_JS)!r});
       const seen = new Map();
-      const all = [];
-      for (const text of [{json.dumps(first)}, {json.dumps(second)}]) {{
-        const {{ meta }} = window.parseTranscript(text, {{ seenUuids: seen }});
-        all.push(...meta.filter(m => m.type === 'assistant_usage'));
+      const allEvents = [];
+      const allMeta = [];
+      for (const text of {json.dumps(list(files))}) {{
+        const {{ events, meta }} = window.parseTranscript(text, {{ seenUuids: seen }});
+        allEvents.push(...events);
+        allMeta.push(...meta.filter(m => m.type === 'assistant_usage'));
       }}
-      const finalView = all.filter(ev => !(
-        seen.get(ev.uuid) === true
-        && (!ev.model || ev.model === 'unknown' || ev.model === '(unknown)')));
-      console.log(JSON.stringify(finalView.map(m => ({{ model: m.model,
-        output: m.usage.output_tokens || 0 }}))));
+      window.recordDedup.dropMasked(allEvents, seen);
+      window.recordDedup.dropMasked(allMeta, seen);
+      const stats = window.computeSessionStats(allEvents, allMeta);
+      console.log(JSON.stringify({{
+        toolCalls: stats.toolCalls,
+        toolNames: allEvents
+          .filter(e => e.type === 'tool_call' || e.type === 'agent_spawn')
+          .map(e => e.tool_name),
+        texts: allEvents.filter(e => e.type === 'assistant_text')
+          .map(e => e.detail),
+        usage: allMeta.map(m => ({{ model: m.model,
+                                   output: m.usage.output_tokens || 0 }})),
+      }}));
     """
     proc = subprocess.run(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
@@ -277,48 +293,104 @@ def _node_dedup_survivor(first, second):
     return json.loads(proc.stdout)
 
 
+# The winner view every order must agree on: one tool call, the winner's;
+# one text, the winner's; one usage entry, the winner's.
+_WINNER_VIEW = {
+    "toolCalls": 1, "toolNames": ["Write"], "texts": ["attributed copy"],
+    "usage": [{"model": "claude-sonnet-4-5", "output": 300}],
+}
+
+
 def test_dedup_prefers_the_attributed_copy_whatever_the_order():
     """The browser's cross-file dedup mirrors recompute_canonical's winner
     rule (SV-CANONICAL-FLAG): an unattributed copy must not mask a later
     attributed one, and a seen attributed copy beats a later unattributed
-    one — the winner is decided by attribution, not by arrival order."""
-    unknown = _claude_line("u-1", None, "copy with no model", 200)
-    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300)
+    one -- the winner is decided by attribution, not by arrival order, and
+    the superseded copy's events never survive (issue #562)."""
+    unknown = _claude_line("u-1", None, "copy with no model", 200, tool="Read")
+    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
+                         tool="Write")
+    assert _node_dedup_survivor(unknown, known) == _WINNER_VIEW
+    assert _node_dedup_survivor(known, unknown) == _WINNER_VIEW
 
-    assert _node_dedup_survivor(unknown, known) == [
-        {"model": "claude-sonnet-4-5", "output": 300}]
-    assert _node_dedup_survivor(known, unknown) == [
-        {"model": "claude-sonnet-4-5", "output": 300}]
+
+def test_dedup_replace_retracts_events_within_one_call():
+    """issue #562: a superseded copy's events are retracted in the SAME
+    parse call that replaces it -- both copies sit in one file (distinct
+    requestIds, so the two usage lines stay separate entries the
+    retraction can drop one by one), and computeSessionStats must count
+    one tool call, not two."""
+    text = (_claude_line("u-1", None, "loser copy", 200, tool="Read",
+                         request_id="req-1")
+            + _claude_line("u-1", "claude-sonnet-4-5", "winner copy", 300,
+                           tool="Write", request_id="req-2"))
+    got = _node_dedup_survivor(text)
+    assert got == {"toolCalls": 1, "toolNames": ["Write"],
+                   "texts": ["winner copy"],
+                   "usage": [{"model": "claude-sonnet-4-5", "output": 300}]}
 
 
 def test_dedup_keeps_the_first_of_two_attributed_copies():
     """Attribution only breaks unknown-vs-known ties; two attributed
     copies of one uuid still keep the first (the file_key rule's
-    first-seen analog)."""
+    first-seen analog), and nothing a drop would judge is lost."""
     first = _claude_line("u-1", "claude-sonnet-4-5", "first", 200)
     second = _claude_line("u-1", "claude-sonnet-4-5", "second", 300)
-    assert _node_dedup_survivor(first, second) == [
-        {"model": "claude-sonnet-4-5", "output": 200}]
+    assert _node_dedup_survivor(first, second) == {
+        "toolCalls": 0, "toolNames": [], "texts": ["first"],
+        "usage": [{"model": "claude-sonnet-4-5", "output": 200}]}
 
 
 def test_dedup_of_two_unattributed_copies_keeps_the_first():
     """Two unattributed copies keep the first and the uuid never lands on
-    `true`, so the caller's final filter drops nothing — one copy, no
-    invented winner."""
+    `true`, so the drop pass keeps both sides of the verdict -- one copy,
+    no invented winner."""
     first = _claude_line("u-1", None, "first unknown", 200)
     second = _claude_line("u-1", None, "second unknown", 300)
-    assert _node_dedup_survivor(first, second) == [
-        {"model": "(unknown)", "output": 200}]
+    assert _node_dedup_survivor(first, second) == {
+        "toolCalls": 0, "toolNames": [], "texts": ["first unknown"],
+        "usage": [{"model": "(unknown)", "output": 200}]}
 
 
 def test_dedup_pinned_on_the_lane_unknown_fallback_member():
     """The None fallback pins '(unknown)'; the lane fallback spells its
     member 'unknown' outright, and must classify as unattributed the same
-    way — the JS half of the shared vocabulary, each member pinned."""
+    way -- the JS half of the shared vocabulary, each member pinned. This
+    case rides the lane-fallback member; <synthetic> rides the vocabulary
+    tests below (issue #563)."""
     lane_unknown = _claude_line("u-1", "unknown", "lane fallback copy", 200)
-    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300)
-    assert _node_dedup_survivor(lane_unknown, known) == [
-        {"model": "claude-sonnet-4-5", "output": 300}]
+    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
+                         tool="Write")
+    assert _node_dedup_survivor(lane_unknown, known) == _WINNER_VIEW
+
+
+def test_dedup_vocabulary_treats_synthetic_as_unattributed():
+    """The <synthetic> member of the shared vocabulary (issue #563): a
+    harness-fabricated stub names no model, so a real-model copy beats it
+    in both orders -- exactly like the unknown fallbacks -- and its events
+    leave with it."""
+    synthetic = _claude_line("u-1", "<synthetic>", "synthetic copy", 200)
+    known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
+                         tool="Write")
+    assert _node_dedup_survivor(synthetic, known) == _WINNER_VIEW
+    assert _node_dedup_survivor(known, synthetic) == _WINNER_VIEW
+
+
+def test_dedup_vocabulary_synthetic_vs_unknown_keeps_the_first():
+    """Both unattributed: <synthetic> is a MEMBER of the unattributed
+    class, not a special case -- no attribution upgrade either way, the
+    first copy in file order wins, and the drop pass keeps it (the
+    verdict ends on false). The synthetic copy emits no assistant_usage
+    meta (the parse gate skips synthetic stubs), so its survival shows in
+    its events alone."""
+    synthetic = _claude_line("u-1", "<synthetic>", "synthetic copy", 200)
+    unknown = _claude_line("u-1", None, "copy with no model", 300)
+    first = {"toolCalls": 0, "toolNames": [], "texts": ["synthetic copy"],
+             "usage": []}
+    second = {"toolCalls": 0, "toolNames": [], "texts": ["copy with no model"],
+              "usage": [{"model": "(unknown)", "output": 300}]}
+    assert _node_dedup_survivor(synthetic, unknown) == first
+    assert _node_dedup_survivor(unknown, synthetic) == second
 
 
 # --------------------------------------------------------------------------

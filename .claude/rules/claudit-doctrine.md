@@ -211,11 +211,13 @@ code change.
 `records.is_canonical` marks the row
 `DISTINCT ON (r.uuid) ORDER BY r.uuid, <unattributed-last>, r.file_key`
 would select: the copy whose model is attributed beats an unattributed
-one — the lane fallback `unknown`, the Claude fallback `(unknown)` and
-NULL all count unattributed (issue #529: a forked Codex rollout's
-replayed prefix stores `unknown`, and its `subagents/…` key sorts before
-its parent's) — then `r.file_key`; `line_num` breaks ties within a
-`file_key`. NULL-`uuid` rows (legacy) are always canonical.
+one — the lane fallback `unknown`, the Claude fallback `(unknown)`, the
+empty string and NULL all count unattributed, as does `<synthetic>`
+(Claude's harness-fabricated stub model: it names no model at all,
+issue #563) (issue #529: a forked Codex rollout's replayed prefix stores
+`unknown`, and its `subagents/…` key sorts before its parent's) — then
+`r.file_key`; `line_num` breaks ties within a `file_key`. NULL-`uuid`
+rows (legacy) are always canonical.
 
 Reads MUST filter `WHERE is_canonical` and MUST NOT reintroduce
 `DISTINCT ON (uuid)`: that re-sorts the whole table per read.

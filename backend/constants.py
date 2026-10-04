@@ -112,7 +112,10 @@ PRICING_VERSION = "179"
 # 3 — the canonical winner prefers an attributed-model copy over an
 #     unattributed one (issue #529): re-ranking every stored uuid requires
 #     one complete derived rebuild, no reparse.
-DERIVED_STATE_VERSION = "3"
+# 4 -- <synthetic> joins the unattributed vocabulary of the canonical
+#     winner (issue #563): re-ranking every stored uuid requires one
+#     complete derived rebuild, no reparse.
+DERIVED_STATE_VERSION = "4"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
