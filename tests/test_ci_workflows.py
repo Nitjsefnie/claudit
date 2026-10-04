@@ -503,7 +503,7 @@ def test_self_repository_uses_use_the_dollar_slash_form() -> None:
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
-            if re.match(r"^\s*uses: \./", line):
+            if re.match(r"^\s*uses:\s+\./", line):
                 offenders.append(f"{path.name}:{lineno}: workspace-relative")
     assert not offenders, (
         "a workspace-relative local uses: reference remains — migrate it "
