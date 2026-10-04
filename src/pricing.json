@@ -486,7 +486,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-03T23:54:08Z",
+  "provider_rates_fetched": "2026-10-04T00:54:13Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -29622,6 +29622,22 @@
           "from": "2026-10-03T21:55:44Z",
           "output": 2.7,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.167,
+          "create_5m": 0.167,
+          "fresh": 0.167,
+          "from": "2026-10-04T00:25:58Z",
+          "output": 4.2,
+          "read": 0.15
+        },
+        {
+          "create_1h": 0.2067,
+          "create_5m": 0.2067,
+          "fresh": 0.2067,
+          "from": "2026-10-04T00:30:44Z",
+          "output": 4.2,
+          "read": 0.19
         }
       ],
       "SiliconFlow": [
@@ -41351,6 +41367,14 @@
           "from": "2026-10-03T13:16:31Z",
           "output": 4.2,
           "read": 0.14
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-04T00:01:06Z",
+          "output": 4.2,
+          "read": 0.17
         }
       ]
     },
@@ -41589,6 +41613,14 @@
           "create_5m": 0.11,
           "fresh": 0.11,
           "from": "2026-10-03T10:45:49Z",
+          "output": 0.28,
+          "read": 0.09
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-03T23:56:05Z",
           "output": 0.28,
           "read": 0.09
         }
@@ -46243,6 +46275,14 @@
           "from": "2026-10-03T04:25:38Z",
           "output": 3.067,
           "read": 0.166
+        },
+        {
+          "create_1h": 0.119,
+          "create_5m": 0.119,
+          "fresh": 0.119,
+          "from": "2026-10-04T00:54:13Z",
+          "output": 3.067,
+          "read": 0.166
         }
       ],
       "Nebius": [
@@ -47435,6 +47475,30 @@
           "from": "2026-10-03T23:54:08Z",
           "output": 8.0,
           "read": 0.054
+        },
+        {
+          "create_1h": 0.06,
+          "create_5m": 0.06,
+          "fresh": 0.06,
+          "from": "2026-10-04T00:20:43Z",
+          "output": 8.0,
+          "read": 0.0396
+        },
+        {
+          "create_1h": 0.136,
+          "create_5m": 0.136,
+          "fresh": 0.136,
+          "from": "2026-10-04T00:25:59Z",
+          "output": 8.0,
+          "read": 0.0898
+        },
+        {
+          "create_1h": 0.136,
+          "create_5m": 0.136,
+          "fresh": 0.136,
+          "from": "2026-10-04T00:30:44Z",
+          "output": 4.4,
+          "read": 0.0898
         }
       ],
       "Sail Research": [
@@ -48136,6 +48200,14 @@
           "from": "2026-10-02T23:53:51Z",
           "output": 3.39,
           "read": 0.176
+        },
+        {
+          "create_1h": 0.22,
+          "create_5m": 0.22,
+          "fresh": 0.22,
+          "from": "2026-10-04T00:54:13Z",
+          "output": 3.39,
+          "read": 0.2
         }
       ],
       "Z.AI": [
