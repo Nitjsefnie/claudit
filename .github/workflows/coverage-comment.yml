@@ -146,8 +146,11 @@ jobs:
           fi
           count="$(printf '%s\n' "$numbers" | awk 'NF' | wc -l | tr -d ' ')"
           if [ "$count" -eq 0 ]; then
-            # A closed pull request's run has nowhere to comment and no
-            # head worth a check; that is a real state, not an error.
+            # No pull request owns this merge ref any more — the pull
+            # request was DELETED, which is the only way the count
+            # reaches zero. A merely CLOSED pull request still resolves
+            # and still accepts comments, so it takes the normal path.
+            # This is a real state, not an error.
             echo 'present=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
