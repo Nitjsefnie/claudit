@@ -9,7 +9,7 @@ import json
 import subprocess
 
 from tests.test_parser_js_mirror import (
-    PARSER_JS, RECORD_DEDUP_JS, _claude_line, _node_dedup_survivor,
+    LOADER_JS, PARSER_JS, RECORD_DEDUP_JS, _claude_line, _node_dedup_survivor,
 )
 
 
@@ -34,6 +34,7 @@ def _node_usage_identity(text: str) -> list[dict]:
     model), with no merge bookkeeping left on the entry."""
     script = f"""
       global.window = {{}};
+      require({str(LOADER_JS)!r});
       require({str(RECORD_DEDUP_JS)!r});
       require({str(PARSER_JS)!r});
       const {{ meta }} = window.parseTranscript({json.dumps(text)},
