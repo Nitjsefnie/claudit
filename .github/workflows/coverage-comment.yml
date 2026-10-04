@@ -1,0 +1,364 @@
+name: coverage comment
+
+# Post or invalidate the patch-coverage comment after the ci-gate run.
+#
+# WHY THIS IS A SEPARATE WORKFLOW (issue #560). The `tests` leg of
+# ci-gate.yml checks out and EXECUTES the proposed tree, so that job must
+# not also hold the token that can write pull-request conversation. It
+# used to hold `pull-requests: write` for exactly that reason — a token
+# live from `pip install` through the suite, and on a fork pull request
+# one that is read-only anyway, which is why no fork ever saw the
+# readout. Only the RENDERED BODY crosses the boundary now.
+#
+# THE DESTINATION DOES NOT CROSS IT. This is a workflow_run consumer of an
+# artifact a pull request produced, which is the classic artifact-poisoning
+# shape, so every byte of the artifact is untrusted:
+#
+#   - the pull request number is resolved from the `workflow_run` EVENT,
+#     never read from the artifact and obeyed. The artifact's copy is only
+#     COMPARED with the event's, and a disagreement fails the step loudly
+#     rather than being corrected quietly — the disagreement is the signal
+#     that somebody tried to aim bot-authored text at another pull request;
+#   - the artifact is never executed, never `eval`'d, and never
+#     interpolated into a shell command. `body.md` reaches GitHub as a
+#     FILE argument (`-F body=@file`); `pr-number.txt` is compared as a
+#     string and checked to be digits before it is used as anything;
+#   - an oversized body is refused, never truncated: a silently trimmed
+#     coverage report is a wrong coverage report, and the comments API
+#     caps a body at 65536 characters;
+#   - this workflow has no `actions/checkout` and runs no code from the
+#     pull request at all. The only thing that crosses is the TEXT of a
+#     comment, under a token scoped to writing one.
+#
+# `pull_request_target` is not the alternative. It would give a run of
+# proposed code the base repository's token and secrets, which is strictly
+# worse than the situation this replaces.
+#
+# NOT A GATE. The readout is informational (issue #129): this workflow
+# publishes no check run, joins no aggregate, and is absent from
+# release_gate.py's gate events. Its failures redden only its own run,
+# which nothing waits on.
+
+on:
+  # The `tests` leg is a REUSABLE workflow called by ci-gate.yml, so the
+  # run that completes is `ci gate`, not `tests`: `workflow_run` matches
+  # the workflow that OWNS the run. `workflow_run.event` is then the
+  # caller's own event, so the `pull_request` test below is the caller's
+  # pull_request trigger — a master push runs no leg that produces the
+  # artifact and is skipped here.
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
+    workflows: [ci gate]
+    types: [completed]
+
+# Exactly what posting needs: write the comment, read the triggering
+# run's artifacts. No `checks: write` (nothing publishes a check run),
+# no `contents: write`, no `actions: write`.
+permissions:
+  pull-requests: write
+  actions: read
+
+concurrency:
+  # Per head branch of the triggering run, cancel-in-progress: two
+  # ci-gate runs for one branch finishing close together would otherwise
+  # each find no existing comment and both post. Only the newest
+  # measurement is worth having. `workflow_run` exposes the head
+  # repository and branch at workflow level; the pull request number is
+  # not resolved until the job's steps run.
+  group: >-
+    coverage-comment-${{
+    github.event.workflow_run.head_repository.full_name }}-${{
+    github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    # Every completed pull-request run gets a chance to replace an old
+    # percentage with a plainly labelled "not measured" marker.
+    # Otherwise a red or cancelled run leaves the previous commit's
+    # number looking current.
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check for the comment artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          # The lookup is its own command and pipefail is load-bearing: in
+          # `x="$(gh api ... | jq ...)"` the status is jq's, so a failed
+          # API call would print `false` and be reported as "no artifact"
+          # — the comment silently never appears and nothing goes red.
+          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+            "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[]' > artifacts.json
+          then
+            echo "listing the artifacts of run $RUN_ID failed" >&2
+            exit 1
+          fi
+          # Collect every paginated object into one array before selecting.
+          present="$(jq -s 'any(.[]; .name == "diff-coverage-comment"
+            and .expired == false)' artifacts.json)"
+          case "$present" in
+            true) echo 'present=true' >> "$GITHUB_OUTPUT" ;;
+            false)
+              echo 'diff-coverage-comment is absent; nothing to post.'
+              ;;
+            *)
+              echo "unexpected artifact lookup result: $present" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve the target pull request from the event
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          set -euo pipefail
+
+          # Deliberately BEFORE the download: the destination is settled
+          # while nothing the pull request produced is on disk.
+          numbers="$(printf '%s' "$EVENT_PRS" \
+            | jq -r 'arrays | .[] | .number' | sort -u)"
+          if [ -z "$numbers" ]; then
+            # GitHub backfills `pull_requests` for a pull_request-triggered
+            # run, but an emptied array is not worth betting the readout
+            # on. `head_sha` is the MERGE-ref commit, which lives in THIS
+            # repository even for a fork, so the base repository is the one
+            # to ask.
+            if ! gh api -H 'Cache-Control: no-cache' --paginate \
+              "repos/$REPO/commits/$HEAD_SHA/pulls" --jq '.[].number' \
+              > pulls.txt
+            then
+              echo "listing the pull requests for $HEAD_SHA failed" >&2
+              exit 1
+            fi
+            numbers="$(sort -u pulls.txt)"
+          fi
+          count="$(printf '%s\n' "$numbers" | awk 'NF' | wc -l | tr -d ' ')"
+          if [ "$count" -eq 0 ]; then
+            # A closed pull request's run has nowhere to comment and no
+            # head worth a check; that is a real state, not an error.
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$count" -ne 1 ]; then
+            echo "expected one pull request for $HEAD_SHA, found $count" >&2
+            printf '%s\n' "$numbers" >&2
+            exit 1
+          fi
+          case "$numbers" in
+            ''|*[!0-9]*)
+              echo "resolved a non-numeric pull request: $numbers" >&2
+              exit 1
+              ;;
+          esac
+          if ! current_sha="$(gh api -H 'Cache-Control: no-cache' \
+            "repos/$REPO/pulls/$numbers" --jq '.head.sha')"
+          then
+            echo "reading the current head of pull request $numbers" \
+              "failed" >&2
+            exit 1
+          fi
+          if [ -z "$current_sha" ]; then
+            echo "pull request $numbers has no current head SHA" >&2
+            exit 1
+          fi
+
+          # FRESHNESS. `head_sha` is the merge ref this run tested, which
+          # is NOT the pull request's head commit, so it can never be
+          # compared with `.head.sha` directly — doing so marks every run
+          # stale and the comment never appears. The event's own copy of
+          # the head commit is the comparable thing.
+          event_head="$(printf '%s' "$EVENT_PRS" \
+            | jq -r 'arrays | .[] | .head.sha' | sort -u)"
+          case "$event_head" in
+            '')
+              # The fallback path above had no event head commit to
+              # compare. Rather than post a number with no freshness
+              # proof, say what cannot be established and stop: a stale
+              # coverage figure is worse than no comment.
+              echo 'cannot establish that run' "$HEAD_SHA" \
+                'is this pull request'"'"'s current head; posting nothing'
+              echo 'stale=true' >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            *[!0-9a-f]*)
+              echo "event head SHA is not hexadecimal: $event_head" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$event_head" != "$current_sha" ]; then
+            echo "run $HEAD_SHA is stale; current pull request head is" \
+              "$current_sha"
+            echo 'stale=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "number=$numbers"
+            echo "head_commit=$current_sha"
+            echo 'stale=false'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mark missing patch coverage
+        id: missing
+        if: >-
+          steps.artifact.outputs.present != 'true'
+          && steps.pr.outputs.stale != 'true'
+          && steps.pr.outputs.present != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+
+          case "${RUN_CONCLUSION:-}" in
+            success)
+              reason='a narrowed run (documentation-only or rate-data-only)'
+              ;;
+            cancelled) reason='a cancelled ci gate run' ;;
+            *) reason="a ci gate run that concluded $RUN_CONCLUSION" ;;
+          esac
+          marker='<!-- claudit-diff-coverage -->'
+          {
+            printf '%s\n\n' "$marker"
+            printf 'Patch coverage was not measured: %s.\n' "$reason"
+          } > comment.md
+          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+            "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
+            > comments.json
+          then
+            echo "listing the comments on $PR_NUMBER failed" >&2
+            exit 1
+          fi
+          existing="$(
+            jq -s 'map(select(.user.login == "github-actions[bot]" and
+              ((.body // "") | startswith(
+                "<!-- claudit-diff-coverage -->")))) |
+              .[0].id // empty' comments.json
+          )"
+          case "$existing" in
+            '') echo 'no patch-coverage comment to update'; exit 0 ;;
+            *[!0-9]*)
+              echo "comment id is not only digits: $existing" >&2
+              exit 1
+              ;;
+            *)
+              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                -F body=@comment.md >/dev/null
+              echo "marked patch coverage as unavailable ($reason)"
+              ;;
+          esac
+
+      - name: Download the comment artifact
+        if: >-
+          steps.artifact.outputs.present == 'true'
+          && steps.pr.outputs.stale != 'true'
+          && steps.pr.outputs.present != 'false'
+        # actions/download-artifact v8.0.1
+        uses: >-
+          actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: diff-coverage-comment
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Post or update the pull request comment
+        if: >-
+          steps.artifact.outputs.present == 'true'
+          && steps.pr.outputs.stale != 'true'
+          && steps.pr.outputs.present != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_COMMIT: ${{ steps.pr.outputs.head_commit }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          # Both entries must be ordinary files. An artifact is attacker-
+          # shaped input: a symlink or a directory named body.md would
+          # otherwise redirect the `cat` below.
+          for f in body.md pr-number.txt; do
+            if [ ! -f "$f" ] || [ -L "$f" ]; then
+              echo "the artifact's $f is not an ordinary file" >&2
+              exit 1
+            fi
+          done
+
+          # CHECKED, NEVER OBEYED. See the header: the producer runs the
+          # pull request's own tests.yml, so its claim about which pull
+          # request it belongs to carries no authority.
+          claimed="$(cat pr-number.txt)"
+          case "$claimed" in
+            ''|*[!0-9]*)
+              echo "the artifact names a non-numeric pull request:" \
+                "$claimed" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$claimed" != "$PR_NUMBER" ]; then
+            echo "the artifact names pull request '$claimed' but the run" \
+              "belongs to '$PR_NUMBER'; refusing to post" >&2
+            exit 1
+          fi
+
+          # The comments API caps a body at 65536 characters. A silently
+          # truncated coverage report is a wrong coverage report, so an
+          # oversized body is refused rather than trimmed to fit.
+          size="$(wc -c < body.md)"
+          if [ "$size" -gt 60000 ]; then
+            echo "body.md is $size bytes, past the comment limit" >&2
+            exit 1
+          fi
+
+          marker='<!-- claudit-diff-coverage -->'
+          {
+            printf '%s\n\n' "$marker"
+            printf 'Patch coverage for commit %s, measured on the merge' \
+              "ref.\n\n" "$HEAD_COMMIT"
+            cat body.md
+          } > comment.md
+          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+            "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
+            > comments.json
+          then
+            echo "listing the comments on $PR_NUMBER failed" >&2
+            exit 1
+          fi
+          # Slurped, so pagination cannot yield one id per page, and the
+          # body is defaulted, so a null one is not an abort mid-select.
+          existing="$(
+            jq -s 'map(select(.user.login == "github-actions[bot]" and
+              ((.body // "") | startswith(
+                "<!-- claudit-diff-coverage -->")))) |
+              .[0].id // empty' comments.json
+          )"
+          case "$existing" in
+            '')
+              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                -F body=@comment.md >/dev/null
+              echo 'posted a new patch-coverage comment'
+              ;;
+            *[!0-9]*)
+              echo "comment id is not only digits: $existing" >&2
+              exit 1
+              ;;
+            *)
+              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                -F body=@comment.md >/dev/null
+              echo "updated patch-coverage comment $existing"
+              ;;
+          esac

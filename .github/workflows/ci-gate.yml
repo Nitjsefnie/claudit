@@ -72,12 +72,13 @@ on:
       - '.github/ci-thresholds.json'
   workflow_dispatch:
 
-# Read-only at workflow level except where a leg says otherwise. Tests
-# needs pull-requests: write for its informational PR comment; it
-# pushes nothing (issue #479: the ratchet push moved to the top-level
-# ratchet-push.yml workflow — the master-push deploy key's secret
-# resolved empty inside the callee, and a GITHUB_TOKEN push is
-# rejected by the ruleset's required aggregate check).
+# Read-only at workflow level except where a leg says otherwise, and the
+# tests leg is read-only too: it runs the proposed tree, so it holds
+# nothing that can write (issue #560). Nothing here pushes (issue #479:
+# the ratchet push moved to the top-level ratchet-push.yml workflow — the
+# master-push deploy key's secret resolved empty inside the callee, and a
+# GITHUB_TOKEN push is rejected by the ruleset's required aggregate
+# check).
 permissions:
   contents: read
 
@@ -137,13 +138,15 @@ jobs:
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
     uses: ./.github/workflows/tests.yml
     permissions:
-      # The caller's grant CAPS what the callee can use: contents: read
-      # for the suite, pull-requests: write for the informational
-      # patch-coverage comment (issue #129). The callee pushes nothing
-      # — the ratchet data is published by the top-level
+      # The caller's grant CAPS what the callee can use, so this is
+      # read-only: contents: read for the suite, which checks out and
+      # RUNS the proposed tree (issue #560). The informational
+      # patch-coverage comment no longer needs a token from inside the
+      # leg — the leg uploads the rendered body and the top-level
+      # coverage-comment.yml posts it (issue #129). The callee pushes
+      # nothing — the ratchet data is published by the top-level
       # ratchet-push.yml workflow (issue #479); no secret is forwarded.
       contents: read
-      pull-requests: write
 
   test-data:
     # The perturbed-data leg (issue #199): the full suite against a tree
