@@ -1565,9 +1565,11 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   }, [cells, activeMetric]);
 
   // Geometry — 25 columns × 8 rows (24 hours + Σ, 7 days + Σ), label gutters left + top.
+  // cellW floors at 2, not 8 (#636): 8 engaged at a 320px viewport; 2
+  // engages only below the ~162px panel where pads+gaps outrun the grid.
   const padL = 44, padR = 14, padT = 24, padB = 10, gap = 2;
   const SUM_GAP = 8;
-  const cellW = Math.max(8, (w - padL - padR - SUM_GAP - 23 * gap) / 25);
+  const cellW = Math.max(2, (w - padL - padR - SUM_GAP - 23 * gap) / 25);
   const cellH = Math.min(34, Math.max(18, cellW * 0.8));
   const h = padT + 7 * cellH + 6 * gap + SUM_GAP + cellH + padB;
   const sumColX = padL + 23 * (cellW + gap) + cellW + SUM_GAP;
@@ -1654,12 +1656,9 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   }
 
   const legendW = 120;
-
-  const a11y = window.useChartA11y(
-    'Activity Heatmap',
+  const a11y = window.useChartA11y('Activity Heatmap',
     `${mspec.label} by weekday and hour, peak `
-      + `${maxVal > 0 ? mspec.fmt(maxVal) : 'no data'}`,
-    null);
+      + `${maxVal > 0 ? mspec.fmt(maxVal) : 'no data'}`, null);
   return (
     <div ref={ref} style={{
       background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
@@ -1801,6 +1800,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
       }}>
         <span>0</span>
         <svg aria-hidden="true" data-panel="Activity Heatmap — legend"
+             viewBox={`0 0 ${legendW} 10`} preserveAspectRatio="none"
              width={legendW} height="10">
           <defs>
             <linearGradient id="heatLegendGrad" x1="0" y1="0" x2="1" y2="0">
