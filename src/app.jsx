@@ -798,14 +798,12 @@ function TokenBreakdownPanel({ events }) {
           {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
-      <window.HBar
-        embedded
+      <window.HBar embedded listPanel
         title="Token Breakdown — by tokens"
         rows={[...rows].sort((a, b) => b.value - a.value)}
         fmt={r => `${window.humanFmt(r.value)} (${(r.value / tokenTotal * 100).toFixed(1)}%)`} />
       {hasCost && (
-      <window.HBar
-        embedded
+      <window.HBar embedded listPanel
         title="Token Breakdown — by cost"
         rows={[...rows].map(r => ({ ...r, value: r.cost })).sort((a, b) => b.value - a.value)}
         fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costTotal * 100).toFixed(1)}%)`} />
@@ -1020,13 +1018,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
 
       <div className="dash-grid-2">
         {costByModelTotal > 0 && (
-        <window.HBar
+        <window.HBar listPanel
           title="Cost by Model"
           rows={costByModel}
           fixedColors={window.modelColors}
           fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costByModelTotal * 100).toFixed(1)}%)`} />
         )}
-        <window.HBar
+        <window.HBar listPanel
           title="Tokens by Model"
           rows={tokensByModel}
           fixedColors={window.modelColors}
