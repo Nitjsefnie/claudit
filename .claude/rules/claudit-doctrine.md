@@ -571,7 +571,13 @@ file.
 
 Each row's history is append-only, oldest first. Every entry carries
 five finite non-negative rates (`fresh`, `create_5m`, `create_1h`,
-`read`, `output`) and an optional string `note`. A model row's first
+`read`, `output`), an optional string `note`, an optional `schedule`, and
+— on a provider entry only — an optional `band`, a subset of the five
+rate fields mapped to a `[min, max]` pair of finite non-negative numbers
+with `min <= max`. A `band` is a record of what the host moved inside,
+never a price: the five rate fields beside it stay the priced rates, and
+both loaders check a band and ignore it (SV-RATE-REFRESH). A model row's
+first
 entry has `from: null` (all of time). A provider row's first may name
 its start instant; before it, that host's records price by the model
 alone, and the start joins `RATE_EPOCHS`. Every other `from` is exactly
@@ -763,6 +769,28 @@ same rules:
   entry, and appends and bumps nothing. A first move away never
   matches; the flip back does. A genuine return to an older price is
   hand-appended, and the next run compares against it.
+- **An oscillating host is recorded once, as a BAND (issue #640).** A
+  provider entry carries an optional `band`: each rate field it names maps
+  to a `[min, max]` pair, the range the host actually moved inside, and a
+  field it does not name is unconstrained. The five rate fields beside it
+  stay the PRICED rates — their time-weighted mean over the window that
+  formed the band — so no rate math reads the band; the loaders accept
+  and check it (`pricing_load.check_band`, mirrored by parser.js) and
+  ignore it. On the LOG path, a row whose newest entry carries a band is
+  appended to at most once: every new state inside it makes NO Move at
+  all (a Move with no entries in it would still bump the version, write
+  both files and commit), and a state outside it appends the one entry
+  `price_band.widen` grows the band to cover, dated at that state's own
+  change point. The hourly run NEVER forms a band — it never rewrites an
+  entry — so a band only ever enters through
+  `scripts/ci/collapse_oscillating_rates.py`, the one-time reviewed
+  rewrite: it collapses each row `price_band.classify` calls TOGGLE or
+  BAND, leaves STEP and STABLE rows byte-identical, and reports the
+  distinct host names it collapsed so the reviewer can run the records
+  query over exactly those before merging (a mean is only safe while no
+  record has been priced through that host). A banded row the run later
+  SAMPLES falls back to appending every move: the alternation rule and
+  the band are independent, and only the log path carries the band.
 - **Unmodelled pricing refuses the host, unless it is a RECORDED fee:**
   an override kind the script does not model (e.g. a `min_prompt_tokens`
   tier), or any other pricing key at a nonzero price. The one exception
