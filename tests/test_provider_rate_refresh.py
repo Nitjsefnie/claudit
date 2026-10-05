@@ -517,14 +517,19 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
     assert "stealth/space-bunny-alpha" in out and "delisted" in out
 
 
+@pytest.mark.parametrize("catalog_payload", [
+    pytest.param({"unexpected": "shape"}, id="unrecognised-shape"),
+    pytest.param({"data": []}, id="empty-listing"),
+])
 def test_an_unreadable_catalog_keeps_the_empty_endpoints_refusal(
-        tmp_path, capsys):
+        tmp_path, capsys, catalog_payload):
     """A catalog that could not be read proves nothing about delisting: an
     empty endpoints answer from a tracked model is still refused, never
-    skipped."""
+    skipped. An empty data list is a spelling of unreadable — a transient
+    empty listing must not mass-delist every tracked model."""
     run = Run(tmp_path)
     run.endpoints(V41).clear()
-    rc, _, err = run(capsys, catalog={"unexpected": "shape"})
+    rc, _, err = run(capsys, catalog=catalog_payload)
     assert rc != 0
     assert V41 in err and "no endpoints listed" in err
 

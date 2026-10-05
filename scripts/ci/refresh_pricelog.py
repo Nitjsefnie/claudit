@@ -140,6 +140,10 @@ def _catalog_slugs(payload: object) -> tuple[dict[str, str | None], str | None]:
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         return {}, "models response has no data list"
+    if not data:
+        # An empty listing is a broken fetch, never a catalog of zero
+        # models: read as unreadable, so no tracked model is delisted by it.
+        return {}, "models response lists no models"
     slugs: dict[str, str | None] = {}
     for index, item in enumerate(data):
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
@@ -164,10 +168,10 @@ def read_logs(tracked: dict, fetch_catalog: FetchModels | None,
     """Fetch and validate each tracked model's log using one model catalog.
 
     Also returns the catalog's model-id set, or None whenever the catalog
-    could not be read (no fetcher, a failed fetch, an unrecognised shape):
-    the caller cannot then tell a delisted model from a broken catalog
-    fetch, and keeps refusing a still-tracked model's empty endpoints
-    answer."""
+    could not be read (no fetcher, a failed fetch, an unrecognised or empty
+    listing): the caller cannot then tell a delisted model from a broken
+    catalog fetch, and keeps refusing a still-tracked model's empty
+    endpoints answer."""
     if fetch_catalog is None or fetch_log is None:
         return _unavailable(tracked, "listed-pricing fetch is not configured"), None
     try:
