@@ -24,7 +24,9 @@ from backend import agent_sidecar, db, parse, r2
 from backend.ingest_reprice import IngestAborted
 from backend.ingest_scope import capture_and_add, capture_contributions, current_scope
 from backend.ingest_progress import _set_progress
-from backend.ingest_timing import _RUN_TIMING, _RunTiming
+from backend.ingest_timing import (
+    _RUN_TIMING, _RunTiming, _emit_fetch_parse_parts,
+)
 from backend.ingest_workers import (
     parse_process_count, parse_worker_init, persist_thread_count,
     worker_count,
@@ -296,14 +298,7 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
                 current.phases.mark("fetch_parse", parse_wall)
                 # Issue #662: the pool wall's parts, emitted as breakdown
                 # figures so the sum/gap accounting stays wall-only.
-                parts = dict(current.child_work)
-                parts["persist_work"] = current.persist_seconds
-                parts["wait_parse"] = current.wait_parse
-                parts["wait_persist"] = current.wait_persist
-                for label in ("child_fetch", "child_decompress",
-                              "child_parse", "child_sidecar",
-                              "persist_work", "wait_parse", "wait_persist"):
-                    current.phases.mark_part(label, parts.get(label, 0.0))
+                _emit_fetch_parse_parts(current.phases, current)
                 current.phases.mark(
                     "persist", time.perf_counter() - current.last_parse_done)
             else:

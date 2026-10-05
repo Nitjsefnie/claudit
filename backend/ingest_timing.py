@@ -50,6 +50,26 @@ def _record_phase(label: str, seconds: float) -> None:
         current.phases.mark(label, seconds)
 
 
+#: The pool pipeline's fetch_parse part marks, in emission order (issue
+#: #662) — child work summed across the forked children, the summed
+#: persist work, and the parent's two blocking points.
+FETCH_PARSE_PART_MARKS = (
+    "child_fetch", "child_decompress", "child_parse", "child_sidecar",
+    "persist_work", "wait_parse", "wait_persist",
+)
+
+
+def _emit_fetch_parse_parts(phases, current: _RunTiming) -> None:
+    """Emit the pool pipeline's fetch_parse parts as breakdown figures so
+    the account line's sum/gap stay wall-only (issue #662)."""
+    parts = dict(current.child_work)
+    parts["persist_work"] = current.persist_seconds
+    parts["wait_parse"] = current.wait_parse
+    parts["wait_persist"] = current.wait_persist
+    for label in FETCH_PARSE_PART_MARKS:
+        phases.mark_part(label, parts.get(label, 0.0))
+
+
 def _record_scope(scope: str) -> None:
     current = _RUN_TIMING.get()
     if current is not None:
