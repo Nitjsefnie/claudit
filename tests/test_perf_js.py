@@ -668,3 +668,28 @@ def test_an_unknown_journey_name_is_never_reported():
       console.log(JSON.stringify({ beacons: beacons() }));
     """, sendBeacon=True, observers=[])
     assert out["beacons"] == [], out
+
+
+def test_region_falls_back_to_the_nearest_data_panel():
+    """#647: only the grid and the Inspector carry `data-perf-region`,
+    so a live node inside one panel — under no named region — landed in
+    `other`, and `other` is what most production shifts carried. The
+    nearest `[data-panel]` ancestor is the attribution the page already
+    names; in the sink's closed vocabulary it is `panel_grid`. The
+    region walk keeps precedence, and the fallback widens nothing it
+    cannot see: a node outside every panel keeps `other`."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const panel = mk({ 'data-panel': 'Cost by Model' }, null);
+      const between = mk({ 'data-panel': 'Cost by Model' },
+        mk({ 'data-perf-region': 'inspector' }, null));
+      console.log(JSON.stringify({
+        inner: window.perf.region(mk({}, panel)),
+        own: window.perf.region(panel),
+        precedence: window.perf.region(mk({}, between)),
+        bare: window.perf.region(mk({}, null)),
+      }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"inner": "panel_grid", "own": "panel_grid",
+                   "precedence": "inspector", "bare": "other"}, out
