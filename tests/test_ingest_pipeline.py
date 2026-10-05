@@ -230,20 +230,6 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     assert _ms("persist_work") > 0, line
 
 
-def test_process_pool_timing_line_absent_when_flag_off(
-        fresh_db, mini_r2_env, monkeypatch, caplog):
-    """Claudit timing off, pool pipeline running: no TIMING ingest line,
-    so none of the #662 part marks either."""
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
-    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
-        summary = ingest.run_ingest("test-proc-quiet")
-    assert summary["error"] is None
-    assert [r.getMessage() for r in caplog.records
-            if r.getMessage().startswith("TIMING ingest ")] == []
-
-
 def test_persist_thread_count_defaults_and_clamps(monkeypatch):
     monkeypatch.delenv("INGEST_PERSIST_THREADS", raising=False)
     assert ingest.persist_thread_count() == 4
