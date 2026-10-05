@@ -307,6 +307,31 @@ function _scheduledRates(schedule, t) {
   return null;
 }
 
+// An entry's oscillating price range, checked and read as {[field]: [min, max]}.
+// A band maps each rate field it constrains to a [min, max] pair of finite
+// non-negative numbers with min <= max; a field it does not name is
+// unconstrained. The five rate fields beside it stay the priced rates — the
+// loader reads a band only to refuse a rule-breaking one. Mirrors
+// pricing.check_band.
+function _checkBand(band, at) {
+  if (band === null || typeof band !== 'object' || Array.isArray(band)) {
+    throw _pricingError(`${at}: band is not a mapping of rate fields to [min, max]`);
+  }
+  const out = {};
+  for (const [field, span] of Object.entries(band)) {
+    const w = `${at}.band[${field}]`;
+    if (!Object.values(_RATE_FIELDS).includes(field)) {
+      throw _pricingError(`${w}: not one of ${Object.values(_RATE_FIELDS).join(', ')}`);
+    }
+    if (!Array.isArray(span) || span.length !== 2
+        || !span.every((v) => _isRate(v)) || span[0] > span[1]) {
+      throw _pricingError(`${w}: not a [min, max] pair of finite non-negative numbers with min <= max`);
+    }
+    out[field] = [span[0], span[1]];
+  }
+  return out;
+}
+
 function _checkHistory(entries, where, mayBegin) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
@@ -314,13 +339,17 @@ function _checkHistory(entries, where, mayBegin) {
   const fees = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${i}]`;
-    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule'].includes(k));
+    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'band'].includes(k));
     if (fields.sort().join() !== _FIELD_NAMES || !('from' in entry)) {
       throw _pricingError(`${at}: fields ${Object.keys(entry).sort()}`);
     }
     if ('schedule' in entry) {
       if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a schedule`);
       schedules[i] = _checkSchedule(entry.schedule, at);
+    }
+    if ('band' in entry) {
+      if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a band`);
+      _checkBand(entry.band, at);
     }
     const bad = Object.values(_RATE_FIELDS).filter((f) => !_isRate(entry[f]));
     if (bad.length) throw _pricingError(`${at}: ${bad} not a finite non-negative number`);
