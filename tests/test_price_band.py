@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from backend import pricing
+
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
@@ -33,6 +35,7 @@ def _load():
 price_band = _load()
 
 AT = datetime(2031, 1, 8, 0, 0, tzinfo=timezone.utc)
+STAMP = "2031-01-08T00:00:00Z"
 DAYS = 7
 WINDOW = AT - timedelta(days=DAYS)
 
@@ -42,6 +45,10 @@ RATE_B = {"fresh": 0.20, "create_5m": 0.20, "create_1h": 0.20,
           "read": 0.020, "output": 0.700}
 RATE_C = {"fresh": 0.40, "create_5m": 0.40, "create_1h": 0.40,
           "read": 0.030, "output": 0.900}
+# A collapsed row is priced by the MEAN of the levels it moved between, which
+# equals no individual level — the shape issue #640 leaves in the table.
+RATE_MID = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
+            "read": 0.015, "output": 0.750}
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:
@@ -272,28 +279,81 @@ def test_a_scheduled_row_is_refused_rather_than_priced_by_its_mean():
 
 
 # --- widen --------------------------------------------------------------------
+#
+# An entry is banded and priced by the MEAN its history collapsed to, which
+# equals no individual level — so it is never RATE_A/B/C here. RATE_MID is.
 
 
 def test_widen_grows_the_band_to_cover_a_level_outside_it():
-    entry = _entry("2030-12-01T00:00:00Z", RATE_A, band=_banded(RATE_A, RATE_B))
+    entry = _entry("2030-12-01T00:00:00Z", RATE_MID, band=_banded(RATE_A, RATE_B))
     outside = {**RATE_C, "fresh": 0.5, "create_5m": 0.5, "create_1h": 0.5}
-    widened = price_band.widen(entry, outside, AT)
+    widened = price_band.widen(entry, [outside], AT)
     assert widened["from"] == "2031-01-08T00:00:00Z"
     assert widened["band"]["fresh"] == [0.2, 0.5]
     assert widened["band"]["read"] == [0.01, 0.03]
     assert widened["band"]["output"] == [0.7, 0.9]
-    assert widened["fresh"] == RATE_A["fresh"], "the priced level stands"
+    assert widened["fresh"] == RATE_MID["fresh"], "the priced level stands"
+
+
+def test_an_undated_banded_entry_widens_its_band_and_never_reprices():
+    """The shape a collapse leaves for every row whose history began without
+    a `from`: 38 of the 54 rows issue #640 collapses. time_weighted skips an
+    undated entry, so a mean computed over the new level alone repriced the
+    row from its mean to whichever level last escaped the band."""
+    entry = _entry(None, RATE_MID, band=_banded(RATE_A, RATE_B))
+    outside = {**RATE_C, "fresh": 0.5, "create_5m": 0.5, "create_1h": 0.5}
+    widened = price_band.widen(entry, [outside], AT)
+    assert widened["band"]["fresh"] == [0.2, 0.5], "the band still widens"
+    assert widened["band"]["read"] == [0.01, 0.03]
+    assert widened == {**entry, "band": widened["band"]} | {"from": STAMP}, \
+        "every priced rate stands; only `from` and the band move"
+
+
+def test_widen_needs_a_banded_entry():
+    with pytest.raises(ValueError, match="banded"):
+        price_band.widen(_entry("2030-12-01T00:00:00Z", RATE_MID), [RATE_C], AT)
+
+
+def test_widen_covers_every_level_it_is_given_not_only_the_last():
+    """Two escapes in opposite directions in one window: the recorded range
+    must contain both, or the row keeps churning on the one it forgot."""
+    entry = _entry("2030-12-01T00:00:00Z", RATE_MID, band=_banded(RATE_A, RATE_B))
+    high = {**RATE_C, "fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9}
+    low = {**RATE_C, "fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
+           "read": 0.001}
+    widened = price_band.widen(entry, [high, low], AT)
+    assert widened["band"]["fresh"] == [0.05, 0.9], "both excursions are inside"
+    assert price_band.in_band(widened, high) and price_band.in_band(widened, low)
 
 
 def test_widen_leaves_the_band_and_level_of_a_move_inside_it_unchanged():
-    entry = _entry("2030-12-01T00:00:00Z", RATE_A,
+    entry = _entry("2030-12-01T00:00:00Z", RATE_MID,
                    band=_banded(RATE_A, RATE_B, RATE_C))
-    widened = price_band.widen(entry, RATE_B, AT)
+    widened = price_band.widen(entry, [RATE_B], AT)
     assert widened["band"] == entry["band"]
-    assert widened["fresh"] == RATE_A["fresh"]
+    assert widened["fresh"] == RATE_MID["fresh"]
 
 
 def test_widen_keeps_the_row_s_note():
-    entry = _entry("2030-12-01T00:00:00Z", RATE_A, note="40% off",
+    entry = _entry("2030-12-01T00:00:00Z", RATE_MID, note="40% off",
                    band=_banded(RATE_A, RATE_B, RATE_C))
-    assert price_band.widen(entry, RATE_C, AT)["note"] == "40% off"
+    assert price_band.widen(entry, [RATE_C], AT)["note"] == "40% off"
+
+
+# --- an undated banded row widens without losing its coverage (issue #640) ---
+
+
+def test_a_widened_undated_row_still_covers_every_record(tmp_path):
+    """The widened entry is APPENDED, so the undated first entry stays and
+    the row keeps existing for records before the escape — a row stops
+    covering them only when its FIRST entry names an instant."""
+    model, host = "synthetic/model", "HostCo"
+    row = [_entry(None, RATE_MID, band=_banded(RATE_A, RATE_B))]
+    widened = price_band.widen(row[-1], [RATE_C], AT)
+    doc = {"models": {model: [_entry(None, RATE_MID)]},
+           "providers": {model: {host: [row[-1], widened]}},
+           "provider_rates_fetched": STAMP, "long_context_models": []}
+    tables = pricing.load_tables(doc)
+    assert (model, host) not in tables["PROVIDER_STARTS"], \
+        "no start instant: the row is in force for records before the widening"
+    assert tables["PROVIDER_RATES"][model, host] == RATE_MID, "the mean still prices"
