@@ -89,9 +89,6 @@ const ROUTES = [{ name: 'overview', nav: null }];
 // `roles` is the sorted role set of the violation: one entry for OVERLAP
 // (two regions), one for OVERFLOW (one region escaping its panel).
 const FILED = [
-  { issue: 634, panel: 'Session Burn Rate', roles: ['legend', 'plot'] },
-  { issue: 634, panel: 'Session Burn Rate', roles: ['axis', 'legend'] },
-  { issue: 635, panel: 'Session Burn Rate', roles: ['title'] },
   { issue: 636, panel: 'Activity Heatmap', roles: ['axis'] },
   { issue: 636, panel: 'Activity Heatmap', roles: ['plot'] },
   { issue: 637, panel: 'Activity Heatmap — legend', roles: ['legend'] },
