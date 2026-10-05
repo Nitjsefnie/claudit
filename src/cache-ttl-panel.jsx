@@ -68,7 +68,7 @@ function CacheTTLPanel({ events, range, binMs }) {
   const [legAdv, setLegAdv] = React.useState(0);
   // Advance of the 10px legend mono, measured off a rendered label — a
   // predicted advance disagrees with the real one (app.css letter-spacing;
-  // ContextSubPanel measures its own advance for the same reason).
+  // the comparison panel measures its advance the same way).
   React.useLayoutEffect(() => {
     const t = legRef.current && legRef.current.querySelector('text');
     if (!t || !t.getComputedTextLength) return;

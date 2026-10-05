@@ -248,7 +248,9 @@ def test_every_chart_svg_is_named_or_explicitly_hidden():
             assert "aria-label={" in tag, (
                 f"{path.name}:{line}: aria-label is not a data binding, "
                 f"so it cannot follow the panel's data")
-    assert total >= 15, (
+    # 14 since #649/#652: the per-model sub-panel svgs are gone; the
+    # tool panel's single chart remains. A floor, not a census.
+    assert total >= 14, (
         f"only {total} <svg> tags found -- the guard would pass "
         f"vacuously")
     assert hidden <= 1, (

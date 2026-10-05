@@ -534,19 +534,17 @@ def _series_expression(path: Path) -> str:
     return match.group(1)
 
 
-def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
-    """#648: one model's median sat at a different height in each view.
+def test_the_comparison_scales_from_the_checked_models_observed_peak():
+    """#648/#649: the comparison's axis is the shared rule over the
+    bundle the panel itself builds, not a hand-folded constant.
 
-    Both axis expressions are evaluated against the real module, and the
-    comparison's is driven through the panel's OWN `series` construction
-    -- extracted from the .jsx like the expressions are -- so what the
-    assertion reads is what the panel hands the rule. The two must return
-    the same number for the same single model, and adding a taller model
-    must move the comparison and leave the grid alone: without that second
-    half the equality would hold for any pair of expressions, including two
-    that ignore their input.
+    Both expressions are extracted from the .jsx and evaluated against
+    the real module, so what the assertion reads is what the panel hands
+    the rule. The equality side is against ctxAxisTopFor over the SAME
+    sessions, and adding a taller model must move it: without that
+    second half the equality would hold for an expression that ignores
+    its input.
     """
-    grid_expr = _y_axis_expression(GRID_JSX)
     compare_expr = _y_axis_expression(COMPARE_JSX)
     series_expr = _series_expression(COMPARE_JSX)
     got = _ctx_node(f"""
@@ -561,25 +559,21 @@ def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
 
       models = [{{model: 'a'}}]; byModel = {{a: one}};
       let series = {series_expr};
-      let sessions = one;
       const carriesSessions = series[0].sessions === one;
-      const grid = {grid_expr}
-      const compare = {compare_expr}
+      const axis = {compare_expr}
+      const expected = A.ctxAxisTopFor([one]);
 
-      // Re-evaluated against the taller model: the comparison folds every
-      // checked model and must move, the grid reads only its own bundle
-      // and must not. Same two expressions, same two names, rebound.
-      sessions = two;
+      // Re-evaluated with a taller model added: the comparison folds every
+      // checked model's sessions and must move.
       models = [{{model: 'a'}}, {{model: 'b'}}];
       byModel = {{a: one, b: two}};
       series = {series_expr};
-      const gridTall = {grid_expr}
-      const compareTall = {compare_expr}
+      const axisTall = {compare_expr}
+      const expectedTall = A.ctxAxisTopFor([one, two]);
       console.log(JSON.stringify({{
-        grid, compare, equal: grid === compare, carriesSessions,
-        gridTall, compareTall,
-        comparisonMoved: compareTall > compare,
-        gridMoved: gridTall !== grid,
+        axis, expected, equal: axis === expected, carriesSessions,
+        axisTall, expectedTall, equalTall: axisTall === expectedTall,
+        comparisonMoved: axisTall > axis,
       }}));
     """)
     # Named first, so a bundle that stopped carrying its sessions says so
@@ -589,15 +583,15 @@ def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
         "model's `sessions`; its axis reads undefined and falls to the "
         "division-guard floor instead of the data")
     assert got["equal"], (
-        f"the grid's axis ({got['grid']}) and the comparison's "
-        f"({got['compare']}) disagree for one model on equal data")
-    # Anti-vacuity: both expressions read their input.
+        f"the comparison's axis ({got['axis']}) is not ctxAxisTopFor over "
+        f"the checked sessions (expected {got['expected']})")
+    assert got["equalTall"], (
+        f"with a taller model checked the axis ({got['axisTall']}) is not "
+        f"ctxAxisTopFor over both (expected {got['expectedTall']})")
+    # Anti-vacuity: the expression reads its input.
     assert got["comparisonMoved"], (
         "adding a taller model did not raise the comparison's axis, so the "
         "equality above holds for an expression that ignores its input")
-    assert got["gridMoved"], (
-        "the grid's axis did not change when its own bundle was rebound, so "
-        "the equality above holds for an expression that ignores its input")
 
 
 def test_the_session_view_scales_to_its_own_observed_peak():

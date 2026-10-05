@@ -1,11 +1,15 @@
-// The Per-Session Context Growth COMPARISON panel — the overlay that draws
-// every checked model's median context per turn on one set of axes.
+// The Per-Session Context Growth COMPARISON panel — ONE chart (issue
+// #649): every checked model's median, translucent p25–p75 band and p90
+// line on one set of shared axes, with the per-session traces behind a
+// toggle. The per-model sub-panel grid this module's neighbours used to
+// hold is gone (#649 absorbed #638's overflowing sub-panel legends with
+// it).
 //
 // Split out of dashboard-charts-extra.jsx (issue #630): the panel grew a
-// measured-advance layout pass that the file's committed size entry had no
-// room for, and the size ratchet's own rule is that an outgrown file moves
-// code into a new module. Nothing about the panel changed but where it
-// lives.
+// measured-advance layout pass that the file's committed size entry had
+// no room for, and the size ratchet's own rule is that an outgrown file
+// moves code into a new module. Nothing about the panel changed but where
+// it lives.
 //
 // Its layout is BANDED, top to bottom: title, plot, x ticks, axis caption,
 // then one legend row per wrapped row. Every band is measured rather than
@@ -24,7 +28,7 @@ const perTurnStats = window.perTurnStats;
 // digits only, so no glyph in it is a special width.
 const PROBE_CHARS = '0123456789abcdefghij';
 
-function ComparisonRow({ models, byModel, w, h }) {
+function ComparisonRow({ models, byModel, w, h, showSessions }) {
   const ref = React.useRef(null);
   const [tip, setTip] = React.useState(null);
   // Measured advance of this panel's two monospace text roles, read off a
@@ -68,12 +72,10 @@ function ComparisonRow({ models, byModel, w, h }) {
   }), [models, byModel]);
 
   // The axis, from the observed data and through the SAME call the
-  // per-model grid uses (issue #648): the peak context among every turn
-  // of every session on the chart, plus headroom. This panel passes
-  // every CHECKED model's sessions and each grid cell passes only its
-  // own, so with one model checked the two expressions compute the same
-  // axis on the same data and its median draws at the same height in
-  // both views.
+  // per-model grid used to use (issue #648): the peak context among every
+  // turn of every session of every CHECKED model, plus headroom. Shared
+  // axes are the point of the single chart (#649): a model checked beside
+  // a taller one sits lower, and that is the comparison working.
   const yMax = window.ctxAxis.ctxAxisTopFor(series.map(s => s.sessions));
   // Dynamic x-domain: max turn across all checked models
   const xMax = Math.max(1, ...series.map(s => s.stats.maxT || 0));
@@ -117,6 +119,8 @@ function ComparisonRow({ models, byModel, w, h }) {
     for (const s of series) {
       const live = s.stats.count[turn] || 0;
       lines.push([`${s.model} median`, fmt(s.stats.median[turn])]);
+      lines.push([`${s.model} p25–p75`, `${fmt(s.stats.p25[turn])}–${fmt(s.stats.p75[turn])}`]);
+      lines.push([`${s.model} p90`, fmt(s.stats.p90[turn])]);
       lines.push([`${s.model} active`, `${live} / ${s.count}`]);
     }
     setTip({ x: mx, y: my, title: `turn ${turn}`, accent: '#ffffff', lines });
@@ -136,14 +140,49 @@ function ComparisonRow({ models, byModel, w, h }) {
   // they run out of width; the row count is what sizes the svg below.
   const legend = window.panelLayout.packLegend(
     series, adv || 5.7, plotW, 16, 18);
+  // The static legend-key row: what each mark IS, once, in a fixed-size
+  // row that never grows with the model count (#649 point 6). Entries
+  // carry a null count, which packs as no count text at all; the
+  // `sessions` key appears only while the traces are on.
+  const keyEntries = [
+    { model: 'median', count: null },
+    { model: 'p25–p75', count: null },
+    { model: 'p90', count: null },
+    ...(showSessions ? [{ model: 'sessions', count: null }] : []),
+  ];
+  const keyLegend = window.panelLayout.packLegend(
+    keyEntries, adv || 5.7, plotW, 16, 18);
   const legendTop = padT + plotH + 46;
-  const svgH = legendTop + Math.max(1, legend.rows.length) * 16 + 8;
+  const keyTop = legendTop + Math.max(1, legend.rows.length) * 16 + 4;
+  const svgH = keyTop + Math.max(1, keyLegend.rows.length) * 16 + 8;
   const a11y = window.useChartA11y(
     'Context Growth — comparison',
     `median context per turn, ${series.length} models`,
     series.length
       ? `Compared: ${series.map(s => `${s.model} (${s.count} files)`).join(', ')}.`
       : null);
+
+  // The static key's marks, keyed by its entry label. Each mark shows the
+  // shape a CHECKED model's line carries, in the neutral text colour: the
+  // colour itself is the model's, and the checkbox beside its name is
+  // that colour key.
+  function keyMark(label, x, y) {
+    const c = TH_X.text;
+    switch (label) {
+      case 'median':
+        return <line x1={x} x2={x + 16} y1={y + 5} y2={y + 5}
+          stroke={c} strokeWidth="2" />;
+      case 'p90':
+        return <line x1={x} x2={x + 16} y1={y + 5} y2={y + 5}
+          stroke={c} strokeWidth="1.2" strokeDasharray="4,3" />;
+      case 'sessions':
+        return <line x1={x} x2={x + 16} y1={y + 5} y2={y + 5}
+          stroke={c} strokeWidth="0.7" strokeOpacity="0.6" />;
+      default: // 'p25–p75'
+        return <rect x={x} y={y + 1} width={16} height={8}
+          fill={c} fillOpacity="0.25" />;
+    }
+  }
 
   return (
     <div ref={ref} style={{ position: 'relative', borderBottom: `1px solid ${TH_X.border}` }}
@@ -183,6 +222,21 @@ function ComparisonRow({ models, byModel, w, h }) {
           })}
         </g>
 
+        {/* The static legend-key row — what each mark is. Packed and
+            wrapped by the same packer, so it fits at 320px the way the
+            model clusters above it do (issue #638's replacement). */}
+        <g>
+          {keyLegend.rows.flat().map(c => {
+            return (
+              <g key={'key-' + c.label} data-role="legend"
+                transform={`translate(${padL + c.x}, ${keyTop + c.y})`}>
+                {keyMark(c.label, c.ruleX, c.y)}
+                <text x={9} y={9} fontSize="9.5" fontWeight="700" fill={TH_X.text} fontFamily="monospace">{c.text}</text>
+              </g>
+            );
+          })}
+        </g>
+
         {/* Y grid */}
         {yTicks.map((v, i) => (
           <line key={'g'+i} x1={padL} x2={w - padR}
@@ -190,10 +244,52 @@ function ComparisonRow({ models, byModel, w, h }) {
             stroke={TH_X.grid} strokeOpacity="0.25" />
         ))}
 
-        {/* Median line per checked model. p90 dropped — overlapping
-            dashed lines for 2+ models read as noise, and per-model
-            spread is already shown in the sub-panels below as IQR
-            ribbons. */}
+        {/* Per-session traces — behind everything, at low opacity, in the
+            model's colour, gated by the sessions toggle (#649 point 4). */}
+        {showSessions && series.map(s => {
+          const c = (window.modelColors && window.modelColors[s.model]) || '#888';
+          return s.sessions.map((sess, i) => {
+            const pts = [];
+            for (const p of sess.seq) {
+              pts.push(`${xScale(p.t)},${yScale(Math.min(p.ctx, yMax))}`);
+            }
+            if (pts.length < 2) return null;
+            return (
+              <polyline key={`tr-${s.model}-${i}`} points={pts.join(' ')}
+                stroke={c} strokeWidth="0.7" strokeOpacity="0.25" fill="none" />
+            );
+          });
+        })}
+
+        {/* p25–p75 band per checked model — translucent, in the model's
+            colour (#649 point 3). */}
+        {series.map(s => {
+          const c = (window.modelColors && window.modelColors[s.model]) || '#888';
+          const top = [], bot = [];
+          for (let i = 0; i < s.stats.turns.length; i++) {
+            const lo = s.stats.p25[i], hi = s.stats.p75[i];
+            if (lo == null || hi == null) continue;
+            top.push(`${xScale(s.stats.turns[i])},${yScale(Math.min(hi, yMax))}`);
+            bot.push(`${xScale(s.stats.turns[i])},${yScale(Math.min(lo, yMax))}`);
+          }
+          if (top.length < 2) return null;
+          const ribbon = `M ${top.join(' L ')} L ${bot.reverse().join(' L ')} Z`;
+          return <path key={'band-'+s.model} d={ribbon}
+            fill={c} fillOpacity="0.25" stroke="none" />;
+        })}
+
+        {/* p90 line per checked model, dashed so it cannot be read as
+            the median (#649 point 3). */}
+        {series.map(s => {
+          const c = (window.modelColors && window.modelColors[s.model]) || '#888';
+          return (
+            <polyline key={'p90-'+s.model}
+              points={buildLine(s.stats.turns, s.stats.p90)}
+              stroke={c} strokeWidth="1.2" strokeDasharray="4,3" fill="none" />
+          );
+        })}
+
+        {/* Median line per checked model, on top of band and p90. */}
         {series.map(s => {
           const c = (window.modelColors && window.modelColors[s.model]) || '#888';
           return (

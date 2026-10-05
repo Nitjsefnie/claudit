@@ -642,9 +642,15 @@ def test_the_comparison_svg_is_sized_by_its_legend_not_by_a_prop():
     assert height.group(1) == "svgH", (
         f"the comparison svg is sized by {height.group(1)!r}, not by the "
         "legend-aware height: a wrapped legend row is clipped instead")
-    assert re.search(r"const svgH = legendTop \+ "
-                     r"Math\.max\(1, legend\.rows\.length\) \* \d+ \+ \d+;", src), (
-        "svgH does not grow with the legend's row count")
+    # Two packed rows since #649: the per-model clusters, then the
+    # static legend-key row beneath them; svgH must still grow with the
+    # last row count, or a wrapped key row is clipped instead.
+    assert re.search(r"const keyTop = legendTop \+ "
+                     r"Math\.max\(1, legend\.rows\.length\) \* \d+", src), (
+        "the legend-key row does not stack on the model clusters' rows")
+    assert re.search(r"const svgH = keyTop \+ "
+                     r"Math\.max\(1, keyLegend\.rows\.length\) \* \d+ \+ \d+;", src), (
+        "svgH does not grow with the legend-key row count")
 
 
 def test_the_comparison_panel_measures_its_advance_off_a_fixed_probe():
