@@ -13,9 +13,10 @@ claude audit ingests two bucket layouts through one classify():
 Tests use bucket-less keys throughout: a later task qualifies stored
 keys with their bucket and strips it before calling classify().
 """
+from backend import key_layout
 from backend.key_layout import (
     KeyInfo, canonical_project_id, classify, lane_project_id,
-    project_marker, project_slug,
+    project_marker, project_slug, sidecar_stem, transcript_stem,
 )
 
 
@@ -158,3 +159,50 @@ def test_marker_windows_path_and_claude_key_meet_on_one_id():
     info = classify("c--users-z-repo/sess/sess.jsonl")
     assert info is not None
     assert marker == info.project_id == "c--users-z-repo"
+
+
+def test_a_lane_test_session_is_not_a_transcript():
+    """A lane session named exactly `test` is the kimi-code test suite's
+    scratch archive (issue #650): no wire in the subtree classifies, main
+    wire or subagent wire, and neither does its sidecar."""
+    assert classify(
+        "sessions/8805b8ac99ad/test/subagents/ac92a5a25/wire.jsonl.xz") is None
+    assert classify("sessions/8805b8ac99ad/test/wire.jsonl") is None
+    assert transcript_stem(
+        "sessions/8805b8ac99ad/test/subagents/ac92a5a25/wire.jsonl.xz") is None
+    assert sidecar_stem(
+        "sessions/8805b8ac99ad/test/subagents/ac92a5a25/meta.json") is None
+
+
+def test_the_test_session_rule_is_the_lane_trees():
+    """The rule is keyed to the lane tree: a Claude session named `test`
+    classifies as any other."""
+    assert classify("-root-proj/test/test.jsonl.xz") == KeyInfo(
+        "-root-proj", "test", True)
+
+
+def test_a_lane_test_session_shares_no_segments_with_the_test_rule():
+    """Only the session segment decides: `test` as a project hash prefix
+    or a subagent id is a transcript still."""
+    assert classify(
+        "sessions/test/01a0-uuid/wire.jsonl.xz") == KeyInfo(
+        "test", "01a0-uuid", True)
+    assert classify(
+        "sessions/8805b8ac99ad/01a0-uuid/subagents/test/wire.jsonl.xz"
+    ) == KeyInfo("8805b8ac99ad", "01a0-uuid", False)
+
+
+def test_a_junk_lane_key_never_index_errors():
+    """Every lane-tree entry point guards its indexes before reading them
+    (review of PR 689): a junk key of any length classifies as nothing,
+    never raises. A sidecar-shaped key under a REAL session still pairs;
+    only the test session's sidecar is refused."""
+    for key in ("sessions", "sessions/x", "sessions/x/y",
+                "sessions/x/y/subagents", "sessions/x/y/subagents/z",
+                "sessions/x/test/subagents/z/wire.jsonl",
+                "sessions/x/test/subagents/z/meta.json"):
+        assert key_layout.classify(key) is None
+        assert key_layout.transcript_stem(key) is None
+        assert key_layout.sidecar_stem(key) is None
+    assert sidecar_stem("sessions/x/y/subagents/z/meta.json") == (
+        "sessions/x/y/subagents/z")
