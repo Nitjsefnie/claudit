@@ -31,7 +31,7 @@ from __future__ import annotations
 import ast
 import functools
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from tests import db_marker
 
@@ -216,6 +216,88 @@ def _registered_fixtures(modules) -> dict[str, dict[str, str]]:
     return {name: _fixture_defs(tree) for name, tree, _ in modules}
 
 
+class _Facts(NamedTuple):
+    """Per-function facts one module walk collected (see _module_facts)."""
+
+    functions: dict[str, _AnyFn]
+    fixtures: dict[str, str]
+    mentions: dict[str, bool]
+    calls: dict[str, set[str]]
+
+
+def _attribute_chain(child: ast.AST, chain: tuple[str, ...],
+                     mentions: dict[str, bool],
+                     calls: dict[str, set[str]]) -> None:
+    """Attribute one node to every function whose body encloses it.
+
+    A server token spelled as a Name/Attribute id roots every enclosing
+    function, the way ast.walk(fn) saw it from inside each one; a plain
+    call name lands in the call set the fixpoint reads. Module-level
+    nodes (an empty chain) belong to no function and update nothing.
+    """
+    if isinstance(child, ast.Name):
+        if child.id in SERVER_CALLS:
+            for fname in chain:
+                mentions[fname] = True
+    elif isinstance(child, ast.Attribute):
+        if child.attr in SERVER_CALLS:
+            for fname in chain:
+                mentions[fname] = True
+    elif isinstance(child, ast.Call):
+        func = child.func
+        if isinstance(func, ast.Name):
+            for fname in chain:
+                calls[fname].add(func.id)
+
+
+@functools.cache
+def _module_facts(tree: ast.Module, source: str) -> _Facts:
+    """Everything both scanners derive, from ONE walk of the tree.
+
+    The single pass that replaced four-plus walks per module (issue
+    #675): `_functions`, `_fixture_defs`, `_mention_roots` and each
+    fixpoint's per-function call sets each walked the tree separately,
+    and the fixpoints re-walked every function per round, so a
+    module's cost scaled with its line count several times over. The
+    cache shares one facts pass between the registry derivation and
+    the marking guard, which read the same modules.
+
+    Attribution is by ENCLOSURE: a node updates every function whose
+    body encloses it — the same facts the old per-function walks
+    produced, because ast.walk(fn) re-visits nested defs. The
+    source-segment mention check stays: a server-call token spelled
+    inside a string is not a Name node; it runs per function only
+    where the module's own text carries a server token at all, the
+    same short-circuit the old mention pass's `or` evaluated.
+    """
+    functions: dict[str, _AnyFn] = {}
+    fixtures: dict[str, str] = {}
+    mentions: dict[str, bool] = {}
+    calls: dict[str, set[str]] = {}
+
+    def visit(node: ast.AST, chain: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _AnyFn):
+                name = child.name
+                functions[name] = child
+                mentions.setdefault(name, False)
+                calls.setdefault(name, set())
+                for dec in child.decorator_list:
+                    if _dotted(dec) == "pytest.fixture":
+                        fixtures[_fixture_registered_name(dec, name)] = name
+                visit(child, chain + (name,))
+                continue
+            _attribute_chain(child, chain, mentions, calls)
+            visit(child, chain)
+
+    visit(tree, ())
+    if _mentions_text(source):
+        for name, node in functions.items():
+            if not mentions[name] and _mentions_text(_segment(source, node)):
+                mentions[name] = True
+    return _Facts(functions, fixtures, mentions, calls)
+
+
 def _rooted_fixture_names(fixtures: dict[str, dict[str, str]],
                           rooted: dict[str, set[str]]) -> set[str]:
     """Registered fixture names whose defining function is rooted."""
@@ -235,11 +317,20 @@ def _derive_from_modules(modules) -> set[str]:
     Takes its modules as an argument so a seeded tree can be run through
     exactly this code, which is what makes the optimisation's parity
     testable against the full-sweep form rather than against a copy.
+
+    Facts come from ONE walk per module (see _module_facts), and the
+    fixpoint's rounds move sets only: the old form re-walked every
+    not-yet-rooted function per round for call sets that never changed
+    between rounds (issue #675).
     """
-    funcs = {name: _functions(tree) for name, tree, _ in modules}
-    fixtures = _registered_fixtures(modules)
-    rooted = {name: _mention_roots(funcs[name], source)
-              for name, _, source in modules}
+    facts_of = {name: _module_facts(tree, source)
+                for name, tree, source in modules}
+    fixtures = {name: facts.fixtures for name, facts in facts_of.items()}
+    rooted = {name: {fname for fname, hit in facts.mentions.items() if hit}
+              for name, facts in facts_of.items()}
+    params_of = {name: {fname: _arg_names(fn)
+                        for fname, fn in facts.functions.items()}
+                 for name, facts in facts_of.items()}
 
     # The names a function's PARAMETERS can root, as an incremental
     # union rather than a fresh sweep of every module's fixture map per
@@ -252,16 +343,16 @@ def _derive_from_modules(modules) -> set[str]:
     changed = True
     while changed:
         changed = False
-        for mod, fns in funcs.items():
-            for fname, fn in fns.items():
-                if fname in rooted[mod]:
+        for mod, facts in facts_of.items():
+            mod_calls = facts.calls
+            mod_params = params_of[mod]
+            mod_rooted = rooted[mod]
+            for fname in facts.functions:
+                if fname in mod_rooted:
                     continue
-                calls = {n.func.id for n in ast.walk(fn)
-                         if isinstance(n, ast.Call)
-                         and isinstance(n.func, ast.Name)}
-                rooted_params = _arg_names(fn) & rooted_names
-                if calls & rooted[mod] or rooted_params:
-                    rooted[mod].add(fname)
+                rooted_params = mod_params[fname] & rooted_names
+                if mod_calls[fname] & mod_rooted or rooted_params:
+                    mod_rooted.add(fname)
                     rooted_names |= {reg for reg, owner
                                      in fixtures[mod].items()
                                      if owner == fname}
@@ -379,15 +470,29 @@ def _seeded_modules() -> tuple:
     return tuple((name, ast.parse(src), src) for name, src in sources.items())
 
 
+# The frozen parity slice: four real, fixture-carrying modules, named.
+# Named rather than the dynamic biggest-four so this test's cost
+# tracks these files alone, never tree membership (issue #675).
+_PARITY_SLICE = ("test_web_metrics_rollup", "test_parse_lanes",
+                 "test_workflow_release", "test_api")
+
+
 def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
     # Parity on REAL sources, both forms over the same slice: a union
     # that dropped or double-counted a name would move a fixture in or
-    # out of the registry this module guards. The slice is the largest
-    # few real test modules, not the whole tree -- running the sweep
-    # form over all of it is the very cost this change removes, and a
-    # guard that costs more than the thing it guards is not a guard.
-    biggest = sorted(_modules(), key=lambda m: -len(m[2]))[:4]
-    assert len(biggest) == 4, biggest
+    # out of the registry this module guards. The slice is a FROZEN
+    # list of four real modules, named: a dynamic biggest-N would
+    # re-price this test whenever a pull request's added lines pushed
+    # a different file into the top four (issue #675), and a guard that
+    # costs more than the thing it guards is not a guard. The named
+    # four were the largest modules when the slice froze; any four
+    # real, fixture-carrying modules would do the same job.
+    by_name = {name: (name, tree, source)
+               for name, tree, source in _modules()}
+    missing = [name for name in _PARITY_SLICE if name not in by_name]
+    assert not missing, (
+        f"the frozen parity slice named missing modules: {missing}")
+    biggest = [by_name[name] for name in _PARITY_SLICE]
     assert _derive_from_modules(biggest) == _derive_by_sweep(biggest)
 
 
@@ -436,13 +541,17 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
     one has no rooted test (a root is a Name/Attribute id or raw
     segment text, both verbatim in the source), so scanning it can add
     no offender and is pure walk cost (issue #510).
+
+    Each module's facts come from ONE walk (_module_facts, issue
+    #675): the old form re-walked every function per fixpoint round
+    for call sets that never changed between rounds.
     """
     offenders = []
     for mod_name, tree, source in _modules(directory):
         if not any(tok in source for tok in SERVER_CALLS):
             continue
-        funcs = _functions(tree)
-        rooted = _mention_roots(funcs, source)
+        facts = _module_facts(tree, source)
+        rooted = {fname for fname, hit in facts.mentions.items() if hit}
         # The same helper-call closure the registry derivation uses:
         # a test that reaches the server through a helper it calls is
         # a DB test whatever its own body spells. SAME-MODULE ONLY:
@@ -452,16 +561,13 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
         changed = True
         while changed:
             changed = False
-            for fname, fn in funcs.items():
+            for fname in facts.functions:
                 if fname in rooted:
                     continue
-                calls = {n.func.id for n in ast.walk(fn)
-                         if isinstance(n, ast.Call)
-                         and isinstance(n.func, ast.Name)}
-                if calls & rooted:
+                if facts.calls[fname] & rooted:
                     rooted.add(fname)
                     changed = True
-        for fname, fn in funcs.items():
+        for fname, fn in facts.functions.items():
             if not fname.startswith("test_") or fname not in rooted:
                 continue
             if _arg_names(fn) & db_marker.DB_FIXTURES:
