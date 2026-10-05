@@ -135,14 +135,26 @@ export function filedFor(panel, kind) {
 // --- payload variants: 2 vs 30+ models --------------------------------
 
 // Rewrites the frozen base payloads into the height check's two worlds.
-// A top-level array whose first row carries a string `model` field is a
-// model-keyed list — `two` keeps each list's first two models' rows,
-// `many` expands it to at least 30 distinct models by cycling whole rows
-// under suffixed names, so every panel that reads models reads them at
-// both scales. Lists without a `model` field (heatmap cells, tool-usage
-// buckets, cost-by-context buckets) pass through untouched: their
-// heights must not move, and this is what makes the comparison read a
-// model-count change and nothing else.
+// A top-level array whose first row carries a string `model` (or
+// `agent_type`) field is keyed by that identity — `two` keeps the
+// list's first two identities' rows, `many` expands it to at least 30
+// distinct ones by cycling whole rows under suffixed names, so every
+// panel that reads models (or agent roles, the #651 case) reads them
+// at both scales. The LAST expanded copy carries a deliberately
+// over-long identity: the hover sweep runs over this set, so the
+// tooltip-overflow assertion is exercised against the longest label
+// the page can render at every run (#642's probe).
+//
+// PRECONDITION: a rewritten list is UNIFORM — every row carries the
+// list's identity field. A totals row without one would be dropped by
+// `two` and invented into an `undefined~i` identity by `many`; no
+// fixture list is mixed, and one that becomes so must refuse here
+// rather than skew the comparison.
+//
+// Lists with neither identity field (heatmap cells, tool-usage buckets,
+// cost-by-context buckets) pass through untouched: their heights must
+// not move, and this is what makes the comparison read an identity-
+// count change and nothing else.
 export function variantsFrom(base) {
   const MANY = 30;
   const LONG = '~a-very-long-identity-name-probing-tooltip-overflow';
