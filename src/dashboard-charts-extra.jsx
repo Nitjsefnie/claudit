@@ -239,13 +239,11 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
   // through realSessions arrival" bug — the default tracks current
   // models without needing a reset effect.
   const [overrides, setOverrides] = React.useState({});
-  const sel = React.useMemo(() => {
-    const s = new Set(models.slice(0, 2).map(m => m.model));
-    for (const [m, on] of Object.entries(overrides)) {
-      if (on) s.add(m); else s.delete(m);
-    }
-    return s;
-  }, [models, overrides]);
+  // Top 2 by session count, through the shared rule (src/model-select
+  // .js) — the same default the Tool Error Rate panel resolves.
+  const sel = React.useMemo(
+    () => window.modelSelect.topDefaultSelection(models, overrides, 2),
+    [models, overrides]);
 
   function toggle(m) {
     setOverrides(prev => ({ ...prev, [m]: !sel.has(m) }));
