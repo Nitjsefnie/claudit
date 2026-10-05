@@ -369,7 +369,7 @@ def is_long_context_model(model: str) -> bool:
     return _normalise(model) in LONG_CONTEXT_MODELS
 
 
-def rate_for(model: str, ts: datetime | None = None,
+def rate_for(model: str | None, ts: datetime | None = None,
              provider: str | None = None) -> dict:
     """Rates for a model at a point in time. Omitting ts yields list price."""
     return resolve(model, ts, provider).rates

@@ -339,8 +339,11 @@ def test_the_parser_never_labels_a_model_unknown():
     that was never actually unknown, so no parser may emit it — a file
     that cannot attribute is refused instead. Pin it on every lane
     parser at their shared entry point."""
+    # rollout_patch_linked.jsonl is in the sweep because it is the one
+    # fixture that produces tool_uses rows — without it the tool_uses
+    # half below never runs (review finding, PR 683 round 1).
     for name in ("rollout_model_switch.jsonl", "rollout_fork_model_switch.jsonl",
-                 "rollout_sole_model_prefix.jsonl"):
+                 "rollout_sole_model_prefix.jsonl", "rollout_patch_linked.jsonl"):
         out = _parse(name)
         for r in out["records"]:
             assert r["model"] != "unknown" and r["model"], name
