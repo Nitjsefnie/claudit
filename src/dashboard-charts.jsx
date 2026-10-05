@@ -585,7 +585,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
 }
 
 // --- Horizontal bar chart ---
-function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
+function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel = false }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null);
@@ -668,7 +668,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
     }}
     onMouseLeave={() => setHover(null)}>
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
-        data-panel={title} data-list-panel="" width={w} height={h} style={{ display: 'block' }}>
+        data-panel={title} data-list-panel={listPanel ? '' : undefined} width={w} height={h} style={{ display: 'block' }}>
         <text data-role="title" x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
         <rect data-role="plot" x={padL} y={padT} width={plotW} height={rows.length * 36} fill="none" />{rows.map((r, idx) => {
