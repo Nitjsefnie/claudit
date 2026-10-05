@@ -574,11 +574,17 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
 
 # --------------------------------- fetch_parse stage accounting (#662)
 
-def test_fetch_and_parse_books_child_stages():
-    """With a stage accumulator given, fetch_and_parse books this file's
-    child work split into fetch/decompress/parse; a plain (non-xz) fetch
-    decompresses nothing, so that stage reads zero. Without an
-    accumulator the call behaves exactly as before."""
+def test_parse_wire_books_child_stages(monkeypatch):
+    """The pool child's unit of work and the booking behind it, pinned
+    together (issue #662): fetch_and_parse writes the file's child work
+    into an accumulator it is given and behaves exactly as before
+    without one; parse_wire plants the accumulator for the timed child
+    and returns (parsed, stages), and the bare dict when untimed. The
+    fetch and parse units are fakes — the real fork pool over the mirror
+    is the pool TIMING-line test's, and Windows cannot resolve that
+    fixture's file:// endpoint."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+
     def fetch(key):
         return b"payload"
 
@@ -586,38 +592,28 @@ def test_fetch_and_parse_books_child_stages():
         return {"agent_type_in_band": True, "data": data}
 
     stages: dict = {}
-    parsed = ingest_fetch.fetch_and_parse(
-        "k", None, fetch, parse_file, stages=stages)
+    parsed = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file,
+                                          stages=stages)
     assert parsed == {"agent_type_in_band": True, "data": b"payload"}
     assert set(stages) == {"child_fetch", "child_decompress", "child_parse"}
-    assert stages["child_fetch"] > 0.0
-    assert stages["child_parse"] > 0.0
-    assert stages["child_decompress"] == 0.0
-
-    bare = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file)
-    assert bare == parsed, "the bare call must behave exactly as before"
-
-
-def test_parse_wire_books_child_stages(mini_r2_env, monkeypatch):
-    """The pool child's unit of work: with timing on, parse_wire returns
-    the parsed result paired with the stage dict fetch_and_parse booked;
-    with timing off, the bare result the persist call expects."""
-    monkeypatch.setattr(timing, "TIMING_ON", True)
-    key = "claude/projA/sess-A/sess-A.jsonl"
-    item = (types.SimpleNamespace(key=key, sidecar_key=None), None, None)
-    result = ingest_fetch.parse_wire(
-        item, ingest._fetch_and_parse, True)  # pylint: disable=protected-access
-    assert isinstance(result, tuple)
-    parsed, stages = result
-    assert isinstance(parsed, dict) and parsed
-    # pylint infers the union-unpacked name as the tuple branch (E1126).
     assert stages["child_fetch"] > 0.0  # pylint: disable=invalid-sequence-index
     assert stages["child_parse"] > 0.0  # pylint: disable=invalid-sequence-index
-    assert set(stages) == {"child_fetch", "child_decompress", "child_parse"}
+    bare_call = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file)
+    assert bare_call == parsed, "the bare call must behave exactly as before"
 
-    bare = ingest_fetch.parse_wire(
-        item, ingest._fetch_and_parse, False)  # pylint: disable=protected-access
-    assert isinstance(bare, dict)
+    def parse_call(key, sidecar_key):
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch,
+                                            parse_file)
+
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
+                                  sidecar_key=None), None, None)
+    result = ingest_fetch.parse_wire(item, parse_call, True)
+    assert isinstance(result, tuple)
+    wired_parsed, wired_stages = result
+    assert wired_parsed == parsed
+    assert set(wired_stages) == set(stages)
+    bare = ingest_fetch.parse_wire(item, parse_call, False)
+    assert bare == parsed
 
 
 def test_parse_wire_books_sidecar_stage(monkeypatch):
