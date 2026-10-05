@@ -211,11 +211,25 @@
   // The nearest ancestor (or the node itself) naming a region. An
   // attribute value outside the closed set is NOT echoed: it would be a
   // 400 that takes the whole batch with it.
+  //
+  // #647: only the grid and the Inspector carry `data-perf-region`, so a
+  // live node inside one panel — under no named region — used to land in
+  // `other`, and `other` is what most production shifts carried. The
+  // second walk reads the nearest `[data-panel]` ancestor the panels
+  // already render and attributes it as `panel_grid`. The closed
+  // vocabulary does not take the panel NAME, so the name is read only to
+  // decide that the node IS in a panel; the term keeps meaning 'outside
+  // the panel grid' for whatever remains.
   function region(node) {
     let el = node;
     while (el && typeof el.getAttribute === 'function') {
       const r = el.getAttribute('data-perf-region');
       if (r && REGIONS.indexOf(r) >= 0) return r;
+      el = el.parentElement;
+    }
+    el = node;
+    while (el && typeof el.getAttribute === 'function') {
+      if (el.getAttribute('data-panel')) return 'panel_grid';
       el = el.parentElement;
     }
     return 'other';
