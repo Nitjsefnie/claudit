@@ -7,9 +7,10 @@ hourly refresh into a commit every hour. A band entry records that range once,
 in an optional `band` sibling of the five rate fields, and is priced by those
 five fields exactly like any other entry — their time-weighted mean over the
 window that formed the band. A listing inside the band appends nothing; one
-outside it widens the band (widen). Collapse is the one-time, human-reviewed
-rewrite that forms a band's first entry (collapse); the hourly refresh never
-rewrites one, it only widens.
+outside it widens the band (widen), which grows the range and NEVER reprices
+the five rates. Collapse is the one-time, human-reviewed rewrite that forms a
+row's FIRST band (collapse); the hourly refresh never rewrites an entry, it
+only widens an entry that already carries one.
 
 This module owns the shape of a band (entry_band), the classification that
 decides which rows oscillate (classify), the mean a band is priced by
@@ -166,23 +167,43 @@ def collapse(history: list[dict], at: datetime) -> list[dict]:
     return [collapsed]
 
 
-def widen(entry: dict, rates: dict, at: datetime) -> dict:
-    """A banded entry re-formed to also cover `rates`.
+def widen(entry: dict, levels: list[dict], at: datetime) -> dict:
+    """A banded entry re-formed to also cover every level in `levels`.
 
-    The band grows to `[min(old_min, new), max(old_max, new)]` per field it
-    names, and the five rates become the time-weighted mean over the extended
-    window: the entry's own level up to the state arriving at `at`, which has
-    no measured duration of its own yet. The priced level therefore stands
-    and the entry's note and schedule carry over, so a widened band widens
-    what a listing may cost without repricing what a record already cost.
+    The band grows to `[min(old_min, lowest), max(old_max, highest)]` per
+    field it names, where the extremes come from EVERY level supplied, not
+    just one: two escapes in opposite directions inside a single detection
+    window would otherwise record only one of them and leave the other
+    outside the range the row claims to have covered.
+
+    **The five rate fields never move.** They are the time-weighted mean
+    the row's history was collapsed to, and a widening does not reprice:
+
+    - a DATED entry has no measured duration for the level arriving at `at`
+      — that level holds from this instant on, so it weights the extended
+      mean by zero and the mean is the entry's own;
+    - an UNDATED entry ("of all time", which is what a collapse leaves for
+      every row whose history began without a `from`) has no dated window
+      at all, so there is nothing to weight a new level over, and its
+      rates stand as they are.
+
+    Getting this wrong is silent: `time_weighted` skips undated entries, so
+    an undated entry computed the mean over the new level alone and the row
+    repriced from its mean to whichever single level last escaped the band,
+    while the run reported an ordinary one-entry append.
+
+    The result is APPENDED, so an undated entry keeps its own `from: None`
+    and the row's coverage of all time survives: only a row whose FIRST
+    entry names an instant stops existing before it, and this row's first
+    entry still names none. The entry's note and schedule carry over.
     """
     band = entry_band(entry)
     if band is None:
         raise ValueError("widen needs a banded entry; this one carries none")
     stamp = detection_stamp(at)
-    widened = {"from": stamp,
-               **time_weighted([entry, {"from": stamp, **rates}], at),
-               "band": {field: [min(span[0], rates[field]), max(span[1], rates[field])]
+    widened = {"from": stamp, **{field: entry[field] for field in RATE_FIELDS},
+               "band": {field: [min(span[0], min(level[field] for level in levels)),
+                                max(span[1], max(level[field] for level in levels))]
                         for field, span in band.items()}}
     for key in ("note", "schedule"):
         if key in entry:
