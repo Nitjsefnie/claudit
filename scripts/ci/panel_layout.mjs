@@ -92,9 +92,6 @@ const FILED = [
   { issue: 636, panel: 'Activity Heatmap', roles: ['axis'] },
   { issue: 636, panel: 'Activity Heatmap', roles: ['plot'] },
   { issue: 637, panel: 'Activity Heatmap — legend', roles: ['legend'] },
-  // The SUB-panels (one per model), not the comparison overlay, which
-  // #630 fixed: the lookahead keeps the comparison panel's own name out.
-  { issue: 638, panel: /^Context Growth — (?!comparison$)/, roles: ['legend'] },
 ];
 
 function filedFor(panel, roles) {

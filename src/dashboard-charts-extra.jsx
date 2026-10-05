@@ -92,261 +92,6 @@ function perTurnStats(sessions) {
   return { turns, median, p25, p75, p90, count, maxT };
 }
 
-function ContextSubPanel({ title, sessions, color, w: wProp, h }) {
-  const ref = React.useRef(null);
-  const [tip, setTip] = React.useState(null);
-  const legRef = React.useRef(null);
-  const [legendAdv, setLegendAdv] = React.useState(0);
-
-  // The svg sizes to the cell's OWN measured box, never to the width the
-  // parent passes in. The cell flexes (flex 1 1 240px, minWidth 0), so at
-  // phone widths it is far narrower than the parent's pre-computed
-  // cellW — a prop-sized svg overflowed it and scrolled the Overview
-  // horizontally at 320 px (issue #395). The floor keeps the chart
-  // readable if the observer has not fired yet.
-  const [ownW, setOwnW] = React.useState(0);
-  React.useEffect(() => {
-    if (!ref.current) return undefined;
-    const ro = new ResizeObserver(es => setOwnW(es[0].contentRect.width));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-  const w = Math.max(120, Math.round(ownW || wProp));
-
-  // Advance of the 8.5px legend mono, measured from a rendered label. See the
-  // axis-gutter note in dashboard-charts.jsx: predicted advances disagree
-  // with the real one because app.css adds letter-spacing.
-  React.useLayoutEffect(() => {
-    const g = legRef.current;
-    if (!g) return;
-    const t = g.querySelector('text');
-    if (!t || !t.getComputedTextLength) return;
-    const n = (t.textContent || '').length;
-    if (!n) return;
-    const a = t.getComputedTextLength() / n;
-    if (a > 0 && Math.abs(a - legendAdv) > 0.05) setLegendAdv(a);
-  });
-
-  // Legend now sits below the plot, so padB grows (x-ticks + legend).
-  const padL = 50, padR = 16, padT = 38, padB = 50;
-  const plotW = Math.max(10, w - padL - padR);
-  const plotH = Math.max(10, h - padT - padB);
-
-  const { turns, median, p25, p75, p90, count, maxT } = React.useMemo(() => perTurnStats(sessions), [sessions]);
-  const nSess = sessions.length;
-  const longest = sessions.reduce((m, s) => Math.max(m, s.seq.length), 0);
-  const maxCtx = window.ctxAxis.ctxPeak(sessions);
-
-  // Dynamic x-domain: 0 → this model's longest turn (rounded up nicely)
-  const xMax = Math.max(1, maxT);
-  const yMax = window.ctxAxis.ctxAxisTopFor([sessions]);
-  const xScale = t => padL + (t / xMax) * plotW;
-  const yScale = v => padT + plotH - (v / yMax) * plotH;
-
-  const yTicks = window.ctxAxis.ctxAxisTicks(yMax, 4);
-  // Dynamic x-ticks based on this panel's max turn
-  function xTickValues(maxV, n = 6) {
-    if (maxV <= 0) return [0];
-    const step0 = maxV / n;
-    const exp = Math.pow(10, Math.floor(Math.log10(step0)));
-    const norm = step0 / exp;
-    const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * exp;
-    const arr = [];
-    for (let v = 0; v <= maxV; v += step) arr.push(Math.round(v));
-    if (arr[arr.length - 1] !== maxV && (maxV - arr[arr.length - 1]) / step > 0.4) arr.push(maxV);
-    return arr;
-  }
-  const xTicks = xTickValues(xMax);
-
-  // Per-session faint traces — alpha scales with count
-  const traceAlpha = 0.6;
-
-  // Hit test on hover: find nearest session line at that x
-  function onMove(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    if (mx < padL || mx > w - padR || my < padT || my > padT + plotH) {
-      setTip(null); return;
-    }
-    const turn = Math.round(((mx - padL) / plotW) * xMax);
-    if (turn < 0 || turn > xMax) { setTip(null); return; }
-    const med = median[turn];
-    const q1  = p25[turn];
-    const q3  = p75[turn];
-    const p9  = p90[turn];
-    const fmtV = v => v !== null && v !== undefined ? humanFmt_X(v) : '—';
-    const liveCount = count[turn] || 0;
-    setTip({
-      x: mx, y: my,
-      title: `turn ${turn}`,
-      accent: color,
-      lines: [
-        ['median ctx', fmtV(med)],
-        ['p25–p75',    `${fmtV(q1)}–${fmtV(q3)}`],
-        ['p90 ctx',    fmtV(p9)],
-        ['files @ turn', `${liveCount} / ${nSess}`],
-      ],
-    });
-  }
-
-  // Build "sessions still active" area (faint, behind curves)
-  const maxCount = Math.max(1, ...count);
-  const countAreaH = plotH * 0.18; // bottom 18% of plot
-  function countY(c) {
-    return padT + plotH - (c / maxCount) * countAreaH;
-  }
-
-  const a11y = window.useChartA11y(
-    `Context Growth — ${title}`,
-    `per-turn context traces, ${nSess} sessions`,
-    `Median, p25-p75 band and p90 context by turn over ${nSess} agent `
-    + `files; longest ${longest} turns, max context ${humanFmt_X(maxCtx)}.`);
-  return (
-    <div ref={ref} style={{
-      position: 'relative', flex: '1 1 240px', minWidth: 0,
-      border: `1px solid ${TH_X.border}`, borderRadius: 4,
-      background: TH_X.bgAxes,
-    }}
-      onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
-        data-panel={"Context Growth — " + title} width={w} height={h} style={{ display: 'block' }}>
-        <text data-role="title" x={padL} y={18} fontSize="11" fontWeight="bold" fill={color}
-          fontFamily="monospace">{title}</text>
-        <text x={padL} y={32} fontSize="9" fill={TH_X.textDim}
-          fontFamily="monospace">
-          {nSess.toLocaleString()} agent files · longest: {longest} · max ctx: {humanFmt_X(maxCtx)}
-        </text>
-
-        {/* Mini legend, BELOW the plot. Entries are placed cumulatively from
-            their own text widths. At the previous fixed x (18/70/126/176) the
-            labels varied in width and ran into the NEXT entry's swatch:
-            "sessions" overlapped the median rule by 6.9px and "median"
-            overlapped the p25–p75 block by 1.6px. */}
-        {(() => {
-          const adv = legendAdv || 5.6;
-          const SW = 14, GAP = 4, SPACING = 12;
-          const items = [
-            { key: 'active', label: 'active', dim: true,
-              mark: <rect x={0} y={0} width={SW} height={8} fill={color} fillOpacity="0.18" /> },
-            { key: 'sessions', label: 'sessions', dim: true,
-              mark: <line x1={0} x2={SW} y1={4} y2={4} stroke={color} strokeWidth="0.7" strokeOpacity="0.6" /> },
-            { key: 'median', label: 'median', dim: false,
-              mark: <line x1={0} x2={SW} y1={4} y2={4} stroke="#fff" strokeWidth="1.8" /> },
-            { key: 'iqr', label: 'p25–p75', dim: true,
-              mark: <rect x={0} y={1} width={SW} height={6} fill={color} fillOpacity="0.4" /> },
-          ];
-          let cx = 0;
-          // h - 18, not h - 14: at 14 the legend's glyph boxes ended 3.5px
-          // from the panel's bottom edge.
-          return (
-            <g ref={legRef} transform={`translate(${padL}, ${h - 18})`}>
-              {items.map(it => {
-                const at = cx;
-                cx += SW + GAP + it.label.length * adv + SPACING;
-                return (
-                  <g data-role="legend" key={it.key} transform={`translate(${at}, 0)`}>
-                    {it.mark}
-                    <text x={SW + GAP} y={7} fontSize="8.5"
-                      fill={it.dim ? TH_X.textDim : TH_X.text} fontFamily="monospace">{it.label}</text>
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })()}
-
-        {/* Y grid */}
-        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
-          <line key={'g'+i} x1={padL} x2={w - padR}
-            y1={yScale(v)} y2={yScale(v)}
-            stroke={TH_X.grid} strokeOpacity="0.25" />
-        ))}
-
-        {/* Sessions-still-active area (bottom strip) — the "active"
-            legend swatch refers to this; it had stopped being drawn. */}
-        {(() => {
-          const pts = [];
-          for (let i = 0; i < turns.length; i++) {
-            pts.push(`${xScale(turns[i])},${countY(count[i] || 0)}`);
-          }
-          if (pts.length < 2) return null;
-          const d = `M ${xScale(turns[0])},${padT + plotH} L ` + pts.join(' L ')
-            + ` L ${xScale(turns[turns.length - 1])},${padT + plotH} Z`;
-          return <path d={d} fill={color} fillOpacity="0.18" stroke="none" />;
-        })()}
-
-        {/* Per-session traces */}
-        {sessions.map((s, i) => {
-          const pts = [];
-          for (const p of s.seq) {
-            if (p.t >= CTX_TURN_CAP) break;
-            pts.push(`${xScale(p.t)},${yScale(Math.min(p.ctx, yMax))}`);
-          }
-          if (pts.length < 2) return null;
-          return (
-            <polyline key={'s'+i} points={pts.join(' ')}
-              stroke={color} strokeWidth="0.7" strokeOpacity={traceAlpha} fill="none" />
-          );
-        })}
-
-        {/* p25–p75 IQR ribbon (filled, model-colored, semi-transparent).
-            Schwabish: show spread, not just upper-tail summary. */}
-        {(() => {
-          const top = [], bot = [];
-          for (let i = 0; i < turns.length; i++) {
-            const lo = p25[i], hi = p75[i];
-            if (lo == null || hi == null) continue;
-            top.push(`${xScale(turns[i])},${yScale(Math.min(hi, yMax))}`);
-            bot.push(`${xScale(turns[i])},${yScale(Math.min(lo, yMax))}`);
-          }
-          if (top.length < 2) return null;
-          const ribbon = `M ${top.join(' L ')} L ${bot.reverse().join(' L ')} Z`;
-          return <path d={ribbon} fill={color} fillOpacity="0.35" stroke="none" />;
-        })()}
-
-        {/* Median line */}
-        {(() => {
-          const pts = [];
-          for (let i = 0; i < turns.length; i++) {
-            if (median[i] === null || median[i] === undefined) continue;
-            pts.push(`${xScale(turns[i])},${yScale(Math.min(median[i], yMax))}`);
-          }
-          return pts.length > 1 ? (
-            <polyline points={pts.join(' ')} stroke="#ffffff" strokeWidth="1.8"
-              fill="none" />
-          ) : null;
-        })()}
-
-        {/* Crosshair */}
-        {tip && (
-          <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
-            stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
-        )}
-
-        {/* Y labels */}
-        <g data-role="axis">{yTicks.map((v, i) => (
-          <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
-            fontSize="8.5" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
-            {humanFmt_X(v)}
-          </text>
-        ))}</g>
-        {/* X labels */}
-        <g data-role="axis">{xTicks.map((t, i) => (
-          <text key={'x'+i} x={xScale(t)} y={padT + plotH + 14}
-            fontSize="8.5" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
-            {t}
-          </text>
-        ))}</g>
-      </svg>
-      {a11y.descText && (
-        <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
-      )}
-      {tip && <window.DashTooltip tip={tip} />}
-    </div>
-  );
-}
-
 // Backend bucket projections center on bucket midpoint, so a polyline
 // or band that just walks those midpoints leaves a half-bucket visual
 // gap at each end (the data extends through [midpoint - N/2, midpoint
@@ -506,23 +251,18 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
     setOverrides(prev => ({ ...prev, [m]: !sel.has(m) }));
   }
 
-  // Two cells + 24px row padding + 12px gap + 2px border per cell.
-  // (w-16)/2 overflowed the card by ~20px and showed up as horizontal
-  // bleed whenever the window was resized. The floor stays under what a
-  // 320px window can hold (320 - 44 page padding - 2 border - 24 row
-  // padding = 250px): a higher floor scrolled the page horizontally
-  // (issue #395); below it the wrapped row stacks the cells instead.
-  const cellW = Math.max(200, (w - 24 - 12 - 4) / 2);
-  const cellH = 230;
+  // The ONE chart takes the card's own measured width. There are no
+  // per-model cells any more (#649): the panel is header + checkbox row
+  // + one comparison chart, so its height does not grow with models.
   const cmpW = w;
   const cmpH = 240;
 
-  // Pair sub-panels into rows of 2.
-  const rows = [];
-  for (let i = 0; i < models.length; i += 2) rows.push(models.slice(i, i + 2));
-
   // Models actually drawn in the comparison overlay.
   const cmpModels = models.filter(m => sel.has(m.model));
+
+  // The per-session traces are a drawing MODE behind the breakdown, off
+  // by default (#649 point 4).
+  const [showSessions, setShowSessions] = React.useState(false);
 
   return (
     <div ref={ref} style={{
@@ -541,13 +281,13 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
       </div>
 
       {/* Model checkbox row — directly below the comparison overlay
-          (order 3, between the comparison at order 2 and sub-panel
-          rows at default 0/4+). */}
+          (order 3, after the comparison at order 2). The trailing chip
+          toggles the per-session traces behind the breakdown. */}
       <div style={{
         padding: '8px 14px', borderBottom: `1px solid ${TH_X.border}`,
         display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
-        order: 3,
+        order: 3, alignItems: 'center',
       }}>
         <span style={{ color: TH_X.textDim }}>compare:</span>
         {models.map(m => {
@@ -559,32 +299,16 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
           );
         })}
         {!models.length && <span>no sessions in range</span>}
+        <window.ToggleChip on={showSessions}
+          onToggle={() => setShowSessions(s => !s)} label="sessions" />
       </div>
 
       {/* Comparison overlay — driven by checked models */}
       <div style={{ order: 2 }}>
-        <window.ComparisonRow models={cmpModels} byModel={byModel} w={cmpW} h={cmpH} />
+        <window.ComparisonRow models={cmpModels} byModel={byModel} w={cmpW} h={cmpH}
+          showSessions={showSessions} />
       </div>
 
-      {/* Per-model sub-panels (rows of 2) for every model with data.
-          Each sub-panel renders its own border, so this just lays them
-          out as a 2-column grid with gaps between cells. */}
-      {rows.map((rowModels, ri) => (
-        <div key={ri} style={{
-          display: 'flex', flexWrap: 'wrap', gap: 12,
-          padding: ri === 0 ? '12px 12px 6px' : '6px 12px',
-          order: 4 + ri,
-        }}>
-          {rowModels.map(m => {
-            const sessions = byModel[m.model] || [];
-            const color = (window.modelColors && window.modelColors[m.model]) || '#888';
-            return (
-              <ContextSubPanel key={m.model} title={m.model} sessions={sessions}
-                color={color} w={cellW} h={cellH} />
-            );
-          })}
-        </div>
-      ))}
     </div>
   );
 }
@@ -956,6 +680,25 @@ const _OTHER_COLOR = '#5a627a';
 // swatch doubled it, and beside it the 24px box was the largest thing in
 // an 11px row (#474). SC 2.5.8 rides its SPACING exception instead --
 // each legend container's '14px 14px' holds row centres 27px apart.
+// A drawing-mode toggle (the sessions traces, the per-tool lines) — a
+// BUTTON, not a checkbox row: it gates how the chart is drawn, it is not
+// a series picker with a colour key, so it is deliberately not a
+// LegendCheckboxRow. The state is carried in the text (on/off), so the
+// control reads without colour.
+function ToggleChip({ on, onToggle, label }) {
+  return (
+    <button type="button" onClick={onToggle}
+      style={{
+        fontFamily: 'monospace', fontSize: 11, cursor: 'pointer',
+        color: TH_X.text, background: 'transparent',
+        border: `1px solid ${on ? TH_X.text : TH_X.border}`,
+        borderRadius: 3, padding: '4px 10px',
+      }}>
+      {label}: {on ? 'on' : 'off'}
+    </button>
+  );
+}
+
 function LegendCheckboxRow({ id, color, checked, onToggle, name, count }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none' }}>
@@ -964,384 +707,6 @@ function LegendCheckboxRow({ id, color, checked, onToggle, name, count }) {
       <span style={{ color: TH_X.text, fontWeight: 600 }}>{name}</span>
       <span style={{ color: TH_X.textDim }}>({count})</span>
     </label>
-  );
-}
-
-function ToolErrorRatePanel({ project, range, nonce }) {
-  const ref = React.useRef(null);
-  const [w, setW] = React.useState(1200);
-  const [data, setData] = React.useState([]);
-  const [bucketMs, setBucketMs] = React.useState(86_400_000);
-
-  React.useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(es => setW(es[0].contentRect.width));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-
-  React.useEffect(() => {
-    const q = (project ? `&project=${encodeURIComponent(project)}` : '');
-    fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`,
-          { credentials: 'same-origin' })
-      .then(r => r.json())
-      .then(b => {
-        setData(b.buckets || []);
-        if (b.bucket_s) setBucketMs(b.bucket_s * 1000);
-      })
-      .catch(err => console.error('tool-error-rate fetch failed', err));
-  }, [project, range, nonce]);
-
-  // Group buckets by short model name. Each model gets:
-  //   { buckets: sorted bucket timestamps (ms),
-  //     perBucketTool: Map<ts, Map<tool, {n_total, n_error}>>,
-  //     totalsByTool: Map<tool, n_total> }
-  const byModel = React.useMemo(() => {
-    const out = {};
-    for (const r of data || []) {
-      const t = Date.parse(r.ts);
-      if (isNaN(t)) continue;
-      const key = window.shortModelName ? window.shortModelName(r.model) : r.model;
-      if (!key || key === '<synthetic>' || key === 'synthetic') continue;
-      if (!out[key]) out[key] = {
-        perBucketTool: new Map(),
-        totalsByTool:  new Map(),
-        bucketSet:     new Set(),
-      };
-      const M = out[key];
-      M.bucketSet.add(t);
-      if (!M.perBucketTool.has(t)) M.perBucketTool.set(t, new Map());
-      const cur = M.perBucketTool.get(t).get(r.tool) || { n_total: 0, n_error: 0 };
-      cur.n_total += r.n_total;
-      cur.n_error += r.n_error;
-      M.perBucketTool.get(t).set(r.tool, cur);
-      M.totalsByTool.set(r.tool, (M.totalsByTool.get(r.tool) || 0) + r.n_total);
-    }
-    for (const k of Object.keys(out)) {
-      out[k].buckets = [...out[k].bucketSet].sort((a, b) => a - b);
-      delete out[k].bucketSet;
-    }
-    return out;
-  }, [data]);
-
-  const models = React.useMemo(() => {
-    return Object.entries(byModel)
-      .map(([m, v]) => {
-        let total = 0;
-        for (const n of v.totalsByTool.values()) total += n;
-        return { model: m, total };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [byModel]);
-
-  // Two cells + 16px row padding + 8px gap + 2px border per cell.
-  // Floor under what a 320px window holds (issue #395), as in
-  // ContextGrowthPanel: a higher floor scrolled the page horizontally.
-  const cellW = Math.max(200, (w - 16 - 8 - 4) / 2);
-  const cellH = 230;
-
-  // Pair sub-panels into rows of 2.
-  const rows = [];
-  for (let i = 0; i < models.length; i += 2) rows.push(models.slice(i, i + 2));
-
-  return (
-    <div ref={ref} style={{
-      background: TH_X.bgAxes, border: `1px solid ${TH_X.border}`,
-      borderRadius: 4, padding: 0, position: 'relative',
-      display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{ padding: '10px 14px 4px', borderBottom: `1px solid ${TH_X.border}` }}>
-        <div style={{ color: TH_X.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>
-          Tool Error Rate
-        </div>
-        <div style={{ color: TH_X.textDim, fontFamily: 'monospace', fontSize: 10, marginTop: 2 }}>
-          per-model EMA (α=0.15) of n_error / n_total · only tool calls with a settled tool_result counted
-        </div>
-      </div>
-
-      {!models.length && (
-        <div style={{ padding: 16, color: TH_X.textDim, fontFamily: 'monospace', fontSize: 12 }}>
-          no tool calls in range
-        </div>
-      )}
-
-      {rows.map((row, ri) => (
-        <div key={ri} style={{
-          display: 'flex', flexWrap: 'wrap', gap: 8, padding: 8,
-          borderTop: ri === 0 ? `1px solid ${TH_X.border}` : 'none',
-        }}>
-          {row.map(m => (
-            <ToolErrorSubPanel key={m.model}
-              modelName={m.model}
-              modelData={byModel[m.model]}
-              w={cellW} h={cellH}
-              bucketMs={bucketMs} />
-          ))}
-          {row.length === 1 && <div style={{ width: cellW }} />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
-  const AGGREGATE = '__AGG__';
-  const OTHER = '__OTHER__';
-  // Cap visible per-tool checkboxes; rest collapse into a single
-  // "Other" series. Mirrors ToolUsagePanel's TOP_N treatment so the
-  // checkbox row stays readable on models with many tools.
-  const TOP_N = 5;
-
-  // Tools sorted by total count, split into visible top-N and Other.
-  const sortedTools = React.useMemo(() =>
-    [...modelData.totalsByTool.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(e => e[0])
-  , [modelData]);
-
-  const visibleTools = React.useMemo(
-    () => sortedTools.slice(0, TOP_N),
-    [sortedTools]
-  );
-  const otherTools = React.useMemo(
-    () => sortedTools.slice(TOP_N),
-    [sortedTools]
-  );
-  const hasOther = otherTools.length > 0;
-
-  // Top-3 of the visible tools default ON alongside AGGREGATE.
-  const topTools = React.useMemo(
-    () => visibleTools.slice(0, 3),
-    [visibleTools]
-  );
-
-  // Default ON: AGGREGATE + top-3 visible tools + OTHER (when present).
-  // User overrides layered on top.
-  const [overrides, setOverrides] = React.useState({});
-  const sel = React.useMemo(() => {
-    const s = new Set([AGGREGATE, ...topTools]);
-    if (hasOther) s.add(OTHER);
-    for (const [k, on] of Object.entries(overrides)) {
-      if (on) s.add(k); else s.delete(k);
-    }
-    return s;
-  }, [topTools, hasOther, overrides]);
-
-  function toggle(k) {
-    setOverrides(prev => ({ ...prev, [k]: !sel.has(k) }));
-  }
-
-  // Build per-series rate sequences. Each series: array of
-  // { t_ms, rate } at non-sparse buckets only (n_total > 0).
-  // Aggregate covers all tools; visible tools are individual; Other
-  // is the bucket-wise sum across `otherTools`.
-  const series = React.useMemo(() => {
-    const out = new Map();
-    out.set(AGGREGATE, []);
-    for (const tool of visibleTools) out.set(tool, []);
-    if (hasOther) out.set(OTHER, []);
-    for (const ts of modelData.buckets) {
-      const m = modelData.perBucketTool.get(ts);
-      // Aggregate
-      let aT = 0, aE = 0;
-      for (const v of m.values()) { aT += v.n_total; aE += v.n_error; }
-      if (aT > 0) out.get(AGGREGATE).push({ t_ms: ts, rate: aE / aT, n_total: aT, n_error: aE });
-      // Visible per-tool
-      for (const tool of visibleTools) {
-        const v = m.get(tool);
-        if (v && v.n_total > 0) {
-          out.get(tool).push({ t_ms: ts, rate: v.n_error / v.n_total, n_total: v.n_total, n_error: v.n_error });
-        }
-      }
-      // Other (sum across non-visible tools)
-      if (hasOther) {
-        let oT = 0, oE = 0;
-        for (const tool of otherTools) {
-          const v = m.get(tool);
-          if (v) { oT += v.n_total; oE += v.n_error; }
-        }
-        if (oT > 0) out.get(OTHER).push({ t_ms: ts, rate: oE / oT, n_total: oT, n_error: oE });
-      }
-    }
-    return out;
-  }, [modelData, visibleTools, otherTools, hasOther]);
-
-  // EMA over the rate sequence for each visible series.
-  const emaSeries = React.useMemo(() => {
-    const ALPHA = 0.15;
-    const out = new Map();
-    for (const k of sel) {
-      const arr = series.get(k);
-      if (!arr || !arr.length) { out.set(k, []); continue; }
-      const ema = [];
-      let prev = arr[0].rate;
-      ema.push({ ...arr[0], ema: prev });
-      for (let i = 1; i < arr.length; i++) {
-        prev = ALPHA * arr[i].rate + (1 - ALPHA) * prev;
-        ema.push({ ...arr[i], ema: prev });
-      }
-      out.set(k, ema);
-    }
-    return out;
-  }, [series, sel]);
-
-  // Y axis: 0 → max EMA across visible series, +10% headroom.
-  const yMax = React.useMemo(() => {
-    let m = 0;
-    for (const k of sel) {
-      const arr = emaSeries.get(k) || [];
-      for (const p of arr) if (p.ema > m) m = p.ema;
-    }
-    return Math.max(m * 1.1, 0.001);  // never let max collapse to 0
-  }, [emaSeries, sel]);
-
-  // X axis: bucket range across the model.
-  const xMin = modelData.buckets.length ? modelData.buckets[0] : 0;
-  const xMax = modelData.buckets.length ? modelData.buckets[modelData.buckets.length - 1] + bucketMs : 1;
-
-  // padL 50, not 38: y labels are end-anchored at padL - 5 and a 5-char
-  // percentage ("0.00%", "15.7%") renders 29.3px wide, which left only 3.7px
-  // to the panel edge. 50 gives 15.7px, and still ~10px for a 6-char label.
-  const padL = 50, padR = 6, padT = 22, padB = 22;
-  const plotW = Math.max(1, w - padL - padR);
-  const plotH = Math.max(1, h - padT - padB);
-  const xs = (t) => padL + ((t - xMin) / Math.max(1, xMax - xMin)) * plotW;
-  const ys = (v) => padT + plotH - (v / yMax) * plotH;
-
-  function colorFor(key) {
-    if (key === AGGREGATE) return '#ddd';
-    if (key === OTHER) return _OTHER_COLOR;
-    return _toolColor(key);
-  }
-
-  function labelFor(key) {
-    if (key === AGGREGATE) return 'Aggregate';
-    if (key === OTHER) return `Other (${otherTools.length})`;
-    return key;
-  }
-
-  const [tip, setTip] = React.useState(null);
-
-  function onMove(e) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    if (mx < padL || mx > w - padR || my < padT || my > padT + plotH) {
-      setTip(null); return;
-    }
-    if (!modelData.buckets.length) { setTip(null); return; }
-    // Snap to nearest bucket center on x.
-    let bIdx = 0, bestD = 1e9;
-    for (let i = 0; i < modelData.buckets.length; i++) {
-      const cx = xs(modelData.buckets[i] + bucketMs / 2);
-      const d = Math.abs(cx - mx);
-      if (d < bestD) { bestD = d; bIdx = i; }
-    }
-    const ts = modelData.buckets[bIdx];
-    const m = modelData.perBucketTool.get(ts);
-    let aT = 0, aE = 0;
-    for (const v of m.values()) { aT += v.n_total; aE += v.n_error; }
-    const lines = [];
-    lines.push(['aggregate', aT ? `${aE}/${aT} = ${((aE / aT) * 100).toFixed(2)}%` : '-']);
-    for (const k of [...sel].filter(k => k !== AGGREGATE)) {
-      if (k === OTHER) {
-        let oT = 0, oE = 0;
-        for (const tool of otherTools) {
-          const v = m.get(tool);
-          if (v) { oT += v.n_total; oE += v.n_error; }
-        }
-        if (oT > 0) lines.push([`other (${otherTools.length})`,
-          `${oE}/${oT} = ${((oE / oT) * 100).toFixed(2)}%`]);
-      } else {
-        const v = m.get(k);
-        if (v) lines.push([k, `${v.n_error}/${v.n_total} = ${((v.n_error / v.n_total) * 100).toFixed(2)}%`]);
-      }
-    }
-    setTip({
-      x: mx, y: my,
-      title: new Date(ts).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
-      accent: '#ddd',
-      lines,
-    });
-  }
-
-  const a11y = window.useChartA11y(
-    `Tool Error Rate — ${modelName}`,
-    `error-rate lines, ${modelData.buckets.length} buckets`,
-    null);
-  return (
-    <div style={{
-      width: w, border: `1px solid ${TH_X.border}`, borderRadius: 3,
-      display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{ padding: '6px 10px', fontFamily: 'monospace', fontSize: 11,
-                    color: TH_X.text, fontWeight: 700, borderBottom: `1px solid ${TH_X.border}` }}>
-        {modelName}
-      </div>
-
-      <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
-        <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
-          data-panel={"Tool Error Rate — " + modelName} width={w} height={h} style={{ display: 'block' }}>
-          {/* y axis */}
-          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke={TH_X.border} />
-          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke={TH_X.border} />
-
-          {/* y ticks: 0%, 50%, 100% of yMax */}
-          <g data-role="axis">{[0, 0.5, 1].map((f, i) => {
-            const v = f * yMax;
-            return (
-              <g key={i}>
-                <line x1={padL - 3} y1={ys(v)} x2={padL} y2={ys(v)} stroke={TH_X.border} />
-                <text x={padL - 5} y={ys(v) + 3} textAnchor="end"
-                      fontSize="9" fontFamily="monospace" fill={TH_X.textDim}>
-                  {(v * 100).toFixed(v < 0.01 ? 2 : 1)}%
-                </text>
-              </g>
-            );
-          })}</g>
-
-          {/* EMA polylines */}
-          <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{[...sel].map(k => {
-            const arr = emaSeries.get(k) || [];
-            if (arr.length < 2) return null;
-            const pts = arr.map(p => `${xs(p.t_ms + bucketMs / 2)},${ys(p.ema)}`).join(' ');
-            return (
-              <polyline key={k} points={pts} fill="none"
-                stroke={colorFor(k)} strokeWidth={k === AGGREGATE ? 1.6 : 1.2} />
-            );
-          })}
-
-          {tip && (
-            <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
-              stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
-          )}
-        </svg>
-        {tip && <window.DashTooltip tip={tip} />}
-      </div>
-
-      {/* Checkbox row (below the SVG, matches ToolUsagePanel's
-          order: 99 / borderTop layout). */}
-      <div style={{
-        padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
-        display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
-        fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
-      }}>
-        <span>show:</span>
-        {[AGGREGATE, ...visibleTools, ...(hasOther ? [OTHER] : [])].map(k => {
-          const c = colorFor(k);
-          const checked = sel.has(k);
-          const totalForKey = k === AGGREGATE
-            ? [...modelData.totalsByTool.values()].reduce((s, n) => s + n, 0)
-            : k === OTHER
-              ? otherTools.reduce((s, t) => s + (modelData.totalsByTool.get(t) || 0), 0)
-              : (modelData.totalsByTool.get(k) || 0);
-          return (
-            <LegendCheckboxRow key={k} id={k} color={c} checked={checked}
-              onToggle={toggle} name={labelFor(k)} count={totalForKey.toLocaleString()} />
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -2887,10 +2252,12 @@ window.ContextGrowthPanel = ContextGrowthPanel;
 window.DashTooltip = DashTooltip;
 window.shortModelName = shortModelName;
 window.perTurnStats = perTurnStats;
+window.LegendCheckboxRow = LegendCheckboxRow;
+window.ToggleChip = ToggleChip;
+window.toolColor = _toolColor;
 window.ResponseSizesPanel = ResponseSizesPanel;
 window.ToolUsagePanel = ToolUsagePanel;
 window.ActivityHeatmapPanel = ActivityHeatmapPanel;
-window.ToolErrorRatePanel = ToolErrorRatePanel;
 window.ReplyLatencyPanel = ReplyLatencyPanel;
 window.CostByContextPanel = CostByContextPanel;
 window.CostByAgentPanel = CostByAgentPanel;

@@ -59,7 +59,11 @@
     // beside its own model-coloured median line, and two sibling models
     // that shorten alike would collide as duplicate keys (issue #630).
     let text = String(label == null ? '' : label);
-    let countText = `median (${Number(count).toLocaleString()} files)`;
+    // A `null` count means the entry carries no count at all — the static
+    // legend-key entries (median, p25–p75, p90, sessions) — rather than a
+    // count of zero files.
+    let countText = count == null
+      ? '' : `median (${Number(count).toLocaleString()} files)`;
     const limit = maxWidth > 0 ? maxWidth : Infinity;
     if (head + text.length * adv + tail + countText.length * adv > limit) {
       // Characters, not px: `adv` is a WIDTH per character, so a budget in
