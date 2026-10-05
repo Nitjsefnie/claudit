@@ -226,6 +226,21 @@ def test_unrecognised_log_payload_is_unavailable_with_a_reason(damage: str):
     assert catalog == {"synthetic/model"}, "a damaged log still leaves the catalog readable"
 
 
+def test_a_raising_models_fetch_leaves_the_catalog_unreadable():
+    def _raising():
+        raise RuntimeError("boom")
+
+    logs, catalog = pricelog.read_logs(
+        {"synthetic/model": {"id": "synthetic/model"}},
+        _raising,
+        lambda slug: {},
+    )
+
+    assert catalog is None, "a failed catalog fetch must refuse, not delist"
+    assert logs["synthetic/model"].series is None
+    assert logs["synthetic/model"].reason
+
+
 def test_one_endpoint_with_one_matching_series_is_log_backed():
     rates = _rates(0.3, 0.8, 0.01)
     match = _joined([_endpoint("Wafer", "wafer/fp8", rates)],
