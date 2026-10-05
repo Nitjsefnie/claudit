@@ -102,8 +102,12 @@ def test_get_object(mini_r2):
     assert r2.get_object("claude/proj-a/sess-1/sess-1.jsonl") == b"hello\n"
 
 
-def test_get_object_inflates_xz(mini_r2):
-    # An xz-compressed object inflates transparently to its plain bytes.
+def test_get_object_inflates_xz(mini_r2, monkeypatch):
+    # An xz-compressed object inflates transparently to its plain bytes,
+    # and the inflate wall is stamped onto the per-thread accumulator
+    # when the timing flag is on (issue #662); pop_decompress_seconds
+    # reads and resets it. A plain key stamps nothing and the flag off
+    # keeps it at zero.
     plain = b'{"type":"user"}\n{"type":"assistant"}\n'
     key = "claude/proj-a/sess-1/sess-1.jsonl.xz"
     (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl.xz").write_bytes(
@@ -111,28 +115,19 @@ def test_get_object_inflates_xz(mini_r2):
     )
     assert r2.get_object(key) == plain
 
-
-def test_get_object_stamps_decompress_seconds(mini_r2, monkeypatch):
-    """get_object stamps the per-thread decompress accumulator when the
-    timing flag is on; pop_decompress_seconds reads and resets it (issue
-    #662: the pool children split the fetch wall into GET and inflate).
-    A plain key stamps nothing and the flag off keeps it at zero."""
-
     monkeypatch.setattr(timing, "TIMING_ON", True)
-    plain = b'{"type":"user"}\n' * 2000
-    key = "claude/proj-a/sess-1/timed.jsonl.xz"
+    bulk = b'{"type":"user"}\n' * 2000
+    timed_key = "claude/proj-a/sess-1/timed.jsonl.xz"
     (mini_r2 / "proj-a" / "sess-1" / "timed.jsonl.xz").write_bytes(
-        lzma.compress(plain)
+        lzma.compress(bulk)
     )
-    r2.get_object(key)
+    r2.get_object(timed_key)
     assert r2.pop_decompress_seconds() > 0.0
     assert r2.pop_decompress_seconds() == 0.0  # read-and-reset
-
     r2.get_object("claude/proj-a/sess-1/sess-1.jsonl")
     assert r2.pop_decompress_seconds() == 0.0
-
     monkeypatch.setattr(timing, "TIMING_ON", False)
-    r2.get_object(key)
+    r2.get_object(timed_key)
     assert r2.pop_decompress_seconds() == 0.0
 
 
