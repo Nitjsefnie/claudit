@@ -25,48 +25,10 @@
 // A role marked on an element that CONTAINS another marked element is
 // skipped as a pair: an element's box includes its descendants, so a
 // wrapper and its own child always "intersect".
-import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
-
-const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const FIXTURES = join(REPO, 'fixtures', 'layout');
-
-// Four widths: a desktop the panels were designed at, a laptop where the
-// grid reflows, and two phone widths where every label is longest
-// relative to the space it has. 320 is the viewport issue #630 was
-// reported at, where the panel's title ran off the right edge and the
-// legend's wrapped row fell off the bottom. Override locally with
-// PANEL_LAYOUT_WIDTHS=1440,375.
-const WIDTHS = (process.env.PANEL_LAYOUT_WIDTHS || '1440,1024,375,320')
-  .split(',').map(Number).filter(n => n > 0);
-
-// Every /api path the frontend fetches, and the fixture that answers it.
-const API = {
-  '/api/dashboard': 'dashboard.json',
-  '/api/projects': 'projects.json',
-  '/api/models': 'models.json',
-  '/api/me': 'me.json',
-  '/api/tool-usage': 'tool_usage.json',
-  '/api/tool-error-rate': 'tool_error_rate.json',
-  '/api/reply-latency': 'reply_latency.json',
-  '/api/activity-heatmap': 'activity_heatmap.json',
-  '/api/cost-by-context': 'cost_by_context.json',
-  '/api/cost-by-agent': 'cost_by_agent.json',
-  '/api/web-metrics': 'web_metrics.json',
-};
-
-const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.jsx': 'text/babel; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.ico': 'image/x-icon',
-};
+import { API, FIXTURES, REPO, serve, WIDTHS } from './panel_server.mjs';
 
 // The one route that draws charts. Every panel on it lives here; the
 // Cache route renders tables and stat rows, not a plot, so there is
@@ -96,48 +58,6 @@ function filedFor(panel, roles) {
     || (f.panel instanceof RegExp && f.panel.test(panel)))
     && f.roles.join('+') === key);
   return hit ? hit.issue : null;
-}
-
-function serve() {
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    const rel = decodeURIComponent(url.pathname);
-    let file;
-    if (rel === '/' || rel === '/index.html') {
-      // The backend injects this line per request; the guard supplies the
-      // same globals so the very first React render already knows them.
-      const html = (await readFile(join(REPO, 'public', 'index.html'), 'utf8'))
-        .replace(
-          "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
-          "<script>window.BACKEND_URL = '/'; window.IS_GUEST = false; "
-          + 'window.IS_OPERATOR = true; window.BRAND = '
-          + '{"name":"claudit","title":"claudit","description":"guard"};'
-          + '</script>');
-      res.writeHead(200, { 'content-type': TYPES['.html'] });
-      res.end(html);
-      return;
-    }
-    if (rel.startsWith('/src/')) file = join(REPO, normalize(rel));
-    else if (rel === '/app.css' || rel === '/favicon.ico') {
-      file = join(REPO, 'public', rel.slice(1));
-    } else {
-      res.writeHead(404).end();
-      return;
-    }
-    // The repository root is the only tree this server reads from.
-    if (!file.startsWith(REPO) || !existsSync(file)) {
-      res.writeHead(404).end();
-      return;
-    }
-    res.writeHead(200, {
-      'content-type': TYPES[rel.slice(rel.lastIndexOf('.'))]
-        || 'application/octet-stream',
-    });
-    res.end(await readFile(file));
-  });
-  return new Promise(resolve => {
-    server.listen(0, '127.0.0.1', () => resolve(server));
-  });
 }
 
 // Runs inside the page. Reports, per panel, every marked region that

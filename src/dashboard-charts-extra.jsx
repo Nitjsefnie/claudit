@@ -2058,7 +2058,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
         ))}</g>
 
         {bars.map((b, i) => (
-          <rect key={b.edge}
+          <rect key={b.edge} data-hover-target=""
                 x={padL + i * bw + 1} y={yCost(b.cost)}
                 width={Math.max(1, bw - 2)}
                 height={Math.max(0, plotH + padT - yCost(b.cost))}
