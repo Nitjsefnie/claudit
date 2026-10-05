@@ -104,7 +104,7 @@ PARSER_VERSION = "92"
 # stored columns, so a stored-flag rule change is a trigger with no rate
 # change at all. PARSER_VERSION bumps only for parser-semantics changes
 # from now on.
-PRICING_VERSION = "217"
+PRICING_VERSION = "218"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
