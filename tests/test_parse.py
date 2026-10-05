@@ -542,3 +542,17 @@ def test_context_beyond_any_window_is_not_a_turn():
         "k/sess-1/sess-1.jsonl", _read("ctx_cumulative_counter.jsonl"))
     assert not out["ctx_turns"]
     assert len(out["records"]) == 1, "the record itself is still kept"
+
+
+def test_nul_in_tool_name_and_argument_stays_in_parse_output():
+    """A NUL (\\u0000 in the JSON) inside a tool name or tool argument
+    reaches tool_uses intact at parse level (issue #670): the parser
+    keeps the call, and the persist-level choke point strips the byte
+    before it can reach a PostgreSQL text column (tests.test_ingest).
+    """
+    out = parse.parse_file(
+        "k/sess-nul/sess-nul.jsonl", _read("nul_tool_use.jsonl"))
+    tus = out["tool_uses"]
+    assert sorted(tu["tool_name"] for tu in tus) == ["Read", "Skill\x00Skill"]
+    read_tu = next(tu for tu in tus if tu["tool_name"] == "Read")
+    assert read_tu["read_targets"] == ["/tmp/a\x00b.md"]
