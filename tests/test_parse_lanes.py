@@ -6,6 +6,15 @@ import pytest
 
 from backend import constants, db, ingest, parse
 from backend.r2 import R2Object
+from backend import parse_codex
+
+
+def _parse_codex_wire(blob: bytes) -> dict:
+    """A synthetic codex wire through the lane parse and projection,
+    minus parse_file's issue-653 refusal: this module's latency fixtures
+    declare no model, which the entry point refuses."""
+    return parse.to_claudit(
+        parse_codex.parse("sessions/p/s/wire.jsonl", blob), "codex")
 from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -99,7 +108,7 @@ def _fresh_db_fixture(monkeypatch):
 
 
 @pytest.mark.parametrize("name,tool_use_id,prompt_count,models", [
-    ("codex_min.jsonl", "call_synthetic01", 1, ["unknown"]),
+    ("codex_min.jsonl", "call_synthetic01", 1, ["gpt-5.6-sol"]),
     ("kimi_code_min.jsonl", "tool_Synthetic01Example", 2, ["kimi-k2-7-code"]),
     # Legacy ids are per-session sequences ("tc1" repeats across unrelated
     # sessions in the kimi bucket), so the adapter namespaces them with the
@@ -420,7 +429,7 @@ def test_codex_latency_ends_at_the_first_assistant_item(item):
     one at +18 s, and the cumulative counter only moves at +4934 s: the
     reply began after 6 s, not 4924 s."""
     rtype, body = _CODEX_ASSISTANT_ITEMS[item]
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+    out = _parse_codex_wire(_codex_turn_rollout(
         _codex_line(16, rtype, body),
         _codex_line(18, "event_msg", '"type":"agent_message","message":"x"'),
         _codex_tokens(4934, 100)))
@@ -428,7 +437,7 @@ def test_codex_latency_ends_at_the_first_assistant_item(item):
 
 
 def test_codex_latency_without_an_assistant_item_still_ends_at_the_record():
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+    out = _parse_codex_wire(_codex_turn_rollout(
         _codex_tokens(25, 100)))
     assert [r["reply_latency_s"] for r in out["records"]] == [15.0]
 
@@ -436,7 +445,7 @@ def test_codex_latency_without_an_assistant_item_still_ends_at_the_record():
 def test_codex_first_assistant_item_does_not_leak_into_the_next_turn():
     """Turn 1's assistant item, and a stray one between the turns, must
     not time turn 2, which has no assistant item before its record."""
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+    out = _parse_codex_wire(_codex_turn_rollout(
         _codex_line(12, "event_msg", '"type":"agent_message","message":"a"'),
         _codex_tokens(20, 100),
         _codex_line(21, "event_msg", '"type":"task_complete"'),
@@ -449,7 +458,7 @@ def test_codex_first_assistant_item_does_not_leak_into_the_next_turn():
 def test_codex_assistant_item_after_the_record_does_not_retime_it():
     """One latency per turn: an item after the first record is not a
     second measurement for a later record in the same turn."""
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_turn_rollout(
+    out = _parse_codex_wire(_codex_turn_rollout(
         _codex_tokens(40, 100),
         _codex_line(41, "event_msg", '"type":"agent_message","message":"a"'),
         _codex_tokens(50, 300)))

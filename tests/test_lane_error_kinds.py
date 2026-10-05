@@ -62,6 +62,8 @@ def _codex_blob(output_text: str | None) -> bytes:
         {"timestamp": UTC_ISO, "type": "session_meta",
          "payload": {"session_id":
                      "00000000-0000-4000-8000-0000000000e1"}},
+        {"timestamp": UTC_ISO, "type": "turn_context",
+         "payload": {"model": "gpt-5.6-sol"}},
         {"timestamp": UTC_ISO, "type": "response_item",
          "payload": {"type": "custom_tool_call", "call_id": "call_e1",
                      "name": "exec",

@@ -112,17 +112,16 @@ RECORD_TYPES = frozenset({
 })
 
 
-def _codex_model(raw: str | None) -> str:
+def _codex_model(raw: str | None) -> str | None:
     """Model string in force -> the stored model id.
 
-    Spelling normalisation only (issue #471); never a relabelling. A
-    transcript that names no model stores "unknown" — _append_tool_use's
-    label for an unattributed record — which prices at the default rates,
-    flagged estimated.
+    Spelling normalisation only (issue #471); never a relabelling. None
+    when the string in force names nothing: the file is then refused
+    (issue #653) rather than stored under an `unknown` placeholder.
     """
     lowered = (raw or "").strip().lower()
     if not lowered:
-        return "unknown"
+        return None
     return _CODEX_SEPARATED.sub("gpt-", lowered)
 
 
@@ -133,10 +132,10 @@ class _CodexState(_ParseState):
     # file's first token_count seeds the inherited baseline.
     prev_usage: dict | None = None
     # Model in force, from the most recent turn_context / settings record.
+    # parse() opens it as the file's FIRST declared model — the model the
+    # parent had in force where a fork cut, inherited by the replayed
+    # prefix (issue #653) — and each declaration in the body overwrites it.
     model: str | None = None
-    # The file's only declared model, when it declares exactly one. Attributes
-    # the token_count records that precede the first turn_context.
-    sole_model: str | None = None
     # (index into tool_uses, turn_id) of the most recent apply_patch call, to
     # carry a patch_apply_end's churn back onto the call that caused it.
     patch_target: tuple[int, str | None] | None = None
@@ -154,19 +153,21 @@ class _CodexState(_ParseState):
     thread_seen: bool = False
 
 
-def _codex_declared_models(blob: bytes) -> set[str]:
-    """Every model this file declares, from a cheap pre-scan.
+def _codex_first_declared_model(blob: bytes) -> str | None:
+    """The first model this file declares, in file order.
 
-    A forked rollout replays its parent's history before the new thread emits
-    a turn_context, so the leading token_count records have no model in front
-    of them. Where the file declares exactly one model overall there is only
-    one answer; where it mixes models the prefix stays on the fallback rather
-    than guessing which side of the switch it belonged to.
+    A forked rollout replays its parent's history before the new thread
+    emits a turn_context, so the leading records have no model in front
+    of them. The replay is the parent's history and the first declaration
+    is the model the parent had in force at the fork point — the
+    inherited settings — so it attributes the prefix (issue #653). None
+    when the file declares no model at all: nothing derives the model in
+    force, and the file is refused rather than stored as `unknown`.
 
-    The scan JSON-decodes only lines that mention a model-declaring record —
-    on a 20MB rollout that is a few hundred lines out of tens of thousands.
+    The scan JSON-decodes only lines that mention a model-declaring
+    record — on a 20MB rollout that is a few hundred lines out of tens of
+    thousands.
     """
-    models: set[str] = set()
     for raw in blob.splitlines():
         if b'"turn_context"' not in raw and b'"thread_settings_applied"' not in raw:
             continue
@@ -185,8 +186,8 @@ def _codex_declared_models(blob: bytes) -> set[str]:
         else:
             continue
         if name:
-            models.add(str(name))
-    return models
+            return str(name)
+    return None
 
 
 def _codex_output_text(payload: dict) -> str:
@@ -373,7 +374,7 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
     _append_usage_record(
         st, line_num, ts,
         _codex_record_uuid(st, cumulative, line_num),
-        _codex_model(st.model or st.sole_model),
+        _codex_model(st.model),
         (fresh, create, read, output),
         reasoning=reasoning,
         long_context=(total_in > pricing.LONG_CONTEXT_THRESHOLD),
@@ -475,7 +476,7 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
         name = apis[0]
     _append_tool_use(
         st, line_num, ts, name, str(payload.get("call_id") or ""), churn,
-        model=_codex_model(st.model or st.sole_model),
+        model=_codex_model(st.model),
         dispatch=_codex_dispatch_args(payload),
     )
     if "apply_patch" in apis:
@@ -543,7 +544,7 @@ def _codex_patch(st: _CodexState, line_num: int, ts: datetime | None,
     # patch attempt is the thing that never produced a change.
     _append_tool_use(
         st, line_num, ts, "apply_patch", "", (added, deleted),
-        model=_codex_model(st.model or st.sole_model),
+        model=_codex_model(st.model),
     )
     st.tool_uses[-1]["is_error"] = not ok
     st.tool_uses[-1]["error_kind"] = None if ok else ERROR_KIND_FAILED
@@ -682,9 +683,8 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
 def parse(file_key: str, blob: bytes) -> dict:
     """Parse one Codex rollout JSONL. Same return shape as _parse_legacy."""
     lines = blob.splitlines()
-    declared = _codex_declared_models(blob)
     st = _CodexState(file_key)
-    st.sole_model = next(iter(declared)) if len(declared) == 1 else None
+    st.model = _codex_first_declared_model(blob)
 
     for line_num, raw in enumerate(lines, 1):
         if not raw:

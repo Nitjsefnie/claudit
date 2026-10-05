@@ -1,16 +1,18 @@
 """The canonical winner prefers an attributed-model copy (issue #529).
 
-A forked Codex rollout REPLAYS its parent's history in its leading lines,
-and a multi-model fork cannot attribute that prefix (no model declaration
-in front of it — sole_model is only for single-model files). The fork's
-`subagents/…` file key sorts before its parent's `wire.jsonl`, so under a
-bare file_key ordering the unattributed copies won the dedup and the
-Models panel grew an `unknown` row for usage every copy of which is
-attributed elsewhere.
+A forked Codex rollout REPLAYS its parent's history in its leading lines.
+Under issue #653 the replayed prefix takes the file's first declared
+model — the parent's model in force at the fork point — so both copies
+of a replayed uuid are attributed and the winner is the file_key order:
+the fork's `subagents/…` key sorts before its parent's `wire.jsonl`, and
+the fork's copy wins. (Before #653 the fork's prefix stored `unknown`,
+lost the attribution rank, and the parent's copy won.)
 
 The winner rule is the spec (SV-CANONICAL-FLAG): the copy whose model is
 attributed beats an unattributed one, then file_key, then line_num.
-`unknown` survives only where NO copy of the uuid names a model.
+`unknown` survives only where NO copy of the uuid names a model — and
+under #653 no lane parser emits it, so that rank is decidable only
+between an attributed copy and the Claude path's `(unknown)` fallback.
 """
 from __future__ import annotations
 
@@ -116,10 +118,13 @@ def _replay_rows():
         ).fetchall()
 
 
-def test_an_attributed_copy_beats_an_unattributed_replay(
+def test_an_attributed_replay_ties_on_attribution_and_wins_by_file_key(
         fresh_db, fork_mirror):
-    """The parent's attributed copies win the replayed uuids; the fork's
-    unknown replays lose the dedup instead of masking the model."""
+    """Both copies of a replayed uuid are attributed now (issue #653
+    gave the fork's prefix the parent's model), so the attribution rank
+    ties and file_key decides: the fork's `subagents/…` key sorts before
+    its parent's `wire.jsonl`, and the fork's copy wins. (Under #529 the
+    fork's copies were `unknown` and the parent won.)"""
     parent = fork_mirror / "mini/sessions/toyproj/sessA/wire.jsonl"
     parent.write_bytes(_parent_rollout())
 
@@ -134,23 +139,23 @@ def test_an_attributed_copy_beats_an_unattributed_replay(
     for uuid in REPLAY_UUIDS:
         fork_model, fork_canon = by_file[(uuid, "sessA/subagents/forkthread/wire.jsonl")]
         parent_model, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]
-        assert fork_model == "unknown"
+        assert fork_model == "gpt-5.6-sol"
         assert parent_model == "gpt-5.6-sol"
-        assert parent_canon is True, f"attributed copy of {uuid} must win"
-        assert fork_canon is False, f"unknown replay of {uuid} must lose"
+        assert fork_canon is True, f"file_key-first copy of {uuid} must win"
+        assert parent_canon is False, f"later-keyed copy of {uuid} must lose"
 
 
-def test_unknown_survives_when_no_copy_attributes_the_usage(
+def test_a_fork_alone_attributes_its_replay_to_the_first_declared_model(
         fresh_db, fork_mirror):
     """With the parent file absent, the fork's replayed prefix has no
-    competitor: it stays canonical and unknown — `unknown` is for usage no
-    copy attributes, not a state to be engineered away."""
+    competitor: it takes the file's first declared model (issue #653) and
+    stays canonical — no `unknown` placeholder is stored."""
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
 
     rows = _replay_rows()
     assert len(rows) == 2, rows
-    assert all(model == "unknown" and canon is True
+    assert all(model == "gpt-5.6-sol" and canon is True
                for _, _, model, canon in rows)
 
 

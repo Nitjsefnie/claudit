@@ -217,7 +217,7 @@ def _legacy_tool_call(st: _ParseState, line_num: int, ts: datetime | None,
     name = func.get("name", "")
     args = _args_to_dict(func.get("arguments"))
     _append_tool_use(st, line_num, ts, name, payload.get("id", ""),
-                     _edit_churn(name, args),
+                     _edit_churn(name, args), model=None,
                      dispatch=_kimi_dispatch_args(name, args))
     _mark_assistant_event(st, ts)
 
@@ -378,7 +378,7 @@ def _kc_append_message(st: _KimiCodeState, line_num: int,
             name, raw_args, tcid = _kc_parse_tool_call(tc)
             args = _args_to_dict(raw_args)
             _append_tool_use(st, line_num, ts, name, tcid,
-                             _edit_churn(name, args),
+                             _edit_churn(name, args), model=None,
                              dispatch=_kimi_dispatch_args(name, args))
         _mark_assistant_event(st, ts)
     elif role == "tool":
@@ -453,7 +453,7 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         args = _args_to_dict(ev.get("args"))
         _append_tool_use(
             st, line_num, ts, name, str(ev.get("toolCallId", "")),
-            _edit_churn(name, args), dispatch=_kimi_dispatch_args(name, args),
+            _edit_churn(name, args), model=None, dispatch=_kimi_dispatch_args(name, args),
         )
         _mark_assistant_event(st, ts)
     elif et == "tool.result":

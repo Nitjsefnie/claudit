@@ -152,7 +152,11 @@ def _model_row_pricing(
         row, pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
         -> tuple[str, str | None, dict, pricing.Resolution]:
     """Resolve one aggregate row from its pair and SQL epoch index."""
-    model = row[0] or "unknown"
+    # NULL is not masked here (issue #653): a stored model is never the
+    # string `unknown`, and a NULL would mean ingest's refusal missed a
+    # file — passing it through prices at the fallback rates, flagged
+    # estimated, instead of renaming the hole.
+    model = row[0]
     provider = row[1] or None
     tokens = dict(zip(_FOLD_TOKENS, (int(v or 0) for v in row[5:11])))
     representative = _pair_epoch_ts(int(row[2] or 0), model, provider,

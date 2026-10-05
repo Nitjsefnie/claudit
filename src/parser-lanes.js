@@ -487,14 +487,13 @@ const LANE_CODEX_FAILURE_HEADS = ['Script failed', 'collab spawn failed'];
 
 // A record keeps the model id the transcript names (issue #471) — the
 // relabelling map and flagship fallback are gone (backend _codex_model):
-// gpt-6.1-sol read as gpt-5.6-sol at twice its price, and every unmapped
-// id disappeared into the flagship. The only rewrites are spelling: lower
-// case and the missing separator (gpt5.6-sol -> gpt-5.6-sol). An id
-// pricing.json has no row for prices through the fallback and surfaces as
-// estimated_rate; a transcript naming no model stores 'unknown'.
+// the only rewrites are spelling: lower case and the missing separator
+// (gpt5.6-sol -> gpt-5.6-sol); an unpriced id surfaces as estimated_rate.
+// A transcript naming no model keeps null — the backend refuses such a
+// file outright (issue #653); the browser has no ingest to fail loudly.
 function laneCodexModel(raw) {
   const lowered = String(raw || '').trim().toLowerCase();
-  if (!lowered) return 'unknown';
+  if (!lowered) return null;
   return lowered.replace(/^gpt(?=[0-9.])/, 'gpt-');
 }
 
@@ -519,11 +518,12 @@ function parseLaneCodex(blob, opts) {
   const meta = [];
   const fileKey = (opts && opts.fileKey) || '';
 
-  // Cheap pre-scan: every model this file declares (backend
-  // _codex_declared_models). A fork replays history before the new thread
-  // declares a model; where the file declares exactly one there is only
-  // one answer for those leading requests.
-  const declared = new Set();
+  // Cheap pre-scan: the FIRST model this file declares, in line order
+  // (backend _codex_first_declared_model). The first declaration is the
+  // model in force where a fork cut — the inherited settings — and it
+  // attributes the replayed prefix (issue #653); a file declaring none
+  // keeps null and the backend refuses it.
+  let firstDeclaredModel = null;
   for (const line of lines) {
     if (!line.includes('"turn_context"') && !line.includes('"thread_settings_applied"')) continue;
     let obj;
@@ -535,15 +535,14 @@ function parseLaneCodex(blob, opts) {
     else if (payload.type === 'thread_settings_applied') {
       name = (laneIsPlainObject(payload.thread_settings) ? payload.thread_settings : {}).model;
     }
-    if (name) declared.add(String(name));
+    if (name && firstDeclaredModel === null) firstDeclaredModel = String(name);
   }
   const st = {
     prevUsage: null,      // previous cumulative snapshot, for differencing
-    model: null,          // model in force, from the latest declaration
-    // The file's only declared model, when it declares exactly one.
-    // Attributes the token_count records that precede the first
-    // turn_context.
-    soleModel: declared.size === 1 ? [...declared][0] : null,
+    // Model in force: opened as the file's first declared model (the
+    // replayed fork prefix's attribution, issue #653), then the latest
+    // declaration wins.
+    model: firstDeclaredModel,
     sessionId: null,      // this thread's id, from session_meta
     lastRlKind: null,     // last rate-limit condition booked
   };
@@ -670,7 +669,7 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
   const record = laneUsageMeta(
     lineNum, tsIso,
     st.sessionId ? `${st.sessionId}:${cumulative.total_tokens}` : `${fileKey}:${lineNum}`,
-    laneCodexModel(st.model || st.soleModel),
+    laneCodexModel(st.model),
     fresh, create, read, output,
     totalIn > window.LONG_CONTEXT_THRESHOLD,
   );
