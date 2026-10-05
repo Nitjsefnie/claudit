@@ -35,8 +35,10 @@ name: refresh-pricing
 #     no longer identical, their price order tied or flipped);
 #   - a price or override kind the script does not model (a per-request
 #     fee, a long-context tier), or a response shape it does not recognise;
-#   - a tracked model with no endpoints (a broken fetch looks exactly like
-#     that).
+#   - a tracked model the catalog still lists, with no endpoints (a broken
+#     fetch looks exactly like that). A model gone from the catalog is a
+#     delisting, not a refusal: skipped with a notice, its row kept, and
+#     it rejoins on its own when the catalog relists it.
 # A refusal blocks only itself: every other move is still tested and
 # published, then the run goes red. A red run here means read the named
 # host's endpoints by hand and record the decision as data, not retry.
