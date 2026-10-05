@@ -15,7 +15,7 @@
     "backend/bash_churn.py": 918,
     "backend/bash_literals.py": 584,
     "backend/ingest.py": 674,
-    "backend/parse.py": 854,
+    "backend/parse.py": 852,
     "backend/parse_codex.py": 684,
     "backend/parse_kimi.py": 565,
     "backend/schema.sql": 834,

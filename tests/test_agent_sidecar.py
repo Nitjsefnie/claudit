@@ -108,12 +108,14 @@ _CLAUDE_KEY = "-root-x/s/subagents/agent-a1.jsonl"
 
 
 def test_legacy_wire_takes_the_sidecar_subagent_type():
+    """The top-level value wins; kimi's default subagent profile folds to
+    the default bucket (issue #650)."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": "coder",
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
         _LANE_KEY)
-    assert out["agent_type"] == "coder"
+    assert out["agent_type"] == DEFAULT
 
 
 def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
@@ -122,7 +124,7 @@ def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
         json.dumps({"subagent_type": None,
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
         _LANE_KEY)
-    assert out["agent_type"] == "explore"
+    assert out["agent_type"] == "Explore"
 
 
 def test_a_sidecar_role_goes_through_the_lanes_normalisation():
@@ -156,10 +158,12 @@ def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
 
 
 def test_in_band_kimi_code_profile_wins_over_the_sidecar():
+    """In-band wins; kimi's default subagent profile folds to the
+    default bucket (issue #650)."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
         b'{"subagent_type":"implementer"}', _LANE_KEY)
-    assert out["agent_type"] == "coder"
+    assert out["agent_type"] == DEFAULT
 
 
 def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
@@ -168,6 +172,43 @@ def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
         b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}',
         _CLAUDE_KEY)
     assert out["agent_type"] == "code-reviewer"
+
+
+def test_a_claude_sidecar_role_takes_its_canonical_name():
+    """One role, one name (issue #650): a Claude-tree sidecar folds a
+    plugin namespace and a cross-lane spelling too."""
+    out = agent_sidecar.apply_agent_sidecar(
+        _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
+        b'{"agentType":"superpowers:code-reviewer"}', _CLAUDE_KEY)
+    assert out["agent_type"] == "code-reviewer"
+    out = agent_sidecar.apply_agent_sidecar(
+        _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
+        b'{"agentType":"explorer"}', _CLAUDE_KEY)
+    assert out["agent_type"] == "Explore"
+
+
+_WORKFLOW_KEY = ("-root-x/s/data/subagents/workflows/wf_x/"
+                 "agent-a1.jsonl")
+
+
+def test_the_workflow_container_marker_stands_without_a_role():
+    """The workflows subtree's sidecar agentType names the CONTAINER, not
+    a role (issue #650): it stands when nothing more specific was
+    recorded, so the file stays attributable to the Workflow tool's
+    subagent tree."""
+    out = agent_sidecar.apply_agent_sidecar(
+        _parsed("cross_file_agent.jsonl", _WORKFLOW_KEY),
+        b'{"agentType":"workflow-subagent"}', _WORKFLOW_KEY)
+    assert out["agent_type"] == "workflow-subagent"
+
+
+def test_an_in_band_role_outranks_the_workflow_container_marker():
+    """A workflow subagent that recorded a role in-band ran AS that role:
+    the container marker must not mask it."""
+    out = agent_sidecar.apply_agent_sidecar(
+        _parsed("agent_attribution.jsonl", _WORKFLOW_KEY),
+        b'{"agentType":"workflow-subagent"}', _WORKFLOW_KEY)
+    assert out["agent_type"] == "implementer"
 
 
 def test_in_band_attribution_agent_wins_over_the_sidecar():
@@ -249,9 +290,9 @@ def test_ingest_attributes_subagents_from_their_sidecars(fresh_db, lane_mirror):
     assert result["error"] is None
     assert result["r2_listed"] == 5, "a sidecar is not a transcript"
     assert _agent_types() == {
-        f"claude/{_SUB}/a1/wire.jsonl.xz": "coder",
+        f"claude/{_SUB}/a1/wire.jsonl.xz": DEFAULT,
         f"claude/{_SUB}/a2/wire.jsonl": DEFAULT,
-        f"claude/{_SUB}/a3/wire.jsonl": "coder",
+        f"claude/{_SUB}/a3/wire.jsonl": DEFAULT,
         "claude/-root-x/s2/subagents/agent-b1.jsonl.xz": "code-reviewer",
         "claude/-root-x/s2/subagents/agent-b2.jsonl": "implementer",
     }
@@ -319,12 +360,12 @@ def test_a_sidecar_written_after_its_wire_triggers_a_reparse(
     _put(meta, b'{"subagent_type":"coder"}')
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "coder"}
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
 
     _put(meta, b'{"subagent_type":"explore"}')
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "explore"}
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "Explore"}
 
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 0, "an unchanged pair is not reparsed"
@@ -370,7 +411,7 @@ def test_a_transient_sidecar_failure_fails_the_file_and_is_retried(
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
     assert result["inserted"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "coder"}
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
 
 
 def test_a_fatal_sidecar_fetch_error_escapes_to_the_run(

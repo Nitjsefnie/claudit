@@ -450,3 +450,35 @@ def test_state_reset_forces_full_rebuild(fresh_db, mini_r2_env):
     assert result["reparsed"] == 0
     with db.viz_conn() as c:
         assert _scalar(c, "SELECT COUNT(*) FROM tool_error_rollup") > 0
+
+
+def test_a_stored_test_session_row_is_swept_as_an_orphan(fresh_db,
+                                                         mini_r2_env):
+    """The test-session rule at the ingest level (review of PR 689): rows
+    stored under a `test`-session lane key by a pre-rule binary are
+    deleted by the orphan sweep on the next ingest — the walk never lists
+    them, so they are just absent keys — and the project row, left
+    unreferenced, goes with it. The key_layout pin alone does not cover
+    the sweep; the doctrine claim does not stand on source reading."""
+    wire = mini_r2_env / "sessions" / "h" / "test" / "subagents" / "a1"
+    wire.mkdir(parents=True)
+    (wire / "wire.jsonl.xz").write_bytes(lzma.compress(b""))
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO projects (project_id, display_name, first_seen_at, "
+            "last_seen_at) VALUES ('h', 'h', now(), now())")
+        c.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES ("
+            "'claude/sessions/h/test/subagents/a1/wire.jsonl.xz',"
+            " 'h', 'test', FALSE, 'e', 1, now(), now(), %s)",
+            (constants.PARSER_VERSION,))
+        c.commit()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT COUNT(*) FROM files WHERE project_id"
+                          " = 'h'") == 0
+        assert _scalar(c, "SELECT COUNT(*) FROM projects WHERE project_id"
+                          " = 'h'") == 0

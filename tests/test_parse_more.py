@@ -1,6 +1,7 @@
 """Tests moved from test_parse.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -106,6 +107,58 @@ def test_agent_dispatch_args_captured():
     assert by_idx[1]["agent_model"] is None
     assert by_idx[2]["tool_name"] == "Bash"
     assert by_idx[2]["agent_type"] is None
+
+
+def test_dispatch_agent_type_takes_its_canonical_name(tmp_path):
+    """One role, one name (issue #650): the asked type folds a plugin
+    namespace and a cross-lane spelling, exactly like the stored side."""
+    dispatch_line = {
+        "type": "assistant", "sessionId": "s", "uuid": "a0",
+        "requestId": "req-0", "timestamp": "2026-05-07T10:00:01Z",
+        "message": {"role": "assistant", "model": "m",
+                    "content": [{"type": "tool_use", "id": "t1",
+                                 "name": "Task",
+                                 "input": {"subagent_type":
+                                           "superpowers:code-reviewer",
+                                           "prompt": "review"}}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1}},
+    }
+    blob = "\n".join([
+        json.dumps({"type": "user", "sessionId": "s", "uuid": "u0",
+                    "timestamp": "2026-05-07T10:00:00Z",
+                    "message": {"role": "user", "content": "go"}}),
+        json.dumps(dispatch_line),
+    ]) + "\n"
+    key = "k/sess-canon/sess-canon.jsonl"
+    path = tmp_path / "canon.jsonl"
+    path.write_text(blob)
+    out = parse.parse_file(key, path.read_bytes())
+    assert out["tool_uses"][0]["agent_type"] == "code-reviewer"
+
+
+def test_the_file_agent_type_folds_in_band_names(tmp_path):
+    """attributionAgent and agent-setting take the canonical name too
+    (issue #650)."""
+    blob = "\n".join([
+        json.dumps({"type": "user", "sessionId": "s", "uuid": "u0",
+                    "isSidechain": True, "attributionAgent": "explorer",
+                    "timestamp": "2026-05-07T10:00:00Z",
+                    "message": {"role": "user", "content": "go"}}),
+        json.dumps({"type": "assistant", "sessionId": "s", "uuid": "a0",
+                    "requestId": "req-0", "isSidechain": True,
+                    "attributionAgent": "explorer",
+                    "timestamp": "2026-05-07T10:00:01Z",
+                    "message": {"role": "assistant", "model": "m",
+                                "content": [{"type": "text", "text": "ok"}],
+                                "usage": {"input_tokens": 1,
+                                          "output_tokens": 1}}}),
+    ]) + "\n"
+    path = tmp_path / "fold.jsonl"
+    path.write_text(blob)
+    out = parse.parse_file("k/sess-fold/sess-fold.jsonl",
+                           path.read_bytes())
+    assert out["agent_type"] == "Explore"
+    assert out["agent_type_in_band"] is True
 
 
 def test_reread_flag_marks_only_the_redundant_whole_read():

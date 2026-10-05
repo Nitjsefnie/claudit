@@ -16,6 +16,7 @@ from datetime import datetime
 from orjson import JSONDecodeError, loads
 
 from backend import pricing, parse_lanes
+from backend.agent_types import canonical_agent_type
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
                                  ERROR_KIND_REJECTED,  # pylint: disable=unused-import
@@ -291,12 +292,9 @@ def _dispatch_args(name: str, args: dict) -> tuple:
     a_type = args.get("subagent_type")
     a_model = args.get("model")
     chars, brief_ref = _dispatch_prompt_shape(args)
-    return (
-        str(a_type) if isinstance(a_type, str) and a_type else None,
-        str(a_model) if isinstance(a_model, str) and a_model else None,
-        chars,
-        brief_ref,
-    )
+    return (canonical_agent_type(a_type) if isinstance(a_type, str) and a_type else None,
+            str(a_model) if isinstance(a_model, str) and a_model else None,
+            chars, brief_ref)
 
 
 def _dispatch_name(name: str, args: dict) -> str | None:
@@ -758,14 +756,14 @@ def resolve_agent_type(walk: _LineWalk) -> str:
     lead, a lead started with an explicit ``--agent`` flag, and a
     pre-2.1.126 subagent are indistinguishable here.
 
-    The answer is per-FILE because a transcript is homogeneous: files
-    carrying ``isSidechain`` records carry nothing else (verified across
-    88 such files — zero non-sidechain assistant records among them), so
-    a top-level agent session and a lead never share one file.
+    The answer is per-FILE: a transcript is homogeneous — files carrying
+    ``isSidechain`` records carry nothing else (verified across 88 such
+    files, zero non-sidechain assistant records among them), so a
+    top-level agent session and a lead never share one file.
     """
     if walk.attribution_agents:
-        return walk.attribution_agents.most_common(1)[0][0]
-    return walk.agent_setting or DEFAULT_AGENT_TYPE
+        return canonical_agent_type(walk.attribution_agents.most_common(1)[0][0])
+    return canonical_agent_type(walk.agent_setting) if walk.agent_setting else DEFAULT_AGENT_TYPE
 
 
 def _parse_claude(file_key: str, blob: bytes) -> dict:

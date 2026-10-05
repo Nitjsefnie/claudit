@@ -32,6 +32,7 @@ from typing import Callable, Literal
 from orjson import JSONDecodeError, loads
 
 from backend import parse_codex, parse_kimi
+from backend.agent_types import canonical_agent_type
 from backend.constants import DEFAULT_AGENT_TYPE
 from backend.parse_common import iter_lines
 
@@ -143,11 +144,14 @@ def lane_agent_type(fmt: str, role: str | None) -> str:
     A transcript naming no role, or naming its lane's default profile,
     lands in DEFAULT_AGENT_TYPE -- the same unattributable bucket as a
     Claude transcript without one. Legacy kimi-cli records no role at
-    all, so it always lands there.
+    all, so it always lands there. Any other role takes its canonical
+    name (agent_types.canonical_agent_type): the lanes' own default
+    subagent roles and the cross-lane spellings fold, so one role is
+    one name.
     """
     if not role or role == _LANE_DEFAULT_ROLES.get(fmt):
         return DEFAULT_AGENT_TYPE
-    return role
+    return canonical_agent_type(role)
 
 
 def lane_sidecar_agent_type(role: str) -> str:
