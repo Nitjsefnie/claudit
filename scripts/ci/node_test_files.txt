@@ -16,9 +16,9 @@ tests/test_parser_js_mirror.py
 tests/test_parser_js_pricing_loader.py
 tests/test_parser_js_user_prompt.py
 tests/test_perf_js.py
+tests/test_price_band.py
 tests/test_pricing_data.py
 tests/test_prompt_gate_whitespace.py
-tests/test_provider_rate_band.py
 tests/test_provider_rate_log_refresh.py
 tests/test_provider_rate_refresh.py
 tests/test_provider_rate_refresh_more.py

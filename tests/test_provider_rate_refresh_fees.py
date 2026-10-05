@@ -40,9 +40,8 @@ def _rates(run: Run, model: str, host: str) -> dict:
 
 def _move(run: Run, model: str, host: str) -> dict:
     """Move one host's output, so a run appends an entry whose note is
-    readable. Returns the rates the appended entry carries — the five rate
-    fields only, since a row's newest entry may also carry a band (issue
-    #640), which an appended entry never copies."""
+    readable. Returns the five rate fields — a row's newest entry may also
+    carry a band (issue #640), which an appended entry never copies."""
     current = _rates(run, model, host)
     moved = {**current, "output": current["output"] * 2}
     pricing = run.endpoint(model, host)["pricing"]
