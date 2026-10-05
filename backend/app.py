@@ -368,11 +368,12 @@ async def root_index(request: Request) -> Response:
     html = (_PUBLIC / "index.html").read_text(encoding="utf-8")
     # The default in-page snippet is `window.BACKEND_URL || ''`; when we
     # serve from the backend, set it to '/' so the frontend knows to use
-    # this origin for /api/* fetches. Inject IS_GUEST in the same shot
-    # so the React initial render already knows whether to hide
-    # guest-restricted UI — prevents the brief flash of Sessions/
-    # Inspector tabs before /api/me resolves.
+    # this origin for /api/* fetches. IS_GUEST and IS_OPERATOR ride the
+    # same shot, so the FIRST React render already hides the
+    # guest-restricted UI and the operator-only page-performance panel
+    # instead of flashing them before /api/me resolves (#629).
     is_guest = bool(getattr(request.state, "is_guest", False))
+    is_operator = bool(getattr(request.state, "is_operator", False))
     # Branding rides the same injection: the page's one brand source is
     # window.BRAND {name, title, description} — from APP_NAME /
     # APP_TITLE / APP_DESCRIPTION, defaults = today's strings. `</` is
@@ -382,7 +383,8 @@ async def root_index(request: Request) -> Response:
     html = html.replace(
         "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
         f"<script>window.BACKEND_URL = '/'; window.IS_GUEST = "
-        f"{str(is_guest).lower()}; {brand_js}</script>",
+        f"{str(is_guest).lower()}; window.IS_OPERATOR = "
+        f"{str(is_operator).lower()}; {brand_js}</script>",
     )
     html = branding.brand_page(html)
     # Bust intermediary caches (Cloudflare, browser) on every static-asset

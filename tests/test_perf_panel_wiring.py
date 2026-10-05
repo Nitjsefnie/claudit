@@ -222,6 +222,20 @@ def test_the_app_mounts_the_panel_once_with_the_other_backend_panels():
             f"the panel is mounted without {prop}")
 
 
+def test_the_panel_mounts_only_for_an_operator():
+    """#629: the readout is operator-only, and an ordinary user must not
+    even be offered the panel — the endpoint would refuse it anyway, but
+    a page that fetches into a 403 shows an empty panel where telemetry
+    should be. node parses no JSX, so the mount CONDITION is pinned here at
+    source level, beside the guard above."""
+    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    window = src[src.index("<window.WebMetricsPanel") - 260:
+                 src.index("<window.WebMetricsPanel")]
+    assert "window.IS_OPERATOR" in window, (
+        "the panel mounts for everyone -- it is operator-only, and the "
+        "server refuses the readout to anyone else")
+
+
 def test_the_app_still_fetches_the_dashboard_exactly_once():
     """The wiring guards slice the one /api/dashboard fetch's effect;
     a second site would make the slice ambiguous."""
