@@ -75,5 +75,20 @@
       }
     }
   },
-  "schema_version": 1
+  "schema_version": 1,
+  "suite_cost": {
+    "collection": {
+      "floor": 17.4,
+      "measured": 15.9
+    },
+    "residual": {
+      "floor": 6.2,
+      "measured": 4.7
+    },
+    "run": {
+      "floor": 235.6,
+      "measured": 234.1
+    },
+    "tests_tree_lines": 65367
+  }
 }
