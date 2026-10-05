@@ -129,7 +129,6 @@ def test_the_growth_chart_draws_the_full_breakdown():
         ("s.stats.median", "the median line"),
     ]:
         assert needle in body, f"{what} is not drawn from the per-turn stats"
-    assert "s.sessions.map(" in body or "s.stats" in body
 
 
 def test_the_growth_sessions_toggle_defaults_off():
@@ -138,6 +137,21 @@ def test_the_growth_sessions_toggle_defaults_off():
     panel = _panel_src("ContextGrowthPanel", src)
     assert re.search(r"useState\(false\)", panel), (
         "the sessions toggle does not default to off")
+
+
+def test_both_panels_route_their_default_through_the_shared_rule():
+    """The shared selection rule is the ONE top-N default (the
+    model-select.js doc says both panels route through it, so a panel
+    growing its own inline copy makes the doc a lie and the height pin
+    vacuous)."""
+    for path, panel_name in [(EXTRA, "ContextGrowthPanel"),
+                             (TOOL_PANEL, "ToolErrorRatePanel")]:
+        src = _strip_comments(path.read_text(encoding="utf-8"))
+        panel = _panel_src(panel_name, src)
+        assert "window.modelSelect.topDefaultSelection" in panel, (
+            f"{panel_name} no longer resolves its default through the "
+            "shared rule; the model-select.js doc is now false and the "
+            "height pin covers one panel only")
 
 
 def test_the_growth_tooltip_names_the_breakdown():
@@ -174,9 +188,11 @@ def test_the_tool_panel_is_one_chart_with_checkboxes():
     assert panel.count("window.modelSelect.topDefaultSelection") == 2
     assert re.search(r"topDefaultSelection\(\s*models, modelOverrides, 2\)", panel), (
         "the tool panel's default checked set is not top-2")
-    assert re.search(r"topDefaultSelection\(\s*toolPickerEntries, toolOverrides, 3\)",
-                     panel), (
-        "the tool picker's default is not top-3")
+    assert re.search(
+        r"topDefaultSelection\(\s*toolPickerEntries, "
+        r"\{ \[OTHER\]: true, \.\.\.toolOverrides \}, 3\)", panel), (
+        "the tool picker's default is not top-3 plus Other-unless-"
+        "unchecked")
     assert "window.LegendCheckboxRow" in src
     assert re.search(r"useState\(false\)", panel), (
         "the per-tool toggle does not default to off")
@@ -228,13 +244,14 @@ def _md():
     """One model's grouped data: two tools over three buckets, the third
     bucket sparse for t2 and empty for t1."""
     return """{
-      buckets: [100, 200, 300],
+      buckets: [100, 200, 300, 400],
       perBucketTool: new Map([
         [100, new Map([['t1', {n_total: 10, n_error: 1}],
                        ['t2', {n_total: 4, n_error: 2}]])],
         [200, new Map([['t1', {n_total: 10, n_error: 0}]])],
         [300, new Map([['t1', {n_total: 5, n_error: 5}],
                        ['t9', {n_total: 1, n_error: 0}]])],
+        [400, new Map([['t1', {n_total: 0, n_error: 0}]])],
       ]),
       totalsByTool: new Map([['t1', 25], ['t2', 4], ['t9', 1]]),
     }"""
@@ -244,8 +261,9 @@ def test_aggregate_folds_every_tool_and_skips_sparse_buckets():
     got = _rs(
         f"Array.from(window.rateSeries.buildModelSeries({_md()},"
         "['t1', 't2'], ['t9'], '__OTHER__').get('__AGG__'))")
-    # Bucket 100: 3/14; 200: 0/10; 300: 5/6 (t9 folds in). Every bucket
-    # is non-sparse for the aggregate, so all three survive.
+    # Bucket 100: 3/14; 200: 0/10; 300: 5/6 (t9 folds in). Bucket 400's
+    # rows sum to n_total 0 — no rate exists there, so the aggregate
+    # skips it (the aT > 0 branch) and so does the t1 series.
     assert [(p["rate"], p["n_total"]) for p in got] == [
         (3 / 14, 14), (0.0, 10), (5 / 6, 6)]
 
