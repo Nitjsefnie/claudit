@@ -66,6 +66,10 @@ def test_phases_done_reports_total_sum_and_gap(monkeypatch, caplog):
     phases = timing.Phases("synthetic", account=True)
     phases.mark("first", 0.012)
     phases.mark("second", 0.008)
+    # A part is a breakdown figure (issue #662): it prints on the line
+    # but never enters the sum/gap — the pool wall's parts are summed
+    # across children and may exceed the run's wall.
+    phases.mark_part("child_parse", 9.0)
 
     with caplog.at_level(logging.INFO, logger="claudit.api"):
         phases.done(outcome="ok")
@@ -73,9 +77,10 @@ def test_phases_done_reports_total_sum_and_gap(monkeypatch, caplog):
     line = next(record.getMessage() for record in caplog.records
                 if record.getMessage().startswith("TIMING synthetic "))
     assert "total=35ms" in line
-    assert "sum=20ms" in line
-    assert "gap=15ms" in line
-    assert "first=12ms second=8ms outcome=ok" in line
+    assert "sum=20ms" in line, line
+    assert "gap=15ms" in line, line
+    assert "first=12ms second=8ms child_parse=9000ms outcome=ok" in line, (
+        "the part prints after the marks, before the tail: " + line)
 
 
 def test_phases_done_keeps_api_line_shape_without_accounting(
@@ -167,28 +172,27 @@ def test_ingest_timing_is_silent_when_flag_is_off(
     assert not _timing_lines(caplog)
 
 
-def test_timing_logger_failure_preserves_delegate_exception(monkeypatch):
+def test_a_failing_timing_logger_preserves_the_delegate(monkeypatch):
+    """Instrumentation must not change what the run returns or raises,
+    even when the timing logger itself fails."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
+
+    def fail_log(*args, **kwargs):
+        raise RuntimeError("timing logger failed")
+
+    monkeypatch.setattr(ingest.log, "info", fail_log)
+
     expected = ValueError("original ingest failure")
 
     def fail_run(trigger):
         raise expected
 
-    def fail_log(*args, **kwargs):
-        raise RuntimeError("timing logger failed")
-
     monkeypatch.setattr(ingest, "_run_ingest_locked", fail_run)
-    monkeypatch.setattr(ingest.log, "info", fail_log)
-
     with pytest.raises(ValueError, match="original ingest failure") as raised:
         ingest.run_ingest_locked("manual")
-
     assert raised.value is expected
 
-
-def test_timing_logger_failure_preserves_success_summary(monkeypatch):
-    monkeypatch.setattr(timing, "TIMING_ON", True)
-    expected = {
+    expected_summary = {
         "r2_listed": 0,
         "inserted": 0,
         "reparsed": 0,
@@ -196,14 +200,9 @@ def test_timing_logger_failure_preserves_success_summary(monkeypatch):
         "aborted": False,
         "error": None,
     }
-
-    def fail_log(*args, **kwargs):
-        raise RuntimeError("timing logger failed")
-
-    monkeypatch.setattr(ingest, "_run_ingest_locked", lambda trigger: expected)
-    monkeypatch.setattr(ingest.log, "info", fail_log)
-
-    assert ingest.run_ingest_locked("manual") is expected
+    monkeypatch.setattr(
+        ingest, "_run_ingest_locked", lambda trigger: expected_summary)
+    assert ingest.run_ingest_locked("manual") is expected_summary
 
 
 def test_aborted_ingest_still_logs_its_outcome(

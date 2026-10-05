@@ -222,10 +222,11 @@ def test_ctx_cost_rollup_is_rebuilt_after_state_reset(fresh_db, mini_r2_env):
     assert after == before, "ctx_cost_rollup was not rebuilt"
 
 
-def test_a_transient_fetch_failure_is_retried_and_recovers(
-    fresh_db, mini_r2_env, monkeypatch
-):
-    """Two failed GETs then a good one: the file lands, the run is clean."""
+def test_retry_recovers_then_gives_up(fresh_db, mini_r2_env, monkeypatch):
+    """The retry policy's two arms over one flaky key: two failed GETs
+    then a good one land the file with a clean run; an always-dead
+    object is given up on after the third attempt, booked as the run's
+    one failure."""
     counts, slept = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=2)
 
     result = ingest.run_ingest(trigger="manual")
@@ -239,11 +240,12 @@ def test_a_transient_fetch_failure_is_retried_and_recovers(
         n = _scalar(c, "SELECT COUNT(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,))
     assert n == 1
 
+    # Force the give-up arm's re-fetch: the first run stored the etag.
+    with db.viz_conn() as c:
+        c.execute("DELETE FROM files")
+        c.execute("DELETE FROM projects")
+        c.commit()
 
-def test_fetch_gives_up_after_three_attempts(
-    fresh_db, mini_r2_env, monkeypatch
-):
-    """The retry is bounded — it must not spin on a genuinely dead object."""
     counts, slept = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
 
     result = ingest.run_ingest(trigger="manual")
@@ -454,26 +456,19 @@ def _fork_pool(**kwargs):
 
 @pytest.mark.skipif(not hasattr(os, "fork"),
                     reason="the parse pool is fork-based")
-def test_parse_worker_init_restores_default_signal_disposition():
+def test_parse_worker_init_and_its_sigterm_defense():
     """A forked parse worker inherits uvicorn's SIGTERM handler, which only
     sets a flag the worker never checks — so it ignored SIGTERM and could
     outlive the service holding its port, DB sessions and the ingest lock
-    (issue #373). The initializer must restore SIG_DFL and must run under
-    a parent that is still alive."""
+    (issue #373). The initializer must restore SIG_DFL (run under a
+    parent that is still alive), and SIG_DFL must mean a cgroup stop
+    kills the worker outright instead of leaving it parsing."""
     with _fork_pool(initargs=(os.getpid(),)) as pool:
         handler, int_handler, ppid = pool.submit(
             _worker_report).result(timeout=60)
-    assert handler is signal.SIG_DFL
-    assert int_handler is signal.SIG_DFL
-    assert ppid == os.getpid()
-
-
-@pytest.mark.skipif(not hasattr(os, "fork"),
-                    reason="the parse pool is fork-based")
-def test_parse_worker_dies_on_sigterm():
-    """SIG_DFL means a systemd control-group stop — SIGTERM to the cgroup —
-    kills a worker outright instead of leaving it parsing in the background."""
-    with _fork_pool(initargs=(os.getpid(),)) as pool:
+        assert handler is signal.SIG_DFL
+        assert int_handler is signal.SIG_DFL
+        assert ppid == os.getpid()
         worker_pid = pool.submit(os.getpid).result(timeout=60)
         os.kill(worker_pid, signal.SIGTERM)
         deadline = time.monotonic() + 10
@@ -487,8 +482,6 @@ def test_parse_worker_dies_on_sigterm():
             pytest.fail("a parse worker survived SIGTERM")
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"),
-                    reason="the parse pool is fork-based")
 def test_parse_worker_exits_when_the_parent_is_already_gone():
     """PDEATHSIG is armed after fork, so a parent dying in that window
     would leave an orphan; the initializer's ppid check closes the race by
@@ -579,8 +572,9 @@ def test_parse_wire_books_child_stages(monkeypatch):
     together (issue #662): fetch_and_parse writes the file's child work
     into an accumulator it is given and behaves exactly as before
     without one; parse_wire plants the accumulator for the timed child
-    and returns (parsed, stages), and the bare dict when untimed. The
-    fetch and parse units are fakes — the real fork pool over the mirror
+    and returns (parsed, stages), the sidecar fetch booking beside
+    fetch/parse. An unusable sidecar still books and leaves the parse
+    standing. The units are fakes — the real fork pool over the mirror
     is the pool TIMING-line test's, and Windows cannot resolve that
     fixture's file:// endpoint."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
@@ -601,40 +595,32 @@ def test_parse_wire_books_child_stages(monkeypatch):
     bare_call = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file)
     assert bare_call == parsed, "the bare call must behave exactly as before"
 
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
+                                  sidecar_key=None), None, None)
+
     def parse_call(key, sidecar_key):
         return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch,
                                             parse_file)
 
-    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key=None), None, None)
     result = ingest_fetch.parse_wire(item, parse_call, True)
     assert isinstance(result, tuple)
     wired_parsed, wired_stages = result
     assert wired_parsed == parsed
     assert set(wired_stages) == set(stages)
-    bare = ingest_fetch.parse_wire(item, parse_call, False)
-    assert bare == parsed
 
-
-def test_parse_wire_books_sidecar_stage(monkeypatch):
-    """The sidecar fetch is child work too: an item whose transcript's
-    agent type arrives out of band fetches its meta.json sidecar and the
-    stage books beside fetch/parse (issue #662). An unusable sidecar
-    still books the stage and leaves the parse standing."""
-    monkeypatch.setattr(timing, "TIMING_ON", True)
-
-    def parse_call(key, sidecar_key):
+    def sidecar_call(key, sidecar_key):
         return ingest_fetch.fetch_and_parse(
             key, sidecar_key, lambda k: b"main-bytes",
             lambda k, d: {"agent_type_in_band": False, "data": d})
 
     item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key="claude/p/s/k.meta.json"),
-            None, None)
-    result = ingest_fetch.parse_wire(item, parse_call, True)
+                                  sidecar_key="sc"), None, None)
+    result = ingest_fetch.parse_wire(item, sidecar_call, True)
     assert isinstance(result, tuple)
-    parsed, stages = result
-    assert parsed["data"] == b"main-bytes"  # pylint: disable=invalid-sequence-index
-    assert stages["child_sidecar"] > 0.0  # pylint: disable=invalid-sequence-index
-    assert set(stages) == {"child_fetch", "child_decompress",
-                           "child_parse", "child_sidecar"}
+    sc_parsed, sc_stages = result
+    assert sc_parsed["data"] == b"main-bytes"  # pylint: disable=invalid-sequence-index
+    assert sc_stages["child_sidecar"] > 0.0  # pylint: disable=invalid-sequence-index
+    assert set(sc_stages) == {"child_fetch", "child_decompress",
+                              "child_parse", "child_sidecar"}
+    bare = ingest_fetch.parse_wire(item, sidecar_call, False)
+    assert isinstance(bare, dict)
