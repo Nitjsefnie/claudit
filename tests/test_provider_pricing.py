@@ -65,23 +65,15 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
 
 
 def test_two_providers_of_one_model_price_differently(monkeypatch):
-    """The property over synthetic rows, not the maintained table: issue
-    #640 collapsed every oscillating row into a band, so a live row's price
-    at a fixed instant is now a mean over the range its host moved inside,
-    and pinning one would pin repository-managed data (SV-TEST-DATA)."""
-    rows = {
-        ("acme/v9", "HostA"): {"fresh": 0.075, "create_5m": 0.075,
-                               "create_1h": 0.075, "read": 0.00375,
-                               "output": 0.3},
-        ("acme/v9", "HostB"): {"fresh": 0.285, "create_5m": 0.285,
-                               "create_1h": 0.285, "read": 0.01425,
-                               "output": 1.14},
-    }
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", rows)
+    """Over synthetic rows: #640 collapsed every oscillating row into a band,
+    so a live row's price is a mean the refresh can still move (SV-TEST-DATA)."""
+    cheap = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
+             "read": 0.00375, "output": 0.3}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("acme/v9", "HostA"): cheap, ("acme/v9", "HostB"): {**cheap, "output": 1.14}})
     host_a = pricing.rate_for("acme/v9", SEEDED, provider="HostA")
-    host_b = pricing.rate_for("acme/v9", SEEDED, provider="HostB")
     assert (host_a["fresh"], host_a["output"]) == (0.075, 0.3)
-    assert host_a != host_b
+    assert host_a != pricing.rate_for("acme/v9", SEEDED, provider="HostB")
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
