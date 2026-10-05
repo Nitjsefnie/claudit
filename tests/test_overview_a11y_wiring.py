@@ -419,7 +419,7 @@ def test_context_growth_panel_is_one_chart_on_a_measured_width():
         "guards onto it (#649)")
     start = src.index("function ContextGrowthPanel(")
     nxt = re.search(r"^(?:function |window\.)", src[start + 1:], re.M)
-    panel = src[start:start + 1 + nxt.start()]
+    panel = src[start:start + 1 + nxt.start()] if nxt else src[start:]
     assert "cellW" not in panel and "cellH" not in panel, (
         "per-model cell geometry survives the grid's removal")
     assert "ResizeObserver(" in panel, (

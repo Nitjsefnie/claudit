@@ -33,19 +33,24 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _node(body: str) -> list[list[str]]:
-    out = subprocess.run(
-        ["node", "-e", body.replace("__MS__", str(MODEL_SELECT_JS))],
-        capture_output=True, text=True, check=False,
+def _node(script: str):
+    # Over STDIN, not -e, and the path embedded with repr(): on Windows a
+    # raw backslash path inside a -e argv is eaten as JS escapes, and the
+    # 32k CreateProcess ceiling looms (see test_panel_layout_js._node).
+    # encoding="utf-8" is load-bearing: text=True alone decodes with the
+    # locale encoding, cp1252 on a windows-latest runner.
+    proc = subprocess.run(
+        ["node"], input=script, capture_output=True, text=True, timeout=60,
+        check=False, encoding="utf-8", errors="strict",
     )
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
 
 
-def _node_lists(expr: str) -> list[list[str]]:
+def _node_lists(expr: str):
     return _node(
         "global.window = {};\n"
-        f"require('{MODEL_SELECT_JS}');\n"
+        f"require({str(MODEL_SELECT_JS)!r});\n"
         f"console.log(JSON.stringify({expr}));\n"
     )
 
@@ -212,15 +217,11 @@ def test_the_shared_selection_helper_is_node_runnable_plain_js():
 # -- The rate/EMA math (node-driven, src/rate-series.js) --------------
 
 def _rs(expr: str):
-    out = subprocess.run(
-        ["node", "-e",
-         "global.window = {};\n"
-         f"require('{RATE_SERIES_JS}');\n"
-         f"console.log(JSON.stringify({expr}));\n"],
-        capture_output=True, text=True, check=False,
+    return _node(
+        "global.window = {};\n"
+        f"require({str(RATE_SERIES_JS)!r});\n"
+        f"console.log(JSON.stringify({expr}));\n"
     )
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
 
 
 def _md():
