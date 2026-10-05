@@ -443,3 +443,88 @@ def test_long_context_models_stay_distinct_and_string_typed():
     doc["long_context_models"] = [42]
     with pytest.raises(ValueError, match="long_context_models"):
         pricing.load_tables(doc)
+
+
+# --- a band: an oscillating row's range, priced by its mean (SV-RATE-REFRESH) --
+
+BAND_MODEL = "acme/acme-9"
+BAND_HOST = "HostCo"
+
+
+def _banded_doc(band, entry=None) -> dict:
+    """The synthetic (model, host) row carrying `band` beside its five rate
+    fields, and nothing else that could pin the test to repository data."""
+    row = entry if entry is not None else {"from": P_START, **P_BEFORE}
+    if band is not _ABSENT:
+        row = {**row, "band": band}
+    return {
+        "models": {BAND_MODEL: [{"from": None, **P_BEFORE}]},
+        "providers": {BAND_MODEL: {BAND_HOST: [row]}},
+        "provider_rates_fetched": "2026-09-01T00:00:00Z",
+        "long_context_models": [],
+    }
+
+
+_ABSENT = object()
+GOOD_BAND = {field: [P_BEFORE[field] / 2, P_BEFORE[field]]
+             for field in RATE_FIELDS}
+BAND_DAMAGE = [
+    pytest.param("0.2..0.4", id="not-a-mapping"),
+    pytest.param({"fresh": P_BEFORE["fresh"]}, id="not-a-pair"),
+    pytest.param({"fresh": [0.2, 4.0, 9.0]}, id="three-long"),
+    pytest.param({"fresh": [4.0, 0.2]}, id="min-above-max"),
+    pytest.param({"fresh": [0.2, "0.4"]}, id="string-max"),
+    pytest.param({"fresh": [0.2, True]}, id="bool-max"),
+    pytest.param({"fresh": [0.2, -1.0]}, id="negative-max"),
+    pytest.param({"debt": [0.0, 1.0]}, id="not-a-rate-field"),
+]
+
+
+def test_a_banded_row_prices_by_its_five_rate_fields():
+    """The band records what the host moved inside; the five fields beside it
+    are the priced rates, and the loaders read the band only to check it."""
+    tables = pricing.load_tables(_banded_doc(GOOD_BAND))
+    assert tables["PROVIDER_RATES"][BAND_MODEL, BAND_HOST] == P_BEFORE
+
+
+@needs_node
+def test_a_banded_row_prices_by_its_five_rate_fields_in_the_browser(tmp_path):
+    got = _variant_node(tmp_path, _banded_doc(GOOD_BAND), f"""
+      console.log(JSON.stringify({{rates: window.resolveModelRate(
+        {json.dumps(BAND_MODEL)}, {json.dumps(P_CUT)}, {json.dumps(BAND_HOST)})}}));
+    """)
+    assert _js_rates(got["rates"]["rates"]) == P_BEFORE
+
+
+def test_a_partial_band_leaves_the_fields_it_does_not_name_alone():
+    assert pricing.load_tables(
+        _banded_doc({"fresh": [1.0, 2.0]}))["PROVIDER_RATES"][
+            BAND_MODEL, BAND_HOST] == P_BEFORE
+
+
+@pytest.mark.parametrize("band", BAND_DAMAGE)
+def test_a_malformed_band_is_refused_naming_the_row(band):
+    with pytest.raises(ValueError, match=r"acme/acme-9 via HostCo\[0\]"):
+        pricing.load_tables(_banded_doc(band))
+
+
+@needs_node
+@pytest.mark.parametrize("band", BAND_DAMAGE)
+def test_a_malformed_band_is_refused_naming_the_row_in_the_browser(tmp_path, band):
+    error = _node_load(tmp_path, _banded_doc(band))
+    assert error and "acme/acme-9 via HostCo[0]" in error, error
+
+
+def test_a_model_row_cannot_carry_a_band():
+    doc = _banded_doc(_ABSENT)
+    doc["models"][BAND_MODEL][0]["band"] = GOOD_BAND
+    with pytest.raises(ValueError, match="only a provider row carries a band"):
+        pricing.load_tables(doc)
+
+
+@needs_node
+def test_a_model_row_cannot_carry_a_band_in_the_browser(tmp_path):
+    doc = _banded_doc(_ABSENT)
+    doc["models"][BAND_MODEL][0]["band"] = GOOD_BAND
+    error = _node_load(tmp_path, doc)
+    assert error and "only a provider row carries a band" in error, error
