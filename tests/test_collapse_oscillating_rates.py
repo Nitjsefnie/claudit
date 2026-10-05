@@ -77,22 +77,31 @@ def _stepping() -> list[dict]:
             _entry(_day(3), RATE_C)]
 
 
-def _doc(hosts: dict[str, list[dict]]) -> dict:
+def _doc(hosts: dict[str, list[dict]], other: str = "") -> dict:
+    """The synthetic document. `other` names a second model that carries the
+    SAME rows, so one host name collapses twice."""
+    providers = {MODEL: copy.deepcopy(hosts)}
+    models = {MODEL: [_entry(None, RATE_A)]}
+    tracked = {MODEL: {"id": "synthetic/model-id"}}
+    if other:
+        providers[other] = copy.deepcopy(hosts)
+        models[other] = [_entry(None, RATE_A)]
+        tracked[other] = {"id": "synthetic/other-model-id"}
     return {
-        "models": {MODEL: [_entry(None, RATE_A)]},
-        "providers": {MODEL: copy.deepcopy(hosts)},
+        "models": models,
+        "providers": providers,
         "provider_rates_fetched": FETCHED,
         "long_context_models": [],
-        "openrouter": {"data_region": "global",
-                       "models": {MODEL: {"id": "synthetic/model-id"}}},
+        "openrouter": {"data_region": "global", "models": tracked},
     }
 
 
-def _run(tmp_path: Path, capsys, hosts, argv=None, version=VERSION):
+def _run(tmp_path: Path, capsys, hosts, argv=None, version=VERSION, other=""):
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
-    pricing_path.write_text(json.dumps(_doc(hosts), indent=2, sort_keys=True) + "\n",
-                            encoding="utf-8")
+    pricing_path.write_text(
+        json.dumps(_doc(hosts, other), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
     constants_path.write_text(f'PRICING_VERSION = "{version}"\n', encoding="utf-8")
     rc = collapse_script.main(argv if argv is not None else [],
                               pricing_path=pricing_path,
@@ -197,18 +206,22 @@ def test_as_of_refuses_a_malformed_instant(tmp_path, capsys):
 
 def test_the_report_names_every_collapsed_host_for_the_records_query(tmp_path, capsys):
     """No record may have been priced through a host whose prices the mean
-    now stands for; the distinct host names are what the safety query takes."""
-    hosts = {"StreamLake": _oscillating(), "Morph": _oscillating(),
-             "StepCo": _stepping()}
+    now stands for; the distinct host names are what the safety query takes.
 
-    rc, out, _, _, _ = _run(tmp_path, capsys, hosts)
+    The same host under TWO models collapses to ONE name: the query is over
+    hosts, and a name listed twice invites a wrong count of rows."""
+    hosts = {"BandCo": _oscillating(), "StepCo": _stepping()}
+
+    rc, out, _, _, _ = _run(tmp_path, capsys, hosts, other="synthetic/other")
 
     assert rc == 0
     assert "collapsed hosts (the records-safety query takes exactly these)" in out
     names = out.split("collapsed hosts (the records-safety query takes exactly these)")[1]
-    assert "Morph" in names and "StreamLake" in names
+    assert "BandCo" in names
     assert "StepCo" not in names
-    assert names.count("StreamLake") == 1, "distinct host names, not rows"
+    assert names.count("BandCo") == 1, \
+        "the same host under two models is one name, not two"
+    assert out.count("BandCo: 6 → 1 entries") == 2, "both rows were collapsed"
 
 
 def test_a_scheduled_row_is_reported_and_refused(tmp_path, capsys):
