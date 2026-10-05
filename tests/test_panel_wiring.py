@@ -610,3 +610,66 @@ def test_error_banner_does_not_double_with_the_status_line():
         r"if \(!summary\.error\) return null;", status, re.S), (
         "the error banner is not ordered after the no-data branch, so a "
         "failed fetch with no data renders the status line twice")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# The Per-Session Context Growth comparison panel (issue #630)
+# ─────────────────────────────────────────────────────────────────────
+
+COMPARISON = ROOT / "src" / "context-growth-comparison.jsx"
+LAYOUT_JS = ROOT / "src" / "panel-layout.js"
+
+
+def test_the_comparison_svg_is_sized_by_its_legend_not_by_a_prop():
+    """The svg height must come from the packed legend's row count.
+
+    The browser guard (scripts/ci/panel_layout.mjs) catches the consequence
+    only once the legend actually WRAPS: with two models the packed
+    clusters fit on one row at every width this guard drives, so reverting
+    the height to the prop is invisible to it. A third compared model
+    would wrap the legend and the fixed height would clip the second row
+    off the bottom of the svg — which is what #630 reported.
+    """
+    src = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
+    height = re.search(r"<svg[^>]*\bheight=\{(\w+)\}", src, re.S)
+    assert height, "the comparison svg declares no height at all"
+    assert height.group(1) == "svgH", (
+        f"the comparison svg is sized by {height.group(1)!r}, not by the "
+        "legend-aware height: a wrapped legend row is clipped instead")
+    assert re.search(r"const svgH = legendTop \+ "
+                     r"Math\.max\(1, legend\.rows\.length\) \* \d+ \+ \d+;", src), (
+        "svgH does not grow with the legend's row count")
+
+
+def test_the_comparison_panel_measures_its_advance_off_a_fixed_probe():
+    """The advance is read from two fixed strings parked off-canvas, never
+    from the text being laid out.
+
+    Measuring the laid-out label is circular: `fitText` may replace it with
+    an ellipsis, whose glyph is a different width, so the measured average
+    moves, the pack changes, and the panel re-renders forever."""
+    src = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
+    assert "getComputedTextLength() / PROBE_CHARS.length" in src, (
+        "the advance is not measured off the fixed probe string")
+    assert src.count('x="-9999"') == 2, (
+        "both probes must be parked off-canvas, or they draw")
+    assert "querySelector('text')" not in src, (
+        "the advance is measured off the laid-out text, which is circular")
+
+
+def test_the_legend_packing_lives_in_a_plain_js_module():
+    """The packing arithmetic is pure and node-runnable, which is the only
+    part of this fix the suite can reach: tests/test_panel_layout_js.py
+    drives src/panel-layout.js directly, and nothing in app.jsx may grow a
+    private copy of it."""
+    src = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
+    assert "window.panelLayout.packLegend(" in src, (
+        "the comparison panel lays its legend out by hand instead of "
+        "calling the shared, testable packer")
+    assert LAYOUT_JS.exists(), "src/panel-layout.js is missing"
+    index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
+    assert '/src/panel-layout.js' in index, (
+        "panel-layout.js is not loaded by the page, so window.panelLayout "
+        "is undefined at render and the panel throws")
+    assert '/src/context-growth-comparison.jsx' in index, (
+        "the comparison module is not loaded by the page")
