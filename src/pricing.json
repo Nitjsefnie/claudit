@@ -493,7 +493,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-05T09:14:40Z",
+  "provider_rates_fetched": "2026-10-05T10:53:32Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -20557,6 +20557,15 @@
           "from": "2026-10-05T01:05:18Z",
           "output": 1.32,
           "read": 0.028
+        },
+        {
+          "create_1h": 0.308,
+          "create_5m": 0.308,
+          "fresh": 0.308,
+          "from": "2026-10-05T10:05:21Z",
+          "note": "30% off",
+          "output": 0.924,
+          "read": 0.0196
         }
       ],
       "Reka": [
@@ -23123,6 +23132,14 @@
           "from": "2026-10-05T07:20:40Z",
           "output": 0.84,
           "read": 0.12
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.25,
+          "from": "2026-10-05T10:10:32Z",
+          "output": 0.84,
+          "read": 0.15
         }
       ]
     },
@@ -38958,6 +38975,15 @@
           "from": "2026-10-05T01:05:19Z",
           "output": 4.36,
           "read": 0.15
+        },
+        {
+          "create_1h": 0.957,
+          "create_5m": 0.957,
+          "fresh": 0.957,
+          "from": "2026-10-05T10:05:22Z",
+          "note": "34% off",
+          "output": 2.8776,
+          "read": 0.099
         }
       ],
       "Reka": [
@@ -42682,6 +42708,14 @@
           "from": "2026-10-05T08:40:22Z",
           "output": 0.252,
           "read": 0.0025
+        },
+        {
+          "create_1h": 0.139,
+          "create_5m": 0.139,
+          "fresh": 0.139,
+          "from": "2026-10-05T10:05:23Z",
+          "output": 0.27,
+          "read": 0.003
         }
       ],
       "Novita": [
@@ -50083,6 +50117,14 @@
           "from": "2026-10-04T12:45:57Z",
           "output": 0.45,
           "read": 0.07
+        },
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": "2026-10-05T10:25:42Z",
+          "output": 0.45,
+          "read": 0.09
         }
       ],
       "InferenceNet": [
