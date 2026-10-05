@@ -58,7 +58,7 @@ def _geometry_at(widths: list[int]) -> dict:
         "for (const w of " + json.dumps(widths) + ") {\n"
         + block
         + "\n  out[w] = { cellW,"
-          " gridW: padL + 24 * cellW + 23 * gap + SUM_GAP + padR };\n"
+          " gridW: padL + 25 * cellW + 23 * gap + SUM_GAP + padR };\n"
         "}\n"
         "console.log(JSON.stringify(out));"
     )
@@ -71,11 +71,11 @@ def _geometry_at(widths: list[int]) -> dict:
 
 
 def test_the_grid_fits_the_measured_width_at_every_panel_width():
-    """#636: the floor of 8 engaged at a 320px viewport, pinning the grid
-    at 304px against a ~292px panel. cellW may only fall back where the
-    pads and gaps alone outrun 25 cells -- below the ~162px panel no
-    real viewport reaches -- so the grid fits every real width by
-    construction."""
+    """#636: the floor of 8 engaged at a 320px viewport, pinning the drawn
+    grid at 312px (25 cells at the floor) against a ~292px panel. cellW may
+    only fall back where the pads and gaps alone outrun 25 cells -- below
+    the ~162px panel no real viewport reaches -- so the grid fits every
+    real width by construction."""
     widths = [240, 292, 320, 347, 375, 600, 1200]
     got = _geometry_at(widths)
     for w, g in got.items():
