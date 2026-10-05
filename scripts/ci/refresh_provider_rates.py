@@ -35,7 +35,12 @@ These refuse the host or model they concern, which appends nothing:
   record is priced by the entry default and it starts as the listed top-level
   price; otherwise that price is a window price and the next fetch outside
   every window starts the row;
-- a tracked model with no endpoints, or none in the region.
+- a tracked model still in the catalog with no endpoints, or none in the
+  region. A model gone from the catalog (/api/v1/models) is a delisting,
+  not a refusal: the run skips it with a notice, its row keeps pricing
+  stored records, and it rejoins the refresh on its own when the catalog
+  relists it. An unreadable catalog proves nothing about delisting, so
+  the empty-endpoints refusal stands while the catalog cannot be read.
 
 Every other sampled move is still written, then the script exits nonzero
 naming each refusal. A detection time not after a sampled row's newest
@@ -317,6 +322,13 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     return ListedModel(payload, rows, refused, notices)
 
 
+def _delisted(source: dict, catalog: set[str] | None) -> bool:
+    """Whether OpenRouter's /api/v1/models catalog no longer lists the
+    tracked id. A catalog that could not be read (None) proves nothing."""
+    return (catalog is not None and isinstance(source.get("id"), str)
+            and source["id"] not in catalog)
+
+
 def _refresh_model(context: RefreshContext, model: str, source: dict,
                    read: refresh_pricelog.LogRead) -> ModelResult:
     """Refresh one model while keeping refusals local to that model."""
@@ -344,13 +356,21 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
             fetch_log: FetchLog | None = None) -> Result:
     """Append each log-backed move at its change time and sample the rest."""
     tracked, region = _sources(doc)
-    at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
+    logs, catalog = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
     result = Result(copy.deepcopy(doc), [], [], [], [], {})
-    context = RefreshContext(result.doc, fetch, region, stamp, at)
+    context = RefreshContext(
+        result.doc, fetch, region, stamp,
+        datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
-        # names everything a human must look at.
+        # names everything a human must look at. A model the catalog no
+        # longer lists is delisted: skipped with a notice, row kept — it
+        # rejoins on its own when the catalog relists it.
+        if _delisted(source, catalog):
+            result.notices.append(
+                f"{model} ({source['id']}): delisted from OpenRouter's catalog; "
+                "row kept, not fetched")
+            continue
         outcome = _refresh_model(context, model, source, logs[model])
         result.moves += outcome.moves
         result.vanished += outcome.vanished

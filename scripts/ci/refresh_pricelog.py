@@ -160,20 +160,27 @@ def _unavailable(tracked: dict, reason: str) -> dict[str, LogRead]:
 
 
 def read_logs(tracked: dict, fetch_catalog: FetchModels | None,
-              fetch_log: FetchLog | None) -> dict[str, LogRead]:
-    """Fetch and validate each tracked model's log using one model catalog."""
+              fetch_log: FetchLog | None) -> tuple[dict[str, LogRead], set[str] | None]:
+    """Fetch and validate each tracked model's log using one model catalog.
+
+    Also returns the catalog's model-id set, or None whenever the catalog
+    could not be read (no fetcher, a failed fetch, an unrecognised shape):
+    the caller cannot then tell a delisted model from a broken catalog
+    fetch, and keeps refusing a still-tracked model's empty endpoints
+    answer."""
     if fetch_catalog is None or fetch_log is None:
-        return _unavailable(tracked, "listed-pricing fetch is not configured")
+        return _unavailable(tracked, "listed-pricing fetch is not configured"), None
     try:
         slugs, catalog_error = _catalog_slugs(fetch_catalog())
     except Exception as exc:  # the log is a fallback input; it never refuses a host
-        return _unavailable(tracked, f"models fetch failed: {str(exc) or type(exc).__name__}")
+        return (_unavailable(tracked,
+                             f"models fetch failed: {str(exc) or type(exc).__name__}"),
+                None)
+    if catalog_error:
+        return _unavailable(tracked, catalog_error), None
     logs = {}
     for model, source in tracked.items():
         model_id = source.get("id") if isinstance(source, dict) else None
-        if catalog_error:
-            logs[model] = LogRead(None, catalog_error)
-            continue
         slug = slugs.get(model_id) if isinstance(model_id, str) else None
         if slug is None:
             logs[model] = LogRead(None, f"canonical_slug missing from /api/v1/models for {model_id!r}")
@@ -183,7 +190,7 @@ def read_logs(tracked: dict, fetch_catalog: FetchModels | None,
         except Exception as exc:  # HTTP, decoding and shape failures all sample
             reason = str(exc) or type(exc).__name__
             logs[model] = LogRead(None, reason)
-    return logs
+    return logs, set(slugs)
 
 
 def _rate_vector(rates: dict) -> tuple[float, ...]:

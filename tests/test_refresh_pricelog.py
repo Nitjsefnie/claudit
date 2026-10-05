@@ -215,14 +215,15 @@ def test_unrecognised_log_payload_is_unavailable_with_a_reason(damage: str):
         payload = _payload(bad_series)
     assert valid["data"]["series"]
 
-    result = pricelog.read_logs(
+    logs, catalog = pricelog.read_logs(
         {"synthetic/model": {"id": "synthetic/model"}},
         lambda: {"data": [{"id": "synthetic/model", "canonical_slug": "synthetic/canonical"}]},
         lambda slug: payload,
-    )["synthetic/model"]
+    )
 
-    assert result.series is None
-    assert result.reason
+    assert logs["synthetic/model"].series is None
+    assert logs["synthetic/model"].reason
+    assert catalog == {"synthetic/model"}, "a damaged log still leaves the catalog readable"
 
 
 def test_one_endpoint_with_one_matching_series_is_log_backed():
