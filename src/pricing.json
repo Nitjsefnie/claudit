@@ -452,6 +452,9 @@
       "deepseek/deepseek-v4-pro-0813": {
         "id": "deepseek/deepseek-v4-pro-0813"
       },
+      "inclusionai/ling-3-1-flash": {
+        "id": "inclusionai/ling-3.1-flash"
+      },
       "stealth/space-bunny-alpha": {
         "id": "stealth/space-bunny-alpha"
       },
@@ -42002,6 +42005,18 @@
           "from": "2026-10-05T03:05:18Z",
           "output": 5.0,
           "read": 0.45
+        }
+      ]
+    },
+    "inclusionai/ling-3-1-flash": {
+      "Novita": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.0,
+          "from": null,
+          "output": 0.0,
+          "read": 0
         }
       ]
     },
