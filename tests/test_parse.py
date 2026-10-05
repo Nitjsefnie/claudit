@@ -463,6 +463,24 @@ def test_bash_heredoc_call_yields_added_counts():
     assert tu["lines_deleted"] == 0
 
 
+def test_bash_mkdir_checkout_yields_directory_write_targets():
+    """mkdir, git worktree add and a bare git clone name what they put
+    on disk, resolved against the command's cwd."""
+    out = parse.parse_file(
+        "k/sess-mkc/sess-mkc.jsonl", _read("bash_mkdir_checkout.jsonl"))
+    assert [tu["write_targets"] for tu in out["tool_uses"]] == [
+        ["/tmp/wt", "/tmp/wt/issue200"],
+        ["/work/y"],
+    ]
+
+
+def test_bash_mktemp_template_is_a_write_target():
+    """A mktemp template is a named path, kept verbatim."""
+    out = parse.parse_file(
+        "k/sess-mkt/sess-mkt.jsonl", _read("bash_mktemp.jsonl"))
+    assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
+
+
 def test_agent_type_from_attribution_agent():
     """A dispatched agent's transcript carries attributionAgent."""
     out = parse.parse_file(
