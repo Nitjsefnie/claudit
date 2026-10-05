@@ -167,14 +167,44 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
     return out
 
 
-def _check_entry_fields(entry: dict, at: str) -> None:
+def check_band(band: object, at: str) -> dict:
+    """An entry's oscillating price range, checked (SV-RATE-DATA).
+
+    A band maps each rate field it constrains to a ``[min, max]`` pair of
+    finite non-negative numbers with ``min <= max``; a field it does not name
+    is unconstrained. The five rate fields beside it stay the priced rates —
+    the loader reads a band only to refuse a rule-breaking one. Mirrored by
+    parser.js's _checkBand, and shared with scripts/ci/price_band.py so the
+    refresh and this loader spell one shape.
+    """
+    if not isinstance(band, dict):
+        raise ValueError(f"{at}: band is not a mapping of rate fields to [min, max]")
+    out: dict[str, list[float]] = {}
+    for field, span in band.items():
+        where = f"{at}.band[{field}]"
+        if field not in RATE_FIELDS:
+            raise ValueError(f"{where}: not one of {list(RATE_FIELDS)}")
+        if (not isinstance(span, list) or len(span) != 2
+                or not all(_is_rate(value) for value in span)
+                or span[0] > span[1]):
+            raise ValueError(f"{where}: not a [min, max] pair of finite "
+                             "non-negative numbers with min <= max")
+        out[field] = [span[0], span[1]]
+    return out
+
+
+def _check_entry_fields(entry: dict, at: str, may_band: bool = False) -> None:
     """An entry's field set and rate values, checked."""
-    fields = set(entry) - {"from", "note", "schedule"}
+    fields = set(entry) - {"from", "note", "schedule", "band"}
     if fields != set(RATE_FIELDS) or "from" not in entry:
         raise ValueError(f"{at}: fields {sorted(entry)}")
     bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
     if bad:
         raise ValueError(f"{at}: {bad} not a finite non-negative number")
+    if "band" in entry:
+        if not may_band:
+            raise ValueError(f"{at}: only a provider row carries a band")
+        check_band(entry["band"], at)
 
 
 def _history(entries: list[dict], where: str, may_begin: bool = False
@@ -200,7 +230,7 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
     fees: dict[int, float] = {}
     for i, entry in enumerate(entries):
         at = f"{where}[{i}]"
-        _check_entry_fields(entry, at)
+        _check_entry_fields(entry, at, may_begin)
         if "schedule" in entry:
             if not may_begin:
                 raise ValueError(f"{at}: only a provider row carries a schedule")
