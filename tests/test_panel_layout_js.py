@@ -392,20 +392,43 @@ def test_ctx_peak_is_the_largest_turn_across_every_session():
 
 
 def test_axis_top_is_the_observed_peak_plus_headroom():
-    # The expectation is computed from the module's own exported
-    # headroom rather than restated, so this pins the relationship and
-    # not the constant. Only peaks clear of the MIN_TOP floor take it --
-    # below that the floor wins, which is the next test's subject and is
-    # stated here so neither is read as a silent exception to the other.
+    # The relationship is computed from the module's own exported headroom,
+    # so it pins the rule rather than a restatement of it. The VALUE is
+    # pinned once, by literal, below the loop: the module's comment claims
+    # 1.1 is the factor the per-session view already used, and a loop that
+    # reads HEADROOM back cannot notice that claim going false.
+    #
+    # Only peaks clear of the MIN_TOP floor take the headroom -- below that
+    # the floor wins, which is the next test's subject and is stated here
+    # so neither reads as a silent exception to the other.
     got = _ctx_node("""
       const A = window.ctxAxis;
       const out = {};
       for (const p of [1000, 1001, 12_345, 210_000, 500_000, 1_048_576]) {
         out[p] = [A.ctxAxisTop(p), A.ctxAxisTop(p) === p * A.HEADROOM];
       }
-      console.log(JSON.stringify(out));
+      console.log(JSON.stringify({
+        headroom: A.HEADROOM,
+        // 1.1 has no exact binary form, so `200000 * 1.1` is
+        // 220000.00000000003 and an equality assertion would be asserting
+        // the rounding, not the headroom. The gap is measured relative to
+        // the expected value so it stays a proportional tolerance.
+        at200k: A.ctxAxisTop(200000),
+        at1m: A.ctxAxisTop(1000000),
+        loop: out,
+      }));
     """)
-    for peak, (top, is_peak_plus_headroom) in got.items():
+    assert got["headroom"] == 1.1, (
+        "the axis headroom is "
+        f"{got['headroom']}; src/ctx-axis.js states 1.1 is the factor the "
+        "per-session view already used, so a session's curve keeps the "
+        "height it had")
+    for label, got_top, want in (("200k", got["at200k"], 220_000),
+                                 ("1M", got["at1m"], 1_100_000)):
+        assert abs(got_top - want) <= want * 1e-9, (
+            f"ctxAxisTop at {label} is {got_top}, which is not "
+            f"{want} (a peak of 10% under the headroom)")
+    for peak, (top, is_peak_plus_headroom) in got["loop"].items():
         assert is_peak_plus_headroom, (
             f"ctxAxisTop({peak}) returned {top}, which is not the peak times "
             "the exported headroom")
@@ -489,25 +512,57 @@ def _y_axis_expression(path: Path) -> str:
     return match.group(1)
 
 
+def _series_expression(path: Path) -> str:
+    """The comparison panel's `series` construction, verbatim, or fail.
+
+    This is the bundle the comparison's axis expression actually reads.
+    Handing the expression a series the TEST builds instead would leave
+    the panel's own wiring unpinned, and the field that matters most is
+    the one an edit is most likely to drop: `sessions` is new in #648, so
+    a refactor that rebuilt this bundle without it would silently scale
+    the comparison off MIN_TOP while the grid kept its real axis --
+    precisely the disagreement #648 exists to close, and invisible to a
+    test that supplies its own bundle.
+    """
+    src = _strip_js_comments(path.read_text(encoding="utf-8"))
+    match = re.search(
+        r"const series = React\.useMemo\(\(\) => (.*?), \[models, byModel\]\);",
+        src, re.S)
+    assert match, (
+        f"{path.name} no longer builds `series` the way this test extracts "
+        "it; the axis is checked against something the panel does not use")
+    return match.group(1)
+
+
 def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
     """#648: one model's median sat at a different height in each view.
 
-    Both expressions are evaluated against the real module with BOTH
-    panels' locals in scope, so each finds the name it uses -- the grid's
-    `sessions`, the comparison's `series`. The two must return the same
-    number for the same single model, and adding a taller model must move
-    the comparison and leave the grid alone: without that second half the
-    equality would hold for any pair of expressions, including two that
-    ignore their input.
+    Both axis expressions are evaluated against the real module, and the
+    comparison's is driven through the panel's OWN `series` construction
+    -- extracted from the .jsx like the expressions are -- so what the
+    assertion reads is what the panel hands the rule. The two must return
+    the same number for the same single model, and adding a taller model
+    must move the comparison and leave the grid alone: without that second
+    half the equality would hold for any pair of expressions, including two
+    that ignore their input.
     """
     grid_expr = _y_axis_expression(GRID_JSX)
     compare_expr = _y_axis_expression(COMPARE_JSX)
+    series_expr = _series_expression(COMPARE_JSX)
     got = _ctx_node(f"""
       const A = window.ctxAxis;
       const one = {BUNDLE};
       const two = {TALLER};
+      // The panel's own collaborators: `byModel` is what it is handed and
+      // `perTurnStats` the dashboard exports. The stats stub only has to
+      // be an object -- the axis expression reads `sessions`, not them.
+      const perTurnStats = s => ({{turns: [], median: [], count: [], maxT: 0}});
+      let models, byModel;
+
+      models = [{{model: 'a'}}]; byModel = {{a: one}};
+      let series = {series_expr};
       let sessions = one;
-      let series = [{{model: 'a', sessions: one}}];
+      const carriesSessions = series[0].sessions === one;
       const grid = {grid_expr}
       const compare = {compare_expr}
 
@@ -515,16 +570,24 @@ def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
       // checked model and must move, the grid reads only its own bundle
       // and must not. Same two expressions, same two names, rebound.
       sessions = two;
-      series = [{{model: 'a', sessions: one}}, {{model: 'b', sessions: two}}];
+      models = [{{model: 'a'}}, {{model: 'b'}}];
+      byModel = {{a: one, b: two}};
+      series = {series_expr};
       const gridTall = {grid_expr}
       const compareTall = {compare_expr}
       console.log(JSON.stringify({{
-        grid, compare, equal: grid === compare,
+        grid, compare, equal: grid === compare, carriesSessions,
         gridTall, compareTall,
         comparisonMoved: compareTall > compare,
         gridMoved: gridTall !== grid,
       }}));
     """)
+    # Named first, so a bundle that stopped carrying its sessions says so
+    # rather than arriving as a mysterious axis disagreement.
+    assert got["carriesSessions"], (
+        "the comparison panel's `series` bundle no longer carries the "
+        "model's `sessions`; its axis reads undefined and falls to the "
+        "division-guard floor instead of the data")
     assert got["equal"], (
         f"the grid's axis ({got['grid']}) and the comparison's "
         f"({got['compare']}) disagree for one model on equal data")
@@ -608,7 +671,11 @@ def test_the_removed_cap_elements_are_gone_from_every_context_view():
     # against it, and the two reference lines drawn at fractions of it.
     needles = ("% cap", "cap}", "ctxAxisTop(cap", "yScale(cap")
     for view in (GRID_JSX, COMPARE_JSX, SESSION_JSX):
-        text = view.read_text(encoding="utf-8")
+        # Comments stripped, like the cap-name scan above: the comparison
+        # panel now carries a comment about the cap line it removed, and
+        # the next editor to write `yScale(cap` while explaining something
+        # must not turn the suite red for saying so.
+        text = _strip_js_comments(view.read_text(encoding="utf-8"))
         for needle in needles:
             assert needle not in text, (
                 f"{view.name} still contains {needle!r}")
