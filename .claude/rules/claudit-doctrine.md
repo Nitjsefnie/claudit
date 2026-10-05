@@ -832,7 +832,12 @@ same rules:
     order;
   - a resolution keyed on anything else, a price included;
   - an unrecognised response shape;
-  - a tracked model with no endpoints, or none in the data region.
+  - a tracked model still in the catalog with no endpoints, or none in
+    the data region. A model gone from /api/v1/models is a delisting,
+    not a refusal: the run skips it with a notice, its provider row
+    keeps pricing stored records, and it rejoins the refresh on its own
+    when the catalog relists it. An unreadable catalog proves nothing,
+    so the empty-endpoints refusal stands while it cannot be read.
 
   A refusal blocks only itself: every other move is appended, tested
   and committed with the bump, then the run exits nonzero, naming each

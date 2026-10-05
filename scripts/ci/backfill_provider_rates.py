@@ -225,7 +225,7 @@ def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
     hourly refresh."""
     tracked, region = hourly._sources(doc)  # pylint: disable=protected-access
     result = copy.deepcopy(doc)
-    logs = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
+    logs, _ = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
     context = BackfillContext(doc, result, region, fetch, logs, as_of,
                               now or datetime.now(timezone.utc))
     reports, rewrote = _backfill_models(context, tracked)

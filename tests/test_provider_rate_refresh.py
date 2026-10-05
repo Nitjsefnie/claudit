@@ -172,12 +172,15 @@ class Run:
         assert m
         return int(m.group(1))
 
-    def __call__(self, capsys, *args: str, now: datetime = NOW):
+    def __call__(self, capsys, *args: str, now: datetime = NOW,
+                 catalog: dict | None = None):
         rc = refresh.main(["--commit-msg", str(self.commit_msg), *args],
                           fetch=lambda model_id: copy.deepcopy(self.payloads[model_id]),
-                          fetch_models=lambda: {"data": [
-                              {"id": source["id"], "canonical_slug": source["id"]}
-                              for source in self.doc()["openrouter"]["models"].values()]},
+                          fetch_models=lambda: (
+                              catalog if catalog is not None
+                              else {"data": [
+                                  {"id": source["id"], "canonical_slug": source["id"]}
+                                  for source in self.doc()["openrouter"]["models"].values()]}),
                           fetch_log=lambda _slug: {"data": {"series": []}},
                           now=now, pricing_path=self.pricing, constants_path=self.constants)
         out, err = capsys.readouterr()
@@ -485,6 +488,45 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
     run = Run(tmp_path)
     _two_global_novitas(run)
     _refused(run, capsys, f"{GLM} via Novita")
+
+
+# --- a model is delisted -----------------------------------------------------
+
+
+def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
+        tmp_path, capsys):
+    """A tracked model absent from OpenRouter's /api/v1/models catalog is
+    delisted, not refused: the run skips it with a notice, its provider
+    row keeps pricing stored records byte-identical, other models' moves
+    still land, and the run completes green."""
+    run = Run(tmp_path, pricing_version="73")
+    moved = _move_openinference(run)
+    run.endpoints("stealth/space-bunny-alpha").clear()
+    catalog = {"data": [{"id": source["id"], "canonical_slug": source["id"]}
+                        for source in run.doc()["openrouter"]["models"].values()
+                        if source["id"] != "stealth/space-bunny-alpha"]}
+    before = run.doc()
+    rc, out, _ = run(capsys, catalog=catalog)
+    assert rc == 0, "a delisted model is not a refusal"
+    after = run.doc()
+    assert after["providers"][GLM]["OpenInference"] == [
+        *before["providers"][GLM]["OpenInference"], {"from": STAMP, **moved}]
+    assert (after["providers"]["stealth/space-bunny-alpha"]
+            == before["providers"]["stealth/space-bunny-alpha"]), "row kept"
+    assert run.pricing_version() == 74
+    assert "stealth/space-bunny-alpha" in out and "delisted" in out
+
+
+def test_an_unreadable_catalog_keeps_the_empty_endpoints_refusal(
+        tmp_path, capsys):
+    """A catalog that could not be read proves nothing about delisting: an
+    empty endpoints answer from a tracked model is still refused, never
+    skipped."""
+    run = Run(tmp_path)
+    run.endpoints(V41).clear()
+    rc, _, err = run(capsys, catalog={"unexpected": "shape"})
+    assert rc != 0
+    assert V41 in err and "no endpoints listed" in err
 
 
 # --- the data region -----------------------------------------------------------
