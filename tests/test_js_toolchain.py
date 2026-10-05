@@ -60,6 +60,11 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 # eslint-plugin-react's latest is unchanged at 7.37.5 and `globals` is what
 # the flat config reads the browser environment from.
 EXPECTED_DEV_DEPENDENCIES = {
+    # The rendered-layout guard's headless browser (issue #631). Pinned
+    # like every other tool here, and like every other tool here nothing
+    # in the shipped app reads it: the running page loads React and Babel
+    # from a CDN and still has no build step.
+    "playwright": "1.63.0",
     "c8": "12.0.0",
     "eslint": "10.11.0",
     "eslint-plugin-react": "7.37.5",
