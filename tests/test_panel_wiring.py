@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
+TTL = ROOT / "src" / "cache-ttl-panel.jsx"
 
 
 def _strip_line_comments(src: str) -> str:
@@ -41,7 +42,7 @@ def _col_keys() -> set[str]:
 
 def test_col_palette_is_never_indexed_numerically():
     """COL_X[0] is undefined -> a black bar, not an error."""
-    for path in (CHARTS, EXTRA):
+    for path in (CHARTS, EXTRA, TTL):
         hits = re.findall(
             r"\bCOL(?:_X)?\[\s*\d+\s*\]",
             _strip_line_comments(path.read_text(encoding="utf-8")))
@@ -52,9 +53,11 @@ def test_every_referenced_palette_key_exists():
     """A typo'd key fails exactly like a numeric index: undefined fill."""
     known = _col_keys()
     assert known, "COL parsed as empty - the guard would pass vacuously"
-    used = set(re.findall(
-        r"\bCOL(?:_X)?\.(\w+)",
-        _strip_line_comments(EXTRA.read_text(encoding="utf-8"))))
+    used: set[str] = set()
+    for path in (EXTRA, TTL):
+        used |= set(re.findall(
+            r"\bCOL(?:_X)?\.(\w+)",
+            _strip_line_comments(path.read_text(encoding="utf-8"))))
     unknown = used - known
     assert not unknown, f"panels reference undefined COL keys: {sorted(unknown)}"
 
