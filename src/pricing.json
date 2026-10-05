@@ -490,7 +490,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-04T23:53:48Z",
+  "provider_rates_fetched": "2026-10-05T00:54:03Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -40656,6 +40656,15 @@
           "note": "50% off",
           "output": 1.98,
           "read": 0.022
+        },
+        {
+          "create_1h": 0.848628,
+          "create_5m": 0.848628,
+          "fresh": 0.848628,
+          "from": "2026-10-05T00:05:20Z",
+          "note": "35.71% off",
+          "output": 2.545884,
+          "read": 0.0282876
         }
       ],
       "Together": [
@@ -46964,6 +46973,14 @@
           "from": "2026-10-04T09:05:54Z",
           "output": 3.179,
           "read": 0.166
+        },
+        {
+          "create_1h": 0.095,
+          "create_5m": 0.095,
+          "fresh": 0.095,
+          "from": "2026-10-05T00:35:16Z",
+          "output": 3.179,
+          "read": 0.166
         }
       ],
       "Nebius": [
@@ -50829,6 +50846,15 @@
           "note": "20% off",
           "output": 0.4,
           "read": 0.024
+        },
+        {
+          "create_1h": 0.1125,
+          "create_5m": 0.1125,
+          "fresh": 0.1125,
+          "from": "2026-10-05T00:30:17Z",
+          "note": "25% off",
+          "output": 0.375,
+          "read": 0.0225
         }
       ],
       "PrimeIntellect": [
