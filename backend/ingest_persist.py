@@ -25,9 +25,9 @@ def _strip_nul(value):
     (issue #670). #41 stripped tool-result text at capture (_pg_text);
     this is the ONE choke point covering every text value reaching
     files, records and tool_uses, so the next text column cannot reopen
-    the class. Identity strings (file_key, project_id, session_id) are
-    object-key material, not transcript content, and never pass through
-    here.
+    the class. Identity strings (file_key, project_id, session_id)
+    traverse the strip like every other value; they are safe because
+    object-key material cannot carry NUL, not because they bypass it.
     """
     if isinstance(value, str):
         return value.replace("\x00", "") if "\x00" in value else value
