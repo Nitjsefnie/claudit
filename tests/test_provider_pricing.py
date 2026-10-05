@@ -64,11 +64,24 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
                      0.285 + 1.14 + 0.0057, rel=1e-12)
 
 
-def test_two_providers_of_one_model_price_differently():
-    morph = pricing.rate_for(V41, SEEDED, provider="Morph")  # sv-test-data: allow (closed-window pin at SEEDED)
-    novita = pricing.rate_for(V41, SEEDED, provider="Novita")  # sv-test-data: allow (closed-window pin at SEEDED)
-    assert (morph["fresh"], morph["output"]) == (0.075, 0.3)
-    assert morph != novita
+def test_two_providers_of_one_model_price_differently(monkeypatch):
+    """The property over synthetic rows, not the maintained table: issue
+    #640 collapsed every oscillating row into a band, so a live row's price
+    at a fixed instant is now a mean over the range its host moved inside,
+    and pinning one would pin repository-managed data (SV-TEST-DATA)."""
+    rows = {
+        ("acme/v9", "HostA"): {"fresh": 0.075, "create_5m": 0.075,
+                               "create_1h": 0.075, "read": 0.00375,
+                               "output": 0.3},
+        ("acme/v9", "HostB"): {"fresh": 0.285, "create_5m": 0.285,
+                               "create_1h": 0.285, "read": 0.01425,
+                               "output": 1.14},
+    }
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", rows)
+    host_a = pricing.rate_for("acme/v9", SEEDED, provider="HostA")
+    host_b = pricing.rate_for("acme/v9", SEEDED, provider="HostB")
+    assert (host_a["fresh"], host_a["output"]) == (0.075, 0.3)
+    assert host_a != host_b
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
