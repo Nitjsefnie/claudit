@@ -96,6 +96,29 @@ def test_the_ledger_does_not_over_match():
                    "heatStyle": None, "unknownKind": None}, out
 
 
+def test_liveness_is_keyed_per_entry_not_per_issue_kind_pair():
+    """Two entries may share an issue and a kind — #645 scopes the same
+    failure kind to two disjoint panel sets, #651 to two panels. The
+    matcher must hand back the ENTRY, so the sweep's liveness set can
+    prove each twin fired on its own; a matcher that collapses to the
+    issue/kind pair lets one twin's firing stand as the other's."""
+    out = _node("""
+      const a = mod.filedEntry('Cost by Context Size', 'hover-tooltip');
+      const b = mod.filedEntry('Input Tokens', 'hover-tooltip');
+      const c = mod.filedEntry('Cost by Agent Type', 'height-growth');
+      const d = mod.filedEntry('Tokens by Agent Type', 'height-growth');
+      console.log(JSON.stringify({
+        distinctScopes: a !== b,
+        distinctPanels: c !== d,
+        sameIssuePair: a !== null && b !== null && a.issue === b.issue,
+        eachMatchesOwn: [a, b, c, d].map(e => e === null ? null : e.issue),
+      }));
+    """)
+    assert out == {"distinctScopes": True, "distinctPanels": True,
+                   "sameIssuePair": True,
+                   "eachMatchesOwn": [645, 645, 651, 651]}, out
+
+
 def test_every_ledger_kind_is_in_the_closed_set():
     out = _node("""
       console.log(JSON.stringify({
