@@ -89,8 +89,6 @@ const ROUTES = [{ name: 'overview', nav: null }];
 // `roles` is the sorted role set of the violation: one entry for OVERLAP
 // (two regions), one for OVERFLOW (one region escaping its panel).
 const FILED = [
-  { issue: 633, panel: 'Prompt-Cache TTL Split', roles: ['legend', 'plot'] },
-  { issue: 633, panel: 'Prompt-Cache TTL Split', roles: ['legend'] },
   { issue: 634, panel: 'Session Burn Rate', roles: ['legend', 'plot'] },
   { issue: 634, panel: 'Session Burn Rate', roles: ['axis', 'legend'] },
   { issue: 635, panel: 'Session Burn Rate', roles: ['title'] },
