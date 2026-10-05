@@ -253,7 +253,7 @@ function ContextChart({ rows, cap, hoverIdx, setHoverIdx }) {
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel="Context Chart" width={w} height={h} style={{ display: 'block' }}>
         {/* Y grid */}
-        {yTicks.map((v, i) => (
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
           <line key={'g'+i} x1={padL} x2={w - padR}
             y1={yScale(v)} y2={yScale(v)}
             stroke="#2a2c44" strokeOpacity="0.6" />
@@ -301,20 +301,22 @@ function ContextChart({ rows, cap, hoverIdx, setHoverIdx }) {
         )}
 
         {/* Y labels */}
-        {yTicks.map((v, i) => (
+        <g data-role="axis">{yTicks.map((v, i) => (
           <text key={'yl'+i} x={padL - 6} y={yScale(v) + 3}
             fontSize="9.5" fill="#7e84a3" textAnchor="end" fontFamily="var(--mono)">
             {window.humanFmt(v)}
           </text>
-        ))}
+        ))}</g>
         {/* X label */}
-        <text x={padL} y={h - 6} fontSize="9.5" fill="#7e84a3" fontFamily="var(--mono)">
-          turn 1
-        </text>
-        <text x={w - padR} y={h - 6} fontSize="9.5" fill="#7e84a3"
-          textAnchor="end" fontFamily="var(--mono)">
-          turn {rows.length}
-        </text>
+        <g data-role="axis">
+          <text x={padL} y={h - 6} fontSize="9.5" fill="#7e84a3" fontFamily="var(--mono)">
+            turn 1
+          </text>
+          <text x={w - padR} y={h - 6} fontSize="9.5" fill="#7e84a3"
+            textAnchor="end" fontFamily="var(--mono)">
+            turn {rows.length}
+          </text>
+        </g>
       </svg>
       {a11y.descText && (
         <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
