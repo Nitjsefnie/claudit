@@ -7,8 +7,9 @@ except Claude's, which lost `claude-` — so the dashboard read
 
 What must survive the canonicalisation is the FOLDING, not the prefix: a
 dated snapshot and a bracketed variant are the same model as the base
-id, and merging them is what makes one colour and one cap apply to the
-whole family.
+id, and merging them is what makes one colour and one series apply to the
+whole family. (It used to read "one cap" — #648 removed the per-model cap
+table, and no axis is keyed on the model any more.)
 
 Driven through node on the function sliced verbatim from the .jsx (node
 cannot parse the file's JSX elsewhere), as the other source-level JS
