@@ -209,11 +209,38 @@ def test_process_pool_timing_line_marks_disjoint_phases(
         return int(m.group(1))
 
     total, parse_ms, persist_ms = (
-        _ms("total"), _ms("fetch_parse"), _ms("persist"))
+        _ms("total"), _ms("fetch_parse"),
+        _ms("persist"))
     assert parse_ms >= 0 and persist_ms >= 0
     assert parse_ms + persist_ms <= total + 100, line
     assert "parse_processes=2" in line
     assert "persist_threads=2" in line
+
+    # Issue #662: the parts arrive with the wall, summed across the pool:
+    # the child work (fetch/decompress/parse/sidecar), the summed persist
+    # work, and the parent's waits. All present, all non-negative, the
+    # parse stages positive over a mirror that was actually parsed.
+    for part in ("child_fetch", "child_decompress", "child_parse",
+                 "child_sidecar", "persist_work", "wait_parse",
+                 "wait_persist"):
+        assert _ms(part) >= 0, line
+    assert _ms("child_parse") > 0, line
+    assert _ms("wait_parse") > 0, line
+    assert _ms("persist_work") > 0, line
+
+
+def test_process_pool_timing_line_absent_when_flag_off(
+        fresh_db, mini_r2_env, monkeypatch, caplog):
+    """Claudit timing off, pool pipeline running: no TIMING ingest line,
+    so none of the #662 part marks either."""
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        summary = ingest.run_ingest("test-proc-quiet")
+    assert summary["error"] is None
+    assert [r.getMessage() for r in caplog.records
+            if r.getMessage().startswith("TIMING ingest ")] == []
 
 
 def test_persist_thread_count_defaults_and_clamps(monkeypatch):

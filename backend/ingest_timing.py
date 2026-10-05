@@ -26,6 +26,13 @@ class _RunTiming:
     # Pipeline provenance, stamped once per run for the TIMING tail.
     parse_processes: int = 1
     persist_threads: int = 1
+    # Issue #662: the pool pipeline's fetch_parse parts, accumulated by
+    # pipeline_pool (child work summed across the forked children via the
+    # stages dict parse_wire returns, persist work via persist_seconds)
+    # and emitted as mark_part breakdown figures beside the wall marks.
+    wait_parse: float = 0.0
+    wait_persist: float = 0.0
+    child_work: dict[str, float] = field(default_factory=dict)
 
 
 _RUN_TIMING: ContextVar[_RunTiming | None] = ContextVar(
