@@ -19,7 +19,6 @@
 const TH_X = window.dashboardTheme;
 const humanFmt_X = window.humanFmt;
 const perTurnStats = window.perTurnStats;
-const capForModel = window.capForModel;
 
 // The fixed string both advance probes are measured from: letters and
 // digits only, so no glyph in it is a special width.
@@ -60,34 +59,28 @@ function ComparisonRow({ models, byModel, w, h }) {
   const plotH = Math.max(10, h - padT - padB);
 
   // One stats bundle per checked model, in the same order as `models`.
+  // The session list rides along because the axis below is scaled from
+  // it, not from the percentiles: see the axis note further down.
   const series = React.useMemo(() => models.map(m => {
     const sessions = byModel[m.model] || [];
-    return { model: m.model, count: sessions.length, stats: perTurnStats(sessions) };
+    return { model: m.model, count: sessions.length, sessions,
+             stats: perTurnStats(sessions) };
   }), [models, byModel]);
 
-  // Adaptive cap: 1M when any opus is in the comparison, else 200k. Then
-  // expand if the data exceeds it.
-  let observedMax = 0;
-  for (const s of series) for (const v of s.stats.p90) if (v && v > observedMax) observedMax = v;
-  const baseCap = Math.max(200_000, ...series.map(s => capForModel(s.model)));
-  const cap = Math.max(baseCap, observedMax * 1.05);
-  const yMax = cap * 1.05;
+  // The axis, from the observed data and through the SAME call the
+  // per-model grid uses (issue #648): the peak context among every turn
+  // of every session on the chart, plus headroom. This panel passes
+  // every CHECKED model's sessions and each grid cell passes only its
+  // own, so with one model checked the two expressions compute the same
+  // axis on the same data and its median draws at the same height in
+  // both views.
+  const yMax = window.ctxAxis.ctxAxisTopFor(series.map(s => s.sessions));
   // Dynamic x-domain: max turn across all checked models
   const xMax = Math.max(1, ...series.map(s => s.stats.maxT || 0));
   const xScale = t => padL + (t / xMax) * plotW;
   const yScale = v => padT + plotH - (v / yMax) * plotH;
 
-  function yTickValues(maxV, n = 5) {
-    if (maxV <= 0) return [0];
-    const step0 = maxV / n;
-    const exp = Math.pow(10, Math.floor(Math.log10(step0)));
-    const norm = step0 / exp;
-    const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * exp;
-    const arr = [];
-    for (let v = 0; v <= maxV; v += step) arr.push(v);
-    return arr;
-  }
-  const yTicks = yTickValues(cap, 5);
+  const yTicks = window.ctxAxis.ctxAxisTicks(yMax, 5);
   function xTickValues(maxV, n = 6) {
     if (maxV <= 0) return [0];
     const step0 = maxV / n;
@@ -197,12 +190,6 @@ function ComparisonRow({ models, byModel, w, h }) {
             stroke={TH_X.grid} strokeOpacity="0.25" />
         ))}
 
-        {/* Cap line */}
-        <line x1={padL} x2={w - padR} y1={yScale(cap)} y2={yScale(cap)}
-          stroke="#ff5577" strokeWidth="1" strokeDasharray="2,3" strokeOpacity="0.7" />
-        <text x={padL - 6} y={yScale(cap) + 3} fontSize="9"
-          fill="#ff5577" textAnchor="end" fontFamily="monospace">{humanFmt_X(cap)}</text>
-
         {/* Median line per checked model. p90 dropped — overlapping
             dashed lines for 2+ models read as noise, and per-model
             spread is already shown in the sub-panels below as IQR
@@ -228,13 +215,13 @@ function ComparisonRow({ models, byModel, w, h }) {
             stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
         )}
 
-        {/* Y labels. A tick within one label-height of the cap line is
-            dropped: cap is max(baseCap, observedMax * 1.05), so it lands
-            just off a round tick — 1.02M against a 1M tick sat 3.5px away
-            and the two labels overlapped. The cap label wins, being the
-            one that carries meaning. */}
+        {/* Y labels. Every tick is drawn: the panel used to drop any tick
+            within one label-height of the cap line, because that cap sat
+            just off a round tick (1.02M against a 1M tick) and the two
+            labels overlapped. With the cap line gone there is nothing to
+            collide with. */}
         <g data-role="axis">
-        {yTicks.filter(v => Math.abs(yScale(v) - yScale(cap)) >= 12).map((v, i) => (
+        {yTicks.map((v, i) => (
           <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
             fontSize="9" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
             {humanFmt_X(v)}

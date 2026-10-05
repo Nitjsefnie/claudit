@@ -17,6 +17,7 @@ is what reads the resulting boxes.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -282,3 +283,346 @@ def test_a_single_cluster_wider_than_the_slot_still_gets_a_row():
     assert got["width"] <= 120
     assert got["text"].endswith("…")
     assert got["label"] == "a-very-long-model-identifier-indeed"
+
+
+# --------------------------------------------------------------------------
+# src/ctx-axis.js — the context-size axis rule (issue #648)
+# --------------------------------------------------------------------------
+#
+# The second pure-JS module these panels share. It carries NO per-model
+# knowledge on purpose: the cap table this replaces named ten Claude
+# models and fell back to a name rule for every other one, so it drew a
+# cap line below the data of any model added after it was written, and
+# the grid and the comparison disagreed about a given model's height.
+#
+# The tests below split in two, because the property has two halves that
+# no single test can reach at once:
+#
+#   * the RULE, driven through node against the real src/ctx-axis.js;
+#   * the CALL SITES, driven by extracting each panel's y-axis
+#     assignment verbatim from its .jsx and evaluating THAT, because a
+#     panel that quietly stopped calling the shared rule would leave
+#     every test in the first half green.
+
+
+CTX_JS = ROOT / "src" / "ctx-axis.js"
+GRID_JSX = ROOT / "src" / "dashboard-charts-extra.jsx"
+COMPARE_JSX = ROOT / "src" / "context-growth-comparison.jsx"
+SESSION_JSX = ROOT / "src" / "context-growth-view.jsx"
+ESLINT_CONFIG = ROOT / "eslint.config.mjs"
+
+
+def _strip_js_comments(src: str) -> str:
+    """Blank out JS comments, keeping the line structure.
+
+    src/ctx-axis.js names both removed symbols in its header, explaining
+    what it replaced and why. Reading that prose as the mistake would
+    make the absence assertion below unsatisfiable by any honest file
+    that documents the change -- and deleting the explanation instead
+    would be the wrong trade. Same shape as test_panel_wiring's helper.
+    """
+    out, i, n = [], 0, len(src)
+    while i < n:
+        if src.startswith("//", i):
+            j = src.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif src.startswith("/*", i):
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append("".join(c if c == "\n" else " " for c in src[i:j]))
+            i = j
+        else:
+            out.append(src[i])
+            i += 1
+    return "".join(out)
+
+
+def _ctx_node(body: str):
+    """Run `body` against the real src/ctx-axis.js in node."""
+    script = f"""
+      global.window = {{}};
+      require({str(CTX_JS)!r});
+      {body}
+    """
+    proc = subprocess.run(
+        ["node"], input=script, capture_output=True, text=True, timeout=60,
+        check=False, encoding="utf-8", errors="strict",
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+# A model's sessions, as the two dashboard panels are handed them. Two
+# sessions, uneven turn counts, and a peak that is neither the first
+# turn nor the last one -- so "take the last", "take the first" and
+# "take the longest session" all give a different wrong answer than
+# "take the largest ctx" does.
+BUNDLE = json.dumps([
+    {"seq": [{"t": 0, "ctx": 12_000}, {"t": 1, "ctx": 48_500},
+             {"t": 2, "ctx": 31_000}]},
+    {"seq": [{"t": 0, "ctx": 9_000}, {"t": 1, "ctx": 210_000}]},
+])
+# A second model whose peak is higher than BUNDLE's, so a comparison
+# that folds it must move and one that does not must not.
+TALLER = json.dumps([
+    {"seq": [{"t": 0, "ctx": 500_000}, {"t": 1, "ctx": 4_000}]},
+])
+
+
+def test_ctx_peak_is_the_largest_turn_across_every_session():
+    got = _ctx_node(f"""
+      const A = window.ctxAxis;
+      console.log(JSON.stringify({{
+        both: A.ctxPeak({BUNDLE}),
+        tall: A.ctxPeak({TALLER}),
+        empty: A.ctxPeak([]),
+        noSessions: A.ctxPeak(null),
+        firstTurnOnly: A.ctxPeak([{{seq: [{{ctx: 7}}, {{ctx: 3}}]}}]),
+      }}));
+    """)
+    assert got["both"] == 210_000, "the peak came from the second session's second turn"
+    assert got["tall"] == 500_000
+    assert got["empty"] == 0
+    assert got["noSessions"] == 0
+    # A single-session bundle whose peak is its FIRST turn: a "take the
+    # last" reading would answer 3 here.
+    assert got["firstTurnOnly"] == 7
+
+
+def test_axis_top_is_the_observed_peak_plus_headroom():
+    # The expectation is computed from the module's own exported
+    # headroom rather than restated, so this pins the relationship and
+    # not the constant. Only peaks clear of the MIN_TOP floor take it --
+    # below that the floor wins, which is the next test's subject and is
+    # stated here so neither is read as a silent exception to the other.
+    got = _ctx_node("""
+      const A = window.ctxAxis;
+      const out = {};
+      for (const p of [1000, 1001, 12_345, 210_000, 500_000, 1_048_576]) {
+        out[p] = [A.ctxAxisTop(p), A.ctxAxisTop(p) === p * A.HEADROOM];
+      }
+      console.log(JSON.stringify(out));
+    """)
+    for peak, (top, is_peak_plus_headroom) in got.items():
+        assert is_peak_plus_headroom, (
+            f"ctxAxisTop({peak}) returned {top}, which is not the peak times "
+            "the exported headroom")
+
+
+def test_an_axis_top_is_always_a_positive_number_a_scale_can_divide_by():
+    # A zero peak is what an empty model, a model whose sessions carry no
+    # ctx, or a panel with nothing checked all produce. Returning 0 here
+    # would make every y scale divide by zero; the floor is a division
+    # guard and is not a context window (nothing draws it as a line).
+    got = _ctx_node("""
+      const A = window.ctxAxis;
+      const vals = [A.ctxAxisTop(0), A.ctxAxisTop(-5), A.ctxAxisTop(null),
+                    A.ctxAxisTop(undefined), A.ctxAxisTop('nonsense'),
+                    A.ctxAxisTopFor([]), A.ctxAxisTopFor(null)];
+      console.log(JSON.stringify({
+        vals,
+        finite: vals.every(v => Number.isFinite(v) && v > 0),
+        equalsFloor: vals.every(v => v === A.MIN_TOP),
+      }));
+    """)
+    assert got["finite"], got["vals"]
+    assert got["equalsFloor"], (
+        "the floor is meant to be the same constant for every degenerate "
+        f"input, got {got['vals']} against MIN_TOP")
+
+
+def test_axis_ticks_start_at_zero_never_pass_the_top_and_step_evenly():
+    got = _ctx_node("""
+      const A = window.ctxAxis;
+      const tops = [1000, 1100, 11000, 231000, 550000, 1153796];
+      const out = tops.map(top => {
+        const t = A.ctxAxisTicks(top, 4);
+        const steps = t.slice(1).map((v, i) => v - t[i]);
+        return {top, ticks: t, uniform: steps.every(s => s === steps[0])};
+      });
+      console.log(JSON.stringify({
+        out,
+        empty: A.ctxAxisTicks(0, 4),
+        negative: A.ctxAxisTicks(-10, 4),
+      }));
+    """)
+    for entry in got["out"]:
+        ticks = entry["ticks"]
+        assert entry["uniform"], f"ticks for {entry['top']} step unevenly: {ticks}"
+        assert ticks[0] == 0, f"ticks for {entry['top']} do not start at 0: {ticks}"
+        assert ticks[-1] <= entry["top"], (
+            f"a tick for {entry['top']} lies past the axis top: {ticks}")
+        # A tick above the peak would sit in the headroom band; the top
+        # itself may be a tick, and anything higher is spare room drawn
+        # as a gridline.
+        assert len(ticks) >= 2, f"no room for a gridline at {entry['top']}"
+    assert got["empty"] == [0]
+    assert got["negative"] == [0]
+
+
+# --- the call sites ----------------------------------------------------
+#
+# What the two dashboard panels write as their y axis, read verbatim out
+# of the .jsx. `re.search` deliberately anchors on the whole assignment
+# INCLUDING the ctxAxis call, so a panel that goes back to folding its
+# own constant here stops matching and the test says so.
+
+
+def _y_axis_expression(path: Path) -> str:
+    """A panel's context y-axis expression, verbatim, or fail.
+
+    The assignment's RIGHT-HAND side only, so it can be evaluated in
+    node with the panel's own locals in scope. `re.search` anchors on the
+    `window.ctxAxis` call itself, so a panel that goes back to folding
+    its own constant here stops matching and the test says so.
+    """
+    src = _strip_js_comments(path.read_text(encoding="utf-8"))
+    match = re.search(
+        r"const yMax(?:Abs)? = (window\.ctxAxis\.ctxAxis(?:Top|TopFor)\([^;]*\));",
+        src)
+    assert match, (
+        f"{path.name} no longer derives its context y axis from "
+        "window.ctxAxis.ctxAxisTop/ctxAxisTopFor; the shared rule was "
+        "bypassed or renamed")
+    return match.group(1)
+
+
+def test_the_grid_and_the_comparison_scale_one_model_to_the_same_axis():
+    """#648: one model's median sat at a different height in each view.
+
+    Both expressions are evaluated against the real module with BOTH
+    panels' locals in scope, so each finds the name it uses -- the grid's
+    `sessions`, the comparison's `series`. The two must return the same
+    number for the same single model, and adding a taller model must move
+    the comparison and leave the grid alone: without that second half the
+    equality would hold for any pair of expressions, including two that
+    ignore their input.
+    """
+    grid_expr = _y_axis_expression(GRID_JSX)
+    compare_expr = _y_axis_expression(COMPARE_JSX)
+    got = _ctx_node(f"""
+      const A = window.ctxAxis;
+      const one = {BUNDLE};
+      const two = {TALLER};
+      let sessions = one;
+      let series = [{{model: 'a', sessions: one}}];
+      const grid = {grid_expr}
+      const compare = {compare_expr}
+
+      // Re-evaluated against the taller model: the comparison folds every
+      // checked model and must move, the grid reads only its own bundle
+      // and must not. Same two expressions, same two names, rebound.
+      sessions = two;
+      series = [{{model: 'a', sessions: one}}, {{model: 'b', sessions: two}}];
+      const gridTall = {grid_expr}
+      const compareTall = {compare_expr}
+      console.log(JSON.stringify({{
+        grid, compare, equal: grid === compare,
+        gridTall, compareTall,
+        comparisonMoved: compareTall > compare,
+        gridMoved: gridTall !== grid,
+      }}));
+    """)
+    assert got["equal"], (
+        f"the grid's axis ({got['grid']}) and the comparison's "
+        f"({got['compare']}) disagree for one model on equal data")
+    # Anti-vacuity: both expressions read their input.
+    assert got["comparisonMoved"], (
+        "adding a taller model did not raise the comparison's axis, so the "
+        "equality above holds for an expression that ignores its input")
+    assert got["gridMoved"], (
+        "the grid's axis did not change when its own bundle was rebound, so "
+        "the equality above holds for an expression that ignores its input")
+
+
+def test_the_session_view_scales_to_its_own_observed_peak():
+    # The per-session view holds rows rather than sessions, so it takes
+    # the peak directly. It is the same rule, and the same headroom the
+    # other two use -- which is what keeps a session's curve at the height
+    # it had when the cap line was still drawn below it.
+    expr = _y_axis_expression(SESSION_JSX)
+    got = _ctx_node(f"""
+      const A = window.ctxAxis;
+      const peakCtx = 210000;
+      const yMaxAbs = {expr}
+      console.log(JSON.stringify({{
+        yMaxAbs,
+        matchesRule: yMaxAbs === A.ctxAxisTop(peakCtx),
+        matchesPanel: yMaxAbs === A.ctxAxisTopFor([{BUNDLE}]),
+      }}));
+    """)
+    assert got["matchesRule"], got
+    assert got["matchesPanel"], (
+        "the per-session view and the dashboard panels no longer agree on "
+        "the axis for the same observed peak")
+
+
+# --- the caps themselves ------------------------------------------------
+
+
+CAP_NAMES = ("capForModel", "MODEL_CAPS")
+
+
+def _cap_readers(root: Path) -> list[str]:
+    """Files naming a per-model context cap, as `path:line`."""
+    found = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix not in {".js", ".jsx", ".mjs", ".html"}:
+            continue
+        for n, line in enumerate(_strip_js_comments(
+                path.read_text(encoding="utf-8")).splitlines(), 1):
+            if any(name in line for name in CAP_NAMES):
+                found.append(f"{path.relative_to(root)}:{n}")
+    return found
+
+
+def test_no_frontend_file_reads_a_per_model_context_cap():
+    # #648 dropped the table. This is an ABSENCE assertion, so it is only
+    # worth anything next to a demonstration that the scan fires: the
+    # second half runs the same reader over a planted source and requires
+    # it to name the line. An absence check whose oracle cannot be shown
+    # live is a suite that goes green the day the scan breaks.
+    assert not _cap_readers(ROOT / "src")
+    assert not _cap_readers(ROOT / "public")
+    planted = ROOT / ".ctx-axis-planted"
+    planted.mkdir(exist_ok=True)
+    (planted / "planted.jsx").write_text(
+        "// nothing here\nconst MODEL_CAPS = {'claude-x': 1};\n"
+        "function capForModel(m) { return MODEL_CAPS[m]; }\n",
+        encoding="utf-8")
+    try:
+        assert _cap_readers(planted) == [
+            "planted.jsx:2", "planted.jsx:3"], (
+            "the scan missed a planted cap, so passing it above means "
+            "nothing")
+    finally:
+        (planted / "planted.jsx").unlink()
+        planted.rmdir()
+
+
+def test_the_removed_cap_elements_are_gone_from_every_context_view():
+    # Each of these is a string no surviving code path can want: the cap
+    # label, the percentage column it fed, the severity ladder computed
+    # against it, and the two reference lines drawn at fractions of it.
+    needles = ("% cap", "cap}", "ctxAxisTop(cap", "yScale(cap")
+    for view in (GRID_JSX, COMPARE_JSX, SESSION_JSX):
+        text = view.read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle not in text, (
+                f"{view.name} still contains {needle!r}")
+
+
+def test_the_axis_module_is_loaded_by_the_page():
+    html = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
+    assert '<script src="/src/ctx-axis.js"></script>' in html, (
+        "public/index.html does not load src/ctx-axis.js, so every "
+        "window.ctxAxis call in the panels is undefined at render time")
+
+
+def test_the_removed_cap_is_not_still_declared_as_an_eslint_global():
+    # eslint.config.mjs declared `capForModel` as a browser global. The
+    # name it named is gone, and a declaration left behind is how a
+    # reintroduced cap sails past the lint gate unnoticed.
+    assert "capForModel" not in ESLINT_CONFIG.read_text(encoding="utf-8")

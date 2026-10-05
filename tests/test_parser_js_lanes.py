@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 from datetime import UTC, datetime
@@ -32,7 +31,6 @@ ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
-CHARTS_JSX = ROOT / "src" / "dashboard-charts-extra.jsx"
 FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
@@ -436,86 +434,6 @@ def test_lane_output_carries_the_fields_the_inspector_renders(name):
     assert {"turns", "userMsgs", "toolCalls", "errorResults",
             "parallelBatches", "firstTs", "lastTs", "output",
             "hitRate", "cost"} <= set(got["stats"])
-
-
-# --------------------------------------------------------------------------
-# capForModel lane caps
-# --------------------------------------------------------------------------
-
-
-def _capformodel_source() -> str:
-    """The capForModel function + its MODEL_CAPS table, extracted verbatim
-    from the JSX source (node cannot parse the file's JSX elsewhere)."""
-    src = CHARTS_JSX.read_text(encoding="utf-8")
-    match = re.search(
-        r"const MODEL_CAPS = \{.*?\n\};\nfunction capForModel\(m\) \{.*?\n\}",
-        src, re.S)
-    assert match, "capForModel/MODEL_CAPS not found in dashboard-charts-extra.jsx"
-    return match.group(0)
-
-
-def test_capformodel_lane_caps():
-    script = f"""
-      const src = {json.dumps(_capformodel_source())};
-      eval(src + "\\nglobalThis.__caps = MODEL_CAPS;");
-      console.log(JSON.stringify({{
-        sol: capForModel('gpt-6-sol'),
-        sol56: capForModel('gpt-5-6-sol'),
-        luna6: capForModel('gpt-6-luna'),
-        kimi: capForModel('kimi-k3'),
-        opus5: capForModel('claude-opus-5'),
-        opus48: capForModel('claude-opus-4-8'),
-        fable: capForModel('claude-fable-5-1'),
-        haiku: capForModel('claude-haiku-4-5'),
-        sonnet45: capForModel('claude-sonnet-4-5'),
-        sonnet5: capForModel('claude-sonnet-5'),
-        capsKeys: Object.keys(globalThis.__caps),
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["sol"] == 272_000
-    assert got["sol56"] == 272_000
-    assert got["luna6"] == 272_000
-    assert got["kimi"] == 256_000
-    assert got["opus5"] == 1_000_000
-    assert got["opus48"] == 1_000_000
-    assert got["fable"] == 1_000_000
-    assert got["haiku"] == 200_000
-    assert got["sonnet45"] == 200_000
-    # The one row where the table and the family fallback disagree, so a
-    # dropped or mis-valued row would silently draw sonnet's 200k cap line
-    # where the 1M row says it should.
-    assert got["sonnet5"] == 1_000_000
-    # Issue #472: the table is keyed on the canonical name the display
-    # produces, which keeps the vendor prefix — a bare key would sit
-    # unreached and every Claude model would fall to the default cap.
-    assert [k for k in got["capsKeys"] if k.startswith("claude-")] == \
-        got["capsKeys"], got["capsKeys"]
-
-
-def test_capformodel_ignores_case():
-    """`capForModel` lowercases before it looks the key up, so an id
-    spelled with capitals still finds its row."""
-    script = f"""
-      const src = {json.dumps(_capformodel_source())};
-      eval(src);
-      console.log(JSON.stringify({{
-        mixed: capForModel('Claude-Sonnet-5'),
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    # The same row the table/fallback disagreement covers: only the
-    # lowercasing lookup finds it, so this is what pins that hunk.
-    assert json.loads(proc.stdout)["mixed"] == 1_000_000
 
 
 # --------------------------------------------------------------------------
