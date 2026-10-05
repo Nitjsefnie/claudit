@@ -1093,8 +1093,8 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
-      {/* Self-fetching like the four above; hidden when unmeasured (#436). */}
-      {backendOn && (
+      {/* Self-fetching like the four above, operator-only (#629). */}
+      {backendOn && window.IS_OPERATOR && (
         <div className="dash-resp">
           {/* No `project`: a beacon carries none. */}
           <window.WebMetricsPanel

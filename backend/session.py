@@ -253,6 +253,33 @@ def make_guest_session_token() -> str:
     return make_session_token(GUEST_USER_ID, _GUEST_SECRET)
 
 
+# The per-user capability key in the auth DB's `users.config`, and the only
+# one the app reads. `ADMIN_TOKEN` cannot be it: that is a bearer header for
+# /admin/*, which a browser session cannot present and which has no route to
+# hand one out. This row is already read on every session resolution, and the
+# auth DB is READ-ONLY here — an operator is granted upstream, never here.
+OPERATOR_KEY = "web_operator"
+
+
+def is_operator(user_id: int) -> bool:
+    """Is this user an operator, per their auth DB's `users.config`?
+
+    Absent a row, absent a key, or anything but a JSON boolean `true` — all
+    deny. The `is True` is load-bearing rather than taste: JSON hands
+    `{"web_operator": "false"}` to Python as a TRUTHY string, so a
+    truthiness test would grant operator rights on a row that says no.
+
+    `GUEST_USER_ID` is refused before the config is read. A guest has no row
+    in that table today, so this would fall out by itself — but "a guest is
+    never an operator" is a property of the model, not of the auth DB's
+    current contents.
+    """
+    if user_id == GUEST_USER_ID:
+        return False
+    config = _cached_user_config(user_id)
+    return config is not None and config.get(OPERATOR_KEY) is True
+
+
 def resolve_session_user_id(token: str) -> int | None:
     parsed = parse_session_token(token)
     if parsed is None:
@@ -361,6 +388,11 @@ def _session_denied(request: Request) -> Response | None:
         return _unauthenticated(request.url.path)
     request.state.user_id = user_id
     request.state.is_guest = user_id == GUEST_USER_ID
+    # Resolved here, beside the other two, so every route reads the same
+    # session off the same place (issue #629). It reuses the config cache the
+    # credential check above just populated, so a real user pays no extra
+    # lookup and a guest never reaches the auth DB at all.
+    request.state.is_operator = is_operator(user_id)
     # Gate per-session and per-project endpoints from guests, plus
     # disallow `project=` filters on aggregate endpoints so guests can
     # only see project-mixed data.
