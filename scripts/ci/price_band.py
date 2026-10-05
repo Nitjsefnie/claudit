@@ -176,11 +176,14 @@ def widen(entry: dict, rates: dict, at: datetime) -> dict:
     and the entry's note and schedule carry over, so a widened band widens
     what a listing may cost without repricing what a record already cost.
     """
+    band = entry_band(entry)
+    if band is None:
+        raise ValueError("widen needs a banded entry; this one carries none")
     stamp = detection_stamp(at)
     widened = {"from": stamp,
                **time_weighted([entry, {"from": stamp, **rates}], at),
                "band": {field: [min(span[0], rates[field]), max(span[1], rates[field])]
-                        for field, span in entry_band(entry).items()}}
+                        for field, span in band.items()}}
     for key in ("note", "schedule"):
         if key in entry:
             widened[key] = entry[key]
