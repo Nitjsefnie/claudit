@@ -26,7 +26,7 @@ def _unavailable_log_rows(model: str, rows: dict[str, Any], reason: str) -> LogR
 def _append_joined_rows(
         model: str, rows: dict[str, Any], hosts: dict,
         joined: dict[str, refresh_pricelog.HostLog],
-        append_logged: Callable[..., Any],
+        append_logged: Callable[[str, dict, str, Any, list[dict], datetime], Any],
         same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
     result = LogRows([], {}, {}, [])
     for host, listing in rows.items():
@@ -67,7 +67,7 @@ def _append_joined_rows(
 def classify_log_rows(
         model: str, payload: object, rows: dict[str, Any], hosts: dict,
         read: refresh_pricelog.LogRead, region: str | None, resolutions: dict,
-        append_logged: Callable[..., Any],
+        append_logged: Callable[[str, dict, str, Any, list[dict], datetime], Any],
         same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
     """Split listed hosts into log-backed appends and sampled rows; `at` is
     the fetch instant, at which each log series is read."""

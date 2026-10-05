@@ -214,11 +214,18 @@ def _widened(model: str, host: str, newest: dict, additions: list[dict],
     """The one entry a banded row appends, or None when every new log state
     lies inside its band.
 
-    The LAST state outside it is the level now in force. It is dated at its
-    own change point — later than the newest stored entry by construction,
-    since that is the cutoff the states came through — so the row stays
-    append-only and its `from` stays after the one before, whatever the
-    detection instant is.
+    EVERY state outside the band is covered, not only the last: two escapes
+    in opposite directions inside one detection window would otherwise
+    record one of them and leave the other outside the range the row claims
+    to have covered. The LAST of them is the level now in force, so the
+    entry is dated at that state's own change point — later than the newest
+    stored entry by construction, since that is the cutoff the states came
+    through — and the row stays append-only whatever the detection instant
+    is.
+
+    An entry's five rates are its banded mean, and a widening does not
+    reprice it (price_band.widen), so this entry prices exactly what the
+    one before it did from `moved_at` on.
     """
     outside = [entry for entry in additions
                if not price_band.in_band(newest, {f: entry[f] for f in RATE_FIELDS})]
@@ -226,7 +233,8 @@ def _widened(model: str, host: str, newest: dict, additions: list[dict],
         return None
     moved = outside[-1]
     moved_at = _price_instant(moved["from"], f"{model} via {host}")
-    return price_band.widen(newest, {f: moved[f] for f in RATE_FIELDS},
+    return price_band.widen(newest, [{f: entry[f] for f in RATE_FIELDS}
+                                     for entry in outside],
                             max(at, moved_at))
 
 
