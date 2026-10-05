@@ -679,3 +679,14 @@ def test_the_legend_packing_lives_in_a_plain_js_module():
         "is undefined at render and the panel throws")
     assert '/src/context-growth-comparison.jsx' in index, (
         "the comparison module is not loaded by the page")
+
+
+def test_the_burn_rate_module_is_loaded_by_the_page():
+    """The Session Burn Rate panel lives in src/burn-rate-panel.jsx
+    (#634/#635); a script tag someone drops fails no layout check — the
+    guard counts the panels that render, never the ones that should — so
+    the load is pinned like the comparison module's."""
+    index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
+    assert '/src/burn-rate-panel.jsx' in index, (
+        "burn-rate-panel.jsx is not loaded by the page, so the Session "
+        "Burn Rate panel silently disappears from the Overview")
