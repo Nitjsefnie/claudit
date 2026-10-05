@@ -226,6 +226,7 @@ def test_process_pool_timing_line_marks_disjoint_phases(
         assert _ms(part) >= 0, line
     assert _ms("child_parse") > 0, line
     assert _ms("wait_parse") > 0, line
+    assert _ms("wait_persist") > 0, line
     assert _ms("persist_work") > 0, line
 
 

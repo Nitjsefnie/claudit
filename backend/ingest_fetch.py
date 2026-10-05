@@ -105,7 +105,13 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     if stages is None:
         stages = getattr(_STAGES, "stages", None)
     acc: dict[str, float] | None = stages
-    fetch_started = time.perf_counter() if acc is not None else None
+    fetch_started = None
+    if acc is not None:
+        # A forked child inherits the forking thread's threadlocal copy,
+        # stamp included: drop anything inherited so the first timed
+        # file's decompress booking is this child's own work (M-2).
+        r2.pop_decompress_seconds()
+        fetch_started = time.perf_counter()
     data = fetch(key)
     parse_started = (time.perf_counter()
                      if fetch_started is not None else None)
