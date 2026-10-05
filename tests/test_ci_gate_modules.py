@@ -510,7 +510,7 @@ def test_main_writes_full_run_over_an_unhandled_event(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
-        "smoke", "audit", "actionlint", "codeql")
+        "panel-layout", "smoke", "audit", "actionlint", "codeql")
 
 
 def _needs(**overrides):

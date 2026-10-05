@@ -118,6 +118,15 @@
 !/fixtures/r2_mini/**/*.txt
 !/fixtures/r2_mini/**/*.meta.json
 !/fixtures/r2_mini/**/meta.json
+# layout/ is the frozen payload set the rendered-layout guard
+# (scripts/ci/panel_layout.mjs, issue #631) drives the dashboard with —
+# one JSON per /api path the frontend fetches, captured from a generated
+# mirror so the guard never reads a live meter or the box's database. The
+# directory is re-opened explicitly: git does not look inside a directory
+# it has already ignored, so the name-back below would never match.
+!/fixtures/layout/
+/fixtures/layout/*
+!/fixtures/layout/*.json
 
 # ---- public/ — static assets served at / -----------------------------------
 !/public/
@@ -137,6 +146,10 @@
 !/scripts/ci/*.py
 !/scripts/ci/*.txt
 !/scripts/ci/*.json
+# panel_layout.mjs drives the rendered-layout guard (issue #631) in its
+# own CI job; it is node, not python, and nothing else under scripts/ci
+# is.
+!/scripts/ci/*.mjs
 !/scripts/plots/
 /scripts/plots/*
 !/scripts/plots/*.py

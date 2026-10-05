@@ -1,0 +1,83 @@
+name: panel-layout
+
+# The rendered-layout guard (issue #631).
+#
+# Issue #630 — the Per-Session Context Growth comparison panel drawing its
+# legend over its own chart — reached a user with every other check green,
+# because nothing in this repository renders the dashboard in a browser.
+# The suite is Python plus node runs of the parser JavaScript; a legend
+# drawn over a plot is a question only a layout engine can answer, and
+# fonts, SVG text metrics, flex wrapping and viewport width all decide it.
+#
+# This leg answers that one question. `scripts/ci/panel_layout.mjs` serves
+# the REAL page — the same public/index.html, the same src/*.jsx, the same
+# in-browser Babel — against the frozen payload set in fixtures/layout/,
+# opens it in headless Chromium at three widths, and reads
+# getBoundingClientRect() for every region the panels mark with
+# `data-role`: each must lie inside its own panel, and no two may
+# intersect.
+#
+# It is ONE generic check over every panel, not a suite per panel, and it
+# needs no database and no R2: the fixture set is the whole dataset. The
+# browser driver is a devDependency in package.json like every other CI
+# tool here — nothing in the shipped app reads package.json, and the app
+# itself still has no build step (CONTRIBUTING.md).
+#
+# The pinned versions live in package.json, not here, so Dependabot sees
+# them (the reason eslint.yml's install line stopped pinning inline).
+
+on:
+  # Trigger ownership sits with ci-gate.yml (issue #127): it calls this
+  # workflow as a leg. workflow_dispatch keeps a direct run possible.
+  workflow_call:
+  workflow_dispatch:
+
+# Least privilege: this job only checks out and runs the proposed tree.
+# Without an explicit block it inherits the repository default, which can
+# be read/write for the whole token.
+permissions:
+  contents: read
+
+concurrency:
+  group: panel-layout-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  panel-layout:
+    # The name IS the check-run name (issue #514).
+    name: panel layout (headless Chromium, 4 widths)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this workflow pushes.
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Pinned exactly, as every other version in this repo is: a tool
+          # release must never turn CI red on an unchanged commit (issue
+          # #361). Same value the eslint and tests legs run on.
+          node-version: "24.17.0"
+
+      - name: Install the JS toolchain from the lockfile
+        # npm ci, not npm install: it installs package-lock.json exactly
+        # and refuses to resolve against the registry, so the pins in
+        # package.json mean what they say.
+        run: npm ci --no-audit --no-fund
+
+      # --with-deps installs the shared libraries a headless Chromium
+      # needs on the runner image; without them the launch fails with a
+      # loader error rather than a layout result.
+      - name: Install the headless browser
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Read back every panel's rendered boxes
+        # The panels under test, the viewport widths and the assertion are
+        # the script's; this step is only the command. A non-zero exit is a
+        # panel whose legend, axis, title or plot overlaps another or
+        # escapes its panel — the script prints which, at which width, by
+        # how many pixels.
+        run: node scripts/ci/panel_layout.mjs
