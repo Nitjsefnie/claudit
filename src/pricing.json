@@ -493,7 +493,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-05T06:54:31Z",
+  "provider_rates_fetched": "2026-10-05T07:53:47Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1481,6 +1481,14 @@
           "create_5m": 0.06,
           "fresh": 0.06,
           "from": "2026-10-05T06:30:21Z",
+          "output": 0.3,
+          "read": 0.018
+        },
+        {
+          "create_1h": 0.07,
+          "create_5m": 0.07,
+          "fresh": 0.07,
+          "from": "2026-10-05T07:35:20Z",
           "output": 0.3,
           "read": 0.018
         }
@@ -23091,6 +23099,14 @@
           "from": "2026-10-05T06:50:31Z",
           "output": 0.84,
           "read": 0.1
+        },
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": "2026-10-05T07:20:40Z",
+          "output": 0.84,
+          "read": 0.12
         }
       ]
     },
@@ -38479,6 +38495,15 @@
           "note": "36% off",
           "output": 1.980032,
           "read": 0.063808
+        },
+        {
+          "create_1h": 0.237696,
+          "create_5m": 0.237696,
+          "fresh": 0.237696,
+          "from": "2026-10-05T07:05:18Z",
+          "note": "36% off",
+          "output": 1.980032,
+          "read": 0.075072
         }
       ],
       "NextBit": [
