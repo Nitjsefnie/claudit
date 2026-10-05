@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from typing import Any
+
 from backend import constants, db, key_layout, parse, r2, rate_fingerprint
 
 
-def _strip_nul(value):
+def _strip_nul(value: Any) -> Any:
     """Recursively strip NUL bytes from every string in parse output.
 
     PostgreSQL refuses 0x00 in text and in jsonb (the \\u0000 escape),
