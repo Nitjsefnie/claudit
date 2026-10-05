@@ -216,10 +216,7 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     assert "parse_processes=2" in line
     assert "persist_threads=2" in line
 
-    # Issue #662: the parts arrive with the wall, summed across the pool:
-    # the child work (fetch/decompress/parse/sidecar), the summed persist
-    # work, and the parent's waits. All present, all non-negative, the
-    # parse stages positive over a mirror that was actually parsed.
+    # Issue #662: the wall's parts, summed across the pool.
     for part in ("child_fetch", "child_decompress", "child_parse",
                  "child_sidecar", "persist_work", "wait_parse",
                  "wait_persist"):

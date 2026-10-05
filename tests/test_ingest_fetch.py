@@ -457,12 +457,9 @@ def _fork_pool(**kwargs):
 @pytest.mark.skipif(not hasattr(os, "fork"),
                     reason="the parse pool is fork-based")
 def test_parse_worker_init_and_its_sigterm_defense():
-    """A forked parse worker inherits uvicorn's SIGTERM handler, which only
-    sets a flag the worker never checks — so it ignored SIGTERM and could
-    outlive the service holding its port, DB sessions and the ingest lock
-    (issue #373). The initializer must restore SIG_DFL (run under a
-    parent that is still alive), and SIG_DFL must mean a cgroup stop
-    kills the worker outright instead of leaving it parsing."""
+    """The #373 defense: a forked worker inherits uvicorn's flag-only
+    SIGTERM handler, so the initializer must restore SIG_DFL — and a
+    cgroup stop must then kill the worker outright."""
     with _fork_pool(initargs=(os.getpid(),)) as pool:
         handler, int_handler, ppid = pool.submit(
             _worker_report).result(timeout=60)
@@ -482,6 +479,8 @@ def test_parse_worker_init_and_its_sigterm_defense():
             pytest.fail("a parse worker survived SIGTERM")
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"),
+                    reason="the parse pool is fork-based")
 def test_parse_worker_exits_when_the_parent_is_already_gone():
     """PDEATHSIG is armed after fork, so a parent dying in that window
     would leave an orphan; the initializer's ppid check closes the race by
@@ -568,15 +567,11 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
 # --------------------------------- fetch_parse stage accounting (#662)
 
 def test_parse_wire_books_child_stages(monkeypatch):
-    """The pool child's unit of work and the booking behind it, pinned
-    together (issue #662): fetch_and_parse writes the file's child work
-    into an accumulator it is given and behaves exactly as before
-    without one; parse_wire plants the accumulator for the timed child
-    and returns (parsed, stages), the sidecar fetch booking beside
-    fetch/parse. An unusable sidecar still books and leaves the parse
-    standing. The units are fakes — the real fork pool over the mirror
-    is the pool TIMING-line test's, and Windows cannot resolve that
-    fixture's file:// endpoint."""
+    """The #662 booking and channel: fetch_and_parse writes a file's
+    child work into an accumulator (inert without one), parse_wire
+    plants it for the timed child and returns (parsed, stages), the
+    sidecar fetch booking beside fetch/parse. Fakes throughout — the
+    real fork pool is the pool TIMING-line test's."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
 
     def fetch(key):

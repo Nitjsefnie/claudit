@@ -103,11 +103,8 @@ def test_get_object(mini_r2):
 
 
 def test_get_object_inflates_xz(mini_r2, monkeypatch):
-    # An xz-compressed object inflates transparently to its plain bytes,
-    # and the inflate wall is stamped onto the per-thread accumulator
-    # when the timing flag is on (issue #662); pop_decompress_seconds
-    # reads and resets it. A plain key stamps nothing and the flag off
-    # keeps it at zero.
+    # xz inflates transparently; the inflate wall stamps the per-thread
+    # accumulator when the timing flag is on (#662), read-and-reset.
     plain = b'{"type":"user"}\n{"type":"assistant"}\n'
     key = "claude/proj-a/sess-1/sess-1.jsonl.xz"
     (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl.xz").write_bytes(

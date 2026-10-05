@@ -66,9 +66,7 @@ def test_phases_done_reports_total_sum_and_gap(monkeypatch, caplog):
     phases = timing.Phases("synthetic", account=True)
     phases.mark("first", 0.012)
     phases.mark("second", 0.008)
-    # A part is a breakdown figure (issue #662): it prints on the line
-    # but never enters the sum/gap — the pool wall's parts are summed
-    # across children and may exceed the run's wall.
+    # A part (#662) prints but never enters the sum/gap.
     phases.mark_part("child_parse", 9.0)
 
     with caplog.at_level(logging.INFO, logger="claudit.api"):
