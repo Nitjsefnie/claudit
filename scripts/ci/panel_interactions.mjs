@@ -80,6 +80,12 @@ export const FILED = [
   // not a separate one.
   { issue: 642, panel: null, kind: 'sweep-shift' },
   { issue: 642, panel: null, kind: 'other-region' },
+  // #642's overflow half, caught by the probe identity below: the by-
+  // Model tooltips scroll their long label inside their own box in CI's
+  // Chromium (its font stack renders the label wider than the local
+  // one). The guard is CI-canonical — an environment where this entry
+  // cannot fire reports it STALE, loudly, instead of passing quietly.
+  { issue: 642, panel: / by Model$/, kind: 'tooltip-overflow' },
   // #643: the cold load shifts the layout, CLS about 0.85.
   { issue: 643, panel: null, kind: 'cold-cls' },
   // #645: the container-vs-svg coordinate mismatch — the active band
