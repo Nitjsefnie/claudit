@@ -493,7 +493,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-05T05:53:51Z",
+  "provider_rates_fetched": "2026-10-05T06:54:31Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1473,6 +1473,14 @@
           "create_5m": 0.05,
           "fresh": 0.05,
           "from": "2026-10-05T05:40:19Z",
+          "output": 0.3,
+          "read": 0.018
+        },
+        {
+          "create_1h": 0.06,
+          "create_5m": 0.06,
+          "fresh": 0.06,
+          "from": "2026-10-05T06:30:21Z",
           "output": 0.3,
           "read": 0.018
         }
@@ -4724,6 +4732,30 @@
           "create_5m": 0.08,
           "fresh": 0.08,
           "from": "2026-10-05T05:10:20Z",
+          "output": 1.2,
+          "read": 0.06
+        },
+        {
+          "create_1h": 0.065,
+          "create_5m": 0.065,
+          "fresh": 0.065,
+          "from": "2026-10-05T06:20:41Z",
+          "output": 1.2,
+          "read": 0.06
+        },
+        {
+          "create_1h": 0.08,
+          "create_5m": 0.08,
+          "fresh": 0.08,
+          "from": "2026-10-05T06:35:18Z",
+          "output": 1.2,
+          "read": 0.06
+        },
+        {
+          "create_1h": 0.065,
+          "create_5m": 0.065,
+          "fresh": 0.065,
+          "from": "2026-10-05T06:40:41Z",
           "output": 1.2,
           "read": 0.06
         }
@@ -23051,6 +23083,14 @@
           "from": "2026-10-05T05:10:19Z",
           "output": 0.84,
           "read": 0.08
+        },
+        {
+          "create_1h": 0.17,
+          "create_5m": 0.17,
+          "fresh": 0.17,
+          "from": "2026-10-05T06:50:31Z",
+          "output": 0.84,
+          "read": 0.1
         }
       ]
     },
@@ -42166,6 +42206,14 @@
           "from": "2026-10-05T03:05:18Z",
           "output": 5.0,
           "read": 0.45
+        },
+        {
+          "create_1h": 0.45,
+          "create_5m": 0.45,
+          "fresh": 0.45,
+          "from": "2026-10-05T06:20:41Z",
+          "output": 5.0,
+          "read": 0.4
         }
       ]
     },
