@@ -201,7 +201,7 @@ function CacheTTLPanel({ events, range, binMs }) {
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel="Prompt-Cache TTL Split" width={w} height={h} style={{ display: 'block' }}>
         {/* Title */}
-        <text x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH_X.text}
+        <text data-role="title" x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH_X.text}
           textAnchor="middle" fontFamily="monospace">
           Prompt-Cache TTL Split
         </text>
@@ -211,7 +211,7 @@ function CacheTTLPanel({ events, range, binMs }) {
         </text>
 
         {/* Y grid */}
-        {yTicks.map((v, i) => (
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
           <line key={'g'+i} x1={padL} x2={w - padR}
             y1={yBar(v)} y2={yBar(v)}
             stroke={TH_X.grid} strokeOpacity="0.3" />
@@ -243,20 +243,20 @@ function CacheTTLPanel({ events, range, binMs }) {
         )}
 
         {/* Y-axis labels */}
-        {yTicks.map((v, i) => (
+        <g data-role="axis">{yTicks.map((v, i) => (
           <text data-yl-label="" key={'yl'+i} x={padL - 6} y={yBar(v) + 4}
             fontSize="9" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
             {humanFmt_X(v)}
           </text>
-        ))}
+        ))}</g>
 
         {/* Top-panel y label */}
-        <text x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
+        <text data-role="axis" x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 14 ${padT + plotH/2})`}>cache_create / bin</text>
 
         {/* Legend */}
-        <g transform={`translate(${padL + 8}, ${padT + 12})`}>
+        <g data-role="legend" transform={`translate(${padL + 8}, ${padT + 12})`}>
           <rect x={0} y={0} width={12} height={12} fill={COL_X.inputTokens} fillOpacity="0.85" />
           <text x={18} y={10} fontSize="10" fill={TH_X.text} fontFamily="monospace">ephemeral_5m</text>
           <rect x={120} y={0} width={12} height={12} fill={COL_X.cacheCreateTokens} fillOpacity="0.85" />
@@ -328,23 +328,23 @@ function CacheTTLPanel({ events, range, binMs }) {
         )}
 
         {/* Share strip y labels */}
-        {[0, 50, 100].map((p, i) => (
+        <g data-role="axis">{[0, 50, 100].map((p, i) => (
           <text key={'sy'+i} x={padL - 6} y={shareY(p) + 3}
             fontSize="8" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
             {p}%
           </text>
-        ))}
-        <text x={14} y={shareTop + sharePctH/2} fontSize="9" fill={TH_X.textDim}
+        ))}</g>
+        <text data-role="axis" x={14} y={shareTop + sharePctH/2} fontSize="9" fill={TH_X.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 14 ${shareTop + sharePctH/2})`}>5m share</text>
 
         {/* X-axis labels (under share strip) */}
-        {xTicks.map((t, i) => (
+        <g data-role="axis">{xTicks.map((t, i) => (
           <text key={'x'+i} x={xScale(t.ts)} y={shareBot + 14}
             fontSize="9" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
             {t.label}
           </text>
-        ))}
+        ))}</g>
 
         {/* Strip border */}
         <rect x={padL} y={shareTop} width={plotW} height={sharePctH}
@@ -595,7 +595,7 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
       onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={"Context Growth — " + title} width={w} height={h} style={{ display: 'block' }}>
-        <text x={padL} y={18} fontSize="11" fontWeight="bold" fill={color}
+        <text data-role="title" x={padL} y={18} fontSize="11" fontWeight="bold" fill={color}
           fontFamily="monospace">{title}</text>
         <text x={padL} y={32} fontSize="9" fill={TH_X.textDim}
           fontFamily="monospace">
@@ -629,7 +629,7 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
                 const at = cx;
                 cx += SW + GAP + it.label.length * adv + SPACING;
                 return (
-                  <g key={it.key} transform={`translate(${at}, 0)`}>
+                  <g data-role="legend" key={it.key} transform={`translate(${at}, 0)`}>
                     {it.mark}
                     <text x={SW + GAP} y={7} fontSize="8.5"
                       fill={it.dim ? TH_X.textDim : TH_X.text} fontFamily="monospace">{it.label}</text>
@@ -641,7 +641,7 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
         })()}
 
         {/* Y grid */}
-        {yTicks.map((v, i) => (
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
           <line key={'g'+i} x1={padL} x2={w - padR}
             y1={yScale(v)} y2={yScale(v)}
             stroke={TH_X.grid} strokeOpacity="0.25" />
@@ -725,19 +725,19 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
         )}
 
         {/* Y labels */}
-        {yTicks.map((v, i) => (
+        <g data-role="axis">{yTicks.map((v, i) => (
           <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
             fontSize="8.5" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
             {humanFmt_X(v)}
           </text>
-        ))}
+        ))}</g>
         {/* X labels */}
-        {xTicks.map((t, i) => (
+        <g data-role="axis">{xTicks.map((t, i) => (
           <text key={'x'+i} x={xScale(t)} y={padT + plotH + 14}
             fontSize="8.5" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
             {t}
           </text>
-        ))}
+        ))}</g>
       </svg>
       {a11y.descText && (
         <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
@@ -1265,7 +1265,7 @@ function ResponseSizesPanel({ data, bucketS }) {
         <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
           data-panel="Response Sizes" width={w} height={h} style={{ display: 'block' }}>
           {/* Y grid */}
-          {yTicks.map((v, i) => (
+          <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
               y1={yScale(v)} y2={yScale(v)}
               stroke={TH_X.grid} strokeOpacity="0.25" />
@@ -1301,20 +1301,20 @@ function ResponseSizesPanel({ data, bucketS }) {
           )}
 
           {/* Y labels */}
-          {yTicks.map((v, i) => (
+          <g data-role="axis">{yTicks.map((v, i) => (
             <text data-yl-label="" key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
               fontSize="9" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
               {window.humanFmt(v)}
             </text>
-          ))}
+          ))}</g>
           {/* X labels */}
-          {xTicks.map((t, i) => (
+          <g data-role="axis">{xTicks.map((t, i) => (
             <text key={'xl'+i} x={xScale(t.ts)} y={h - padB + 14}
               fontSize="9" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
               {t.label}
             </text>
-          ))}
-          <text x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
+          ))}</g>
+          <text data-role="axis" x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
             textAnchor="middle" fontFamily="monospace"
             transform={`rotate(-90 14 ${padT + plotH/2})`}>visible chars (log)</text>
         </svg>
@@ -1690,7 +1690,7 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
           <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke={TH_X.border} />
 
           {/* y ticks: 0%, 50%, 100% of yMax */}
-          {[0, 0.5, 1].map((f, i) => {
+          <g data-role="axis">{[0, 0.5, 1].map((f, i) => {
             const v = f * yMax;
             return (
               <g key={i}>
@@ -1701,10 +1701,10 @@ function ToolErrorSubPanel({ modelName, modelData, w, h, bucketMs }) {
                 </text>
               </g>
             );
-          })}
+          })}</g>
 
           {/* EMA polylines */}
-          {[...sel].map(k => {
+          <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{[...sel].map(k => {
             const arr = emaSeries.get(k) || [];
             if (arr.length < 2) return null;
             const pts = arr.map(p => `${xs(p.t_ms + bucketMs / 2)},${ys(p.ema)}`).join(' ');
@@ -2139,7 +2139,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
         <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
           data-panel="Tool Usage Ratio" width={w} height={h} style={{ display: 'block' }}>
           {/* Y grid */}
-          {yTicks.map((v, i) => (
+          <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
               y1={yScale(v)} y2={yScale(v)}
               stroke={TH_X.grid} strokeOpacity="0.25" />
@@ -2152,19 +2152,19 @@ function ToolUsagePanel({ models, project, range, nonce }) {
           ))}
 
           {/* Y labels */}
-          {yTicks.map((v, i) => (
+          <g data-role="axis">{yTicks.map((v, i) => (
             <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
               fontSize="9" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
               {(v * 100).toFixed(0)}%
             </text>
-          ))}
+          ))}</g>
           {/* X labels */}
-          {xTicks.map((t, i) => (
+          <g data-role="axis">{xTicks.map((t, i) => (
             <text key={'xl'+i} x={xScale(t.ts)} y={h - padB + 14}
               fontSize="9" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
               {t.label}
             </text>
-          ))}
+          ))}</g>
           {tip && (
             <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
               stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
@@ -2456,7 +2456,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
         <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
           data-panel="Reply Latency" width={w} height={h} style={{ display: 'block' }}>
-          {yTicks.map((v, i) => (
+          <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{yTicks.map((v, i) => (
             <line key={'g'+i} x1={padL} x2={w - padR}
               y1={yScale(v)} y2={yScale(v)}
               stroke={TH_X.grid} strokeOpacity="0.25" />
@@ -2498,7 +2498,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
               stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
           )}
 
-          {yTicks.map((v, i) => (
+          <g data-role="axis">{yTicks.map((v, i) => (
             <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
               fontSize="9" fill={TH_X.textDim} textAnchor="end" fontFamily="monospace">
               {v < 1 ? v.toFixed(1) + 's'
@@ -2506,14 +2506,14 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
                : v < 3600 ? (v/60).toFixed(v < 600 ? 1 : 0).replace(/\.0$/, '') + 'm'
                : (v/3600).toFixed(v < 36000 ? 1 : 0).replace(/\.0$/, '') + 'h'}
             </text>
-          ))}
-          {xTicks.map((t, i) => (
+          ))}</g>
+          <g data-role="axis">{xTicks.map((t, i) => (
             <text key={'xl'+i} x={xScale(t.ts)} y={h - padB + 14}
               fontSize="9" fill={TH_X.textDim} textAnchor="middle" fontFamily="monospace">
               {t.label}
             </text>
-          ))}
-          <text x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
+          ))}</g>
+          <text data-role="axis" x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
             textAnchor="middle" fontFamily="monospace"
             transform={`rotate(-90 14 ${padT + plotH/2})`}>latency (log)</text>
         </svg>
@@ -2761,29 +2761,29 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
               stroke="#fff" strokeWidth="1" strokeOpacity={0.85} />
 
         {/* hour labels every 3h */}
-        {[0, 3, 6, 9, 12, 15, 18, 21].map(hr => (
+        <g data-role="axis">{[0, 3, 6, 9, 12, 15, 18, 21].map(hr => (
           <text key={hr} x={cellRect(1, hr).x + cellW / 2} y={padT - 8}
                 textAnchor="middle" fill={TH_X.textDim}
                 fontFamily="monospace" fontSize="9">{hr}</text>
-        ))}
+        ))}</g>
         {/* Σ column header */}
-        <text x={sumColX + cellW / 2} y={padT - 8}
+        <text data-role="axis" x={sumColX + cellW / 2} y={padT - 8}
               textAnchor="middle" fill={TH_X.textDim}
               fontFamily="monospace" fontSize="9">Σ</text>
 
         {/* weekday labels */}
-        {_HEAT_DOW.map((d, i) => (
+        <g data-role="axis">{_HEAT_DOW.map((d, i) => (
           <text key={d} x={padL - 8} y={padT + i * (cellH + gap) + cellH / 2 + 3}
                 textAnchor="end" fill={TH_X.textDim}
                 fontFamily="monospace" fontSize="9">{d}</text>
-        ))}
+        ))}</g>
         {/* Σ row label */}
-        <text x={padL - 8} y={sumRowY + cellH / 2 + 3}
+        <text data-role="axis" x={padL - 8} y={sumRowY + cellH / 2 + 3}
               textAnchor="end" fill={TH_X.textDim}
               fontFamily="monospace" fontSize="9">Σ</text>
 
         {/* cells */}
-        {Array.from({ length: 7 }, (_, di) => di + 1).map(dow =>
+        <rect data-role="plot" x={padL} y={padT} width={sumColX + cellW - padL} height={sumRowY + cellH - padT} fill="none" />{Array.from({ length: 7 }, (_, di) => di + 1).map(dow =>
           Array.from({ length: 24 }, (_, hour) => {
             const { x, y } = cellRect(dow, hour);
             const c = byCell.get(dow * 100 + hour);
@@ -2848,7 +2848,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
               <stop offset="100%" stopColor={mspec.color} stopOpacity="1" />
             </linearGradient>
           </defs>
-          <rect x="0" y="0" width={legendW} height="10" rx="2" fill="url(#heatLegendGrad)" />
+          <rect data-role="legend" x="0" y="0" width={legendW} height="10" rx="2" fill="url(#heatLegendGrad)" />
         </svg>
         <span>{maxVal > 0 ? mspec.fmt(maxVal) : 'no data'}</span>
         <span style={{ marginLeft: 'auto' }}>intensity ∝ √(value / max) · Σ margins scaled independently</span>
@@ -3083,20 +3083,19 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={isTokens ? 'Tokens by Context Size' : 'Cost by Context Size'}
         width={w} height={h} style={{ display: 'block' }}>
-        {[0, 0.25, 0.5, 0.75, 1].map(f => (
-          <g key={f}>
-            <line x1={padL} x2={padL + plotW} y1={yCost(maxCost * f)} y2={yCost(maxCost * f)}
-                  stroke={TH_X.grid} strokeWidth={1} />
-            <text x={padL - 8} y={yCost(maxCost * f) + 4} textAnchor="end"
-                  fill={TH_X.textDim} fontFamily="monospace" fontSize={10}>
-              {fmtUsd(maxCost * f)}
-            </text>
-            <text x={padL + plotW + 8} y={yShare(f) + 4} textAnchor="start"
-                  fill={TH_X.textDim} fontFamily="monospace" fontSize={10}>
-              {Math.round(f * 100)}%
-            </text>
-          </g>
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{[0, 0.25, 0.5, 0.75, 1].map(f => (
+          <line key={'g' + f} x1={padL} x2={padL + plotW} y1={yCost(maxCost * f)} y2={yCost(maxCost * f)}
+                stroke={TH_X.grid} strokeWidth={1} />
         ))}
+        <g data-role="axis">{[0, 0.25, 0.5, 0.75, 1].map(f => (
+          <text key={f} x={padL - 8} y={yCost(maxCost * f) + 4} textAnchor="end"
+                fill={TH_X.textDim} fontFamily="monospace" fontSize={10}>
+            {fmtUsd(maxCost * f)}
+          </text>
+        ))}</g><g data-role="axis">{[0, 0.25, 0.5, 0.75, 1].map(f => (
+          <text key={f} x={padL + plotW + 8} y={yShare(f) + 4} textAnchor="start" fill={TH_X.textDim}
+                fontFamily="monospace" fontSize={10}>{Math.round(f * 100)}%</text>
+        ))}</g>
 
         {bars.map((b, i) => (
           <rect key={b.edge}
@@ -3128,7 +3127,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
                 strokeWidth="1" strokeDasharray="2,3" />
         )}
 
-        {bars.map((b, i) => (
+        <g data-role="axis">{bars.map((b, i) => (
           (i % Math.max(1, Math.round(bars.length / 10)) === 0 || b.overflow) ? (
             <text key={`x${b.edge}`} x={padL + i * bw + bw / 2} y={h - 12}
                   textAnchor="middle" fill={TH_X.textDim}
@@ -3136,14 +3135,14 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
               {b.overflow ? `${fmtTok(b.edge)}+` : fmtTok(b.edge)}
             </text>
           ) : null
-        ))}
+        ))}</g>
 
         {/* Rotated captions naming each scale — how Cost (USD) labels a
             left and a right axis without spending a legend on it. */}
-        <text x={17} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
+        <text data-role="axis" x={17} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
               textAnchor="middle" fontFamily="monospace"
               transform={`rotate(-90 17 ${padT + plotH / 2})`}>{isTokens ? 'tokens' : 'cost'}</text>
-        <text x={w - 12} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
+        <text data-role="axis" x={w - 12} y={padT + plotH / 2} fontSize="9" fill={TH_X.textDim}
               textAnchor="middle" fontFamily="monospace"
               transform={`rotate(-90 ${w - 12} ${padT + plotH / 2})`}>cumulative</text>
 

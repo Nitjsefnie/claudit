@@ -522,38 +522,38 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
             stroke={color} strokeOpacity="0.4" strokeWidth="1" strokeDasharray="2,3" />
         )}
 
-        {yTicksL.map((v, idx) => (
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" /><g data-role="axis">{yTicksL.map((v, idx) => (
           <text data-yl-label="" key={'yl'+idx} x={padL - 6} y={yBar(v) + 4}
             fontSize="9" fill={TH.textDim} textAnchor="end" fontFamily="monospace">
             {humanFmt(v, isCurrency)}
           </text>
-        ))}
+        ))}</g>
         {/* Start-anchored so labels grow rightward into the gutter. The gutter
             (padR wide) has to fit the widest label plus the rotated
             "cumulative" title at x 849; padR is sized for that. */}
-        {yTicksR.map((v, idx) => (
+        <g data-role="axis">{yTicksR.map((v, idx) => (
           <text key={'yr'+idx} x={w - padR + 6} y={yCum(v) + 4}
             fontSize="9" fill={TH.textDim} textAnchor="start" fontFamily="monospace">
             {humanFmt(v, isCurrency)}
           </text>
-        ))}
-        {ticks.map((t, idx) => (
+        ))}</g>
+        <g data-role="axis">{ticks.map((t, idx) => (
           <text key={'x'+idx} x={xScale(t.ts)} y={h - padB + 14}
             fontSize="9" fill={TH.textDim} textAnchor="middle" fontFamily="monospace">
             {t.label}
           </text>
-        ))}
+        ))}</g>
 
-        <text x={w/2} y={18} fontSize="13" fontWeight="bold" fill={TH.text}
+        <text data-role="title" x={w/2} y={18} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
 
         {/* x=17 not 12: at 12 the rotated caption's box started 3px from the
             panel edge. 17 puts it at 8px, matching the margin the y labels
             get on the other side of it. */}
-        <text x={17} y={padT + plotH/2} fontSize="9" fill={TH.textDim}
+        <text data-role="axis" x={17} y={padT + plotH/2} fontSize="9" fill={TH.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 17 ${padT + plotH/2})`}>per {binMsLabel(binMs)}</text>
-        <text x={w - 12} y={padT + plotH/2} fontSize="9" fill={TH.textDim}
+        <text data-role="axis" x={w - 12} y={padT + plotH/2} fontSize="9" fill={TH.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 ${w - 12} ${padT + plotH/2})`}>cumulative</text>
 
@@ -670,9 +670,9 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
     onMouseLeave={() => setHover(null)}>
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={title} width={w} height={h} style={{ display: 'block' }}>
-        <text x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
+        <text data-role="title" x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
-        {rows.map((r, idx) => {
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={rows.length * 36} fill="none" />{rows.map((r, idx) => {
           const y = padT + idx * 36;
           const barW = (r.value / xMax) * plotW;
           const c = (fixedColors && fixedColors[r.label]) || r.color || COL.inputTokens;
@@ -850,11 +850,11 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
     onMouseLeave={() => setHover(null)}>
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={title} width={w} height={h} style={{ display: 'block' }}>
-        <text x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
+        <text data-role="title" x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
-        <line x1={padL} x2={w - padR} y1={padT + plotH} y2={padT + plotH}
+        <line data-role="axis" x1={padL} x2={w - padR} y1={padT + plotH} y2={padT + plotH}
           stroke={TH.border} strokeWidth="1" />
-        {rows.map((r, idx) => {
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{rows.map((r, idx) => {
           const cx = padL + idx * slot + slot / 2;
           const barH = Math.max(2, (r.value / yMax) * plotH);
           const y = padT + plotH - barH;
@@ -1201,16 +1201,16 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
             <rect x={padL} y={padT} width={plotW} height={plotH} />
           </clipPath>
         </defs>
-        <text x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH.text}
+        <text data-role="title" x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">
           Session Burn Rate  |  {fmtDate(range.start, {day:true})} – {fmtDate(range.end, {day:true})}, {new Date(range.end).getUTCFullYear()} UTC  |  {sessions.length.toLocaleString()} sessions, {events.reduce((s,e)=>s+(e.requests==null?1:e.requests),0).toLocaleString()} requests
         </text>
-        {yTicks.map((v, i) => (
+        <g data-role="axis">{yTicks.map((v, i) => (
           <text data-yl-label="" key={'yl'+i} x={padL - 8} y={yScale(v) + 4}
             fontSize="10" fill={TH.textDim} textAnchor="end" fontFamily="monospace">
             {humanFmt(v)}
           </text>
-        ))}
+        ))}</g><rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />
         <g clipPath="url(#burn-plot-clip)">
         {windowBoundaries.map((wb, i) => (
           <line key={'wb'+i} x1={xScale(wb)} x2={xScale(wb)}
@@ -1258,15 +1258,15 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
             stroke="#ff3366" strokeWidth="2" strokeOpacity="0.7" />
         ))}
         </g>
-        {xTicks.map((t, i) => (
+        <g data-role="axis">{xTicks.map((t, i) => (
           <text key={'x'+i} x={xScale(t.ts)} y={h - padB + 14}
             fontSize="10" fill={TH.textDim} textAnchor="middle" fontFamily="monospace">
             {t.label}
           </text>
-        ))}
+        ))}</g>
         {/* x=18 not 14: rotated text's box extends about one ascent to the
             left of its baseline, so at 14 it began 3.5px from the edge. */}
-        <text x={18} y={padT + plotH/2} fontSize="10" fill={TH.textDim}
+        <text data-role="axis" x={18} y={padT + plotH/2} fontSize="10" fill={TH.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 18 ${padT + plotH/2})`}>Tokens per hour (EMA) / 100 × Cost per hour</text>
 
@@ -1299,7 +1299,7 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
           return (
             <g transform={`translate(${padL + 20}, ${h - 22 - (nRows - 1) * ROW})`}>
               {placed.map(it => (
-                <g key={it.key} transform={`translate(${it.at}, ${it.row * ROW})`}>
+                <g data-role="legend" key={it.key} transform={`translate(${it.at}, ${it.row * ROW})`}>
                   <line x1={0} x2={SWATCH} y1={6} y2={6} stroke={it.color} strokeWidth="2" />
                   <text data-legend-item="" x={SWATCH + GAP} y={10} fontSize="10"
                     fill={TH.text} fontFamily="monospace">{it.label}</text>
