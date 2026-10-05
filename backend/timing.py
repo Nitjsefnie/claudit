@@ -40,15 +40,24 @@ if not _CLAUDIT_LOGGER.handlers:
 
 
 class Phases:
-    """Collect labelled phase timings and log them as a single line."""
+    """Collect labelled phase timings and log them as a single line.
 
-    __slots__ = ("_name", "_marks", "_t0", "_logger", "_account")
+    `mark` records a phase wall that counts into the account line's sum;
+    `mark_part` records a BREAKDOWN-ONLY figure (issue #662: the pool
+    pipeline's fetch_parse parts are work summed across children and
+    threads, which may exceed the run's wall, so it must not enter the
+    sum/gap accounting). Parts print after the phase marks, before the
+    tail.
+    """
+
+    __slots__ = ("_name", "_marks", "_parts", "_t0", "_logger", "_account")
 
     def __init__(self, name: str,
                  logger: logging.Logger | None = None, *,
                  account: bool = False) -> None:
         self._name = name
         self._marks: list[tuple[str, float]] = []
+        self._parts: list[tuple[str, float]] = []
         self._t0 = time.perf_counter()
         self._logger = (logger if logger is not None
                         else logging.getLogger("claudit.api"))
@@ -64,6 +73,9 @@ class Phases:
 
     def mark(self, label: str, seconds: float) -> None:
         self._marks.append((label, seconds))
+
+    def mark_part(self, label: str, seconds: float) -> None:
+        self._parts.append((label, seconds))
 
     def execute(self, label: str, cur, sql: str, args: Any = None):
         """Time a single ``cursor.execute`` and record it under `label`.
@@ -81,15 +93,18 @@ class Phases:
         if not TIMING_ON:
             return
         total = (time.perf_counter() - self._t0) * 1000
-        parts = " ".join(f"{k}={v * 1000:.0f}ms" for k, v in self._marks)
+        marks = " ".join(f"{k}={v * 1000:.0f}ms" for k, v in self._marks)
+        parts = " ".join(f"{k}={v * 1000:.0f}ms" for k, v in self._parts)
+        if parts:
+            marks = f"{marks} {parts}"
         tail = " ".join(f"{k}={v}" for k, v in extra.items())
         if self._account:
             summed = sum(v for _, v in self._marks) * 1000
             gap = total - summed
             self._logger.info(
                 "TIMING %s total=%.0fms sum=%.0fms gap=%.0fms %s %s",
-                self._name, total, summed, gap, parts, tail)
+                self._name, total, summed, gap, marks, tail)
         else:
             self._logger.info(
                 "TIMING %s total=%.0fms %s %s",
-                self._name, total, parts, tail)
+                self._name, total, marks, tail)
