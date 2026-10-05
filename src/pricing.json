@@ -493,7 +493,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-05T04:39:27Z",
+  "provider_rates_fetched": "2026-10-05T04:53:54Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -4684,6 +4684,14 @@
           "create_5m": 0.08,
           "fresh": 0.08,
           "from": "2026-10-05T03:10:17Z",
+          "output": 1.2,
+          "read": 0.06
+        },
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": "2026-10-05T04:45:21Z",
           "output": 1.2,
           "read": 0.06
         }
@@ -10872,6 +10880,22 @@
           "from": "2026-10-05T04:39:27Z",
           "output": 1.664,
           "read": 0.03653
+        },
+        {
+          "create_1h": 0.039,
+          "create_5m": 0.039,
+          "fresh": 0.039,
+          "from": "2026-10-05T04:45:19Z",
+          "output": 1.664,
+          "read": 0.039
+        },
+        {
+          "create_1h": 0.03796,
+          "create_5m": 0.03796,
+          "fresh": 0.03796,
+          "from": "2026-10-05T04:50:19Z",
+          "output": 1.664,
+          "read": 0.03796
         }
       ],
       "Parasail": [
@@ -11750,6 +11774,22 @@
           "from": "2026-10-05T04:30:20Z",
           "output": 1.28,
           "read": 0.0281
+        },
+        {
+          "create_1h": 0.03,
+          "create_5m": 0.03,
+          "fresh": 0.03,
+          "from": "2026-10-05T04:40:19Z",
+          "output": 1.28,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.0292,
+          "create_5m": 0.0292,
+          "fresh": 0.0292,
+          "from": "2026-10-05T04:45:20Z",
+          "output": 1.28,
+          "read": 0.0292
         }
       ],
       "SiliconFlow": [
