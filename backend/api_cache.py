@@ -73,7 +73,10 @@ def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
         "rate_pairs", c,
         "SELECT DISTINCT model, provider FROM usage_rollup",
     ).fetchall()
-    pairs = [(model or "unknown", provider or "") for model, provider in pairs]
+    # NULL is not masked as `unknown` (issue #653): ingest refuses a file
+    # whose rows name no model, so a NULL here would mean that refusal
+    # was bypassed; resolve() prices an empty id at the fallback rates.
+    pairs = [(model, provider or "") for model, provider in pairs]
     pair_bounds = {
         pair: rate_boundaries(*pair) for pair in pairs
     }

@@ -1,4 +1,5 @@
 {"timestamp":"2026-10-01T08:44:15Z","type":"session_meta","payload":{"session_id":"00000000-0000-4000-8000-0000000000c1"}}
+{"timestamp":"2026-10-01T08:44:15Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
 {"timestamp":"2026-10-01T08:44:16Z","type":"event_msg","payload":{"type":"task_started"}}
 {"timestamp":"2026-10-01T08:44:17Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_monitor01","name":"exec","input":"tools.monitor({command:[\"python3\",\"-c\",\"open('out.txt','w').write('one\\\\ntwo')\"]})"}}
 {"timestamp":"2026-10-01T08:44:18Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_monitor01","output":[{"type":"input_text","text":"ok"}]}}

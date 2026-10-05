@@ -31,7 +31,7 @@ NESTED_FIXTURES = {
     "non_object_nested_kimi_legacy.jsonl": [3],
 }
 
-CODEX_JUNK_LINES = [2, 6, 7]
+CODEX_JUNK_LINES = [3, 7, 8]
 KIMI_CODE_TOOL_CALL_JUNK_LINES = [8, 9]
 
 
@@ -345,16 +345,23 @@ def test_browser_kimi_tool_result_content_matches_backend_filtering():
     assert got["toolResults"] == ["fallback", "fallback"]
 
 
+def _parse_codex_file(file_key: str, blob: bytes) -> dict:
+    """parse_file minus the issue-653 refusal: this module's codex
+    fixture carries no model declaration, which the entry point refuses;
+    these tests pin shape guards, not attribution."""
+    return parse.to_claudit(
+        parse.LANE_PARSERS["codex"](file_key, blob), "codex")
+
 def test_backend_codex_nested_shape_guards_match_empty_lines():
     name = "non_object_codex_item_content.jsonl"
     text = (FIX / name).read_text(encoding="ascii")
-    actual = parse.parse_file(f"sessions/p/s/{name}", text.encode("ascii"))
-    expected = parse.parse_file(
+    actual = _parse_codex_file(f"sessions/p/s/{name}", text.encode("ascii"))
+    expected = _parse_codex_file(
         f"sessions/p/s/{name}", _without_lines(text, CODEX_JUNK_LINES)
     )
 
     assert expected["records"]
-    assert [row["line_num"] for row in expected["records"]] == [3, 5]
+    assert [row["line_num"] for row in expected["records"]] == [4, 6]
     assert expected["prompt_count"] == 0
     assert actual == expected
 
@@ -365,17 +372,17 @@ def test_browser_codex_non_array_item_content_matches_backend():
     variants = {}
     for label, content in (("number", 123), ("boolean", True), ("object", {})):
         lines = text.splitlines()
-        item_line = json.loads(lines[3])
+        item_line = json.loads(lines[4])
         item_line["payload"]["item"]["content"] = content
-        lines[3] = json.dumps(item_line, separators=(",", ":"))
+        lines[4] = json.dumps(item_line, separators=(",", ":"))
         variants[f"{name}:{label}"] = "\n".join(lines)
     got = _node_parse(variants)
 
     for variant, variant_text in variants.items():
-        parsed = parse.parse_file(
+        parsed = _parse_codex_file(
             f"sessions/p/s/{name}", variant_text.encode("ascii")
         )
-        expected = parse.parse_file(
+        expected = _parse_codex_file(
             f"sessions/p/s/{name}",
             _without_lines(variant_text, CODEX_JUNK_LINES),
         )
@@ -403,10 +410,10 @@ def test_codex_non_object_rate_limit_primary_matches_empty_map():
     lines[2] = json.dumps(empty_primary_record, separators=(",", ":"))
     empty_primary = "\n".join(lines)
 
-    actual = parse.parse_file(
+    actual = _parse_codex_file(
         f"sessions/p/s/{name}", malformed_primary.encode("ascii")
     )
-    expected = parse.parse_file(
+    expected = _parse_codex_file(
         f"sessions/p/s/{name}", empty_primary.encode("ascii")
     )
     got = _node_parse({name: malformed_primary})[name]

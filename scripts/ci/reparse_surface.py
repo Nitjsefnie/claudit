@@ -118,6 +118,12 @@ def corpus(base_entries, entry_type, root: Path = ROOT) -> list:
     for name in SURFACE_SAMPLES:
         for path in sorted((fixtures / name).rglob('*.jsonl')):
             key = path.relative_to(fixtures).as_posix()
+            # The issue-653 refusal fixture: it declares no model, so the
+            # parse the gate measures refuses it and there is no surface
+            # to score on a file ingest would fail. Its refusal is pinned
+            # in tests/test_parse_codex.py.
+            if key == 'codex/rollout_fork_prefix.jsonl':
+                continue
             if key in seen:
                 continue
             seen.add(key)

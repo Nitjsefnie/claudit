@@ -15,7 +15,7 @@ from datetime import datetime
 
 from orjson import JSONDecodeError, loads
 
-from backend import pricing
+from backend import pricing, parse_lanes
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
                                  ERROR_KIND_REJECTED,  # pylint: disable=unused-import
@@ -851,4 +851,4 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     fmt = sniff_format(blob)
     if fmt == "claude":
         return _parse_claude(file_key, blob)
-    return to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt)
+    return parse_lanes.refuse_unattributed(to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt), fmt, file_key)

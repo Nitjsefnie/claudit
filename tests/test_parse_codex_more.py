@@ -15,6 +15,7 @@ from tests.test_parse_codex import (
     TOOL_USE_KEYS,
     _codex_model,
     _parse,
+    _parse_file_norefusal,
     _uncached_headroom,
     _with_cache_write,
 )
@@ -23,7 +24,7 @@ from tests.test_parse_codex import (
 def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
     written = _uncached_headroom("rollout_fork_prefix.jsonl") // 2
     blob = _with_cache_write("rollout_fork_prefix.jsonl", written)
-    rec = parse.parse_file("codex/cache_write.jsonl", blob)["records"][-1]
+    rec = _parse_file_norefusal("codex/cache_write.jsonl", blob)["records"][-1]
     plain = _parse("rollout_fork_prefix.jsonl")["records"][-1]
     # Same prompt, but half its uncached part written to cache at the row's
     # create_1h rate instead of billed as fresh input. The SIGNED delta
@@ -181,8 +182,9 @@ def test_codex_tool_uses_preserve_event_time_models_across_a_switch():
     ]
 
 
-def test_codex_tool_use_before_first_declaration_uses_the_sole_model():
-    """A sole declaration backfills a tool call in replayed history."""
+def test_codex_tool_use_before_first_declaration_uses_the_first_declared_model():
+    """The first declared model backfills a tool call in replayed
+    history (issue #653)."""
     lines = [
         {
             "timestamp": "2026-06-14T12:00:01.000Z",
@@ -408,7 +410,7 @@ def test_a_truncated_final_line_does_not_abort_the_parse():
     a file read mid-write can be half an object."""
     blob = (FIX / "rollout_patch_linked.jsonl").read_bytes()
     truncated = blob + b'{"timestamp":"2026-06-14T12:00:30.000Z","type":"even'
-    out = parse.parse_file("codex/truncated.jsonl", truncated)
+    out = _parse_file_norefusal("codex/truncated.jsonl", truncated)
     assert len(out["tool_uses"]) == 7
 
 

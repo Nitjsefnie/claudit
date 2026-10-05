@@ -161,6 +161,22 @@ def lane_sidecar_agent_type(role: str) -> str:
     return lane_agent_type("kimi-code", role)
 
 
+def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
+    """Refuse a lane parse whose rows name no model (issue #653).
+
+    A lane row without a model is a code error — the model was never
+    actually unknown — so ingest fails loudly on the file instead of
+    storing an unattributed placeholder. The Claude path's own
+    `(unknown)` fallback is a different sentinel, out of scope here.
+    """
+    for row in parsed["records"] + parsed["tool_uses"]:
+        if not row.get("model") or row["model"] == "unknown":
+            raise ValueError(
+                f"{file_key}: a {fmt} row names no model; refusing the file "
+                "rather than storing an unattributed one (issue #653)")
+    return parsed
+
+
 def to_claudit(parsed: dict, fmt: str) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
