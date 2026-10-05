@@ -25,7 +25,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import api, app as app_mod, constants, db, events, ingest, ingest_fetch, ingest_runs
+from backend import (api, app as app_mod, constants, db, events, ingest,
+                     ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
 
 #: How many transcripts the committed mirror holds, read from its tree
@@ -569,3 +570,75 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
     assert isinstance(box.get("exc"), ingest_fetch.IngestAborted), box
     assert persisted == ["chunk/first-0.jsonl"], (
         f"queued persists survived the abort: {persisted}")
+
+
+# --------------------------------- fetch_parse stage accounting (#662)
+
+def test_fetch_and_parse_books_child_stages():
+    """With a stage accumulator given, fetch_and_parse books this file's
+    child work split into fetch/decompress/parse; a plain (non-xz) fetch
+    decompresses nothing, so that stage reads zero. Without an
+    accumulator the call behaves exactly as before."""
+    def fetch(key):
+        return b"payload"
+
+    def parse_file(key, data):
+        return {"agent_type_in_band": True, "data": data}
+
+    stages: dict = {}
+    parsed = ingest_fetch.fetch_and_parse(
+        "k", None, fetch, parse_file, stages=stages)
+    assert parsed == {"agent_type_in_band": True, "data": b"payload"}
+    assert set(stages) == {"child_fetch", "child_decompress", "child_parse"}
+    assert stages["child_fetch"] > 0.0
+    assert stages["child_parse"] > 0.0
+    assert stages["child_decompress"] == 0.0
+
+    bare = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file)
+    assert bare == parsed, "the bare call must behave exactly as before"
+
+
+def test_parse_wire_books_child_stages(mini_r2_env, monkeypatch):
+    """The pool child's unit of work: with timing on, parse_wire returns
+    the parsed result paired with the stage dict fetch_and_parse booked;
+    with timing off, the bare result the persist call expects."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    key = "claude/projA/sess-A/sess-A.jsonl"
+    item = (types.SimpleNamespace(key=key, sidecar_key=None), None, None)
+    result = ingest_fetch.parse_wire(
+        item, ingest._fetch_and_parse, True)  # pylint: disable=protected-access
+    assert isinstance(result, tuple)
+    parsed, stages = result
+    assert isinstance(parsed, dict) and parsed
+    # pylint infers the union-unpacked name as the tuple branch (E1126).
+    assert stages["child_fetch"] > 0.0  # pylint: disable=invalid-sequence-index
+    assert stages["child_parse"] > 0.0  # pylint: disable=invalid-sequence-index
+    assert set(stages) == {"child_fetch", "child_decompress", "child_parse"}
+
+    bare = ingest_fetch.parse_wire(
+        item, ingest._fetch_and_parse, False)  # pylint: disable=protected-access
+    assert isinstance(bare, dict)
+
+
+def test_parse_wire_books_sidecar_stage(monkeypatch):
+    """The sidecar fetch is child work too: an item whose transcript's
+    agent type arrives out of band fetches its meta.json sidecar and the
+    stage books beside fetch/parse (issue #662). An unusable sidecar
+    still books the stage and leaves the parse standing."""
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+
+    def parse_call(key, sidecar_key):
+        return ingest_fetch.fetch_and_parse(
+            key, sidecar_key, lambda k: b"main-bytes",
+            lambda k, d: {"agent_type_in_band": False, "data": d})
+
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
+                                  sidecar_key="claude/p/s/k.meta.json"),
+            None, None)
+    result = ingest_fetch.parse_wire(item, parse_call, True)
+    assert isinstance(result, tuple)
+    parsed, stages = result
+    assert parsed["data"] == b"main-bytes"  # pylint: disable=invalid-sequence-index
+    assert stages["child_sidecar"] > 0.0  # pylint: disable=invalid-sequence-index
+    assert set(stages) == {"child_fetch", "child_decompress",
+                           "child_parse", "child_sidecar"}

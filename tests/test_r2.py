@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import r2
+from backend import r2, timing
 
 
 @pytest.fixture(name="mini_r2")
@@ -110,6 +110,30 @@ def test_get_object_inflates_xz(mini_r2):
         lzma.compress(plain)
     )
     assert r2.get_object(key) == plain
+
+
+def test_get_object_stamps_decompress_seconds(mini_r2, monkeypatch):
+    """get_object stamps the per-thread decompress accumulator when the
+    timing flag is on; pop_decompress_seconds reads and resets it (issue
+    #662: the pool children split the fetch wall into GET and inflate).
+    A plain key stamps nothing and the flag off keeps it at zero."""
+
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    plain = b'{"type":"user"}\n' * 2000
+    key = "claude/proj-a/sess-1/timed.jsonl.xz"
+    (mini_r2 / "proj-a" / "sess-1" / "timed.jsonl.xz").write_bytes(
+        lzma.compress(plain)
+    )
+    r2.get_object(key)
+    assert r2.pop_decompress_seconds() > 0.0
+    assert r2.pop_decompress_seconds() == 0.0  # read-and-reset
+
+    r2.get_object("claude/proj-a/sess-1/sess-1.jsonl")
+    assert r2.pop_decompress_seconds() == 0.0
+
+    monkeypatch.setattr(timing, "TIMING_ON", False)
+    r2.get_object(key)
+    assert r2.pop_decompress_seconds() == 0.0
 
 
 def test_get_stream_inflates_xz(mini_r2):

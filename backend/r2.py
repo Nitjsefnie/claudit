@@ -25,12 +25,15 @@ import lzma
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Iterator, NamedTuple
 from urllib.parse import urlparse
 
 import boto3
 from botocore.config import Config
+
+from backend import timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
@@ -345,9 +348,30 @@ def get_object(key: str) -> bytes:
     # Bucket objects may be stored per-object xz-compressed (`*.jsonl.xz`).
     # Inflate transparently so callers (ingest, transcript serving) always
     # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
+    # The inflate wall is stamped onto this thread's accumulator when the
+    # timing flag is on (issue #662: the ingest pool children split the
+    # fetch wall into GET and decompress via pop_decompress_seconds); the
+    # flag-off path costs one boolean check.
     if key.endswith(".xz"):
+        started = time.perf_counter() if timing.TIMING_ON else None
         data = lzma.decompress(data)
+        if started is not None:
+            _tls.decompress_s = (getattr(_tls, "decompress_s", 0.0)
+                                 + time.perf_counter() - started)
     return data
+
+
+def pop_decompress_seconds() -> float:
+    """Read-and-reset this thread's stamped decompress seconds.
+
+    get_object stamps the accumulator when the timing flag is on; the
+    ingest's fetch unit pops it after each fetch so the pool pipeline can
+    price the decompress share of its child work. Read-and-reset keeps
+    the value private to one fetch→pop cycle on the calling thread.
+    """
+    value = getattr(_tls, "decompress_s", 0.0)
+    _tls.decompress_s = 0.0
+    return value
 
 
 def get_stream(key: str):

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import os
-import signal
+import threading
 import time
 import lzma
 from collections.abc import Callable, Iterator
@@ -25,6 +25,10 @@ from backend.ingest_reprice import IngestAborted
 from backend.ingest_scope import capture_and_add, capture_contributions, current_scope
 from backend.ingest_progress import _set_progress
 from backend.ingest_timing import _RUN_TIMING, _RunTiming
+from backend.ingest_workers import (
+    parse_process_count, parse_worker_init, persist_thread_count,
+    worker_count,
+)
 
 log = logging.getLogger("claudit.ingest")
 
@@ -32,6 +36,14 @@ TRANSIENT_FETCH_ERRORS = (OSError, BotoCoreError, ClientError)
 CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
 FETCH_BACKOFF_S = (0.5, 1.0)
 FETCH_ATTEMPTS = len(FETCH_BACKOFF_S) + 1
+
+# The pool child's per-file stage accumulator (issue #662): parse_wire
+# plants a dict here before calling the parse unit, and fetch_and_parse
+# writes this file's child work into it — the channel is per-thread, so
+# the parse_call seam stays a plain (key, sidecar_key) callable and keeps
+# resolving the patched `ingest` seams inside the forked child. The
+# parent's pipeline_pool sums the returned stages into _RunTiming.
+_STAGES = threading.local()
 
 
 class VanishedObject(Exception):
@@ -79,17 +91,43 @@ def fetch_with_retry(key: str) -> bytes:
 
 def fetch_and_parse(key: str, sidecar_key: str | None,
                     fetch: Callable[[str], bytes],
-                    parse_file: Callable[[str, bytes], dict] | None = None
-                    ) -> dict:
-    """Fetch and parse one object without opening a database connection."""
+                    parse_file: Callable[[str, bytes], dict] | None = None,
+                    stages: dict[str, float] | None = None) -> dict:
+    """Fetch and parse one object without opening a database connection.
+
+    `stages` books this file's child work (issue #662): the main fetch
+    wall, the xz inflate it paid (popped from r2's per-thread stamp), the
+    parse, and the sidecar fetch when one runs. It is inert when None —
+    every caller but the timed pool child, which plants the accumulator
+    on _STAGES because the `parse_call` seam's fixed shape cannot carry
+    the dict through.
+    """
+    if stages is None:
+        stages = getattr(_STAGES, "stages", None)
+    acc: dict[str, float] | None = stages
+    fetch_started = time.perf_counter() if acc is not None else None
+    data = fetch(key)
+    parse_started = (time.perf_counter()
+                     if fetch_started is not None else None)
     parsed = (parse.parse_file if parse_file is None else parse_file)(
-        key, fetch(key))
+        key, data)
+    if (acc is not None and parse_started is not None
+            and fetch_started is not None):
+        now = time.perf_counter()
+        acc["child_parse"] = now - parse_started
+        acc["child_fetch"] = parse_started - fetch_started
+        acc["child_decompress"] = r2.pop_decompress_seconds()
     if sidecar_key is None or parsed["agent_type_in_band"]:
         return parsed
+    sidecar_started = (time.perf_counter()
+                       if fetch_started is not None else None)
     try:
         sidecar = fetch(sidecar_key)
     except (VanishedObject, *CORRUPT_PAYLOAD_ERRORS):
         return parsed
+    finally:
+        if acc is not None and sidecar_started is not None:
+            acc["child_sidecar"] = time.perf_counter() - sidecar_started
     return agent_sidecar.apply_agent_sidecar(
         parsed, sidecar, r2.split_key(key)[1])
 
@@ -147,96 +185,6 @@ def resolve(items: list, call, workers: int) -> list[tuple]:
                 except Exception as e:  # noqa: BLE001
                     outcomes.append((item, None, e))
     return outcomes
-
-
-def worker_count() -> int:
-    """Fetch+parse thread concurrency of the IN-PROCESS pipeline.
-
-    Unset or unparseable -> auto (network-bound work, so oversubscribe
-    cores). An explicit number is honoured, clamped to at least 1, so
-    INGEST_WORKERS=1 is a real "go sequential" switch for debugging.
-    With INGEST_PARSE_PROCESSES>1 the fetch runs inside the parse
-    children and this knob governs only the markers pool.
-    """
-    auto = min(16, (os.cpu_count() or 4) * 2)
-    raw = os.environ.get("INGEST_WORKERS", "").strip()
-    if not raw:
-        return auto
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return auto
-
-
-def parse_process_count() -> int:
-    """Parse-process concurrency of the process-pool pipeline.
-
-    The parse is pure-Python CPU work, so the in-process thread pool is
-    GIL-serialised — and measured on the private restore (issue #309), 16
-    threads regressed parse wall 1.63x against a serial run. Forked
-    children get real parallelism. Unset or unparseable -> auto =
-    min(8, max(1, cpu//2)); an explicit integer is honoured, clamped to
-    >= 1; INGEST_PARSE_PROCESSES=1 is the in-process pipeline.
-    """
-    auto = min(8, max(1, (os.cpu_count() or 4) // 2))
-    raw = os.environ.get("INGEST_PARSE_PROCESSES", "").strip()
-    if not raw:
-        return auto
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return auto
-
-
-def persist_thread_count() -> int:
-    """Persist-thread concurrency of the process-pool pipeline.
-
-    Each thread runs the unchanged `_persist` — one file, one
-    transaction, drawn from the shared viz pool (max_size 20, shared
-    with API traffic), so the default stays modest. Unset or
-    unparseable -> 4; an explicit integer is honoured, clamped to >= 1.
-    """
-    raw = os.environ.get("INGEST_PERSIST_THREADS", "").strip()
-    if not raw:
-        return 4
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 4
-
-
-def parse_worker_init(parent_pid: int) -> None:
-    """Keep a forked parse worker from outliving the service (issue #373).
-
-    A fork inherits uvicorn's SIGTERM handler, which only sets a flag the
-    worker never checks — so a worker ignored SIGTERM and survived the
-    service, holding its port, database sessions and the ingest advisory
-    lock until killed by hand. Three defences, each best-effort so a
-    worker on a platform missing one still parses:
-
-    - SIGTERM/SIGINT restored to SIG_DFL: a systemd control-group stop
-      (SIGTERM to the cgroup) kills the worker outright;
-    - the parent-death signal (prctl PR_SET_PDEATHSIG, SIGKILL): the
-      worker dies with the process even when nothing sent it a SIGTERM
-      (a bare uvicorn whose supervisor kills the main PID only);
-    - the ppid check: PDEATHSIG is armed after fork, so a parent that
-      died inside that window left an orphan — a worker whose parent is
-      not the one that forked it exits immediately.
-    """
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            signal.signal(sig, signal.SIG_DFL)
-        except (OSError, ValueError):  # pragma: no cover - no signal context
-            pass
-    try:
-        import ctypes  # pylint: disable=import-outside-toplevel
-
-        ctypes.CDLL("libc.so.6", use_errno=True).prctl(
-            1, signal.SIGKILL, 0, 0, 0)  # 1 = PR_SET_PDEATHSIG
-    except Exception:  # noqa: BLE001  - best-effort; non-Linux or no libc
-        pass
-    if os.getppid() != parent_pid:
-        os._exit(0)
 
 
 def pipeline_threads(todo: list[tuple], parser_version: str,
@@ -340,6 +288,16 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
             if current.last_parse_done is not None:
                 parse_wall = current.last_parse_done - fetch_parse_started
                 current.phases.mark("fetch_parse", parse_wall)
+                # Issue #662: the pool wall's parts, emitted as breakdown
+                # figures so the sum/gap accounting stays wall-only.
+                parts = dict(current.child_work)
+                parts["persist_work"] = current.persist_seconds
+                parts["wait_parse"] = current.wait_parse
+                parts["wait_persist"] = current.wait_persist
+                for label in ("child_fetch", "child_decompress",
+                              "child_parse", "child_sidecar",
+                              "persist_work", "wait_parse", "wait_persist"):
+                    current.phases.mark_part(label, parts.get(label, 0.0))
                 current.phases.mark(
                     "persist", time.perf_counter() - current.last_parse_done)
             else:
@@ -374,14 +332,28 @@ def resolve_futures(futures: dict) -> Iterator[tuple]:
             yield (item, None, e)
 
 
-def parse_wire(item: tuple, parse_call: Callable):
+def parse_wire(item: tuple, parse_call: Callable,
+               timed: bool = False) -> dict | tuple[dict, dict[str, float]]:
     """The unit submitted to the parse process pool: fetch and parse one
     wire (and its sidecar) in a forked child. `parse_call` is pickled with
     the item (a module-level attr of an importable module — the fork
     inherits any patch in force); the child touches no database state.
+
+    With `timed` (the run carries a timing context, issue #662), the unit
+    plants the stage accumulator the parse unit's fetch_and_parse writes
+    into, returns (parsed, stages) — the per-file child work — and always
+    clears the accumulator. Without it, the bare parsed dict, the shape
+    the persist submission has always expected.
     """
     obj, _proj, _stored = item
-    return parse_call(obj.key, obj.sidecar_key)
+    if not timed:
+        return parse_call(obj.key, obj.sidecar_key)
+    _STAGES.stages = {}
+    try:
+        parsed = parse_call(obj.key, obj.sidecar_key)
+        return parsed, _STAGES.stages
+    finally:
+        _STAGES.stages = None
 
 
 def pipeline_pool(todo: list[tuple], parser_version: str,
@@ -405,9 +377,16 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
 
     Phase accounting: fetch_parse is the wall until the last parse
     completion, persist the drain after it — disjoint, so the TIMING
-    line's sum never exceeds its total.
+    line's sum never exceeds its total. With a timing context in force,
+    the wall's parts are also accumulated onto the run (issue #662):
+    the child work parse_wire's stage dicts report, summed across the
+    children; the persist work persist_seconds already sums; and this
+    thread's two blocking points — waiting on parse results and draining
+    persists — so one reparse's line says where its time went. The parts
+    are breakdown figures (mark_part), never phases in the sum.
     """
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+    # pylint: disable=too-many-nested-blocks
     inserted = 0
     reparsed = 0
     vanished = 0
@@ -417,20 +396,25 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
 
     def drain(persist_futures: dict, stored_by_key: dict) -> None:
         nonlocal inserted, reparsed
-        for pfuture in as_completed(persist_futures):
-            pobj = persist_futures[pfuture]
-            try:
-                pfuture.result()
-            except Exception as e:  # noqa: BLE001
-                record_failure(failed, pobj.key, e)
-                continue
-            if scope is not None and not scope.full:
-                persisted_keys.add(pobj.key)
-            if stored_by_key[pobj.key] is None:
-                inserted += 1
-            else:
-                reparsed += 1
-            _set_progress(done=inserted + reparsed)
+        drain_started = time.perf_counter() if current is not None else None
+        try:
+            for pfuture in as_completed(persist_futures):
+                pobj = persist_futures[pfuture]
+                try:
+                    pfuture.result()
+                except Exception as e:  # noqa: BLE001
+                    record_failure(failed, pobj.key, e)
+                    continue
+                if scope is not None and not scope.full:
+                    persisted_keys.add(pobj.key)
+                if stored_by_key[pobj.key] is None:
+                    inserted += 1
+                else:
+                    reparsed += 1
+                _set_progress(done=inserted + reparsed)
+        finally:
+            if current is not None and drain_started is not None:
+                current.wait_persist += time.perf_counter() - drain_started
 
     # fork is pinned: children inherit the caller's patched seams (the
     # property the failure-injection tests rely on) and the pickled parse
@@ -447,6 +431,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
         # The previous chunk's (persist futures, stored map), drained while
         # this chunk's parses run — the drain costs no parse throughput.
         pending: tuple[dict, dict] | None = None
+        timed = current is not None
         try:
             for start in range(0, len(todo), chunk):
                 # Checked BEFORE the previous chunk's drain: on abort the
@@ -459,30 +444,45 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                 stored_by_key = {o.key: stored for o, _p, stored in items}
                 persist_futures: dict = {}
                 parse_futures = {
-                    parse_pool.submit(parse_wire, it, parse_call): it
+                    parse_pool.submit(parse_wire, it, parse_call, timed): it
                     for it in items}
                 if pending is not None:
                     drain(*pending)
                 pending = None
-                for item, parsed, exc in resolve_futures(parse_futures):
-                    obj, proj, _stored = item
-                    if current is not None:
-                        current.last_parse_done = time.perf_counter()
-                    if exc is not None:
-                        if isinstance(exc, VanishedObject):
-                            log.info(
-                                "ingest: %s vanished between list and fetch",
-                                obj.key)
-                            seen_keys.discard(obj.key)
-                            vanished += 1
+                wait_started = (time.perf_counter()
+                                if current is not None else None)
+                try:
+                    for item, result, exc in resolve_futures(parse_futures):
+                        obj, proj, _stored = item
+                        if current is not None:
+                            current.last_parse_done = time.perf_counter()
+                        if exc is not None:
+                            if isinstance(exc, VanishedObject):
+                                log.info(
+                                    "ingest: %s vanished between list and fetch",
+                                    obj.key)
+                                seen_keys.discard(obj.key)
+                                vanished += 1
+                            else:
+                                record_failure(failed, obj.key, exc)
+                            continue
+                        if timed:
+                            parsed, stages = result
+                            for label, seconds in stages.items():
+                                current.child_work[label] = (
+                                    current.child_work.get(label, 0.0)
+                                    + seconds)
                         else:
-                            record_failure(failed, obj.key, exc)
-                        continue
-                    if scope is not None and not scope.full:
-                        scope.add_contributions(old_contributions, {obj.key})
-                    persist_futures[persist_pool.submit(
-                        persist_call, obj, proj, parsed, parser_version,
-                        current)] = obj
+                            parsed = result
+                        if scope is not None and not scope.full:
+                            scope.add_contributions(old_contributions, {obj.key})
+                        persist_futures[persist_pool.submit(
+                            persist_call, obj, proj, parsed, parser_version,
+                            current)] = obj
+                finally:
+                    if current is not None and wait_started is not None:
+                        current.wait_parse += (
+                            time.perf_counter() - wait_started)
                 pending = (persist_futures, stored_by_key)
             if pending is not None:
                 drain(*pending)
