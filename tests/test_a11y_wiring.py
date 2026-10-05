@@ -302,8 +302,8 @@ def test_labels_are_bound_not_stale_literals():
 
 
 def test_description_ids_come_from_useid_not_from_titles():
-    """ContextSubPanel and ToolErrorSubPanel mount once per model and
-    TimeSeriesPanel/HBar once per metric, so a title-derived id collides
+    """TimeSeriesPanel/HBar mount once per metric and a panel family
+    can mount two instances of itself, so a title-derived id collides
     the second time a family mounts two instances; the summary id must
     come from React.useId() via the shared helper.
     """

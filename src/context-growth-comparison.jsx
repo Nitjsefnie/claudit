@@ -230,7 +230,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
             return (
               <g key={'key-' + c.label} data-role="legend"
                 transform={`translate(${padL + c.x}, ${keyTop + c.y})`}>
-                {keyMark(c.label, c.ruleX, c.y)}
+                {keyMark(c.label, c.ruleX, 0)}
                 <text x={9} y={9} fontSize="9.5" fontWeight="700" fill={TH_X.text} fontFamily="monospace">{c.text}</text>
               </g>
             );

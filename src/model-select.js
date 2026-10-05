@@ -2,11 +2,12 @@
 // (issues #649/#652).
 //
 // Both panels — Per-Session Context Growth and Tool Error Rate — check
-// a default set of models from one checkbox row and draw every checked
-// model on ONE chart. The default is the top 2 by the caller's sort
-// order, with the user's overrides layered on top; the override map is
-// keyed by model name and never expires, so unchecking one of the
-// defaults keeps it unchecked if the data reshuffles beneath it.
+// a default set from one checkbox row and draw every checked entry on
+// ONE chart. The default is the top n by the caller's sort order, with
+// the caller's overrides layered on top; the override map is keyed by
+// entry name and never expires, so unchecking a default keeps it
+// unchecked if the data reshuffles beneath it. The tool panel reuses
+// the same rule for its per-tool picker, seeding Other checked.
 //
 // Plain JS, no React, so the rule is drivable from node without a
 // browser — the panels themselves are JSX and node parses none of them.
