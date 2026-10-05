@@ -358,9 +358,8 @@ function timeBinIndexAtX(bins, range, padL, plotW, x) {
 // undefined) and, when descText is set, a
 //   <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
 // next to it. The id comes from React.useId(), never the title:
-// ContextSubPanel and ToolErrorSubPanel mount once per model and
-// TimeSeriesPanel/HBar once per metric, so title-derived ids collide
-// the second time a family mounts two instances.
+// TimeSeriesPanel/HBar mount once per metric and a panel family can
+// mount two instances of itself, so title-derived ids collide.
 function useChartA11y(title, summary, description) {
   const id = React.useId();
   return {

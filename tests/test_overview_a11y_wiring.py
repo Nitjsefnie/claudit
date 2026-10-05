@@ -34,6 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
+TOOL_PANEL = ROOT / "src" / "tool-error-panel.jsx"
 APP = ROOT / "src" / "app.jsx"
 CSS = ROOT / "public" / "app.css"
 
@@ -80,27 +81,42 @@ def _panel_src(name: str, src: str) -> str:
     return src[start:end]
 
 
-def _checkbox_rows() -> list[tuple[str, str]]:
-    """The legend row component's (label tag, input tag) pair.
+def _legend_srcs() -> list[str]:
+    """The files that may hold legend checkbox rows: dashboard-charts
+    -extra.jsx and, since #652 moved the Tool Error Rate panel into its
+    own module, that module too. A hand-rolled row cannot hide in
+    either."""
+    return [
+        _strip_line_comments(EXTRA.read_text(encoding="utf-8")),
+        _strip_line_comments(TOOL_PANEL.read_text(encoding="utf-8")),
+    ]
 
-    The six legend rows are one shared component, so exactly one row
-    shape exists in the file; the six <LegendCheckboxRow> call sites are
-    counted separately (a future row hand-rolls it and the guard
-    fires)."""
-    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+
+def _checkbox_rows() -> list[tuple[str, str, str]]:
+    """The legend row component's (label tag, input tag, file) triples.
+
+    The seven legend rows are one shared component, so exactly one row
+    shape exists across the two files; the seven <LegendCheckboxRow>
+    call sites are counted separately (a future row hand-rolls it and
+    the guard fires)."""
     rows = []
-    for m in re.finditer(r'<input type="checkbox"', src):
-        open_lt = src.rindex("<label", 0, m.start())
-        label_tag = _jsx_opening_tag(src, open_lt)
-        between = src[open_lt + len(label_tag):m.start()]
-        if not between.strip():
-            rows.append((label_tag, _jsx_opening_tag(src, m.start())))
+    for src in _legend_srcs():
+        for m in re.finditer(r'<input type="checkbox"', src):
+            open_lt = src.rindex("<label", 0, m.start())
+            label_tag = _jsx_opening_tag(src, open_lt)
+            between = src[open_lt + len(label_tag):m.start()]
+            if not between.strip():
+                rows.append((label_tag, _jsx_opening_tag(src, m.start()), src))
     return rows
 
 
 def _legend_call_sites() -> int:
-    return _strip_line_comments(EXTRA.read_text(encoding="utf-8")).count(
-        "<LegendCheckboxRow")
+    # The bare spelling is a same-file component call; the window
+    # -qualified one is how the tool module (and every other file)
+    # reaches the shared row. Both are the shared component.
+    return sum(src.count("<LegendCheckboxRow")
+               + src.count("<window.LegendCheckboxRow")
+               for src in _legend_srcs())
 
 
 # -- Finding 4: legend text is never dimmed below AA -------------------
@@ -115,18 +131,19 @@ def test_legend_rows_never_dim_their_text():
     0.95 drops to 4.51:1 and 0.9 to 4.15:1)."""
     rows = _checkbox_rows()
     assert len(rows) == 1, (
-        f"expected the 1 shared LegendCheckboxRow in "
-        f"dashboard-charts-extra.jsx, found {len(rows)} -- a hand-rolled "
-        f"legend row appeared; reuse the shared component")
+        f"expected the 1 shared LegendCheckboxRow shape across "
+        f"dashboard-charts-extra.jsx and tool-error-panel.jsx, found "
+        f"{len(rows)} -- a hand-rolled legend row appeared; reuse the "
+        f"shared component")
     # rows[0] after the length assert: the same single row, without the
     # sequence-balance inference pylint cannot make over the helper.
-    label_tag, _ = rows[0]
+    label_tag, _, _ = rows[0]
     assert "opacity" not in label_tag, (
         f"a legend row label dims its text: {label_tag.strip()!r} -- "
         f"no opacity over --bg-card keeps --muted at 4.5:1; the on/off "
         f"affordance belongs on the checkbox itself (non-text)")
-    assert _legend_call_sites() == 6, (
-        f"{_legend_call_sites()} of the 6 legend rows use the shared "
+    assert _legend_call_sites() == 7, (
+        f"{_legend_call_sites()} of the 7 legend rows use the shared "
         f"LegendCheckboxRow -- the guard would pass vacuously if a site "
         f"hand-rolled its label")
 
@@ -154,8 +171,9 @@ def test_legend_rows_keep_a_nontext_state_affordance():
     # over the whole body would also match a swatch's background.
     rows = _checkbox_rows()
     assert len(rows) == 1, (
-        f"expected the 1 shared LegendCheckboxRow, found {len(rows)} -- a "
-        f"hand-rolled legend row appeared; reuse the shared component")
+        f"expected the 1 shared LegendCheckboxRow shape, found {len(rows)}"
+        f" -- a hand-rolled legend row appeared; reuse the shared "
+        f"component")
     # rows[0] after the length assert: the same single row, without the
     # sequence-balance inference pylint cannot make over the helper.
     input_tag = rows[0][1]
@@ -243,12 +261,12 @@ def test_legend_checkboxes_are_proportionate_to_the_legend_text():
     1), so the checkbox was the largest element in its row. The box must
     not exceed the title, and both edges must come from one literal."""
     assert len(_checkbox_rows()) == 1, (
-        "expected the 1 shared LegendCheckboxRow -- a hand-rolled legend "
-        "row appeared; reuse the shared component")
-    assert _legend_call_sites() == 6, (
-        f"{_legend_call_sites()} of the 6 legend rows use the shared "
+        "expected the 1 shared LegendCheckboxRow shape -- a hand-rolled "
+        "legend row appeared; reuse the shared component")
+    assert _legend_call_sites() == 7, (
+        f"{_legend_call_sites()} of the 7 legend rows use the shared "
         f"component -- the guard would pass vacuously")
-    for _, input_tag in _checkbox_rows():
+    for _, input_tag, _ in _checkbox_rows():
         box = _legend_box_px(input_tag)
         assert box <= _LEGEND_TITLE_PX, (
             f"the legend checkbox is {box}x{box}px -- larger than the "
@@ -279,17 +297,18 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
     can only fail when the geometry is definitely too tight -- a real
     label is always wider than nothing -- so it never passes a layout
     that violates the exception."""
-    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    srcs = _legend_srcs()
     rows = _checkbox_rows()
     assert len(rows) == 1, (
-        "expected the 1 shared LegendCheckboxRow -- a hand-rolled legend "
-        "row appeared; reuse the shared component")
+        "expected the 1 shared LegendCheckboxRow shape -- a hand-rolled "
+        "legend row appeared; reuse the shared component")
     box = _legend_box_px(rows[0][1])
-    gaps = _legend_container_gaps(src)
-    # Six call sites share five containers (ToolUsagePanel renders one
-    # container for its per-tool rows and its Other row).
-    assert len(gaps) == 5, (
-        f"{len(gaps)} of the 5 legend containers read as a wrapping flex "
+    gaps = [g for src in srcs for g in _legend_container_gaps(src)]
+    # Seven call sites share six containers (ToolUsagePanel renders one
+    # container for its per-tool rows and its Other row; the tool panel
+    # renders the model row and the tool picker).
+    assert len(gaps) == 6, (
+        f"{len(gaps)} of the 6 legend containers read as a wrapping flex "
         f"row with an explicit px gap -- one moved or lost its spacing")
     for row_gap, col_gap in gaps:
         centres = box + row_gap
@@ -386,53 +405,28 @@ def test_panel_toolbars_wrap_below_320():
         "overflows 320 px on a phone-width window")
 
 
-def test_context_growth_cells_fit_a_320_card():
-    """ContextGrowthPanel lays its per-model sub-panels out in flex rows
-    of fixed-hint cells. Two mechanisms failed at 320 px (measured live,
-    headless Chromium: scrollWidth 367 with the page scrolling
-    horizontally): the cell shrank (flex 1, minWidth 0) while its svg
-    kept the parent's pre-computed cellW, and the rows refused a
-    second line. The cell must size its svg to its OWN measured box
-    through a ResizeObserver, flex with a basis that wraps, and the
-    parent's initial-cell floor must fit what a 320 px card holds."""
+def test_context_growth_panel_is_one_chart_on_a_measured_width():
+    """The per-model sub-panel grid is gone (#649): the panel measures
+    its own box (its chart takes the card's width, whatever the
+    viewport) and renders exactly one ComparisonRow, with no per-model
+    cell geometry left to overflow a 320 px card. The two mechanisms
+    that failed there (#395: a prop-sized svg inside a flexed cell, and
+    a row that refused a second line) belonged to the grid's cells; with
+    the grid gone the shape itself is the guard."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    body = _panel_src("ContextSubPanel", src)
-    assert "React.useRef(null)" in body and "ResizeObserver(" in body, (
-        "ContextSubPanel no longer measures its own box -- the svg "
+    assert "ContextSubPanel" not in src, (
+        "the per-model sub-panel grid is back -- relocate the 320 px "
+        "guards onto it (#649)")
+    start = src.index("function ContextGrowthPanel(")
+    nxt = re.search(r"^(?:function |window\.)", src[start + 1:], re.M)
+    panel = src[start:start + 1 + nxt.start()]
+    assert "cellW" not in panel and "cellH" not in panel, (
+        "per-model cell geometry survives the grid's removal")
+    assert "ResizeObserver(" in panel, (
+        "ContextGrowthPanel no longer measures its own box -- the chart "
         "width comes from somewhere else; relocate this guard with it")
-    m = re.search(r"const w = Math\.max\((\d+),\s*\n?\s*"
-                  r"(?:Math\.round\()?ownW", body)
-    assert m, (
-        "ContextSubPanel's svg width is not driven by its own measured "
-        "box (ownW) -- a prop-sized svg overflows the flexed cell at "
-        "320 px")
-    assert int(m.group(1)) <= 250, (
-        f"ContextSubPanel's width floor is {m.group(1)}px -- wider than "
-        f"what a 320 px card's cell can hold")
-    root_m = re.search(r"flex: '1 1 (\d+)px', minWidth: 0", body)
-    assert root_m, (
-        "the sub-panel cell lost its wrap-friendly flex basis -- two "
-        "cells never move to a second line and shrink to nothing at "
-        "320 px")
-    assert int(root_m.group(1)) <= 250, (
-        f"the flex basis is {root_m.group(1)}px -- wider than the whole "
-        f"320 px card, so a cell could never fit its row")
-    # The parent's initial hint and the wrapping row it lays the cells
-    # into.
-    parent = _panel_src("ContextGrowthPanel", src)
-    hint = re.search(r"const cellW = Math\.max\((\d+),", parent)
-    assert hint, "ContextGrowthPanel's cellW floor moved; relocate this guard"
-    # 320 viewport - 44px .dashboard side padding - 2px card border
-    # - the row's larger 24px padding = 250px, the widest initial cell.
-    assert int(hint.group(1)) <= 320 - 44 - 2 - 24, (
-        f"ContextGrowthPanel's cell floor is {hint.group(1)}px -- wider "
-        f"than the 250px a 320 px card holds, so the first paint "
-        f"overflows the viewport")
-    row_m = re.search(r"display: 'flex'[^;{}]*gap: 12,", parent)
-    assert row_m, "the sub-panel row moved; relocate this guard"
-    assert "flexWrap: 'wrap'" in row_m.group(0), (
-        "the sub-panel row does not wrap -- two cells cannot share the "
-        "row at 320 px, so they overflow the viewport")
+    assert panel.count("<window.ComparisonRow") == 1, (
+        "the comparison chart is not mounted exactly once")
 
 
 def test_topbar_stacks_instead_of_overflowing():

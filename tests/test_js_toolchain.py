@@ -88,7 +88,9 @@ EXPECTED_RULES = {
 # the list: every name is checked against the tree by
 # `test_flat_config_keeps_the_cross_file_globals`, so a stale one fails there
 # and a dropped or added one fails here.
-EXPECTED_CROSS_FILE_GLOBALS = 97
+# 95 since #649/#652: ContextSubPanel and ToolErrorSubPanel are gone
+# with the per-model grids they served.
+EXPECTED_CROSS_FILE_GLOBALS = 95
 
 # `.jsx` is not a default lint target in flat config, so the files glob has
 # to name it or the gate's own `src/**/*.jsx` argument matches nothing and
