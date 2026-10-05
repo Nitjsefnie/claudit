@@ -636,7 +636,8 @@ def test_the_band_does_not_touch_an_unbanded_row(tmp_path, monkeypatch, capsys):
     # The stored row itself differs (the band key), so the runs are compared
     # on everything the run PRODUCED: its exit code, its report, the version
     # it wrote and the entry it appended.
-    signature = lambda result: result[:4] + (result[4][-1],)
+    def signature(result):
+        return result[:4] + (result[4][-1],)
 
     plain = run(tmp_path / "plain", unbanded)
     assert plain[4][-1] == {"from": "2031-01-01T00:10:00Z", **RATE_C}, \
