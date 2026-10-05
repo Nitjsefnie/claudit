@@ -26,8 +26,8 @@ def _unavailable_log_rows(model: str, rows: dict[str, Any], reason: str) -> LogR
 def _append_joined_rows(
         model: str, rows: dict[str, Any], hosts: dict,
         joined: dict[str, refresh_pricelog.HostLog],
-        append_logged: Callable[[str, dict, str, Any, list[dict]], Any],
-        same_rates: Callable[[dict, dict], bool]) -> LogRows:
+        append_logged: Callable[..., Any],
+        same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
     result = LogRows([], {}, {}, [])
     for host, listing in rows.items():
         match = joined.get(host)
@@ -39,7 +39,7 @@ def _append_joined_rows(
                   hosts[host][-1].get("schedule") != listing.schedule):
                 reason = "stored schedule changed outside the price log"
             else:
-                move = append_logged(model, hosts, host, listing, match.entries)
+                move = append_logged(model, hosts, host, listing, match.entries, at)
                 if move:
                     result.moves.append(move)
                 continue
@@ -67,7 +67,7 @@ def _append_joined_rows(
 def classify_log_rows(
         model: str, payload: object, rows: dict[str, Any], hosts: dict,
         read: refresh_pricelog.LogRead, region: str | None, resolutions: dict,
-        append_logged: Callable[[str, dict, str, Any, list[dict]], Any],
+        append_logged: Callable[..., Any],
         same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
     """Split listed hosts into log-backed appends and sampled rows; `at` is
     the fetch instant, at which each log series is read."""
@@ -80,4 +80,4 @@ def classify_log_rows(
     except refresh_pricelog.PriceLogError as exc:
         return _unavailable_log_rows(model, rows, str(exc))
     return _append_joined_rows(
-        model, rows, hosts, joined, append_logged, same_rates)
+        model, rows, hosts, joined, append_logged, same_rates, at)

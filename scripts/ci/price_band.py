@@ -22,16 +22,16 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from refresh_common import detection_stamp  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_load import check_band  # noqa: E402
-from refresh_common import detection_stamp  # noqa: E402
 
 RATE_FIELDS = pricing.RATE_FIELDS
 # The shapes a row's price moves can take over a window (classify).

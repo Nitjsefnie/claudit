@@ -62,6 +62,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import price_band  # noqa: E402
 import refresh_alternation  # noqa: E402
 import refresh_logrun  # noqa: E402
 import refresh_pricelog  # noqa: E402
@@ -152,21 +153,24 @@ def _price_instant(stamp: object, where: str) -> datetime:
     return pricing._instant(stamp, where)  # pylint: disable=protected-access
 
 
-def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
-                   entries: list[dict]) -> Move | None:
-    """Append every new log state after the stored row without rewriting it."""
-    history = hosts.get(host)
-    if history is None:
-        hosts[host] = copy.deepcopy(entries)
-        return Move(model, host, None, listing, len(entries), "log")
-    newest = history[-1]
+def _new_log_states(model: str, host: str, entries: list[dict],
+                    newest: dict) -> list[dict]:
+    """The log states after the stored row's newest entry, each one a change
+    from the level before it.
+
+    The comparison starts at the newest entry's own rates. On a banded row
+    those are the band's time-weighted mean, which no listed state equals, so
+    the first candidate is never mistaken for the level already in force —
+    and a state that did equal it lies inside the band anyway.
+    """
+    where = f"{model} via {host}"
     newest_from = newest["from"]
-    newest_at = (_price_instant(newest_from, f"{model} via {host}")
+    newest_at = (_price_instant(newest_from, where)
                  if newest_from is not None else None)
     previous = {field: newest[field] for field in RATE_FIELDS}
     additions = []
     for entry in entries:
-        entry_at = _price_instant(entry["from"], f"{model} via {host}")
+        entry_at = _price_instant(entry["from"], where)
         if newest_at is not None and entry_at <= newest_at:
             continue
         rates = {field: entry[field] for field in RATE_FIELDS}
@@ -174,10 +178,56 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
             continue
         additions.append(copy.deepcopy(entry))
         previous = rates
+    return additions
+
+
+def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
+                   entries: list[dict], at: datetime) -> Move | None:
+    """Append every new log state after the stored row without rewriting it.
+
+    A row whose newest entry carries a price band is appended to at most
+    once: a state inside the band is no news — a Move with nothing in it
+    would still bump PRICING_VERSION, write both files and commit, which is
+    the churn the band exists to stop — and a state outside it appends the
+    one widened entry the band re-forms to (SV-RATE-REFRESH).
+    """
+    history = hosts.get(host)
+    if history is None:
+        hosts[host] = copy.deepcopy(entries)
+        return Move(model, host, None, listing, len(entries), "log")
+    newest = history[-1]
+    additions = _new_log_states(model, host, entries, newest)
     if not additions:
         return None
+    if price_band.entry_band(newest) is not None:
+        widened = _widened(model, host, newest, additions, at)
+        if widened is None:
+            return None
+        history.append(widened)
+        return Move(model, host, newest, listing, 1, "log")
     history.extend(additions)
     return Move(model, host, newest, listing, len(additions), "log")
+
+
+def _widened(model: str, host: str, newest: dict, additions: list[dict],
+             at: datetime) -> dict | None:
+    """The one entry a banded row appends, or None when every new log state
+    lies inside its band.
+
+    The LAST state outside it is the level now in force. It is dated at its
+    own change point — later than the newest stored entry by construction,
+    since that is the cutoff the states came through — so the row stays
+    append-only and its `from` stays after the one before, whatever the
+    detection instant is.
+    """
+    outside = [entry for entry in additions
+               if not price_band.in_band(newest, {f: entry[f] for f in RATE_FIELDS})]
+    if not outside:
+        return None
+    moved = outside[-1]
+    moved_at = _price_instant(moved["from"], f"{model} via {host}")
+    return price_band.widen(newest, {f: moved[f] for f in RATE_FIELDS},
+                            max(at, moved_at))
 
 
 def _scales_alike(listing: Listing) -> bool:
