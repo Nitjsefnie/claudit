@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from backend import constants, db, ingest, parse
+from backend import constants, db, ingest, parse, parse_codex
 from backend.r2 import R2Object
-from backend import parse_codex
+from tests import scratch_db
 
 
 def _parse_codex_wire(blob: bytes) -> dict:
@@ -15,7 +15,7 @@ def _parse_codex_wire(blob: bytes) -> dict:
     declare no model, which the entry point refuses."""
     return parse.to_claudit(
         parse_codex.parse("sessions/p/s/wire.jsonl", blob), "codex")
-from tests import scratch_db
+
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 CLAUDIT_RECORD_KEYS = {
@@ -67,7 +67,6 @@ def test_codex_reasoning_lands_in_thinking_tokens():
     ("gpt-6-astra", "gpt-6-astra"),
 ])
 def test_codex_models_keep_their_generation_labels(raw, label):
-    from backend import parse_codex  # pylint: disable=import-outside-toplevel
     assert parse_codex._codex_model(raw) == label  # pylint: disable=protected-access
 
 
@@ -217,7 +216,6 @@ def test_codex_non_string_role_falls_back_to_the_thread_spawn_mirror(bogus):
 def test_codex_session_role_is_a_string_or_none(bogus):
     """The thread_spawn mirror goes through the same guard as agent_role:
     whatever it holds, the helper hands back a non-empty str or None."""
-    from backend import parse_codex  # pylint: disable=import-outside-toplevel
     payload = {"source": {"subagent": {"thread_spawn": {"agent_role": bogus}}}}
     assert parse_codex._codex_session_role(payload) is None  # pylint: disable=protected-access
 

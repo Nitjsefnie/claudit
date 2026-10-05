@@ -99,8 +99,7 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
     per_model_source = canon_src.replace(
         "FROM records",
         "FROM records LEFT JOIN rate_boundaries AS rate_bounds "
-        "ON rate_bounds.pair_model = "
-        "COALESCE(NULLIF(records.model, ''), 'unknown') "
+        "ON rate_bounds.pair_model = records.model "
         "AND rate_bounds.pair_provider = COALESCE(records.provider, '')",
         1,
     )
