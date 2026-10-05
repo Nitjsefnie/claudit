@@ -35,7 +35,9 @@ import posixpath
 import re
 
 from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
-from backend.bash_literals import ShellWord, destination_paths, literal_path, perl_paths, sed_parts
+from backend.bash_literals import (ShellWord, destination_paths,
+                                   literal_path, perl_paths, sed_parts)
+from backend.bash_directories import directory_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
 # Commands that put file CONTENT into the transcript, split by whether
@@ -318,6 +320,11 @@ class _Scan:
         if resolved is not None and resolved not in bucket:
             bucket.append(resolved)
 
+    def record_targets(self, targets: list[str]) -> None:
+        """Book paths a command put on disk as write targets."""
+        for path in targets:
+            self.add(self.writes, path)
+
     def segment(self, raw_segment: list[str]) -> None:
         segment = _strip_env_prefix(raw_segment, self.env, self)
         if not segment:
@@ -332,7 +339,7 @@ class _Scan:
     def command_effects(self, name: str, operands: list[str],
                         redirected: list[str], inputs: list[str]) -> None:
         """Classify a command after redirection syntax has been separated."""
-        if name in ("sed", "cp", "install", "mv"):
+        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git"):
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
             operands = [ShellWord(value, operator=getattr(arg, "operator", False))
@@ -341,7 +348,7 @@ class _Scan:
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)
-        if name in ("sed", "cp", "install", "mv") and any(
+        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") and any(
                 getattr(arg, "unquoted_expansion", False) for arg in operands):
             # One unresolved/splittable operand can shift every option position.
             return
@@ -353,6 +360,13 @@ class _Scan:
             paths = perl_paths(operands) if name == "perl" else destination_paths(name, operands, base=self.base)
             for path in paths:
                 self.add(self.writes, path)
+            return
+        if targets := directory_targets(name, operands):
+            # A command that CREATES reports what it puts on disk: the
+            # directories `mkdir` makes, the checkout `git worktree add`
+            # materialises, the clone's directory (or the one the URL
+            # derives), and a `mktemp` template named outright.
+            self.record_targets(targets)
             return
         if name in _WRITE_CMDS or (name == "sed" and _sed_in_place(operands)):
             for path in _operand_paths(name, operands, windows_absolute(self.base)):

@@ -188,7 +188,9 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     assert tu["is_error"] is True
     assert tu["lines_added"] == 2
     assert tu["lines_deleted"] == 0
-    assert tu["write_targets"] == ["/repo/scripts/gen.py"]
+    # The mkdir limb now books the directory it creates beside the
+    # heredoc's file (#655).
+    assert tu["write_targets"] == ["/repo/scripts", "/repo/scripts/gen.py"]
 
 
 @pytest.mark.parametrize("family,paths,churn", [
