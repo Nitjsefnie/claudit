@@ -109,10 +109,20 @@ export const KINDS = [
   'tooltip-overflow', 'other-region', 'height-growth',
 ];
 
-export function filedFor(panel, kind) {
-  const hit = FILED.find(f => f.kind === kind
+// The matched LEDGER ENTRY (or null) — per entry, not per (issue, kind):
+// two entries may share both, as #645's two panel scopes do, and a
+// liveness set keyed on the pair would call one twin's firing proof of
+// the other's. filedFor keeps the issue-only view for callers that do
+// not care which twin matched.
+export function filedEntry(panel, kind) {
+  return FILED.find(f => f.kind === kind
     && (f.panel === null
-      || (f.panel instanceof RegExp ? f.panel.test(panel) : f.panel === panel)));
+      || (f.panel instanceof RegExp ? f.panel.test(panel) : f.panel === panel)))
+    || null;
+}
+
+export function filedFor(panel, kind) {
+  const hit = filedEntry(panel, kind);
   return hit ? hit.issue : null;
 }
 
@@ -344,18 +354,20 @@ async function main() {
   const browser = await chromium.launch();
   let failures = 0;
   const findings = new Map();   // dedup key -> finding
-  const ledgerFired = new Set();
+  const ledgerFired = new Set();   // the ENTRY objects that matched
   const record = (kind, panel, detail, width) => {
     const key = `${kind}|${panel}|${detail}`;
     const f = findings.get(key)
       || { kind, panel, detail, widths: new Set(), issue: null };
     if (!findings.has(key)) {
-      f.issue = filedFor(panel, kind);
+      const entry = filedEntry(panel, kind);
+      f.entry = entry;
+      f.issue = entry ? entry.issue : null;
       if (!f.issue) failures += 1;         // KNOWN: named, not failed
     }
     f.widths.add(width);
     findings.set(key, f);
-    if (f.issue) ledgerFired.add(`${f.issue}|${kind}`);
+    if (f.entry) ledgerFired.add(f.entry);
     return f;
   };
   const routeTo = set => async route => {
@@ -541,7 +553,7 @@ async function main() {
       + `  [${[...f.widths].sort((a, b) => a - b).join(', ')}px]`
       + (f.issue ? ` (filed as #${f.issue})` : ''));
   }
-  const stale = FILED.filter(f => !ledgerFired.has(`${f.issue}|${f.kind}`));
+  const stale = FILED.filter(f => !ledgerFired.has(f));
   for (const f of stale) {
     failures += 1;
     console.log(`STALE LEDGER  #${f.issue} ${f.kind} on ${f.panel ?? 'every '
