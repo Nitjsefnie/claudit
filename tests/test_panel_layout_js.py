@@ -45,9 +45,17 @@ def _node(body: str):
     """
     # Over STDIN, not -e: the payload below embeds JSON, and Windows
     # refuses a CreateProcess command line over 32k (WinError 206).
+    #
+    # encoding="utf-8" is load-bearing, not tidiness. `text=True` alone
+    # decodes with the LOCALE encoding, which on a windows-latest runner
+    # is cp1252 — and node writes the ellipsis these panels shorten labels
+    # with as UTF-8 bytes (e2 80 a6), which cp1252 cannot represent. Every
+    # such byte came back as U+FFFD and six assertions failed on Windows
+    # only, against a panel that renders correctly. errors="strict" keeps a
+    # future encoding problem loud instead of comparing mojibake.
     proc = subprocess.run(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
-        check=False,
+        check=False, encoding="utf-8", errors="strict",
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

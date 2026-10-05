@@ -172,6 +172,11 @@ jobs:
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
     uses: $/.github/workflows/eslint.yml
 
+  panel-layout:
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
+    uses: $/.github/workflows/panel-layout.yml
+
   smoke:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
@@ -199,8 +204,8 @@ jobs:
       contents: read
 
   aggregate:
-    needs: [classify, tests, test-data, lint, types, eslint, smoke, audit,
-            actionlint, codeql]
+    needs: [classify, tests, test-data, lint, types, eslint, panel-layout,
+            smoke, audit, actionlint, codeql]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15

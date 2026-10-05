@@ -29,7 +29,29 @@ CGV = ROOT / "src" / "context-growth-view.jsx"
 APP = ROOT / "src" / "app.jsx"
 EVENT_HELPERS = ROOT / "src" / "event-helpers.jsx"
 
-_SVG_FILES = (CHARTS, EXTRA, CGV)
+
+def _svg_bearing_jsx():
+    """Every src/**/*.jsx module that draws an <svg>.
+
+    DERIVED, not a hand-maintained list, because the hand-maintained list
+    failed exactly once already: issue #630 moved ComparisonRow's svg out
+    of dashboard-charts-extra.jsx into its own module, and the hard-coded
+    tuple it replaced went on counting 14 svgs where it asserted 15 — the
+    assertion's own "the guard would pass vacuously" message firing for
+    real. A chart svg that moves files must not be able to fall out of the
+    audit silently.
+
+    Every file that carries an <svg> today is a chart panel: the two
+    chart modules, the context-growth view, and the context-growth
+    comparison overlay. The glob is over src/**/*.jsx, so a panel added
+    under src/views/ is covered too.
+    """
+    return tuple(sorted(
+        path for path in (ROOT / "src").rglob("*.jsx")
+        if "<svg" in path.read_text(encoding="utf-8")))
+
+
+_SVG_FILES = _svg_bearing_jsx()
 
 AA = 4.5
 
