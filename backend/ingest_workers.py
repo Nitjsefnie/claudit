@@ -79,7 +79,7 @@ def parse_worker_init(parent_pid: int) -> None:
     - SIGTERM/SIGINT restored to SIG_DFL: a systemd control-group stop
       (SIGTERM to the cgroup) kills the worker outright;
     - the parent-death signal (prctl PR_SET_PDEATHSIG, SIGKILL): the
-      worker dies with the work even when nothing sent it a SIGTERM
+      worker dies with the process even when nothing sent it a SIGTERM
       (a bare uvicorn whose supervisor kills the main PID only);
     - the ppid check: PDEATHSIG is armed after fork, so a parent that
       died inside that window left an orphan — a worker whose parent is

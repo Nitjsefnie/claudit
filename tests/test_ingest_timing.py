@@ -96,6 +96,27 @@ def test_phases_done_keeps_api_line_shape_without_accounting(
         "TIMING synthetic total=35ms first=12ms second=8ms outcome=ok")
 
 
+def test_mark_part_is_excluded_from_the_account_sum(monkeypatch, caplog):
+    """A part is a breakdown figure (issue #662): it prints on the line
+    but never enters the sum/gap accounting — the pool wall's parts are
+    summed across children and may exceed the run's wall, and a part
+    counted into the sum would make every account line dishonest."""
+    ticks = iter((10.0, 10.05))
+    monkeypatch.setattr(timing.time, "perf_counter", lambda: next(ticks))
+    monkeypatch.setattr(timing, "TIMING_ON", True)
+    phases = timing.Phases("synthetic", account=True)
+    phases.mark("phase", 0.012)
+    phases.mark_part("child_parse", 9.0)  # far larger than the run wall
+
+    with caplog.at_level(logging.INFO, logger="claudit.api"):
+        phases.done()
+
+    line = next(record.getMessage() for record in caplog.records
+                if record.getMessage().startswith("TIMING synthetic "))
+    assert "child_parse=9000ms" in line
+    assert "sum=12ms" in line and "gap=38ms" in line, line
+
+
 def test_ingest_logs_every_phase_and_run_counts(
         fresh_db, mini_r2_env, monkeypatch, caplog):
     monkeypatch.setattr(timing, "TIMING_ON", True)
