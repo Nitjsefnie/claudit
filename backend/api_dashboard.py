@@ -43,7 +43,7 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
         roll_from = """(
           SELECT f.session_id, f.project_id, f.is_main,
                  r.ts AS hour, r.ts AS first_ts, r.ts AS last_ts,
-                 COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
+                 r.model AS model,
                  COALESCE(r.long_context, FALSE) AS long_context,
                  COALESCE(r.provider, '') AS provider,
                  1::bigint AS requests,
@@ -199,7 +199,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         SELECT to_timestamp(
                  floor(EXTRACT(EPOCH FROM d.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
                ) AS bucket,
-               COALESCE(NULLIF(d.model, ''), 'unknown') AS model,
+               d.model AS model,
                COUNT(*) AS n,
                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY d.text_chars) AS p50,
                PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY d.text_chars) AS p90

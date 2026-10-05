@@ -352,6 +352,7 @@ def _parse_codex_file(file_key: str, blob: bytes) -> dict:
     return parse.to_claudit(
         parse.LANE_PARSERS["codex"](file_key, blob), "codex")
 
+
 def test_backend_codex_nested_shape_guards_match_empty_lines():
     name = "non_object_codex_item_content.jsonl"
     text = (FIX / name).read_text(encoding="ascii")

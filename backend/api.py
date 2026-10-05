@@ -380,7 +380,7 @@ def _latency_live(rng: str, project: str | None, model: str | None,
     SELECT to_timestamp(
              floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
            ) AS bucket,
-           COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
+           r.model AS model,
            COUNT(*) AS n,
            PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY r.reply_latency_s) AS p10,
            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY r.reply_latency_s) AS p50,
@@ -401,23 +401,23 @@ def _latency_live(rng: str, project: str | None, model: str | None,
       SELECT to_timestamp(
                floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
              ) AS bucket,
-             COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
+             r.model AS model,
              r.ts                AS event_ts,
              r.file_key,
              r.line_num,
              r.reply_latency_s AS latency_s,
              COUNT(*) OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               COALESCE(NULLIF(r.model, ''), 'unknown')
+               r.model
              ) AS bucket_n,
              ROW_NUMBER() OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               COALESCE(NULLIF(r.model, ''), 'unknown')
+               r.model
                ORDER BY r.reply_latency_s DESC
              ) AS rn_high,
              ROW_NUMBER() OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               COALESCE(NULLIF(r.model, ''), 'unknown')
+               r.model
                ORDER BY r.reply_latency_s ASC
              ) AS rn_low
       FROM records r
