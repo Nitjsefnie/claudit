@@ -386,7 +386,6 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     are breakdown figures (mark_part), never phases in the sum.
     """
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-    # pylint: disable=too-many-nested-blocks
     inserted = 0
     reparsed = 0
     vanished = 0
@@ -451,38 +450,39 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                 pending = None
                 wait_started = (time.perf_counter()
                                 if current is not None else None)
-                try:
-                    for item, result, exc in resolve_futures(parse_futures):
-                        obj, proj, _stored = item
-                        if current is not None:
-                            current.last_parse_done = time.perf_counter()
-                        if exc is not None:
-                            if isinstance(exc, VanishedObject):
-                                log.info(
-                                    "ingest: %s vanished between list and fetch",
-                                    obj.key)
-                                seen_keys.discard(obj.key)
-                                vanished += 1
-                            else:
-                                record_failure(failed, obj.key, exc)
-                            continue
-                        if timed:
-                            parsed, stages = result
-                            for label, seconds in stages.items():
-                                current.child_work[label] = (
-                                    current.child_work.get(label, 0.0)
-                                    + seconds)
+                for item, result, exc in resolve_futures(parse_futures):
+                    obj, proj, _stored = item
+                    if current is not None:
+                        current.last_parse_done = time.perf_counter()
+                    if exc is not None:
+                        if isinstance(exc, VanishedObject):
+                            log.info(
+                                "ingest: %s vanished between list and fetch",
+                                obj.key)
+                            seen_keys.discard(obj.key)
+                            vanished += 1
                         else:
-                            parsed = result
-                        if scope is not None and not scope.full:
-                            scope.add_contributions(old_contributions, {obj.key})
-                        persist_futures[persist_pool.submit(
-                            persist_call, obj, proj, parsed, parser_version,
-                            current)] = obj
-                finally:
-                    if current is not None and wait_started is not None:
-                        current.wait_parse += (
-                            time.perf_counter() - wait_started)
+                            record_failure(failed, obj.key, exc)
+                        continue
+                    if timed:
+                        parsed, stages = result
+                        for label, seconds in stages.items():
+                            current.child_work[label] = (
+                                current.child_work.get(label, 0.0)
+                                + seconds)
+                    else:
+                        parsed = result
+                    if scope is not None and not scope.full:
+                        scope.add_contributions(old_contributions, {obj.key})
+                    persist_futures[persist_pool.submit(
+                        persist_call, obj, proj, parsed, parser_version,
+                        current)] = obj
+                # No finally: a fatal escape (FatalFetchError /
+                # BrokenProcessPool) abandons the run, so the chunk's
+                # partial wait is not worth a nesting level the
+                # suppression baseline refuses.
+                if current is not None and wait_started is not None:
+                    current.wait_parse += time.perf_counter() - wait_started
                 pending = (persist_futures, stored_by_key)
             if pending is not None:
                 drain(*pending)
