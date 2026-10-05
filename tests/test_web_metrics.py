@@ -81,13 +81,29 @@ def _viz_fixture(monkeypatch):
 
 @pytest.fixture(name="client")
 def _client_fixture(viz):
-    """TestClient on the api router, auth bypassed (no middleware).
+    """TestClient on the api router, with identity and no real auth.
 
     Mirrors `tests/test_api.py`'s router-only app: the endpoint's own
     behaviour is what is under test here, and the middleware's gates get
-    their own app below so they are not silently absent.
+    their own clients below so they are not silently absent.
+
+    The one thing a bare router cannot supply is IDENTITY, and #629 made
+    the readout demand one: this client presents itself as an operator
+    (issue #629's gate and its refusal live further down, against real
+    sessions). `user_id = 0` and `is_guest` keep the sink's guest-shaped
+    behaviour exactly as a session-less client had it — the stored rows
+    below assert `user_id 0`, and the guest row cap is picked from the
+    same id.
     """
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _identity(request, call_next):
+        request.state.user_id = 0
+        request.state.is_guest = True
+        request.state.is_operator = True
+        return await call_next(request)
+
     app.include_router(api.router)
     yield TestClient(app)
 
@@ -359,6 +375,96 @@ def test_a_beacon_without_a_session_is_401(viz):
     r = _post(TestClient(app), _beacon())
     assert r.status_code == 401
     assert _rows(viz) == []
+
+
+# --- the readout's operator gate (issue #629) ------------------------------
+
+#: A real user's auth-DB `users.config`, and the fingerprint their
+#: `user_session` row must carry for `resolve_session_user_id` to accept
+#: the token at all — so every client below resolves for REAL.
+_USER_CONFIG = {
+    "web_password_hash": "stored-hash",
+    "web_password_salt": "stored-salt",
+}
+_CREDENTIAL_FP = session_mod.credential_fingerprint(_USER_CONFIG)
+
+
+def _signed_in(viz, user_id: int, config: dict | None) -> TestClient:
+    """A TestClient behind the REAL auth middleware, holding a valid
+    session cookie for `user_id` whose auth-DB config is `config`.
+
+    `remember_user_config` primes the very 60-second cache the resolver
+    reads, so no auth database is needed while the resolution under test
+    stays the real one: a real `user_session` row, a real fingerprint and
+    the real middleware. `user_id` is the caller's so no two clients share
+    a cached row.
+    """
+    secret, generation = session_mod.get_or_create_session_row(
+        user_id, _CREDENTIAL_FP)
+    session_mod.remember_user_config(user_id, config)
+    app = FastAPI()
+    app.middleware("http")(session_mod.auth_middleware)
+    app.include_router(api.router)
+    client = TestClient(app)
+    client.cookies.set(
+        session_mod.SESSION_COOKIE_NAME,
+        session_mod.make_session_token(user_id, secret, generation))
+    return client
+
+
+def test_the_readout_is_403_for_a_signed_in_non_operator(viz, pinned):
+    """The panel is the site's OWN engineering telemetry, not product
+    data: an ordinary signed-in user has no business reading it."""
+    _seed(_VALUES, ts=_recent_ts())
+    c = _signed_in(viz, 4101, dict(_USER_CONFIG))
+    r = c.get("/api/web-metrics?range=1d", headers=_ORIGIN)
+    assert r.status_code == 403
+    # A refusal that still described the traffic would be no refusal.
+    assert "series" not in r.text and "buckets" not in r.text
+
+
+def test_the_readout_is_200_for_an_operator(viz, pinned):
+    _seed(_VALUES, ts=_recent_ts())
+    c = _signed_in(viz, 4102,
+                   {**_USER_CONFIG, session_mod.OPERATOR_KEY: True})
+    r = c.get("/api/web-metrics?range=1d", headers=_ORIGIN)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["beacons"] >= 1
+    assert body["series"], "an operator's readout is empty on seeded data"
+
+
+def test_no_query_parameter_opens_the_readout_to_a_non_operator(
+        viz, pinned):
+    """The gate is the resolved session, never the request's shape: a flag
+    the CALLER sends cannot raise it, because nothing reads one."""
+    _seed(_VALUES, ts=_recent_ts())
+    c = _signed_in(viz, 4103, dict(_USER_CONFIG))
+    for qs in ("", "?range=1d", "?range=1d&operator=true",
+               "?range=1d&web_operator=true", "?range=1d&is_operator=1"):
+        r = c.get(f"/api/web-metrics{qs}", headers=_ORIGIN)
+        assert r.status_code == 403, qs
+
+
+def test_a_guest_gets_the_readout_refusal(viz, gated_client):
+    """`gated_client` holds a guest cookie, and a guest is never an
+    operator — so the refusal is the guest's own, not a side effect of
+    the query."""
+    r = gated_client.get("/api/web-metrics?range=1d", headers=_ORIGIN)
+    assert r.status_code == 403
+    assert session_mod.is_operator(session_mod.GUEST_USER_ID) is False
+
+
+def test_the_sink_keeps_answering_everyone_the_gate_excludes(
+        viz, gated_client):
+    """The gate covers the READOUT only. Beacons keep arriving from guests
+    and from ordinary users and keep accumulating, which is the whole
+    reason the operator's readout is worth having."""
+    assert _post(gated_client, _beacon()).status_code == 202
+    plain = _signed_in(viz, 4104, dict(_USER_CONFIG))
+    assert _post(plain, _beacon()).status_code == 202
+    rows = _rows(viz)
+    assert len(rows) == 2, "the gate cost the sink a stored beacon"
 
 
 # --- the schema, and the shipped client against this sink ------------------

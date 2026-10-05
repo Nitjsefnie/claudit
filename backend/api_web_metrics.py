@@ -19,9 +19,16 @@ Auth is `session.auth_middleware` by path prefix, not a decorator (see
 * **A session.** Also the middleware, and deliberately NOT relaxed here: an
   open unauthenticated write endpoint on a dashboard is not a trade worth
   making for a few rows of telemetry. A guest session qualifies, and
-  `_guest_denied` leaves `/api/metrics` and `/api/web-metrics` alone, because
-  a beacon names a journey and not a project, a session or a file — there is
-  nothing in the payload for a guest to reach.
+  `_guest_denied` leaves both routes alone, because a beacon names a journey
+  and not a project, a session or a file — there is nothing in the payload
+  for a guest to reach.
+
+The READOUT is gated anyway, and by a different question (#629): it is the
+site's own engineering telemetry — journey timings, layout shift, long
+tasks, beacon counts — not product data an ordinary user should read, so
+`web_metrics_route` serves it to operators only. The sink is untouched:
+beacons keep arriving from every session, guests included, and keep being
+stored, which is what makes the operator's readout worth having.
 """
 from __future__ import annotations
 
@@ -81,6 +88,31 @@ def _write(user_id: int, beacons: list[tuple]) -> int:
 
 
 @router.get("/web-metrics")
+def web_metrics_route(
+    request: Request, rng: str = Query("7d", alias="range"),
+) -> dict:
+    """The operator gate, then the readout (#629).
+
+    The split is the same one `/api/dashboard` and `/api/cache` already
+    draw, and for the same reason: this handler is per-request and
+    uncached, and it hands off to the `@cache_response` function below,
+    whose cache key is its query parameters alone. Putting `request` here
+    rather than on the cached function is what keeps a `Request` object
+    out of that key — a key carrying one is different on every request,
+    so the readout would never hit the cache and every key would be its own
+    entry.
+
+    The gate reads only `request.state.is_operator`, which the auth
+    middleware resolved from the auth DB's per-user `web_operator`
+    (see `session.is_operator`). No query parameter and no client-side flag
+    reaches it: the browser asking for the data changes nothing, which is
+    the whole difference between this and hiding a panel.
+    """
+    if not bool(getattr(request.state, "is_operator", False)):
+        raise HTTPException(403, "operator only")
+    return web_metrics_readout(rng=rng)
+
+
 @cache_response
 def web_metrics_readout(
     rng: str = Query("7d", alias="range"),

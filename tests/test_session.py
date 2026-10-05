@@ -346,6 +346,48 @@ def test_session_resolution_caches_auth_config_for_sixty_seconds(
     assert calls == [810, 810]
 
 
+def test_operator_reads_the_auth_db_flag():
+    """The capability is one boolean key in the auth DB's `users.config`,
+    read through the same 60-second cache the credential resolution uses."""
+    _clear_user_config_cache()
+    session.remember_user_config(31, _TEST_CONFIG)
+    assert session.is_operator(31) is False
+    session.remember_user_config(
+        31, {**_TEST_CONFIG, session.OPERATOR_KEY: True})
+    assert session.is_operator(31) is True
+    _clear_user_config_cache()
+
+
+def test_a_user_with_no_config_row_is_not_an_operator():
+    """No row, no capability. This is the shape every guest resolves as."""
+    _clear_user_config_cache()
+    session.remember_user_config(32, None)
+    assert session.is_operator(32) is False
+    _clear_user_config_cache()
+
+
+def test_the_operator_flag_is_a_boolean_and_nothing_else():
+    """`{"web_operator": "false"}` is JSON that hands Python a TRUTHY
+    string, so a truthiness test would GRANT operator rights on a
+    capability row that says no. Only a real JSON boolean counts."""
+    _clear_user_config_cache()
+    for value in ("false", "no", "true", 1, 0, [], {}, None):
+        session.remember_user_config(33, {session.OPERATOR_KEY: value})
+        assert session.is_operator(33) is False, repr(value)
+    _clear_user_config_cache()
+
+
+def test_a_guest_is_an_operator_for_nothing_at_all():
+    """Refused before the config is even read, so "a guest is never an
+    operator" does not depend on the auth DB happening to hold no row for
+    user 0 — the cache below is primed with one that says yes."""
+    _clear_user_config_cache()
+    session.remember_user_config(
+        session.GUEST_USER_ID, {session.OPERATOR_KEY: True})
+    assert session.is_operator(session.GUEST_USER_ID) is False
+    _clear_user_config_cache()
+
+
 def test_user_config_cache_stays_within_its_key_limit(monkeypatch):
     _clear_user_config_cache()
 

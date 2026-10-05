@@ -130,18 +130,43 @@ def test_brand_payload_cannot_close_its_script_tag(page_client, monkeypatch):
 def test_brand_rides_the_existing_injection_script(page_client):
     resp = page_client.get("/")
     served = resp.text
-    # The guest cookie the fixture set: IS_GUEST comes out true, and
-    # window.BRAND rides the SAME <script> line as BACKEND_URL/IS_GUEST,
-    # which now also carries the response's CSP nonce.
+    # The guest cookie the fixture set: IS_GUEST comes out true and
+    # IS_OPERATOR false (a guest is never an operator, #629); window.BRAND
+    # rides the SAME <script> line, which now carries the CSP nonce too.
     match = re.search(r"'nonce-([^']+)'",
                       resp.headers["content-security-policy"])
     assert match
     nonce = match.group(1)
     assert (
         f'<script nonce="{nonce}">window.BACKEND_URL = \'/\'; '
-        "window.IS_GUEST = true; "
+        "window.IS_GUEST = true; window.IS_OPERATOR = false; "
         "window.BRAND = {" in served
     )
+
+
+def test_operator_flag_rides_the_guest_injection_line(page_client):
+    """#629: the page-performance panel is operator-only, so the page says
+    so on the SAME `<script>` line as IS_GUEST — the first render must know,
+    or the panel is drawn before it is hidden. This module's client holds a
+    GUEST cookie, and a guest is never an operator."""
+    served = page_client.get("/").text
+    assert "window.IS_GUEST = true; window.IS_OPERATOR = false; " in served
+
+
+def test_operator_flag_reads_true_for_an_operator(page_client, monkeypatch):
+    """The same line reads `true` for an operator.
+
+    The session seam is stubbed — this module is deliberately database-free
+    — because what is under test is the INJECTION: that `root_index` puts
+    the resolved flag on that line, spelled like IS_GUEST. The flag's own
+    resolution and the 403 an ordinary user gets from the readout are
+    exercised for real in tests/test_web_metrics.py."""
+    monkeypatch.setattr(session_mod, "resolve_session_user_id",
+                        lambda token: 4242)
+    monkeypatch.setattr(session_mod, "is_operator",
+                        lambda user_id: user_id == 4242)
+    served = page_client.get("/").text
+    assert "window.IS_GUEST = false; window.IS_OPERATOR = true; " in served
 
 
 # ---------------------------------------------------------------------------
