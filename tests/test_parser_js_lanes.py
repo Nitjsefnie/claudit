@@ -43,7 +43,12 @@ pytestmark = pytest.mark.skipif(
 LANE_FIXTURES = [
     FIX_PARSER / "codex_min.jsonl",
     FIX_PARSER / "codex_user_xml.jsonl",
-    *sorted(FIX_CODEX.glob("*.jsonl")),
+    # rollout_fork_prefix.jsonl is deliberately excluded: it declares no
+    # model at all, so the backend refuses it (issue #653) and there is
+    # nothing for the parity sweep to agree on — its browser pin is
+    # test_a_browser_parse_never_labels_a_model_unknown below.
+    *[p for p in sorted(FIX_CODEX.glob("*.jsonl"))
+      if p.name != "rollout_fork_prefix.jsonl"],
     *sorted(FIX_PARSER.glob("kimi_*.jsonl")),
 ]
 
@@ -181,6 +186,29 @@ def test_a_settings_only_model_switch_labels_the_following_request():
     assert len(browser) == 1
     assert browser[0]["model"] == "gpt-5.6-terra"
     assert browser[0]["line"] == 3
+
+
+def test_a_browser_parse_never_labels_a_model_unknown():
+    """The mirror of the backend's refusal (issue #653): the browser has
+    no ingest to fail loudly, so a transcript that cannot attribute keeps
+    a null model — but never the `unknown` placeholder."""
+    text = (FIX_CODEX / "rollout_fork_prefix.jsonl").read_text(encoding="utf-8")
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      const {{ meta }} = window.parseTranscriptLanes(
+        {json.dumps(text)}, {{}});
+      console.log(JSON.stringify(
+        meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True,
+        timeout=60, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    models = json.loads(proc.stdout)
+    assert models, "fixture produced no records"
+    assert all(m != "unknown" for m in models)
 
 
 def test_model_ids_survive_verbatim_in_both_parsers():

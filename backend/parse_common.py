@@ -199,14 +199,14 @@ def _line_count(text: object) -> int:
 
 def _append_tool_use(st: _ParseState, line_num: int, ts: datetime | None,
                      tool_name: str, tool_call_id: str,
-                     churn: tuple[int, int] = (0, 0),
-                     model: str = "unknown",
+                     churn: tuple[int, int] = (0, 0), *,
+                     model: str | None,
                      dispatch: tuple | None = None) -> None:
     """Append one tool call row.
 
-    `dispatch` is the (agent_type, agent_model, prompt_chars, brief_ref)
-    a subagent-dispatching call asked for; None for any other call, whose
-    row then carries no such keys and parse_lanes.to_claudit NULLs them.
+    `model` is required (issue #653); the Kimi callers pass None for
+    _attribute_tool_models to overwrite. `dispatch` is a dispatching
+    call's (agent_type, agent_model, prompt_chars, brief_ref); None otherwise.
     """
     added, deleted = churn
     row = {
@@ -286,7 +286,7 @@ def _dispatch_prompt_shape(args: dict) -> tuple:
 
 def _append_usage_record(st: _ParseState, line_num: int,
                          ts: datetime | None, uuid: str | None,
-                         model: str, toks: tuple[int, int, int, int],
+                         model: str | None, toks: tuple[int, int, int, int],
                          *, reasoning: int = 0,
                          long_context: bool = False) -> None:
     """Build one billing record from its token counts and append it.

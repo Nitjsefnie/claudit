@@ -467,7 +467,7 @@ def _hourly_entry(row, seen_hours: set) -> dict:
     hour_iso = _iso(hour)
     is_first_for_hour = hour_iso not in seen_hours
     seen_hours.add(hour_iso)
-    entry = {"hour": hour_iso, "model": model or "unknown",
+    entry = {"hour": hour_iso, "model": model,
              "long_context": bool(long_context), "provider": provider or None}
     entry.update(dict(zip(_HOURLY_TOKEN_KEYS, (int(v or 0) for v in tokens))))
     entry["cost_usd"] = float(cost or 0)

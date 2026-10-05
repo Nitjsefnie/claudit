@@ -159,7 +159,7 @@ class Resolution:
         return self.kind != "exact"
 
 
-def _normalise(model: str) -> str:
+def _normalise(model: str | None) -> str:
     """Strip provider/region prefixes and normalise version separators.
 
     ``anthropic/claude-opus-4.8`` and ``us.anthropic.claude-opus-4-8``
@@ -175,7 +175,7 @@ def _normalise(model: str) -> str:
     return m.replace(".", "-")
 
 
-def _is_free(model: str, norm: str) -> bool:
+def _is_free(model: str | None, norm: str) -> bool:
     """True for an OpenRouter free model: an id ending in ``:free`` or
     starting with ``stealth/``, case-insensitively.
 
@@ -331,7 +331,7 @@ def _fee_at(fees: dict, key, windows: Windows | None, ts: datetime | None
     return row.get(sum(1 for end, _ in windows or [] if end <= ts), 0.0)
 
 
-def resolve(model: str, ts: datetime | None = None,
+def resolve(model: str | None, ts: datetime | None = None,
             provider: str | None = None) -> Resolution:
     """Resolve a model id to rates, reporting how confident the match is.
 
@@ -385,7 +385,7 @@ def request_fee(model: str, ts: datetime | None = None,
 
 
 def compute_cost(
-    model: str,
+    model: str | None,
     *,
     fresh: int,
     output: int,

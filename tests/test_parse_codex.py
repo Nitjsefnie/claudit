@@ -30,15 +30,22 @@ import json
 import pytest
 
 from backend import parse, pricing
-from backend.parse_codex import _codex_declared_models, _codex_model
+from backend.parse_codex import _codex_first_declared_model, _codex_model
 
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 KIMI_FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
 
+def _parse_file_norefusal(file_key: str, blob: bytes):
+    """parse_file minus the issue-653 refusal: the token-math tests parse
+    the no-model fork fixture, which the entry point refuses."""
+    fmt = parse.sniff_format(blob)
+    return parse.to_claudit(parse.LANE_PARSERS[fmt](file_key, blob), fmt)
+
+
 def _parse(name):
-    return parse.parse_file(f"codex/{name}", (FIX / name).read_bytes())
+    return _parse_file_norefusal(f"codex/{name}", (FIX / name).read_bytes())
 
 
 def _billed_input(rec):
@@ -256,53 +263,52 @@ def test_a_session_that_switches_model_is_priced_at_both_rates():
     assert models == {"gpt-5.6-sol", "gpt-5.6-terra"}
 
 
-def test_records_before_the_first_declaration_take_the_files_sole_model():
+def test_records_before_the_first_declaration_take_the_first_declared_model():
     """A fork replays history before the new thread declares a model, so
-    the leading requests have no turn_context in front of them. Where the
-    file declares exactly one model there is only one answer.
-
-    NOTE: this fixture declares gpt-5.6-sol, which is also the
-    unattributed fallback, so the LABEL alone cannot tell the two paths
-    apart — the declared-model set is asserted separately below, and that
-    is what distinguishes them.
-    """
+    the leading requests have no turn_context in front of them. The
+    replayed prefix is the parent's history and the file's first declared
+    model is the model the parent had in force at the fork point — the
+    inherited settings (issue #653) — so the prefix takes it."""
     blob = (FIX / "rollout_sole_model_prefix.jsonl").read_bytes()
-    assert _codex_declared_models(blob) == {"gpt-5.6-sol"}
+    assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
     out = _parse("rollout_sole_model_prefix.jsonl")
     assert [r["line_num"] for r in out["records"]] == [8, 10, 11, 12, 18]
     # The only declaration in this window is at line 20, after all five.
     assert all(r["model"] == "gpt-5.6-sol" for r in out["records"])
 
 
-def test_a_file_declaring_no_model_bills_unknown_rather_than_inventing_one():
-    """The fork fixture declares none. An unattributed record still has to
-    be billed — as `unknown` at the default (estimated) rates: the parser
-    invents no attribution the transcript does not carry (issue #471)."""
+def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
+    """The fork fixture declares none. Nothing here derives the model in
+    force, and the ruling (issue #653) refuses a placeholder: the parser
+    invents no attribution the transcript does not carry, and ingest
+    fails loudly on the file instead of storing `unknown` rows."""
     blob = (FIX / "rollout_fork_prefix.jsonl").read_bytes()
-    assert _codex_declared_models(blob) == set()
-    out = _parse("rollout_fork_prefix.jsonl")
-    assert all(r["model"] == "unknown" for r in out["records"])
-    assert pricing.resolve("unknown").estimated is True
+    assert _codex_first_declared_model(blob) is None
+    with pytest.raises(ValueError, match="rollout_fork_prefix"):
+        parse.parse_file("codex/rollout_fork_prefix.jsonl", blob)
 
 
-def test_a_file_declaring_several_models_reports_all_of_them():
+def test_the_first_declaration_in_file_order_is_what_backfills_the_prefix():
     blob = (FIX / "rollout_model_switch.jsonl").read_bytes()
-    assert _codex_declared_models(blob) == {"gpt-5.6-sol", "gpt-5.6-terra"}
+    assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
 
 
-def test_a_multi_model_fork_keeps_its_replayed_prefix_unknown():
-    """The issue-529 shape: a fork that replays its parent's history and
-    THEN declares two models of its own. No declaration fronts the
-    replayed prefix and two candidates follow it, so no sole-model answer
-    exists — the prefix stays `unknown` and the records it shares with the
-    parent keep the file-local uuids that let the dedup pick the parent's
-    attributed copy (SV-CANONICAL-FLAG)."""
+def test_a_multi_model_fork_attributes_its_replayed_prefix():
+    """The issue-529 shape, under the issue-653 ruling: a fork that
+    replays its parent's history and THEN declares two models of its
+    own. No declaration fronts the replayed prefix and two candidates
+    follow it, but the first declared model is the parent's model in
+    force at the fork point — the inherited settings — so the prefix
+    takes that instead of an `unknown` placeholder. The records keep the
+    session-qualified uuids that let the dedup order the copies
+    (SV-CANONICAL-FLAG); which copy wins is pinned in
+    tests/test_canonical_model_attribution.py."""
     blob = (FIX / "rollout_fork_model_switch.jsonl").read_bytes()
-    assert _codex_declared_models(blob) == {"gpt-5.6-sol", "gpt-5.6-terra"}
+    assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
     out = _parse("rollout_fork_model_switch.jsonl")
     assert [(r["line_num"], r["model"], r["uuid"]) for r in out["records"]] == [
-        (4, "unknown", "00000000-0000-4000-8000-000000000001:100500"),
-        (5, "unknown", "00000000-0000-4000-8000-000000000001:110920"),
+        (4, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:100500"),
+        (5, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:110920"),
         (10, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:215540"),
         (13, "gpt-5.6-terra", "00000000-0000-4000-8000-000000000001:316040"),
     ]
@@ -319,11 +325,27 @@ def test_a_multi_model_fork_keeps_its_replayed_prefix_unknown():
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("GPT-6-Astra", "gpt-6-astra"),
-    ("gpt-7-unreleased", "gpt-7-unreleased"),  # unknown stays itself, estimated
-    (None, "unknown"),
+    ("gpt-7-unreleased", "gpt-7-unreleased"),  # unpriced id stays itself
+    (None, None),
+    ("", None),
+    ("  ", None),
 ])
 def test_model_ids_stay_as_recorded_after_spelling_normalisation(raw, expected):
     assert _codex_model(raw) == expected
+
+
+def test_the_parser_never_labels_a_model_unknown():
+    """The ruling (issue #653): `unknown` is a placeholder for a model
+    that was never actually unknown, so no parser may emit it — a file
+    that cannot attribute is refused instead. Pin it on every lane
+    parser at their shared entry point."""
+    for name in ("rollout_model_switch.jsonl", "rollout_fork_model_switch.jsonl",
+                 "rollout_sole_model_prefix.jsonl"):
+        out = _parse(name)
+        for r in out["records"]:
+            assert r["model"] != "unknown" and r["model"], name
+        for tu in out["tool_uses"]:
+            assert tu["model"] != "unknown" and tu["model"], name
 
 
 def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
@@ -402,7 +424,7 @@ def test_a_forks_replayed_records_collide_with_their_originals_by_uuid():
     # Re-parsing the same bytes under a different file_key stands in for the
     # sibling file that replays them: same thread, same counter positions,
     # so the identities must match even though the file_key does not.
-    replay = parse.parse_file(
+    replay = _parse_file_norefusal(
         "codex/some_other_rollout.jsonl",
         (FIX / "rollout_fork_prefix.jsonl").read_bytes(),
     )
@@ -536,7 +558,7 @@ def test_cache_writes_come_out_of_fresh_input_not_on_top_of_it():
     written = _uncached_headroom("rollout_fork_prefix.jsonl") // 2
     assert written > 0
     blob = _with_cache_write("rollout_fork_prefix.jsonl", written)
-    out = parse.parse_file("codex/cache_write.jsonl", blob)
+    out = _parse_file_norefusal("codex/cache_write.jsonl", blob)
     rec = out["records"][-1]
     assert rec["cache_creation_tokens"] == written
     # The prompt is unchanged: the write came out of it, not on top.
