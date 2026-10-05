@@ -15,6 +15,35 @@ from datetime import datetime, timezone
 from backend import constants, db, key_layout, parse, r2, rate_fingerprint
 
 
+def _strip_nul(value):
+    """Recursively strip NUL bytes from every string in parse output.
+
+    PostgreSQL refuses 0x00 in text and in jsonb (the \\u0000 escape),
+    and psycopg raises DataError on the whole statement rather than the
+    one row, so a single corrupted tool name or tool argument aborts the
+    file's entire transaction and the session drops off every panel
+    (issue #670). #41 stripped tool-result text at capture (_pg_text);
+    this is the ONE choke point covering every text value reaching
+    files, records and tool_uses, so the next text column cannot reopen
+    the class. Identity strings (file_key, project_id, session_id) are
+    object-key material, not transcript content, and never pass through
+    here.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "") if "\x00" in value else value
+    if isinstance(value, dict):
+        for k in value:
+            value[k] = _strip_nul(value[k])
+        return value
+    if isinstance(value, list):
+        for i, v in enumerate(value):
+            value[i] = _strip_nul(v)
+        return value
+    if isinstance(value, tuple):
+        return tuple(_strip_nul(v) for v in value)
+    return value
+
+
 def _persist(obj, proj, parsed, parser_version) -> None:
     """One file, one transaction — identical to the pre-pool behaviour.
 
@@ -45,6 +74,10 @@ def _persist(obj, proj, parsed, parser_version) -> None:
         # {project_id, display_name, ...} dict (tests do) preserves.
         proj = {k: v for k, v in proj.items() if k != "case_counts"}
         proj["display_name_set"] = bool(proj.get("display_name_set"))
+        # NUL strip BEFORE any SQL: the one gate every transcript-derived
+        # text value passes on its way into the three tables (issue #670).
+        proj = _strip_nul(proj)
+        parsed = _strip_nul(parsed)
         cur.execute(
             "INSERT INTO projects (project_id, display_name, "
             "first_seen_at, last_seen_at) "
