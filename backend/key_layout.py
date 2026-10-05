@@ -23,6 +23,13 @@ _plan_work):
   sessions/<project>/<session>/subagents/<id>/wire.jsonl[.xz]
   sessions/<project>/project.json            (display-path marker)
 
+  One session shape is never a real session (issue #650): a lane
+  session named exactly `test` — the kimi-code test suite archives its
+  scratch runs under sessions/<hash>/test/, subagents included — is no
+  transcript and no sidecar: classify() and sidecar_stem() answer None
+  for the whole subtree, so the walk never lists it and the orphan
+  sweep deletes any rows already stored there.
+
 Subagent meta.json sidecars (both layouts) sit beside the transcript
 they describe and name the role it was dispatched as; transcript_stem()
 and sidecar_stem() pair the two:
@@ -65,6 +72,13 @@ _JSONL_SUFFIXES = (".jsonl.xz", ".jsonl")
 _CLAUDE_MIN_SEGMENTS = 3
 # A lane wire key is sessions/<project>/<session>/wire.jsonl at minimum.
 _LANE_MIN_SEGMENTS = 4
+# A lane session named exactly this is a test-suite scratch session, not
+# a real one (issue #650): the kimi-code test suite archives its runs
+# under a session named `test` inside a hash-named project, and those
+# transcripts carry no usage -- classify() answers None for the whole
+# subtree, so the ingest walk never lists them and the orphan sweep
+# deletes rows already stored under such keys.
+_LANE_TEST_SESSION = "test"
 
 
 class KeyInfo(NamedTuple):
@@ -161,6 +175,8 @@ def classify(key: str) -> KeyInfo | None:
 def _classify_lane(parts: list[str]) -> KeyInfo | None:
     if len(parts) < _LANE_MIN_SEGMENTS or parts[-1] not in _LANE_WIRE:
         return None
+    if parts[2] == _LANE_TEST_SESSION:
+        return None
     return KeyInfo(parts[1], parts[2], _SUBAGENT_DIR not in parts)
 
 
@@ -214,6 +230,8 @@ def sidecar_stem(key: str) -> str | None:
     """
     parts = key.split("/")
     if parts[0] == LANE_ROOT:
+        if len(parts) > 2 and parts[2] == _LANE_TEST_SESSION:
+            return None
         if (len(parts) > _LANE_MIN_SEGMENTS + 1
                 and parts[-3] == _SUBAGENT_DIR
                 and parts[-1] in _LANE_AGENT_META):

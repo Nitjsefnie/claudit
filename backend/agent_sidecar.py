@@ -13,6 +13,7 @@ from __future__ import annotations
 from orjson import JSONDecodeError, loads
 
 from backend import key_layout
+from backend.agent_types import canonical_agent_type
 from backend.parse_lanes import lane_sidecar_agent_type
 
 
@@ -85,8 +86,9 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     OBJECT key (no bucket): which normalisation the role takes follows
     the key layout, not the sniffed format -- a sidecar in the lane tree
     goes through the lane's (lane_sidecar_agent_type), so its name for
-    the default profile is DEFAULT_AGENT_TYPE here too; a Claude one is
-    stored verbatim, like ``attributionAgent``. A teammate's sidecar also
+    the default profile is DEFAULT_AGENT_TYPE here too; a Claude one
+    takes its canonical name (agent_types.canonical_agent_type), like
+    ``attributionAgent``. A teammate's sidecar also
     sets ``teammate_name``, which ingest joins to the lead's dispatch; the
     role stored here stands only when no dispatch joins. An agentType-only
     sidecar (an older release's teammate) is stored the same way, as a
@@ -105,5 +107,9 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     if role is None:
         return parsed
     parsed["agent_type"] = (lane_sidecar_agent_type(role)
-                            if key_layout.in_lane_tree(key) else role)
+                            if key_layout.in_lane_tree(key)
+                            # A lane sidecar's role already canonicalises
+                            # through lane_agent_type; a Claude one folds
+                            # here (agent_types.canonical_agent_type).
+                            else canonical_agent_type(role))
     return parsed

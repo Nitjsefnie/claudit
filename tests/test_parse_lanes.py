@@ -172,8 +172,9 @@ def _codex_meta(*payloads: str) -> bytes:
 
 def test_codex_subagent_file_records_its_agent_role():
     """The role rides the second session_meta; the first, without it,
-    must not shadow it -- the non-empty value wins."""
-    assert _lane("codex_agent_role.jsonl")["agent_type"] == "explorer"
+    must not shadow it -- the non-empty value wins. The lane's own
+    spelling folds to the canonical name (issue #650)."""
+    assert _lane("codex_agent_role.jsonl")["agent_type"] == "Explore"
 
 
 def test_codex_main_file_without_a_role_is_the_default_agent_type():
@@ -239,7 +240,7 @@ def test_codex_later_session_meta_of_the_same_thread_still_names_the_role():
     within it: a later session_meta with the same id may declare it."""
     out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
         ',"id":"k"', ',"id":"k","agent_role":"explorer"'))
-    assert out["agent_type"] == "explorer"
+    assert out["agent_type"] == "Explore"
 
 
 def _dispatch_cols(tu: dict) -> tuple:
@@ -257,13 +258,16 @@ def test_codex_spawn_agent_calls_record_what_they_asked_for():
     assert _dispatch_cols(by_id["call_spawn01"]) == (
         "implementer", "gpt-6-astra", None, None)
     assert _dispatch_cols(by_id["call_spawn02"]) == (
-        "explorer", None, None, None)
+        "Explore", None, None, None)
     assert _dispatch_cols(by_id["call_spawn03"]) == (None, None, None, None)
     assert _dispatch_cols(by_id["call_wait01"]) == (None, None, None, None)
 
 
 def test_kimi_code_first_profile_name_is_the_agent_type():
-    assert _lane("kimi_code_agent_dispatch.jsonl")["agent_type"] == "coder"
+    """kimi's default subagent profile folds to the default bucket
+    (issue #650); a named profile folds to its canonical name."""
+    assert _lane("kimi_code_agent_dispatch.jsonl")[
+        "agent_type"] == constants.DEFAULT_AGENT_TYPE
 
 
 def _kc_profile(profile: str) -> bytes:
@@ -299,7 +303,7 @@ def test_kimi_code_agent_call_records_subagent_type_and_prompt_shape():
              for tu in _lane("kimi_code_agent_dispatch.jsonl")["tool_uses"]}
     prompt = "Read /tmp/briefs/task-1.md IN FULL and execute it."
     assert _dispatch_cols(by_id["tool_Agent01"]) == (
-        "explore", None, len(prompt), True)
+        "Explore", None, len(prompt), True)
     assert _dispatch_cols(by_id["tool_Swarm01"]) == (None, None, None, None)
 
 
@@ -313,7 +317,8 @@ def test_kimi_code_message_tool_call_agent_carries_a_model():
             b'\\"coder\\",\\"model\\":\\"k3\\",\\"prompt\\":\\"do it\\"}"}}]},'
             b'"time":1782740973431}\n')
     tu = parse.parse_file("sessions/p/s/wire.jsonl", blob)["tool_uses"][0]
-    assert _dispatch_cols(tu) == ("coder", "k3", 5, False)
+    assert _dispatch_cols(tu) == (
+        constants.DEFAULT_AGENT_TYPE, "k3", 5, False)
 
 
 def test_legacy_has_no_role_and_its_agent_call_is_shaped():
@@ -355,9 +360,9 @@ def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
         rolled = c.execute(
             "SELECT agent_type, agent_model, n FROM dispatch_rollup "
             "ORDER BY agent_type").fetchall()
-    assert role is not None and role[0] == "explorer"
-    assert calls == [("implementer", "gpt-6-astra"), ("explorer", None)]
-    assert rolled == [("explorer", "", 1), ("implementer", "gpt-6-astra", 1)]
+    assert role is not None and role[0] == "Explore"
+    assert calls == [("implementer", "gpt-6-astra"), ("Explore", None)]
+    assert rolled == [("Explore", "", 1), ("implementer", "gpt-6-astra", 1)]
 
 
 # ---- reply latency: anchor to the model's FIRST assistant output ----------

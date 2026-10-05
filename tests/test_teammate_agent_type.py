@@ -114,7 +114,7 @@ def test_an_agent_type_only_sidecar_with_a_tool_use_id_is_a_plain_role():
 def test_a_fork_sidecar_is_not_a_teammate_candidate():
     sidecar = b'{"isFork": true, "agentType":"explorer"}'
     out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "explorer"
+    assert out["agent_type"] == "Explore"
     assert out.get("teammate_name") is None
 
 

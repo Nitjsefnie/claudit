@@ -2,17 +2,13 @@
 
 The per-file mutable state, the turn bookkeeping, the record/tool-call
 builders and the ctx_turns derivation are format-independent: a Kimi
-StatusUpdate, a kimi-code usage.record and a Codex token_count all produce
-the same billing row, and all three formats bracket their requests into
-turns the same way. Only the field NAMES differ, and that difference is
+StatusUpdate, a kimi-code usage.record and a Codex token_count all produce the same billing row, and all three formats bracket their requests into turns the same way. Only the field NAMES differ, and that difference is
 what each format module owns.
 
 Splitting these out is what keeps a format module readable, and what lets
-backend/parse_codex.py exist without importing backend/parse.py — the
-cycle that a shared-helpers-live-with-the-Kimi-parser layout would create.
+backend/parse_codex.py exist without importing backend/parse.py — the cycle that a shared-helpers-live-with-the-Kimi-parser layout would create.
 
-Nothing here knows a format. A function that has to ask which format it is
-looking at belongs in that format's module instead.
+Nothing here knows a format. A function that has to ask which format it is looking at belongs in that format's module instead.
 """
 from __future__ import annotations
 
@@ -22,14 +18,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from backend import pricing
+from backend.agent_types import canonical_agent_type
 from backend.constants import MAX_PLAUSIBLE_CTX
-from backend.tool_errors import (ERROR_TEXT_MAX, _pg_text,
-                                 classify_lane_error)
+from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
 
 
 def iter_lines(blob: bytes) -> Iterator[bytes]:
-    """The file's lines, one at a time, with splitlines' CR / LF / CRLF
-    semantics.
+    """The file's lines, one at a time, with splitlines' CR / LF / CRLF semantics.
 
     Both callers used to stream LF files through BytesIO and fall back
     to blob.splitlines() for anything carrying a CR -- an eager copy of
@@ -222,8 +217,12 @@ def _append_tool_use(st: _ParseState, line_num: int, ts: datetime | None,
         "lines_deleted": deleted,
     }
     if dispatch is not None:
-        (row["agent_type"], row["agent_model"],
-         row["dispatch_prompt_chars"], row["dispatch_brief_ref"]) = dispatch
+        # The asked type takes its canonical name (agent_types) — the same
+        # fold the stored side takes — here, so the fold costs dispatch
+        # rows only and never the per-row path.
+        (a_type, row["agent_model"], row["dispatch_prompt_chars"],
+         row["dispatch_brief_ref"]) = dispatch
+        row["agent_type"] = canonical_agent_type(a_type) if a_type else None
     st.tool_uses.append(row)
 
 

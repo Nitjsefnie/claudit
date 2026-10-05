@@ -177,6 +177,14 @@ planned `codex+kimi` pairing needs no handling; the same session id in
 two buckets with a uuid-less format (kimi-code, legacy Kimi)
 double-counts at session level.
 
+One lane session shape is not data (issue #650): a lane session named
+exactly `test` — `sessions/<project>/test/…`, subagents included — is
+the kimi-code test suite's scratch archive (its runs write under a
+session named `test` inside a hash-named project), carries no usage,
+and classifies as nothing: `key_layout.classify()` and `sidecar_stem()`
+answer None for the subtree, the walk never lists it, and the orphan
+sweep deletes rows already stored there.
+
 Project identity follows the directory, not the lane: a lane project
 whose project.json marker names a directory is keyed by that directory's
 Claude slug (`key_layout.project_slug`), so one directory is ONE project
@@ -451,6 +459,16 @@ what a dispatch asked for:
   JSONL); these record what was ASKED, so a fileless dispatch is still
   attributable. Codex dispatches keep `dispatch_prompt_chars` /
   `dispatch_brief_ref` NULL: their `message` is encrypted.
+  Both sides store the canonical name (`agent_types.canonical_agent_type`,
+  issue #650): one role is one name across lanes (Claude's `Explore`,
+  Kimi's `explore`, Codex's `explorer` are one), a plugin-namespaced
+  type folds to the type (`superpowers:code-reviewer` → `code-reviewer`),
+  and the lanes' default subagent roles (Kimi's `coder`, Codex's
+  `worker`) are not roles at all — they land in `DEFAULT_AGENT_TYPE`,
+  the bucket a transcript that named nothing shares. A workflow-tree
+  sidecar's `agentType: workflow-subagent` is a container marker, not a
+  role: it stands only when nothing more specific was recorded, and an
+  in-band role outranks it (the standing sidecar precedence).
 
 `tool_error_rollup` and `dispatch_rollup` carry the composable counts.
 `error_text` never enters a rollup grain (unbounded cardinality).
