@@ -427,3 +427,198 @@ def test_background_refresh_across_an_invalidate_is_stored_stale(monkeypatch):
         sorted({"rng": "30d", "fresh": 0}.items()))
     assert c.get_entry(key) == ({"n": 2}, True), (
         "a refresh that computed across the invalidation is born stale")
+
+
+class _CountingPool:
+    """Records submitted tasks instead of running them. The defect under
+    test is about how many pool slots a warm spends and how many hops the
+    recompute takes, both of which a pool that runs everything inline
+    would hide."""
+
+    def __init__(self):
+        self.tasks = []
+        self.submitted = 0
+
+    def submit(self, fn, *args, **kwargs):
+        self.submitted += 1
+        self.tasks.append(lambda: fn(*args, **kwargs))
+
+    def run_one(self):
+        self.tasks.pop(0)()
+
+    def run_all(self):
+        while self.tasks:
+            self.run_one()
+
+
+def _key_for(fn, kwargs):
+    return fn.__qualname__ + ":" + repr(sorted(kwargs.items()))
+
+
+def test_warm_recomputes_a_stale_entry_in_one_hop(monkeypatch):
+    """`warm()` must itself populate the entry, in one pool task (issue #641).
+
+    Regression: `warm()` called the DECORATED endpoint, so a stale entry
+    was returned immediately and the recompute deferred to
+    `_schedule_refresh` -- the entry stayed stale, and warming a stale key
+    spent two slots on the two-worker refresh pool instead of one, with
+    the real work pushed one hop further back in a queue that user
+    refreshes share. Every ingest ends in `warm_common()`, so this ran
+    every hour for every warmed view.
+
+    Each assertion below catches its own direction, and the placement is
+    load-bearing. The freshness checks run after exactly ONE task, because
+    after a full drain the deferred refresh has caught up and the broken
+    path converges to the fixed path's observable state. `submitted == 1`
+    reads the count only after that one task has run: read before any task
+    runs, the broken path has not queued its second slot yet and the count
+    still reads 1, so the assertion passes on the code it exists to catch.
+    """
+    calls = []
+
+    @cache_response
+    def endpoint(rng: str = "all") -> dict:
+        calls.append(rng)
+        return {"n": len(calls)}
+
+    pool = _CountingPool()
+    monkeypatch.setattr(cache_mod, "_refresh_pool", pool)
+    cache_mod.response_cache.clear()
+
+    endpoint(rng="all")
+    assert len(calls) == 1
+    cache_mod.response_cache.invalidate()  # the ingest's invalidate()
+
+    cache_mod.warm(endpoint, rng="all")
+
+    pool.run_one()
+    entry = cache_mod.response_cache.get_entry(_key_for(endpoint, {"rng": "all"}))
+    assert entry is not None, "warm() dropped the entry"
+    assert entry[1] is False, (
+        "the warm's own task left the entry stale, so it still serves "
+        f"pre-ingest data until a second, deferred task runs: {entry[0]!r}")
+    assert len(calls) == 2, "warm() did not recompute the stale entry"
+    assert not pool.tasks, (
+        f"the warm queued {len(pool.tasks)} further task(s); it must do "
+        "the work itself")
+
+    pool.run_all()
+    assert pool.submitted == 1, (
+        f"warming one stale entry spent {pool.submitted} refresh-pool "
+        "slots; it must spend one and do the recompute itself")
+
+
+def test_warm_reclaims_the_lock_of_a_failing_endpoint(monkeypatch):
+    """A warm whose endpoint raises must not leak its single-flight lock.
+
+    A failed compute stores no entry, so neither reclamation path that
+    rides `_items` (expiry in `get_entry`, `_evict_over_cap`) ever runs, and
+    `max_entries` bounds `_items`, not `_key_locks`. The warm runs right
+    after the ingest's `invalidate()`, where a database blip is likeliest,
+    so each failing key would leak a lock every hour.
+    """
+    class _Boom(RuntimeError):
+        pass
+
+    @cache_response
+    def endpoint(rng: str = "all") -> dict:
+        raise _Boom("compute failed")
+
+    pool = _CountingPool()
+    monkeypatch.setattr(cache_mod, "_refresh_pool", pool)
+    cache_mod.response_cache.clear()
+
+    for i in range(50):  # distinct keys, and NO clear() between them
+        cache_mod.warm(endpoint, rng=f"r{i}")
+    pool.run_all()  # the warms must actually RUN, or no lock is ever taken
+
+    # Read the privates directly: neither has a public accessor, and the
+    # properties they hold here are otherwise unobservable.
+    cache = cache_mod.response_cache
+    locks = cache._key_locks  # pylint: disable=protected-access
+    claims = cache_mod._refreshing  # pylint: disable=protected-access
+    assert not locks, (
+        f"failing warms leaked {len(locks)} single-flight lock(s): "
+        f"{sorted(locks)[:3]}")
+    # The claim must be released on the RAISE path too. A warm that keeps
+    # it would suppress every later refresh of that key forever, so the
+    # entry would serve pre-ingest data indefinitely — and nothing else
+    # in the suite reads `_refreshing`, so this is the only control.
+    # Scoped to THIS test's keys: `_refreshing` is process-global, and an
+    # earlier test that schedules a refresh it never runs leaves a claim
+    # behind that is none of this test's business.
+    mine = {_key_for(endpoint, {"rng": f"r{i}"}) for i in range(50)}
+    assert not (claims & mine), (
+        f"failing warms leaked {len(claims & mine)} refresh claim(s); every "
+        "later refresh of those keys is now suppressed: "
+        f"{sorted(claims & mine)[:3]}")
+
+
+def test_warm_skips_a_key_that_is_already_fresh(monkeypatch):
+    """`warm()` must not recompute a key another actor already refreshed."""
+    calls = []
+
+    @cache_response
+    def endpoint(rng: str = "all") -> dict:
+        calls.append(rng)
+        return {"n": len(calls)}
+
+    pool = _CountingPool()
+    monkeypatch.setattr(cache_mod, "_refresh_pool", pool)
+    cache_mod.response_cache.clear()
+
+    endpoint(rng="all")
+    cache_mod.warm(endpoint, rng="all")
+    pool.run_all()
+    assert len(calls) == 1, "warm() recomputed an already-fresh entry"
+
+
+def test_warm_claims_the_key_while_it_computes(monkeypatch):
+    """A warm's inline compute must claim the key in `_refreshing`.
+
+    While the warm runs, the entry is still stale, so a request arriving
+    in that window is served the old value and calls `_schedule_refresh`
+    on the same key. `_refreshing` is the only thing that makes those two
+    exclude each other; without the claim the key computes twice, which is
+    the one way this fix is worse than the code it replaces.
+
+    Pinned on the claim the endpoint body observes rather than on a racy
+    thread interleaving: the body runs exactly once per compute, so what it
+    saw is the state a concurrent `_schedule_refresh` would have read.
+
+    Scope, stated honestly: this is red on 829265c (the commit that added
+    the inline compute with no claim) and on any tree where the claim is
+    deleted. It is GREEN on `origin/master`, because there the compute runs
+    inside the deferred `_schedule_refresh`, which claims the key itself on
+    the way in — the same observable, a different caller. It pins the
+    property that matters, that the compute is deduped, not which caller
+    holds the claim; `test_warm_recomputes_a_stale_entry_in_one_hop` is what
+    catches the revert to the decorated call.
+    """
+    pool = _CountingPool()
+    monkeypatch.setattr(cache_mod, "_refresh_pool", pool)
+    cache_mod.response_cache.clear()
+
+    observed = []
+
+    @cache_response
+    def endpoint(rng: str = "all") -> dict:
+        # `_refreshing` is the dedup set a concurrent `_schedule_refresh`
+        # reads; it has no accessor and the property is unobservable.
+        claimed = cache_mod._refreshing  # pylint: disable=protected-access
+        observed.append(key in claimed)
+        return {"n": len(observed)}
+
+    key = _key_for(endpoint, {"rng": "all"})
+
+    endpoint(rng="all")                      # seed the entry
+    cache_mod.response_cache.invalidate()    # the ingest's invalidate()
+    cache_mod.warm(endpoint, rng="all")
+    pool.run_all()
+
+    assert len(observed) == 2, (
+        f"expected the seed and one warm compute, saw {len(observed)}")
+    assert observed[1] is True, (
+        "the warm's compute ran without claiming the key in `_refreshing`, "
+        "so a request hitting the stale entry meanwhile schedules a second "
+        "compute of the same key")
