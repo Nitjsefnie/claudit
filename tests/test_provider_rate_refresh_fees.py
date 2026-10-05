@@ -17,7 +17,8 @@ from __future__ import annotations
 import copy
 
 from tests.refresh_fixture_builders import _endpoint, _per_token
-from tests.test_provider_rate_refresh import GLM, NOW, Run, refresh, refresh_prices
+from tests.test_provider_rate_refresh import (
+    GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
 
 # The fee as OpenRouter lists it: USD per request, not per token.
@@ -39,11 +40,14 @@ def _rates(run: Run, model: str, host: str) -> dict:
 
 def _move(run: Run, model: str, host: str) -> dict:
     """Move one host's output, so a run appends an entry whose note is
-    readable. Returns the rates the appended entry carries."""
-    moved = {**_rates(run, model, host), "output": _rates(run, model, host)["output"] * 2}
+    readable. Returns the rates the appended entry carries — the five rate
+    fields only, since a row's newest entry may also carry a band (issue
+    #640), which an appended entry never copies."""
+    current = _rates(run, model, host)
+    moved = {**current, "output": current["output"] * 2}
     pricing = run.endpoint(model, host)["pricing"]
     pricing["completion"] = _per_token(moved["output"])
-    return {field: moved[field] for field in moved if field != "from"}
+    return {field: moved[field] for field in RATE_FIELDS}
 
 
 def _fee(run: Run, model: str, host: str, value: str = WEB_SEARCH) -> None:
