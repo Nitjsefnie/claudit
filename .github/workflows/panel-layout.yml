@@ -81,3 +81,15 @@ jobs:
         # escapes its panel — the script prints which, at which width, by
         # how many pixels.
         run: node scripts/ci/panel_layout.mjs
+
+      - name: Sweep every panel's hover response
+        # The same REAL page and fixture set (issue #647): cold-load CLS,
+        # a hover sweep over every marked bar/bucket/point asserting the
+        # tooltip and the highlight, tooltip overflow, sweep-shift
+        # attribution through src/perf.js, and the 2-vs-30+-models panel
+        # height check. The KNOWN ledger it prints carries the defects
+        # that predate the sweep, each with its issue number; a new
+        # violation, a panel that renders none, a sweep with no marked
+        # target anywhere, or a ledger entry that never fired exits
+        # non-zero.
+        run: node scripts/ci/panel_interactions.mjs

@@ -9,6 +9,7 @@ tests/test_ingest.py
 tests/test_js_toolchain.py
 tests/test_model_colors.py
 tests/test_model_select_js.py
+tests/test_panel_interactions_js.py
 tests/test_panel_layout_js.py
 tests/test_parse_non_object.py
 tests/test_parser_js_dedup_merge.py

@@ -268,9 +268,11 @@ function CacheTTLPanel({ events, range, binMs }) {
           const isPeak = idx === peakIdx;
           return (
             <g key={'bar'+idx}>
-              <rect x={x} y={y1} width={barW} height={Math.max(0, h1)}
+              <rect data-hover-target="" x={x} y={y1} width={barW}
+                height={Math.max(0, h1)}
                 fill={COL_X.cacheCreateTokens} fillOpacity={isPeak ? 0.95 : 0.85} />
-              <rect x={x} y={y5} width={barW} height={Math.max(0, h5)}
+              <rect data-hover-target="" x={x} y={y5} width={barW}
+                height={Math.max(0, h5)}
                 fill={COL_X.inputTokens} fillOpacity={isPeak ? 0.95 : 0.85} />
             </g>
           );

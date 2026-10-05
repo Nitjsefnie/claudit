@@ -499,8 +499,8 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
           const y = yBar(b.sum);
           const isHover = tip && tip.idx === idx;
           return (
-            <rect data-time-bar="" key={idx} x={x} y={y} width={width}
-              height={Math.max(0, padT + plotH - y)}
+            <rect data-time-bar="" data-hover-target="" key={idx} x={x} y={y}
+              width={width} height={Math.max(0, padT + plotH - y)}
               fill={color} fillOpacity={isHover ? 0.85 : 0.3} />
           );
         })}
@@ -668,7 +668,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
     }}
     onMouseLeave={() => setHover(null)}>
       <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
-        data-panel={title} width={w} height={h} style={{ display: 'block' }}>
+        data-panel={title} data-list-panel="" width={w} height={h} style={{ display: 'block' }}>
         <text data-role="title" x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
         <rect data-role="plot" x={padL} y={padT} width={plotW} height={rows.length * 36} fill="none" />{rows.map((r, idx) => {
@@ -684,8 +684,8 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded }) {
               <rect x={0} y={y} width={w} height={32} fill="transparent" />
               <text data-hbar-label="" x={padL - 8} y={y + 18} fontSize="11" fill={TH.text}
                 textAnchor="end" fontFamily="monospace">{r.label}</text>
-              <rect x={padL} y={y + 4} width={Math.max(2, barW)} height={26}
-                fill={c} fillOpacity={isHover ? 1 : 0.85}
+              <rect data-hover-target="" x={padL} y={y + 4} width={Math.max(2, barW)}
+                height={26} fill={c} fillOpacity={isHover ? 1 : 0.85}
                 stroke={isHover ? '#fff' : 'none'} strokeOpacity={0.5} />
               <text x={padL + barW + 8} y={y + 22} fontSize="11" fontWeight="bold"
                 fill={TH.text} fontFamily="monospace">
@@ -866,8 +866,8 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
               style={{ cursor: 'pointer' }}>
               <rect x={cx - slot / 2} y={padT} width={slot} height={plotH + padB}
                 fill="transparent" />
-              <rect x={cx - barW / 2} y={y} width={barW} height={barH}
-                fill={c} fillOpacity={isHover ? 1 : 0.85}
+              <rect data-hover-target="" x={cx - barW / 2} y={y} width={barW}
+                height={barH} fill={c} fillOpacity={isHover ? 1 : 0.85}
                 stroke={isHover ? '#fff' : 'none'} strokeOpacity={0.5} />
               {/* Cost and share stacked, so both fit above a narrow bar
                   instead of one long line overrunning its neighbour. */}
