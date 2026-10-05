@@ -291,14 +291,30 @@ def _schedule_refresh(key: str, fn: Callable[..., dict], kwargs: dict[str, Any])
     _refresh_pool.submit(_run)
 
 
+def _cache_key(fn: Callable[..., dict], kwargs: dict[str, Any]) -> str:
+    """The response-cache key for `fn(**kwargs)`.
+
+    `cache_response` and `warm` must agree on it exactly -- a warm that
+    derives its own key warms a key no request reads (issue #641, and
+    pitfall 07 of the performance field guide) -- so both build it here.
+    `functools.wraps` copies `__qualname__`, so the wrapper `warm` is
+    handed and the raw function `cache_response` decorates name the same
+    key.
+    """
+    return fn.__qualname__ + ":" + repr(sorted(kwargs.items()))
+
+
 def warm(fn: Callable[..., dict], **overrides: Any) -> None:
     """Populate the cache entry a request with `overrides` would produce.
 
     An ingest leaves Postgres' buffer cache cold — recompute_canonical and
     rebuild_rollup rewrite the tables — and a restart leaves the response
     cache empty on top of that, so the first visitor pays both: measured
-    6.0s vs 1.4s warm for /api/dashboard. Stale-while-revalidate cannot
-    help there because there is nothing stale to serve yet.
+    6.0s vs 1.4s warm for /api/dashboard. After an ingest the entries are
+    still there but STALE, so a request is served the old value and the
+    recompute is deferred; after a restart there is nothing to serve and
+    the request computes inline. This is what makes the warmed value worth
+    having: it is the fresh one, not merely a present one.
 
     The key MUST match what the decorated wrapper computes for a real
     request, and FastAPI passes every declared query param as a keyword.
@@ -318,9 +334,46 @@ def warm(fn: Callable[..., dict], **overrides: Any) -> None:
         kwargs["fresh"] = 0
 
     def _run() -> None:
+        key = _cache_key(fn, kwargs)
         try:
-            fn(**kwargs)
+            # Recompute HERE, not by calling the decorated `fn`: on the
+            # stale entries an ingest's `invalidate()` leaves behind, a
+            # decorated call returns the old value immediately and defers
+            # the recompute to `_schedule_refresh`, so the warm consumed a
+            # refresh-pool slot, queued a second one behind every other
+            # warm already queued, and left the entry stale (issue #641).
+            # The single-flight lock is still taken, so a request that
+            # misses the same key waits for this compute instead of
+            # duplicating it.
+            with response_cache.lock_for(key):
+                entry = response_cache.get_entry(key)
+                if entry is not None and not entry[1]:
+                    return  # someone beat us to it; nothing left to warm
+                # Claim the key in `_refreshing` for the duration of the
+                # compute. The entry is still stale, so a request arriving
+                # now is served the old value and schedules a refresh of
+                # this same key; without the claim the warm and that
+                # refresh exclude neither and the key computes twice
+                # (issue #641, review).
+                with _refreshing_guard:
+                    if key in _refreshing:
+                        return  # a refresh is already computing this key
+                    _refreshing.add(key)
+                try:
+                    generation = response_cache.current_generation()
+                    response_cache.put(
+                        key, target(**kwargs), generation=generation)
+                finally:
+                    with _refreshing_guard:
+                        _refreshing.discard(key)
         except Exception:
+            # A failed compute stores no entry, so neither reclamation path
+            # that rides `_items` (expiry in `get_entry`, `_evict_over_cap`)
+            # ever runs, and `max_entries` bounds `_items`, not `_key_locks`.
+            # Without this the warm leaks a lock per failing key — and it
+            # runs right after `invalidate()`, where the database is
+            # busiest and a blip is likeliest.
+            response_cache.reclaim_failed_lock(key)
             log.exception("cache warm failed for %s %r", fn.__qualname__, overrides)
 
     _refresh_pool.submit(_run)
@@ -351,7 +404,7 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
     def wrapper(**kwargs: Any) -> dict:
         if kwargs.get("fresh"):
             return fn(**kwargs)
-        key = fn.__qualname__ + ":" + repr(sorted(kwargs.items()))
+        key = _cache_key(fn, kwargs)
 
         entry = response_cache.get_entry(key)
         if entry is not None:
