@@ -147,11 +147,11 @@ function WebMetricsPanel({ range, nonce }) {
   const header = ['journey', 'samples', 'p50 total', 'p75 total',
                   'p50 fetch', 'p75 fetch', 'p50 client', 'p75 client'];
   return (
-    <div style={{
+    <div data-panel="Page performance" style={{
       background: 'var(--bg-card)', border: '1px solid var(--border)',
       borderRadius: 4, padding: '10px 14px 14px',
     }}>
-      <div style={{
+      <div data-role="title" style={{
         display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap',
         marginBottom: 8, fontFamily: 'var(--mono)', fontSize: 11,
         color: 'var(--muted)',
@@ -174,7 +174,7 @@ function WebMetricsPanel({ range, nonce }) {
         {since && <span>window from {since}</span>}
       </div>
 
-      <div role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+      <div data-role="plot" role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
         {headline}
       </div>
