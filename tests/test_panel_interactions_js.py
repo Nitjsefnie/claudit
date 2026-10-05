@@ -37,8 +37,13 @@ def _node(body: str):
     is itself an assertion — the guard's main() is gated on direct
     execution, so an import that launched Chromium would never return.
     """
+    # A file:// URI, not a bare path: on Windows a bare path imports as
+    # the `d:` scheme and the ESM loader refuses it
+    # (ERR_UNSUPPORTED_ESM_URL_SCHEME); as_uri() spells the URI right on
+    # every platform.
+    url = MODULE.as_uri()
     script = (
-        f"const mod = await import({json.dumps(str(MODULE))});\n"
+        f"const mod = await import({json.dumps(url)});\n"
         f"{body}\n"
     )
     proc = subprocess.run(
@@ -60,7 +65,7 @@ def test_every_ledger_entry_fires_on_the_defect_it_names():
       // regex matches neither name this test knows, which is itself a
       // ledger defect the assertion below names.
       const known = ['Cost by Context Size', 'Input Tokens',
-        'Prompt-Cache TTL Split'];
+        'Prompt-Cache TTL Split', 'Cost by Model'];
       const pick = f => f.panel === null ? 'Anything At All'
         : f.panel instanceof RegExp
           ? known.find(n => f.panel.test(n)) || null
