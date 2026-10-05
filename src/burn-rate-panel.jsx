@@ -5,7 +5,18 @@
 // fixes this module carries grew the source file past its committed size
 // entry, and the size ratchet's rule is that an outgrown file moves code
 // into a new module. Nothing about the panel changed but where it lives
-// (the same split as context-growth-comparison.jsx, #630).
+// (the same split as context-growth-comparison.jsx, #630) — except the
+// two fixes themselves:
+//
+//   * The heading is two lines (#635): the bold panel name on line one,
+//     the dates and counts on a dimmed subtitle beneath, elided by
+//     fitText where even the subtitle is wider than the panel. The old
+//     single centred line was ~608px and overflowed both panel edges at
+//     375 and 320px.
+//   * The legend is packed BEFORE the plot box is sized (#634): padB is
+//     one 16px band per packed legend row and the panel grows downward by
+//     the same rows, so a five-row legend at phone width no longer slides
+//     its lower rows up into the plot and across the x-tick labels.
 //
 // Shared values are captured at module scope under _B names: the
 // text/babel scripts share one global lexical scope, so a plain `TH_B`
@@ -78,7 +89,11 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     if (lo === Infinity || lo === hi) return propRange;
     return { start: lo, end: hi };
   })();
-  // Top is just title (no legend); bottom has x-tick labels + the legend.
+  // Top is the two-line heading (#635): the bold name, then the dimmed
+  // dates+counts subtitle at baseline 30, so padT clears both. Bottom is
+  // the x-tick labels plus the legend, packed before the plot box is
+  // sized (the packing sits after `series`): padB is one 16px band per
+  // legend row.
   // padL sized from the measured y labels, not fixed at 60. Labels are
   // end-anchored at padL - 8 and the rotated "Tokens per hour…" caption
   // occupies roughly x 8..22, so the widest label needs padL - 8 - width to
@@ -86,13 +101,11 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
   // widest tick ("100K", 25.6px) left only 4.4px — the same shape as the
   // 100M/cumulative collision on the right gutter, one character from
   // breaking.
-  const padR = 30, padT = 30, padB = 56;
+  const padR = 30, padT = 40;
   const padL = Math.min(
     Math.max(60, w * 0.2),
     Math.max(60, Math.ceil(yLabelPx) + 40)
   );
-  const plotW = Math.max(10, w - padL - padR);
-  const plotH = Math.max(10, h - padT - padB);
 
   // EMA + polyline rendering assume time-sorted sessions; the backend
   // returns them in cost-desc order, so re-sort by midpoint ascending.
@@ -149,6 +162,44 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     cc:     { color: '#dd66aa', label: 'Cache Create', vals: ema(sessionData.map(s => s.cc_per_h)) },
     cr:     { color: '#44bbbb', label: 'Cache Read',   vals: ema(sessionData.map(s => s.cr_per_h)) },
   };
+
+  // The legend is packed BEFORE the plot box is sized (#634): padB below
+  // is one 16px band per packed legend row, and the panel div grows by the
+  // same rows, so a legend that wraps to five rows at phone width grows
+  // the panel downward instead of sliding its lower rows up into the plot
+  // and across the x-tick labels. Same arithmetic the JSX used to run
+  // inline; it moved up here so the pad it sizes exists before plotH.
+  const legendItems = Object.entries(series).map(([k, s]) => (
+    { key: k, color: s.color, label: `${s.label} (EMA)` }));
+  legendItems.push({ key: '__ratelimit', color: '#ff3366', label: 'Rate limit hit' });
+  const legendAdvUsed = legendAdv || 6.4;
+  const LEGEND_SWATCH = 20, LEGEND_GAP = 6, LEGEND_SPACING = 24, LEGEND_ROW = 16;
+  // Wrap instead of running off the panel: at a 800px viewport the
+  // five entries need ~680px against ~630px of usable width, and an
+  // unwrapped row put text 23px outside the svg.
+  const legendAvail = Math.max(120, w - (padL + 20) - padR);
+  let legendCx = 0, legendRow = 0;
+  const legendPlaced = legendItems.map(it => {
+    const wEntry = LEGEND_SWATCH + LEGEND_GAP + it.label.length * legendAdvUsed
+      + LEGEND_SPACING;
+    if (legendCx > 0 && legendCx + wEntry > legendAvail) { legendRow += 1; legendCx = 0; }
+    const at = legendCx, row = legendRow;
+    legendCx += wEntry;
+    return { ...it, at, row };
+  });
+  const legendRows = legendRow + 1;
+  const padB = 56 + (legendRows - 1) * LEGEND_ROW;
+  const plotW = Math.max(10, w - padL - padR);
+  const plotH = Math.max(10, h - padT - padB);
+
+  // The heading's second line (#635): the dates and counts, dimmed under
+  // the bold name. Elided by fitText where even the subtitle is wider
+  // than the panel — the single centred line this replaces was ~608px and
+  // overflowed both panel edges at 375 and 320px. Its advance is the
+  // measured legend advance (both are 10px monospace), never a predicted
+  // one.
+  const burnSub = `${fmtDate_B(range.start, {day:true})} – ${fmtDate_B(range.end, {day:true})}, ${new Date(range.end).getUTCFullYear()} UTC  |  `
+    + `${sessions.length.toLocaleString()} sessions, ${events.reduce((s,e)=>s+(e.requests==null?1:e.requests),0).toLocaleString()} requests`;
 
   // Densify each EMA line: linearly interpolate between session midpoints
   // so hit-testing works along the whole curve, not just at session points.
@@ -309,7 +360,11 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
   return (
     <div ref={ref} style={{
       background: TH_B.bgAxes, border: `1px solid ${TH_B.border}`,
-      borderRadius: 4, padding: 0, height: 380, position: 'relative',
+      borderRadius: 4, padding: 0,
+      // The panel grows one legend row tall per wrapped legend row (#634):
+      // the legend band lives entirely below the plot, so the wrapped
+      // rows expand the panel instead of the legend sliding into it.
+      height: 380 + (legendRows - 1) * LEGEND_ROW, position: 'relative',
     }}
     onMouseMove={onMove}
     onMouseLeave={() => setTip(null)}>
@@ -320,9 +375,13 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
             <rect x={padL} y={padT} width={plotW} height={plotH} />
           </clipPath>
         </defs>
-        <text data-role="title" x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH_B.text}
+        <text data-role="title" x={w/2} y={16} fontSize="14" fontWeight="bold" fill={TH_B.text}
           textAnchor="middle" fontFamily="monospace">
-          Session Burn Rate  |  {fmtDate_B(range.start, {day:true})} – {fmtDate_B(range.end, {day:true})}, {new Date(range.end).getUTCFullYear()} UTC  |  {sessions.length.toLocaleString()} sessions, {events.reduce((s,e)=>s+(e.requests==null?1:e.requests),0).toLocaleString()} requests
+          {window.panelLayout.fitText('Session Burn Rate', legendAdvUsed, Math.max(60, w - 24))}
+        </text>
+        <text data-role="title" x={w/2} y={30} fontSize="10" fill={TH_B.textDim}
+          textAnchor="middle" fontFamily="monospace">
+          {window.panelLayout.fitText(burnSub, legendAdvUsed, Math.max(60, w - 24))}
         </text>
         <g data-role="axis">{yTicks.map((v, i) => (
           <text data-yl-label="" key={'yl'+i} x={padL - 8} y={yScale(v) + 4}
@@ -389,44 +448,19 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 18 ${padT + plotH/2})`}>Tokens per hour (EMA) / 100 × Cost per hour</text>
 
-        {/* Legend entries are laid out cumulatively from their own widths,
-            not on a fixed pitch. At the old 130px pitch "Cache Create (EMA)"
-            (18 chars = 115.2px, plus a 20px swatch and 6px gap = 141.2px)
-            overran its slot and the NEXT entry's swatch was drawn 11.2px
-            inside it. Advance is measured, seeded at 6.4 for first paint. */}
-        {(() => {
-          const items = Object.entries(series).map(([k, s]) => (
-            { key: k, color: s.color, label: `${s.label} (EMA)` }));
-          items.push({ key: '__ratelimit', color: '#ff3366', label: 'Rate limit hit' });
-          const adv = legendAdv || 6.4;
-          // ROW 16, not 13: a legend label's glyph box is ~13px tall, so a
-          // 13px pitch made wrapped rows touch.
-          const SWATCH = 20, GAP = 6, SPACING = 24, ROW = 16;
-          // Wrap instead of running off the panel: at a 800px viewport the
-          // five entries need ~680px against ~630px of usable width, and an
-          // unwrapped row put text 23px outside the svg.
-          const avail = Math.max(120, w - (padL + 20) - padR);
-          let cx = 0, row = 0;
-          const placed = items.map(it => {
-            const wEntry = SWATCH + GAP + it.label.length * adv + SPACING;
-            if (cx > 0 && cx + wEntry > avail) { row += 1; cx = 0; }
-            const at = cx, r = row;
-            cx += wEntry;
-            return { ...it, at, row: r };
-          });
-          const nRows = row + 1;
-          return (
-            <g transform={`translate(${padL + 20}, ${h - 22 - (nRows - 1) * ROW})`}>
-              {placed.map(it => (
-                <g data-role="legend" key={it.key} transform={`translate(${it.at}, ${it.row * ROW})`}>
-                  <line x1={0} x2={SWATCH} y1={6} y2={6} stroke={it.color} strokeWidth="2" />
-                  <text data-legend-item="" x={SWATCH + GAP} y={10} fontSize="10"
-                    fill={TH_B.text} fontFamily="monospace">{it.label}</text>
-                </g>
-              ))}
+        {/* Legend entries come from the packing that ran above, next to
+            the pad it sizes (#634): one 16px band per wrapped row. The
+            cumulative per-entry advance and the 16px row are that block's;
+            the swatch/gap/spacing constants moved up with it. */}
+        <g transform={`translate(${padL + 20}, ${h - 22 - (legendRows - 1) * LEGEND_ROW})`}>
+          {legendPlaced.map(it => (
+            <g data-role="legend" key={it.key} transform={`translate(${it.at}, ${it.row * LEGEND_ROW})`}>
+              <line x1={0} x2={LEGEND_SWATCH} y1={6} y2={6} stroke={it.color} strokeWidth="2" />
+              <text data-legend-item="" x={LEGEND_SWATCH + LEGEND_GAP} y={10} fontSize="10"
+                fill={TH_B.text} fontFamily="monospace">{it.label}</text>
             </g>
-          );
-        })()}
+          ))}
+        </g>
       </svg>
       {a11y.descText && (
         <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
