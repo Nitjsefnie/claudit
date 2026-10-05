@@ -287,10 +287,13 @@ def test_both_guards_share_one_server_module():
 
 
 def test_the_tooltip_overflow_oracle_stays_pinned():
-    """The sweep never reproduces #642's tooltip-overflow half (its flip
-    logic keeps tooltips inside the viewport at these fixtures), so no
-    ledger entry keeps this check alive — a deleted check would be
-    invisible. The source pin is its liveness proof."""
+    """The overflow check has two halves and two liveness controls: CI's
+    font stack fires the own-box scroll half against the probe identity,
+    and the #642 by-Model ledger entry now feeds on it — delete the
+    check and that entry goes STALE, failing the run. The source pin
+    here holds the second half (the viewport comparison, which CI's
+    fixtures do not reproduce) so neither half can be dropped without
+    this file naming it."""
     src = MODULE.read_text(encoding="utf-8")
     assert "tip.scrollWidth > tip.clientWidth + 1" in src
     assert "r.right > vw + 0.5" in src
