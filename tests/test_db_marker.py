@@ -217,7 +217,14 @@ def _registered_fixtures(modules) -> dict[str, dict[str, str]]:
 
 
 class _Facts(NamedTuple):
-    """Per-function facts one module walk collected (see _module_facts)."""
+    """Per-function facts one module walk collected (see _module_facts).
+
+    The cached instance is SHARED between the registry derivation and
+    the marking guard: callers read its fields and build their own
+    sets from them, and must never mutate the dicts and sets inside —
+    a mutation would poison the other scanner's verdict and read
+    exactly like a clean scan.
+    """
 
     functions: dict[str, _AnyFn]
     fixtures: dict[str, str]
@@ -485,8 +492,11 @@ def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
     # re-price this test whenever a pull request's added lines pushed
     # a different file into the top four (issue #675), and a guard that
     # costs more than the thing it guards is not a guard. The named
-    # four were the largest modules when the slice froze; any four
-    # real, fixture-carrying modules would do the same job.
+    # four were the largest modules when the slice froze. Their
+    # fixture chains resolve from the initial mention-root sweep alone,
+    # so this real-source leg on its own does not discriminate a broken
+    # incremental union — the seeded pair below is the leg that does;
+    # the two together are the control.
     by_name = {name: (name, tree, source)
                for name, tree, source in _modules()}
     missing = [name for name in _PARITY_SLICE if name not in by_name]
