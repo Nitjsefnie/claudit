@@ -97,6 +97,26 @@ def test_ctx_turns_stored_per_file(fresh_db, mini_r2_env):
         assert tc == jlen, f"{fk}: turn_count={tc} but ctx_turns has {jlen}"
 
 
+def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):
+    """A NUL in a tool name or tool argument must not abort the file's
+    transaction (issue #670): _persist strips the byte from every text
+    value it writes, whatever column carries it, so the transcript
+    stores like any other."""
+    fk = "claude/projNul/sess-nul/sess-nul.jsonl"
+    f = mini_r2_env / "projNul" / "sess-nul" / "sess-nul.jsonl"
+    f.parent.mkdir(parents=True)
+    f.write_bytes((_FIX_ROOT / "parser" / "nul_tool_use.jsonl").read_bytes())
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        assert _scalar(c, "SELECT count(*) FROM files WHERE file_key = %s",
+                       (fk,)) == 1, "NUL-bearing transcript refused at persist"
+        rows = c.execute(
+            "SELECT tool_name, read_targets FROM tool_uses "
+            "WHERE file_key = %s ORDER BY idx", (fk,)).fetchall()
+    assert [r[0] for r in rows] == ["SkillSkill", "Read"]
+    assert rows[1][1] == ["/tmp/ab.md"]
+
+
 def test_etag_change_triggers_per_file_reparse(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
