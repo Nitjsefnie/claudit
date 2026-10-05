@@ -488,3 +488,194 @@ def test_a_consistent_future_change_stays_log_backed_and_waits_for_its_instant(
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(states[1][0], RATE_C)]
+
+
+# --- a banded row appends at most one widened entry (issue #640) -------------
+
+RATE_D = {"fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
+          "read": 0.09, "output": 2.9}
+RATE_MID = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
+            "read": 0.015, "output": 0.75}
+
+
+def _band_of(*rates: dict) -> dict:
+    """A band spanning the levels, per rate field."""
+    return {field: [min(level[field] for level in rates),
+                    max(level[field] for level in rates)]
+            for field in pricing.RATE_FIELDS}
+
+
+def _banded_row(*levels: dict) -> list[dict]:
+    """A row whose newest entry is the band of `levels`, priced by the mean
+    of the newest of them. Without a level after the first it is the plain
+    row the same moves would have produced."""
+    newest = {"from": "2030-12-31T23:00:00Z", **levels[-1]}
+    if len(levels) > 1:
+        newest["band"] = _band_of(*levels)
+    return [_entry(None, levels[0]), newest]
+
+
+def _log_refresh(tmp_path, capsys, *, row, states, endpoint_rates=None,
+                 version=71):
+    """One refresh run over a stored row and a log series, plus the file it
+    would have written and the constants beside it."""
+    return _run(tmp_path, capsys, history=states, hosts={HOST: row},
+                endpoint_rates=endpoint_rates, version=version)
+
+
+def test_a_listing_inside_a_band_appends_nothing_and_commits_nothing(tmp_path, capsys):
+    row = _banded_row(RATE_A, RATE_B)
+    states = [("2030-12-31T23:00:00Z", RATE_B), ("2031-01-01T00:10:00Z", RATE_B)]
+    unchanged = json.dumps(_doc({HOST: row}), indent=2, sort_keys=True) + "\n"
+
+    rc, out, err, pricing_path, constants_path = _log_refresh(
+        tmp_path, capsys, row=row, states=states)
+
+    assert rc == 0 and not err
+    assert "no rate moved" in out
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == row
+    assert pricing_path.read_text(encoding="utf-8") == unchanged, "no write at all"
+    assert saved["provider_rates_fetched"] == "2026-01-01T00:00:00Z"
+    assert 'PRICING_VERSION = "71"' in constants_path.read_text(encoding="utf-8")
+
+
+def test_a_listing_outside_a_band_appends_exactly_one_widened_entry(tmp_path, capsys):
+    row = _banded_row(RATE_A, RATE_B)
+    states = [("2030-12-31T23:00:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_C),
+              ("2031-01-01T00:20:00Z", RATE_C)]
+
+    rc, out, err, pricing_path, constants_path = _log_refresh(
+        tmp_path, capsys, row=row, states=states)
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    history = saved["providers"][MODEL][HOST]
+    assert len(history) == len(row) + 1, history
+    widened = history[-1]
+    assert widened["from"] == STAMP
+    assert widened["band"]["fresh"] == [0.2, 0.4], "the band grew to cover the move"
+    assert widened["band"]["read"] == [0.01, 0.03]
+    assert widened["band"]["output"] == [0.7, 0.9]
+    assert {f: widened[f] for f in pricing.RATE_FIELDS} == RATE_B, "priced as before"
+    assert saved["provider_rates_fetched"] == STAMP
+    assert 'PRICING_VERSION = "72"' in constants_path.read_text(encoding="utf-8")
+    assert "1 log entries" not in out, "the widen is one entry, not a replay"
+
+
+def test_the_last_state_outside_the_band_is_the_one_the_entry_carries(tmp_path, capsys):
+    """Three states, two of them outside and in between: the band widens to
+    the last one's level, and the row gains one entry, not three."""
+    row = _banded_row(RATE_A, RATE_B)
+    states = [("2030-12-31T23:00:00Z", RATE_B),
+              ("2031-01-01T00:05:00Z", RATE_C),
+              ("2031-01-01T00:10:00Z", RATE_D)]
+
+    rc, _, err, pricing_path, _ = _log_refresh(
+        tmp_path, capsys, row=row, states=states)
+
+    assert rc == 0 and not err
+    history = json.loads(pricing_path.read_text(encoding="utf-8"))[
+        "providers"][MODEL][HOST]
+    assert len(history) == len(row) + 1
+    assert history[-1]["band"]["fresh"] == [0.2, 0.9]
+
+
+def test_a_band_entry_priced_at_the_mean_does_not_hide_a_move_past_it(tmp_path, capsys):
+    """The dedup against the newest entry's rates compares against the band's
+    MEAN, which is not any listed state: a log state equal to it is skipped
+    as no change (it is inside the band anyway), and the state after it is
+    not."""
+    row = _banded_row(RATE_A, RATE_MID)
+    assert row[-1]["fresh"] == RATE_MID["fresh"]
+    states = [("2030-12-31T23:00:00Z", RATE_MID),
+              ("2031-01-01T00:10:00Z", RATE_D)]
+
+    rc, _, err, pricing_path, _ = _log_refresh(
+        tmp_path, capsys, row=row, states=states, endpoint_rates=RATE_D)
+
+    assert rc == 0 and not err
+    history = json.loads(pricing_path.read_text(encoding="utf-8"))[
+        "providers"][MODEL][HOST]
+    assert len(history) == len(row) + 1
+    assert history[-1]["band"]["fresh"] == [0.25, 0.9]
+
+
+def test_a_log_state_equal_to_the_bands_mean_alone_is_no_news(tmp_path, capsys):
+    row = _banded_row(RATE_A, RATE_MID)
+    states = [("2030-12-31T23:00:00Z", RATE_MID),
+              ("2031-01-01T00:10:00Z", RATE_MID)]
+
+    rc, out, err, pricing_path, _ = _log_refresh(
+        tmp_path, capsys, row=row, states=states, endpoint_rates=RATE_MID)
+
+    assert rc == 0 and not err
+    assert "no rate moved" in out
+    assert json.loads(pricing_path.read_text(encoding="utf-8"))[
+        "providers"][MODEL][HOST] == row
+
+
+def test_the_band_does_not_touch_an_unbanded_row(tmp_path, monkeypatch, capsys):
+    """Differential: the same row, the same log, three runs — plain, banded,
+    and banded with the band never read. The band is the only difference, so
+    the third must reproduce the first exactly, including what it appended."""
+    banded = _banded_row(RATE_A, RATE_B)
+    unbanded = [_entry(None, RATE_A), {"from": "2030-12-31T23:00:00Z", **RATE_B}]
+    states = [("2030-12-31T23:00:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_C)]
+
+    def run(directory, row):
+        directory.mkdir()
+        rc, out, err, pricing_path, constants_path = _log_refresh(
+            directory, capsys, row=row, states=states)
+        saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+        return (rc, err, constants_path.read_text(encoding="utf-8"),
+                out, saved["providers"][MODEL][HOST])
+
+    # The stored row itself differs (the band key), so the runs are compared
+    # on everything the run PRODUCED: its exit code, its report, the version
+    # it wrote and the entry it appended.
+    signature = lambda result: result[:4] + (result[4][-1],)
+
+    plain = run(tmp_path / "plain", unbanded)
+    assert plain[4][-1] == {"from": "2031-01-01T00:10:00Z", **RATE_C}, \
+        "an unbanded row appends the logged state, as it always has"
+    with_band = run(tmp_path / "banded", banded)
+    assert signature(with_band) != signature(plain), \
+        "the band changed what the run produced"
+    monkeypatch.setattr(refresh.price_band, "entry_band", lambda entry: None)
+    assert signature(run(tmp_path / "disabled", banded)) == signature(plain)
+
+
+def test_a_widened_row_writes_a_file_both_rate_loaders_accept(tmp_path, capsys):
+    row = _banded_row(RATE_A, RATE_B)
+    states = [("2030-12-31T23:00:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_C)]
+    rc, _, err, pricing_path, _ = _log_refresh(
+        tmp_path, capsys, row=row, states=states)
+
+    assert rc == 0 and not err
+    written = json.loads(pricing_path.read_text(encoding="utf-8"))
+    history = written["providers"][MODEL][HOST]
+    assert "band" in history[-1]
+    assert pricing.load_tables(written)["PROVIDER_RATES"][(MODEL, HOST)] == RATE_B
+    if shutil.which("node"):
+        browser_dir = tmp_path / "browser"
+        browser_dir.mkdir()
+        shutil.copy(pricing_path, browser_dir / "pricing.json")
+        shutil.copy(ROOT / "src" / "pricing-loader.js",
+                    browser_dir / "pricing-loader.js")
+        shutil.copy(ROOT / "src" / "parser.js", browser_dir / "parser.js")
+        proc = subprocess.run(
+            ["node", "-e", "global.window = {}; "
+             "require('./pricing-loader.js'); require('./parser.js'); "
+             "console.log(JSON.stringify("
+             "window.rateForModel('synthetic/model', '2031-01-01T00:20:00Z', "
+             "'Wafer')));"],
+            cwd=browser_dir, capture_output=True, text=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        priced = json.loads(proc.stdout)
+        assert {name: priced[key] for key, name in (
+            ("c5", "create_5m"), ("c1h", "create_1h"), ("out", "output"),
+        )} | {"fresh": priced["fresh"], "read": priced["read"]} == RATE_B
