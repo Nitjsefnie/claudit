@@ -107,7 +107,6 @@ const CROSS_FILE_GLOBALS = {
   backendDashToShape: 'readonly',
   binMsLabel: 'readonly',
   buildSessionTurns: 'readonly',
-  capForModel: 'readonly',
   computeSessionStats: 'readonly',
   computeSessions: 'readonly',
   computeTokenBreakdown: 'readonly',

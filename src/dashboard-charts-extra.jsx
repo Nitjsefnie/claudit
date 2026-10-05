@@ -11,30 +11,11 @@ const humanFmt_X = window.humanFmt;
 // ──────────────────────────────────────────────────────────────────────
 
 const CTX_TURN_CAP = Infinity;
-const MODEL_CAPS = {
-  'claude-fable-5-1':  1_000_000,
-  'claude-fable-5':    1_000_000,
-  'claude-opus-4-8':   1_000_000,
-  'claude-opus-4-7':   1_000_000,
-  'claude-opus-4-6':   1_000_000,
-  'claude-opus-4-5':   1_000_000,
-  'claude-sonnet-5':   1_000_000,
-  'claude-sonnet-4-6': 1_000_000,
-  'claude-sonnet-4-5':   200_000,
-  'claude-haiku-4-5':    200_000,
-};
-function capForModel(m) {
-  const s = String(m).toLowerCase();
-  // The lane models. gpt-* caps at 272k, Codex's LONG-CONTEXT BILLING
-  // threshold (window.LONG_CONTEXT_THRESHOLD) — a billing tier, not a
-  // context window: requests above it happen (the meter exists because
-  // they do), so a long-context trace plots above this line on
-  // purpose. kimi-* at Kimi's 256k.
-  if (s.startsWith('gpt')) return 272_000;
-  if (s.startsWith('kimi')) return 256_000;
-  return MODEL_CAPS[s]
-    || ((s.includes('opus') || s.includes('fable')) ? 1_000_000 : 200_000);
-}
+// The y axis is the observed peak with headroom, through the rule every
+// context panel shares (issue #648). There is no per-model cap table:
+// the one that lived here named ten Claude models and fell back to a
+// name rule for the rest, so it drew a cap line below the data of any
+// model added after it was written. See src/ctx-axis.js.
 
 function buildSessionTurns(events) {
   // Group events by session_id, sort by turn_index (real turn boundaries
@@ -111,7 +92,7 @@ function perTurnStats(sessions) {
   return { turns, median, p25, p75, p90, count, maxT };
 }
 
-function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
+function ContextSubPanel({ title, sessions, color, w: wProp, h }) {
   const ref = React.useRef(null);
   const [tip, setTip] = React.useState(null);
   const legRef = React.useRef(null);
@@ -154,26 +135,15 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
   const { turns, median, p25, p75, p90, count, maxT } = React.useMemo(() => perTurnStats(sessions), [sessions]);
   const nSess = sessions.length;
   const longest = sessions.reduce((m, s) => Math.max(m, s.seq.length), 0);
-  let maxCtx = 0;
-  for (const s of sessions) for (const p of s.seq) if (p.ctx > maxCtx) maxCtx = p.ctx;
+  const maxCtx = window.ctxAxis.ctxPeak(sessions);
 
   // Dynamic x-domain: 0 → this model's longest turn (rounded up nicely)
   const xMax = Math.max(1, maxT);
-  const yMax = Math.min(cap * 1.05, Math.max(maxCtx * 1.10, cap * 0.10));
+  const yMax = window.ctxAxis.ctxAxisTopFor([sessions]);
   const xScale = t => padL + (t / xMax) * plotW;
   const yScale = v => padT + plotH - (v / yMax) * plotH;
 
-  function niceTicks(maxV, n = 4) {
-    if (maxV <= 0) return [0];
-    const step0 = maxV / n;
-    const exp = Math.pow(10, Math.floor(Math.log10(step0)));
-    const norm = step0 / exp;
-    const niceStep = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * exp;
-    const arr = [];
-    for (let v = 0; v <= maxV; v += niceStep) arr.push(v);
-    return arr;
-  }
-  const yTicks = niceTicks(yMax, 4);
+  const yTicks = window.ctxAxis.ctxAxisTicks(yMax, 4);
   // Dynamic x-ticks based on this panel's max turn
   function xTickValues(maxV, n = 6) {
     if (maxV <= 0) return [0];
@@ -216,7 +186,6 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
         ['p25–p75',    `${fmtV(q1)}–${fmtV(q3)}`],
         ['p90 ctx',    fmtV(p9)],
         ['files @ turn', `${liveCount} / ${nSess}`],
-        ['cap',        humanFmt_X(cap)],
       ],
     });
   }
@@ -293,22 +262,6 @@ function ContextSubPanel({ title, sessions, color, cap, w: wProp, h }) {
             y1={yScale(v)} y2={yScale(v)}
             stroke={TH_X.grid} strokeOpacity="0.25" />
         ))}
-
-        {/* Cap line */}
-        {cap <= yMax && (
-          <g>
-            <line x1={padL} x2={w - padR} y1={yScale(cap)} y2={yScale(cap)}
-              stroke="#ff5577" strokeWidth="1" strokeDasharray="2,3" strokeOpacity="0.7" />
-            {/* Below the cap line, not above it: above, the label shares a
-                band with the panel subtitle, and since one is left-anchored
-                and the other right-anchored they collide once the panel
-                narrows (they overlapped at an 800px viewport). */}
-            <text x={w - padR - 4} y={yScale(cap) + 11} fontSize="8.5"
-              fill="#ff5577" textAnchor="end" fontFamily="monospace">
-              {humanFmt_X(cap)} cap
-            </text>
-          </g>
-        )}
 
         {/* Sessions-still-active area (bottom strip) — the "active"
             legend swatch refers to this; it had stopped being drawn. */}
@@ -624,13 +577,10 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
         }}>
           {rowModels.map(m => {
             const sessions = byModel[m.model] || [];
-            let maxCtx = 0;
-            for (const s of sessions) for (const p of s.seq) if (p.ctx > maxCtx) maxCtx = p.ctx;
-            const cap = capForModel(m.model);
             const color = (window.modelColors && window.modelColors[m.model]) || '#888';
             return (
               <ContextSubPanel key={m.model} title={m.model} sessions={sessions}
-                color={color} cap={Math.max(cap, maxCtx * 1.05)} w={cellW} h={cellH} />
+                color={color} w={cellW} h={cellH} />
             );
           })}
         </div>
@@ -2937,7 +2887,6 @@ window.ContextGrowthPanel = ContextGrowthPanel;
 window.DashTooltip = DashTooltip;
 window.shortModelName = shortModelName;
 window.perTurnStats = perTurnStats;
-window.capForModel = capForModel;
 window.ResponseSizesPanel = ResponseSizesPanel;
 window.ToolUsagePanel = ToolUsagePanel;
 window.ActivityHeatmapPanel = ActivityHeatmapPanel;

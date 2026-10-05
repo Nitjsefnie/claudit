@@ -88,7 +88,7 @@ EXPECTED_RULES = {
 # the list: every name is checked against the tree by
 # `test_flat_config_keeps_the_cross_file_globals`, so a stale one fails there
 # and a dropped or added one fails here.
-EXPECTED_CROSS_FILE_GLOBALS = 98
+EXPECTED_CROSS_FILE_GLOBALS = 97
 
 # `.jsx` is not a default lint target in flat config, so the files glob has
 # to name it or the gate's own `src/**/*.jsx` argument matches nothing and
@@ -410,11 +410,14 @@ def test_flat_config_keeps_the_cross_file_globals() -> None:
     config fails on the count, and a name added to it fails on the count too.
 
     The list is a hand-maintained declaration, not a mechanical projection of
-    the tree: `src/` defines 127 top-level functions and CROSS_FILE_GLOBALS
-    names 98, because a name only needs declaring once another file
+    the tree: `src/` defines more top-level functions than CROSS_FILE_GLOBALS
+    names, because a name only needs declaring once another file
     references it bare. The enforcement is the gate — `no-undef` reports a
     cross-file reference the list is missing — not this test, which checks
     the list's two ends rather than the whole resolution.
+
+    Dropped from 98 in issue #648, with `capForModel` — the per-model
+    context cap table went with it.
     """
     declared = _declared_cross_file_globals()
     stale = sorted(declared - _names_the_tree_defines())
