@@ -449,7 +449,10 @@ def test_vbar_fmt_is_value_only():
     """
     charts = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
     start = charts.index("function VBar(")
-    end = charts.index("function BurnRatePanel(", start)
+    # The Burn Rate panel moved to src/burn-rate-panel.jsx (#634/#635), so
+    # the region's old end marker went with it; the export tail follows
+    # VBar wherever the panel after it lives.
+    end = charts.index("window.TimeSeriesPanel = TimeSeriesPanel;", start)
     assert re.search(r"\(\{pct\}%\)", charts[start:end]), (
         "VBar no longer renders its own ({pct}%) share line -- percent-"
         "appending fmts are no longer a double-print; rewrite this guard")
