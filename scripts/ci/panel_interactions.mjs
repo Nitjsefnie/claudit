@@ -96,6 +96,10 @@ export const FILED = [
     kind: 'hover-style' },
   // #646: Prompt-Cache TTL Split bars do not highlight on hover.
   { issue: 646, panel: 'Prompt-Cache TTL Split', kind: 'hover-style' },
+  // #651: Cost by Agent Type (and its Tokens twin) grow a row per role
+  // with no bound — the height category's live filed defect.
+  { issue: 651, panel: 'Cost by Agent Type', kind: 'height-growth' },
+  { issue: 651, panel: 'Tokens by Agent Type', kind: 'height-growth' },
 ];
 
 // The failure kinds this guard classifies. Closed: a kind outside this
@@ -125,23 +129,30 @@ export function filedFor(panel, kind) {
 // model-count change and nothing else.
 export function variantsFrom(base) {
   const MANY = 30;
+  const LONG = '~a-very-long-identity-name-probing-tooltip-overflow';
+  const identity = row => (typeof row.model === 'string' ? 'model'
+    : typeof row.agent_type === 'string' ? 'agent_type' : null);
   const rewriteArray = (rows, mode) => {
+    const key = rows.length && rows[0] ? identity(rows[0]) : null;
+    if (!key) return rows;
     const distinct = [];
     for (const row of rows) {
-      if (row && typeof row === 'object' && typeof row.model === 'string'
-          && !distinct.includes(row.model)) distinct.push(row.model);
+      if (row && typeof row[key] === 'string'
+          && !distinct.includes(row[key])) distinct.push(row[key]);
     }
     if (!distinct.length) return rows;
     if (mode === 'two') {
       const keep = distinct.slice(0, 2);
-      return rows.filter(r => keep.includes(r.model));
+      return rows.filter(r => keep.includes(r[key]));
     }
     if (distinct.length >= MANY) return rows;
     const copies = Math.ceil(MANY / distinct.length);
     const out = [];
     for (let i = 0; i < copies; i++) {
       for (const row of rows) {
-        out.push(i === 0 ? row : { ...row, model: `${row.model}~${i}` });
+        if (i === 0) { out.push(row); continue; }
+        out.push({ ...row,
+          [key]: `${row[key]}~${i === copies - 1 ? LONG.slice(1) : i}` });
       }
     }
     return out;
@@ -155,7 +166,8 @@ export function variantsFrom(base) {
         for (const [key, value] of Object.entries(payload)) {
           if (Array.isArray(value) && value.length && value[0]
               && typeof value[0] === 'object'
-              && typeof value[0].model === 'string') {
+              && (typeof value[0].model === 'string'
+                || typeof value[0].agent_type === 'string')) {
             copy[key] = rewriteArray(value, mode);
           }
         }
@@ -412,10 +424,15 @@ async function main() {
       }
 
       // --- the sweep pass ---------------------------------------------
+      // Swept over the MANY variant, not the base fixtures: it carries
+      // the expanded identity list, so the hovers read 30+ roles and —
+      // through the last copy's over-long identity (#642's overflow
+      // probe) — the longest labels the page can render. The per-panel
+      // target cap bounds the extra cost.
       const ctx = await browser.newContext({
         viewport: { width, height: 1000 },
       });
-      await ctx.route('**/api/**', routeTo('base'));
+      await ctx.route('**/api/**', routeTo('many'));
       await ctx.addInitScript(INSTALL);
       const page = await ctx.newPage();
       await page.goto('http://127.0.0.1:' + server.address().port + '/',

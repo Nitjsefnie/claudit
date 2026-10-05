@@ -122,6 +122,10 @@ BASE = {
     "models.json": {"models": [
         {"model": "alpha", "n": 12}, {"model": "beta", "n": 8},
         {"model": "gamma", "n": 3}]},
+    "cost_by_agent.json": {"agents": [
+        {"agent_type": "general-purpose", "cost_usd": 9.0},
+        {"agent_type": "Explore", "cost_usd": 4.0},
+        {"agent_type": "implementer", "cost_usd": 1.0}]},
     "tool_usage.json": {"buckets": [{"tool": "Read", "n": 4}]},
 }
 
@@ -164,6 +168,40 @@ def test_many_yields_at_least_thirty_distinct_models():
     assert out["firstIsAlpha"], out
 
 
+def test_agent_keyed_lists_scale_like_model_lists():
+    """#651's category: the agent-role identity drives the height check
+    the same way the model identity does, so a panel cannot hide behind
+    a differently-named identity field."""
+    out = _node(f"""
+      const v = mod.variantsFrom({json.dumps(BASE)});
+      const ids = a => [...new Set(a.map(r => r.agent_type))];
+      console.log(JSON.stringify({{
+        twoN: ids(v.two['cost_by_agent.json'].agents).length,
+        manyN: ids(v.many['cost_by_agent.json'].agents).length,
+        longLast: v.many['cost_by_agent.json'].agents.some(
+          r => r.agent_type.includes('tooltip-overflow')),
+      }}));
+    """)
+    assert out["twoN"] == 2, out
+    assert out["manyN"] >= 30, out
+    assert out["longLast"], out
+
+
+def test_the_last_expanded_copy_carries_a_long_label():
+    """#642's overflow half never fires on the frozen fixtures' labels;
+    the long identity the rewriter appends is the ONE fixture case that
+    exercises the overflow assertion at every run."""
+    out = _node(f"""
+      const v = mod.variantsFrom({json.dumps(BASE)});
+      const longs = [v.many['dashboard.json'].cost_by_model,
+        v.many['cost_by_agent.json'].agents].map(doc =>
+          doc.some(r => String(r.model ?? r.agent_type)
+            .includes('a-very-long-identity-name')));
+      console.log(JSON.stringify({{ longs }}));
+    """)
+    assert out["longs"] == [True, True], out
+
+
 def test_lists_without_a_model_field_pass_through_untouched():
     out = _node(f"""
       const v = mod.variantsFrom({json.dumps(BASE)});
@@ -199,6 +237,10 @@ def test_the_marks_are_pinned_at_source():
     assert 'data-list-panel' in charts, (
         "the bar-list marker is gone; the height check would fail the "
         "list panels for growing with their own entries")
+    assert 'listPanel' not in extra, (
+        "dashboard-charts-extra carries the agent-type bar panels "
+        "(#651's subject) — a listPanel prop there would exempt the "
+        "one panel the height category exists to fail")
 
 
 def test_the_workflow_runs_the_sweep():
