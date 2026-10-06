@@ -33,7 +33,7 @@ from urllib.parse import urlparse
 import boto3
 from botocore.config import Config
 
-from backend import timing
+from backend import blob_cache, timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
@@ -329,22 +329,37 @@ def list_keys(prefix: str = "") -> Iterator[R2Object]:
             yield from _list_keys_s3(bucket, oprefix)
 
 
-def get_object(key: str) -> bytes:
-    """Fetch one object by its stored, bucket-qualified key."""
+def get_object(key: str, etag: str | None = None,
+               size: int | None = None) -> bytes:
+    """Fetch one object by its stored, bucket-qualified key.
+
+    With `etag`, the deploy's blob cache (R2_BLOB_CACHE) is consulted
+    first: a (key, etag) hit answers without the GET and a miss is
+    stored after it, holding the object's RAW (compressed) bytes. `size`
+    is the listing's byte length, the entry-length check on read. The
+    plain get_object(key) shape — serving, the bench — never consults
+    the cache; get_stream is never cached.
+    """
     file_mode, root = _is_file_mode()
     bucket, object_key = _configured(key)
-    if file_mode:
-        scan_root = _scan_root(root, bucket, len(buckets()) > 1)
-        if scan_root is None:
-            raise FileNotFoundError(
-                f"no mirror directory for bucket {bucket!r}"
-            )
-        full = _safe_join(scan_root, object_key)
-        with open(full, "rb") as f:
-            data = f.read()
-    else:
-        s3 = _boto_client()
-        data = s3.get_object(Bucket=bucket, Key=object_key)["Body"].read()
+    data: bytes | None = None
+    if etag is not None:
+        data = blob_cache.lookup(key, etag, size)
+    if data is None:
+        if file_mode:
+            scan_root = _scan_root(root, bucket, len(buckets()) > 1)
+            if scan_root is None:
+                raise FileNotFoundError(
+                    f"no mirror directory for bucket {bucket!r}"
+                )
+            full = _safe_join(scan_root, object_key)
+            with open(full, "rb") as f:
+                data = f.read()
+        else:
+            s3 = _boto_client()
+            data = s3.get_object(Bucket=bucket, Key=object_key)["Body"].read()
+        if etag is not None:
+            blob_cache.store(key, etag, data)
     # Bucket objects may be stored per-object xz-compressed (`*.jsonl.xz`).
     # Inflate transparently so callers (ingest, transcript serving) always
     # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
@@ -352,12 +367,23 @@ def get_object(key: str) -> bytes:
     # timing flag is on (issue #662: the ingest pool children split the
     # fetch wall into GET and decompress via pop_decompress_seconds); the
     # flag-off path costs one boolean check.
-    if key.endswith(".xz"):
-        started = time.perf_counter() if timing.TIMING_ON else None
-        data = lzma.decompress(data)
-        if started is not None:
-            _tls.decompress_s = (getattr(_tls, "decompress_s", 0.0)
-                                 + time.perf_counter() - started)
+    return maybe_inflate(key, data)
+
+
+def maybe_inflate(key: str, data: bytes) -> bytes:
+    """Inflate xz when the key names a compressed object.
+
+    Shared by the GET path and the blob-cache hit path (#684), so a hit
+    pays the inflate the GET would have and the #662 decompress stamp
+    lands on the same accumulator either way.
+    """
+    if not key.endswith(".xz"):
+        return data
+    started = time.perf_counter() if timing.TIMING_ON else None
+    data = lzma.decompress(data)
+    if started is not None:
+        _tls.decompress_s = (getattr(_tls, "decompress_s", 0.0)
+                             + time.perf_counter() - started)
     return data
 
 

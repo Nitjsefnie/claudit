@@ -33,7 +33,7 @@ from functools import partial
 
 import psycopg
 
-from backend import cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing
+from backend import blob_cache, cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing
 from backend.ingest_fetch import (  # noqa: F401  (re-export)
     parse_process_count, persist_thread_count,
     pipeline_pool as _pipeline_pool, pipeline_threads as _pipeline_threads,
@@ -453,6 +453,10 @@ def _walk_and_persist(parser_version: str,
         deleted = _delete_orphans(seen_keys)
     with _timed_step("orphan_projects"):
         _delete_orphan_projects()
+    # The blob cache's mtime-LRU prune (#684): after the run's fetches
+    # populated it, beside the orphan sweep, best-effort inside prune.
+    with _timed_step("blob_cache_prune"):
+        blob_cache.prune()
     _check_shutdown()
     if (scope := current_scope()) is not None:
         scope.check_dirty_threshold(scope.dirty_files)
@@ -663,12 +667,16 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     return summary
 
 
-def _fetch_with_retry(key: str) -> bytes:
+def _fetch_with_retry(key: str, etag: str | None = None,
+                      size: int | None = None) -> bytes:
     """Keep the ingest-level monkeypatch seam over the extracted fetcher."""
-    return ingest_fetch.fetch_with_retry(key)
+    return ingest_fetch.fetch_with_retry(key, etag, size)
 
 
-def _fetch_and_parse(key: str, sidecar_key: str | None = None) -> dict:
+def _fetch_and_parse(key: str, sidecar_key: str | None = None,
+                     etag: str | None = None,
+                     size: int | None = None) -> dict:
     """Run the extracted parser while preserving the patched fetch callback."""
     return ingest_fetch.fetch_and_parse(
-        key, sidecar_key, _fetch_with_retry, parse.parse_file)
+        key, sidecar_key, _fetch_with_retry, parse.parse_file,
+        etag=etag, size=size)

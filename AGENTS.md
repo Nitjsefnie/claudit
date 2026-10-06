@@ -152,6 +152,9 @@ backend/          — FastAPI application
                     and process pipelines (INGEST_PARSE_PROCESSES /
                     INGEST_PERSIST_THREADS); re-exported via ingest so
                     tests keep their patch seams
+  ingest_resolve.py — per-item outcome pairing (resolve /
+                    resolve_futures), failure booking and the fetch
+                    error classes; split from ingest_fetch for size
   ingest_rollup_state.py — suppression, canonical flags, teammate
                     resolution
   ingest_rollup_hourly.py — the seven hour-keyed rollup rebuilds
@@ -174,7 +177,9 @@ backend/          — FastAPI application
                     lock; a lost lock aborts the run
   ingest_warm.py  — response-cache warming after an ingest or restart
                     (warm_common, WARM_RANGES)
-  r2.py           — S3 client with file:// mirror fallback
+  r2.py           — S3 client with file:// mirror fallback; get_object
+                    consults the deploy's disk blob cache when handed an
+                    etag (#684)
   auth.py         — PBKDF2-SHA256 hashing/verification
   login.py        — /login, /logout, /login/guest, rate limiting
   login_page.py   — the sign-in page's HTML template and response
@@ -187,6 +192,9 @@ backend/          — FastAPI application
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
                     READ-ONLY); pools never join across DBs
   cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
+  blob_cache.py   — disk blob cache for unchanged R2 objects, keyed
+                    (bucket-qualified key, etag), raw compressed bytes,
+                    best-effort, mtime-LRU prune (#684)
   web_metrics.py  — the beacon sink's closed vocabulary and its write;
                     the rollup grain's only writer
   schema*.sql     — applied at every startup as one script under one

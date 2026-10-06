@@ -14,14 +14,18 @@ import os
 import threading
 import time
 import lzma
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool, ProcessPoolExecutor
+from concurrent.futures.process import ProcessPoolExecutor
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import agent_sidecar, db, parse, r2
+from backend import agent_sidecar, blob_cache, db, parse, r2
 from backend.ingest_reprice import IngestAborted
+from backend.ingest_resolve import (  # noqa: F401  (re-export)
+    FETCH_ATTEMPTS, FETCH_BACKOFF_S, FatalFetchError, VanishedObject,
+    is_missing, record_failure, resolve, resolve_futures,
+)
 from backend.ingest_scope import capture_and_add, capture_contributions, current_scope
 from backend.ingest_progress import _set_progress
 from backend.ingest_timing import (
@@ -36,8 +40,6 @@ log = logging.getLogger("claudit.ingest")
 
 TRANSIENT_FETCH_ERRORS = (OSError, BotoCoreError, ClientError)
 CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
-FETCH_BACKOFF_S = (0.5, 1.0)
-FETCH_ATTEMPTS = len(FETCH_BACKOFF_S) + 1
 
 # The pool child's per-file stage accumulator (issue #662): parse_wire
 # plants a dict here before calling the parse unit, and fetch_and_parse
@@ -48,29 +50,21 @@ FETCH_ATTEMPTS = len(FETCH_BACKOFF_S) + 1
 _STAGES = threading.local()
 
 
-class VanishedObject(Exception):
-    """A listed transcript that disappeared before its fetch ran."""
+def fetch_with_retry(key: str, etag: str | None = None,
+                     size: int | None = None) -> bytes:
+    """Retry transient object-store failures; never retry bad payloads.
 
-
-class FatalFetchError(Exception):
-    """A non-transient fetch failure that indicates a code defect."""
-
-
-def is_missing(exc: BaseException) -> bool:
-    """Whether a fetch error says the object no longer exists."""
-    if isinstance(exc, FileNotFoundError):
-        return True
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in ("NoSuchKey", "404")
-    return False
-
-
-def fetch_with_retry(key: str) -> bytes:
-    """Retry transient object-store failures; never retry bad payloads."""
+    `etag`/`size`, when given, switch this GET to the deploy's disk blob
+    cache (R2_BLOB_CACHE): r2.get_object answers a hit without the round
+    trip and stores a miss after it. The unit passes them only when the
+    cache is enabled, so a patched fetch callable keeping the original
+    (key) shape keeps working with the cache off — the bench's memory
+    reader included.
+    """
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         try:
-            return r2.get_object(key)
+            return (r2.get_object(key, etag, size)
+                    if etag is not None else r2.get_object(key))
         except CORRUPT_PAYLOAD_ERRORS:
             raise
         except TRANSIENT_FETCH_ERRORS as exc:
@@ -92,9 +86,11 @@ def fetch_with_retry(key: str) -> bytes:
 
 
 def fetch_and_parse(key: str, sidecar_key: str | None,
-                    fetch: Callable[[str], bytes],
+                    fetch: Callable,
                     parse_file: Callable[[str, bytes], dict] | None = None,
-                    stages: dict[str, float] | None = None) -> dict:
+                    stages: dict[str, float] | None = None,
+                    etag: str | None = None,
+                    size: int | None = None) -> dict:
     """Fetch and parse one object without opening a database connection.
 
     `stages` books this file's child work (issue #662): the main fetch
@@ -103,6 +99,14 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     every caller but the timed pool child, which plants the accumulator
     on _STAGES because the `parse_call` seam's fixed shape cannot carry
     the dict through.
+
+    `etag`/`size` carry the listing identity for the deploy's disk blob
+    cache (issue #684): when the cache is enabled they are forwarded to
+    the fetch callable, whose cache-aware shape is fetch(key, etag, size)
+    — r2.get_object answers a hit without the GET. Without them, or with
+    the cache off, the original fetch(key) shape is spoken. The sidecar
+    fetch stays etag-less either way: it rides one joined etag with its
+    transcript, and refetching a tiny sidecar costs the round trip alone.
     """
     if stages is None:
         stages = getattr(_STAGES, "stages", None)
@@ -114,7 +118,8 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
         # file's decompress booking is this child's own work (M-2).
         r2.pop_decompress_seconds()
         fetch_started = time.perf_counter()
-    data = fetch(key)
+    data = (fetch(key, etag, size)
+            if etag is not None and blob_cache.enabled() else fetch(key))
     parse_started = (time.perf_counter()
                      if fetch_started is not None else None)
     parsed = (parse.parse_file if parse_file is None else parse_file)(
@@ -140,61 +145,6 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
         parsed, sidecar, r2.split_key(key)[1])
 
 
-def record_failure(failed: list[tuple[str, str]], key: str,
-                   exc: BaseException) -> None:
-    """Book one failed object and retain its qualified key for triage.
-
-    `_record_failure` logs the key for server-side investigation. The
-    failure list feeds the admin-only response field; `ingest_runs.error`
-    receives `failure_summary`'s count because /health is public.
-    """
-    failed.append((key, f"{type(exc).__name__}: {exc}"))
-    log.warning(
-        "ingest: %s failed after %d attempt(s): %s: %s",
-        key, FETCH_ATTEMPTS, type(exc).__name__, exc,
-    )
-
-
-def resolve(items: list, call, workers: int) -> list[tuple]:
-    """Run `call(item)` over `items`, pairing each with its result OR its
-    exception instead of letting the first failure escape.
-
-    Sequential when workers == 1, on a pool otherwise. Collecting with
-    `[f.result() for f in as_completed(...)]` re-raised the worker's
-    exception out of the collection step, which aborted the whole ingest
-    AND discarded every already-fetched result alongside it. The two shapes
-    have to behave identically, which is easiest to guarantee with one
-    implementation.
-
-    FatalFetchError is the one exception that still escapes: it means the
-    fetch is broken rather than one object being unlucky, so it belongs to
-    the run, not to the item.
-
-    Returns [(item, result, None) | (item, None, exception)].
-    """
-    outcomes: list[tuple] = []
-    if workers == 1:
-        for item in items:
-            try:
-                outcomes.append((item, call(item), None))
-            except FatalFetchError:
-                raise
-            except Exception as e:  # noqa: BLE001
-                outcomes.append((item, None, e))
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(call, item): item for item in items}
-            for f in as_completed(futures):
-                item = futures[f]
-                try:
-                    outcomes.append((item, f.result(), None))
-                except FatalFetchError:
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    outcomes.append((item, None, e))
-    return outcomes
-
-
 def pipeline_threads(todo: list[tuple], parser_version: str,
                      failed: list[tuple[str, str]],
                      current: _RunTiming | None, scope,
@@ -218,7 +168,8 @@ def pipeline_threads(todo: list[tuple], parser_version: str,
         check_shutdown()
         for (obj, proj, stored), parsed, exc in resolve(
             todo[start:start + chunk],
-            lambda it: parse_call(it[0].key, it[0].sidecar_key),
+            lambda it: parse_call(it[0].key, it[0].sidecar_key,
+                                  it[0].etag, it[0].size),
             workers,
         ):
             if isinstance(exc, VanishedObject):
@@ -314,25 +265,6 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
     return inserted, reparsed, vanished
 
 
-def resolve_futures(futures: dict) -> Iterator[tuple]:
-    """Iterate a prefabricated futures map, pairing each future's item
-    with its result OR its exception — the same shape `resolve` returns,
-    over a caller-owned executor whose lifetime spans chunks.
-
-    FatalFetchError still escapes: it means the fetch path is broken, so
-    it belongs to the run, not to the item. A dead parse child
-    (BrokenProcessPool — OOM, kill) means the same and escapes too.
-    """
-    for f in as_completed(futures):
-        item = futures[f]
-        try:
-            yield (item, f.result(), None)
-        except (FatalFetchError, BrokenProcessPool):
-            raise
-        except Exception as e:  # noqa: BLE001
-            yield (item, None, e)
-
-
 def parse_wire(item: tuple, parse_call: Callable,
                timed: bool = False) -> dict | tuple[dict, dict[str, float]]:
     """The unit submitted to the parse process pool: fetch and parse one
@@ -348,7 +280,7 @@ def parse_wire(item: tuple, parse_call: Callable,
     """
     obj, _proj, _stored = item
     if not timed:
-        return parse_call(obj.key, obj.sidecar_key)
+        return parse_call(obj.key, obj.sidecar_key, obj.etag, obj.size)
     _STAGES.stages = {}
     try:
         parsed = parse_call(obj.key, obj.sidecar_key)
