@@ -101,8 +101,17 @@ def test_the_ttl_hover_hit_tests_in_the_svg_frame():
             and "sx < padL || sx > w - padR || sy < padT || sy > shareBot" in body), (
         "hover must hit-test and guard in the svg frame, every limb of "
         "the guard (#696)")
-    assert "frac = (sx - padL) / plotW" in body, (
-        "bin selection must map from the svg-frame x (#696)")
+    assert "srect = svgRef.current.getBoundingClientRect()" in body, (
+        "the rect sx/sy read must be the svg's own -- a rect captured "
+        "from anything else is the container's, border included (#735)")
+    m = re.search(
+        r"const sx = e\.clientX - (\w+)\.left, sy = e\.clientY - (\w+)\.top",
+        body)
+    assert m, "the hover hit test derives no sx/sy cursor coordinates"
+    assert m.group(1) == "srect" and m.group(2) == "srect", (
+        f"sx/sy measure from {m.group(1)!r}/{m.group(2)!r} -- the "
+        "container's rect carries the panel's 1px border, so the hit "
+        "test is skewed and the frames disagree again (#735)")
     assert "ref.current.getBoundingClientRect()" in body, (
         "the tooltip must still position in container coordinates")
     assert "ref={svgRef}" in src, "the svg must carry the hit-test frame's ref"
