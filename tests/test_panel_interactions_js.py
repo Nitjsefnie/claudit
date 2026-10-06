@@ -12,6 +12,7 @@ sweep only when executed directly, never when imported.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -439,5 +440,48 @@ def test_the_tooltip_overflow_oracle_stays_pinned():
     fixtures do not reproduce) so neither half can be dropped without
     this file naming it."""
     src = MODULE.read_text(encoding="utf-8")
+    assert "tip.scrollWidth > tip.clientWidth + 1" in src
+    assert "r.right > vw + 0.5" in src
+
+
+# --- the #701 long-key row probe --------------------------------------
+
+def test_both_primitives_render_identical_row_spans():
+    """#701's shape: the two tooltip primitives lay their rows out with
+    the SHARED .chart-tooltip-key / .chart-tooltip-val rules in
+    public/app.css, and carry no inline sizing styles — that per-
+    primitive divergence was the defect. The spans must stay
+    byte-identical across the two modules; the guard's rendered long-key
+    probe proves the CSS contract live on every run."""
+    tags = {}
+    for fname in ("dashboard-charts.jsx", "dashboard-charts-extra.jsx"):
+        src = (ROOT / "src" / fname).read_text(encoding="utf-8")
+        for cls in ("chart-tooltip-key", "chart-tooltip-val"):
+            found = re.findall(rf'<span className="{cls}"[^>]*>', src)
+            assert len(found) == 1, (
+                f"{fname}: expected exactly one {cls} span, found "
+                f"{len(found)}")
+            tags[(fname, cls)] = found[0]
+    for cls in ("chart-tooltip-key", "chart-tooltip-val"):
+        assert tags[("dashboard-charts.jsx", cls)] == tags[
+            ("dashboard-charts-extra.jsx", cls)], (
+            f"the two tooltip primitives' {cls} spans diverge — the row "
+            "layout lives in the shared .chart-tooltip-* CSS rules, "
+            "never inline on one primitive (#701)")
+
+
+def test_the_guard_probes_a_rendered_long_key_row():
+    """The rendered half: the sweep's real tooltips draw only short
+    fixed keys, so the probe — the real primitive mounted with a key
+    longer than the box — is the ONE fixture case that renders a long
+    key at every run. Drop it and #701's row contract loses its
+    rendered witness; the byte-identical pin above still holds the
+    source half."""
+    src = MODULE.read_text(encoding="utf-8")
+    assert "window.DashTooltip" in src, (
+        "the guard no longer mounts the real DashTooltip primitive for "
+        "the long-key probe — #701's rendered row witness is gone")
+    assert "(long-key probe)" in src, (
+        "the long-key probe finding lost its ledger name")
     assert "tip.scrollWidth > tip.clientWidth + 1" in src
     assert "r.right > vw + 0.5" in src
