@@ -37,6 +37,28 @@
   const JOURNEYS = ['dashboard_open', 'inspector_open', 'signin'];
   const REGIONS = ['panel_grid', 'inspector', 'signin', 'other'];
 
+  // #717: a shift inside one panel names the panel, not just the grid.
+  // The closed set of `data-panel` titles the dashboard renders, kept as
+  // titles and folded to the sink's snake_case term at use; the fold is
+  // `panelTerm` below. tests/test_web_metrics.py derives the same set
+  // from the panel sources and requires it to equal the sink's `panel_`
+  // terms, so a panel added or renamed without the term fails CI before
+  // a beacon can be refused for it. A title outside the set is never
+  // echoed -- it would be a 400 that takes the whole batch with it.
+  const PANELS = [
+    'Input Tokens', 'Output Tokens', 'Thinking Output', 'Cache Create',
+    'Cache Read', 'Total Tokens', 'Cost (USD)', 'Lines Added',
+    'Lines Deleted', 'Cost by Model', 'Tokens by Model',
+    'Token Breakdown — by tokens', 'Token Breakdown — by cost',
+    'Cost by Agent Type', 'Tokens by Agent Type', 'Cost by Project',
+    'Tokens by Project', 'Tool Error Rate', 'Page performance',
+    'Context Chart', 'Session Burn Rate', 'Response Sizes',
+    'Tool Usage Ratio', 'Reply Latency', 'Activity Heatmap',
+    'Activity Heatmap — legend', 'Tokens by Context Size',
+    'Cost by Context Size', 'Prompt-Cache TTL Split',
+    'Context Growth — comparison',
+  ];
+
   let phase = 'pre_paint';
   const open = {};   // journey name -> { t0, fetch }
   let buffer = [];
@@ -226,30 +248,57 @@
   // --- the observed metrics ------------------------------------------
 
   // The nearest ancestor (or the node itself) naming a region. An
-  // attribute value outside the closed set is NOT echoed: it would be a
+  // attribute value outside the closed sets is NOT echoed: it would be a
   // 400 that takes the whole batch with it.
   //
   // #647: only the grid and the Inspector carry `data-perf-region`, so a
   // live node inside one panel — under no named region — used to land in
   // `other`, and `other` is what most production shifts carried. The
-  // second walk reads the nearest `[data-panel]` ancestor the panels
-  // already render and attributes it as `panel_grid`. The closed
-  // vocabulary does not take the panel NAME, so the name is read only to
-  // decide that the node IS in a panel; the term keeps meaning 'outside
-  // the panel grid' for whatever remains.
+  // walk then reads the nearest `[data-panel]` ancestor the panels
+  // already render.
+  //
+  // #717: the grid's own `panel_grid` is DEFERRED to last. It wraps
+  // every panel, so its attribute sits on an ancestor of each and the
+  // first walk used to return it before any panel name was read -- every
+  // panel shift read `panel_grid` and never named the panel. The order
+  // is now: a named non-grid region (the Inspector, the sign-in page),
+  // then the nearest named panel as its own `panel_` term, then
+  // `panel_grid` for what sits in the grid but under no named panel
+  // (grid gaps, the summary strip), then `other`.
   function region(node) {
     let el = node;
     while (el && typeof el.getAttribute === 'function') {
       const r = el.getAttribute('data-perf-region');
-      if (r && REGIONS.indexOf(r) >= 0) return r;
+      if (r && r !== 'panel_grid' && REGIONS.indexOf(r) >= 0) return r;
       el = el.parentElement;
     }
     el = node;
     while (el && typeof el.getAttribute === 'function') {
-      if (el.getAttribute('data-panel')) return 'panel_grid';
+      const p = el.getAttribute('data-panel');
+      if (p) {
+        const term = panelTerm(p);
+        if (term) return term;
+      }
+      el = el.parentElement;
+    }
+    el = node;
+    while (el && typeof el.getAttribute === 'function') {
+      if (el.getAttribute('data-perf-region') === 'panel_grid') return 'panel_grid';
       el = el.parentElement;
     }
     return 'other';
+  }
+
+  // The panel term for a `data-panel` name: `panel_` + the title folded
+  // to snake_case (every run of non-alphanumerics one `_`, trimmed). The
+  // fold is mirrored in the derivation test's Python; the closed check
+  // is the clamp side of the closed-vocabulary contract: an unknown
+  // title yields null, and the caller keeps walking rather than echoing
+  // a term the sink would refuse.
+  function panelTerm(title) {
+    const term = 'panel_' + String(title).toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return PANELS.indexOf(title) >= 0 ? term : null;
   }
 
   function phaseNow() { return phase; }
