@@ -240,3 +240,101 @@ def test_workflow_runs_the_harness():
     dead code and #772 ships green again."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "node scripts/ci/panel_layout_rules.mjs" in text
+
+
+class TestLegendBelowViolations:
+    """The legend-placement classifier over owned chart groups (#773).
+
+    Convention under test: every legend renders below every plot of its
+    OWN chart. A group missing either side checks nothing -- a chart
+    with no legend and a legend with no plot are conforming by having
+    nothing to compare, which is the branch that keeps a new panel
+    covered without being listed.
+    """
+
+    @staticmethod
+    def _group(panel, plots, legends):
+        return {
+            "panel": panel,
+            "plots": [{"x": x, "y": y, "w": w, "h": h}
+                      for x, y, w, h in plots],
+            "legends": [{"label": label, "x": x, "y": y, "w": w, "h": h}
+                        for label, x, y, w, h in legends],
+        }
+
+    def _violations(self, groups):
+        out = _node(
+            "console.log(JSON.stringify(mod.legendBelowViolations("
+            + json.dumps(groups) + ")));"
+        )
+        return out
+
+    def test_legend_below_plot_passes(self):
+        groups = [self._group("P", [(0, 100, 800, 200)],
+                              [("show:", 0, 320, 700, 30)])]
+        assert self._violations(groups) == []
+
+    def test_legend_above_plot_fires(self):
+        groups = [self._group("P", [(0, 100, 800, 200)],
+                              [("show:", 0, 40, 700, 30)])]
+        v = self._violations(groups)
+        assert len(v) == 1
+        assert v[0]["upper"] == 'P: legend "show:"'
+        assert v[0]["lower"] == "plot"
+        assert v[0]["gap"] == -260.0
+
+    def test_legend_touching_within_noise_passes(self):
+        # Plot bottom 300; a legend starting at 299 sits within the 1px
+        # rounding noise and still reads as below.
+        groups = [self._group("P", [(0, 100, 800, 200)],
+                              [("show:", 0, 299, 700, 30)])]
+        assert self._violations(groups) == []
+
+    def test_legend_a_fraction_above_fires(self):
+        groups = [self._group("P", [(0, 100, 800, 200)],
+                              [("show:", 0, 298.9, 700, 30)])]
+        v = self._violations(groups)
+        assert len(v) == 1
+        assert v[0]["gap"] == -1.1
+
+    def test_chart_without_legends_checks_nothing(self):
+        groups = [self._group("P", [(0, 100, 800, 200)], [])]
+        assert self._violations(groups) == []
+
+    def test_legend_without_plots_checks_nothing(self):
+        groups = [self._group("P", [], [("show:", 0, 320, 700, 30)])]
+        assert self._violations(groups) == []
+
+    def test_side_by_side_legend_fires(self):
+        # The rule is the vertical convention only: a legend beside its
+        # plot (x-disjoint, y-overlapping) is not "below" and is the
+        # same outlier the convention forbids.
+        groups = [self._group("P", [(0, 100, 400, 200)],
+                              [("show:", 850, 150, 300, 30)])]
+        v = self._violations(groups)
+        assert len(v) == 1
+
+    def test_legend_between_two_plots_fires_against_the_lower(self):
+        # Every (legend, plot) pair of the chart must read legend-below;
+        # a legend sandwiched between two stacked plots violates against
+        # the lower one only.
+        groups = [self._group("P", [(0, 100, 800, 100), (0, 300, 800, 100)],
+                              [("show:", 0, 210, 700, 30)])]
+        v = self._violations(groups)
+        assert len(v) == 1
+        assert v[0]["gap"] == -190.0
+
+    def test_legend_of_another_chart_does_not_pair(self):
+        # Ownership bounds the pairing: a legend below ITS OWN plot but
+        # above a LATER chart's plot is the conforming shape (two
+        # stacked charts, each with its strip under it), not a finding.
+        groups = [
+            self._group("A", [(0, 100, 800, 200)], [("show:", 0, 320, 700, 30)]),
+            self._group("B", [(0, 400, 800, 200)], []),
+        ]
+        assert self._violations(groups) == []
+
+    def test_legend_rule_is_registered(self):
+        out = _node("console.log(JSON.stringify(mod.RULES"
+                    ".map((r) => r.id)));")
+        assert "legend-below-plot" in out
