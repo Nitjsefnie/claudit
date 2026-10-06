@@ -327,8 +327,14 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
     """The chosen listing, or None when the pass moves on: the findings
     (no first-party endpoint, not-tracked, refusal) land in `outcome`."""
     try:
+        payload = fetch_endpoints(model_id)
+    except Exception as exc:  # a broken fetch refuses, as any broken fetch does
+        outcome.refusals.append(
+            f"{model_id}: fetching its endpoints failed: {str(exc) or type(exc).__name__}")
+        return None
+    try:
         selected = _choose(
-            model_id, _extract_endpoints(model_id, fetch_endpoints(model_id)),
+            model_id, _extract_endpoints(model_id, payload),
             ((doc.get("openrouter") or {}).get("vendor") or {}).get(
                 "resolve", {}).get(key))
         if selected is None:
