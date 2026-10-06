@@ -345,6 +345,43 @@ def test_the_agent_panel_declares_a_bound_the_guard_reads():
     guard = MODULE.read_text(encoding="utf-8")
     assert "closest('[data-max-h]')" in guard, (
         "the guard no longer reads a panel's data-max-h bound")
+    assert "breachesBound(" in guard, (
+        "the guard no longer feeds declared bounds through the "
+        "comparison the node tests drive")
+
+
+def test_the_bound_comparison_fires_by_near_miss():
+    """The bounded branch's pinnable half: the comparison a declared
+    bound feeds must fire above the ceiling and hold at and under it,
+    with the attribute's string shape and the measured integer. Nothing
+    else proves the branch can fire -- the healthy page never breaches
+    (338px under its 364px bound), so a dead or flipped comparison
+    would green every run while enforcing nothing."""
+    out = _node("""
+      console.log(JSON.stringify({
+        above: mod.breachesBound(365, '364'),
+        atBound: mod.breachesBound(364, '364'),
+        under: mod.breachesBound(122, '364'),
+      }));
+    """)
+    assert out == {"above": True, "atBound": False, "under": False}, out
+
+
+def test_the_expand_toggle_gates_on_the_collapsed_fold():
+    """The toggle must stay mounted while expanded, or nothing can
+    collapse the list again: an expanded cap hides nothing, so a gate
+    on the CURRENT fold's hidden count unmounts the button the moment
+    it is used. The gate reads the fold at the cap; the label switch
+    reads expanded. Pinned at source -- node cannot render JSX and the
+    rendered leg never clicks."""
+    src = (ROOT / "src" / "cost-by-agent-panel.jsx").read_text(
+        encoding="utf-8")
+    assert "collapsedHidden > 0" in src, (
+        "the toggle's gate no longer reads the fold at the cap; a gate "
+        "on the current fold unmounts the expanded toggle")
+    assert "hiddenCount > 0" not in src, (
+        "the gate reads the current fold's hidden count -- the exact "
+        "spelling that unmounts the expanded toggle")
 
 
 def test_the_agent_panel_modules_are_loaded_by_the_page():

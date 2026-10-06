@@ -28,10 +28,10 @@ const humanFmt_X = window.humanFmt;
 // 8 visible rows: 7 kept + the aggregate `other` row whenever the
 // roster outgrows the list.
 const MAX_VISIBLE = 8;
-// HBar's svg stands 32 + rows*36 + 18 tall — 338px at the cap. The
-// declared bound adds the header strip's share, so the card's promise
-// holds with the strip included but cannot admit a second uncapped
-// list.
+// HBar's svg stands 32 + rows*36 + 18 tall — 338px at the cap, and
+// that svg height is what the guard measures against this attribute.
+// The declared figure adds headroom for the header strip; the card as
+// a whole is not measured by anything.
 const MAX_PANEL_H = 50 + MAX_VISIBLE * 36 + 26;
 
 function CostByAgentPanel({ models, project, range, nonce }) {
@@ -89,9 +89,14 @@ function CostByAgentPanel({ models, project, range, nonce }) {
   const maxVisible = expanded ? Infinity : MAX_VISIBLE;
   const costCap = window.agentListCaps.capAgentRows(bars, maxVisible);
   const tokenCap = window.agentListCaps.capAgentRows(tokenBars, maxVisible);
-  // The toggle shows when either list folded roles away; both lists
-  // share one expanded state, so one click opens both.
-  const hiddenCount = Math.max(costCap.hiddenCount, tokenCap.hiddenCount);
+  // The toggle's gate reads the fold AT THE CAP, independent of
+  // expanded: an expanded cap hides nothing, so a gate on the current
+  // fold would unmount the button the moment it is used — nothing
+  // could ever collapse the list again. Both lists share one expanded
+  // state, so one click opens both.
+  const collapsedHidden = Math.max(
+    window.agentListCaps.capAgentRows(bars, MAX_VISIBLE).hiddenCount,
+    window.agentListCaps.capAgentRows(tokenBars, MAX_VISIBLE).hiddenCount);
 
   return (
     <div data-max-h={MAX_PANEL_H} style={{
@@ -105,7 +110,7 @@ function CostByAgentPanel({ models, project, range, nonce }) {
       }}>
         <span>general-purpose = no role recorded in the transcript</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {hiddenCount > 0 && (
+          {collapsedHidden > 0 && (
             <button onClick={() => setExpanded(x => !x)} style={{
               background: 'var(--panel-2)', color: 'var(--fg)',
               border: '1px solid var(--border)', borderRadius: 4,
