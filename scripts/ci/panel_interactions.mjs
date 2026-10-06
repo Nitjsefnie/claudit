@@ -98,6 +98,14 @@ export function filedEntry(panel, kind) {
     || null;
 }
 
+// The bounded branch's comparison, pure so the node tests can prove it
+// fires: the healthy page never breaches its own bound (the #651 card
+// renders 338px under its declared 364px), so a dead or flipped
+// comparison would green every run while enforcing nothing.
+export function breachesBound(h, bound) {
+  return h > Number(bound);
+}
+
 export function filedFor(panel, kind) {
   const hit = filedEntry(panel, kind);
   return hit ? hit.issue : null;
@@ -434,6 +442,13 @@ async function main() {
             + 'from height-growth (data-list-panel)');
         }
       }
+      for (const [name, bound] of boundOf) {
+        if (width === WIDTHS[0]) {
+          console.log(`BOUNDED     ${name}: declared data-max-h `
+            + `${bound}px -- judged against the ceiling in both worlds, `
+            + 'equality skipped');
+        }
+      }
       for (const [name, hMany] of many) {
         if (!two.has(name) || lists.has(name) || boundOf.has(name)) continue;
         if (heightsAgree(two.get(name), hMany)) continue;
@@ -442,12 +457,13 @@ async function main() {
           width);
       }
       // The absolute bound, both worlds, every width: the ceiling a
-      // bounded panel declares is its own promise (#651), and a breach
-      // fails outright -- no ledger entry absorbs it.
+      // bounded panel declares is its own promise (#651). A breach
+      // records like any finding; the ledger names no height-growth
+      // entry today, so it fails the run.
       for (const [name, bound] of boundOf) {
         for (const set of [two, many]) {
           const h = set.get(name);
-          if (h !== undefined && h > Number(bound)) {
+          if (h !== undefined && breachesBound(h, bound)) {
             record('height-growth', name,
               `height ${h}px exceeds its ${bound}px data-max-h bound`,
               width);
