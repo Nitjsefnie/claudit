@@ -461,11 +461,11 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
   border: 1px solid var(--border-2);
   border-radius: var(--r-sm);
   padding: 8px 10px;
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--mono); font-size: 11px;
   color: var(--fg);
   box-shadow: 0 6px 20px rgba(0,0,0,0.5);
-  white-space: nowrap;
+  max-width: 280px;
+  overflow-wrap: anywhere;
 }
 .chart-tooltip-title { font-weight: 600; margin-bottom: 5px; letter-spacing: 0.02em; }
 .chart-tooltip-row   { display: flex; gap: 12px; justify-content: space-between; line-height: 1.55; }

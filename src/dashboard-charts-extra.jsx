@@ -312,56 +312,56 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
 }
 
 // Reusable tooltip primitive (the original Tooltip lives in a closure; expose ours).
-// Flips left/up when it would overflow the viewport right/bottom edges.
+// Like Tooltip above: flips at the viewport edges, moves by transform, remounts per row (#642).
 function DashTooltip({ tip }) {
   const ref = React.useRef(null);
-  const [pos, setPos] = React.useState({ left: 0, top: 0, ready: false });
+  const [pos, setPos] = React.useState({ x: 0, y: 0, ready: false });
   React.useLayoutEffect(() => {
     if (!tip || !ref.current) return;
     const el = ref.current;
     const w = el.offsetWidth, h = el.offsetHeight;
     const parentRect = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
     const margin = 8;
-    let left = tip.x + 12;
-    let top  = tip.y + 12;
-    const absRight  = parentRect.left + left + w;
-    const absBottom = parentRect.top  + top  + h;
-    if (absRight  > window.innerWidth  - margin) left = tip.x - w - 12;
-    if (absBottom > window.innerHeight - margin) top  = tip.y - h - 12;
+    let x = tip.x + 12, y = tip.y + 12;
+    const absRight  = parentRect.left + x + w, absBottom = parentRect.top  + y + h;
+    if (absRight  > window.innerWidth  - margin) x = tip.x - w - 12;
+    if (absBottom > window.innerHeight - margin) y = tip.y - h - 12;
     const minLeft = -parentRect.left + margin;
     const minTop  = -parentRect.top  + margin;
-    if (left < minLeft) left = minLeft;
-    if (top  < minTop)  top  = minTop;
-    setPos({ left, top, ready: true });
+    if (x < minLeft) x = minLeft;
+    if (y < minTop)  y = minTop;
+    setPos({ x, y, ready: true });
   }, [tip]);
 
   if (!tip) return null;
   const style = {
     position: 'absolute',
-    left: pos.left,
-    top: pos.top,
+    left: 0, top: 0,
+    transform: `translate(${pos.x}px, ${pos.y}px)`,
     visibility: pos.ready ? 'visible' : 'hidden',
     borderColor: tip.accent || undefined,
     pointerEvents: 'none',
     zIndex: 5,
-    width: 'max-content',
   };
   return (
     <div ref={ref} className="chart-tooltip" style={style}>
-      {tip.title && (
-        <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
-          {tip.title}
-        </div>
-      )}
-      {(tip.lines || []).map((l, i) => (
-        <div key={i} className="chart-tooltip-row">
-          <span className="chart-tooltip-key" style={{ flexShrink: 0 }}>{l[0]}</span>
-          <span className="chart-tooltip-val" style={{
-            color: l[2] || undefined,
-            wordBreak: 'break-all', whiteSpace: 'normal', textAlign: 'right',
-          }}>{l[1]}</span>
-        </div>
-      ))}
+      <div key={tip.title + ':' + (tip.lines || []).join(';')}>
+        {/* remounts per row — reflowing the old rows would shift (#642) */}
+        {tip.title && (
+          <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
+            {tip.title}
+          </div>
+        )}
+        {(tip.lines || []).map((l, i) => (
+          <div key={i} className="chart-tooltip-row">
+            <span className="chart-tooltip-key" style={{ flexShrink: 0 }}>{l[0]}</span>
+            <span className="chart-tooltip-val" style={{
+              color: l[2] || undefined,
+              wordBreak: 'break-all', whiteSpace: 'normal', textAlign: 'right',
+            }}>{l[1]}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

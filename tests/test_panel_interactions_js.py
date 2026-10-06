@@ -285,8 +285,8 @@ def test_both_guards_share_one_server_module():
 def test_the_tooltip_overflow_oracle_stays_pinned():
     """The overflow check has two halves and two liveness controls: CI's
     font stack fires the own-box scroll half against the probe identity,
-    and the #642 by-Model ledger entry now feeds on it — delete the
-    check and that entry goes STALE, failing the run. The source pin
+    and the rendered sweep asserts it on every by-Model hover — delete
+    the check and a real overflow fails the run. The source pin
     here holds the second half (the viewport comparison, which CI's
     fixtures do not reproduce) so neither half can be dropped without
     this file naming it."""
