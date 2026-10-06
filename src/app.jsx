@@ -1099,11 +1099,11 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       </>)}
 
       {/* Self-fetching panels: mounted regardless of dashboard data, and
-          ABOVE every data-gated block (#643). Each of these fills when its
-          own response lands; the data-gated panels below fill when
-          /api/dashboard does. Keeping the fills at the page's tail is what
-          makes them shift-free: there is nothing below the tail to push
-          down, whatever the payload turns out to contain. */}
+          BELOW every data-gated block (#643). Each of these fills when its
+          own response lands; until the first /api/dashboard resolves they
+          lay out at their final heights but paint nothing (the visibility
+          wrapper above), so the data arrival and their own fills move
+          nothing that was ever painted. */}
       {backendOn && (
         <div style={dashLoading && !everLoaded.current
           ? { visibility: 'hidden' } : undefined}>
