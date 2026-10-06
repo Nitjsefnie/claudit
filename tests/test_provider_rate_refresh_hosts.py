@@ -9,6 +9,7 @@ network.
 from __future__ import annotations
 
 import copy
+import http.client
 import urllib.error
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -344,6 +345,26 @@ def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys):
 
 
 # --- the blind spot of price order is reported -------------------------------
+
+
+def test_a_bare_http_client_failure_refuses_its_model(tmp_path, capsys):
+    """A truncated body raises http.client.IncompleteRead — neither a
+    URLError, an OSError nor a ValueError — and it is still that model's
+    refusal, not a crash of the run (issue #762)."""
+    run = Run(tmp_path)
+    _move_glm(run)
+    failing = run.doc()["openrouter"]["models"][V41]["id"]
+
+    def fetch(model_id: str) -> object:
+        if model_id == failing:
+            raise http.client.IncompleteRead(b"partial", 100)
+        return copy.deepcopy(run.payloads[model_id])
+
+    rc = refresh.main(["--commit-msg", str(run.commit_msg)], fetch=fetch, now=NOW,
+                      pricing_path=run.pricing, constants_path=run.constants)
+    err = capsys.readouterr().err
+    assert rc != 0 and f"{V41}: fetching {failing} failed" in err
+    assert run.doc()["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
 
 
 def test_a_price_order_row_that_rises_is_reported_not_refused(tmp_path, capsys):
