@@ -165,8 +165,11 @@ def test_get_object_cache_miss_falls_through_to_the_object(
 
 def test_get_object_cache_miss_on_size_mismatch(
         mini_r2, monkeypatch, tmp_path):
-    """An entry whose length disagrees with the listing's reads as a
-    miss — the torn-write shape is refused, never served."""
+    """A wrong-length entry never produces wrong bytes: the GET falls
+    through and the object's own content comes back. (That the lookup
+    itself reads the mismatch as a miss is pinned one level down, in
+    test_blob_cache — here the fallback GET would return the same
+    bytes either way.)"""
     monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
     key = "claude/proj-a/sess-1/sess-1.jsonl"
     assert r2.get_object(key, "etag-one", 6) == b"hello\n"
