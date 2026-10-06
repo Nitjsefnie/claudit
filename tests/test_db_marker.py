@@ -33,7 +33,7 @@ import functools
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from tests import db_marker
+from tests import db_marker, scan_gate
 
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -100,14 +100,23 @@ def _scan_relevant(source: str) -> bool:
     the size of unrelated test files (issue #510): a module that names
     no fixture and reaches no server is invisible to both the registry
     derivation and the marking guard, and is neither read into the AST
-    nor walked. Fail-closed, because every match the scanners make is
-    verbatim text: a fixture def's decorator carries the substring
-    ``fixture``, and a server reach is a Name/Attribute id or raw
-    segment text, each spelled verbatim in the source — so a skip can
-    only save the walk, never hide a violation. Pinned by the plant
-    tests below and by the vocabulary-free-module test.
+    nor walked. The fixture half admits on compile-level vocabulary
+    (tests/scan_gate) — a decorator or a ``getattr(pytest, "fixture")``
+    spelling carries ``fixture`` in ``co_names``/``co_consts`` — so a
+    file whose only ``fixture`` is prose (a comment or a docstring
+    sentence) is skipped. The server half stays text-based: a reach may
+    be spelled inside a string literal (a subprocess command, say),
+    which co_names does not carry. Fail-closed: a fixture def's
+    decorator carries ``fixture`` as an identifier or a whole string
+    constant, and a server reach is a Name/Attribute id or raw segment
+    text, each spelled verbatim in the source — so a skip can only save
+    the walk, never hide a violation. Pinned by the plant tests below
+    and by the vocabulary-free-module test.
     """
-    return 'fixture' in source or any(tok in source for tok in SERVER_CALLS)
+    if any(tok in source for tok in SERVER_CALLS):
+        return True
+    consts, names = scan_gate.module_vocab(source)
+    return "fixture" in consts | names
 
 
 @functools.cache
@@ -299,8 +308,14 @@ def _module_facts(tree: ast.Module, source: str) -> _Facts:
 
     visit(tree, ())
     if _mentions_text(source):
+        # One split per module (C), then a C-side line slice + join per
+        # function: ast.get_source_segment re-split the whole source for
+        # every function it measured, which was this module's largest
+        # CPU sink after the walk itself (issue #679).
+        lines = source.splitlines()
         for name, node in functions.items():
-            if not mentions[name] and _mentions_text(_segment(source, node)):
+            if not mentions[name] and _mentions_text("\n".join(
+                    lines[node.lineno - 1:node.end_lineno])):
                 mentions[name] = True
     return _Facts(functions, fixtures, mentions, calls)
 
@@ -480,8 +495,13 @@ def _seeded_modules() -> tuple:
 # The frozen parity slice: four real, fixture-carrying modules, named.
 # Named rather than the dynamic biggest-four so this test's cost
 # tracks these files alone, never tree membership (issue #675).
+# test_ci_reseed replaced test_workflow_release when the gate's fixture
+# half moved to compile-level vocabulary (issue #679): the release
+# module's only ``fixture`` occurrences are comment prose, so the gate
+# rightly skips it, and a parity slice must name modules the gate
+# admits. All four carry real fixture decorators and fixture chains.
 _PARITY_SLICE = ("test_web_metrics_rollup", "test_parse_lanes",
-                 "test_workflow_release", "test_api")
+                 "test_ci_reseed", "test_api")
 
 
 def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
@@ -554,10 +574,15 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
 
     Each module's facts come from ONE walk (_module_facts, issue
     #675): the old form re-walked every function per fixpoint round
-    for call sets that never changed between rounds.
+    for call sets that never changed between rounds. The two callers
+    share the ONE _modules cache entry the derive builds: keyed on the
+    caller's argument tuple, _modules() and _modules(None) were two
+    entries and two full parse passes, and the guard re-walked the
+    server modules' facts (issue #679).
     """
     offenders = []
-    for mod_name, tree, source in _modules(directory):
+    for mod_name, tree, source in (_modules() if directory is None
+                                   else _modules(directory)):
         if not any(tok in source for tok in SERVER_CALLS):
             continue
         facts = _module_facts(tree, source)
