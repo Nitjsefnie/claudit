@@ -31,6 +31,32 @@ def _line_at(blob: bytes, pos: int) -> tuple[bytes, int, int]:
     return blob[start:end], start, end
 
 
+def _fork_flag(blob: bytes) -> bool:
+    """Whether the file is a forked rollout: its FIRST session_meta names
+    a parent thread (forked_from_id) - first one wins, the same head rule
+    the parse loop applies to the thread id.
+
+    One C-speed needle search keeps the per-line session_meta check off
+    the common non-fork path; a line that merely mentions the needle
+    advances, and the first session_meta-bearing line decides.
+    """
+    if b'"forked_from_id"' not in blob:
+        return False
+    j = blob.find(b'"session_meta"')
+    while j >= 0:
+        raw, _s, end = _line_at(blob, j)
+        j = blob.find(b'"session_meta"', end)
+        try:
+            obj = loads(raw)
+        except JSONDecodeError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "session_meta":
+            continue  # a needle mention advances; the first META decides
+        return bool(_nonempty_str(
+            as_dict(obj.get("payload")).get("forked_from_id")))
+    return False
+
+
 def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     """The file's first declared model, whether it is a fork, and where
     the fork's own history begins.
@@ -57,21 +83,7 @@ def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     first declaration's line is the replay boundary — records on earlier
     lines are the parent's history journalled in this file (issue #687).
     """
-    is_fork = False
-    if b'"forked_from_id"' in blob:
-        j = blob.find(b'"session_meta"')
-        while j >= 0:
-            raw, _s, end = _line_at(blob, j)
-            j = blob.find(b'"session_meta"', end)
-            try:
-                obj = loads(raw)
-            except JSONDecodeError:
-                continue
-            if not isinstance(obj, dict) or obj.get("type") != "session_meta":
-                continue  # a needle mention advances; the first META decides
-            is_fork = bool(_nonempty_str(
-                as_dict(obj.get("payload")).get("forked_from_id")))
-            break
+    is_fork = _fork_flag(blob)
 
     first_model: str | None = None
     declared_at: int | None = None
