@@ -178,6 +178,40 @@ def test_without_the_served_table_the_lookup_degrades_to_the_namespace_split():
                                          "custom-role"]
 
 
+def test_a_dispatch_carrying_both_fields_names_the_stored_role():
+    """The stored dispatch column reads subagent_type only
+    (backend/parse.py _dispatch_args): a dispatch carrying both an
+    instance name and a namespaced subagent_type names the folded
+    subagent_type in the Inspector, never the instance name (#726)."""
+    tool_use = {
+        "type": "tool_use", "id": "tu-1", "name": "Agent",
+        "input": {"name": "my-instance",
+                  "subagent_type": "superpowers:code-reviewer",
+                  "prompt": "go"},
+    }
+    line = json.dumps(
+        {"type": "assistant", "timestamp": "2026-10-06T10:00:00Z",
+         "uuid": "u-1", "requestId": "r-1", "sessionId": "sessS",
+         "message": {"role": "assistant", "content": [tool_use],
+                     "usage": {"input_tokens": 10, "output_tokens": 5}}},
+        separators=(",", ":"),
+    ) + "\n"
+    assert _folded_names(line) == ["code-reviewer"]
+
+
+def test_the_dispatch_summary_line_folds_the_shown_name():
+    """event-helpers.jsx's Agent/Task summary shows the folded
+    subagent_type too, the same name the dispatch column carries
+    (node cannot parse JSX: pinned at the source level, the
+    test_panel_wiring idiom) (#726)."""
+    src = (ROOT / "src" / "event-helpers.jsx").read_text(encoding="utf-8")
+    m = re.search(r"case 'Agent':\s*case 'Task':\s*return `([^`]*)`;", src)
+    assert m, src
+    # The name slot IS the fold call, over the stored-role priority chain.
+    assert re.match(r"\$\{\(window\.canonicalAgentType", m.group(1)), m.group(1)
+    assert "input.subagent_type || input.name || '?'" in m.group(1)
+
+
 def test_index_injects_the_served_fold_table(page_client):
     """The served `/` carries window.AGENT_TYPE_FOLD with the backend
     fold's exact content, riding the same injection script the guest and

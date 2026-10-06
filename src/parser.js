@@ -221,7 +221,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
         };
         if (c.name === 'Agent' || c.name === 'Task') {
           ev.type = 'agent_spawn';
-          ev.agent_name = (window.canonicalAgentType || (n => n))((c.input && c.input.name) || (c.input && c.input.subagent_type) || '?');
+          ev.agent_name = (window.canonicalAgentType || (n => n))((c.input && c.input.subagent_type) || (c.input && c.input.name) || '?');
           ev.agent_model = (c.input && c.input.model) || '(default)';
           ev.agent_bg = !!(c.input && c.input.run_in_background);
           ev.agent_team = (c.input && c.input.team_name) || '(none)';
