@@ -355,15 +355,15 @@ def test_dedup_of_two_unattributed_copies_keeps_the_first():
     second = _claude_line("u-1", None, "second unknown", 300)
     assert _node_dedup_survivor(first, second) == {
         "toolCalls": 0, "toolNames": [], "texts": ["first unknown"],
-        "usage": [{"model": "(unknown)", "output": 200}]}
+        "usage": [{"model": None, "output": 200}]}
 
 
 def test_dedup_pinned_on_the_lane_unknown_fallback_member():
-    """The None fallback pins '(unknown)'; the lane fallback spells its
-    member 'unknown' outright, and must classify as unattributed the same
-    way -- the JS half of the shared vocabulary, each member pinned. This
-    case rides the lane-fallback member; <synthetic> rides the vocabulary
-    tests below (issue #563)."""
+    """The lane fallback spells its member 'unknown' outright and must
+    classify as unattributed the same way as a model-less Claude copy's
+    null (issue #688) -- the JS half of the shared vocabulary, each
+    member pinned. This case rides the lane-fallback member; <synthetic>
+    rides the vocabulary tests below (issue #563)."""
     lane_unknown = _claude_line("u-1", "unknown", "lane fallback copy", 200)
     known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
                          tool="Write")
@@ -394,7 +394,7 @@ def test_dedup_vocabulary_synthetic_vs_unknown_keeps_the_first():
     first = {"toolCalls": 0, "toolNames": [], "texts": ["synthetic copy"],
              "usage": []}
     second = {"toolCalls": 0, "toolNames": [], "texts": ["copy with no model"],
-              "usage": [{"model": "(unknown)", "output": 300}]}
+              "usage": [{"model": None, "output": 300}]}
     assert _node_dedup_survivor(synthetic, unknown) == first
     assert _node_dedup_survivor(unknown, synthetic) == second
 

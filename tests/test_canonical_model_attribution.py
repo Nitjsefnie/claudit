@@ -21,10 +21,10 @@ an `unknown` placeholder.
 
 The winner rule is the spec (SV-CANONICAL-FLAG): an original beats a
 replay, an attributed copy beats an unattributed one, then file_key,
-then line_num. `unknown` survives only where NO copy of the uuid names a
-model — and under #653 no lane parser emits it, so that rank is
-decidable only between an attributed copy and the Claude path's
-`(unknown)` fallback.
+then line_num. Under #653 and #688 no parser emits a placeholder, so
+the unattributed members of the rank are reachable only as stored
+historical rows (the lockstep shapes test_ingest pins) — a live
+model-less file is refused at parse instead.
 """
 from __future__ import annotations
 
@@ -251,7 +251,7 @@ def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
 
 def _claude_copy(model: str | None, output_tokens: int) -> str:
     """One Claude assistant line: model omitted entirely when None, which
-    parse.py stores as the '(unknown)' fallback."""
+    the #688 refusal rejects at parse_file."""
     message = {"role": "assistant",
                "usage": {"input_tokens": 100,
                          "cache_creation_input_tokens": 0,
@@ -265,16 +265,17 @@ def _claude_copy(model: str | None, output_tokens: int) -> str:
          "message": message}, separators=(",", ":")) + "\n"
 
 
-def test_a_claude_unknown_copy_loses_to_an_attributed_copy(
+def test_a_claude_modelless_copy_is_refused(
         fresh_db, monkeypatch, tmp_path):
-    """The Claude path's unattributed fallback is `(unknown)`, with
-    parens — the other member of the winner rule's shared vocabulary. A
-    copy carrying it must lose to an attributed copy exactly as a lane
-    `unknown` copy does, here with the unattributed copy in the
-    file_key-first position the old rule would have picked."""
+    """The Claude path used to store a model-less line as the `(unknown)`
+    fallback (issue #688 removed it); the shape that exercised that rank
+    member live — a model-less Claude copy in the file_key-first position
+    the old rule would have picked — is now REFUSED at parse, storing no
+    rows, while the attributed copy of the same uuid in the same run
+    stores and stays canonical."""
     root = tmp_path / "mirror"
     for proj, model, out in (
-            ("aaa-proj", None, 200),                    # -> '(unknown)'
+            ("aaa-proj", None, 200),                    # -> refused
             ("zzz-proj", "claude-sonnet-4-5", 300)):
         d = root / "mini" / proj / "sessU"
         d.mkdir(parents=True)
@@ -283,7 +284,8 @@ def test_a_claude_unknown_copy_loses_to_an_attributed_copy(
     monkeypatch.setenv("R2_BUCKET", "mini")
 
     result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
+    assert result["failed"] == 1
+    assert result["error"] == "1 object failed after retries"
 
     with db.viz_conn() as c:
         rows = c.execute(
@@ -293,8 +295,7 @@ def test_a_claude_unknown_copy_loses_to_an_attributed_copy(
              ORDER BY file_key
             """,
         ).fetchall()
-    assert len(rows) == 2, rows
-    by_project = {fk.split("/")[1]: (model, canon)
-                  for fk, model, canon in rows}
-    assert by_project["aaa-proj"] == ("(unknown)", False)
-    assert by_project["zzz-proj"] == ("claude-sonnet-4-5", True)
+        stored = c.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+    assert rows == [("mini/zzz-proj/sessU/sessU.jsonl",
+                     "claude-sonnet-4-5", True)]
+    assert stored == 1
