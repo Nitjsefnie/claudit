@@ -469,8 +469,8 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
 }
 .chart-tooltip-title { font-weight: 600; margin-bottom: 5px; letter-spacing: 0.02em; }
 .chart-tooltip-row   { display: flex; gap: 12px; justify-content: space-between; line-height: 1.55; }
-.chart-tooltip-key   { color: var(--muted); }
-.chart-tooltip-val   { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-tooltip-key   { color: var(--muted); min-width: 0; overflow-wrap: anywhere; } /* #701: one row rule for both primitives — a long key shrinks and wraps, never renders unwrapped */
+.chart-tooltip-val   { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; text-align: right; }
 
 /* SVG chart axes inherit mono from this rule.
    Per-element fontSize/fill/fontWeight on titles still wins via inline attrs. */
