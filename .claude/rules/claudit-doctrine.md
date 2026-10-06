@@ -463,9 +463,9 @@ what a dispatch asked for:
   issue #650): one role is one name across lanes (Claude's `Explore`,
   Kimi's `explore`, Codex's `explorer` are one), a plugin-namespaced
   type folds to the type (`superpowers:code-reviewer` → `code-reviewer`),
-  and the lanes' default subagent roles (Kimi's `coder`, Codex's
-  `worker`) are not roles at all — they land in `DEFAULT_AGENT_TYPE`,
-  the bucket a transcript that named nothing shares. A workflow-tree
+  Kimi's `coder` profile is the implementer role, and Codex's `worker` —
+  the lone lane default — is not a role at all: it lands in
+  `DEFAULT_AGENT_TYPE`, the bucket a transcript that named nothing shares. A workflow-tree
   sidecar's `agentType: workflow-subagent` is a container marker, not a
   role: it stands only when nothing more specific was recorded, and an
   in-band role outranks it (the standing sidecar precedence).

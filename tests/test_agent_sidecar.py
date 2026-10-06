@@ -108,14 +108,14 @@ _CLAUDE_KEY = "-root-x/s/subagents/agent-a1.jsonl"
 
 
 def test_legacy_wire_takes_the_sidecar_subagent_type():
-    """The top-level value wins; kimi's default subagent profile folds to
-    the default bucket (issue #650)."""
+    """The top-level value wins; kimi's `coder` profile is the
+    implementer role (issue #749), not the default bucket."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": "coder",
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
         _LANE_KEY)
-    assert out["agent_type"] == DEFAULT
+    assert out["agent_type"] == "implementer"
 
 
 def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
@@ -158,12 +158,12 @@ def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
 
 
 def test_in_band_kimi_code_profile_wins_over_the_sidecar():
-    """In-band wins; kimi's default subagent profile folds to the
-    default bucket (issue #650)."""
+    """In-band wins; the wire's `coder` profile is the implementer role
+    (issue #749), outranking the sidecar's role."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
-        b'{"subagent_type":"implementer"}', _LANE_KEY)
-    assert out["agent_type"] == DEFAULT
+        b'{"subagent_type":"explore"}', _LANE_KEY)
+    assert out["agent_type"] == "implementer"
 
 
 def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
@@ -290,9 +290,9 @@ def test_ingest_attributes_subagents_from_their_sidecars(fresh_db, lane_mirror):
     assert result["error"] is None
     assert result["r2_listed"] == 5, "a sidecar is not a transcript"
     assert _agent_types() == {
-        f"claude/{_SUB}/a1/wire.jsonl.xz": DEFAULT,
+        f"claude/{_SUB}/a1/wire.jsonl.xz": "implementer",
         f"claude/{_SUB}/a2/wire.jsonl": DEFAULT,
-        f"claude/{_SUB}/a3/wire.jsonl": DEFAULT,
+        f"claude/{_SUB}/a3/wire.jsonl": "implementer",
         "claude/-root-x/s2/subagents/agent-b1.jsonl.xz": "code-reviewer",
         "claude/-root-x/s2/subagents/agent-b2.jsonl": "implementer",
     }
@@ -360,7 +360,7 @@ def test_a_sidecar_written_after_its_wire_triggers_a_reparse(
     _put(meta, b'{"subagent_type":"coder"}')
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "implementer"}
 
     _put(meta, b'{"subagent_type":"explore"}')
     result = ingest.run_ingest(trigger="manual")
@@ -411,7 +411,7 @@ def test_a_transient_sidecar_failure_fails_the_file_and_is_retried(
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
     assert result["inserted"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
+    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": "implementer"}
 
 
 def test_a_fatal_sidecar_fetch_error_escapes_to_the_run(
