@@ -282,17 +282,23 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
 # fallbacks. records.model is NOT NULL, so the legacy-NULL member is
 # unreachable here; the read-time DISTINCT ON test below covers it.
 _REAL_MODEL = "claude-sonnet-4-5"
+# Each copy is (arrival label, model, is_replay) — the replay member
+# rides #687's rank ahead of attribution.
 _LOCKSTEP_SHAPES = [
-    ("lane-unknown-then-real", [("a", "unknown"), ("b", _REAL_MODEL)], "b"),
-    ("real-then-lane-unknown", [("a", _REAL_MODEL), ("b", "unknown")], "a"),
-    ("empty-model-then-real", [("a", ""), ("b", _REAL_MODEL)], "b"),
-    ("real-then-empty-model", [("a", _REAL_MODEL), ("b", "")], "a"),
-    ("paren-unknown-then-real", [("a", "(unknown)"), ("b", _REAL_MODEL)], "b"),
-    ("real-then-paren-unknown", [("a", _REAL_MODEL), ("b", "(unknown)")], "a"),
-    ("synthetic-then-real", [("a", "<synthetic>"), ("b", _REAL_MODEL)], "b"),
-    ("real-then-synthetic", [("a", _REAL_MODEL), ("b", "<synthetic>")], "a"),
-    ("synthetic-vs-unknown", [("a", "<synthetic>"), ("b", "unknown")], "a"),
-    ("unknown-vs-synthetic", [("a", "unknown"), ("b", "<synthetic>")], "a"),
+    ("lane-unknown-then-real", [("a", "unknown", False), ("b", _REAL_MODEL, False)], "b"),
+    ("real-then-lane-unknown", [("a", _REAL_MODEL, False), ("b", "unknown", False)], "a"),
+    ("empty-model-then-real", [("a", "", False), ("b", _REAL_MODEL, False)], "b"),
+    ("real-then-empty-model", [("a", _REAL_MODEL, False), ("b", "", False)], "a"),
+    ("paren-unknown-then-real", [("a", "(unknown)", False), ("b", _REAL_MODEL, False)], "b"),
+    ("real-then-paren-unknown", [("a", _REAL_MODEL, False), ("b", "(unknown)", False)], "a"),
+    ("synthetic-then-real", [("a", "<synthetic>", False), ("b", _REAL_MODEL, False)], "b"),
+    ("real-then-synthetic", [("a", _REAL_MODEL, False), ("b", "<synthetic>", False)], "a"),
+    ("synthetic-vs-unknown", [("a", "<synthetic>", False), ("b", "unknown", False)], "a"),
+    ("unknown-vs-synthetic", [("a", "unknown", False), ("b", "<synthetic>", False)], "a"),
+    ("replay-then-original", [("a", _REAL_MODEL, True), ("b", _REAL_MODEL, False)], "b"),
+    ("original-then-replay", [("a", _REAL_MODEL, False), ("b", _REAL_MODEL, True)], "a"),
+    ("original-unknown-beats-attributed-replay",
+     [("a", "unknown", False), ("b", _REAL_MODEL, True)], "a"),
 ]
 
 
@@ -301,7 +307,7 @@ def _seed_winner_shapes(c) -> None:
     c.execute("INSERT INTO projects (project_id, display_name, first_seen_at, "
               "last_seen_at) VALUES ('p', 'p', now(), now())")
     for idx, (_name, copies, _winner) in enumerate(_LOCKSTEP_SHAPES):
-        for pos, (label, model) in enumerate(copies):
+        for pos, (label, model, replay) in enumerate(copies):
             c.execute(
                 "INSERT INTO files (file_key, project_id, session_id, is_main, "
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
@@ -309,9 +315,9 @@ def _seed_winner_shapes(c) -> None:
                 "now(), %s)",
                 (f"shape-{idx}-{label}", constants.PARSER_VERSION))
             c.execute(
-                "INSERT INTO records (file_key, line_num, uuid, model) "
-                "VALUES (%s, %s, %s, %s)",
-                (f"shape-{idx}-{label}", pos + 1, f"u-{idx}", model))
+                "INSERT INTO records (file_key, line_num, uuid, model, "
+                "is_replay) VALUES (%s, %s, %s, %s, %s)",
+                (f"shape-{idx}-{label}", pos + 1, f"u-{idx}", model, replay))
 
 
 def _sql_winners() -> dict[str, str]:
@@ -332,7 +338,7 @@ def _js_winners() -> dict[str, str]:
     """The same shapes through the browser's record-dedup, via node."""
     if shutil.which("node") is None:
         pytest.skip("node not available")
-    shapes = {name: [[label, model] for label, model in copies]
+    shapes = {name: [[label, model, replay] for label, model, replay in copies]
               for name, copies, _winner in _LOCKSTEP_SHAPES}
     script = f"""
       global.window = {{}};
@@ -342,8 +348,9 @@ def _js_winners() -> dict[str, str]:
       for (const name in shapes) {{
         const seen = new Map();
         let winner = null;
-        for (const [label, model] of shapes[name]) {{
-          if (window.recordDedup.decide(seen, {{ uuid: 'u', message: {{ model }} }},
+        for (const [label, model, replay] of shapes[name]) {{
+          if (window.recordDedup.decide(seen, {{ uuid: 'u', message: {{ model }},
+                                                isReplay: replay === true }},
                                         1, new Map()) === 'keep') {{
             winner = label;
           }}

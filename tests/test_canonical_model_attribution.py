@@ -1,18 +1,30 @@
-"""The canonical winner prefers an attributed-model copy (issue #529).
+"""A replayed copy loses to its original, whatever the key order (issues #529, #687).
 
 A forked Codex rollout REPLAYS its parent's history in its leading lines.
 Under issue #653 the replayed prefix takes the file's first declared
-model — the parent's model in force at the fork point — so both copies
-of a replayed uuid are attributed and the winner is the file_key order:
-the fork's `subagents/…` key sorts before its parent's `wire.jsonl`, and
-the fork's copy wins. (Before #653 the fork's prefix stored `unknown`,
-lost the attribution rank, and the parent's copy won.)
+model, so both copies of a replayed uuid are attributed and — before
+#687 — the attribution rank tied and `file_key` decided: the fork's
+`subagents/…` key sorts before its parent's `wire.jsonl`, and the fork's
+copy won. #687 adds a replay rank ahead of attribution: a copy parsed
+from a fork's replayed prefix (marked `is_replay` at parse time, from
+the first session_meta's `forked_from_id` and the replay's position
+before the fork's own first model declaration) loses to an original of
+the same uuid, whatever the key order, so the parent's copy — carrying
+the model the parent had in force — stays canonical and replayed history
+counts once, as the main session's.
 
-The winner rule is the spec (SV-CANONICAL-FLAG): the copy whose model is
-attributed beats an unattributed one, then file_key, then line_num.
-`unknown` survives only where NO copy of the uuid names a model — and
-under #653 no lane parser emits it, so that rank is decidable only
-between an attributed copy and the Claude path's `(unknown)` fallback.
+With the parent absent, the fork's replay is the only copy and stays
+canonical, attributed to the fork's first declared model — the #653
+fallback. That stored model on a losing copy is the fork's first
+declaration (the parent's settings inherited at the fork point), never
+an `unknown` placeholder.
+
+The winner rule is the spec (SV-CANONICAL-FLAG): an original beats a
+replay, an attributed copy beats an unattributed one, then file_key,
+then line_num. `unknown` survives only where NO copy of the uuid names a
+model — and under #653 no lane parser emits it, so that rank is
+decidable only between an attributed copy and the Claude path's
+`(unknown)` fallback.
 """
 from __future__ import annotations
 
@@ -22,11 +34,12 @@ from pathlib import Path
 
 import pytest
 
-from backend import db, ingest
+from backend import constants, db, ingest
 from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 FORK_FIXTURE = FIX / "rollout_fork_model_switch.jsonl"
+DIFFERENT_MODEL_FORK_FIXTURE = FIX / "rollout_fork_different_model.jsonl"
 
 # The parent's session id — a fork REUSES it, which is what puts the two
 # files' records in the same dedup partition (parse_codex._codex_record_uuid).
@@ -67,11 +80,11 @@ def _token_count(ts, cumulative, last):
 
 def _parent_rollout() -> bytes:
     """The parent the fork's replayed prefix replays: two requests on
-    gpt-5.6-sol, at exactly the cumulative totals the fork fixture's
+    gpt-5.6-sol, at exactly the cumulative totals the fork fixtures'
     leading token_count events reproduce."""
     lines = [
         {"timestamp": "2026-06-14T11:00:01.000Z", "type": "session_meta",
-         "payload": {"session_id": S, "id": S,
+         "payload": {"session_id": S, "id": "00000000-0000-4000-8000-000000000003",
                      "cwd": "/workspace/toy-project",
                      "originator": "codex-tui", "cli_version": "1.0.0"}},
         {"timestamp": "2026-06-14T11:00:02.000Z", "type": "turn_context",
@@ -92,17 +105,25 @@ def _fresh_db_fixture(monkeypatch):
     yield from scratch_db.scratch_viz_database(monkeypatch, "canon_attr")
 
 
-@pytest.fixture(name="fork_mirror")
-def _fork_mirror_fixture(monkeypatch, tmp_path):
-    """A lane mirror holding the fork fixture beside its (absent or
-    present) parent. Yields the mirror root."""
+def _mirror(monkeypatch, tmp_path, fixture: Path, parent_bytes: bytes | None):
+    """A lane mirror holding `fixture` as the fork and, when given, the
+    parent rollout beside it. Yields the mirror root."""
     root = tmp_path / "mirror"
     fork_dir = root / "mini/sessions/toyproj/sessA/subagents/forkthread"
     fork_dir.mkdir(parents=True)
-    shutil.copyfile(FORK_FIXTURE, fork_dir / "wire.jsonl")
+    shutil.copyfile(fixture, fork_dir / "wire.jsonl")
+    if parent_bytes is not None:
+        parent = root / "mini/sessions/toyproj/sessA/wire.jsonl"
+        parent.write_bytes(parent_bytes)
     monkeypatch.setenv("R2_ENDPOINT", root.as_uri() + "/")
     monkeypatch.setenv("R2_BUCKET", "mini")
     return root
+
+
+@pytest.fixture(name="fork_mirror")
+def _fork_mirror_fixture(monkeypatch, tmp_path):
+    """A lane mirror holding the sol-seeded fork fixture alone."""
+    return _mirror(monkeypatch, tmp_path, FORK_FIXTURE, None)
 
 
 def _replay_rows():
@@ -118,15 +139,18 @@ def _replay_rows():
         ).fetchall()
 
 
-def test_an_attributed_replay_ties_on_attribution_and_wins_by_file_key(
-        fresh_db, fork_mirror):
-    """Both copies of a replayed uuid are attributed now (issue #653
-    gave the fork's prefix the parent's model), so the attribution rank
-    ties and file_key decides: the fork's `subagents/…` key sorts before
-    its parent's `wire.jsonl`, and the fork's copy wins. (Under #529 the
-    fork's copies were `unknown` and the parent won.)"""
-    parent = fork_mirror / "mini/sessions/toyproj/sessA/wire.jsonl"
-    parent.write_bytes(_parent_rollout())
+def test_a_replayed_copy_loses_to_the_parents_original(
+        fresh_db, monkeypatch, tmp_path):
+    """Parent and fork declare DIFFERENT models, so neither half of the
+    rank can hide: the fork's first declaration is gpt-5.6-terra while the
+    parent ran gpt-5.6-sol, and the fork was spawned with the child's own
+    model (a spawn_agent `model` argument). The replayed uuids' parent
+    copies — carrying the model the parent had in force — win the dedup
+    whatever the key order, so replayed history counts once, as the main
+    session's, under the parent's model; the fork's losing copies keep
+    the #653 fallback attribution (its own first declaration)."""
+    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
+            _parent_rollout())
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -139,10 +163,40 @@ def test_an_attributed_replay_ties_on_attribution_and_wins_by_file_key(
     for uuid in REPLAY_UUIDS:
         fork_model, fork_canon = by_file[(uuid, "sessA/subagents/forkthread/wire.jsonl")]
         parent_model, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]
-        assert fork_model == "gpt-5.6-sol"
         assert parent_model == "gpt-5.6-sol"
-        assert fork_canon is True, f"file_key-first copy of {uuid} must win"
-        assert parent_canon is False, f"later-keyed copy of {uuid} must lose"
+        assert fork_model == "gpt-5.6-terra"
+        assert parent_canon is True, f"the original copy of {uuid} must win"
+        assert fork_canon is False, f"the replayed copy of {uuid} must lose"
+
+
+def test_the_forks_own_records_stay_canonical_and_its_own(
+        fresh_db, monkeypatch, tmp_path):
+    """The replay demotion is scoped to the replayed prefix: the fork's
+    own request — parsed from after its own first model declaration —
+    stays canonical, under the model the fork itself ran."""
+    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
+            _parent_rollout())
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    with db.viz_conn() as c:
+        rows = c.execute(
+            """
+            SELECT r.model, r.is_replay, r.is_canonical, f.is_main
+              FROM records r JOIN files f ON f.file_key = r.file_key
+             WHERE r.is_replay IS FALSE
+               AND r.file_key LIKE '%subagents/forkthread%'
+            """,
+        ).fetchall()
+    # The fork's own request (its counter continues past the parent's
+    # readings) is the one non-replayed row on the fork file.
+    assert len(rows) == 1, rows
+    model, is_replay, canon, is_main = rows[0]
+    assert model == "gpt-5.6-terra"
+    assert is_replay is False
+    assert canon is True
+    assert is_main is False
 
 
 def test_a_fork_alone_attributes_its_replay_to_the_first_declared_model(
@@ -157,6 +211,42 @@ def test_a_fork_alone_attributes_its_replay_to_the_first_declared_model(
     assert len(rows) == 2, rows
     assert all(model == "gpt-5.6-sol" and canon is True
                for _, _, model, canon in rows)
+
+
+def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
+    """The winner rule ranks a replayed copy below an original in the
+    tool_uses partition as well: a replayed fork call (same call_id as
+    the parent's) loses to the parent's copy whatever the key order."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO projects (project_id, display_name, "
+                  "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())")
+        c.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
+            "now(), %s)", ("main", constants.PARSER_VERSION))
+        c.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES (%s, 'p', 's', FALSE, 'e', 1, now(), "
+            "now(), %s)", ("zzz-subagent", constants.PARSER_VERSION))
+        # The parent's original call and the fork's replay, the fork's
+        # key FIRST — the order the old file_key rule would have picked.
+        for fk, replay in (("zzz-subagent", True), ("main", False)):
+            c.execute(
+                "INSERT INTO tool_uses (file_key, line_num, idx, ts, "
+                "tool_name, model, tool_use_id, is_replay) "
+                "VALUES (%s, 1, 0, now(), 'exec', 'gpt-5.6-sol', "
+                "'call-replay-1', %s)", (fk, replay))
+        c.commit()
+
+    ingest.recompute_canonical()
+
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, is_canonical FROM tool_uses "
+            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+    assert rows == {"main": True, "zzz-subagent": False}
 
 
 def _claude_copy(model: str | None, output_tokens: int) -> str:

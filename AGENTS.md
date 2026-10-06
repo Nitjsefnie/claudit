@@ -82,6 +82,9 @@ backend/          — FastAPI application
                     opening with a tag is harness-injected unless on the
                     pasted_content keep-list; denied texts count no
                     prompt, anchor no latency, split no ctx turn
+  codex_fork.py   — the Codex rollout's head: first declared model,
+                    fork detection (forked_from_id), replay-prefix
+                    marking for the canonical rank (issue #687)
   parse_codex.py  — Codex rollouts: cumulative-token differencing,
                     cross-file request identity, long-context meter,
                     apply_patch churn
@@ -198,11 +201,15 @@ src/              — served at /src/* (in-browser Babel)
                     preview
   parser.js       — browser transcript parser (SV-PARSER-SPEC)
   pricing.json    — every rate table (SV-RATE-DATA)
-  parser-lanes.js — browser lane parser + window.LONG_CONTEXT_*
+  parser-lanes.js — browser lane sniff + shared helpers + the Kimi
+                    parsers + window.LONG_CONTEXT_*
                     (SV-PARSER-SPEC lockstep)
+  parser-codex.js — browser codex lane parser: cumulative-token
+                    differencing, first-declared-model attribution,
+                    replay-prefix marking (SV-PARSER-SPEC lockstep)
   record-dedup.js — browser half of the canonical winner rule
-                    (SV-CANONICAL-FLAG): the attributed copy wins a
-                    shared uuid
+                    (SV-CANONICAL-FLAG): an original beats a replayed
+                    copy, an attributed copy an unattributed one
   dashboard-binning.js — bin width, never finer than the server bucket
   dashboard-fetch.js — the Overview's /api/dashboard request state:
                     loading / empty / error outcomes (plain JS, so node
