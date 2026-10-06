@@ -219,6 +219,7 @@ _NAIVE_LANE_BLOB = (
 
 
 class TestNodeDrivenLaneParsers:
+    # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_the_browser_marks_a_forks_replayed_prefix(self):
