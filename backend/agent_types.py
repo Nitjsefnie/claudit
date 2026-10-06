@@ -21,6 +21,7 @@ lookup is the whole cost.
 """
 from __future__ import annotations
 
+from backend import branding
 from backend.constants import DEFAULT_AGENT_TYPE
 
 # The whole fold in one lookup: cross-lane spellings fold to one name (the
@@ -46,3 +47,13 @@ def canonical_agent_type(role: str) -> str:
     if ":" in role:
         role = role.rpartition(":")[2]
     return _FOLD.get(role, role)
+
+
+def fold_js() -> str:
+    """The script statement serving the fold table to the Inspector page
+    (issue #691): the backend stays the table's only home, and the
+    browser lookup (src/agent-types.js) holds the lookup logic only.
+    branding.script_json keeps the payload from closing the tag it rides
+    in, like window.BRAND beside it.
+    """
+    return f"window.AGENT_TYPE_FOLD = {branding.script_json(dict(_FOLD))};"
