@@ -38,6 +38,17 @@ name: coverage comment
 # publishes no check run, joins no aggregate, and is absent from
 # release_gate.py's gate events. Its failures redden only its own run,
 # which nothing waits on.
+#
+# RETRIES (issue #763). Every `gh api` call in the `comment` job runs
+# behind `api_retry`, a bounded, spaced retry (three attempts, five then
+# ten seconds apart) that the job's first step writes once and every
+# consuming step sources — never copied per call. A retried attempt's
+# stdout is buffered and emitted only on success, so a `--paginate` call
+# that dies after one page cannot splice a partial page into the retry's
+# output. The POST is the one non-idempotent call, so the wrapper never
+# repeats it blindly: the post step's bounded loop re-lists before every
+# attempt, and a POST that landed despite reporting an error is found by
+# the next listing and PATCHed, never duplicated.
 
 on:
   # The `tests` leg is a REUSABLE workflow called by ci-gate.yml, so the
@@ -81,6 +92,52 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Write the shared API retry helper
+        run: |
+          set -euo pipefail
+
+          # Issue #763: every `gh api` call in this job is retried a
+          # bounded number of times, spaced apart, so one malformed or
+          # truncated API response neither reddens the run nor leaves the
+          # pull request without its comment. The definition exists only
+          # here: each consuming step sources the file this step writes,
+          # so the logic is never copied per call. A retried attempt's
+          # stdout is buffered and emitted only on success, so a
+          # --paginate call that dies after emitting one page cannot
+          # splice a partial page into the output a later attempt
+          # returns.
+          cat > "$RUNNER_TEMP/api_retry.sh" <<'EOF'
+          api_retry() {
+            local label="$1"
+            shift 2  # drop the label and the -- separator
+            local attempt=1
+            local attempts=3
+            # Spaced, bounded: a transient failure clears in seconds; a
+            # persistent one adds at most these sleeps before the step
+            # fails.
+            local -a delays=(5 10)
+            local out
+            out="$(mktemp "${TMPDIR:-/tmp}/api_retry.XXXXXX")" || return 1
+            while :; do
+              if "$@" >"$out"; then
+                cat "$out"
+                rm -f "$out"
+                return 0
+              fi
+              rm -f "$out"
+              if [ "$attempt" -ge "$attempts" ]; then
+                echo "api_retry: $label still failing after" \
+                  "$attempts attempts" >&2
+                return 1
+              fi
+              echo "api_retry: $label failed (attempt $attempt of" \
+                "$attempts); retrying" >&2
+              sleep "${delays[$((attempt - 1))]}"
+              attempt=$((attempt + 1))
+            done
+          }
+          EOF
+
       - name: Check for the comment artifact
         id: artifact
         env:
@@ -90,11 +147,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Issue #763: the shared retry written by the job's first step
+          # wraps every `gh api` call below.
+          . "$RUNNER_TEMP/api_retry.sh"
+
           # The lookup is its own command and pipefail is load-bearing: in
           # `x="$(gh api ... | jq ...)"` the status is jq's, so a failed
           # API call would print `false` and be reported as "no artifact"
           # — the comment silently never appears and nothing goes red.
-          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+          if ! api_retry "listing the artifacts of run $RUN_ID" -- \
+            gh api -H 'Cache-Control: no-cache' --paginate \
             "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
             --jq '.artifacts[]' > artifacts.json
           then
@@ -125,6 +187,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Issue #763: the shared retry wraps both `gh api` calls below.
+          . "$RUNNER_TEMP/api_retry.sh"
+
           # Deliberately BEFORE the download: the destination is settled
           # while nothing the pull request produced is on disk.
           numbers="$(printf '%s' "$EVENT_PRS" \
@@ -135,7 +200,8 @@ jobs:
             # on. `head_sha` is the MERGE-ref commit, which lives in THIS
             # repository even for a fork, so the base repository is the one
             # to ask.
-            if ! gh api -H 'Cache-Control: no-cache' --paginate \
+            if ! api_retry "listing the pull requests for $HEAD_SHA" -- \
+              gh api -H 'Cache-Control: no-cache' --paginate \
               "repos/$REPO/commits/$HEAD_SHA/pulls" --jq '.[].number' \
               > pulls.txt
             then
@@ -165,7 +231,9 @@ jobs:
               exit 1
               ;;
           esac
-          if ! current_sha="$(gh api -H 'Cache-Control: no-cache' \
+          if ! current_sha="$(api_retry \
+            "reading the current head of pull request $numbers" -- \
+            gh api -H 'Cache-Control: no-cache' \
             "repos/$REPO/pulls/$numbers" --jq '.head.sha')"
           then
             echo "reading the current head of pull request $numbers" \
@@ -227,6 +295,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Issue #763: the shared retry wraps both `gh api` calls below.
+          . "$RUNNER_TEMP/api_retry.sh"
+
           case "${RUN_CONCLUSION:-}" in
             success)
               reason='a narrowed run (documentation-only or rate-data-only)'
@@ -239,7 +310,8 @@ jobs:
             printf '%s\n\n' "$marker"
             printf 'Patch coverage was not measured: %s.\n' "$reason"
           } > comment.md
-          if ! gh api -H 'Cache-Control: no-cache' --paginate \
+          if ! api_retry "listing the comments on $PR_NUMBER" -- \
+            gh api -H 'Cache-Control: no-cache' --paginate \
             "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
             > comments.json
           then
@@ -259,8 +331,14 @@ jobs:
               exit 1
               ;;
             *)
-              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
-                -F body=@comment.md >/dev/null
+              if ! api_retry "marking the patch-coverage comment" -- \
+                gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                  -F body=@comment.md >/dev/null
+              then
+                echo "marking the patch-coverage comment $existing" \
+                  "failed" >&2
+                exit 1
+              fi
               echo "marked patch coverage as unavailable ($reason)"
               ;;
           esac
@@ -290,6 +368,9 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
+
+          # Issue #763: the shared retry wraps the calls below.
+          . "$RUNNER_TEMP/api_retry.sh"
 
           # Both entries must be ordinary files. An artifact is attacker-
           # shaped input: a symlink or a directory named body.md would
@@ -334,34 +415,67 @@ jobs:
               "$HEAD_COMMIT"
             cat body.md
           } > comment.md
-          if ! gh api -H 'Cache-Control: no-cache' --paginate \
-            "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
-            > comments.json
-          then
-            echo "listing the comments on $PR_NUMBER failed" >&2
-            exit 1
-          fi
-          # Slurped, so pagination cannot yield one id per page, and the
-          # body is defaulted, so a null one is not an abort mid-select.
-          existing="$(
-            jq -s 'map(select(.user.login == "github-actions[bot]" and
-              ((.body // "") | startswith(
-                "<!-- claudit-diff-coverage -->")))) |
-              .[0].id // empty' comments.json
-          )"
-          case "$existing" in
-            '')
-              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
-                -F body=@comment.md >/dev/null
-              echo 'posted a new patch-coverage comment'
-              ;;
-            *[!0-9]*)
-              echo "comment id is not only digits: $existing" >&2
+
+          # Bounded, spaced retry (issue #763). Every attempt RE-LISTS
+          # before acting, so a POST that landed despite reporting an
+          # error is found by the next attempt's listing and PATCHed —
+          # never duplicated. The POST is the one non-idempotent call, so
+          # the wrapper never repeats it blindly: this loop is its retry,
+          # one POST per attempt. The listing and the PATCH carry the
+          # shared wrapper's own bounded attempts; a listing that fails
+          # all of them fails the step.
+          attempts=3
+          attempt=1
+          while :; do
+            if ! api_retry "listing the comments on $PR_NUMBER" -- \
+              gh api -H 'Cache-Control: no-cache' --paginate \
+              "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
+              > comments.json
+            then
+              echo "listing the comments on $PR_NUMBER failed" >&2
               exit 1
-              ;;
-            *)
-              gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
-                -F body=@comment.md >/dev/null
+            fi
+            # Slurped, so pagination cannot yield one id per page, and the
+            # body is defaulted, so a null one is not an abort mid-select.
+            existing="$(
+              jq -s 'map(select(.user.login == "github-actions[bot]" and
+                ((.body // "") | startswith(
+                  "<!-- claudit-diff-coverage -->")))) |
+                .[0].id // empty' comments.json
+            )"
+            case "$existing" in
+              *[!0-9]*)
+                echo "comment id is not only digits: $existing" >&2
+                exit 1
+                ;;
+            esac
+            if [ -n "$existing" ]; then
+              if ! api_retry "updating patch-coverage comment $existing" -- \
+                gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                  -F body=@comment.md >/dev/null
+              then
+                echo "updating patch-coverage comment $existing failed" >&2
+                exit 1
+              fi
               echo "updated patch-coverage comment $existing"
-              ;;
-          esac
+              exit 0
+            fi
+            if ! gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+              -F body=@comment.md >/dev/null
+            then
+              echo "posting the patch-coverage comment failed" \
+                "(attempt $attempt of $attempts); re-listing before" \
+                "retrying, so a landed-but-errored POST is PATCHed," \
+                "never duplicated" >&2
+            else
+              echo 'posted a new patch-coverage comment'
+              exit 0
+            fi
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "posting the patch-coverage comment failed after" \
+                "$attempts attempts" >&2
+              exit 1
+            fi
+            sleep 5
+            attempt=$((attempt + 1))
+          done
