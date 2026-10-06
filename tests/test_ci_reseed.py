@@ -535,11 +535,15 @@ def test_the_master_ratchet_step_runs_on_a_re_seed_tip(tmp_path,
     # No raise and no tighten is due: both must leave the file alone.
     assert target.read_text(encoding="utf-8") == before
 
-    readings = {
-        phase: {metric: str(record["measured"])
-                for metric, record in doc["reparse"][phase].items()}
-        for phase in thresholds.REPARSE_PHASES}
-    assert reparse_ratchet.update(doc, readings) is None
+    # The reparse half of the step, only where the family is present:
+    # inside the family's own re-seed window (issue #698) the step is a
+    # declared no-op and the committed document carries no readings.
+    if thresholds.REPARSE_FAMILY in doc:
+        readings = {
+            phase: {metric: str(record["measured"])
+                    for metric, record in doc["reparse"][phase].items()}
+            for phase in thresholds.REPARSE_PHASES}
+        assert reparse_ratchet.update(doc, readings) is None
 
     assert size_baseline.main(["--tighten", "--thresholds",
                                str(target)]) == 0
