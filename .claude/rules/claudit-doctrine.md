@@ -12,8 +12,8 @@ This rule is the parse spec. `backend/parse.py` and the in-browser
   into `records`).
 - Cross-file UUID dedup, resolved at ingest into `records.is_canonical`
   (SV-CANONICAL-FLAG): the winner is what
-  `DISTINCT ON (uuid) ORDER BY uuid, <unattributed-last>, file_key`
-  picks. No persisted Phase 2 rollup.
+  `DISTINCT ON (uuid) ORDER BY uuid, <replay-last>, <unattributed-last>,
+  file_key` picks. No persisted Phase 2 rollup.
 - `<task-notification>` ref detection for sub-agent jsonls.
 - Sidecar `data/subagents/agent-*.jsonl` resolution.
 - Context turns: backend `_build_ctx_turns` / browser `computeTurnStats`
@@ -209,14 +209,24 @@ code change.
 ## Dedup is a flag, not a read-time sort (SV-CANONICAL-FLAG)
 
 `records.is_canonical` marks the row
-`DISTINCT ON (r.uuid) ORDER BY r.uuid, <unattributed-last>, r.file_key`
-would select: the copy whose model is attributed beats an unattributed
-one — the lane fallback `unknown`, the Claude fallback `(unknown)`, the
-empty string and NULL all count unattributed, as does `<synthetic>`
-(Claude's harness-fabricated stub model: it names no model at all,
-issue #563) (issue #529: a forked Codex rollout's replayed prefix stores
-`unknown`, and its `subagents/…` key sorts before its parent's) — then
-`r.file_key`; `line_num` breaks ties within a `file_key`. NULL-`uuid`
+`DISTINCT ON (r.uuid) ORDER BY r.uuid, <replay-last>, <unattributed-last>,
+r.file_key` would select. A REPLAYED copy loses to an original of the same
+uuid whatever the key order: a forked Codex rollout re-journals its
+parent's requests in its replayed prefix, its `subagents/…` key sorts
+before the parent's `wire.jsonl`, and once #653 attributed the prefix
+(the fork's first declared model) a bare attribution-then-key rank let
+the fork's copy win and counted the parent's history as the fork's —
+`records.is_replay`/`tool_uses.is_replay`, set by
+`codex_fork.mark_replay` on the rows before the fork's own first model
+declaration, rank those copies last (issue #687). Then the copy whose
+model is attributed beats an unattributed one — the lane fallback
+`unknown`, the Claude fallback `(unknown)`, the empty string and NULL
+all count unattributed, as does `<synthetic>` (Claude's
+harness-fabricated stub model: it names no model at all, issue #563)
+(issue #529: the original attribution rank; the #529 outcome is
+restored under #653's attribution) — then `r.file_key`; `line_num`
+breaks ties within a `file_key`. NULL (every non-Codex row and row
+parsed before #687) ranks as an original. NULL-`uuid`
 rows (legacy) are always canonical.
 
 Reads MUST filter `WHERE is_canonical` and MUST NOT reintroduce

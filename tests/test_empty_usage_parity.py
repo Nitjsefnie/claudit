@@ -36,6 +36,7 @@ def _browser_results() -> dict[str, dict[str, Any]]:
     script = f"""
       global.window = {{}};
       require({json.dumps(str(LANES_JS))});
+      require({json.dumps(str(ROOT / 'src' / 'parser-codex.js'))});
       require({json.dumps(str(LOADER_JS))});
       require({json.dumps(str(PARSER_JS))});
       const fixtures = {json.dumps(fixtures)};

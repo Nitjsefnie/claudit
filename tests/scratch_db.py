@@ -35,6 +35,7 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_web_metrics.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_request_fee.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_replay.sql",
 )
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"

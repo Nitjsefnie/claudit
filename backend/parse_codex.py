@@ -58,6 +58,7 @@ from orjson import JSONDecodeError, loads
 from backend import pricing
 from backend.bash_argv import argv_churn
 from backend.bash_churn import bash_churn
+from backend.codex_fork import head_scan, mark_replay
 from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _end_turn, _finish_parse,
                                   _mark_assistant_event, _nonempty_str,
@@ -156,38 +157,12 @@ class _CodexState(_ParseState):
 def _codex_first_declared_model(blob: bytes) -> str | None:
     """The first model this file declares, in file order.
 
-    A forked rollout replays its parent's history before the new thread
-    emits a turn_context, so the leading records have no model in front
-    of them. The replay is the parent's history and the first declaration
-    is the model the parent had in force at the fork point — the
-    inherited settings — so it attributes the prefix (issue #653). None
-    when the file declares no model at all: nothing derives the model in
-    force, and the file is refused rather than stored as `unknown`.
-
-    The scan JSON-decodes only lines that mention a model-declaring
-    record — on a 20MB rollout that is a few hundred lines out of tens of
-    thousands.
+    The first declaration is the model the parent had in force at the
+    fork point - the inherited settings - so it attributes a fork's
+    replayed prefix (issue #653). The scan, and the fork/replay facts
+    read beside it, live in backend/codex_fork (issue #687).
     """
-    for raw in blob.splitlines():
-        if b'"turn_context"' not in raw and b'"thread_settings_applied"' not in raw:
-            continue
-        try:
-            obj = loads(raw)
-        except JSONDecodeError:
-            continue
-        if not isinstance(obj, dict):
-            continue
-        payload = as_dict(obj.get("payload"))
-        if obj.get("type") == "turn_context":
-            name = payload.get("model")
-        elif payload.get("type") == "thread_settings_applied":
-            settings = as_dict(payload.get("thread_settings"))
-            name = settings.get("model")
-        else:
-            continue
-        if name:
-            return str(name)
-    return None
+    return head_scan(blob)[0]
 
 
 def _codex_output_text(payload: dict) -> str:
@@ -684,7 +659,8 @@ def parse(file_key: str, blob: bytes) -> dict:
     """Parse one Codex rollout JSONL. Same return shape as _parse_legacy."""
     lines = blob.splitlines()
     st = _CodexState(file_key)
-    st.model = _codex_first_declared_model(blob)
+    first_model, is_fork, declared_at = head_scan(blob)
+    st.model = first_model
 
     for line_num, raw in enumerate(lines, 1):
         if not raw:
@@ -703,4 +679,6 @@ def parse(file_key: str, blob: bytes) -> dict:
 
         _codex_dispatch(st, str(obj.get("type") or ""), line_num, ts_dt, payload)
 
-    return _finish_parse(st, len(lines))
+    out = _finish_parse(st, len(lines))
+    mark_replay(out, declared_at if is_fork else None)
+    return out

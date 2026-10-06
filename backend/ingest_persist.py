@@ -190,6 +190,11 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             "DELETE FROM tool_uses WHERE file_key = %s", (obj.key,)
         )
         if parsed.get("tool_uses"):
+            # is_replay is Codex-only (codex_fork.mark_replay); every
+            # other path's rows lack the key and store NULL, which the
+            # winner rule ranks as an original.
+            for tu in parsed["tool_uses"]:
+                tu.setdefault("is_replay", None)
             cur.executemany(
                 """
                 INSERT INTO tool_uses (
@@ -214,7 +219,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   read_kind,
                   read_targets,
                   write_targets,
-                  is_reread)
+                  is_reread,
+                  is_replay)
                 VALUES (
                   %(file_key)s,
                   %(line_num)s,
@@ -237,7 +243,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(read_kind)s,
                   %(read_targets)s,
                   %(write_targets)s,
-                  %(is_reread)s)
+                  %(is_reread)s,
+                  %(is_replay)s)
                 """,
                 parsed["tool_uses"],
             )
@@ -258,7 +265,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             for rec in parsed["records"]:
                 rec.update({k: rec.get(k)
                             for k in ("long_context", "provider",
-                                      "request_fee_usd")})
+                                      "request_fee_usd", "is_replay")})
             cur.executemany(
                 """
                 INSERT INTO records (
@@ -286,6 +293,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   turn_tool_results,
                   long_context,
                   provider,
+                  is_replay,
                   pricing_version,
                   rate_fingerprint)
                 VALUES (
@@ -313,6 +321,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(turn_tool_results)s,
                   %(long_context)s,
                   %(provider)s,
+                  %(is_replay)s,
                   %(pricing_version)s,
                   %(rate_fingerprint)s)
                 """,

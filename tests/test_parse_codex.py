@@ -351,6 +351,16 @@ def test_the_parser_never_labels_a_model_unknown():
             assert tu["model"] != "unknown" and tu["model"], name
 
 
+def test_a_forks_replayed_prefix_is_marked_for_the_canonical_rank():
+    """Issue #687: the rows before the fork's own first model declaration
+    are the parent's history journalled in the fork file — is_replay
+    flags them for the canonical rank, and the fork's own rows carry
+    False."""
+    out = _parse("rollout_fork_different_model.jsonl")
+    flags = {r["line_num"]: r["is_replay"] for r in out["records"]}
+    assert flags == {3: True, 4: True, 7: False}
+
+
 def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
     """Issue #471: a gpt-6.1-sol rollout kept reading as gpt-5.6-sol (the
     first listed id whose needle the id contains) and billing at twice its
@@ -604,7 +614,7 @@ RECORD_KEYS = {
     "output_tokens", "thinking_tokens", "long_context", "cost_usd",
     "text_chars", "reply_latency_s", "ctx_input", "stop_reason", "effort",
     "cli_version", "turn_flags", "turn_tool_results", "eph5_tokens",
-    "eph1h_tokens",
+    "eph1h_tokens", "is_replay",
 }
 TOOL_USE_KEYS = {
     "file_key", "line_num", "idx", "ts", "tool_name", "model", "tool_use_id",
@@ -612,7 +622,7 @@ TOOL_USE_KEYS = {
     "agent_type", "agent_model", "dispatch_prompt_chars",
     "dispatch_brief_ref", "dispatch_name", "result_chars", "read_kind",
     "read_targets",
-    "write_targets", "is_reread",
+    "write_targets", "is_reread", "is_replay",
 }
 
 

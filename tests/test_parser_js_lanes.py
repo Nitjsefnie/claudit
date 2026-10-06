@@ -29,6 +29,7 @@ from backend import parse, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+CODEX_JS = ROOT / "src" / "parser-codex.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -69,6 +70,7 @@ def _browser_lane_output() -> dict:
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};
@@ -108,6 +110,30 @@ def _browser_lane_output() -> dict:
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
+
+
+DIFFERENT_MODEL_FORK = FIX_CODEX / "rollout_fork_different_model.jsonl"
+
+
+def test_the_browser_marks_a_forks_replayed_prefix():
+    """The codex lane parser stamps a fork's leading entries isReplay
+    (issues #687), mirroring backend codex_fork.mark_replay — the lines
+    before the fork's own first model declaration, which the canonical
+    rank (record-dedup.js) demotes behind the parent rollout's originals."""
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      const text = {json.dumps(DIFFERENT_MODEL_FORK.read_text(encoding="utf-8"))};
+      const {{ events, meta }} = window.parseTranscript(text);
+      console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
+        .map(m => [m.line, m.isReplay === true])));
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True,
+                          text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
 
 
 def _browser_records(name: str) -> list[dict]:
@@ -196,6 +222,7 @@ def test_a_browser_parse_never_labels_a_model_unknown():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       const {{ meta }} = window.parseTranscriptLanes(
         {json.dumps(text)}, {{}});
       console.log(JSON.stringify(
@@ -255,6 +282,7 @@ def test_model_ids_survive_verbatim_in_both_parsers():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const {{ events, meta }} = window.parseTranscript(
         {json.dumps(blob.decode())});
@@ -308,6 +336,7 @@ def _node_long_context(plan_type: str | None) -> dict:
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const text = {json.dumps(_long_context_blob(plan_type).decode())};
       const {{ events, meta }} = window.parseTranscript(text);
@@ -352,6 +381,7 @@ def test_browser_long_context_threshold_equals_backend():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       console.log(JSON.stringify(window.LONG_CONTEXT_THRESHOLD));
     """
     proc = subprocess.run(
@@ -371,6 +401,7 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       const blobs = {json.dumps([b.decode('utf-8', 'surrogateescape') for b in blobs])};
       console.log(JSON.stringify(blobs.map(b => window.sniffTranscriptFormat(b))));
     """
@@ -412,6 +443,7 @@ def test_lane_output_carries_the_fields_the_inspector_renders(name):
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};
@@ -499,6 +531,7 @@ def test_browser_token_breakdown_applies_the_long_context_meter():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       window.dashboardCol = {{}};
       eval({json.dumps(_token_breakdown_source())});
@@ -544,6 +577,7 @@ def test_browser_long_context_multipliers_equal_backend():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       console.log(JSON.stringify({{
         in: window.LONG_CONTEXT_INPUT_MULT,
         out: window.LONG_CONTEXT_OUTPUT_MULT,
@@ -574,6 +608,7 @@ def test_browser_inspector_turn_cost_applies_the_long_context_meter():
     script = f"""
       global.window = {{ shortModelName: m => m }};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const text = {json.dumps(_long_context_blob(None).decode())};
       const tx = window.parseTranscript(text);
@@ -624,6 +659,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
       const {{ events, meta }} = window.parseTranscriptLanes(
         {json.dumps(_NAIVE_LANE_BLOB.decode())});
