@@ -114,11 +114,18 @@ class _El:
     """
 
     def __init__(self, w=0, children=None, single=None):
-        self.offsetWidth = w
+        self._w = w
         self._children = children or {}
         self._single = single
         self.clientWidth = 0
         self.calls = []
+
+    def getBoundingClientRect(self):
+        class _R:
+            width = 0.0
+        r = _R()
+        r.width = float(self._w)
+        return r
 
     def querySelectorAll(self, sel):
         self.calls.append(("all", sel))
@@ -144,8 +151,8 @@ def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=
 
     mod_path = FIT_JS
 
-    all_el = _El(w=all_w)
-    chip_els = [_El(w=w) for w in widths]
+    all_el = _El(w=all_w + 0.5)   # fractional: offsetWidth would round it
+    chip_els = [_El(w=w + 0.5) for w in widths]
     pager_el = None
     if pager_core is not None:
         nav_a, nav_b = _El(w=26), _El(w=26)
@@ -174,8 +181,8 @@ def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=
     payload = json.dumps({
         "clientWidth": strip.clientWidth,
         "computed": computed,
-        "all": all_el.offsetWidth,
-        "widths": [c.offsetWidth for c in chip_els],
+        "all": all_el._w,
+        "widths": [c._w for c in chip_els],
         "pager": pager_core,
         "jump": jump_w,
     })
@@ -185,18 +192,20 @@ def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=
       const spec = {payload};
       // A DOM stub standing in for the strip: the module reads through
       // querySelector/querySelectorAll/getComputedStyle only.
-      const chipEls = spec.widths.map(w => ({{ offsetWidth: w }}));
+      const chipEls = spec.widths.map(w => ({{
+        getBoundingClientRect: () => ({{ width: w }}),
+      }}));
       const measure = {{
         querySelectorAll: (sel) => {{
           if (sel === '.pp-proj') return chipEls;
-          if (sel === '.pp-jump') return spec.jump ? [{{ offsetWidth: spec.jump }}] : [];
+          if (sel === '.pp-jump') return spec.jump ? [{{ rect: spec.jump }}] : [];
           throw new Error('unexpected selector ' + sel);
         }},
         querySelector: (sel) => (sel === '.pp-jump' && spec.jump
-          ? {{ offsetWidth: spec.jump }} : null),
+          ? {{ getBoundingClientRect: () => ({{ width: spec.jump }}) }} : null),
       }};
-      const navs = [{{ offsetWidth: 26 }}, {{ offsetWidth: 26 }}];
-      const countEl = {{ offsetWidth: Math.max(0, spec.pager - 52) }};
+      const navs = [rectEl(26.4), rectEl(26.4)];
+      const countEl = rectEl(Math.max(0, spec.pager - 52.8));
       const pagerEl = spec.pager ? {{
         querySelectorAll: (sel) => {{
           if (sel === '.pp-nav, .pp-count') return [...navs, countEl];
@@ -208,11 +217,14 @@ def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=
         querySelector: (sel) => {{
           if (sel === '.pp-measure') return measure;
           if (sel === '.pp-pager') return pagerEl;
-          if (sel === '.pp-all') return {{ offsetWidth: spec.all }};
+          if (sel === '.pp-all') return {{ getBoundingClientRect: () => ({{ width: spec.all }}) }};
           throw new Error('unexpected selector ' + sel);
         }},
       }};
-      global.document = {{ getComputedStyle: () => spec.computed }};
+      global.window.getComputedStyle = () => spec.computed;
+      function rectEl(w) {{
+        return {{ getBoundingClientRect: () => ({{ width: w }}) }};
+      }}
       const r = window.pickerFit.computeFit(strip);
       console.log(JSON.stringify({{ r }}));
     """
