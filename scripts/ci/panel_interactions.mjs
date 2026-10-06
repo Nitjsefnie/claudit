@@ -88,20 +88,6 @@ export const FILED = [
   { issue: 642, panel: / by Model$/, kind: 'tooltip-overflow' },
   // #643: the cold load shifts the layout, CLS about 0.85.
   { issue: 643, panel: null, kind: 'cold-cls' },
-  // #645: the container-vs-svg coordinate mismatch — the active band
-  // sits a header-height high on the Context Size panels and a 1px
-  // border high on the time-series panels, so a bar's bottom row (and,
-  // at narrow widths, whole short bars) is dead. #645 itself names the
-  // sweep: "the hover-sweep test should cover every panel rather than
-  // this one alone."
-  { issue: 645, panel: /Context Size$/, kind: 'hover-tooltip' },
-  { issue: 645, panel: /Context Size$/, kind: 'hover-style' },
-  { issue: 645, panel: /^(Input|Output|Total) Tokens$|^Thinking Output$|^Cache (Create|Read)$|^Cost \(USD\)$|^Lines (Added|Deleted)$/,
-    kind: 'hover-tooltip' },
-  { issue: 645, panel: /^(Input|Output|Total) Tokens$|^Thinking Output$|^Cache (Create|Read)$|^Cost \(USD\)$|^Lines (Added|Deleted)$/,
-    kind: 'hover-style' },
-  // #646: Prompt-Cache TTL Split bars do not highlight on hover.
-  { issue: 646, panel: 'Prompt-Cache TTL Split', kind: 'hover-style' },
   // #651: Cost by Agent Type (and its Tokens twin) grow a row per role
   // with no bound — the height category's live filed defect.
   { issue: 651, panel: 'Cost by Agent Type', kind: 'height-growth' },

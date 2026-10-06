@@ -23,7 +23,7 @@
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1361,
     "src/dashboard-charts-extra.jsx": 2261,
-    "src/dashboard-charts.jsx": 913,
+    "src/dashboard-charts.jsx": 912,
     "src/parser-lanes.js": 713,
     "src/parser.js": 666
   },

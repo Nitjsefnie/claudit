@@ -141,7 +141,9 @@ def test_panel_wires_bounded_geometry_to_measurement_hooks():
     assert "events, range, binMs, event =>" in panel
     assert "timeBarRect(b, range, padL, plotW)" in panel
     assert "const xScale = ts => timeX(ts, range, padL, plotW)" in panel
-    assert "timeBinIndexAtX(bins, range, padL, plotW, mx)" in panel
+    # The hover hit-tests in the svg frame, so the x the binder receives
+    # is `sx`, not the container-frame `mx` (#645's 1px-border dead band).
+    assert "timeBinIndexAtX(bins, range, padL, plotW, sx)" in panel
     assert 'data-plot-boundary=""' in panel
     assert 'data-time-bar=""' in panel
     assert 'data-cumulative-line=""' in panel

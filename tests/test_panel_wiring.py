@@ -150,17 +150,19 @@ def test_cost_by_context_replicates_the_reference_mark_treatment():
 
 
 def test_cost_by_context_hover_matches_the_reference():
-    """Hover is on the CONTAINER (the tooltip's offsetParent) and guarded
-    to the plot area, so the tip does not appear over the header or the
-    x-axis gutter -- both straight from TimeSeriesPanel."""
+    """Hover hit-tests in the <svg>'s frame (padT/plotH are svg coords;
+    the container rect carries the header above the svg, #645) while the
+    tip positions in container coordinates (its offsetParent)."""
     src = _panel_src("CostByContextPanel")
     m = re.search(r"function onMove\(e\) \{(.*?)\n  \}", src, re.S)
     assert m, "could not locate the panel's hover handler"
     body = m.group(1)
+    assert ("svgRef.current.getBoundingClientRect()" in body
+            and "sy < padT || sy > padT + plotH" in body), (
+        "hover must hit-test and guard in the svg frame (#645)")
     assert "ref.current.getBoundingClientRect()" in body, (
-        "hover must measure against the container, not the <svg>")
-    assert "my < padT || my > padT + plotH" in body, (
-        "hover must be guarded to the plot area")
+        "the tooltip must still position in container coordinates")
+    assert "ref={svgRef}" in src, "the svg must carry the hit-test frame's ref"
     assert "onMouseMove={onMove}" in src and "onMouseLeave" in src
 
 

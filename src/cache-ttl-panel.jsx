@@ -203,7 +203,7 @@ function CacheTTLPanel({ events, range, binMs }) {
     const tot = b.s5 + b.s1;
     const pct = tot > 0 ? (b.s5 / tot) * 100 : 0;
     setTip({
-      x: mx, y: my,
+      x: mx, y: my, idx,
       title: `${fmtDate_X(b.start, {day:true})}`,
       accent: COL_X.cacheCreateTokens,
       lines: [
@@ -266,21 +266,31 @@ function CacheTTLPanel({ events, range, binMs }) {
           const h1 = padT + plotH - y1;             // 1h bar height
           const h5 = y1 - y5;                       // 5m bar height
           const isPeak = idx === peakIdx;
+          // The HBar hover treatment — the family's marking for rest-0.85
+          // bars: the hovered bin brightens to full opacity and takes the
+          // white stroke. Keyed on the BIN, so both stacked segments are
+          // marked together (#646).
+          const isHover = tip != null && tip.idx === idx;
           return (
             <g key={'bar'+idx}>
               <rect data-hover-target="" x={x} y={y1} width={barW}
                 height={Math.max(0, h1)}
-                fill={COL_X.cacheCreateTokens} fillOpacity={isPeak ? 0.95 : 0.85} />
+                fill={COL_X.cacheCreateTokens}
+                fillOpacity={isHover ? 1 : (isPeak ? 0.95 : 0.85)}
+                stroke={isHover ? '#fff' : 'none'} strokeOpacity="0.5" />
               <rect data-hover-target="" x={x} y={y5} width={barW}
                 height={Math.max(0, h5)}
-                fill={COL_X.inputTokens} fillOpacity={isPeak ? 0.95 : 0.85} />
+                fill={COL_X.inputTokens}
+                fillOpacity={isHover ? 1 : (isPeak ? 0.95 : 0.85)}
+                stroke={isHover ? '#fff' : 'none'} strokeOpacity="0.5" />
             </g>
           );
         })}
 
-        {/* Crosshair */}
-        {tip && (
-          <line x1={tip.x} x2={tip.x} y1={padT} y2={shareBot}
+        {/* Crosshair, snapped to the hovered bin's bar centre (#646). */}
+        {tip && bins[tip.idx] && (
+          <line x1={xScale(bins[tip.idx].start) + barW / 2}
+            x2={xScale(bins[tip.idx].start) + barW / 2} y1={padT} y2={shareBot}
             stroke="#fff" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="2,3" />
         )}
 
