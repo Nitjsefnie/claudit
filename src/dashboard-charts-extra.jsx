@@ -354,11 +354,8 @@ function DashTooltip({ tip }) {
         )}
         {(tip.lines || []).map((l, i) => (
           <div key={i} className="chart-tooltip-row">
-            <span className="chart-tooltip-key" style={{ flexShrink: 0 }}>{l[0]}</span>
-            <span className="chart-tooltip-val" style={{
-              color: l[2] || undefined,
-              wordBreak: 'break-all', whiteSpace: 'normal', textAlign: 'right',
-            }}>{l[1]}</span>
+            <span className="chart-tooltip-key">{l[0]}</span>
+            <span className="chart-tooltip-val" style={{ color: l[2] || undefined }}>{l[1]}</span>
           </div>
         ))}
       </div>
