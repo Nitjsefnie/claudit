@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import long_context, pricing_load
+from backend import long_context, pricing, pricing_load
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -171,16 +171,16 @@ def test_resolve_pin_picks_one_price():
 
 
 def test_stale_pin_refuses():
-    doc, out = _run(
+    _, out = _run(
         _doc(resolve={GPT_KEY: {"tag": "openai/gone", "why": "once was"}}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     assert len(out.refusals) == 1 and "stale" in out.refusals[0]
 
 
 def test_malformed_pin_refuses():
-    doc, out = _run(_doc(resolve={GPT_KEY: {"select": "cheapest"}}),
-                    _catalog(GPT_ID),
-                    {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
+    _, out = _run(
+        _doc(resolve={GPT_KEY: {"select": "cheapest"}}),
+        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     assert len(out.refusals) == 1 and "pin" in out.refusals[0]
 
 
@@ -199,8 +199,9 @@ def test_batch_variant_is_never_a_row():
 
 def test_free_variant_is_never_a_row():
     free_id = GLM_ID + ":free"
-    doc, out = _run(_doc(), _catalog(GLM_ID, free_id),
-                    {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
+    _, out = _run(
+        _doc(), _catalog(GLM_ID, free_id),
+        {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
     assert not out.refusals
     assert [m.id for m in out.moves] == [GLM_ID]
 
@@ -226,15 +227,15 @@ def test_price_change_appends_and_never_rewrites():
 
 def test_quiet_run_moves_nothing():
     listing = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)
-    doc, out = _run(
+    _, out = _run(
         _doc(models={GPT_KEY: _stored(
-            {f: v for f, v in zip(RATE_FIELDS, (1.0, 1.25, 2.0, 0.1, 5.0))})}),
+            dict(zip(RATE_FIELDS, (1.0, 1.25, 2.0, 0.1, 5.0))))}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", listing))})
     assert out.moves == [] and not out.refusals
 
 
 def test_hand_row_appended_when_the_listing_moves_on():
-    doc, out = _run(
+    doc, _out = _run(
         _doc(models={GLM_KEY: _stored(
             {"fresh": 0.15, "create_5m": 0.0, "create_1h": 0.0, "read": 0.03,
              "output": 0.5})}),
@@ -297,58 +298,68 @@ def test_non_vendor_member_stands():
     assert "bonsai-test-1" in doc["long_context_models"]
 
 
-def test_non_meter_threshold_refuses():
+def test_non_meter_threshold_is_a_notice():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1,
                                                               threshold=200000)])))})
     assert GPT_KEY not in doc["models"] and GPT_KEY not in doc["long_context_models"]
-    assert len(out.refusals) == 1 and "departs from the meter" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "departs from the meter" in out.notices[0]
 
 
-def test_wrong_multipliers_refuse():
+def test_wrong_multipliers_are_a_notice():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0, input_mult=3.0)])))})
-    assert len(out.refusals) == 1 and GPT_KEY not in doc["models"]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and GPT_KEY not in doc["models"]
 
 
-def test_band_without_output_refuses():
+def test_band_without_output_is_a_notice():
     band = _band(1.0, 5.0)
     del band["completion"]
     _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[band])))})
-    assert len(out.refusals) == 1 and "does not restate input and output" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert ("not tracked" in out.notices[0]
+            and "does not restate input and output" in out.notices[0])
 
 
-def test_two_bands_refuse():
+def test_two_bands_are_a_notice():
     _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0), _band(1.0, 5.0)])))})
-    assert len(out.refusals) == 1 and "2 long-context bands" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "2 long-context bands" in out.notices[0]
 
 
-def test_band_with_utc_fields_refuse():
+def test_band_with_utc_fields_are_a_notice():
     band = _band(1.0, 5.0)
     band["utc_days"] = ["monday"]
     _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[band])))})
-    assert len(out.refusals) == 1 and "not modelled" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "not modelled" in out.notices[0]
 
 
-# --- unmodelled shapes -------------------------------------------------------
+# --- unmodelled shapes are notices, never red -------------------------------
 
 
-def test_weekly_schedule_refuses():
-    _, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
+def test_weekly_schedule_is_a_notice():
+    doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
         "z-ai", _price(0.2, 1.0, overrides=[{"utc_days": ["monday"], "utc_start": 0,
                                              "utc_end": 100,
                                              "prompt": _per_token(0.1),
                                              "completion": _per_token(0.5)}])))})
-    assert len(out.refusals) == 1 and "carries no schedule" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "carries no schedule" in out.notices[0]
+    assert GLM_KEY not in doc["models"]
 
 
-def test_unmodelled_pricing_key_refuses_and_zero_passes():
-    _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+def test_unmodelled_pricing_key_is_a_notice_and_zero_passes():
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, image_output="0.00004")))})
-    assert len(out.refusals) == 1 and "image_output" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "image_output" in out.notices[0]
+    assert GPT_KEY not in doc["models"]
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, image_output="0")))})
     assert not out.refusals
@@ -365,10 +376,12 @@ def test_fee_becomes_a_provenance_note_never_a_priced_fee():
     assert not tables["FEES"].get(GPT_KEY)
 
 
-def test_bad_fee_value_refuses():
-    _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+def test_bad_fee_value_is_a_notice():
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, web_search="free")))})
-    assert len(out.refusals) == 1 and "web_search" in out.refusals[0]
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0] and "web_search" in out.notices[0]
+    assert GPT_KEY not in doc["models"]
 
 
 def test_discount_note():
@@ -396,7 +409,7 @@ def test_the_would_be_file_is_loader_checked():
     doc["providers"] = {"openai/gpt-test-9.9": {"Host": [_stored(RATES)[0]]}}
     doc["providers"]["openai/gpt-test-9.9"]["Host"][0]["fresh"] = -1
     with pytest.raises(vendor.RefreshError, match="would not load"):
-        vendor.vendor_pass(doc, lambda: _catalog(), lambda mid: {}, STAMP, NOW)
+        vendor.vendor_pass(doc, _catalog, lambda mid: {}, STAMP, NOW)
 
 
 # --- integration through refresh_provider_rates.main ------------------------
@@ -459,10 +472,21 @@ def test_main_runs_the_vendor_pass(tmp_path, capsys):
 
 def test_main_vendor_refusal_is_red_but_writes_the_moves(tmp_path, capsys):
     run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
+                  {GPT_ID: _payload(_endpoint("openai/mxfp4", _price(1.0, 5.0)),
+                                    _endpoint("openai/int4", _price(2.0, 9.0)))})
+    rc, _out, err = run(capsys)
+    assert rc == 1 and "2 prices" in err
+    doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
+    assert GPT_KEY not in doc["models"]
+
+
+def test_main_untracked_shape_stays_green(tmp_path, capsys):
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
                   {GPT_ID: _payload(_endpoint(
                       "openai", _price(1.0, 5.0, image_output="0.00004")))})
-    rc, _out, err = run(capsys)
-    assert rc == 1 and "image_output" in err
+    rc, out, err = run(capsys)
+    assert rc == 0, err
+    assert "not tracked" in out
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
     assert GPT_KEY not in doc["models"]
 
@@ -489,3 +513,24 @@ def test_main_vendor_disabled_keeps_the_provider_surface(tmp_path, capsys):
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
     assert GPT_KEY not in doc["models"]
     assert run.constants_path.read_text() == 'PRICING_VERSION = "100"\n'
+
+
+def test_every_vendor_resolve_pin_names_a_row_and_a_why():
+    doc = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    pins = doc["openrouter"].get("vendor", {}).get("resolve", {})
+    for key, pin in pins.items():
+        assert key in doc["models"], key
+        assert isinstance(pin.get("tag"), str), key
+        assert isinstance(pin.get("why"), str) and pin["why"], key
+
+
+def test_derived_key_matches_resolver_normalisation():
+    """The central identity claim, spanned: the key the refresh derives
+    from a catalog id is the key resolve() matches for a transcript naming
+    the bare first-party model."""
+    for vendor_prefix, slug in (("openai", "gpt-test-9.9"),
+                                ("z-ai", "glm-test-1.5"),
+                                ("moonshotai", "kimi-test-2"),
+                                ("anthropic", "claude-test-4.5")):
+        assert vendor.derive_key(f"{vendor_prefix}/{slug}") == (
+            pricing._normalise(slug))  # pylint: disable=protected-access
