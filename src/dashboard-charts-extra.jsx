@@ -747,8 +747,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       grouped[key] = (grouped[key] || 0) + (m.n || 0);
     }
     return Object.entries(grouped)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => ({ key: k, n }));
+      .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
   const TOP_N = 7;
@@ -1231,8 +1230,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       grouped[key] = (grouped[key] || 0) + (m.n || 0);
     }
     return Object.entries(grouped)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => ({ key: k, n }));
+      .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
   // Geometry. Y log-scale, range from 0.1s to max p90 (clamped >= 10s).
@@ -1489,12 +1487,9 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
 // only renders the dow/hour cells it is given.
 const _HEAT_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _HEAT_METRICS = [
-  { key: 'requests',      label: 'requests',   color: 'oklch(0.78 0.14 245)',
-    fmt: v => v.toLocaleString() },
-  { key: 'output_tokens', label: 'output tok', color: COL_X.outputTokens,
-    fmt: v => humanFmt_X(v) },
-  { key: 'cost_usd',      label: 'cost',       color: COL_X.costUSD,
-    fmt: v => window.humanCurrency(v) },
+  { key: 'requests', label: 'requests', color: 'oklch(0.78 0.14 245)', fmt: v => v.toLocaleString() },
+  { key: 'output_tokens', label: 'output tok', color: COL_X.outputTokens, fmt: v => humanFmt_X(v) },
+  { key: 'cost_usd', label: 'cost', color: COL_X.costUSD, fmt: v => window.humanCurrency(v) },
 ];
 
 function ActivityHeatmapPanel({ models, project, range, nonce }) {
@@ -1530,8 +1525,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
       grouped[key] = (grouped[key] || 0) + (m.n || 0);
     }
     return Object.entries(grouped)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => ({ key: k, n }));
+      .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
   // A free lane (bonsai-2-27b at $0) paints an empty grid under the
@@ -1891,8 +1885,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
       grouped[key] = (grouped[key] || 0) + (m.n || 0);
     }
     return Object.entries(grouped)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => ({ key: k, n }));
+      .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
   // Every bucket from 0 to the overflow edge, so an empty bucket renders
@@ -2180,8 +2173,7 @@ function CostByAgentPanel({ models, project, range, nonce }) {
       grouped[key] = (grouped[key] || 0) + (m.n || 0);
     }
     return Object.entries(grouped)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => ({ key: k, n }));
+      .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
   const [totalTokens, setTotalTokens] = React.useState(0);

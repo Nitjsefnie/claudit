@@ -23,7 +23,6 @@ const TOOL_DASHES = ['', '4,3', '1,3', '7,3', '2,4', '5,2'];
 
 // The per-tool picker's Other entry key and its dim swatch colour.
 const PROBE_CHARS = '0123456789abcdefghij';
-
 const OTHER = '__OTHER__';
 const _OTHER_COLOR = '#5a627a';
 
@@ -63,8 +62,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '');
-    fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`,
-          { credentials: 'same-origin' })
+    fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setData(b.buckets || []);
@@ -128,8 +126,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       }
     }
     return [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([tool, n]) => ({ model: tool, count: n }));
+      .sort((a, b) => b[1] - a[1]).map(([tool, n]) => ({ model: tool, count: n }));
   }, [byModel]);
 
   const visibleTools = React.useMemo(
@@ -331,10 +328,8 @@ function ToolErrorRatePanel({ project, range, nonce }) {
   const a11y = window.useChartA11y(
     'Tool Error Rate',
     `error-rate EMA lines, ${drawn.length} models`,
-    drawn.length
-      ? `Showing aggregate error rate for: ${drawn.map(d => d.model).join(', ')}`
-        + (showPerTool ? ', with per-tool lines.' : '.')
-      : null);
+    drawn.length ? `Showing aggregate error rate for: ${drawn.map(d => d.model).join(', ')}`
+      + (showPerTool ? ', with per-tool lines.' : '.') : null);
 
   const svgH = h + Math.max(0, toolLegend.rows.length) * 16 + 8;
 

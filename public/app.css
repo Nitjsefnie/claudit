@@ -477,9 +477,8 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
 .dashboard svg text { font-family: var(--mono); letter-spacing: 0.04em; }
 
 .project-picker {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 10px 22px;
-  background: var(--bg-soft);
+  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto;
+  padding: 10px 22px; background: var(--bg-soft);
   border-bottom: 1px solid var(--border);
 }
 .pp-btn {
@@ -493,6 +492,10 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
   font-family: var(--mono);
   letter-spacing: 0.04em;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  /* No shrink, no internal wrap (#643): squeezed flex chips wrap their own
+     text and turn the one-row picker strip into two rows, which the
+     pre-projects placeholder cannot reserve for. */
+  flex-shrink: 0; white-space: nowrap;
 }
 .pp-btn:hover { color: var(--fg-2); border-color: var(--border-2); }
 .pp-btn.on {
@@ -500,10 +503,7 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
   color: var(--accent);
   border-color: var(--accent-line);
 }
-.pp-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
+.pp-btn:disabled { opacity: 0.35; cursor: default; }
 .pp-btn:disabled:hover { color: var(--muted); border-color: var(--border); }
 
 /* Pager sits inline in the chip flow; margin-left pushes it clear of the

@@ -407,7 +407,7 @@ function App() {
           content sit inside it; the topbar and the live region stay
           outside (issue #447). */}
       <main id="main">
-        {backendOn && !isGuest && projects && (
+        {backendOn && !isGuest && (
           <ProjectPicker
             projects={projects}
             active={activeProject}
@@ -527,13 +527,18 @@ const PROJECTS_PER_PAGE = 24;
 function ProjectPicker({ projects, active, onChange }) {
   const [page, setPage] = useState(0);
 
-  const pageCount = Math.max(1, Math.ceil(projects.length / PROJECTS_PER_PAGE));
+  // Mounted before the list lands (#643): the strip sits above the fold,
+  // so mounting it only once /api/projects resolves moves the whole page.
+  // Until then it renders its "All" chip alone inside the same fixed
+  // one-row strip box, so the list's arrival fills instead of inserts.
+  const list = projects || [];
+  const pageCount = Math.max(1, Math.ceil(list.length / PROJECTS_PER_PAGE));
   // Clamp rather than store a corrected page: if `projects` shrinks under us
   // (refetch with fewer rows), a stale index would strand the user on a blank
   // page with no chips to click their way out of.
   const safePage = Math.min(page, pageCount - 1);
   const start = safePage * PROJECTS_PER_PAGE;
-  const shown = projects.slice(start, start + PROJECTS_PER_PAGE);
+  const shown = list.slice(start, start + PROJECTS_PER_PAGE);
 
   // The active chip may live on another page. Nothing renders as `on` then —
   // including "All" — so surface the selection instead of leaving the filtered
@@ -570,7 +575,7 @@ function ProjectPicker({ projects, active, onChange }) {
             <button
               className="pp-btn on pp-jump"
               onClick={() => setPage(Math.floor(
-                projects.findIndex(p => p.project_id === active) / PROJECTS_PER_PAGE
+                list.findIndex(p => p.project_id === active) / PROJECTS_PER_PAGE
               ))}
               title="Jump to the selected project"
             >{active} ↩</button>
@@ -812,35 +817,21 @@ function TokenBreakdownPanel({ events }) {
   );
 }
 
-function computeSessions(events) {
-  if (!events.length) return { sessions: [], windowBoundaries: [] };
-  // 30-min gap = new session; 5-hour gap = window boundary
-  const sorted = events.slice().sort((a, b) => a.ts - b.ts);
-  const sessions = [];
-  const windowBoundaries = [];
-  let cur = { start: sorted[0].ts, end: sorted[0].ts, events: [sorted[0]] };
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].ts - sorted[i - 1].ts;
-    if (gap > 30 * 60 * 1000) {
-      cur.end = sorted[i - 1].ts;
-      sessions.push(cur);
-      if (gap > 5 * 60 * 60 * 1000) windowBoundaries.push((sorted[i].ts + sorted[i - 1].ts) / 2);
-      cur = { start: sorted[i].ts, end: sorted[i].ts, events: [sorted[i]] };
-    } else {
-      cur.events.push(sorted[i]);
-      cur.end = sorted[i].ts;
-    }
-  }
-  sessions.push(cur);
-  return { sessions, windowBoundaries };
-}
-
 function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch }) {
   // `synth` is null until /api/dashboard lands. Render anyway: the four
   // backend panels below each fetch their OWN endpoint on mount, and gating
   // the whole component on dashboard data made those four requests wait for
   // it — a measured 6.9s, turning a parallel fan-out into a serial chain.
   const hasData = !!synth;
+  // The fetch state, not the data: an empty or failed range has still
+  // resolved, and the sections below show their own states then (#394).
+  const dashLoading = dashFetch.status === window.dashboardFetch.LOADING;
+  // The invisible reservation below is for the FIRST load only (#643): a
+  // later range change re-enters LOADING while the previous range's
+  // sections are on screen, and hiding those would blank the page on
+  // every filter switch.
+  const everLoaded = React.useRef(false);
+  useEffect(() => { if (!dashLoading) everLoaded.current = true; }, [dashLoading]);
   // Issue #436: the page is USABLE once the request RESOLVES, an empty range
   // included -- a deploy with no data would otherwise never leave pre-paint.
   // The JOURNEY still closes only on a data-bearing READY: an empty one, or a
@@ -865,7 +856,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
   const hasBackendByModel = backendByModel && Object.keys(backendByModel).length > 0;
   const hasBackendTokensByModel = backendTokensByModel && Object.keys(backendTokensByModel).length > 0;
-  const computed = useMemo(() => computeSessions(events), [events]);
+  const computed = useMemo(() => window.computeSessions(events), [events]);
   const sessions = (sessionsOverride && sessionsOverride.length)
     ? sessionsOverride
     : computed.sessions;
@@ -954,7 +945,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // Loading/empty/error are told apart by the state, not the shape (#394).
   const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
-    <div className="dashboard">
+    <div className="dashboard" data-perf-region="panel_grid">
       <div className="page-head"><h1>Overview</h1></div>
       <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
       {summary.kind === 'data' && (
@@ -1066,12 +1057,56 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
           <window.ResponseSizesPanel data={responseSizes} bucketS={bucketS} />
         </div>
       )}
+
+      <div className="dash-context">
+        <window.ContextGrowthPanel events={events} realSessions={sessionsOverride} ctxTraces={ctxTraces} />
+      </div>
+
+      <div className="dash-burn">
+        <window.BurnRatePanel
+          events={events}
+          sessions={sessions}
+          limitHits={limitHits}
+          range={range}
+          windowBoundaries={windowBoundaries} />
+      </div>
+
+      {/* The Cost/Tokens by Context twins gate on the payload's
+          cost, which exists only once the dashboard payload lands;
+          they fill at the block tail instead of inserting mid-page
+          and pushing the self-fetching panels above them (#643). */}
+
+      {backendOn && hasCost && (
+        <div className="dash-ctx-cost">
+          <window.CostByContextPanel
+            models={models}
+            project={activeProject}
+            range={activeRange}
+            nonce={dashNonce} />
+        </div>
+      )}
+
+      {backendOn && (
+        <div className="dash-ctx-cost">
+          <window.CostByContextPanel
+            measure="tokens"
+            models={models}
+            project={activeProject}
+            range={activeRange}
+            nonce={dashNonce} />
+        </div>
+      )}
       </>)}
 
-      {/* Self-fetching panels: mounted regardless of dashboard data so
-          their requests go out in parallel with /api/dashboard rather
-          than waiting for it. */}
+      {/* Self-fetching panels: mounted regardless of dashboard data, and
+          ABOVE every data-gated block (#643). Each of these fills when its
+          own response lands; the data-gated panels below fill when
+          /api/dashboard does. Keeping the fills at the page's tail is what
+          makes them shift-free: there is nothing below the tail to push
+          down, whatever the payload turns out to contain. */}
       {backendOn && (
+        <div style={dashLoading && !everLoaded.current
+          ? { visibility: 'hidden' } : undefined}>
         <div className="dash-tools">
           <window.ToolUsagePanel
             models={models}
@@ -1079,7 +1114,6 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
             range={activeRange}
             nonce={dashNonce} />
         </div>
-      )}
 
       {backendOn && (
         <div className="dash-latency">
@@ -1110,27 +1144,6 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
-      {backendOn && hasCost && (
-        <div className="dash-ctx-cost">
-          <window.CostByContextPanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {backendOn && (
-        <div className="dash-ctx-cost">
-          <window.CostByContextPanel
-            measure="tokens"
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
       {backendOn && (
         <div className="dash-resp">
           <window.CostByAgentPanel
@@ -1151,21 +1164,9 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
-      {hasData && (<>
-      <div className="dash-context">
-        <window.ContextGrowthPanel events={events} realSessions={sessionsOverride} ctxTraces={ctxTraces} />
-      </div>
 
-      <div className="dash-burn">
-        <window.BurnRatePanel
-          events={events}
-          sessions={sessions}
-          limitHits={limitHits}
-          range={range}
-          windowBoundaries={windowBoundaries} />
-      </div>
-      </>)}
-
+        </div>
+      )}
     </div>
   );
 }
@@ -1357,5 +1358,4 @@ function TimelineRow({ e, dense, selected, onClick, rowId }) {
   );
 }
 
-window.computeSessions = computeSessions;
 window.App = App;

@@ -48,6 +48,35 @@
     return events.some(e => (e[key] || 0) !== 0);
   }
 
+  // Session and window-boundary folding over dashboard events (#643:
+  // moved out of app.jsx for the same reason as the two functions above —
+  // that file sits exactly at its size ceiling and code only moves out).
+  // 30-min gap = new session; 5-hour gap = window boundary.
+  function computeSessions(events) {
+    if (!events.length) return { sessions: [], windowBoundaries: [] };
+    const sorted = events.slice().sort((a, b) => a.ts - b.ts);
+    const sessions = [];
+    const windowBoundaries = [];
+    let cur = { start: sorted[0].ts, end: sorted[0].ts, events: [sorted[0]] };
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = sorted[i].ts - sorted[i - 1].ts;
+      if (gap > 30 * 60 * 1000) {
+        cur.end = sorted[i - 1].ts;
+        sessions.push(cur);
+        if (gap > 5 * 60 * 60 * 1000) {
+          windowBoundaries.push((sorted[i].ts + sorted[i - 1].ts) / 2);
+        }
+        cur = { start: sorted[i].ts, end: sorted[i].ts, events: [sorted[i]] };
+      } else {
+        cur.events.push(sorted[i]);
+        cur.end = sorted[i].ts;
+      }
+    }
+    sessions.push(cur);
+    return { sessions, windowBoundaries };
+  }
+
   window.tokenPanels = tokenPanels;
   window.hasSeries = hasSeries;
+  window.computeSessions = computeSessions;
 })();
