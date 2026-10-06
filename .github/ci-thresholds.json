@@ -20,7 +20,7 @@
     "backend/schema.sql": 834,
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 704,
-    "src/app.jsx": 1361,
+    "src/app.jsx": 1293,
     "src/dashboard-charts-extra.jsx": 2140,
     "src/dashboard-charts.jsx": 910,
     "src/parser.js": 666
