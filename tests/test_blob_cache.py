@@ -139,3 +139,12 @@ def test_prune_cap_env_garbage_falls_to_default(cache_root, monkeypatch):
     monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "garbage")
     blob_cache.prune()
     assert blob_cache.lookup("claude/a", "e", 10) is not None
+
+
+def test_prune_negative_cap_env_falls_to_default(cache_root, monkeypatch):
+    """A negative R2_BLOB_CACHE_MAX_BYTES would wipe the cache every
+    run; it falls back to the default instead of thrashing."""
+    blob_cache.store("claude/a", "e", b"x" * 10)
+    monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "-1")
+    blob_cache.prune()
+    assert blob_cache.lookup("claude/a", "e", 10) is not None

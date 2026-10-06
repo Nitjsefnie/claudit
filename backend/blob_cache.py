@@ -28,8 +28,8 @@ log = logging.getLogger("claudit.blob_cache")
 _ENV = "R2_BLOB_CACHE"
 #: Size cap prune() enforces; invalid values fall back to the default.
 _CAP_ENV = "R2_BLOB_CACHE_MAX_BYTES"
-#: Holds a bucket of the corpus's size twice over, so a full population
-#: of a ~3 GB bucket never prunes.
+#: The default size cap: sized to hold a compressed corpus of a few GB
+#: whole, so a fully populated bucket never prunes between reparses.
 DEFAULT_CAP_BYTES = 4 * 1024 ** 3
 
 
@@ -56,8 +56,10 @@ def lookup(key: str, etag: str, size: int | None) -> bytes | None:
     """The cached raw bytes for (key, etag), or None.
 
     `size`, when given, is the listing's byte length: an entry whose
-    length disagrees reads as a miss — the one torn-write shape an
-    atomic replace cannot prevent is refused, never served.
+    length disagrees reads as a miss. The atomic replace keeps a torn
+    write off the entry path, so this refuses what else could land
+    there — external corruption, a hand-moved file, a wrong length —
+    never served as object bytes.
     """
     if not enabled():
         return None
@@ -143,6 +145,9 @@ def prune(cap_bytes: int | None = None) -> int:
 
 def _cap() -> int:
     try:
-        return int(os.environ.get(_CAP_ENV, ""))
+        value = int(os.environ.get(_CAP_ENV, ""))
     except ValueError:
         return DEFAULT_CAP_BYTES
+    # A negative cap would wipe the cache every run; garbage or a
+    # negative value falls back to the default rather than thrashing.
+    return value if value >= 0 else DEFAULT_CAP_BYTES

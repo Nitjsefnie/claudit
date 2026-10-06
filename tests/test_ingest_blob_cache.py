@@ -103,3 +103,22 @@ def test_ingest_run_populates_and_prunes_the_blob_cache(
     assert result["failed"] == 0
     assert pruned == [1]
     assert any(cache_dir.rglob("*")), "the run's fetches stored nothing"
+
+
+def test_parse_wire_passes_the_listing_identity_when_timed():
+    """The timed child's unit carries the identity too: a CLAUDIT_TIMING
+    run must not silently re-download the bucket the cache exists to
+    answer (the uncontrolled limb the #684 review caught)."""
+    recorded: list[tuple] = []
+
+    def parse_call(key, sidecar_key, etag=None, size=None):
+        recorded.append((key, sidecar_key, etag, size))
+        return {}
+
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
+                                  sidecar_key=None, etag="e9", size=7),
+            None, None)
+    parsed, stages = ingest_fetch.parse_wire(item, parse_call, True)
+    assert recorded == [("claude/p/s/k.jsonl", None, "e9", 7)]
+    assert parsed == {}
+    assert stages == {}
