@@ -345,9 +345,11 @@ def test_the_agent_panel_declares_a_bound_the_guard_reads():
     guard = MODULE.read_text(encoding="utf-8")
     assert "closest('[data-max-h]')" in guard, (
         "the guard no longer reads a panel's data-max-h bound")
-    assert "breachesBound(" in guard, (
+    assert "&& breachesBound(h, bound)" in guard, (
         "the guard no longer feeds declared bounds through the "
-        "comparison the node tests drive")
+        "comparison the node tests drive -- the && prefix names the "
+        "CALL SITE, not the definition, which would satisfy its own "
+        "pin")
 
 
 def test_the_bound_comparison_fires_by_near_miss():
