@@ -295,7 +295,9 @@ def test_a_claude_modelless_copy_is_refused(
              ORDER BY file_key
             """,
         ).fetchall()
-        stored = c.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        stored_row = c.execute("SELECT COUNT(*) FROM files").fetchone()
+        assert stored_row is not None
+        stored = stored_row[0]
     assert rows == [("mini/zzz-proj/sessU/sessU.jsonl",
                      "claude-sonnet-4-5", True)]
     assert stored == 1
