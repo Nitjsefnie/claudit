@@ -128,8 +128,13 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
             and fetch_started is not None):
         now = time.perf_counter()
         acc["child_parse"] = now - parse_started
-        acc["child_fetch"] = parse_started - fetch_started
+        # Issue #680: the GET span carries the .xz inflate get_object ran
+        # in-call (stamped on this thread); pop it first and book the GET
+        # as span minus inflate, so child_fetch and child_decompress are
+        # disjoint slices.
         acc["child_decompress"] = r2.pop_decompress_seconds()
+        acc["child_fetch"] = ((parse_started - fetch_started)
+                              - acc["child_decompress"])
     if sidecar_key is None or parsed["agent_type_in_band"]:
         return parsed
     sidecar_started = (time.perf_counter()
@@ -315,7 +320,9 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     the child work parse_wire's stage dicts report, summed across the
     children; the persist work persist_seconds already sums; and this
     thread's two blocking points — waiting on parse results and draining
-    persists — so one reparse's line says where its time went. The parts
+    persists while the next chunk parses (issue #680: the post-loop drain
+    runs after the wall closes, so it is booked to persist instead) — so
+    one reparse's line says where its time went. The parts
     are breakdown figures (mark_part), never phases in the sum.
     """
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
@@ -326,9 +333,14 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     persist_workers = persist_thread_count()
     chunk = max(1, processes * 4)
 
-    def drain(persist_futures: dict, stored_by_key: dict) -> None:
+    def drain(persist_futures: dict, stored_by_key: dict,
+              in_wall: bool = True) -> None:
         nonlocal inserted, reparsed
-        drain_started = time.perf_counter() if current is not None else None
+        # In-wall drains only (issue #680): the post-loop drain runs after
+        # last_parse_done closes the fetch_parse wall, so its blocking is
+        # persist-phase time and must not enter wait_persist.
+        drain_started = (time.perf_counter()
+                         if current is not None and in_wall else None)
         try:
             for pfuture in as_completed(persist_futures):
                 pobj = persist_futures[pfuture]
@@ -418,7 +430,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                     current.wait_parse += time.perf_counter() - wait_started
                 pending = (persist_futures, stored_by_key)
             if pending is not None:
-                drain(*pending)
+                drain(*pending, in_wall=False)
         except IngestAborted:
             # Abort mid-chunk: drop the queued parses and let the pools
             # stop behind their current items. The workers themselves die

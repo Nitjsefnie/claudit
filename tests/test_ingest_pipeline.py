@@ -3,7 +3,10 @@ the in-process pipeline over the mini mirror, and per-file persist
 failure isolation there."""
 
 import logging
+import lzma
 import re
+import shutil
+import time
 
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture,
@@ -225,6 +228,67 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     assert _ms("wait_parse") > 0, line
     assert _ms("wait_persist") > 0, line
     assert _ms("persist_work") > 0, line
+
+
+def test_pool_timing_parts_are_disjoint_slices(
+        fresh_db, mini_r2_env, monkeypatch, caplog):
+    """Issue #680: the pool TIMING parts are disjoint slices.
+
+    child_fetch is the GET alone — the .xz inflate the GET ran in-call is
+    booked once, as child_decompress, not again inside child_fetch — and
+    wait_persist books only blocking inside the fetch_parse wall: a
+    single-chunk run has no in-wall drain, so its wait_persist is zero
+    and the post-loop drain is persist-phase time. The mirror is pruned
+    to one project (todo ≤ chunk, so one chunk) and the seeded .xz gets
+    a sleep-padded decompressor so the inflate wall dwarfs the GET it
+    hides in, deterministically.
+    """
+    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setattr(_timing, "TIMING_ON", True)
+    # The run's own mirror copy (the committed fixture stays plain,
+    # SV-FIXTURE-SIZE): one project, and the .xz twin of its transcript.
+    for child in mini_r2_env.iterdir():
+        if child.name != "projA":
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    raw = (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl").read_bytes()
+    payload = raw * (1024 * 1024 // len(raw))
+    (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(
+        lzma.compress(payload))
+    # A deterministic inflate wall: pad the decompressor the forked child
+    # runs (the patch rides the fork) with a sleep — no CPU spent, and
+    # child_decompress books a controlled ~50ms.
+    real_decompress = lzma.decompress
+
+    def _padded_decompress(data):
+        out = real_decompress(data)
+        time.sleep(0.05)
+        return out
+
+    monkeypatch.setattr(lzma, "decompress", _padded_decompress)
+    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
+        summary = ingest.run_ingest("test-proc-parts")
+    assert summary["error"] is None
+    line = next(r.getMessage() for r in caplog.records
+                if r.name == "claudit.ingest"
+                and r.getMessage().startswith("TIMING ingest "))
+
+    def _ms(field):
+        m = re.search(rf"\b{field}=(\d+)ms", line)
+        assert m is not None, line
+        return int(m.group(1))
+
+    # The inflate is real booked work…
+    assert _ms("child_decompress") > 0, line
+    # …booked once: the GET span it was popped out of carries it no more.
+    assert _ms("child_fetch") < _ms("child_decompress"), line
+    # One chunk, so no in-wall drain: the post-loop drain is persist
+    # time, not wait_persist.
+    assert _ms("wait_persist") == 0, line
 
 
 def test_persist_thread_count_defaults_and_clamps(monkeypatch):
