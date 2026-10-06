@@ -27,12 +27,22 @@ measurement would fail a gate no change could satisfy.
 Phases are independent ceilings, so a run that tightens one of them
 leaves the others exactly where they were.
 
+SEEDING is the landing half of the doctrine's re-seed (issue #703):
+``--seed MEASUREMENT`` writes the committed family from a runner
+measurement's per-phase readings, both metrics, only onto a document
+the family is ABSENT from — the shape the marker's delete committed —
+and refuses over a recorded family, which is the hand-raise's doorway.
+The seed is the second reviewed gate-definer; a counts-less measurement
+is refused rather than seeded, because an unmeasured instrument must
+never enter the document as a number.
+
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways, and one module with two directions would make every reader ask
 which way a given family goes. This one imports nothing but the loader,
 so the data operation stays free of the parse path the bench measures.
 
   python3 scripts/ci/reparse_ratchet.py --measured-file reparse.json
+  python3 scripts/ci/reparse_ratchet.py --seed reparse.json
 """
 from __future__ import annotations
 
@@ -131,8 +141,14 @@ def update(data, readings):
 
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--measured-file', required=True, type=Path,
-                        help='the bench measurement (reparse_bench --write)')
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument('--measured-file', type=Path,
+                       help='the bench measurement (reparse_bench --write); '
+                            'tighten the phases it beats, never raises')
+    modes.add_argument('--seed', type=Path, metavar='MEASUREMENT',
+                       help='write the committed reparse family from this '
+                            'runner measurement (refuses when the family '
+                            'is already recorded)')
     parser.add_argument(
         '--thresholds', type=Path, default=thresholds.THRESHOLDS)
     return parser
@@ -161,9 +177,102 @@ def _readings(path: Path) -> dict:
             f'cannot read the bench measurement {path}: {error}') from None
 
 
+def _seed_readings(path: Path) -> dict:
+    """The measurement's full per-phase readings, counts included.
+
+    The seed restores the WHOLE family — the gated count and the share
+    it was recorded beside — so a counts-less phase is refused, never
+    seeded as a zero or an absence. The tighten mode tolerates an
+    uncounted phase because moving a recorded number is not what an
+    uncounted phase can justify; a seed would be FABRICATING one.
+    """
+    readings = _readings(path)
+    for phase in thresholds.REPARSE_PHASES:
+        if readings.get(phase, {}).get('bytecodes') is None:
+            raise ValueError(
+                f'{path}: the {phase} phase carries no bytecode count '
+                '(the process_time fallback is not gateable or seedable)')
+    return readings
+
+
+def load_for_seed(path):
+    """The raw committed bytes a seed may target.
+
+    A document carrying the family is loaded through the loader's
+    strict validation, and seed() refuses it; one the family is absent
+    from — the shape the marker's delete committed — is parsed leniently
+    (trusted committed bytes) and handed to seed() with the member
+    gone, the one state seed() accepts.
+    """
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    if data.get(thresholds.REPARSE_FAMILY):
+        return thresholds.load(path), False
+    return data, True
+
+
+def seed(data, readings):
+    """Return a document with the reparse family seeded, or raise when
+    it is already recorded.
+
+    ``data`` is the RAW document as its bytes carry it: the seed's
+    target is exactly the document the family is ABSENT from, which the
+    loader accepts while the delete's marker sits inside the bounded
+    walk's span (reseed.py) — so the seed commit need not carry the
+    marker itself. Seeding over a recorded family is refused: the
+    sanctioned way to replace recorded budgets is the doctrine's
+    re-seed — delete the stale member under the marker first, commit
+    the runner-measured counts second, both reviewed gate-definers.
+    ``readings`` is ``{phase: {metric: value}}`` from a runner
+    measurement (``reparse_bench.py --write``); both metrics are
+    written per phase, the share as the reading it was recorded beside.
+    """
+    if data.get(thresholds.REPARSE_FAMILY):
+        # Imported HERE, the way the loader's verdict does it: the
+        # refusal is the one place this module names the marker, and
+        # the git-reading module stays off the tighten path's imports.
+        # pylint: disable-next=import-outside-toplevel
+        reseed = importlib.import_module('reseed')
+        raise ValueError(
+            f'{thresholds.REPARSE_FAMILY} is already recorded: seeding '
+            'would overwrite recorded budgets. Delete the stale member '
+            f'under the {reseed.REPARSE_MARKER} marker first if the '
+            'workload legitimately changed.')
+    candidate = dict(data)
+    family = {}
+    for phase in thresholds.REPARSE_PHASES:
+        family[phase] = {}
+        for metric in thresholds.REPARSE_METRICS:
+            label = f'{phase}.{metric}'
+            measured = _VALIDATE[metric](
+                measurement(readings[phase][metric], label), label)
+            family[phase][metric] = {
+                'measured': measured,
+                'floor': measured + CALIBRATION_GAP,
+            }
+    candidate[thresholds.REPARSE_FAMILY] = family
+    # Strict, by fact and not by default: the candidate this builds
+    # always carries the family, so there is nothing for the marker to
+    # excuse. The re-seed's tolerance is the loader's, not the seed's.
+    return thresholds.normalise(candidate, False)
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
+        if args.seed is not None:
+            data, _seeded_fresh = load_for_seed(args.thresholds)
+            readings = _seed_readings(args.seed)
+            candidate = seed(data, readings)
+            thresholds.write(args.thresholds, candidate)
+            for phase in thresholds.REPARSE_PHASES:
+                record = candidate[thresholds.REPARSE_FAMILY][phase]
+                print(f'seeded the {phase} budgets '
+                      f'{record["share"]["floor"]} {thresholds.REPARSE_UNIT} '
+                      f'/ {record["bytecodes"]["floor"]} '
+                      f'{thresholds.REPARSE_COUNT_UNIT} '
+                      f'(measured {record["share"]["measured"]} / '
+                      f'{record["bytecodes"]["measured"]})')
+            return 0
         data = thresholds.load(args.thresholds)
         recorded = read_calibration(data)
         if not recorded:

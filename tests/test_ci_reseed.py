@@ -133,15 +133,15 @@ def _document(suite_cost=True, measured="95.6", floor="94.1"):
 
 @pytest.fixture(name="marker_tree")
 def _marker_tree(tmp_path, monkeypatch):
-    """A tree whose HEAD declares the re-seed, as the ONE authority every
-    side of a test reads.
-
-    A loader's default verdict comes from the checkout it runs in, so a
-    test that authored its document under one verdict and read it back
-    under the ambient one is green only on the commit that happens to
-    carry the marker. Both ends must read the same declared authority.
+    """A tree whose HEAD declares a re-seed for EACH cost family, as
+    the ONE authority every side of a test reads; a verdict authored
+    under one tree and read under another is green only where the two
+    agree. Both markers declare because the gated document is the REAL
+    committed bytes, mid-window for either family in turn (issue #703).
     """
     repo = _repository(tmp_path / "marker", f"delete {MARKER}")
+    _commit_thresholds(repo, family=False,
+                       message=f"delete {reseed.REPARSE_MARKER}")
     # Bind the name thresholds.verdict() IMPORTS, not just this module's
     # own binding: another test file loads its own 'reseed' at
     # collection time, and a patch on a module nothing will import is a

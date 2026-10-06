@@ -513,3 +513,44 @@ def test_the_reparse_marker_does_not_legalise_an_upward_move(tmp_path):
 
 def test_the_reparse_remedy_names_the_reseed_path():
     assert "own-marker re-seed path" in guard.REPARSE_REMEDY
+
+
+# --- the walk's fail-closed edges, on the second family ----------------
+
+def test_the_reparse_walk_fails_closed_past_its_cap(tmp_path):
+    # The cap's outer edge, on the reparse walk: the declaring commit is
+    # the ELEVENTH, one past the bound, and nothing below it is read.
+    repo = _repository(tmp_path / "r", f"delete {MARKER}")
+    _commit_thresholds(repo, suite=True, reparse=False)
+    for number in range(10):
+        _git(repo, "commit", "-q", "--allow-empty", "-m", f"bot {number}")
+    reseed.clear_cache()
+    assert reseed.in_flight(repo, family=reseed.REPARSE_FAMILY) is False
+
+
+def test_the_reparse_walk_with_no_thresholds_file(tmp_path):
+    # No committed document anywhere in the span: nothing can close the
+    # window by content, so only the visit cap closes it — a declaring
+    # commit inside the cap declares, because a repo that has never
+    # carried the file has no family-present bound; a history with no
+    # marker reads closed, exactly as any undeclaring tree.
+    repo = _repository(tmp_path / "r", f"delete {MARKER}")
+    reseed.clear_cache()
+    assert reseed.in_flight(repo, family=reseed.REPARSE_FAMILY) is True
+    plain = _repository(tmp_path / "plain", "base")
+    reseed.clear_cache()
+    assert reseed.in_flight(plain, family=reseed.REPARSE_FAMILY) is False
+
+
+def test_the_reparse_gate_refuses_an_absent_document_outside_a_window(
+        tmp_path, strict_tree):
+    # The fail-closed door the window opens: the same reparse-absent
+    # document over a tree that declares nothing is a refusal at load,
+    # and the gate propagates it instead of reading it as a pass.
+    document = tmp_path / "ci-thresholds.json"
+    document.write_text(
+        json.dumps(_document(reparse=False), default=float, indent=2),
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="missing field: reparse"):
+        reparse_report.check(
+            _measurement_file(tmp_path / "m.json"), document)
