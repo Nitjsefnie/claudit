@@ -25,8 +25,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import (api, app as app_mod, blob_cache, constants, db, events,
-                     ingest, ingest_fetch, ingest_runs, timing)
+from backend import (api, app as app_mod, constants, db, events, ingest,
+                     ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
 
 #: How many transcripts the committed mirror holds, read from its tree
