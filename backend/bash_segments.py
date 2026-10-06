@@ -82,6 +82,29 @@ def _matching_paren(tokens: list[str], open_idx: int) -> int | None:
     return None
 
 
+def _unmatched_close(expr: list[str]) -> bool:
+    """A `)` operator at depth 0 in the arithmetic expression's tokens.
+
+    A doubled `(( … ))` construct is bash's arithmetic command only when
+    its expression balances; a `)` with no `(` before it means the
+    construct's own parens do not balance around the expression — that
+    spelling is really nested subshells, and bash re-lexes and runs it —
+    while a balancing expression is arithmetic whatever else it holds
+    (bash evaluates it or refuses to parse, and never touches a file).
+    """
+    depth = 0
+    for tok in expr:
+        if not getattr(tok, "operator", False):
+            continue
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            if depth == 0:
+                return True
+            depth -= 1
+    return False
+
+
 def _capture_close(value: str) -> int | None:
     """Index in `value` of the `)` closing a leading `$(`, or None.
 
@@ -135,20 +158,29 @@ def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] 
     the `(` the tokenizer keeps out of a word — a `NAME=$` word, then the
     `(` operator — the double-quoted `d="$( … )"` stays one word whose
     value is the whole substitution, and any of the declaration builtins
-    may lead either (`export d=$( … )`). The double-quoted form's inner
-    text is tokenized with its quote provenance intact, so a literal
-    paren inside a quoted template does not read as substitution
-    nesting; a nested live `$( … )` still refuses through the shared
-    dispatch's operator refusal as it does elsewhere. Leading
-    `NAME=value` words and declaration builtins may precede either, and
-    the closing `)` must end the segment: anything after it (a value
-    suffix, a following command) is not modelled, so a backtick capture
-    never matches.
+    may lead either (`export d=$( … )`), its option flags
+    (`local -r`, `declare -rx`, `--`) skipped as transparent (#770). The
+    double-quoted form's inner text is tokenized with its quote
+    provenance intact, so a literal paren inside a quoted template does
+    not read as substitution nesting; a nested live `$( … )` still
+    refuses through the shared dispatch's operator refusal as it does
+    elsewhere. Leading `NAME=value` words and declaration builtins may
+    precede either, and the closing `)` must end the segment: anything
+    after it (a value suffix, a following command) is not modelled, so a
+    backtick capture never matches.
     """
+    saw_builtin = False
     for idx, tok in enumerate(raw_segment):
         if getattr(tok, "operator", False):
             return None
         if tok in _DECLARATION_BUILTINS:
+            saw_builtin = True
+            continue
+        if saw_builtin and tok.startswith("-"):
+            # A builtin's option flags name no word of their own and
+            # none of the builtins' options takes one (only `--` ends
+            # them), so the flags are transparent (#770). A non-flag
+            # word that is not an assignment still refuses below.
             continue
         m = _ASSIGN.match(tok)
         if m is None:
