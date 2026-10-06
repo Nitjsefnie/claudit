@@ -20,9 +20,14 @@ chain the closure exists to resolve). Decorators are excluded from
 every closure step (a skipif names node and would otherwise trivially
 ground), and a function's docstring is excluded (a Python-only test's
 prose must not ground its closure). Residuals, disclosed: a helper
-defined in another file grounds nothing here and fails loud as a false
-offender, the deny-guard's safe direction; a mark predicate built
-without a node string (a module variable) is invisible to the scan.
+outside the ``tests.`` package (or a conftest fixture) resolves
+nowhere and fails loud as a false offender, the deny-guard's safe
+direction; a mark predicate built without a node string (a module
+variable) is invisible to the scan; and the grounding scan itself is
+substring-wide over the whole body, so an incidental node string in a
+marked test's body (an assert message, a payload variable) grounds
+that test, where a comment does not (comments are not AST). The scan
+proves presence, not exclusivity.
 """
 from __future__ import annotations
 
@@ -224,6 +229,43 @@ def test_a_renamed_fixture_grounds_its_users() -> None:
         "def test_uses_fixture(geometry):\n"
         "    assert geometry\n")
     assert not _skip_without_node_lines(mod)
+
+
+def test_a_python_only_member_is_not_saved_by_its_docstring() -> None:
+    """The docstring exclusion has teeth: a marked member whose ONLY node
+    mention is its leading docstring is still flagged - prose grounds
+    nothing."""
+    mod = ast.parse(_MARKED_CLASS + (
+        "    def test_docstring_mentions_node(self):\n"
+        "        \"\"\"Drives the node subprocess.\"\"\"\n"
+        "        assert sum([1, 2]) == 3\n"))
+    assert _skip_without_node_lines(mod) == [
+        (9, "test_docstring_mentions_node")]
+
+
+def test_a_self_call_to_a_node_method_grounds() -> None:
+    """The self/cls edge: a marked member grounding only through a
+    self-call to a same-class node method is not flagged."""
+    mod = ast.parse(_MARKED_CLASS + (
+        "    def _run_node(self, body):\n"
+        "        return _node(body)\n"
+        "\n"
+        "    def test_via_self_call(self):\n"
+        "        assert self._run_node('1+1')\n"))
+    assert not _skip_without_node_lines(mod)
+
+
+def test_a_self_call_to_a_plain_method_does_not_ground() -> None:
+    """The isolating negative for the self/cls edge: the same call shape
+    against a method with no node grounding is flagged."""
+    mod = ast.parse(_MARKED_CLASS + (
+        "    def _plain(self, body):\n"
+        "        return body\n"
+        "\n"
+        "    def test_via_self_call(self):\n"
+        "        assert self._plain('1+1')\n"))
+    assert _skip_without_node_lines(mod) == [
+        (12, "test_via_self_call")]
 
 
 def test_an_imported_helper_grounds_across_files(tmp_path) -> None:
