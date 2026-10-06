@@ -19,7 +19,6 @@ function ProjectPicker({ projects, active, onChange }) {
   const stripRef = useRef(null);
   const [page, setPage] = useState(0);
   const [perPage, setPerPage] = useState(null); // null = unfitted first render
-  const [, setTick] = useState(0); // refit bump (webfonts landed late)
   const list = projects || [];
   const pageCount = perPage > 0
     ? Math.max(1, Math.ceil(list.length / perPage))
@@ -125,3 +124,5 @@ function ProjectPicker({ projects, active, onChange }) {
     </div>
   );
 }
+
+window.ProjectPicker = ProjectPicker;

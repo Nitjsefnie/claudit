@@ -364,8 +364,8 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     src = _strip_line_comments(APP.read_text(encoding="utf-8"))
     # The project strip lives in src/picker.jsx since #774 extracted it;
     # both strips carry the region, wherever the file sits.
-    picker_src = _strip_line_comments((ROOT / "src" / "picker.jsx")
-                                       .read_text(encoding="utf-8"))
+    picker_src = _strip_line_comments(
+        (ROOT / "src" / "picker.jsx").read_text(encoding="utf-8"))
     assert 'data-perf-region="panel_grid"' in src, (
         "the panel grid carries no region, so its shifts are attributed "
         "to `other`")
