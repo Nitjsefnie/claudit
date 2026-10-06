@@ -87,7 +87,8 @@ function parseLaneCodex(blob, opts) {
         // The FIRST session_meta decides (the parse loop's own head
         // rule); a non-meta line mentioning the needle just advances.
         const ffid = laneIsPlainObject(sm.payload) ? sm.payload.forked_from_id : null;
-        isFork = typeof ffid === 'string' && ffid.trim() !== '';
+        // Mirrors backend _nonempty_str: any non-empty string, no trim.
+        isFork = typeof ffid === 'string' && ffid !== '';
         forkSettled = true;
       }
     }
