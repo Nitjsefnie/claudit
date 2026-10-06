@@ -25,10 +25,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PERF_JS = ROOT / "src" / "perf.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 # The journey names the /api/metrics contract closes over. A name outside
 # this set is a 400, so a typo in a call site must not become a beacon.
 JOURNEYS = ("dashboard_open", "inspector_open", "signin")
@@ -134,6 +130,7 @@ def _run(body: str, **cfg) -> dict:
 
 # --- journeys ---------------------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_journey_reports_its_measured_parts_only():
     """total / fetch / client, in the shape the endpoint's closed
     metric x part table admits."""
@@ -152,6 +149,7 @@ def test_journey_reports_its_measured_parts_only():
     assert [r["value"] for r in rows] == [1000, 400, 600], rows
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_journey_that_never_measured_its_fetch_is_not_sent():
     """A part that was never timed is not sent at all. A fabricated 0
     would read on the panel as a real measurement -- 'the client took no
@@ -168,6 +166,7 @@ def test_a_journey_that_never_measured_its_fetch_is_not_sent():
         f"a journey with no closeFetch reported a fetch/client split: {rows}")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_journey_beacon_carries_no_region_and_no_phase():
     """Journeys name themselves; a region or a phase on a journey beacon
     is a 400, and the server CLAMPS values rather than refusing them --
@@ -184,6 +183,7 @@ def test_a_journey_beacon_carries_no_region_and_no_phase():
             f"a journey beacon carries keys outside the contract: {sorted(row)}")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_closing_a_journey_that_never_opened_sends_nothing():
     """SessionView renders rows for whatever transcript it was handed;
     a close with no open journey is not a measurement."""
@@ -196,6 +196,7 @@ def test_closing_a_journey_that_never_opened_sends_nothing():
     assert out["beacons"] == []
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_journey_still_reports_without_performance_observer():
     """A browser with no PerformanceObserver must not lose the journeys
     -- and must not throw at load either."""
@@ -210,6 +211,7 @@ def test_a_journey_still_reports_without_performance_observer():
     assert out["beacons"][0]["value"] == 250
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_an_unsupported_entry_type_does_not_take_the_supported_one_down():
     """`observe({type})` throws in a browser that lacks the entry type,
     so registration is per-observer and one refusal costs one metric."""
@@ -227,6 +229,7 @@ def test_an_unsupported_entry_type_does_not_take_the_supported_one_down():
 
 # --- the observed metrics --------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_user_caused_shift_is_not_a_defect():
     """hadRecentInput: a shift the user caused (scrolling, clicking) is
     excluded from the Layout Instability score by the API's own rule, and
@@ -241,6 +244,7 @@ def test_a_user_caused_shift_is_not_a_defect():
     assert out["beacons"] == [], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_shift_is_tagged_with_its_region_and_phase():
     out = _run("""
       const inside = {
@@ -256,6 +260,7 @@ def test_a_shift_is_tagged_with_its_region_and_phase():
                      "region": "panel_grid", "phase": "pre_paint"}], rows
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_long_task_carries_a_phase_and_no_region():
     """The /api/metrics table makes region REQUIRED for layout_shift and
     FORBIDDEN for longtask."""
@@ -268,6 +273,7 @@ def test_a_long_task_carries_a_phase_and_no_region():
                                "value": 812.5, "phase": "pre_paint"}], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_phase_moves_with_the_page_and_the_sse_tick():
     """pre_paint -> post_usable -> sse_update, and back: a shift during
     the SSE-driven repaint is a different defect from one during the
@@ -290,6 +296,7 @@ def test_the_phase_moves_with_the_page_and_the_sse_tick():
 
 # --- batching and transport ------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_burst_is_one_request_not_one_per_entry():
     """A page produces a burst of shifts during progressive load; one
     request per entry would be absurd."""
@@ -309,6 +316,7 @@ def test_a_burst_is_one_request_not_one_per_entry():
     assert out["beacons"] == 12
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_hiding_the_page_flushes_what_is_buffered():
     """The last journey of a session must not be lost to an unflushed
     buffer -- there is no later tick to flush it on."""
@@ -325,6 +333,7 @@ def test_hiding_the_page_flushes_what_is_buffered():
     assert out == {"before": 0, "after": 1, "again": 1, "beacons": 1}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_becoming_visible_does_not_flush():
     """visibilitychange fires on the way back too; flushing then would
     send every beacon of a background/foreground cycle twice."""
@@ -336,6 +345,7 @@ def test_becoming_visible_does_not_flush():
     assert out == {"sent": 0, "beacons": 0}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_pagehide_flushes_too():
     """A bfcache eviction fires pagehide, not visibilitychange."""
     out = _run("""
@@ -346,6 +356,7 @@ def test_pagehide_flushes_too():
     assert out == {"sent": 1, "beacons": 1}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_flush_of_an_empty_buffer_sends_nothing():
     """A page that measured nothing must not post an empty batch: the
     endpoint requires a non-empty list, so the request would be a 400 on
@@ -359,6 +370,7 @@ def test_a_flush_of_an_empty_buffer_sends_nothing():
     assert out == {"sent": 0, "posted": 0}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_burst_wider_than_the_endpoint_cap_is_split_not_rejected():
     """The sink caps a request at 50 beacons; a wider burst is split, or
     the whole page view's telemetry is lost to one oversized batch."""
@@ -381,6 +393,7 @@ def test_a_burst_wider_than_the_endpoint_cap_is_split_not_rejected():
     assert out["requests"] == len(out["sizes"]), out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_sendbeacon_is_preferred_when_present():
     out = _run("""
       __emit('longtask', [{ duration: 10 }]);
@@ -392,6 +405,7 @@ def test_sendbeacon_is_preferred_when_present():
     assert out["url"] == "/api/metrics", out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_fetch_is_the_fallback_where_sendbeacon_is_absent():
     out = _run("""
       __emit('longtask', [{ duration: 10 }]);
@@ -413,6 +427,7 @@ def test_fetch_is_the_fallback_where_sendbeacon_is_absent():
     assert out["url"] == "/api/metrics", out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_batch_is_dropped_rather_than_thrown_when_nothing_can_send():
     """No sendBeacon and no fetch: the batch is dropped. It must never
     surface into a render."""
@@ -425,6 +440,7 @@ def test_a_batch_is_dropped_rather_than_thrown_when_nothing_can_send():
     assert out == {"ok": True}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_send_beacon_that_throws_falls_through_rather_than_losing_the_batch():
     out = _run("""
       global.navigator.sendBeacon = () => { throw new Error('quota'); };
@@ -456,6 +472,7 @@ _LATE_NAV = {"responseStart": 1500, "startTime": 0}
 _BOTH = ["layout-shift", "longtask"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_signin_journey_closes_when_the_signed_in_page_is_usable():
     """The submit is stamped in the login page's time origin and the page
     arrives in a NEW one, so the elapsed journey is bridged through
@@ -476,6 +493,7 @@ def test_the_signin_journey_closes_when_the_signed_in_page_is_usable():
     assert rows["client"] == 1300, rows
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_start_marker_is_consumed_so_a_reload_is_not_another_journey():
     out = _run("""
       console.log(JSON.stringify({
@@ -488,6 +506,7 @@ def test_the_start_marker_is_consumed_so_a_reload_is_not_another_journey():
         "a reload would report the same journey again")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_navigation_entry_without_a_marker_is_not_a_signin_journey():
     """Navigation Timing exists on every navigation, including a plain
     page load. Adopting it unconditionally would report a sign-in the
@@ -501,6 +520,7 @@ def test_a_navigation_entry_without_a_marker_is_not_a_signin_journey():
     assert out["beacons"] == [], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_malformed_marker_is_ignored_rather_than_reported():
     out = _run("""
       clock = 5000;
@@ -511,6 +531,7 @@ def test_a_malformed_marker_is_ignored_rather_than_reported():
     assert out["beacons"] == [], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_signin_whose_fetch_outlives_its_total_reports_the_total_only():
     """The server CLAMPS an out-of-range value rather than refusing it,
     so a fetch part longer than its own total must be dropped at the
@@ -526,6 +547,7 @@ def test_a_signin_whose_fetch_outlives_its_total_reports_the_total_only():
         f"a fetch part longer than its total was reported: {rows}")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_signin_journey_named_by_hand_is_not_double_reported():
     """The marker adopts the journey at load; an app.jsx call site that
     opened one anyway must not produce a second sign-in reading."""
@@ -541,6 +563,7 @@ def test_a_signin_journey_named_by_hand_is_not_double_reported():
 
 # --- the shape the endpoint admits -----------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_beacon_the_module_emits_is_inside_the_contract():
     """metric x part is a CLOSED table and region/phase are closed sets.
     Anything outside is a 400 that takes the whole batch with it, so the
@@ -591,6 +614,7 @@ def test_every_beacon_the_module_emits_is_inside_the_contract():
         assert row["value"] >= 0, row
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_module_installs_itself_as_one_global():
     """The call sites in app.jsx are one line each; a typo'd name is a
     TypeError inside a render."""
@@ -603,6 +627,7 @@ def test_the_module_installs_itself_as_one_global():
     ], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_an_unknown_journey_name_is_never_reported():
     """The journey names are a closed set; a typo in a call site would
     otherwise become a beacon the sink rejects as a 400."""

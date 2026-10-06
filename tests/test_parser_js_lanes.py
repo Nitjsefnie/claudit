@@ -35,9 +35,6 @@ PARSER_JS = ROOT / "src" / "parser.js"
 FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
 
 # Every Task 2 lane fixture: the three the sniff tests use plus the
 # ported fixtures the backend Codex/Kimi parsers are tested against.
@@ -121,45 +118,6 @@ _FORK_NODE_HEAD = f"""
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});"""
 
 
-def test_the_browser_marks_a_forks_replayed_prefix():
-    """The codex lane parser stamps a fork's leading entries isReplay."""
-    script = _FORK_NODE_HEAD + f"""
-      const text = {json.dumps(DIFFERENT_MODEL_FORK.read_text(encoding="utf-8"))};
-      const {{ events, meta }} = window.parseTranscript(text);
-      console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
-        .map(m => [m.line, m.isReplay === true])));
-    """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
-
-
-def test_the_browser_fork_scan_advances_past_a_needle_mention():
-    """The mirror of the backend's fork-advance edge (issue #687 delta):
-    a needle mention does not decide the fork flag - the first real meta
-    does."""
-    mention = ('{"timestamp":"2026-06-14T12:00:00.000Z","type":"event_msg",'
-               '"payload":{"type":"agent_message",'
-               '"message":"roles: [\\"session_meta\\"]"}}\n')
-    fixture = DIFFERENT_MODEL_FORK.read_text(encoding="utf-8")
-    text = mention + fixture
-    # Lockstep with backend _nonempty_str: a whitespace-only forked_from_id
-    # is a non-empty string, so the fork flag fires on both sides.
-    ws = fixture.replace('"forked_from_id":"00000000-0000-4000-8000-000000000003"',
-                         '"forked_from_id":" "')
-    script = _FORK_NODE_HEAD + f"""
-      const verdict = (text) => window.parseTranscript(text).meta
-        .filter(m => m.type === 'assistant_usage').map(m => [m.line, m.isReplay === true]);
-      console.log(JSON.stringify([verdict({json.dumps(text)}), verdict({json.dumps(ws)})]));
-    """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == [
-        [[4, True], [5, True], [8, False]], [[3, True], [4, True], [7, False]]]
-
-
 def _browser_records(name: str) -> list[dict]:
     return _browser_lane_output()[name]["records"]
 
@@ -171,161 +129,6 @@ def _browser_totals(name: str) -> dict:
 def _backend_records(name: str) -> list[dict]:
     blob = (next(p for p in LANE_FIXTURES if p.name == name)).read_bytes()
     return parse.parse_file(f"sessions/p/s/{name}", blob)["records"]
-
-
-# --------------------------------------------------------------------------
-# Per-record parity: the browser's records are the backend's records
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
-def test_browser_parse_matches_backend_per_record(name):
-    backend = _backend_records(name)
-    browser = _browser_records(name)
-    assert len(browser) == len(backend), "record count"
-    for got, want in zip(browser, backend):
-        label = f"{name} line {want['line_num']}"
-        assert got["line"] == want["line_num"], label
-        assert got["model"] == want["model"], f"{label}: model"
-        assert got["fresh"] == want["fresh_tokens"], f"{label}: fresh"
-        assert got["create"] == want["cache_creation_tokens"], f"{label}: create"
-        assert got["read"] == want["cache_read_tokens"], f"{label}: read"
-        assert got["output"] == want["output_tokens"], f"{label}: output"
-        assert got["thinking_tokens"] == want["thinking_tokens"], (
-            f"{label}: thinking_tokens")
-        # Exact: the browser mirrors pricing.compute_cost's operation
-        # order (per-term division) and Python's round(x, 6), so each
-        # record's derived cost IS the stored cost_usd double.
-        assert got["cost"] == want["cost_usd"], f"{label}: cost"
-        # The long_context flag itself is asserted by the dedicated tests
-        # below; here the buckets already pin the parse.
-
-
-@pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
-def test_browser_session_totals_match_backend_sum(name):
-    backend = _backend_records(name)
-    browser = _browser_totals(name)
-    assert browser["fresh"] == sum(r["fresh_tokens"] for r in backend)
-    assert browser["create"] == sum(r["cache_creation_tokens"] for r in backend)
-    assert browser["read"] == sum(r["cache_read_tokens"] for r in backend)
-    assert browser["output"] == sum(r["output_tokens"] for r in backend)
-    # Exact: the browser mirrors pricing.compute_cost's operation order
-    # (per-term division) and Python's round(x, 6), so every record's
-    # derived cost IS the stored double (asserted per record above). The
-    # total then depends only on summation: the browser accumulates
-    # naively, CPython's sum() is Neumaier-compensated and may land one
-    # ulp away, so sum here the way the browser does — left to right.
-    total = 0.0
-    for r in backend:
-        total += r["cost_usd"]
-    assert browser["cost"] == total
-
-
-def test_a_settings_only_model_switch_labels_the_following_request():
-    """A switch carried by thread_settings_applied alone, with the next
-    request before any turn_context re-declares: both parsers must label
-    the request gpt-5.6-terra. rollout_model_switch.jsonl has no
-    token_count in that window, so the parity sweep missed it."""
-    blob = (FIX_CODEX / "rollout_settings_switch.jsonl").read_bytes()
-    backend = parse.parse_file("codex/settings_switch.jsonl", blob)["records"]
-    assert len(backend) == 1
-    assert backend[0]["model"] == "gpt-5.6-terra"
-    assert backend[0]["line_num"] == 3
-
-    browser = _browser_records("rollout_settings_switch.jsonl")
-    assert len(browser) == 1
-    assert browser[0]["model"] == "gpt-5.6-terra"
-    assert browser[0]["line"] == 3
-
-
-def test_a_browser_parse_never_labels_a_model_unknown():
-    """The mirror of the backend's refusal (issue #653): the browser has
-    no ingest to fail loudly, so a transcript that cannot attribute keeps
-    a null model — but never the `unknown` placeholder."""
-    text = (FIX_CODEX / "rollout_fork_prefix.jsonl").read_text(encoding="utf-8")
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      const {{ meta }} = window.parseTranscriptLanes(
-        {json.dumps(text)}, {{}});
-      console.log(JSON.stringify(
-        meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True,
-        timeout=60, check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    models = json.loads(proc.stdout)
-    assert models, "fixture produced no records"
-    assert all(m != "unknown" for m in models)
-
-
-def test_model_ids_survive_verbatim_in_both_parsers():
-    """No relabelling table, no flagship fallback (issue #471): each model
-    the transcript names survives verbatim after spelling normalisation —
-    in the browser exactly as in the backend. sol stays sol (a visible
-    estimate at the fallback rates), gpt-6.1-sol prices at its own row,
-    and the missing-separator spelling folds. Each model's token_count
-    advances every counter, or differencing reads it as a duplicate."""
-    def _turn(second: int, model: str) -> dict:
-        return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
-                "type": "turn_context", "payload": {"model": model}}
-
-    def _usage(n_in: int, n_cached: int, n_out: int, n_reason: int) -> dict:
-        return {"input_tokens": n_in, "cached_input_tokens": n_cached,
-                "cache_write_input_tokens": 0, "output_tokens": n_out,
-                "reasoning_output_tokens": n_reason,
-                "total_tokens": n_in + 500}
-
-    def _snapshot(second: int, n_in: int) -> dict:
-        u = _usage(n_in, n_in - 500, 400 + n_in // 1000 * 100,
-                   300 + n_in // 1000 * 50)
-        return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
-                "type": "event_msg",
-                "payload": {"type": "token_count",
-                            "info": {"total_token_usage": u,
-                                     "last_token_usage": u,
-                                     "model_context_window": 258400}}}
-
-    models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol",
-              "gpt\u0665.6-sol"]
-    lines: list[dict] = [_turn(1, models[0])]
-    for i in range(len(models)):
-        lines.append(_snapshot(2 * i + 2, 1_000 * (i + 1)))
-        if i + 1 < len(models):
-            lines.append(_turn(2 * i + 3, models[i + 1]))
-    blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
-    out = parse.parse_file("codex/model_ids_verbatim.jsonl", blob)
-    backend = out["records"]
-    got = [r["model"] for r in backend]
-    assert got == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
-                   "gpt\u0665.6-sol"]
-
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
-      const {{ events, meta }} = window.parseTranscript(
-        {json.dumps(blob.decode())});
-      console.log(JSON.stringify(
-        meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True,
-        encoding="utf-8", timeout=60, check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got_browser = json.loads(proc.stdout)
-    assert got_browser == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
-                           "gpt\u0665.6-sol"]
-
-
-# --------------------------------------------------------------------------
-# The long-context meter (T1-b)
-# --------------------------------------------------------------------------
 
 
 def _long_context_blob(plan_type: str | None) -> bytes:
@@ -381,46 +184,6 @@ def _node_long_context(plan_type: str | None) -> dict:
     return json.loads(proc.stdout)
 
 
-@pytest.mark.parametrize("plan_type", [None, "pro"])
-def test_browser_costs_a_long_context_request_exactly_like_the_backend(plan_type):
-    """A >272k-token Codex request bills the whole record on the long-context
-    meter, whatever plan served the rollout (issue #194). The meter bills
-    every plan, so the browser must mirror the backend for both the
-    subscription rollout and the one declaring no plan."""
-    blob = _long_context_blob(plan_type)
-    backend = parse.parse_file("codex/long_context.jsonl", blob)["records"]
-    assert len(backend) == 1
-    rec = backend[0]
-    assert (rec["fresh_tokens"] + rec["cache_creation_tokens"]
-            + rec["cache_read_tokens"]) > pricing.LONG_CONTEXT_THRESHOLD
-
-    got = _node_long_context(plan_type)
-    assert got["long_context"] is True
-    assert got["total_in"] == (rec["fresh_tokens"] + rec["cache_creation_tokens"]
-                               + rec["cache_read_tokens"])
-    assert got["cost"] == pytest.approx(rec["cost_usd"], rel=1e-5)
-
-
-def test_browser_long_context_threshold_equals_backend():
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      console.log(JSON.stringify(window.LONG_CONTEXT_THRESHOLD));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == pricing.LONG_CONTEXT_THRESHOLD
-
-
-# --------------------------------------------------------------------------
-# Sniff parity with backend.parse_lanes.sniff_format
-# --------------------------------------------------------------------------
-
-
 def _node_sniff(blobs: list[bytes]) -> list[str]:
     script = f"""
       global.window = {{}};
@@ -437,93 +200,6 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
     return json.loads(proc.stdout)
 
 
-@pytest.mark.parametrize(
-    "label",
-    [p.name for p in LANE_FIXTURES]
-    + [f"tricky[{i}]" for i in range(len(TRICKY_BLOBS))],
-)
-def test_browser_sniff_agrees_with_backend(label):
-    blobs = [p.read_bytes() for p in LANE_FIXTURES] + list(TRICKY_BLOBS)
-    labels = [p.name for p in LANE_FIXTURES] + [
-        f"tricky[{i}]" for i in range(len(TRICKY_BLOBS))]
-    idx = labels.index(label)
-    assert _node_sniff([blobs[idx]])[0] == parse.sniff_format(blobs[idx])
-
-
-# --------------------------------------------------------------------------
-# The Inspector render contract on lane output
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
-def test_lane_output_carries_the_fields_the_inspector_renders(name):
-    """The Inspector (detail-pane.jsx, SessionView, SessionHeader,
-    ContextGrowthView, txToDashData) reads a fixed set of fields off the
-    Claude parse's shapes. A lane transcript goes through the same
-    components, so the lane parse must populate those same fields —
-    never a differently-named shape the renderer would crash on."""
-    fixtures = {p.name: p.read_text(encoding="utf-8") for p in [next(
-        p for p in LANE_FIXTURES if p.name == name)]}
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
-      const fixtures = {json.dumps(fixtures)};
-      const out = {{}};
-      for (const [name, text] of Object.entries(fixtures)) {{
-        const {{ events, meta }} = window.parseTranscript(text);
-        out[name] = {{
-          event_types: [...new Set(events.map(e => e.type))],
-          tool_calls_shaped: events
-            .filter(e => e.type === 'tool_call')
-            .every(e => typeof e.tool_name === 'string'
-                     && e.tool_input !== null && typeof e.tool_input === 'object'
-                     && typeof e.line === 'number'),
-          tool_results_shaped: events
-            .filter(e => e.type === 'tool_result')
-            .every(e => typeof e.tool_use_id === 'string'
-                     && typeof e.detail === 'string'
-                     && typeof e.is_error === 'boolean'
-                     && typeof e.line === 'number'),
-          usages_shaped: meta
-            .filter(m => m.type === 'assistant_usage')
-            .every(m => typeof m.line === 'number' && m.ts != null
-                     && typeof m.model === 'string'
-                     && typeof m.usage === 'object' && m.usage !== null
-                     && Number.isFinite(m.usage.input_tokens)
-                     && Number.isFinite(m.usage.output_tokens)
-                     && Number.isFinite(m.usage.cache_creation_input_tokens)
-                     && Number.isFinite(m.usage.cache_read_input_tokens)),
-          stats: Object.keys(window.computeSessionStats(events, meta)).sort(),
-        }};
-      }}
-      console.log(JSON.stringify(out));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)[name]
-
-    assert set(got["event_types"]) <= {
-        "user_message", "assistant_text", "thinking",
-        "tool_call", "tool_result",
-    }, "event types the Inspector's EventDetail switch knows"
-    assert got["tool_calls_shaped"], "tool_call fields"
-    assert got["tool_results_shaped"], "tool_result fields"
-    assert got["usages_shaped"], "assistant_usage fields"
-    # SessionHeader reads every one of these off stats.
-    assert {"turns", "userMsgs", "toolCalls", "errorResults",
-            "parallelBatches", "firstTs", "lastTs", "output",
-            "hitRate", "cost"} <= set(got["stats"])
-
-
-# --------------------------------------------------------------------------
-# The Token Breakdown's long-context re-derivation (I1)
-# --------------------------------------------------------------------------
-
 APP_JSX = ROOT / "src" / "app.jsx"
 
 
@@ -532,135 +208,6 @@ def _token_breakdown_source() -> str:
     app.jsx for its own module when issue #469's fee fold grew it)."""
     return (ROOT / "src" / "token-breakdown.js").read_text(encoding="utf-8")
 
-
-def test_browser_token_breakdown_applies_the_long_context_meter():
-    """The Token Breakdown re-derives per-component cost from summed
-    tokens, so a long-context row must be priced at the same 2x input /
-    1.5x output pricing.compute_cost stored — or its bars drift from the
-    stored cost_total they decompose."""
-    lc_fresh, lc_out = 300_000, 2_000
-    flat_fresh, flat_out = 50_000, 500
-    # The events' ts is June 2026 — inside sol's pre-Aug21 dated window —
-    # so the expected figures are computed at the SAME rates the browser's
-    # rateForModel resolves, isolating the meter as the only difference.
-    ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
-    expected_lc = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
-        unsplit_create=0, read=0, long_context=True, ts=ts,
-    )
-    expected_flat = pricing.compute_cost(
-        "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
-        unsplit_create=0, read=0, ts=ts,
-    )
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
-      window.dashboardCol = {{}};
-      eval({json.dumps(_token_breakdown_source())});
-      const events = [
-        {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
-           model_id: 'gpt-5-6-sol',
-           input_tokens: {lc_fresh}, output_tokens: {lc_out},
-           cache_create: 0, cache_read: 0,
-           ephemeral_5m: 0, ephemeral_1h: 0, long_context: true }},
-        {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
-           model_id: 'gpt-5-6-sol',
-           input_tokens: {flat_fresh}, output_tokens: {flat_out},
-           cache_create: 0, cache_read: 0,
-           ephemeral_5m: 0, ephemeral_1h: 0, long_context: false }},
-      ];
-      const bd = window.computeTokenBreakdown(events);
-      console.log(JSON.stringify({{
-        costTotal: bd.costTotal,
-        input: bd.rows.find(r => r.label === 'Input'),
-        output: bd.rows.find(r => r.label === 'Output'),
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["costTotal"] == pytest.approx(expected_lc + expected_flat)
-    assert got["input"]["cost"] == pytest.approx(
-        (lc_fresh * pricing.LONG_CONTEXT_INPUT_MULT + flat_fresh)
-        * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
-    )
-    assert got["output"]["cost"] == pytest.approx(
-        (lc_out * pricing.LONG_CONTEXT_OUTPUT_MULT + flat_out)
-        * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
-    )
-
-
-def test_browser_long_context_multipliers_equal_backend():
-    """The browser's meter multipliers are window constants from
-    parser-lanes.js and must equal pricing's."""
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      console.log(JSON.stringify({{
-        in: window.LONG_CONTEXT_INPUT_MULT,
-        out: window.LONG_CONTEXT_OUTPUT_MULT,
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["in"] == pricing.LONG_CONTEXT_INPUT_MULT
-    assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT
-
-
-def test_browser_inspector_turn_cost_applies_the_long_context_meter():
-    """txToDashData re-derives each Inspector turn's cost from the parsed
-    usage; a long-context record must price at the meter there too, or
-    the Inspector's per-turn cost drifts from the stored figure. The turn
-    prices at the rate in force at its own timestamp (issue #55), so the
-    expected figure is the metered DATED price — the blob's request
-    predates pricing.AUG21_CUT, where gpt-5.6-sol's list price begins."""
-    expected = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
-        unsplit_create=0, read=290_000, long_context=True,
-        ts=datetime(2026, 6, 14, 12, 0, 3, tzinfo=UTC),
-    )
-    script = f"""
-      global.window = {{ shortModelName: m => m }};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
-      const text = {json.dumps(_long_context_blob(None).decode())};
-      const tx = window.parseTranscript(text);
-      const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
-      const start = src.indexOf('function txToDashData');
-      const end = src.indexOf('\\nfunction App(', start);
-      eval(src.slice(start, end));
-      const dash = txToDashData(tx);
-      console.log(JSON.stringify({{
-        turns: dash.events.length,
-        cost: dash.events.reduce((s, e) => s + e.cost_usd, 0),
-      }}));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["turns"] == 1
-    assert got["cost"] == pytest.approx(expected)
-
-
-# --------------------------------------------------------------------------
-# Offset-less timestamps are UTC (issue #376, SV-PARSER-SPEC): the shared
-# backend rule lives in parse_common._to_dt, so every lane inherits it;
-# the browser's lane parser must stamp the same text the same way.
-# --------------------------------------------------------------------------
 
 _NAIVE_LANE_BLOB = (
     b'{"type": "metadata", "protocol_version": "1.10"}\n'
@@ -671,30 +218,437 @@ _NAIVE_LANE_BLOB = (
 )
 
 
-def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
-    """A legacy-kimi line whose timestamp carries no offset prices and
-    stores as the UTC reading of its wall clock (backend), and the
-    browser records the same instant — not the viewer's local one."""
-    out = parse.parse_file("sessions/p/s/naive.jsonl", _NAIVE_LANE_BLOB)
-    assert len(out["records"]) == 1
-    assert out["records"][0]["ts"] == datetime(
-        2026, 9, 10, 0, 30, tzinfo=UTC)
+class TestNodeDrivenLaneParsers:
+    pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
-      const {{ events, meta }} = window.parseTranscriptLanes(
-        {json.dumps(_NAIVE_LANE_BLOB.decode())});
-      const usage = meta.find((m) => m.type === 'assistant_usage');
-      console.log(JSON.stringify({{ usageTs: usage && usage.ts }}));
-    """
-    env = {**os.environ, "TZ": "Europe/Berlin"}
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        env=env, check=False,  # Return code checked by hand on the next line.
+    def test_the_browser_marks_a_forks_replayed_prefix(self):
+        """The codex lane parser stamps a fork's leading entries isReplay."""
+        script = _FORK_NODE_HEAD + f"""
+          const text = {json.dumps(DIFFERENT_MODEL_FORK.read_text(encoding="utf-8"))};
+          const {{ events, meta }} = window.parseTranscript(text);
+          console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
+            .map(m => [m.line, m.isReplay === true])));
+        """
+        proc = subprocess.run(["node", "-e", script], capture_output=True,
+                              text=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
+
+    def test_the_browser_fork_scan_advances_past_a_needle_mention(self):
+        """The mirror of the backend's fork-advance edge (issue #687 delta):
+        a needle mention does not decide the fork flag - the first real meta
+        does."""
+        mention = ('{"timestamp":"2026-06-14T12:00:00.000Z","type":"event_msg",'
+                   '"payload":{"type":"agent_message",'
+                   '"message":"roles: [\\"session_meta\\"]"}}\n')
+        fixture = DIFFERENT_MODEL_FORK.read_text(encoding="utf-8")
+        text = mention + fixture
+        # Lockstep with backend _nonempty_str: a whitespace-only forked_from_id
+        # is a non-empty string, so the fork flag fires on both sides.
+        ws = fixture.replace('"forked_from_id":"00000000-0000-4000-8000-000000000003"',
+                             '"forked_from_id":" "')
+        script = _FORK_NODE_HEAD + f"""
+          const verdict = (text) => window.parseTranscript(text).meta
+            .filter(m => m.type === 'assistant_usage').map(m => [m.line, m.isReplay === true]);
+          console.log(JSON.stringify([verdict({json.dumps(text)}), verdict({json.dumps(ws)})]));
+        """
+        proc = subprocess.run(["node", "-e", script], capture_output=True,
+                              text=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == [
+            [[4, True], [5, True], [8, False]], [[3, True], [4, True], [7, False]]]
+
+    @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
+    def test_browser_parse_matches_backend_per_record(self, name):
+        backend = _backend_records(name)
+        browser = _browser_records(name)
+        assert len(browser) == len(backend), "record count"
+        for got, want in zip(browser, backend):
+            label = f"{name} line {want['line_num']}"
+            assert got["line"] == want["line_num"], label
+            assert got["model"] == want["model"], f"{label}: model"
+            assert got["fresh"] == want["fresh_tokens"], f"{label}: fresh"
+            assert got["create"] == want["cache_creation_tokens"], f"{label}: create"
+            assert got["read"] == want["cache_read_tokens"], f"{label}: read"
+            assert got["output"] == want["output_tokens"], f"{label}: output"
+            assert got["thinking_tokens"] == want["thinking_tokens"], (
+                f"{label}: thinking_tokens")
+            # Exact: the browser mirrors pricing.compute_cost's operation
+            # order (per-term division) and Python's round(x, 6), so each
+            # record's derived cost IS the stored cost_usd double.
+            assert got["cost"] == want["cost_usd"], f"{label}: cost"
+
+    @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
+    def test_browser_session_totals_match_backend_sum(self, name):
+        backend = _backend_records(name)
+        browser = _browser_totals(name)
+        assert browser["fresh"] == sum(r["fresh_tokens"] for r in backend)
+        assert browser["create"] == sum(r["cache_creation_tokens"] for r in backend)
+        assert browser["read"] == sum(r["cache_read_tokens"] for r in backend)
+        assert browser["output"] == sum(r["output_tokens"] for r in backend)
+        # Exact: the browser mirrors pricing.compute_cost's operation order
+        # (per-term division) and Python's round(x, 6), so every record's
+        # derived cost IS the stored double (asserted per record above). The
+        # total then depends only on summation: the browser accumulates
+        # naively, CPython's sum() is Neumaier-compensated and may land one
+        # ulp away, so sum here the way the browser does — left to right.
+        total = 0.0
+        for r in backend:
+            total += r["cost_usd"]
+        assert browser["cost"] == total
+
+    def test_a_settings_only_model_switch_labels_the_following_request(self):
+        """A switch carried by thread_settings_applied alone, with the next
+        request before any turn_context re-declares: both parsers must label
+        the request gpt-5.6-terra. rollout_model_switch.jsonl has no
+        token_count in that window, so the parity sweep missed it."""
+        blob = (FIX_CODEX / "rollout_settings_switch.jsonl").read_bytes()
+        backend = parse.parse_file("codex/settings_switch.jsonl", blob)["records"]
+        assert len(backend) == 1
+        assert backend[0]["model"] == "gpt-5.6-terra"
+        assert backend[0]["line_num"] == 3
+
+        browser = _browser_records("rollout_settings_switch.jsonl")
+        assert len(browser) == 1
+        assert browser[0]["model"] == "gpt-5.6-terra"
+        assert browser[0]["line"] == 3
+
+    def test_a_browser_parse_never_labels_a_model_unknown(self):
+        """The mirror of the backend's refusal (issue #653): the browser has
+        no ingest to fail loudly, so a transcript that cannot attribute keeps
+        a null model — but never the `unknown` placeholder."""
+        text = (FIX_CODEX / "rollout_fork_prefix.jsonl").read_text(encoding="utf-8")
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          const {{ meta }} = window.parseTranscriptLanes(
+            {json.dumps(text)}, {{}});
+          console.log(JSON.stringify(
+            meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True,
+            timeout=60, check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        models = json.loads(proc.stdout)
+        assert models, "fixture produced no records"
+        assert all(m != "unknown" for m in models)
+
+    def test_model_ids_survive_verbatim_in_both_parsers(self):
+        """No relabelling table, no flagship fallback (issue #471): each model
+        the transcript names survives verbatim after spelling normalisation —
+        in the browser exactly as in the backend. sol stays sol (a visible
+        estimate at the fallback rates), gpt-6.1-sol prices at its own row,
+        and the missing-separator spelling folds. Each model's token_count
+        advances every counter, or differencing reads it as a duplicate."""
+        def _turn(second: int, model: str) -> dict:
+            return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
+                    "type": "turn_context", "payload": {"model": model}}
+
+        def _usage(n_in: int, n_cached: int, n_out: int, n_reason: int) -> dict:
+            return {"input_tokens": n_in, "cached_input_tokens": n_cached,
+                    "cache_write_input_tokens": 0, "output_tokens": n_out,
+                    "reasoning_output_tokens": n_reason,
+                    "total_tokens": n_in + 500}
+
+        def _snapshot(second: int, n_in: int) -> dict:
+            u = _usage(n_in, n_in - 500, 400 + n_in // 1000 * 100,
+                       300 + n_in // 1000 * 50)
+            return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
+                    "type": "event_msg",
+                    "payload": {"type": "token_count",
+                                "info": {"total_token_usage": u,
+                                         "last_token_usage": u,
+                                         "model_context_window": 258400}}}
+
+        models = ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt5.6-sol",
+                  "gpt\u0665.6-sol"]
+        lines: list[dict] = [_turn(1, models[0])]
+        for i in range(len(models)):
+            lines.append(_snapshot(2 * i + 2, 1_000 * (i + 1)))
+            if i + 1 < len(models):
+                lines.append(_turn(2 * i + 3, models[i + 1]))
+        blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+        out = parse.parse_file("codex/model_ids_verbatim.jsonl", blob)
+        backend = out["records"]
+        got = [r["model"] for r in backend]
+        assert got == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
+                       "gpt\u0665.6-sol"]
+
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          const {{ events, meta }} = window.parseTranscript(
+            {json.dumps(blob.decode())});
+          console.log(JSON.stringify(
+            meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True,
+            encoding="utf-8", timeout=60, check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        got_browser = json.loads(proc.stdout)
+        assert got_browser == ["gpt-6-sol", "gpt-6.1-sol", "sol", "gpt-5.6-sol",
+                               "gpt\u0665.6-sol"]
+
+    @pytest.mark.parametrize("plan_type", [None, "pro"])
+    def test_browser_costs_a_long_context_request_exactly_like_the_backend(self, plan_type):
+        """A >272k-token Codex request bills the whole record on the long-context
+        meter, whatever plan served the rollout (issue #194). The meter bills
+        every plan, so the browser must mirror the backend for both the
+        subscription rollout and the one declaring no plan."""
+        blob = _long_context_blob(plan_type)
+        backend = parse.parse_file("codex/long_context.jsonl", blob)["records"]
+        assert len(backend) == 1
+        rec = backend[0]
+        assert (rec["fresh_tokens"] + rec["cache_creation_tokens"]
+                + rec["cache_read_tokens"]) > pricing.LONG_CONTEXT_THRESHOLD
+
+        got = _node_long_context(plan_type)
+        assert got["long_context"] is True
+        assert got["total_in"] == (rec["fresh_tokens"] + rec["cache_creation_tokens"]
+                                   + rec["cache_read_tokens"])
+        assert got["cost"] == pytest.approx(rec["cost_usd"], rel=1e-5)
+
+    def test_browser_long_context_threshold_equals_backend(self):
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          console.log(JSON.stringify(window.LONG_CONTEXT_THRESHOLD));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == pricing.LONG_CONTEXT_THRESHOLD
+
+    @pytest.mark.parametrize(
+        "label",
+        [p.name for p in LANE_FIXTURES]
+        + [f"tricky[{i}]" for i in range(len(TRICKY_BLOBS))],
     )
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["usageTs"] == "2026-09-10T00:30:00.000Z"
+    def test_browser_sniff_agrees_with_backend(self, label):
+        blobs = [p.read_bytes() for p in LANE_FIXTURES] + list(TRICKY_BLOBS)
+        labels = [p.name for p in LANE_FIXTURES] + [
+            f"tricky[{i}]" for i in range(len(TRICKY_BLOBS))]
+        idx = labels.index(label)
+        assert _node_sniff([blobs[idx]])[0] == parse.sniff_format(blobs[idx])
+
+    @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
+    def test_lane_output_carries_the_fields_the_inspector_renders(self, name):
+        """The Inspector (detail-pane.jsx, SessionView, SessionHeader,
+        ContextGrowthView, txToDashData) reads a fixed set of fields off the
+        Claude parse's shapes. A lane transcript goes through the same
+        components, so the lane parse must populate those same fields —
+        never a differently-named shape the renderer would crash on."""
+        fixtures = {p.name: p.read_text(encoding="utf-8") for p in [next(
+            p for p in LANE_FIXTURES if p.name == name)]}
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          const fixtures = {json.dumps(fixtures)};
+          const out = {{}};
+          for (const [name, text] of Object.entries(fixtures)) {{
+            const {{ events, meta }} = window.parseTranscript(text);
+            out[name] = {{
+              event_types: [...new Set(events.map(e => e.type))],
+              tool_calls_shaped: events
+                .filter(e => e.type === 'tool_call')
+                .every(e => typeof e.tool_name === 'string'
+                         && e.tool_input !== null && typeof e.tool_input === 'object'
+                         && typeof e.line === 'number'),
+              tool_results_shaped: events
+                .filter(e => e.type === 'tool_result')
+                .every(e => typeof e.tool_use_id === 'string'
+                         && typeof e.detail === 'string'
+                         && typeof e.is_error === 'boolean'
+                         && typeof e.line === 'number'),
+              usages_shaped: meta
+                .filter(m => m.type === 'assistant_usage')
+                .every(m => typeof m.line === 'number' && m.ts != null
+                         && typeof m.model === 'string'
+                         && typeof m.usage === 'object' && m.usage !== null
+                         && Number.isFinite(m.usage.input_tokens)
+                         && Number.isFinite(m.usage.output_tokens)
+                         && Number.isFinite(m.usage.cache_creation_input_tokens)
+                         && Number.isFinite(m.usage.cache_read_input_tokens)),
+              stats: Object.keys(window.computeSessionStats(events, meta)).sort(),
+            }};
+          }}
+          console.log(JSON.stringify(out));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)[name]
+
+        assert set(got["event_types"]) <= {
+            "user_message", "assistant_text", "thinking",
+            "tool_call", "tool_result",
+        }, "event types the Inspector's EventDetail switch knows"
+        assert got["tool_calls_shaped"], "tool_call fields"
+        assert got["tool_results_shaped"], "tool_result fields"
+        assert got["usages_shaped"], "assistant_usage fields"
+        # SessionHeader reads every one of these off stats.
+        assert {"turns", "userMsgs", "toolCalls", "errorResults",
+                "parallelBatches", "firstTs", "lastTs", "output",
+                "hitRate", "cost"} <= set(got["stats"])
+
+    def test_browser_token_breakdown_applies_the_long_context_meter(self):
+        """The Token Breakdown re-derives per-component cost from summed
+        tokens, so a long-context row must be priced at the same 2x input /
+        1.5x output pricing.compute_cost stored — or its bars drift from the
+        stored cost_total they decompose."""
+        lc_fresh, lc_out = 300_000, 2_000
+        flat_fresh, flat_out = 50_000, 500
+        # The events' ts is June 2026 — inside sol's pre-Aug21 dated window —
+        # so the expected figures are computed at the SAME rates the browser's
+        # rateForModel resolves, isolating the meter as the only difference.
+        ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
+        expected_lc = pricing.compute_cost(
+            "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            unsplit_create=0, read=0, long_context=True, ts=ts,
+        )
+        expected_flat = pricing.compute_cost(
+            "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            unsplit_create=0, read=0, ts=ts,
+        )
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          window.dashboardCol = {{}};
+          eval({json.dumps(_token_breakdown_source())});
+          const events = [
+            {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+               model_id: 'gpt-5-6-sol',
+               input_tokens: {lc_fresh}, output_tokens: {lc_out},
+               cache_create: 0, cache_read: 0,
+               ephemeral_5m: 0, ephemeral_1h: 0, long_context: true }},
+            {{ ts: Date.parse('2026-06-14T12:00:00Z'), model: 'gpt-5-6-sol',
+               model_id: 'gpt-5-6-sol',
+               input_tokens: {flat_fresh}, output_tokens: {flat_out},
+               cache_create: 0, cache_read: 0,
+               ephemeral_5m: 0, ephemeral_1h: 0, long_context: false }},
+          ];
+          const bd = window.computeTokenBreakdown(events);
+          console.log(JSON.stringify({{
+            costTotal: bd.costTotal,
+            input: bd.rows.find(r => r.label === 'Input'),
+            output: bd.rows.find(r => r.label === 'Output'),
+          }}));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)
+        assert got["costTotal"] == pytest.approx(expected_lc + expected_flat)
+        assert got["input"]["cost"] == pytest.approx(
+            (lc_fresh * pricing.LONG_CONTEXT_INPUT_MULT + flat_fresh)
+            * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+        )
+        assert got["output"]["cost"] == pytest.approx(
+            (lc_out * pricing.LONG_CONTEXT_OUTPUT_MULT + flat_out)
+            * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+        )
+
+    def test_browser_long_context_multipliers_equal_backend(self):
+        """The browser's meter multipliers are window constants from
+        parser-lanes.js and must equal pricing's."""
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          console.log(JSON.stringify({{
+            in: window.LONG_CONTEXT_INPUT_MULT,
+            out: window.LONG_CONTEXT_OUTPUT_MULT,
+          }}));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)
+        assert got["in"] == pricing.LONG_CONTEXT_INPUT_MULT
+        assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT
+
+    def test_browser_inspector_turn_cost_applies_the_long_context_meter(self):
+        """txToDashData re-derives each Inspector turn's cost from the parsed
+        usage; a long-context record must price at the meter there too, or
+        the Inspector's per-turn cost drifts from the stored figure. The turn
+        prices at the rate in force at its own timestamp (issue #55), so the
+        expected figure is the metered DATED price — the blob's request
+        predates pricing.AUG21_CUT, where gpt-5.6-sol's list price begins."""
+        expected = pricing.compute_cost(
+            "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            unsplit_create=0, read=290_000, long_context=True,
+            ts=datetime(2026, 6, 14, 12, 0, 3, tzinfo=UTC),
+        )
+        script = f"""
+          global.window = {{ shortModelName: m => m }};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          const text = {json.dumps(_long_context_blob(None).decode())};
+          const tx = window.parseTranscript(text);
+          const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
+          const start = src.indexOf('function txToDashData');
+          const end = src.indexOf('\\nfunction App(', start);
+          eval(src.slice(start, end));
+          const dash = txToDashData(tx);
+          console.log(JSON.stringify({{
+            turns: dash.events.length,
+            cost: dash.events.reduce((s, e) => s + e.cost_usd, 0),
+          }}));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)
+        assert got["turns"] == 1
+        assert got["cost"] == pytest.approx(expected)
+
+    def test_lane_parser_reads_an_offset_less_timestamp_as_utc(self):
+        """A legacy-kimi line whose timestamp carries no offset prices and
+        stores as the UTC reading of its wall clock (backend), and the
+        browser records the same instant — not the viewer's local one."""
+        out = parse.parse_file("sessions/p/s/naive.jsonl", _NAIVE_LANE_BLOB)
+        assert len(out["records"]) == 1
+        assert out["records"][0]["ts"] == datetime(
+            2026, 9, 10, 0, 30, tzinfo=UTC)
+
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          const {{ events, meta }} = window.parseTranscriptLanes(
+            {json.dumps(_NAIVE_LANE_BLOB.decode())});
+          const usage = meta.find((m) => m.type === 'assistant_usage');
+          console.log(JSON.stringify({{ usageTs: usage && usage.ts }}));
+        """
+        env = {**os.environ, "TZ": "Europe/Berlin"}
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            env=env, check=False,  # Return code checked by hand on the next line.
+        )
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)
+        assert got["usageTs"] == "2026-09-10T00:30:00.000Z"

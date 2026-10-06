@@ -23,10 +23,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _geometry_block() -> str:
     """The heatmap's geometry lines, verbatim: `const padL` .. `sumRowY`.
@@ -70,6 +66,7 @@ def _geometry_at(widths: list[int]) -> dict:
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_grid_fits_the_measured_width_at_every_panel_width():
     """#636: the floor of 8 engaged at a 320px viewport, pinning the drawn
     grid at 312px (25 cells at the floor) against a ~292px panel. cellW may

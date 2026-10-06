@@ -6,7 +6,10 @@ re-point, the retraction drops the uuid's only usage entry wholesale and
 computeSessionStats reports no turn, tokens or cost for the call.
 """
 import json
+import shutil
 import subprocess
+
+import pytest
 
 from tests.test_parser_js_mirror import (
     LOADER_JS, PARSER_JS, RECORD_DEDUP_JS, _claude_line, _node_dedup_survivor,
@@ -49,6 +52,7 @@ def _node_usage_identity(text: str) -> list[dict]:
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_replace_with_shared_request_id_keeps_the_merged_usage():
     """issue #568: the winner shares the superseded copy's requestId, so
     the streaming merge folds the winner's usage into the loser-line entry
@@ -63,6 +67,7 @@ def test_dedup_replace_with_shared_request_id_keeps_the_merged_usage():
         "usage": [{"model": "claude-sonnet-4-5", "output": 300}]}
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_replace_with_shared_request_id_winner_first_skips_the_merge():
     """The mirrored order: the attributed copy parses first, so the
     unattributed one is skipped outright (prev === true) before any usage
@@ -76,6 +81,7 @@ def test_dedup_replace_with_shared_request_id_winner_first_skips_the_merge():
         "usage": [{"model": "claude-sonnet-4-5", "output": 200}]}
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_shared_request_id_repoints_the_merged_entry_to_the_winner():
     """The re-pointed entry carries the winning line, uuid and model."""
     text = (_claude_line("u-1", None, "loser copy", 200, request_id="req-1")
@@ -85,6 +91,7 @@ def test_dedup_shared_request_id_repoints_the_merged_entry_to_the_winner():
         {"line": 2, "uuid": "u-1", "model": "claude-sonnet-4-5"}]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_merge_key_msg_arm_spans_the_parsers_key():
     """A requestId-less transcript merges on message.id (parser.js's
     merge-key fallback); the retraction stamp carries the same key or the
@@ -96,6 +103,7 @@ def test_dedup_merge_key_msg_arm_spans_the_parsers_key():
         {"line": 2, "uuid": "u-1", "model": "claude-sonnet-4-5"}]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_empty_merge_key_never_re_points():
     """No requestId and no message.id: the merge key is empty, no merge
     can have folded a fragment in, so the masked line's entry must drop
@@ -108,6 +116,7 @@ def test_dedup_empty_merge_key_never_re_points():
         "usage": [{"model": "claude-sonnet-4-5", "output": 300}]}
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_re_point_prefers_the_entry_uuids_winner():
     """Two attributed lines share the loser's requestId (malformed for
     Claude), so all fragments merge into the one entry: it re-points to

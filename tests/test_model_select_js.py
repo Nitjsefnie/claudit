@@ -28,10 +28,6 @@ TOOL_PANEL = ROOT / "src" / "tool-error-panel.jsx"
 INDEX = ROOT / "public" / "index.html"
 GUARD = ROOT / "scripts" / "ci" / "panel_layout.mjs"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node(script: str):
     # Over STDIN, not -e, and the path embedded with repr(): on Windows a
@@ -57,6 +53,7 @@ def _node_lists(expr: str):
 
 # -- The selection rule (node-driven) ---------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_default_selection_is_top_two_whatever_the_model_count():
     """#649/#652: the default checked set is top-2, for 2 .. 40 models.
 
@@ -74,6 +71,7 @@ def test_default_selection_is_top_two_whatever_the_model_count():
     assert sizes == [2] * 39
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_an_override_layers_over_the_default():
     got = _node_lists(
         "Array.from(window.modelSelect.topDefaultSelection("
@@ -82,6 +80,7 @@ def test_an_override_layers_over_the_default():
     assert got == ["a", "b", "c"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_unchecking_a_default_model_removes_it():
     got = _node_lists(
         "Array.from(window.modelSelect.topDefaultSelection("
@@ -257,6 +256,7 @@ def _md():
     }"""
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_aggregate_folds_every_tool_and_skips_sparse_buckets():
     got = _rs(
         f"Array.from(window.rateSeries.buildModelSeries({_md()},"
@@ -268,6 +268,7 @@ def test_aggregate_folds_every_tool_and_skips_sparse_buckets():
         (3 / 14, 14), (0.0, 10), (5 / 6, 6)]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_tool_sequence_drops_buckets_without_settled_calls():
     got = _rs(
         f"Array.from(window.rateSeries.buildModelSeries({_md()},"
@@ -276,6 +277,7 @@ def test_a_tool_sequence_drops_buckets_without_settled_calls():
     assert [(p["rate"], p["n_total"]) for p in got] == [(0.5, 4)]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_other_folds_the_tools_outside_the_picker():
     got = _rs(
         f"Array.from(window.rateSeries.buildModelSeries({_md()},"
@@ -283,6 +285,7 @@ def test_other_folds_the_tools_outside_the_picker():
     assert [(p["rate"], p["n_total"]) for p in got] == [(0.0, 1)]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_other_series_is_absent_when_nothing_folds():
     keys = _rs(
         f"Array.from(window.rateSeries.buildModelSeries({_md()},"
@@ -290,6 +293,7 @@ def test_the_other_series_is_absent_when_nothing_folds():
     assert keys == ["__AGG__", "t1", "t2"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_ema_carries_the_first_point_and_recurses_with_alpha():
     got = _rs(
         "(() => { const m = new Map([['s', ["

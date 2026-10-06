@@ -22,10 +22,6 @@ import pytest
 
 CHARTS_JSX = Path(__file__).resolve().parent.parent / "src" / "dashboard-charts.jsx"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node_probe(keys):
     script = f"""
@@ -52,6 +48,7 @@ def _node_probe(keys):
 OKLCH = re.compile(r"^oklch\(0\.\d+ 0\.\d+ \d+(\.\d+)?\)$")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_hardcoded_models_keep_their_hand_picked_colour():
     """The keys are the ids as recorded, vendor prefix included: issue
     #472 stopped the display dropping `claude-`, and the table is keyed
@@ -62,6 +59,7 @@ def test_hardcoded_models_keep_their_hand_picked_colour():
     assert out["<synthetic>"] == "oklch(0.65 0.02 260)"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_unknown_models_get_a_derived_colour_not_grey():
     out = _node_probe(["bonsai-2-27b", "gpt-5-6-sol", "glm-5-3-flash", "unknown"])
     for k in ("bonsai-2-27b", "gpt-5-6-sol", "glm-5-3-flash", "unknown"):
@@ -69,12 +67,14 @@ def test_unknown_models_get_a_derived_colour_not_grey():
     assert len({out[k] for k in ("bonsai-2-27b", "gpt-5-6-sol", "glm-5-3-flash")}) == 3
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_derived_colour_is_stable_across_lookups():
     a = _node_probe(["bonsai-2-27b"])["bonsai-2-27b"]
     b = _node_probe(["bonsai-2-27b"])["bonsai-2-27b"]
     assert a == b
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_derived_hue_stays_clear_of_the_hardcoded_hues():
     """Generated hues avoid a band around every hand-picked hue, so an
     unknown model cannot impersonate Opus or Sonnet at a glance."""
@@ -90,12 +90,14 @@ def test_derived_hue_stays_clear_of_the_hardcoded_hues():
         assert gap >= 8, (k, v, gap)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_non_string_lookups_do_not_throw():
     out = _node_probe([])
     assert out["__symbol"] is True
     assert "claude-opus-5" in out["__hardcoded"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_no_hand_picked_key_drops_a_vendor_prefix():
     """A re-key that missed one entry would leave that model on a derived
     colour forever, which no test of its colour value could see. Every

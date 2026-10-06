@@ -11,11 +11,8 @@ BINNING_JS = (
     Path(__file__).resolve().parents[1] / "src" / "dashboard-binning.js"
 )
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
 
-
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dashboard_bins_never_undershoot_server_aggregation():
     script = f"""
       global.window = {{}};

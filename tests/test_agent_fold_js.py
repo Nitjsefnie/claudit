@@ -38,10 +38,6 @@ PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 # Every branch of the fold: plugin namespace, a nested one, canonical
 # passthrough, both cross-lane spellings, the default bucket, an unknown
 # role, and no name at all (the parser's '?' fallback).
@@ -119,6 +115,7 @@ def _page_client_fixture():
     return client
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_fold_matches_backend_over_the_case_set():
     """Every case the backend fold answers, the browser fold answers the
     same through the real parseTranscript path."""
@@ -129,6 +126,7 @@ def test_browser_fold_matches_backend_over_the_case_set():
     ]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_subagent_type_only_dispatch_folds_the_same():
     """The Kimi-shaped argument (subagent_type, no name) folds through the
     same helper, not around it."""
@@ -161,6 +159,7 @@ def test_a_subagent_type_only_dispatch_folds_the_same():
     assert json.loads(_node(script)) == ["code-reviewer"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_without_the_served_table_the_lookup_degrades_to_the_namespace_split():
     """No injected table (a direct file:// open, a test harness that does
     not serve one): the namespace split still applies and unknown roles
@@ -178,6 +177,7 @@ def test_without_the_served_table_the_lookup_degrades_to_the_namespace_split():
                                          "custom-role"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_dispatch_carrying_both_fields_names_the_stored_role():
     """The stored dispatch column reads subagent_type only
     (backend/parse.py _dispatch_args): a dispatch carrying both an

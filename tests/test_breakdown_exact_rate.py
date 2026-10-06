@@ -27,10 +27,6 @@ from tests import scratch_db
 
 ROOT = Path(__file__).resolve().parents[1]
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _slice(path: str, start: str, end: str) -> str:
     src = (ROOT / path).read_text(encoding="utf-8")
@@ -102,6 +98,7 @@ def _breakdown_of_dashboard(body: dict) -> dict:
 _TS = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-4-5"])
 def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
     """Issue #70's cases, now pinning that each model is priced by its own
@@ -136,6 +133,7 @@ def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
     assert got["models"] == [model]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_breakdown_prices_an_event_without_model_id_by_its_display_name():
     """The missing-model_id rule: an event without its raw id is priced by
     the name it still carries — a Claude short name resolves to its family
@@ -173,6 +171,7 @@ def test_breakdown_prices_an_event_without_model_id_by_its_display_name():
     assert got["costTotal"] != pytest.approx(got["allDefault"], rel=1e-9)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
     """The Inspector-loaded path (txToDashData) costs each turn by the
     raw model id; its breakdown must price the same id."""
@@ -200,6 +199,7 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
     assert got["models"] == ["claude-opus-4-8", "claude-sonnet-4-5"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
     """Issue #55: txToDashData priced every turn with no timestamp, so a
     turn inside gpt-5-6-sol's GA window (it ends at pricing.AUG21_CUT,
@@ -304,6 +304,7 @@ def _dashboard_body_fixture():
         mp.undo()
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_breakdown_total_equals_the_stored_cost_for_mixed_models(
         dashboard_body):
     """Parity end to end: records ingested and priced by the backend,
@@ -335,6 +336,7 @@ def test_breakdown_total_equals_the_stored_cost_for_mixed_models(
     assert got["costTotal"] == pytest.approx(stored, abs=1e-5)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
     """The no-backend preview feeds the same breakdown, which prices
     model_id alone: each event's id must name its displayed model, and
@@ -360,6 +362,7 @@ def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
             assert kind == "exact", (model, model_id)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_breakdown_buckets_absorb_the_per_request_fee():
     """A fee row's stored cost_usd carries the serving host's per-request
     fees (issue #469), which no token bucket re-derives: the breakdown
