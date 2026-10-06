@@ -481,6 +481,13 @@ def test_bash_mktemp_template_is_a_write_target():
     assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
 
 
+def test_bash_captured_mktemp_template_is_a_write_target():
+    """A captured substitution's mktemp books its template like the bare form."""
+    out = parse.parse_file(
+        "k/sess-mktc/sess-mktc.jsonl", _read("bash_mktemp_capture.jsonl"))
+    assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
+
+
 def test_agent_type_from_attribution_agent():
     """A dispatched agent's transcript carries attributionAgent."""
     out = parse.parse_file(
