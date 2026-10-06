@@ -97,7 +97,12 @@ def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
 
     Both answers are over-inclusive by construction — an import, a
     local, or a prose string also admits — so a skip can only save a
-    parse, never hide a fixture def or a chain member.
+    parse, never hide a fixture def or a chain member OF LIVE CODE:
+    a def spelled only inside a dead branch (``if 0:``) carries its
+    parameter names in no surviving code object, so the index cannot
+    see it. Such a def never executes and never registers at
+    runtime, which is the precondition the derivation's parity claim
+    rests on (issue #715 review, PR #730).
     """
     consts: set[str] = set()
     names: set[str] = set()

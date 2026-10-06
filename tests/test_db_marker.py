@@ -394,7 +394,12 @@ def _derive_narrow(directory: Path | None = None) -> set[str]:
     and re-runs the fixpoint. Over-inclusive by construction — the
     index admits on any identifier, parameter, local or string
     constant equal to a registry name — so a skip can only save the
-    walk, never hide a chain member. The registry test below and the
+    walk, never hide a LIVE chain member: a def spelled only inside a
+    dead branch carries its parameters in no surviving code object
+    and is invisible to the index, but it also never executes and
+    never registers at runtime, so narrow's answer matches the
+    registry the guard asserts against (see
+    scan_gate.module_def_vocab). The registry test below and the
     planted-tree pins (tests/test_db_marker_narrow.py) prove the
     narrowed path equals the full sweep.
     """

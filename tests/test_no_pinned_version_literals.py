@@ -92,10 +92,16 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
     that does not compile raises out of the gate: loud by
     construction, and collection fails on the same file anyway.
 
-    Not covered, and unreachable from a flagged shape short of
-    steganography: vocabulary spelled only inside a dead branch
-    (``if 0:``) AND split or escaped there. test_scan_gate's property
-    fails loudly if the interpreter's folding changes.
+    Not covered: vocabulary spelled only inside a dead branch
+    (``if 0:``). A split or escaped spelling there is unreachable
+    short of steganography, but since #715 a PLAIN literal there is
+    skipped too: dead-code elimination drops the constant while the
+    call's name survives in co_names, so the new const-evidence
+    clause never fires. The shape stays loud — the AST sees the
+    constant and consts does not, which is exactly the drift
+    test_scan_gate's tree property trips on if such a literal ever
+    lands under tests/. test_scan_gate's property fails loudly if the
+    interpreter's folding changes.
     """
     if "sv-test-data" in source:
         return True
@@ -109,7 +115,8 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
     # substring (detect folds a substring test over the value), the
     # module reference by attribute name. Empty wanted sets can hold
     # no live-call site, so with the defaults the rate clause admits
-    # nothing, as before.
+    # nothing — default-set behavior this clause introduced; the old
+    # clause admitted on the call's name alone.
     return (any(v in consts or v in names for v in VERSION_NAMES)
             or (any(r in names for r in RATE_CALL_NAMES)
                 and any(_names_wanted_row(c, wanted_models, wanted_hosts)

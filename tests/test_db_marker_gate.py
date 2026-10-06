@@ -46,8 +46,10 @@ def test_the_marking_guard_shares_the_derive_s_modules_cache_entry():
     # Keyed on the caller's argument tuple, _modules() (the derive's
     # call) and _modules(None) (the guard's) were TWO entries: the
     # guard re-parsed every admitted module and re-walked the server
-    # modules' facts. The guard now reuses the derive's entry (issue
-    # #679), so one derive+mark pass leaves exactly one entry.
+    # modules' facts (issue #679). Since #715 the derivation walks
+    # _relevant_sources' own cache and never touches _modules, so the
+    # single entry now comes from the guard's call alone — the pin
+    # still holds one derive+mark pass to exactly one entry.
     _modules.cache_clear()
     _module_facts.cache_clear()
     _derive_narrow()
