@@ -238,6 +238,17 @@ def test_normalise_refuses_an_unknown_observer_term():
                                "phase": "during-sse", "value": 1.0})
 
 
+def test_normalise_refuses_an_unknown_panel_term():
+    """#717 widened the region class with the panel terms; the negative
+    space is the point of the closed set. A `panel_`-shaped term that
+    names no rendered panel is the same vocabulary violation `sidebar`
+    is, and a free-form selector would grow the rollup grain without
+    bound."""
+    with pytest.raises(web_metrics.BeaconError, match="unknown region"):
+        web_metrics.normalise({"metric": "layout_shift", "part": "shift",
+                               "region": "panel_not_a_panel", "value": 0.1})
+
+
 def test_parse_batch_bounds_the_batch():
     with pytest.raises(web_metrics.BeaconError, match="carrying 'beacons'"):
         web_metrics.parse_batch([_beacon()])
@@ -585,7 +596,9 @@ def test_the_client_and_the_sink_name_the_same_regions_and_phases():
     quietly stop meaning the same thing. Compare the declarations instead,
     and read them out of the shipped files rather than restating them.
     """
-    assert _client_table("REGIONS") == web_metrics.REGIONS
+    # The client declares the four fixed regions as its REGIONS table;
+    # its PANELS list carries the panel terms and is derived below.
+    assert _client_table("REGIONS") == web_metrics.FIXED_REGIONS
     # The client declares no PHASES table -- it assigns the three literals
     # directly -- so they are collected from the assignment sites.
     perf = (_ROOT / "src" / "perf.js").read_text(encoding="utf-8")
@@ -605,3 +618,50 @@ def test_the_client_and_the_sink_name_the_same_regions_and_phases():
     assert set(web_metrics.JOURNEYS) - opened == {"signin"}, (
         "a journey the sink accepts has no opener: either the sign-in "
         "journey moved to a call site, or the sink names one nothing starts")
+
+
+# The chart components whose `title` prop becomes the element's
+# `data-panel`, and the files that mount them. A new chart component must
+# join the alternation or the derivation reads a short set and fails here.
+_PANEL_CHARTS = r"(?:TimeSeriesPanel|HBar|VBar)"
+_PANEL_MOUNT_FILES = ("src/app.jsx", "src/cost-by-agent-panel.jsx")
+_SLUG_RUNS = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(title: str) -> str:
+    return "panel_" + _SLUG_RUNS.sub("_", title.lower()).strip("_")
+
+
+def _panel_terms() -> set[str]:
+    """The `panel_` terms the dashboard's own sources can emit: every
+    `data-panel` literal in src/, plus every `title=` prop the chart
+    components are mounted with. Read from the shipped sources, not
+    restated, so a panel added or renamed without the vocabulary change
+    fails here."""
+    titles: set[str] = set()
+    for path in (_ROOT / "src").glob("*.jsx"):
+        src = path.read_text(encoding="utf-8")
+        titles |= set(re.findall(r'data-panel="([^"]+)"', src))
+        for brace in re.findall(r"data-panel=\{([^}]*)\}", src):
+            titles |= set(re.findall(r"'([^']+)'", brace))
+    for name in _PANEL_MOUNT_FILES:
+        src = (_ROOT / name).read_text(encoding="utf-8")
+        titles |= set(re.findall(
+            rf"<window\.{_PANEL_CHARTS}\b[^>]*?title=\"([^\"]+)\"", src))
+    return {_slug(t) for t in titles}
+
+
+def test_the_panel_terms_are_derived_from_the_panel_sources():
+    """#717: the region vocabulary gained the panel terms, and a term is
+    only admissible while some panel source still justifies it — the
+    closed set IS the JSX's own titles, folded. One assertion spans the
+    three places the vocabulary lives (the sink tuple, the client table,
+    the sources), so a rename on any one side fails here instead of as a
+    refused batch in production."""
+    panel = {r for r in web_metrics.REGIONS
+             if r.startswith("panel_") and r not in web_metrics.FIXED_REGIONS}
+    derived = _panel_terms()
+    assert derived == panel, (
+        f"panel sources and REGIONS disagree: sources-only "
+        f"{sorted(derived - panel)}, REGIONS-only {sorted(panel - derived)}")
+    assert {_slug(t) for t in _client_table("PANELS")} == panel
