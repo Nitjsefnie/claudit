@@ -17,7 +17,9 @@ from test_ingest import (  # pylint: disable=unused-import
     _FIX_ROOT, _fresh_db_fixture, _scalar,
 )
 
-from backend import constants, db, ingest, r2
+from backend import (
+    constants, db, ingest, key_layout, lane_markers, lane_projects, r2,
+)
 
 _MARKER = "project.json"
 
@@ -328,3 +330,58 @@ def test_startup_schema_creates_the_marker_table(fresh_db):
 
     with db.viz_conn() as c:
         assert _scalar(c, "SELECT to_regclass('public.lane_markers')")
+
+
+def test_nul_in_marker_path_still_stores(fresh_db):
+    """A marker path carrying 0x00 must not abort the write that stores
+    it (issue #673): the byte is stripped like every other text value
+    reaching a PostgreSQL text column."""
+    key = f"claude/sessions/aaaa1111/{_MARKER}"
+    lane_markers.save_markers({key: ("etag-1", "/home/me/\x00gamma")}, {key})
+    assert _marker_rows()[key] == "/home/me/gamma"
+
+
+def test_nul_in_rekey_marker_path_still_moves(fresh_db):
+    """The rekey INSERT carries the marker path as the project's
+    display_name; a NUL in it must not abort the move (issue #673), and
+    the stripped path keys the destination project like a clean one."""
+    with db.viz_conn() as c, c.cursor() as cur:
+        cur.execute(
+            "INSERT INTO projects (project_id, display_name, first_seen_at, "
+            "last_seen_at) VALUES ('aaaa1111', 'aaaa1111', now(), now())")
+        cur.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) "
+            "VALUES ('claude/sessions/aaaa1111/s-1/wire.jsonl.xz', "
+            "'aaaa1111', 's-1', TRUE, 'e', 1, now(), now(), 't')")
+        c.commit()
+
+    moved = lane_projects.rekey_stale_lane_projects(
+        {"aaaa1111": "/home/me/\x00gamma"}, {"aaaa1111": "aaaa1111"})
+    assert moved == 1
+    slug = key_layout.canonical_project_id(
+        key_layout.project_slug("/home/me/gamma"))
+    with db.viz_conn() as c:
+        assert c.execute(
+            "SELECT project_id, display_name FROM projects").fetchall() == [
+            (slug, "/home/me/gamma")]
+        assert c.execute(
+            "SELECT project_id FROM files").fetchall() == [(slug,)]
+
+
+def test_a_nul_in_a_marker_path_does_not_abort_the_run(
+        fresh_db, lane_tree, marker_gets):
+    """End to end: a marker whose path carries 0x00 ingests like any
+    other, its row stores the stripped path, and the project lands under
+    that path's slug (issue #673)."""
+    _lane_project(lane_tree, "cccc3333", _path_marker("/home/me/\x00delta"))
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    key = f"claude/sessions/cccc3333/{_MARKER}"
+    assert _marker_rows()[key] == "/home/me/delta"
+    with db.viz_conn() as c:
+        pid = _scalar(c, "SELECT DISTINCT project_id FROM files "
+                         "WHERE file_key LIKE '%%/cccc3333/%%'")
+    assert pid == key_layout.canonical_project_id(
+        key_layout.project_slug("/home/me/delta"))

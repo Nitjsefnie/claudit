@@ -27,7 +27,9 @@ def _strip_nul(value: Any) -> Any:
     (issue #670). #41 stripped tool-result text at capture (_pg_text);
     this is the ONE choke point covering every text value reaching
     files, records and tool_uses, so the next text column cannot reopen
-    the class. Identity strings (file_key, project_id, session_id)
+    the class. The marker-path writes outside `_persist` (lane_markers,
+    the rekey's display_name) call it at their own sites (#673).
+    Identity strings (file_key, project_id, session_id)
     traverse the strip like every other value; they are safe because
     object-key material cannot carry NUL, not because they bypass it.
     """

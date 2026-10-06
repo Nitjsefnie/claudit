@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from backend import db, key_layout, project_aliases, r2
+from backend.ingest_persist import _strip_nul
 
 log = logging.getLogger("claudit.ingest")
 
@@ -110,7 +111,11 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
     """
     moved = 0
     with db.viz_conn() as c, c.cursor() as cur:
-        for lane_hash, marker_path in project_paths.items():
+        for lane_hash, raw_marker_path in project_paths.items():
+            # The path is marker content: strip NUL before it derives the
+            # slug AND the display_name, so neither text column sees the
+            # byte (issue #673).
+            marker_path = _strip_nul(raw_marker_path)
             # The folded canonical id: a marker path naming a Windows
             # directory keys the project lowercase, and a stored
             # mixed-case id from a previous parser version compares
