@@ -158,15 +158,17 @@ def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] 
         if (nxt is not None and getattr(nxt, "operator", False) and nxt == "("
                 and value.endswith("$")):
             nxt2 = raw_segment[idx + 2] if idx + 2 < len(raw_segment) else None
-            if nxt2 is not None and getattr(nxt2, "operator", False) and nxt2 == "(":
-                # `$((` is an arithmetic expansion's opener, never a
-                # group; token-level whitespace is gone, so the adjacent
-                # spelling refuses however it was quoted.
-                return None
-            close = _matching_paren(raw_segment, idx + 1)
-            if close != len(raw_segment) - 1:
-                return None
-            return raw_segment[:idx], cast("list[ShellWord]", raw_segment[idx + 2:close])
+            if nxt2 is None or getattr(nxt2, "operator", False) is False \
+                    or nxt2 != "(":
+                close = _matching_paren(raw_segment, idx + 1)
+                if close != len(raw_segment) - 1:
+                    return None
+                return raw_segment[:idx], cast("list[ShellWord]", raw_segment[idx + 2:close])
+            # `$((` is an arithmetic expansion's opener, never a group;
+            # token-level whitespace is gone, so the adjacent spelling
+            # refuses however it was quoted: the next loop iteration
+            # reaches the operator refusal on that `(`.
+            continue
         if nxt is None and value.startswith("$("):
             tokens = _quoted_capture_value(value)
             if tokens is not None:
