@@ -1,13 +1,14 @@
 """The head of a Codex rollout: model declarations, fork detection, replay marking.
 
-Two facts come off the file's head, before the parse loop runs: which
-model the file FIRST declares (the model in force where a fork cut — the
-inherited settings — which attributes the replayed prefix, issue #653),
-and whether the file is a forked rollout whose leading lines replay its
-parent's history (issue #687). The replayed rows are marked `is_replay`
-so the canonical winner ranks a replayed copy below an original of the
-same uuid, whatever the key order (SV-CANONICAL-FLAG): a child spawned
-with its own model must not win its parent's history from it.
+Three facts come off the file's head: which model the file FIRST declares
+(the model in force where a fork cut — the inherited settings — which
+attributes the replayed prefix, issue #653), whether the file is a forked
+rollout whose leading lines replay its parent's history (issue #687), and
+the line where that replay ends (the fork's own first model declaration).
+The replayed rows are marked `is_replay` so the canonical winner ranks a
+replayed copy below an original of the same uuid, whatever the key order
+(SV-CANONICAL-FLAG): a child spawned with its own model must not win its
+parent's history from it.
 
 Entry point is backend.parse_codex.parse, which opens with head_scan()
 and closes with mark_replay(). The browser mirror is the codex section
@@ -21,25 +22,27 @@ from backend.json_shape import as_dict
 from backend.parse_common import _nonempty_str
 
 
-def _declared_model(obj: dict) -> str | None:
-    """The model one turn_context / thread_settings_applied line declares.
-
-    The two shapes _codex_event_msg and parse() read for the model in
-    force; nothing else declares one.
-    """
-    payload = as_dict(obj.get("payload"))
-    if obj.get("type") == "turn_context":
-        name = payload.get("model")
-    elif payload.get("type") == "thread_settings_applied":
-        name = as_dict(payload.get("thread_settings")).get("model")
-    else:
-        return None
-    return str(name) if name else None
+def _line_at(blob: bytes, pos: int) -> tuple[bytes, int, int]:
+    """The line spanning byte `pos`, as (raw bytes, start, end-exclusive)."""
+    start = blob.rfind(b"\n", 0, pos) + 1
+    end = blob.find(b"\n", pos)
+    if end < 0:
+        end = len(blob)
+    return blob[start:end], start, end
 
 
 def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     """The file's first declared model, whether it is a fork, and where
     the fork's own history begins.
+
+    The scan runs at byte-offset speed: a candidate line is found by
+    `find()` on the model-declaring needles — whichever needle occurs
+    first in the file — and verified by decoding it, so the common file
+    costs a handful of C searches and one decode instead of a per-line
+    Python pass. The reparse bench gates this module's work per file
+    (SV-CI-RATCHETS), which is why the scan pays the byte-offset shape
+    rather than the plainer line iteration. A line that mentions a
+    needle without declaring advances both finds past its own end.
 
     A forked rollout replays its parent's history before the new thread
     emits a turn_context, so the leading records have no model in front
@@ -49,55 +52,67 @@ def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     when the file declares no model at all: nothing derives the model in
     force, and the file is refused rather than stored as `unknown`.
 
-    The fork flag and the boundary come off the same scan: the first
-    session_meta carrying `forked_from_id` makes the file a fork, and the
+    The fork flag comes off the first session_meta (first one wins, the
+    same head rule the parse loop applies to the thread id), and the
     first declaration's line is the replay boundary — records on earlier
     lines are the parent's history journalled in this file (issue #687).
-
-    The scan JSON-decodes only lines that mention a model-declaring
-    record — on a 20MB rollout that is a few hundred lines out of tens
-    of thousands — plus one session_meta line.
     """
-    first_model: str | None = None
-    declared_at: int | None = None
     is_fork = False
-    for line_num, raw in enumerate(blob.splitlines(), 1):
-        if not is_fork and b'"session_meta"' in raw:
+    if b'"forked_from_id"' in blob:
+        i = blob.find(b'"session_meta"')
+        if i >= 0:
+            raw, _s, _e = _line_at(blob, i)
             try:
                 obj = loads(raw)
             except JSONDecodeError:
-                continue
-            if (isinstance(obj, dict) and obj.get("type") == "session_meta"
-                    and _nonempty_str(
-                        as_dict(obj.get("payload")).get("forked_from_id"))):
-                is_fork = True
-        if (declared_at is not None
-                or (b'"turn_context"' not in raw
-                    and b'"thread_settings_applied"' not in raw)):
-            continue
+                obj = None
+            is_fork = (isinstance(obj, dict)
+                       and obj.get("type") == "session_meta"
+                       and bool(_nonempty_str(
+                           as_dict(obj.get("payload")).get("forked_from_id"))))
+
+    first_model: str | None = None
+    declared_at: int | None = None
+    ti = blob.find(b'"turn_context"')
+    si = blob.find(b'"thread_settings_applied"')
+    while ti >= 0 or si >= 0:
+        if ti >= 0 and (si < 0 or ti < si):
+            raw, start, end = _line_at(blob, ti)
+            ti = blob.find(b'"turn_context"', end)
+        else:
+            raw, start, end = _line_at(blob, si)
+            si = blob.find(b'"thread_settings_applied"', end)
         try:
             obj = loads(raw)
         except JSONDecodeError:
             continue
-        if isinstance(obj, dict):
-            name = _declared_model(obj)
-            if name:
-                first_model, declared_at = name, line_num
+        if not isinstance(obj, dict):
+            continue
+        payload = as_dict(obj.get("payload"))
+        if obj.get("type") == "turn_context":
+            name = payload.get("model")
+        elif payload.get("type") == "thread_settings_applied":
+            name = as_dict(payload.get("thread_settings")).get("model")
+        else:
+            continue
+        if name:
+            first_model, declared_at = str(name), blob.count(b"\n", 0, start) + 1
+            break
     return first_model, is_fork, declared_at
 
 
 def mark_replay(parsed: dict, boundary: int | None) -> None:
     """Mark the fork's replayed prefix on its records and tool rows.
 
-    `boundary` is head_scan's declared_at for a FORK — the caller passes
-    None for a file that is not a fork. Rows before the boundary are the
-    parent's requests journalled in the fork file; is_replay flags them
-    for the canonical rank (ingest_rollup_state's winner rule). Every
-    Codex row carries the flag — True in the replayed prefix, False
-    elsewhere; NULL (via to_claudit's default on the other lanes, via
-    this same False on unflagged Codex rows ranking identically) is an
-    original.
+    `boundary` is head_scan's declared_at for a FORK; a file that is not
+    a fork passes None and is not even walked — its rows keep no key and
+    to_claudit defaults them to NULL ranks-as-original semantics. On a
+    fork, rows before the boundary are the parent's requests journalled
+    in the fork file; is_replay flags them for the canonical rank
+    (ingest_rollup_state's winner rule), and every row of a marked file
+    carries the flag — True in the replayed prefix, False after it.
     """
+    if boundary is None:
+        return
     for row in parsed["records"] + parsed["tool_uses"]:
-        row["is_replay"] = bool(
-            boundary is not None and row["line_num"] < boundary)
+        row["is_replay"] = bool(row["line_num"] < boundary)
