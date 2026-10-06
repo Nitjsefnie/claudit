@@ -847,6 +847,6 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     its role itself), which agent_sidecar.apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
-    parsed = (_parse_claude(file_key, blob) if fmt == "claude"
-              else to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt))
-    return parse_lanes.refuse_unattributed(parsed, fmt, file_key)
+    if fmt == "claude":
+        return parse_lanes.refuse_unattributed(_parse_claude(file_key, blob), fmt, file_key)
+    return parse_lanes.refuse_unattributed(to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt), fmt, file_key)
