@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
-"""The documented suite-cost re-seed marker (SV-CI-RATCHETS).
+"""The documented re-seed markers (SV-CI-RATCHETS).
 
-SV-CI-RATCHETS sanctions a ``suite_cost`` re-seed when the pinned
-workload legitimately changes — the fixture list, the interpreter pin,
-or the code those tests execute — and forbids raising a recorded budget
-by hand. The direction guard refuses an upward move whenever the base
-document already carries the family, so a re-seed whose counts are
-HIGHER than the recorded ones cannot land as one change; the
-delete-then-seed sequence needs an intermediate commit whose document
-carries no family at all, and the loader refuses such a document.
+Each cost family whose recorded numbers are a measured workload has the
+same sanctioned re-seed: ``suite_cost`` (its pinned bench fixture, its
+interpreter pin) and ``reparse`` (a parse-semantics change that
+legitimately spends the headroom, issue #698). SV-CI-RATCHETS forbids
+raising a recorded budget by hand, and the direction guard refuses an
+upward move whenever the base document already carries the family, so a
+re-seed whose counts are HIGHER than the recorded ones cannot land as
+one change; the delete-then-seed sequence needs an intermediate commit
+whose document carries no budget at all, and the loader refuses such a
+document.
 
 This module is the one sanctioned way across that intermediate step: a
-commit whose MESSAGE carries the marker
+commit whose MESSAGE carries a family's marker
 
-    [suite-cost-re-seed]
+    [suite-cost-re-seed]        [reparse-re-seed]
 
-may carry a document the family is absent from. Nothing else about the
+may carry a document that family is absent from. Nothing else about the
 document changes. Every other field is validated exactly as before, the
 guard's upward-move refusal is untouched, and the marker buys the
 ABSENCE only — never a raised budget, which is the next commit's seed,
-taken from a runner measurement artifact and never hand-derived.
+taken from a runner measurement artifact and never hand-derived — and
+never another family's absence: the markers do not cross.
 
-WHICH RUN SUPPLIES THAT ARTIFACT. The window this module opens is the
+WHICH RUN SUPPLIES THAT ARTIFACT. The window a marker opens is the
 open one — the seed commit is the change that restores the family, so
 its own tree is the one the seed describes — and the seed's source is
 a run of exactly that tree: the seed PR's own run on the commit
@@ -34,10 +37,10 @@ thresholds file excepted; when it does, the source is a fresh run of
 the final tree. Recorded counts are never adjusted to fit any tree
 (SV-CI-RATCHETS).
 
-WHERE THE MARKER IS READ. A bounded walk, never a single read (issue
-#511: a tolerance scoped to HEAD/HEAD^2 lasted exactly one commit — the
-#509 incident, where the hourly pricing bot landed on the delete before
-the seed):
+WHERE THE MARKER IS READ. A bounded walk per family, never a single
+read (issue #511: a tolerance scoped to HEAD/HEAD^2 lasted exactly one
+commit — the #509 incident, where the hourly pricing bot landed on the
+delete before the seed):
 
 - The walk starts at HEAD and reads back over the ancestry — every
   parent, with the pull-request head's lineage first (a GitHub merge
@@ -47,15 +50,15 @@ the seed):
   head — the lineage that declared the marker — hangs off it as the
   second parent.
 - The walk ends at the last family-present commit: a commit whose
-  committed document carries the suite_cost family is one where the
-  window the marker opens is closed, whatever the commit's message
-  says — a marker is honored only where the family it authorises
-  absence from is actually gone — so an old declaration below it can
-  never exempt a later family-absent document. Presence is judged on
-  the committed `.github/ci-thresholds.json` at each visited commit —
-  presence of the key only, never its shape: the loader judges a
-  present family's shape at the tip, exactly as it does today (an empty
-  family is refused, marker or no marker).
+  committed document carries the family is one where the window the
+  marker opens is closed, whatever the commit's message says — a
+  marker is honored only where the family it authorises absence from
+  is actually gone — so an old declaration below it can never exempt a
+  later family-absent document. Presence is judged on the committed
+  `.github/ci-thresholds.json` at each visited commit — presence of
+  the key only, never its shape: the loader judges a present family's
+  shape at the tip, exactly as it does today (an empty family is
+  refused, marker or no marker).
 - The whole walk is additionally bounded at _MAX_VISITS commits,
   fail-closed: a history with no family-present commit within ten
   visits of HEAD — no thresholds file at all, or a history longer than
@@ -66,6 +69,10 @@ the seed):
   a message without the marker all read the same way — that commit
   contributes nothing, and the walk continues only where git can still
   answer.
+
+The walks of the two families are independent and run the same shape:
+one marker's window says nothing about the other family, whose absence
+stays a refusal.
 """
 from __future__ import annotations
 
@@ -76,17 +83,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# The marker's own spelling, as the doctrine documents it. It is a
+# Each cost family's marker, spelled as the doctrine documents it. A
 # bracketed token so it stands out in a subject line and cannot be
 # reached by an ordinary word.
 MARKER = '[suite-cost-re-seed]'
+REPARSE_MARKER = '[reparse-re-seed]'
 
-# The family whose absence the marker buys, spelled here because
-# importing thresholds for it would put the git-reading module on every
-# loader consumer's import graph — the same reason thresholds itself
-# reaches this module only lazily, inside verdict(). Mirrors
-# thresholds.SUITE_COST_FAMILY; a test pins the two together.
-_SUITE_COST_FAMILY = 'suite_cost'
+# The re-seedable families, spelled here because importing thresholds
+# for them would put the git-reading module on every loader consumer's
+# import graph — the same reason thresholds itself reaches this module
+# only lazily, inside verdict(). Mirrors thresholds.SUITE_COST_FAMILY /
+# thresholds.REPARSE_FAMILY; a test pins the pairs together.
+SUITE_COST_FAMILY = 'suite_cost'
+REPARSE_FAMILY = 'reparse'
+# The pairing the whole mechanism turns on: a marker admits the absence
+# of ITS OWN family and no other's, so a suite-cost delete can never
+# ride a reparse marker and vice versa.
+MARKER_FOR = {
+    SUITE_COST_FAMILY: MARKER,
+    REPARSE_FAMILY: REPARSE_MARKER,
+}
 # Where the document sits at any commit, relative to the repository
 # root: the file thresholds.THRESHOLDS resolves to. The walk asks git
 # for THIS path at each visited commit — the committed history, never
@@ -145,9 +161,8 @@ def _parents(root: Path, revision: str) -> list[str]:
     return proc.stdout.decode('ascii', 'replace').split()
 
 
-def _family_present(root: Path, revision: str) -> bool:
-    """Whether the document committed at ``revision`` carries the
-    suite-cost family.
+def _family_present(root: Path, revision: str, family: str) -> bool:
+    """Whether the document committed at ``revision`` carries ``family``.
 
     Presence only. A commit whose document git cannot produce or json
     cannot parse is NOT family-present: the window stays open and the
@@ -163,11 +178,12 @@ def _family_present(root: Path, revision: str) -> bool:
         document = json.loads(proc.stdout)
     except ValueError:
         return False
-    return isinstance(document, dict) and _SUITE_COST_FAMILY in document
+    return isinstance(document, dict) and family in document
 
 
-def _declares(root: Path) -> bool:
-    """Whether any commit the bounded walk reads carries the marker."""
+def _declares(root: Path, marker: str, family: str) -> bool:
+    """Whether any commit the bounded walk reads carries ``marker`` —
+    honored only where ``family`` is absent, the one state it authorises."""
     seen: set[str] = set()
     queue: list[str] = ['HEAD']
     while queue and len(seen) < _MAX_VISITS:
@@ -182,9 +198,9 @@ def _declares(root: Path) -> bool:
         # closes the window whatever its message says — a marker is
         # honored only where the family it authorises absence from is
         # actually gone (the sanctioned delete is family-absent).
-        if _family_present(root, revision):
+        if _family_present(root, revision, family):
             continue
-        if MARKER in message:
+        if marker in message:
             return True
         # Every parent, reversed: at a pull-request merge the LAST
         # listed parent is the pull request's head — the lineage that
@@ -193,16 +209,23 @@ def _declares(root: Path) -> bool:
     return False
 
 
-@functools.lru_cache(maxsize=8)
-def in_flight(root: Path | None = None) -> bool:
-    """Whether this tree declares a suite-cost re-seed in flight.
+@functools.lru_cache(maxsize=16)
+def in_flight(root: Path | None = None,
+              family: str = SUITE_COST_FAMILY) -> bool:
+    """Whether this tree declares a re-seed in flight for ``family``.
 
     Cached because the loader asks on every read and the suite reads it
-    hundreds of times: one walk per tree per process. A caller that
-    changes the tree underneath itself (a test building a repository in
-    a tmp path) calls ``clear_cache()`` first.
+    hundreds of times: one walk per tree and family per process. A
+    caller that changes the tree underneath itself (a test building a
+    repository in a tmp path) calls ``clear_cache()`` first.
+
+    The default family is the suite-cost one, the shape every caller
+    predating the second marker spelled; the loader asks for each
+    family in turn and the two walks are independent — a reparse
+    marker opens no suite-cost window and vice versa.
     """
-    return _declares(ROOT if root is None else root)
+    return _declares(ROOT if root is None else root,
+                     MARKER_FOR[family], family)
 
 
 def clear_cache() -> None:

@@ -218,7 +218,7 @@ def test_the_marker_is_the_documented_spelling():
     # git-reading module on every loader consumer's import graph.
     assert MARKER == '[suite-cost-re-seed]'
     # pylint: disable-next=protected-access
-    assert reseed._SUITE_COST_FAMILY == thresholds.SUITE_COST_FAMILY
+    assert reseed.SUITE_COST_FAMILY == thresholds.SUITE_COST_FAMILY
 
 
 def test_a_plain_head_declares_nothing(tmp_path):

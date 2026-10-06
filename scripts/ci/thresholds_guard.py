@@ -21,10 +21,12 @@ longer depends on review:
   a hand-add and fails.
 
 Removals and lowers are the bots' own direction and pass, as does the
-one-time seed of a family the base predates, and as does the suite-cost
-family's removal — the sanctioned re-seed's delete step, whose marker
-the loader honors anywhere in the bounded walk's span from HEAD back to
-the last family-present commit (reseed.py), so commits landing on the
+one-time seed of a family the base predates, and as does a cost
+family's removal — the sanctioned re-seed's delete step, whose family
+the loader honors as absent anywhere in the bounded walk's span from
+HEAD back to the last family-present commit (reseed.py), under that
+family's own marker — suite_cost under ``[suite-cost-re-seed]``,
+reparse under ``[reparse-re-seed]`` — so commits landing on the
 delete before the seed read the absence through the delete's marker.
 The truth of seeded values is pinned separately, by the
 committed-document-matches-tree tests, which run on the same merge ref.
@@ -64,7 +66,9 @@ COVERAGE_REMEDY = (
 REPARSE_REMEDY = (
     'A reparse phase budget is never raised by hand: the ratchet only '
     'tightens it downward on master when a cheaper run justifies it, so '
-    'buy headroom by making the reparse cheaper.')
+    'buy headroom by making the reparse cheaper, or by the doctrine\'s '
+    'own-marker re-seed path when a parse-semantics change legitimately '
+    'spends it.')
 BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
     'module, reduce the complexity, or seed a new family through the '
@@ -98,7 +102,11 @@ def _is_core_family(rel):
 
 
 def _load_base(path):
-    """Load a base document, tolerating members it predates.
+    """Load a base document, tolerating members it predates AND members
+    a re-seed window has deleted (the loader admits the absence only on
+    the declaring lineage; the base is master's trusted bytes, so the
+    stand-in is never compared against — the family is not in
+    ``established``).
 
     Returns the normalised document and the members its bytes actually
     carried — a member the base predates is a brand-new one, and its
@@ -117,6 +125,11 @@ def _load_base(path):
     if thresholds.REPARSE_FAMILY in data:
         established.add(thresholds.REPARSE_FAMILY)
     else:
+        # A base that records no reparse budget — the family predates
+        # it, or a [reparse-re-seed] delete merged — takes the stand-in
+        # rather than a family's worth of phases that are not there to
+        # compare. An ASSIGNMENT, not a setdefault: the empty spelling
+        # has the key already, and the phase comparison needs the shape.
         data[thresholds.REPARSE_FAMILY] = {
             phase: dict(record) for phase, record in _ABSENT_REPARSE.items()}
     if data.get(thresholds.SUITE_COST_FAMILY):
@@ -200,7 +213,13 @@ def _reparse_moves(base, head, established):
         return []
     moves = []
     before = base[thresholds.REPARSE_FAMILY]
-    after = head[thresholds.REPARSE_FAMILY]
+    after = head.get(thresholds.REPARSE_FAMILY)
+    if not after:
+        # The head carries no reparse record — the sanctioned delete,
+        # which the loader admits only inside the family's own marker's
+        # window (reseed.py); the family arrives whole in the seed
+        # commit. Nothing to compare against a stand-in's numbers.
+        return []
     for phase in thresholds.REPARSE_PHASES:
         for metric in thresholds.REPARSE_METRICS:
             for field in ('measured', 'floor'):
