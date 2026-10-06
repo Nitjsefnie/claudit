@@ -84,7 +84,9 @@ def _scan_admits(source: str) -> bool:
     in the text, so it admits on the text alone. A version name is an
     attribute id, or a setenv/setattr argument folded into consts; a
     rate-call name is an identifier and admits through co_names, never
-    through prose.
+    through prose. A source that does not compile raises out of the
+    gate: loud by construction, and collection fails on the same file
+    anyway.
 
     Not covered, and unreachable from a flagged shape short of
     steganography: vocabulary spelled only inside a dead branch
@@ -523,8 +525,13 @@ def test_a_prose_rate_or_version_name_is_not_admitted():
     # docstring the name is merely a substring of, can hold nothing
     # detect() flags (the scan is AST-based) and admits no longer:
     # admitting it on raw text was pure parse-and-walk cost. The
-    # code-shape admission is pinned by the seeded-literal tests above
-    # and by test_a_rate_call_admits_with_no_marker_pass.
+    # code-shape admission is pinned by the seeded-literal tests:
+    # test_a_seeded_version_literal_is_flagged_in_a_fresh_file and
+    # test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file. A
+    # source that does not compile raises out of the gate now: the old
+    # text clauses skipped broken files silently, module_vocab's
+    # compile does not — loud, and collection fails on the same file
+    # anyway.
     assert not _scan_admits("x = 1  # then resolve which model answers\n")
     assert not _scan_admits(
         '"""Resolve usage; mentions PARSER_VERSION in prose."""\n'
