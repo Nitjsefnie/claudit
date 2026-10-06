@@ -36,14 +36,13 @@ _UNIT = (Path(__file__).resolve().parent.parent
 # this is the floor below which the shape is wrong, not a second source of truth.
 _MIN_FALLBACK_MARGIN_S = 1.0
 
-# The reap bound test's own arithmetic. A wall-clock bound has TWO margins:
-# the passing path must clear its ceiling, AND the failing (per-child) path
-# must exceed it. So the ceiling is the budget plus slack, never the failing
-# path's cost — a ceiling taken from the mutant spends the red side's whole
-# margin on scheduling jitter and passes on a loaded runner. The slack is
-# sized so three per-child rounds (3 x _REAP_BUDGET_S) still exceed it.
+# The reap bound test's own arithmetic. The bound is pinned STRUCTURALLY,
+# not in wall time: the timeouts the reap passes asyncio.wait_for are
+# recorded at that seam, and must sum to at most one budget — the per-child
+# shape sums to N budgets. The numbers are argument floats, so runner load
+# cannot flip the verdict; a wall ceiling here read 0.61s of runner stall
+# against a 0.5s bound on the Windows leg (issue #736).
 _REAP_BUDGET_S = 0.2
-_REAP_SLACK_S = 0.3
 _WEDGED_CHILDREN = 3
 
 
@@ -291,29 +290,45 @@ async def test_the_terms_the_teardown_uses_sum_to_the_stop_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_reap_bounds_itself_as_a_whole_not_per_child():
+async def test_the_reap_bounds_itself_as_a_whole_not_per_child(monkeypatch):
     """`reap_live_renders(budget_s)` bounds the reap as a whole.
 
     A per-child wait drawn once per live child is what overran the stop
     budget (issue #414): with three wedged children it spends three times
-    the budget and the ingest row close behind it never runs. Every child
-    must still be KILLED -- that is instant and free -- so only the reaping
-    of a wedged one is what the budget governs.
+    the budget and the ingest row close behind it never runs. The bound is
+    read at the asyncio.wait_for seam — the timeouts the reap passes must
+    sum to at most ONE budget however many children are live — because a
+    wall ceiling judged the correct shape on runner load: the Windows leg
+    read 0.61s against a 0.5s bound (issue #736). Every child must still
+    be KILLED — that is instant and free — so only the reaping of a wedged
+    one is what the budget governs.
     """
     children = [_wedged_render() for _ in range(_WEDGED_CHILDREN)]
+    waits: list[float | None] = []
+    real_wait_for = asyncio.wait_for
+
+    async def recording_wait_for(aws, timeout=None, **kwargs):
+        if getattr(aws, "cr_code", None) is _WedgedRender.wait.__code__:
+            waits.append(timeout)
+        return await real_wait_for(aws, timeout, **kwargs)
+
+    monkeypatch.setattr(asyncio, "wait_for", recording_wait_for)
+
     with _live_renders(children):
-        started = time.monotonic()
         # A reap that ignores the budget hangs on the first wedged child;
-        # the ceiling turns that into a failure rather than a hung suite.
+        # the outer bound turns that into a failure rather than a hung suite.
         await asyncio.wait_for(
             api_export.reap_live_renders(_REAP_BUDGET_S), timeout=5.0)
-        elapsed = time.monotonic() - started
 
-    assert elapsed < _REAP_BUDGET_S + _REAP_SLACK_S, (
-        f"{_WEDGED_CHILDREN} wedged children reaped in {elapsed:.2f}s, over the "
-        f"{_REAP_BUDGET_S + _REAP_SLACK_S:.1f}s ceiling for a whole reap: the "
-        f"wait is bounded per CHILD, so N live renders spend N times the stop "
-        f"budget's share (issue #414)")
+    assert waits, (
+        "the reap issued no bounded wait at all: a budget that never waits "
+        "is the shape the companion test below exists to catch, and an "
+        "empty recording would pass the sum here for free")
+    waited = sum(t for t in waits if t is not None)
+    assert waited <= _REAP_BUDGET_S, (
+        f"the reap's bounded waits summed to {waited:.2f}s against a "
+        f"{_REAP_BUDGET_S}s budget: the wait is bounded per CHILD, so N live "
+        f"renders spend N times the stop budget's share (issue #414)")
     assert all(child.killed for child in children), (
         "every live child must be killed even when the budget is gone")
 
