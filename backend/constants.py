@@ -120,6 +120,10 @@ PRICING_VERSION = "237"
 # 5 -- the replayed-model adoption pass (issue #713): a losing replayed
 #     copy takes its uuid's original's model. Rewrites stored records, so
 #     one complete derived rebuild, no reparse.
+# 6 -- the rollup grains carry the stored model, not a masked `unknown`
+#     (issue #686): usage_rollup and latency_rollup group by raw
+#     r.model, matching the live pass. Rollup SQL semantics only, so
+#     one complete derived rebuild, no reparse.
 DERIVED_STATE_VERSION = "6"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
