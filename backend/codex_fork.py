@@ -59,17 +59,19 @@ def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     """
     is_fork = False
     if b'"forked_from_id"' in blob:
-        i = blob.find(b'"session_meta"')
-        if i >= 0:
-            raw, _s, _e = _line_at(blob, i)
+        j = blob.find(b'"session_meta"')
+        while j >= 0:
+            raw, _s, end = _line_at(blob, j)
+            j = blob.find(b'"session_meta"', end)
             try:
                 obj = loads(raw)
             except JSONDecodeError:
-                obj = None
-            is_fork = (isinstance(obj, dict)
-                       and obj.get("type") == "session_meta"
-                       and bool(_nonempty_str(
-                           as_dict(obj.get("payload")).get("forked_from_id"))))
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "session_meta":
+                continue  # a needle mention advances; the first META decides
+            is_fork = bool(_nonempty_str(
+                as_dict(obj.get("payload")).get("forked_from_id")))
+            break
 
     first_model: str | None = None
     declared_at: int | None = None
@@ -96,7 +98,10 @@ def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
         else:
             continue
         if name:
-            first_model, declared_at = str(name), blob.count(b"\n", 0, start) + 1
+            # The boundary counts lines the way the parse loop's
+            # splitlines() does, so a lone \r inside an earlier line
+            # cannot push a replayed row past the boundary.
+            first_model, declared_at = str(name), len(blob[:start].splitlines()) + 1
             break
     return first_model, is_fork, declared_at
 

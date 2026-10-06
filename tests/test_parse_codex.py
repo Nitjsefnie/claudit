@@ -30,6 +30,7 @@ import json
 import pytest
 
 from backend import parse, pricing
+from backend.codex_fork import head_scan
 from backend.parse_codex import _codex_first_declared_model, _codex_model
 
 
@@ -629,3 +630,23 @@ TOOL_USE_KEYS = {
 # --------------------------------------------------------------------------
 # Shell churn inside the JS program
 # --------------------------------------------------------------------------
+
+def test_the_fork_head_advances_and_counts_like_the_parse_loop():
+    """Two codex_fork.head_scan edges (issue #687 delta round): a line
+    that merely MENTIONS the session_meta needle (here a JSON string
+    value) advances - the first session_meta line decides - and the
+    boundary counts lines the way the parse loop's splitlines() does, so
+    a lone CR inside an earlier line cannot push a replayed row past it."""
+    meta = b'{"timestamp":"t","type":"session_meta","payload":{"session_id":"s",'
+    meta += b'"id":"t1","forked_from_id":"t0"}}'
+    mention = (b'{"timestamp":"t","type":"event_msg","payload":{"type":'
+               b'"agent_message","message":"roles: [\"session_meta\"]"}}')
+    cr_line = (b'{"timestamp":"t","type":"event_msg","payload":{"type":'
+               b'"token_count","info":{}}}\r{"tail"}\n')
+    decl = b'{"timestamp":"t","type":"turn_context","payload":{"model":"gpt-5.6-terra"}}'
+    blob = mention + b"\n" + meta + b"\n" + cr_line + decl + b"\n"
+    first_model, is_fork, declared_at = head_scan(blob)
+    assert is_fork is True          # the mention advanced; the meta decided
+    assert first_model == "gpt-5.6-terra"
+    # splitlines numbering: the CR line is lines 3-4, the declaration line 5.
+    assert declared_at == 5
