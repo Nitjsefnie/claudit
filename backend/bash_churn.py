@@ -3,9 +3,7 @@
 Literal heredocs, diffs, Python edits, printf/echo output and supported sed
 payloads contribute their declared line counts. Python replacements count
 one occurrence, old diffed against new (`replace_churn`), without discovering
-match counts or asserting that a successful command changed the file. Recognized writes with unknown addition
-sizes contribute one added line per Bash call only when no additions were
-already counted. Known empty/no-addition operations remain zero additions;
+match counts or asserting that a successful command changed the file. Recognized writes with unknown addition sizes contribute one added line per Bash call only when no additions were already counted. Known empty/no-addition operations remain zero additions;
 overwrite/copy deletions remain unknown and contribute zero.
 
 Read-only commands, null sinks and opaque script invocations are not file-write
@@ -23,7 +21,8 @@ import warnings
 from dataclasses import dataclass
 
 from backend.bash_dash_c import _PYTHON_STDIN, _dash_c_sources
-from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, effects_from_tokens, shell_tokens
+from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, shell_tokens
+from backend.bash_effects import effects_from_tokens
 from backend.bash_loops import heredoc_repeats
 
 # Commands longer than this are pathological (a base64 blob, a giant

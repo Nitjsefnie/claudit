@@ -40,9 +40,10 @@ from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
 from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    MAX_NESTED_GROUP_DEPTH,
                                    _capture_split, _matching_paren,
-                                   _segments, _split_redirects)
-from backend.bash_literals import (ShellWord, destination_paths, literal_path,
-                                   perl_paths, sed_parts)
+                                   _segments, _split_redirects,
+                                   _unmatched_close)
+from backend.bash_literals import ShellWord, literal_path
+from backend.bash_effects import destination_paths, perl_paths, sed_parts
 from backend.bash_directories import directory_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
@@ -123,6 +124,9 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
     it: the builtin's remaining words are identifier arguments bash
     rejects, never a command that runs, so `export cat f.py` refuses the
     whole segment (None) instead of reading `cat` as the command word.
+    Its option flags (`local -r`, `declare -rx`, `--`) are transparent
+    (#770): skipped like the builtin, so a chained assignment behind
+    them still carries into the capture's inner scan.
     """
     idx = 0
     builtin_lead = False
@@ -130,12 +134,11 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
         tok = segment[idx]
         if tok in _DECLARATION_BUILTINS and "=" not in tok:
             builtin_lead = True
-            nxt = segment[idx + 1] if idx + 1 < len(segment) else None
-            if nxt is not None and _ASSIGN.match(nxt) is not None:
-                idx += 1
-                continue
             idx += 1
-            break
+            continue
+        if builtin_lead and tok.startswith("-"):
+            idx += 1
+            continue
         if tok.startswith("-") or "=" not in tok.split("/")[0]:
             break
         m = _ASSIGN.match(tok)
@@ -330,10 +333,14 @@ class _Scan:
         The group's stdout is not captured, so unlike a capture its
         intake books. A redirect on the closing paren books its target;
         words after the close would not parse in bash at all, so they
-        refuse the whole group. A body that is exactly one nested group
-        refuses too: `(( … ))` is bash's arithmetic command unless its
-        body re-lexes as a subshell, which tokens cannot decide, so the
-        ambiguous spelling books nothing rather than inventing a target.
+        refuse the whole group. An adjacent `((` books nothing only when
+        the construct's parens balance — close doubled, expression free
+        of an unmatched `)`: that is the one spelling bash terminates as
+        its arithmetic command, whose `>` compares rather than redirects.
+        An expression carrying an unmatched `)` — or an undoubled close —
+        never balances, and bash re-lexes and RUNS the construct as
+        nested subshells; the general body scan below models exactly
+        that, bounded by the same depth guard as any other group.
         """
         if self.depth >= MAX_NESTED_GROUP_DEPTH:
             return
@@ -341,8 +348,9 @@ class _Scan:
         if close is None:
             return
         body = raw_segment[1:close]
-        if (body and getattr(body[0], "operator", False) and body[0] == "("
-                and _matching_paren(body, 0) == len(body) - 1):
+        if (getattr(raw_segment[0], "double_paren", False)
+                and getattr(raw_segment[close], "double_paren", False)
+                and not _unmatched_close(raw_segment[2:close - 1])):
             return
         try:
             tail_operands, tail_writes, tail_inputs = _split_redirects(
