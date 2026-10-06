@@ -94,6 +94,28 @@ def test_the_bench_action_measures_and_gates():
     assert lines[-1] == CHECK_CMD
 
 
+def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
+    """The command strings above quote `"$MEASUREMENT"`, so both steps
+    read one variable -- but nothing pinned what that variable is BOUND
+    to (issue #728, the #712 twin): an edit pointing a step's env at a
+    file the measuring step never wrote keeps this suite green while
+    the gate passes on whatever is at the second path, which on a
+    fresh runner is nothing at all.
+    """
+    action = yaml.load(
+        (ROOT / ".github" / "actions" / "suite-bench" / "action.yml")
+        .read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+    misbound = [
+        step.get("name", "<unnamed>")
+        for step in action["runs"]["steps"]
+        if "run" in step
+        and step.get("env", {}).get("MEASUREMENT") != "${{ inputs.measurement }}"
+    ]
+    assert not misbound, (
+        "these run steps bind MEASUREMENT to anything other than the "
+        f"action's measurement input: {misbound}")
+
+
 def test_speed_yml_is_gone():
     # The fold (issue #515): one bench pass per ci-gate run, in the
     # tests canary; a second workflow to run it again is a regression.
