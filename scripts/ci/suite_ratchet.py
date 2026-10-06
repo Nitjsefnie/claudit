@@ -192,7 +192,11 @@ def seed(data, counts, identity=None):
     beside the budgets when the reading carries one, so the committed
     seed names the workload it measured.
     """
-    if data.get(_family):
+    if _family in data:
+        # PRESENCE, never emptiness: `"suite_cost": {}` is the family
+        # PRESENT and malformed, and replacing it is the hand-raise's
+        # doorway whatever its (broken) shape (issue #705; the reparse
+        # writer carries the same test — issue #703).
         raise ValueError(
             f'{_family} is already recorded: seeding would overwrite '
             'recorded budgets. Delete the stale member under the '
@@ -226,7 +230,12 @@ def load_for_seed(path):
     absent, which is the one state seed() accepts.
     """
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    if data.get(_family):
+    # PRESENCE, never emptiness, the loader's own rule (issue #705):
+    # `"suite_cost": {}` is a family PRESENT and malformed — the loader
+    # refuses it and the seed must not quietly replace it. A falsy test
+    # would read the decoy as the absent family only the marked delete
+    # may produce.
+    if _family in data:
         return thresholds.load(path), False
     return data, True
 
