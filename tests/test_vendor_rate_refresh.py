@@ -547,7 +547,7 @@ def test_notice_leaves_an_existing_row_and_member_untouched():
                        overrides=[{"utc_days": ["monday"], "utc_start": 0,
                                    "utc_end": 100, "prompt": _per_token(1.0),
                                    "completion": _per_token(5.0)}])
-    before, out1 = _run(
+    before, _ = _run(
         _doc(members=[], models={}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
     assert GPT_KEY in before["models"] and GPT_KEY in before["long_context_models"]
