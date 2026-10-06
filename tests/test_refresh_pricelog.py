@@ -509,6 +509,23 @@ def test_a_server_error_gets_its_retry(monkeypatch):
     assert sleeps == [pricelog.FETCH_BACKOFF_S]
 
 
+def test_the_final_attempt_still_returns_instead_of_raising(monkeypatch):
+    """Both sides of the attempt boundary: exhaustion raises after
+    FETCH_ATTEMPTS - 1 backs off, and a success ON the last attempt is
+    returned, not mistaken for one failure too many."""
+    sleeps: list[float] = []
+
+    payload = _fetch_with(
+        monkeypatch,
+        [TimeoutError("The read operation timed out"),
+         TimeoutError("The read operation timed out"),
+         b'{"data": []}'],
+        sleeps)
+
+    assert payload == {"data": []}
+    assert sleeps == [pricelog.FETCH_BACKOFF_S, pricelog.FETCH_BACKOFF_S * 2]
+
+
 def test_an_empty_body_is_retried_as_transient(monkeypatch):
     """An empty HTTP 200 is a broken transfer, not a catalog of zero
     models — the same reasoning _catalog_slugs applies to an empty list."""
