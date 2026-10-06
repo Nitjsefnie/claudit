@@ -632,8 +632,8 @@ def _slug(title: str) -> str:
     return "panel_" + _SLUG_RUNS.sub("_", title.lower()).strip("_")
 
 
-def _panel_terms() -> set[str]:
-    """The `panel_` terms the dashboard's own sources can emit: every
+def _panel_titles() -> set[str]:
+    """The raw `data-panel` names the dashboard's sources can emit: every
     `data-panel` literal in src/, plus every `title=` prop the chart
     components are mounted with. Read from the shipped sources, not
     restated, so a panel added or renamed without the vocabulary change
@@ -648,7 +648,12 @@ def _panel_terms() -> set[str]:
         src = (_ROOT / name).read_text(encoding="utf-8")
         titles |= set(re.findall(
             rf"<window\.{_PANEL_CHARTS}\b[^>]*?title=\"([^\"]+)\"", src))
-    return {_slug(t) for t in titles}
+    return titles
+
+
+def _panel_terms() -> set[str]:
+    """The titles folded to their `panel_` terms."""
+    return {_slug(t) for t in _panel_titles()}
 
 
 def test_the_panel_terms_are_derived_from_the_panel_sources():
@@ -660,6 +665,12 @@ def test_the_panel_terms_are_derived_from_the_panel_sources():
     refused batch in production."""
     panel = {r for r in web_metrics.REGIONS
              if r.startswith("panel_") and r not in web_metrics.FIXED_REGIONS}
+    # The runtime contract is RAW-STRING: the client clamps on the exact
+    # title (PANELS.indexOf), so a drift the slug fold hides -- a case or
+    # punctuation change -- would pass the term equality below and
+    # silently degrade a panel's shifts to panel_grid. Pin the raw set
+    # too, against the extracted DOM titles.
+    assert _panel_titles() == set(_client_table("PANELS"))
     derived = _panel_terms()
     assert derived == panel, (
         f"panel sources and REGIONS disagree: sources-only "
