@@ -1099,14 +1099,14 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       </>)}
 
       {/* Self-fetching panels: mounted regardless of dashboard data, and
-          BELOW every data-gated block (#643). Each of these fills when its
-          own response lands; until the first /api/dashboard resolves they
-          lay out at their final heights but paint nothing (the visibility
-          wrapper above), so the data arrival and their own fills move
-          nothing that was ever painted. */}
+          BELOW every data-gated block (#643); its sections stack with
+          .dashboard's own 14px flex gap (#772) — a plain block wrapper
+          holds its content out of the gap context, flush.  Each fills
+          when its own response lands; until the first /api/dashboard
+          resolves they lay out at final heights, painting nothing. */}
       {backendOn && (
-        <div style={dashLoading && !everLoaded.current
-          ? { visibility: 'hidden' } : undefined}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14,
+          ...(dashLoading && !everLoaded.current ? { visibility: 'hidden' } : {}) }}>
         <div className="dash-tools">
           <window.ToolUsagePanel
             models={models}
