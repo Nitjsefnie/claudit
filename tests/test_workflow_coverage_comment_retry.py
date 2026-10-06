@@ -24,7 +24,8 @@ network; `sleep` is shadowed and its schedule read from the log)
 - a retried attempt's stdout is buffered and emitted only on success,
   so a `--paginate` call that dies after emitting one page cannot splice
   a partial page into the output a later attempt returns;
-- the wrapper exits with the last attempt's status.
+- the wrapper fails when every attempt fails, whatever the attempts'
+  individual exit statuses.
 
 THE POST STEP (proven by executing the step's actual script against a
 fake `gh` that keeps state)
@@ -186,10 +187,11 @@ class TestSharedHelper:
     def test_the_post_loop_re_lists_before_every_attempt(self):
         run = _run(POST_STEP)
         assert "attempts=3" in run
-        # The re-list happens inside the bounded loop: the listing call
+        # The re-list happens inside the bounded loop: the listing CALL
+        # (not the pin's own failure echo, which names the same string)
         # is textually after the loop's opening and before the POST.
         loop_at = run.index("attempt=1")
-        listing_at = run.rindex("listing the comments on")
+        listing_at = run.index('api_retry "listing the comments on')
         post_at = run.index("gh api -X POST")
         assert loop_at < listing_at < post_at
 
