@@ -287,18 +287,6 @@ def test_token_breakdown_drops_its_cost_bar_when_the_range_is_free():
     assert "hasCost" not in src[max(0, tokens_idx - 200):tokens_idx]
 
 
-def test_cost_by_agent_is_hidden_when_the_range_is_free():
-    """Same rule as Cost by Model, in the panel that owns its own fetch:
-    with every bar at $0 the card is a list of zeros, so it is dropped —
-    while Tokens by Agent Type, which measures tokens, still renders."""
-    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    idx = src.index('title="Cost by Agent Type"')
-    assert "total > 0 && (" in src[max(0, idx - 200):idx]
-    tokens = src.index('title="Tokens by Agent Type"')
-    assert "rows={tokenBars}" in src[tokens:tokens + 200]
-    assert "total > 0 && (" not in src[max(0, tokens - 120):tokens]
-
-
 def test_activity_heatmap_drops_its_cost_metric_when_the_range_is_free():
     """The heatmap's metric toggle offers cost; on a free lane every cell
     is $0, so the button is filtered out and the default metric falls

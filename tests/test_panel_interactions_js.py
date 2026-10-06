@@ -384,6 +384,21 @@ def test_the_expand_toggle_gates_on_the_collapsed_fold():
         "spelling that unmounts the expanded toggle")
 
 
+def test_cost_by_agent_is_hidden_when_the_range_is_free():
+    """Moved from test_panel_wiring.py with its subject: the agent panel
+    now lives in src/cost-by-agent-panel.jsx (#651). Same rule as Cost
+    by Model, in the panel that owns its own fetch: with every bar at
+    $0 the cost list is a list of zeros, so it is dropped, while
+    Tokens by Agent Type, which measures tokens, still renders."""
+    src = (ROOT / "src" / "cost-by-agent-panel.jsx").read_text(
+        encoding="utf-8")
+    idx = src.index('title="Cost by Agent Type"')
+    assert "total > 0 && (" in src[max(0, idx - 200):idx]
+    tokens = src.index('title="Tokens by Agent Type"')
+    assert "rows={tokenCap.rows}" in src[tokens:tokens + 200]
+    assert "total > 0 && (" not in src[max(0, tokens - 120):tokens]
+
+
 def test_the_agent_panel_modules_are_loaded_by_the_page():
     """A script tag someone drops fails no layout check -- the guard
     counts the panels that render, never the ones that should -- so the
