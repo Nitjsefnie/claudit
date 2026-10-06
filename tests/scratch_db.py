@@ -30,7 +30,10 @@ STALE_AFTER_S = 6 * 3600
 # Every schema file, in the order db.SCHEMA_PATHS applies them. A test
 # database missing a table the app reads fails in a way that looks like a
 # product bug, so the fixture applies the whole schema and not just its
-# first file (issue #436 added the second, #469 the third).
+# first file (issue #436 added the second, #469 the third). Equal to
+# backend.schema_files.SCHEMA_PATHS, element for element:
+# test_the_scratch_schema_lists_every_schema_files_path fails the change
+# that drops one.
 SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_web_metrics.sql",
