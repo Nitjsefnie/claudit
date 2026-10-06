@@ -142,7 +142,7 @@ def _bash(tmp_path, bin_dir, script, log):
     }
     return subprocess.run(
         ["bash", "-c", script], cwd=tmp_path, env=env,
-        capture_output=True, text=True)
+        capture_output=True, text=True, check=False)
 
 
 def _call_log(log):
@@ -227,7 +227,7 @@ echo "final output"
         }
         proc = subprocess.run(
             ["bash", "-c", driver], cwd=tmp_path, env=env,
-            capture_output=True, text=True)
+            capture_output=True, text=True, check=False)
         sleeps = sleep_log.read_text(encoding="utf-8").split() \
             if sleep_log.exists() else []
         calls = _call_log(log)
@@ -294,7 +294,7 @@ class TestPostStep:
         }
         proc = subprocess.run(
             ["bash", "-c", script], cwd=tmp_path, env=env,
-            capture_output=True, text=True)
+            capture_output=True, text=True, check=False)
         return proc, _call_log(log)
 
     # The fake gh's listing answer: with $FAKE_STATE/landed present, the
@@ -371,7 +371,7 @@ exit 1
 
     def test_a_permanently_failing_listing_fails_bounded(
             self, tmp_path):
-        fake = f'''#!/bin/bash
+        fake = '''#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 exit 1
 '''
