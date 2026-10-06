@@ -25,8 +25,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import (api, app as app_mod, constants, db, events, ingest,
-                     ingest_fetch, ingest_runs, timing)
+from backend import (api, app as app_mod, blob_cache, constants, db, events,
+                     ingest, ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
 
 #: How many transcripts the committed mirror holds, read from its tree
@@ -433,7 +433,7 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 
 # ------------------------------------------ parse-worker signal hygiene (#373)
 
-def _noop_parse(key, _sidecar_key=None):
+def _noop_parse(key, _sidecar_key=None, _etag=None, _size=None):
     """A parse unit with no side effects, for pipeline plumbing tests."""
     return {}
 
@@ -527,7 +527,8 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
     monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
     monkeypatch.setattr(ingest_fetch, "persist_thread_count", lambda: 1)
     todo = [(types.SimpleNamespace(key=f"chunk/first-{i}.jsonl",
-                                   sidecar_key=None), None, None)
+                                   sidecar_key=None, etag="e", size=1), None,
+             None)
             for i in range(5)]  # chunk is processes*4 = 4: 4 + 1 items
     box: dict = {}
 
@@ -591,9 +592,10 @@ def test_parse_wire_books_child_stages(monkeypatch):
     assert bare_call == parsed, "the bare call must behave exactly as before"
 
     item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key=None), None, None)
+                                  sidecar_key=None, etag="e1", size=8),
+            None, None)
 
-    def parse_call(key, sidecar_key):
+    def parse_call(key, sidecar_key, etag=None, size=None):
         return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch,
                                             parse_file)
 
@@ -603,13 +605,14 @@ def test_parse_wire_books_child_stages(monkeypatch):
     assert wired_parsed == parsed
     assert set(wired_stages) == set(stages)
 
-    def sidecar_call(key, sidecar_key):
+    def sidecar_call(key, sidecar_key, etag=None, size=None):
         return ingest_fetch.fetch_and_parse(
             key, sidecar_key, lambda k: b"main-bytes",
             lambda k, d: {"agent_type_in_band": False, "data": d})
 
     item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key="sc"), None, None)
+                                  sidecar_key="sc", etag="e1", size=8),
+            None, None)
     result = ingest_fetch.parse_wire(item, sidecar_call, True)
     assert isinstance(result, tuple)
     sc_parsed, sc_stages = result
@@ -619,3 +622,90 @@ def test_parse_wire_books_child_stages(monkeypatch):
                               "child_parse", "child_sidecar"}
     bare = ingest_fetch.parse_wire(item, sidecar_call, False)
     assert isinstance(bare, dict)
+
+
+# --------------------------------------- the disk blob cache (#684)
+
+def test_fetch_and_parse_forwards_the_listing_identity_only_when_cached(
+        monkeypatch, tmp_path):
+    """The etag/size pair travels to the fetch callable only when the
+    deploy enabled the blob cache: with it off (the suite's default), the
+    original fetch(key) shape is spoken and a patched single-arg fetch
+    callable keeps working."""
+    calls: list[tuple] = []
+
+    def fetch(key, *rest):
+        calls.append((key, rest))
+        return b"payload"
+
+    def parse_file(key, data):
+        return {"agent_type_in_band": True, "data": data}
+
+    ingest_fetch.fetch_and_parse("k", None, fetch, parse_file,
+                                 etag="e1", size=8)
+    assert calls == [("k", ())]
+
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    ingest_fetch.fetch_and_parse("k", None, fetch, parse_file,
+                                 etag="e1", size=8)
+    assert calls[-1] == ("k", ("e1", 8))
+
+
+def test_fetch_and_parse_answers_a_cache_hit_without_a_fetch(
+        monkeypatch, tmp_path):
+    """The money path: a cached (key, etag) parses identically with the
+    object's file gone from the mirror — the GET never happened."""
+    mirror = tmp_path / "claude" / "p" / "s"
+    mirror.mkdir(parents=True)
+    body = b"x\n"
+    (mirror / "w.jsonl").write_bytes(body)
+    monkeypatch.setenv("R2_ENDPOINT", f"{(tmp_path).as_uri()}/")
+    monkeypatch.setenv("R2_BUCKET", "claude")
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    key = "claude/p/s/w.jsonl"
+    # The real fetch callable, no spy: the consult sits below it, inside
+    # r2.get_object, so "no second fetch" is proven by the second call
+    # succeeding with the object's file GONE — only a cache hit can.
+    def parse_file(key, data):
+        return {"agent_type_in_band": True, "data": data}
+
+    first = ingest_fetch.fetch_and_parse(
+        key, None, ingest_fetch.fetch_with_retry, parse_file,
+        etag="e1", size=len(body))
+    (mirror / "w.jsonl").unlink()
+    second = ingest_fetch.fetch_and_parse(
+        key, None, ingest_fetch.fetch_with_retry, parse_file,
+        etag="e1", size=len(body))
+    assert second == first
+
+
+def test_parse_wire_passes_the_listing_identity():
+    """The pool child's unit carries the item's etag/size to the parse
+    seam, whatever the seam does with them."""
+    recorded: list[tuple] = []
+
+    def parse_call(key, sidecar_key, etag=None, size=None):
+        recorded.append((key, sidecar_key, etag, size))
+        return {}
+
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
+                                  sidecar_key=None, etag="e9", size=7),
+            None, None)
+    ingest_fetch.parse_wire(item, parse_call, False)
+    assert recorded == [("claude/p/s/k.jsonl", None, "e9", 7)]
+
+
+def test_ingest_run_populates_and_prunes_the_blob_cache(
+        fresh_db, mini_r2_env, monkeypatch, tmp_path):
+    """The run wiring: fetches store entries and the run ends with a
+    prune, so the cache on a live meter stays under its cap without a
+    separate sweeper."""
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("R2_BLOB_CACHE", str(cache_dir))
+    pruned: list[int] = []
+    monkeypatch.setattr(blob_cache, "prune",
+                        lambda *a, **k: pruned.append(1) or 0)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["failed"] == 0
+    assert pruned == [1]
+    assert any(cache_dir.rglob("*")), "the run's fetches stored nothing"
