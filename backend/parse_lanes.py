@@ -179,7 +179,7 @@ def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
         if not row.get("model") or row["model"] in ("unknown", "(unknown)"):
             raise ValueError(
                 f"{file_key}: a {fmt} row names no model; refusing the file "
-                "rather than storing an unattributed one (issue #653)")
+                "rather than storing an unattributed one (issue #653, #688)")
     return parsed
 
 
@@ -254,7 +254,7 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         tu["is_reread"] = None
     out = dict(parsed)
     out["prompt_count"] = parsed.get("prompt_count") or 0
-    out["models"] = sorted({r["model"] for r in parsed["records"]})
+    out["models"] = sorted(filter(None, {r["model"] for r in parsed["records"]}))  # None dropped: refused rows never store (issue #688)
     # files.agent_type is NOT NULL; lane_agent_type never returns None.
     role = out.pop("agent_role", None)
     out["agent_type"] = lane_agent_type(fmt, role)
