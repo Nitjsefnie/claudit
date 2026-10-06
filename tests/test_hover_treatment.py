@@ -137,13 +137,23 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     # crosshair does not.
     for name, src, snaps in (
         ("ResponseSizesPanel", rs, ["cx: xScale(best.ts),"]),
-        ("ToolUsagePanel", tu, ["cx: xScale(grid.ts[bIdx]),"]),
+        ("ToolUsagePanel", tu, [("cx: xScale(grid.ts[bIdx]),", 2)]),
         ("ReplyLatencyPanel", rl,
          ["cx: xScale(best.ts),", "cx: xScale(bestO.tsMs),"]),
     ):
         assert _crosshair_x1(src, name) == "tip.cx", (
             f"{name}: the crosshair must read the snapped cx, not the cursor")
         for snap in snaps:
-            assert snap in src, (
-                f"{name}: no snap computation for {snap!r} -- the tip must "
-                f"carry the datum's x the crosshair draws at")
+            if isinstance(snap, tuple):
+                # Both branches of this panel's hover handler snap: the
+                # "Other" band and a promoted tool. One branch alone
+                # satisfying a membership pin leaves the other branch's
+                # crosshair at x=0.
+                expr, n = snap
+                assert src.count(expr) == n, (
+                    f"{name}: expected {expr!r} at exactly {n} site(s), "
+                    f"found {src.count(expr)}")
+            else:
+                assert snap in src, (
+                    f"{name}: no snap computation for {snap!r} -- the tip must "
+                    f"carry the datum's x the crosshair draws at")
