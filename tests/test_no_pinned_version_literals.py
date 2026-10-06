@@ -73,17 +73,18 @@ def _scan_admits(source: str) -> bool:
     The fail-closed gate that keeps this file's tree scan (issue #510)
     from walking every unrelated module: every clause admits a strict
     superset of the shapes detect()/check() flag, so a skip only saves
-    the walk, never hides a site. A marker comment carries
-    ``sv-test-data`` verbatim in the text, and a rate call's name is an
-    identifier, so both are admitted on the text alone. A version name
-    is an attribute id, a string constant, or a setenv/setattr
-    argument — verbatim in text when spelled plainly, folded into
-    ``co_consts`` (which resolve both splits and escapes) when not,
-    where the clause compares it by equality, the way its shapes do.
-    The committed-document reference is an attribute id or a module
-    path-bind constant: verbatim in text, folded into consts, or
-    carried as a SUBSTRING of a longer constant, matched the way
-    detect matches it.
+    the walk, never hides a site. Admission is compile-level vocabulary
+    (tests/scan_gate) — identifiers land verbatim in ``co_names``
+    (splitting and escaping are impossible for identifiers) and string
+    constants fold into ``co_consts`` (both splits and escapes resolve
+    there), so a prose occurrence of a guarded name — a comment, or a
+    longer docstring the name is merely a substring of — is skipped:
+    every flagged shape is code, and its vocabulary is visible where
+    the gate looks. A marker comment carries ``sv-test-data`` verbatim
+    in the text, so it admits on the text alone. A version name is an
+    attribute id, or a setenv/setattr argument folded into consts; a
+    rate-call name is an identifier and admits through co_names, never
+    through prose.
 
     Not covered, and unreachable from a flagged shape short of
     steganography: vocabulary spelled only inside a dead branch
@@ -92,16 +93,15 @@ def _scan_admits(source: str) -> bool:
     """
     if "sv-test-data" in source:
         return True
-    if ("pricing.json" in source or "PRICING_JSON" in source
-            or any(v in source for v in VERSION_NAMES)
-            or any(r in source for r in RATE_CALL_NAMES)):
-        return True
     consts, names = scan_gate.module_vocab(source)
-    # Each consts/names clause matches the way its shape matches: the
-    # version names by equality (setattr/setenv compare the whole
-    # argument), the path bind by substring (detect folds a substring
-    # test over the value), the module reference by attribute name.
+    # Each clause matches the way its shape matches: the version names
+    # by membership (setattr/setenv compare the whole argument), the
+    # rate-call names by membership in names (the call's function is
+    # an identifier), the path bind by substring (detect folds a
+    # substring test over the value), the module reference by
+    # attribute name.
     return (any(v in consts or v in names for v in VERSION_NAMES)
+            or any(r in names for r in RATE_CALL_NAMES)
             or any("pricing.json" in c for c in consts)
             or "PRICING_JSON" in names)
 
@@ -515,3 +515,17 @@ def test_a_site_free_marker_free_module_is_not_tokenized(monkeypatch):
     assert check(marked) == [
         "line 3: sv-test-data marker on a line with no flagged site "
         "(marker rot)"]
+
+
+def test_a_prose_rate_or_version_name_is_not_admitted():
+    # Issue #679: admission is compile-level — an identifier lands in
+    # co_names and a string constant in co_consts, so a comment, or a
+    # docstring the name is merely a substring of, can hold nothing
+    # detect() flags (the scan is AST-based) and admits no longer:
+    # admitting it on raw text was pure parse-and-walk cost. The
+    # code-shape admission is pinned by the seeded-literal tests above
+    # and by test_a_rate_call_admits_with_no_marker_pass.
+    assert not _scan_admits("x = 1  # then resolve which model answers\n")
+    assert not _scan_admits(
+        '"""Resolve usage; mentions PARSER_VERSION in prose."""\n'
+        "x = 1\n")
