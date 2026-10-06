@@ -506,6 +506,22 @@ def test_bash_subshell_group_books_targets():
     assert tool["write_targets"] == ["/work/b.txt", "/work/c.txt"]
 
 
+def test_bash_declaration_flag_capture_books_write_target():
+    """#770: option flags after a declaration builtin are transparent to
+    the capture scan, so a flagged capture books its inner writes."""
+    out = parse.parse_file(
+        "k/sess-dfc/sess-dfc.jsonl", _read("bash_declaration_flag_capture.jsonl"))
+    assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
+
+
+def test_bash_nested_subshell_books_write_target():
+    """#771: parens spaced apart are a real nested subshell, scanned
+    like any other group; only the unspaced `((` stays refused."""
+    out = parse.parse_file(
+        "k/sess-nss/sess-nss.jsonl", _read("bash_nested_subshell.jsonl"))
+    assert out["tool_uses"][0]["write_targets"] == ["/work/deep.txt"]
+
+
 def test_agent_type_from_attribution_agent():
     """A dispatched agent's transcript carries attributionAgent."""
     out = parse.parse_file(

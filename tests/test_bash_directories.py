@@ -120,6 +120,17 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("export d=$(mktemp -d /tmp/p.XX) extra", []),
     ("res=$((x > y))", []),  # arithmetic expansion, not a group write
     ("export T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    # Issue #770: a builtin's option flags are as transparent to the
+    # capture scan as the bare builtin is since #747.
+    ("local -r d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("declare -x d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("local -rx d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("readonly -a arr=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("declare -A map=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("local -n ref=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("declare -- d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("local -r d=\"$(mktemp '/tmp/p(1).XX')\"", ["/tmp/p(1).XX"]),
+    ("declare -r T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
 ])
 def test_captured_substitution_templates_are_write_targets(command, expected):
     assert scan(command, "/work")[2] == expected
@@ -155,6 +166,14 @@ def test_directory_targets_join_file_writes_in_order():
     ("local -a arr=(x y)", (None, [], [])),
     # A bare assignment list behind the builtin still carries.
     ("export T=/tmp; cat $T/f.py", ("whole", ["/tmp/f.py"], [])),
+    # Issue #770 negative space: the flags stay transparent on the
+    # still-refusing arms too — a capture behind them books no intake,
+    # a plain assignment behind them invents no target, and a flag
+    # followed by a non-assignment still refuses the segment.
+    ("local -r f=$(cat a.py)", (None, [], [])),
+    ("local -r x=plain.txt", (None, [], [])),
+    ("export -f myfunc", (None, [], [])),
+    ("declare -r x=1 cat f.py", (None, [], [])),
 ])
 def test_declaration_builtin_args_are_not_commands(command, expected):
     """#747 review: the builtin's non-assignment words are identifier
