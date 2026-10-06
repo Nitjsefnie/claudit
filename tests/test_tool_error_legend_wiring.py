@@ -32,6 +32,12 @@ def test_tool_error_legend_strips_follow_the_below_chart_convention():
     after the chart whatever the JSX order) and a TOP border, because the
     strip now sits under the chart. The header keeps the panel's one
     bottom border — a second one belongs to a strip painted above it.
+
+    The counts read the whole file with only `//` comments stripped, so
+    the pin stays exact only while JSX prose avoids the pinned literals:
+    never write the spellings this file counts — `order: 99`, `borderTop`,
+    `borderBottom` — inside a `{/* */}` block comment here, where the
+    stripper cannot see them; say "order 99" instead.
     """
     src = _strip_line_comments(TOOL_ERROR.read_text(encoding="utf-8"))
     assert src.count("order: 99") == 2, (
