@@ -16,11 +16,12 @@ The crosshair guards pin WHERE the dashed vertical is drawn: at the x of
 the datum the tooltip describes -- the bucket/bar centre on a bucketed
 panel, the interpolated point on a line panel -- never at the raw
 cursor. Cursor-following is the TOOLTIP's job; a crosshair at tip.x
-describes nothing (issue #697). The sweep behind the enumeration is
-complete over src/ as of this fix: the eight hover crosshairs in served
-sources are the six below plus ToolErrorRatePanel and the context-growth
-ComparisonRow, all eight guarded here. A NINTH crosshair arriving in a
-new file is not covered -- the guards are per-file lists, not a tree
+describes nothing (issue #697). The enumeration is complete over src/ as
+of this fix: the NINE hover crosshairs in served sources are the six
+below plus ToolErrorRatePanel, the context-growth ComparisonRow, and
+ContextGrowthView's (src/context-growth-view.jsx, already snapped to
+xScale(hoverIdx)), all nine guarded here. A tenth crosshair arriving in
+a new file is not covered -- the guards are per-file lists, not a tree
 scan -- so a new panel with a dashed vertical extends these lists.
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
 TOOLERR = ROOT / "src" / "tool-error-panel.jsx"
 COMPARISON = ROOT / "src" / "context-growth-comparison.jsx"
+CTXVIEW = ROOT / "src" / "context-growth-view.jsx"
 
 # The treatment's two levels, as the reference spells them.
 FIELD = "fillOpacity={isHover ? 0.85 : 0.3}"
@@ -179,3 +181,12 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     assert _crosshair_x1(cmp_, "ComparisonRow") == "tip.cx"
     assert "cx: xScale(turn)," in cmp_, (
         "ComparisonRow: the tip must carry the hovered turn's plotted x")
+
+    # The ninth site (found in the re-review round): ContextGrowthView's
+    # crosshair keys on a hoverIdx state rather than a tip object and is
+    # already snapped to the hovered turn's plotted x -- pinned so a
+    # regression to the cursor fails here too.
+    ctxv = _strip_line_comments(CTXVIEW.read_text(encoding="utf-8"))
+    assert _crosshair_x1(ctxv, "ContextGrowthView") == "xScale(hoverIdx)", (
+        "ContextGrowthView: the crosshair must stay snapped to the "
+        "hovered turn, not the cursor")
