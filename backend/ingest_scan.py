@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import NamedTuple
 
 from backend import key_layout, lane_markers, r2
+from backend.ingest_persist import _strip_nul
 from backend.ingest_resolve import (
     VanishedObject, record_failure as _record_failure, resolve as _resolve,
 )
@@ -86,6 +87,10 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
     A marker GET is as droppable as a transcript GET, so its failures
     land in the same `failed` summary; a failed or vanished marker gives
     no path this run and is not stored, so the next run fetches it again.
+    The fetched path is marker content: it is NUL-stripped HERE, before
+    any consumer sees it — the walk's project identity, the rekey's
+    display_name and the stored row all take the same stripped value
+    (issue #673).
     """
     project_paths, stale = lane_markers.cached_paths(marker_items)
     read: dict[str, tuple[str, str | None]] = {}
@@ -97,9 +102,10 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
         if exc is not None:
             _record_failure(failed, item[1], exc)
             continue
-        read[item[1]] = (item[2], res[1] if res is not None else None)
+        path = _strip_nul(res[1] if res is not None else None)
+        read[item[1]] = (item[2], path)
         if res is not None:
-            project_paths[res[0]] = res[1]
+            project_paths[res[0]] = path
     lane_markers.save_markers(read, {key for _, key, _ in marker_items})
     return project_paths
 
