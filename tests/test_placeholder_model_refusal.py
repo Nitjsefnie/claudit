@@ -123,3 +123,23 @@ def test_a_modelless_file_is_refused_and_stores_no_rows(
             (key,)).fetchone()[0] == 0
         # The well-formed mirror files of the same run still store.
         assert c.execute("SELECT COUNT(*) FROM files").fetchone()[0] > 0
+
+
+def test_the_refusal_names_both_placeholder_spellings():
+    """Every branch of the refusal's predicate, discriminated directly
+    (#688): a falsy model, the lane spelling and Claude's historical
+    parenthesised sentinel each refuse — and a real model (plus the
+    <synthetic> stub, which #563/#688 keep OUT of the refusal) passes
+    through unchanged."""
+    from backend.parse_lanes import refuse_unattributed
+
+    for fmt, row in (("claude", {"model": None}),
+                     ("claude", {"model": ""}),
+                     ("codex", {"model": "unknown"}),
+                     ("kimi-code", {"model": "(unknown)"})):
+        with pytest.raises(ValueError):
+            refuse_unattributed({"records": [dict(row)], "tool_uses": []},
+                                fmt, "k")
+    ok = {"records": [{"model": "claude-sonnet-4-5"}],
+          "tool_uses": [{"model": "<synthetic>"}]}
+    assert refuse_unattributed(ok, "claude", "k") is ok
