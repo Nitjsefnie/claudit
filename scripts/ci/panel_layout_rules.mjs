@@ -264,6 +264,133 @@ async function seedZeroGap(page) {
   });
 }
 
+// --- the legend-placement classifier (pure; node tests pin it) ---------
+//
+// Over owned chart groups — PANELS_OWNERSHIP_PROBE's output, one entry
+// per marked svg: { panel, plots: [box], legends: [{ label, ...box }] } —
+// return every legend that does not sit BELOW every plot of its own
+// chart. The dashboard convention is legend-under-chart (the comparison
+// panel's legend moved there for #630, the Tool Error Rate strips for
+// #773); a legend above its plot — or beside it, which the vertical test
+// also fails — is the outlier. A chart with no legend, or a legend with
+// no plot, checks nothing: conforming by having nothing to compare.
+export function legendBelowViolations(groups, eps = NOISE) {
+  const out = [];
+  for (const group of groups) {
+    for (const leg of group.legends) {
+      for (const plot of group.plots) {
+        const plotBottom = plot.y + plot.h;
+        if (leg.y < plotBottom - eps) {
+          out.push({
+            upper: `${group.panel}: legend "${leg.label}"`,
+            lower: 'plot',
+            gap: Math.round((leg.y - plotBottom) * 10) / 10,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// In-page: group every marked legend and plot under the chart it
+// belongs to. A role inside a marked svg belongs to that svg; an html
+// legend strip belongs to the nearest ancestor holding EXACTLY ONE
+// marked svg — the chart card. An ancestor with two or more marked svgs
+// (a grid section of chart cards) owns nothing: a legend there is
+// unattributable, so it pairs with no plot rather than firing against a
+// neighbouring card's chart, and a card holding several marked svgs
+// keeps its strips unowned too. That is the conservative reading: the
+// browser legs prove attribution where it exists (the seeded strip
+// fires) and no finding where it does not (the unseeded page is green).
+const LEGEND_GROUPS_PROBE = () => {
+  const boxOf = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  };
+  const SEL = '[data-panel]';
+  const ownerOf = (el) => {
+    const inner = el.closest(SEL);
+    if (inner) return inner;
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const marks = a.querySelectorAll(SEL).length;
+      if (marks === 1) return a.querySelector(SEL);
+      if (marks > 1) return null;
+    }
+    return null;
+  };
+  const groups = new Map();
+  for (const mark of document.querySelectorAll(SEL)) {
+    const plots = mark.matches('[data-role="plot"]')
+      ? [mark]
+      : [...mark.querySelectorAll('[data-role="plot"]')];
+    groups.set(mark, {
+      panel: mark.getAttribute('data-panel'),
+      plots: plots
+        .map((el) => boxOf(el))
+        .filter((b) => b.w > 0 && b.h > 0),
+      legends: [],
+    });
+  }
+  for (const el of document.querySelectorAll('[data-role="legend"]')) {
+    const owner = ownerOf(el);
+    const group = owner && groups.get(owner);
+    if (!group) continue;
+    const box = boxOf(el);
+    if (box.w < 1 || box.h < 1) continue;
+    group.legends.push({
+      label: (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40),
+      ...box,
+    });
+  }
+  return [...groups.values()].map((g) => ({
+    panel: g.panel,
+    plots: g.plots,
+    legends: g.legends,
+  }));
+};
+
+// Seed for the legend rule's red proof: inject a marked legend strip as
+// the FIRST child of the first SINGLE-chart card — a section holding
+// exactly one marked panel — above its plot, the shape #773 shipped.
+// A multi-chart section (the TimeSeries grid) owns no legend: its
+// strips are unattributable and the rule skips them, so the seed must
+// land where ownership attributes the strip to a chart. DOM injection
+// on the fresh reloaded page the runner hands every seed: no app
+// change, no route.
+async function seedLegendAbovePlot(page) {
+  return page.evaluate(() => {
+    const dash = document.querySelector('.dashboard');
+    if (!dash) return null;
+    const isBoxed = (el) => {
+      const d = getComputedStyle(el).display;
+      return d !== 'inline' && d !== 'contents';
+    };
+    const effective = (parent) => [...parent.children].flatMap(
+      (c) => (isBoxed(c) ? [c] : effective(c)),
+    );
+    const sections = new Set(effective(dash));
+    for (const mark of document.querySelectorAll('[data-panel]')) {
+      let card = null;
+      for (let a = mark; a; a = a.parentElement) {
+        if (sections.has(a)) {
+          card = a;
+          break;
+        }
+      }
+      if (!card) continue;
+      if (card.querySelectorAll('[data-panel]').length !== 1) continue;
+      const strip = document.createElement('div');
+      strip.setAttribute('data-role', 'legend');
+      strip.textContent = 'seeded outlier legend';
+      strip.style.padding = '6px 14px';
+      card.insertBefore(strip, card.firstChild);
+      return { seeded: mark.getAttribute('data-panel') };
+    }
+    return null;
+  });
+}
+
 export const RULES = [
   {
     id: 'vertical-gap',
@@ -274,6 +401,15 @@ export const RULES = [
       const { boxes } = await ctx.collect();
       return gapViolations(boxes);
     },
+  },
+  {
+    id: 'legend-below-plot',
+    description: 'every legend renders below every plot of its own chart'
+      + ' — the dashboard-wide legend convention (issue #773)',
+    seed: seedLegendAbovePlot,
+    run: async (ctx) => legendBelowViolations(
+      await ctx.page.evaluate(LEGEND_GROUPS_PROBE),
+    ),
   },
 ];
 
