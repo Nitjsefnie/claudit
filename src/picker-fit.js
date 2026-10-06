@@ -27,6 +27,12 @@
     return n;
   }
 
+  // One device pixel of slack: offsetWidth-style rounding is gone (the
+  // reads below are fractional), but zoom and DPR rounding may still eat
+  // a fraction — an underfill of 1px is invisible, a 1px overflow clips
+  // a chip edge.
+  const SLACK = 1;
+
   // Read the strip and return its page size: how many project chips fit
   // beside the All chip and the reserves. Returns 0..len; the component
   // applies the number as its page size.
@@ -41,24 +47,28 @@
   // whenever the replica exists (a project is selected): if the reserve
   // swung with whether the current page shows the selected project, the
   // fit would oscillate between jump-shown and jump-hidden states.
+  // Fractional width — offsetWidth rounds per element and the rounding
+  // drift accumulates into a few px of overflow across a whole strip.
+  const widthOf = (el) => el.getBoundingClientRect().width;
+
   function computeFit(strip) {
     if (!strip || !strip.clientWidth) return null;
-    const cs = document.getComputedStyle(strip);
+    const cs = window.getComputedStyle(strip);
     const padL = parseFloat(cs.paddingLeft) || 0;
     const padR = parseFloat(cs.paddingRight) || 0;
     const gap = parseFloat(cs.columnGap) || 0;
-    const inner = strip.clientWidth - padL - padR;
+    const inner = strip.clientWidth - padL - padR - SLACK;
 
     const layer = strip.querySelector('.pp-measure');
     const widths = layer
-      ? Array.from(layer.querySelectorAll('.pp-proj')).map(el => el.offsetWidth)
+      ? Array.from(layer.querySelectorAll('.pp-proj')).map(widthOf)
       : [];
     const len = widths.length;
     const jumpEl = layer ? layer.querySelector('.pp-jump') : null;
-    const jumpW = jumpEl ? jumpEl.offsetWidth + gap : 0;
+    const jumpW = jumpEl ? widthOf(jumpEl) + gap : 0;
 
     const allChip = strip.querySelector('.pp-all');
-    const allW = allChip ? allChip.offsetWidth : 0;
+    const allW = allChip ? widthOf(allChip) : 0;
 
     const room0 = Math.max(0, inner - allW - gap);
     if (fitCount(room0, widths, gap, 0) >= len) return len; // no pager ever
@@ -67,7 +77,7 @@
     const pager = strip.querySelector('.pp-pager');
     let core = 0;
     if (pager) {
-      pager.querySelectorAll('.pp-nav, .pp-count').forEach(el => { core += el.offsetWidth; });
+      pager.querySelectorAll('.pp-nav, .pp-count').forEach(el => { core += widthOf(el); });
       core += 2 * gap;
     }
     return fitCount(room0, widths, gap, core + jumpW);
