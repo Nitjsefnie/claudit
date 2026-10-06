@@ -459,7 +459,7 @@ function RangePicker({ active, onChange }) {
     { label: 'all',  value: 'all'  },
   ];
   return (
-    <div className="project-picker" style={{ borderTop: '1px solid #2a2a4a' }}>
+    <div className="project-picker" data-perf-region="project_picker" style={{ borderTop: '1px solid #2a2a4a' }}>
       <span style={{ color: '#9090b0', fontFamily: 'monospace', fontSize: 11, marginRight: 8 }}>range:</span>
       {presets.map(p => (
         <button
@@ -546,7 +546,7 @@ function ProjectPicker({ projects, active, onChange }) {
   const activeOffPage = active !== '' && !shown.some(p => p.project_id === active);
 
   return (
-    <div className="project-picker">
+    <div className="project-picker" data-perf-region="project_picker">
       <button className={'pp-btn ' + (active === '' ? 'on' : '')} onClick={() => onChange('')}>All</button>
       {shown.map(p => (
         <button
@@ -715,7 +715,7 @@ function backendDashToShape(b) {
 // src/panel-gating.js now (#436).
 function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
   return (
-    <header className="topbar">
+    <header className="topbar" data-perf-region="topbar">
       <div className="topbar-left">
         <div className="logo">
           <span className="logo-mark">{'>'}</span>
