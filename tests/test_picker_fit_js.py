@@ -105,104 +105,40 @@ def test_fit_of_no_chips_is_zero():
 
 # --- the DOM read (stubbed strip) ---------------------------------------
 
-class _El:
-    """A stand-in element: offsetWidth + querySelectorAll over a child map.
-
-    The stub must fail on what it does not model (the doubles rule):
-    a selector the reader names but the stub does not register raises,
-    so a renamed class in the module turns a green into a failure.
-    """
-
-    def __init__(self, w=0, children=None, single=None):
-        self._w = w
-        self._children = children or {}
-        self._single = single
-        self.clientWidth = 0
-        self.calls = []
-
-    def getBoundingClientRect(self):
-        class _R:
-            width = 0.0
-        r = _R()
-        r.width = float(self._w)
-        return r
-
-    def querySelectorAll(self, sel):
-        self.calls.append(("all", sel))
-        if sel not in self._children:
-            raise AssertionError(f"stub strip does not model selector {sel!r}")
-        return self._children[sel]
-
-    def querySelector(self, sel):
-        self.calls.append(("one", sel))
-        if self._single is not None and sel in self._single:
-            return self._single[sel]
-        if sel in self._children:
-            return self._children[sel][0]
-        raise AssertionError(f"stub strip does not model selector {sel!r}")
-
-
-def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=40,
-                pager_core=None, jump_w=0, fit_all=True):
-    """Build a strip the way the component renders it and point the
-    module's environment at it. Returns (strip, probe) where probe holds
-    what the reader consulted."""
-    import types
-
-    mod_path = FIT_JS
-
-    all_el = _El(w=all_w + 0.5)   # fractional: offsetWidth would round it
-    chip_els = [_El(w=w + 0.5) for w in widths]
-    pager_el = None
-    if pager_core is not None:
-        nav_a, nav_b = _El(w=26), _El(w=26)
-        count = _El(w=pager_core - 52)
-        pager_el = _El(w=pager_core, children={
-            ".pp-nav, .pp-count": [nav_a, count, nav_b],
-        })
-    jump_el = _El(w=jump_w) if jump_w else None
-
-    measure_children = {".pp-proj": chip_els}
-    if jump_el is not None:
-        measure_children[".pp-jump"] = [jump_el]
-
-    strip = _El(w=inner)
-    strip.clientWidth = inner
-    strip._children = {
-        ".pp-all": [all_el],
-        ".pp-measure": [_El(children=measure_children)],
-        ".pp-pager": [pager_el] if pager_el is not None else [],
-    }
-
-    computed = {"paddingLeft": "10px", "paddingRight": "22px", "columnGap": f"{gap}px"}
-
+def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
+                pager_core=None, jump_w=0):
+    """Run computeFit in node against a stub strip the way the component
+    renders it, and return the page size. The stub must fail on what it
+    does not model: a selector the reader names but the stub does not
+    register raises, so a renamed class in the module turns a green into
+    a failure."""
     node = shutil.which("node")
     assert node, "node not available"
     payload = json.dumps({
-        "clientWidth": strip.clientWidth,
-        "computed": computed,
-        "all": all_el._w,
-        "widths": [c._w for c in chip_els],
-        "pager": pager_core,
-        "jump": jump_w,
+        "clientWidth": inner, "computed": {
+            "paddingLeft": "10px", "paddingRight": "22px",
+            "columnGap": f"{gap}px"},
+        "all": all_w + 0.5,        # fractional: offsetWidth would round it
+        "widths": [w + 0.5 for w in widths],
+        "pager": pager_core, "jump": jump_w,
     })
     script = f"""
-      global.window = {{}};
-      require({str(mod_path)!r});
+      global.window = {{ getComputedStyle: () => spec.computed }};
+      require({str(FIT_JS)!r});
       const spec = {payload};
-      // A DOM stub standing in for the strip: the module reads through
-      // querySelector/querySelectorAll/getComputedStyle only.
-      const chipEls = spec.widths.map(w => ({{
-        getBoundingClientRect: () => ({{ width: w }}),
-      }}));
+      // A stub strip standing in for the real one: the reader consults
+      // only querySelector/querySelectorAll/getComputedStyle and reads
+      // fractional widths off getBoundingClientRect.
+      function rectEl(w) {{ return {{ getBoundingClientRect: () => ({{ width: w }}) }}; }}
+      const chipEls = spec.widths.map(rectEl);
       const measure = {{
         querySelectorAll: (sel) => {{
           if (sel === '.pp-proj') return chipEls;
-          if (sel === '.pp-jump') return spec.jump ? [{{ rect: spec.jump }}] : [];
+          if (sel === '.pp-jump') return spec.jump ? [rectEl(spec.jump)] : [];
           throw new Error('unexpected selector ' + sel);
         }},
         querySelector: (sel) => (sel === '.pp-jump' && spec.jump
-          ? {{ getBoundingClientRect: () => ({{ width: spec.jump }}) }} : null),
+          ? rectEl(spec.jump) : null),
       }};
       const navs = [rectEl(26.4), rectEl(26.4)];
       const countEl = rectEl(Math.max(0, spec.pager - 52.8));
@@ -217,34 +153,30 @@ def _stub_strip(monkeypatch, *, inner=400, gap=6, widths=(100, 100, 100), all_w=
         querySelector: (sel) => {{
           if (sel === '.pp-measure') return measure;
           if (sel === '.pp-pager') return pagerEl;
-          if (sel === '.pp-all') return {{ getBoundingClientRect: () => ({{ width: spec.all }}) }};
+          if (sel === '.pp-all') return rectEl(spec.all);
           throw new Error('unexpected selector ' + sel);
         }},
       }};
-      global.window.getComputedStyle = () => spec.computed;
-      function rectEl(w) {{
-        return {{ getBoundingClientRect: () => ({{ width: w }}) }};
-      }}
-      const r = window.pickerFit.computeFit(strip);
-      console.log(JSON.stringify({{ r }}));
+      console.log(JSON.stringify(window.pickerFit.computeFit(strip)));
     """
     proc = subprocess.run([node], input=script, capture_output=True, text=True,
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)["r"]
+    return json.loads(proc.stdout)
 
+
+# --- the DOM read --------------------------------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_compute_fit_reads_padding_gap_all_and_chips():
     """The reader maps the strip onto fitCount's inputs: inner width is
-    clientWidth minus BOTH paddings, the gap comes from computed style,
-    and chip widths come from the measure row, not the real chips (the
-    real strip renders only the fitted slice, so its widths would shrink
-    the fit to itself)."""
-    r = _stub_strip(None, inner=400, gap=6, widths=(100, 100, 100, 100, 100),
-                    all_w=40, pager_core=None)
-    # inner = 400 - 10 - 22 = 368; room after All + gap = 322; each chip
-    # costs 106 → 3 fit.
+    clientWidth minus BOTH paddings minus the slack, the gap comes from
+    computed style, and chip widths come from the measure row, not the
+    real chips (the real strip renders only the fitted slice, so its own
+    widths would shrink the fit to itself)."""
+    r = _stub_strip(inner=400, gap=6, widths=(100,) * 5, all_w=40)
+    # inner = 400 - 10 - 22 - 1 slack = 367; room after All + gap = 321;
+    # each chip costs 106 → 3 fit.
     assert r == 3
 
 
@@ -253,8 +185,7 @@ def test_compute_fit_everything_fit_means_no_pager():
     """When every chip fits without a pager there is nothing to reserve:
     the page size is the whole list, so the pager never renders and can
     never eat a slot on wide screens."""
-    r = _stub_strip(None, inner=400, gap=6, widths=(100, 100, 100),
-                    all_w=40, pager_core=None)
+    r = _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40)
     assert r == 3
 
 
@@ -263,15 +194,14 @@ def test_compute_fit_reserves_the_rendered_pager_core():
     """Once paging is real the strip must still hold the pager: its nav
     buttons and count (jump excluded — the jump is reserved separately)
     are measured off the rendered pager and consumed before any chip."""
-    r = _stub_strip(None, inner=400, gap=6, widths=(100,) * 6,
-                    all_w=40, pager_core=100, jump_w=0)
-    # room after All + gap = 322; reserve = 100 core + 2 inner pager gaps
-    # = 112; 210 left → chip 100, then 100+6+100 = 206 fits too, the third
-    # does not: 2 chips. Without the pager the same widths fit 3 — the
-    # reserve is what cost the slot.
+    r = _stub_strip(inner=400, gap=6, widths=(100,) * 6,
+                    all_w=40, pager_core=100)
+    # room after All + gap = 321; reserve = 100 core + 2 inner pager gaps
+    # = 112; 209 left → chip 100.5, then 100.5+6+100.5 = 207 fits too, the
+    # third does not: 2 chips. Without the pager the same widths fit 3 —
+    # the reserve is what cost the slot.
     assert r == 2
-    r0 = _stub_strip(None, inner=400, gap=6, widths=(100,) * 6,
-                     all_w=40, pager_core=None)
+    r0 = _stub_strip(inner=400, gap=6, widths=(100,) * 6, all_w=40)
     assert r0 == 3
 
 
@@ -280,10 +210,10 @@ def test_compute_fit_reserves_the_jump_from_the_measure_row():
     """A selected project reserves its jump chip from the measure row's
     replica, whether or not the pager currently renders it — the reserve
     must not swing with what the current page shows, or the fit
-    oscillates between 'jump shown' and 'jump hidden' states."""
-    r = _stub_strip(None, inner=400, gap=6, widths=(100,) * 6,
+    oscillates between jump-shown and jump-hidden states."""
+    r = _stub_strip(inner=400, gap=6, widths=(100,) * 6,
                     all_w=40, pager_core=100, jump_w=90)
-    # reserve = 100 core + 90 jump + 3 gaps = 208; 114 left → 1 chip.
+    # reserve = 100 core + 90 jump + 3 gaps = 208; 113 left → 1 chip.
     assert r == 1
 
 
@@ -292,8 +222,8 @@ def test_compute_fit_returns_zero_when_nothing_fits():
     """Below the width of All + pager + one chip the page size is zero:
     the pager still pages (an overflow-free degenerate beats a scrollbar)
     and the strip keeps its height."""
-    r = _stub_strip(None, inner=400, gap=6, widths=(500,),
-                    all_w=40, pager_core=100, jump_w=0)
+    r = _stub_strip(inner=400, gap=6, widths=(500,), all_w=40,
+                    pager_core=100)
     assert r == 0
 
 
