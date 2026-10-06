@@ -2,6 +2,7 @@ tests/test_agent_fold_js.py
 tests/test_agent_list_caps_js.py
 tests/test_branding.py
 tests/test_breakdown_exact_rate.py
+tests/test_classic_script_scope.py
 tests/test_ctx_turn_parity.py
 tests/test_dashboard_binning.py
 tests/test_dashboard_fetch_js.py

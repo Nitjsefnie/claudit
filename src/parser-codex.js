@@ -11,10 +11,19 @@
 // demotes behind the parent rollout's originals.
 
 // The shared lane helpers, bound off window (parser-lanes.js loads first
-// and exposes them).
-const {
-  laneIsPlainObject, laneInt, laneToIso, laneUsageMeta, lanePairToolEvents,
-} = window;
+// and exposes them). Top-level var, NOT const: this is a classic script
+// sharing the page's global scope with parser-lanes.js, whose same-named
+// top-level function declarations are non-configurable global properties.
+// A global lexical declaration (const/let) of such a name is a SyntaxError
+// that kills this file before its first statement runs (issue #780) - a
+// top-level var lands on that same global property instead and cannot
+// collide. Guarded by tests/test_classic_script_scope.py, which
+// instantiates every classic script index.html loads in one realm.
+var laneIsPlainObject = window.laneIsPlainObject;
+var laneInt = window.laneInt;
+var laneToIso = window.laneToIso;
+var laneUsageMeta = window.laneUsageMeta;
+var lanePairToolEvents = window.lanePairToolEvents;
 // --------------------------------------------------------------------------
 // Codex rollout format — backend/parse_codex.py
 // --------------------------------------------------------------------------
