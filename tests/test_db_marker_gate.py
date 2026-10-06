@@ -8,7 +8,7 @@ stay in tests/test_db_marker.py, which the suite-cost bench pins.
 """
 from __future__ import annotations
 
-from tests.test_db_marker import (_derive_db_fixtures, _marking_offenders,
+from tests.test_db_marker import (_derive_narrow, _marking_offenders,
                                   _module_facts, _modules)
 
 
@@ -50,6 +50,6 @@ def test_the_marking_guard_shares_the_derive_s_modules_cache_entry():
     # #679), so one derive+mark pass leaves exactly one entry.
     _modules.cache_clear()
     _module_facts.cache_clear()
-    _derive_db_fixtures()
+    _derive_narrow()
     _marking_offenders()
     assert _modules.cache_info().currsize == 1

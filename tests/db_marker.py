@@ -97,3 +97,31 @@ def mark_db_items(items: Iterable[Any]) -> None:
     for item in items:
         if DB_FIXTURES.intersection(item.fixturenames):
             item.add_marker(pytest.mark.db)
+
+
+# Tests the marking guard flags whose bodies provably never reach a
+# server, each with the reason. Every entry names a test that EXISTS: an
+# entry for a name no test carries excuses nothing, and reads as cover
+# while the real offender is left to be found. Moved here from the guard
+# test module so the registry and its allowlist live in one place (issue
+# #715); the guard reads it as tests.db_marker.MARK_ALLOWLIST.
+MARK_ALLOWLIST: dict[str, str] = {
+    "test_version.py:test_health_error_branch_reports_version":
+        "monkeypatches db.viz_conn with a function that raises, so the "
+        "health endpoint's error branch runs with no server at all",
+    "test_version.py:test_health_error_branch_answers_503":
+        "monkeypatches db.viz_conn with a function that raises, so the "
+        "health endpoint's error branch runs with no server at all",
+    "test_version.py:test_health_ok_branch_reports_version":
+        "monkeypatches db.viz_conn with a fake connection, so the "
+        "health endpoint's ok branch runs with no server at all",
+    "test_version.py:test_health_last_ingest_carries_newer":
+        "monkeypatches db.viz_conn with a fake connection, so the "
+        "health endpoint's ok branch runs with no server at all",
+    "test_schema_autoapply.py:test_apply_schema_unlock_failure_does_not_mask_the_ddl_error":
+        "monkeypatches db.viz_conn with a fake connection, so "
+        "apply_schema's unlock guard runs with no server at all",
+    "test_schema_autoapply.py:test_apply_schema_swallows_unlock_failure_after_success":
+        "monkeypatches db.viz_conn with a fake connection, so "
+        "apply_schema's unlock guard runs with no server at all",
+}

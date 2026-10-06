@@ -77,3 +77,43 @@ def _container_strings(value) -> set[str]:
         elif isinstance(item, (tuple, frozenset, set, list)):
             stack.extend(item)
     return found
+
+
+def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
+    """(every name the source may spell, whether the source may carry a
+    ``pytest.fixture`` decorator application) for one module's source.
+
+    The def-site index for the db-marker derivation (issue #715): the
+    first set unions, over every code object, ``co_names``,
+    ``co_varnames`` (a fixture REQUEST binds its name only as a
+    parameter — invisible to ``co_names`` and ``co_consts``) and each
+    code object's own ``co_name``, plus every string constant. The
+    second set answers over the whole module: the derivation recognises
+    only the dotted ``pytest.fixture`` spelling, whose evidence is
+    ``pytest`` among identifiers and ``fixture`` among identifiers or
+    constants at any nesting level (a nested fixture def binds its name
+    in the parent's co_varnames, which neither co_names nor consts
+    carry — hence the union, not the module level).
+
+    Both answers are over-inclusive by construction — an import, a
+    local, or a prose string also admits — so a skip can only save a
+    parse, never hide a fixture def or a chain member.
+    """
+    consts: set[str] = set()
+    names: set[str] = set()
+    stack = [compile(source, "<scan_gate>", "exec")]
+    while stack:
+        code = stack.pop()
+        names.add(code.co_name)
+        names.update(code.co_varnames)
+        names.update(code.co_names)
+        for value in code.co_consts:
+            if isinstance(value, str):
+                consts.add(value)
+            elif isinstance(value, (tuple, frozenset, set, list)):
+                consts.update(_container_strings(value))
+            elif isinstance(value, types.CodeType):
+                stack.append(value)
+    names.update(consts)
+    may_define_fixture = "pytest" in names and "fixture" in names
+    return frozenset(names), may_define_fixture
