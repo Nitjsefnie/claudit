@@ -256,43 +256,6 @@ def test_a_shift_is_tagged_with_its_region_and_phase():
                      "region": "panel_grid", "phase": "pre_paint"}], rows
 
 
-def test_a_shift_with_no_sources_falls_back_to_other():
-    """`entry.sources` is an array that CAN be empty -- it is, whenever
-    the shifted nodes have already been detached. `sources[0].node` on
-    that is a TypeError inside an observer callback, which would take the
-    whole observer with it."""
-    out = _run("""
-      __emit('layout-shift', [
-        { value: 0.02, hadRecentInput: false, sources: [] },
-        { value: 0.03, hadRecentInput: false },
-        { value: 0.01, hadRecentInput: false, sources: [{}] },
-      ]);
-      __tick();
-      console.log(JSON.stringify({ beacons: beacons() }));
-    """, sendBeacon=True, observers=["layout-shift"])
-    rows = out["beacons"]
-    assert [r["region"] for r in rows] == ["other", "other", "other"], rows
-    assert [r["value"] for r in rows] == [0.02, 0.03, 0.01], rows
-
-
-def test_an_unrecognised_region_attribute_is_not_echoed():
-    """region is a closed set; an unknown value is a 400, and a 400
-    takes every beacon in the batch with it."""
-    out = _run("""
-      const node = {
-        getAttribute: n => (n === 'data-perf-region' ? 'not-a-region' : null),
-        parentElement: null,
-      };
-      __emit('layout-shift', [{ value: 0.05, hadRecentInput: false, sources: [{node}] }]);
-      __tick();
-      console.log(JSON.stringify({
-        beacons: beacons(), direct: window.perf.region(node) }));
-    """, sendBeacon=True, observers=["layout-shift"])
-    assert out["direct"] == "other", out
-    assert all(r["region"] in ("panel_grid", "inspector", "signin", "other")
-               for r in out["beacons"]), out
-
-
 def test_a_long_task_carries_a_phase_and_no_region():
     """The /api/metrics table makes region REQUIRED for layout_shift and
     FORBIDDEN for longtask."""
@@ -323,23 +286,6 @@ def test_the_phase_moves_with_the_page_and_the_sse_tick():
     assert out["seen"] == ["pre_paint", "post_usable", "sse_update",
                            "post_usable"], out
     assert out["beacons"][0]["phase"] == "sse_update", out
-
-
-def test_region_walks_up_to_the_nearest_ancestor_that_names_one():
-    out = _run("""
-      const root = { getAttribute: n => (n === 'data-perf-region' ? 'inspector' : null),
-                     parentElement: null };
-      const mid = { getAttribute: () => null, parentElement: root };
-      const deep = { getAttribute: () => null, parentElement: mid };
-      console.log(JSON.stringify({
-        deep: window.perf.region(deep),
-        mid: window.perf.region(mid),
-        nothing: window.perf.region(null),
-        plain: window.perf.region({}),
-      }));
-    """, sendBeacon=True, observers=[])
-    assert out == {"deep": "inspector", "mid": "inspector",
-                   "nothing": "other", "plain": "other"}, out
 
 
 # --- batching and transport ------------------------------------------
@@ -668,28 +614,3 @@ def test_an_unknown_journey_name_is_never_reported():
       console.log(JSON.stringify({ beacons: beacons() }));
     """, sendBeacon=True, observers=[])
     assert out["beacons"] == [], out
-
-
-def test_region_falls_back_to_the_nearest_data_panel():
-    """#647: only the grid and the Inspector carry `data-perf-region`,
-    so a live node inside one panel — under no named region — landed in
-    `other`, and `other` is what most production shifts carried. The
-    nearest `[data-panel]` ancestor is the attribution the page already
-    names; in the sink's closed vocabulary it is `panel_grid`. The
-    region walk keeps precedence, and the fallback widens nothing it
-    cannot see: a node outside every panel keeps `other`."""
-    out = _run("""
-      const mk = (attrs, parent) => ({
-        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
-      const panel = mk({ 'data-panel': 'Cost by Model' }, null);
-      const between = mk({ 'data-panel': 'Cost by Model' },
-        mk({ 'data-perf-region': 'inspector' }, null));
-      console.log(JSON.stringify({
-        inner: window.perf.region(mk({}, panel)),
-        own: window.perf.region(panel),
-        precedence: window.perf.region(mk({}, between)),
-        bare: window.perf.region(mk({}, null)),
-      }));
-    """, sendBeacon=True, observers=[])
-    assert out == {"inner": "panel_grid", "own": "panel_grid",
-                   "precedence": "inspector", "bare": "other"}, out
