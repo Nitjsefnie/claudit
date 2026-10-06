@@ -15,9 +15,10 @@ counts once, as the main session's.
 
 With the parent absent, the fork's replay is the only copy and stays
 canonical, attributed to the fork's first declared model — the #653
-fallback. That stored model on a losing copy is the fork's first
-declaration (the parent's settings inherited at the fork point), never
-an `unknown` placeholder.
+fallback, never an `unknown` placeholder. With the parent present, a
+losing copy also ADOPTS the original's model (issue #713): the fork's
+first declaration is the model at the fork point, and only the parent's
+copy carries the model the parent had in force for that record.
 
 The winner rule is the spec (SV-CANONICAL-FLAG): an original beats a
 replay, an attributed copy beats an unattributed one, then file_key,
@@ -35,6 +36,7 @@ from pathlib import Path
 import pytest
 
 from backend import constants, db, ingest
+from backend.ingest_scope import Scope
 from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
@@ -100,6 +102,32 @@ def _parent_rollout() -> bytes:
                     for lne in lines)).encode()
 
 
+def _switching_parent_rollout() -> bytes:
+    """The parent of the different-model fork fixture, switching models
+    mid-history: request 1 runs on gpt-5.6-sol, request 2 on
+    gpt-5.6-terra. The fork (cut after the switch) declares terra — the
+    model at the fork point — so its replayed copy of request 1 is wrong
+    at parse time, and only the parent's copy knows sol."""
+    lines = [
+        {"timestamp": "2026-06-14T11:00:01.000Z", "type": "session_meta",
+         "payload": {"session_id": S, "id": "00000000-0000-4000-8000-000000000003",
+                     "cwd": "/workspace/toy-project",
+                     "originator": "codex-tui", "cli_version": "1.0.0"}},
+        {"timestamp": "2026-06-14T11:00:02.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-sol"}},
+        # request 1: the counter opens at zero, so cumulative == last
+        _token_count("2026-06-14T11:00:03.000Z",
+                     (100000, 98000, 500, 300), (100000, 98000, 500, 300)),
+        {"timestamp": "2026-06-14T11:00:04.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-terra"}},
+        # request 2
+        _token_count("2026-06-14T11:00:05.000Z",
+                     (109800, 107604, 1120, 520), (9800, 9604, 620, 220)),
+    ]
+    return ("".join(json.dumps(lne, separators=(",", ":")) + "\n"
+                    for lne in lines)).encode()
+
+
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
     yield from scratch_db.scratch_viz_database(monkeypatch, "canon_attr")
@@ -147,8 +175,10 @@ def test_a_replayed_copy_loses_to_the_parents_original(
     model (a spawn_agent `model` argument). The replayed uuids' parent
     copies — carrying the model the parent had in force — win the dedup
     whatever the key order, so replayed history counts once, as the main
-    session's, under the parent's model; the fork's losing copies keep
-    the #653 fallback attribution (its own first declaration)."""
+    session's, under the parent's model; the fork's losing copies ADOPT
+    the parent's model in force (issue #713), so the stored row a later
+    promotion surfaces agrees with the winner instead of carrying the
+    fork's first declaration."""
     _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
             _parent_rollout())
 
@@ -164,9 +194,38 @@ def test_a_replayed_copy_loses_to_the_parents_original(
         fork_model, fork_canon = by_file[(uuid, "sessA/subagents/forkthread/wire.jsonl")]
         parent_model, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]
         assert parent_model == "gpt-5.6-sol"
-        assert fork_model == "gpt-5.6-terra"
+        assert fork_model == "gpt-5.6-sol"
         assert parent_canon is True, f"the original copy of {uuid} must win"
         assert fork_canon is False, f"the replayed copy of {uuid} must lose"
+
+
+def test_a_replayed_copy_takes_the_model_the_parent_had_in_force(
+        fresh_db, monkeypatch, tmp_path):
+    """Issue #713's core: the fork's first declaration is the model at
+    the fork point, not the model each replayed request ran on. The
+    parent switches sol -> terra mid-history and the fork (cut after the
+    switch) declares terra, so the fork's parse-time copy of the parent's
+    SOL request is wrong and only the parent's copy can correct it."""
+    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
+            _switching_parent_rollout())
+
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    rows = _replay_rows()
+    assert len(rows) == 4, rows
+    by_file = {(u, fk.split("toyproj/")[1]): (m, canon)
+               for u, fk, m, canon in rows}
+    for uuid, parent_model in zip(REPLAY_UUIDS,
+                                  ("gpt-5.6-sol", "gpt-5.6-terra")):
+        fork_model, fork_canon = by_file[
+            (uuid, "sessA/subagents/forkthread/wire.jsonl")]
+        stored, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]
+        assert stored == parent_model
+        assert fork_model == parent_model, (
+            f"the fork's copy of {uuid} must adopt the parent's model")
+        assert parent_canon is True, f"the original of {uuid} must win"
+        assert fork_canon is False, f"the replay of {uuid} must lose"
 
 
 def test_the_forks_own_records_stay_canonical_and_its_own(
@@ -197,6 +256,76 @@ def test_the_forks_own_records_stay_canonical_and_its_own(
     assert is_replay is False
     assert canon is True
     assert is_main is False
+
+
+def test_a_parent_arriving_later_adopts_into_the_stored_fork(
+        fresh_db, monkeypatch, tmp_path):
+    """The adoption is an ingest pass, so it also fires when the parent
+    ARRIVES after the fork was stored: the fork's first ingest keeps the
+    #653 fallback (its own first declaration), the second — the parent's
+    uuids joining the scope — adopts the parent's models into the fork's
+    stored rows."""
+    root = _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE, None)
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    rows = {(u, fk.split("toyproj/")[1]): m
+            for u, fk, m, _ in _replay_rows()}
+    assert rows == {(u, "sessA/subagents/forkthread/wire.jsonl"): "gpt-5.6-terra"
+                    for u in REPLAY_UUIDS}
+
+    (root / "mini/sessions/toyproj/sessA/wire.jsonl").write_bytes(
+        _switching_parent_rollout())
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+    rows = {(u, fk.split("toyproj/")[1]): m
+            for u, fk, m, _ in _replay_rows()}
+    assert rows[(REPLAY_UUIDS[0],
+                 "sessA/subagents/forkthread/wire.jsonl")] == "gpt-5.6-sol"
+    assert rows[(REPLAY_UUIDS[1],
+                 "sessA/subagents/forkthread/wire.jsonl")] == "gpt-5.6-terra"
+
+
+def test_a_promoted_replay_keeps_the_adopted_models(
+        fresh_db, monkeypatch, tmp_path):
+    """When the parent rollout later leaves the mirror, the canonical
+    pass promotes the fork's replayed copies — which keep the models
+    they adopted while the parent was present, so the promotion surfaces
+    the parent's model in force, not the fork's first declaration."""
+    root = _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
+                   _switching_parent_rollout())
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    (root / "mini/sessions/toyproj/sessA/wire.jsonl").unlink()
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    rows = {(u, fk.split("toyproj/")[1]): (m, canon)
+            for u, fk, m, canon in _replay_rows()}
+    assert len(rows) == 2, rows
+    for uuid, model in zip(REPLAY_UUIDS, ("gpt-5.6-sol", "gpt-5.6-terra")):
+        fork_model, fork_canon = rows[
+            (uuid, "sessA/subagents/forkthread/wire.jsonl")]
+        assert (fork_model, fork_canon) == (model, True), uuid
+
+
+def test_adoption_extends_files_models(fresh_db, monkeypatch, tmp_path):
+    """files.models lists every model that answered in the file; the fork
+    journals its parent's requests, so once the originals are present the
+    fork's list carries the parent's models too (issue #713)."""
+    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
+            _switching_parent_rollout())
+    result = ingest.run_ingest(trigger="manual")
+    assert result["error"] is None
+
+    with db.viz_conn() as c:
+        models = dict(c.execute(
+            "SELECT file_key, models FROM files").fetchall())
+    fork = next(v for k, v in models.items() if "forkthread" in k)
+    parent = next(v for k, v in models.items()
+                  if k.endswith("sessA/wire.jsonl"))
+    assert fork == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert parent == ["gpt-5.6-sol", "gpt-5.6-terra"]
 
 
 def test_a_fork_alone_attributes_its_replay_to_the_first_declared_model(
@@ -247,6 +376,74 @@ def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
             "SELECT file_key, is_canonical FROM tool_uses "
             "WHERE tool_use_id = 'call-replay-1'").fetchall())
     assert rows == {"main": True, "zzz-subagent": False}
+
+
+def test_a_replayed_tool_call_adopts_the_originals_model(fresh_db):
+    """The adoption (issue #713) is keyed on tool_use_id too: a replayed
+    fork call stored with the fork's first declaration takes the
+    original's model, like its record does."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO projects (project_id, display_name, "
+                  "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())")
+        c.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
+            "now(), %s)", ("main", constants.PARSER_VERSION))
+        c.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+            "parser_version) VALUES (%s, 'p', 's', FALSE, 'e', 1, now(), "
+            "now(), %s)", ("zzz-subagent", constants.PARSER_VERSION))
+        # The parent's original call and the fork's replay under the
+        # fork's first declared model — the shape the pass corrects.
+        for fk, replay, model in (("zzz-subagent", True, "gpt-5.6-terra"),
+                                  ("main", False, "gpt-5.6-sol")):
+            c.execute(
+                "INSERT INTO tool_uses (file_key, line_num, idx, ts, "
+                "tool_name, model, tool_use_id, is_replay) "
+                "VALUES (%s, 1, 0, now(), 'exec', %s, "
+                "'call-replay-1', %s)", (fk, model, replay))
+        c.commit()
+
+    ingest.recompute_canonical()
+
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, model FROM tool_uses "
+            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+    assert rows == {"main": "gpt-5.6-sol", "zzz-subagent": "gpt-5.6-sol"}
+
+
+def test_a_null_original_model_is_never_adopted(fresh_db):
+    """A winner model of NULL is not a model in force — the replayed copy
+    keeps its own attribution instead of losing it (the adoption's
+    `model IS NOT NULL` limb; records.model is NOT NULL, so the limb is
+    reachable on tool_uses only)."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO projects (project_id, display_name, "
+                  "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())")
+        for fk, is_main in (("main", True), ("zzz-subagent", False)):
+            c.execute(
+                "INSERT INTO files (file_key, project_id, session_id, is_main, "
+                "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+                "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
+                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+        c.execute(
+            "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
+            "model, tool_use_id, is_replay) VALUES "
+            "('main', 1, 0, now(), 'exec', NULL, 'call-replay-1', NULL), "
+            "('zzz-subagent', 3, 0, now(), 'exec', 'gpt-5.6-terra', "
+            "'call-replay-1', TRUE)")
+        c.commit()
+
+    ingest.recompute_canonical()
+
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, model FROM tool_uses "
+            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+    assert rows == {"main": None, "zzz-subagent": "gpt-5.6-terra"}
 
 
 def _claude_copy(model: str | None, output_tokens: int) -> str:
@@ -301,3 +498,80 @@ def test_a_claude_modelless_copy_is_refused(
     assert rows == [("mini/zzz-proj/sessU/sessU.jsonl",
                      "claude-sonnet-4-5", True)]
     assert stored == 1
+
+
+def _seed_two_identities() -> None:
+    """Two original/replay pairs on different uuids, canonical flags as a
+    real ingest leaves them: the originals win, the replays lose."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO projects (project_id, display_name, "
+                  "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())")
+        for fk, is_main in (("main1", True), ("fork1", False),
+                            ("main2", True), ("fork2", False)):
+            c.execute(
+                "INSERT INTO files (file_key, project_id, session_id, is_main, "
+                "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+                "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
+                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+        c.execute(
+            "INSERT INTO records (file_key, line_num, uuid, model, "
+            "is_replay, is_canonical) VALUES "
+            "('main1', 1, 'u1', 'gpt-5.6-sol', NULL, TRUE), "
+            "('fork1', 3, 'u1', 'gpt-5.6-terra', TRUE, FALSE), "
+            "('main2', 1, 'u2', 'gpt-5.6-sol', NULL, TRUE), "
+            "('fork2', 3, 'u2', 'gpt-5.6-terra', TRUE, FALSE)")
+        c.commit()
+
+
+def test_an_incremental_scope_adopts_only_its_own_uuids(fresh_db):
+    """The adoption's incremental limb (issue #713): a scoped run adopts
+    only the uuids the run touched — the out-of-scope replayed copy keeps
+    the #653 fallback until a run touches its identity."""
+    _seed_two_identities()
+    scope = Scope(False, "test", 2000)
+    scope.affected_uuids = {"u1"}
+
+    ingest.recompute_canonical(scope)
+
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, model FROM records WHERE uuid IN ('u1', 'u2') "
+            "AND is_replay IS TRUE").fetchall())
+    assert rows == {"fork1": "gpt-5.6-sol", "fork2": "gpt-5.6-terra"}
+
+    # The full pass picks up what the scoped run left.
+    ingest.recompute_canonical()
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, model FROM records WHERE uuid IN ('u1', 'u2') "
+            "AND is_replay IS TRUE").fetchall())
+    assert rows == {"fork1": "gpt-5.6-sol", "fork2": "gpt-5.6-sol"}
+
+
+def test_two_replays_without_an_original_keep_their_declarations(fresh_db):
+    """Every copy of the uuid is a replay (the parent was never ingested):
+    no original means no model in force to adopt, so the loser keeps its
+    own first declaration instead of adopting the winner-replay's."""
+    with db.viz_conn() as c:
+        c.execute("INSERT INTO projects (project_id, display_name, "
+                  "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())")
+        for fk, is_main in (("aaa-fork", True), ("zzz-fork", False)):
+            c.execute(
+                "INSERT INTO files (file_key, project_id, session_id, is_main, "
+                "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+                "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
+                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+        # Both copies replayed; the winner rule made the aaa copy canonical.
+        c.execute(
+            "INSERT INTO records (file_key, line_num, uuid, model, "
+            "is_replay, is_canonical) VALUES "
+            "('aaa-fork', 3, 'u3', 'gpt-5.6-sol', TRUE, TRUE), "
+            "('zzz-fork', 3, 'u3', 'gpt-5.6-terra', TRUE, FALSE)")
+        c.commit()
+
+    ingest.recompute_canonical()
+
+    with db.viz_conn() as c:
+        rows = dict(c.execute(
+            "SELECT file_key, model FROM records WHERE uuid = 'u3'").fetchall())
+    assert rows == {"aaa-fork": "gpt-5.6-sol", "zzz-fork": "gpt-5.6-terra"}

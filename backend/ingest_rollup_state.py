@@ -1,4 +1,5 @@
-"""Suppression, cross-file canonical flags and teammate role resolution."""
+"""Suppression, cross-file canonical flags, replayed-model adoption and
+teammate role resolution."""
 from __future__ import annotations
 
 import logging
@@ -156,7 +157,13 @@ def _updated_tool_hours(
 
 
 def recompute_canonical(scope: Scope | None = None) -> int:
-    """Set canonical flags globally, or only for identities a run touched."""
+    """Set canonical flags globally, or only for identities a run touched.
+
+    The pass's tail is the winner rule's model half (issue #713): once
+    the flags have settled, every losing replayed copy adopts its
+    original's model (adopt_original_models), so the return value counts
+    reflagged rows and adopted rows together.
+    """
     scope = _phase_scope(scope)
     incremental_scope = (
         scope if scope is not None and not scope.full else None)
@@ -287,4 +294,108 @@ def recompute_canonical(scope: Scope | None = None) -> int:
         conn.commit()
     if changed:
         log.info("recompute_canonical: %d rows reflagged", changed)
+    # The winner rule's model half (issue #713): now that the rank has
+    # settled, a losing replayed copy adopts its original's model.
+    return changed + adopt_original_models(scope)
+
+
+def adopt_original_models(scope: Scope | None = None) -> int:
+    """A replayed copy adopts the model the parent had in force (issue #713).
+
+    A forked rollout stores its replayed copies under the fork's FIRST
+    declared model (#653) — the model at the fork point, which a
+    mid-history switch makes wrong for the earlier requests. The parent
+    is a different file, so no parse can resolve this; the canonical
+    winner of the uuid can, because while the parent's copy is present it
+    IS the winner: an original beats a replay whatever the key order
+    (SV-CANONICAL-FLAG). Every losing replayed copy therefore adopts its
+    winner's model, records by uuid and tool calls by tool_use_id; with
+    no original present (the replay is itself canonical, or every copy is
+    a replay) the #653 fallback stands. A NULL winner model is not
+    adopted — the copy keeps its attribution rather than losing it.
+
+    Runs at recompute_canonical's tail, on the flags it has just
+    settled. Adopted rows are non-canonical, so no rollup
+    reads them and the pass adds no hours to the scope; it extends
+    files.models with the adopted models, since the fork file journals
+    its parent's requests.
+    """
+    scope = _phase_scope(scope)
+    incremental_scope = (
+        scope if scope is not None and not scope.full else None)
+    incremental = incremental_scope is not None
+    if incremental and not (incremental_scope.affected_uuids
+                            or incremental_scope.affected_tool_use_ids):
+        return 0
+    changed = 0
+    with db.viz_conn() as conn:
+        conn.execute("SET LOCAL work_mem = '64MB'")
+        uuid_params = {
+            "uuids": (sorted(incremental_scope.affected_uuids)
+                      if incremental else None),
+        }
+        tool_params = {
+            "tool_ids": (sorted(incremental_scope.affected_tool_use_ids)
+                         if incremental else None),
+        }
+        # records: a losing replayed copy takes its uuid's original's
+        # model, and files.models gains it — one statement, one snapshot,
+        # so `added` is derived before the rows move.
+        cur = conn.execute(
+            """
+            WITH winners AS (
+              SELECT uuid, model FROM records
+               WHERE is_canonical AND is_replay IS NOT TRUE
+                 AND uuid IS NOT NULL AND model IS NOT NULL
+            ), adopt AS (
+              SELECT r.file_key, r.line_num, w.model AS winner_model
+                FROM records r JOIN winners w ON w.uuid = r.uuid
+               WHERE r.is_replay IS TRUE AND r.is_canonical IS FALSE
+                 AND r.model IS DISTINCT FROM w.model
+                 AND (%(uuids)s::text[] IS NULL OR r.uuid = ANY(%(uuids)s))
+            ), upd AS (
+              UPDATE records r SET model = a.winner_model
+                FROM adopt a
+               WHERE r.file_key = a.file_key AND r.line_num = a.line_num
+              RETURNING r.file_key
+            ), added AS (
+              SELECT file_key, array_agg(DISTINCT winner_model) AS added
+                FROM adopt GROUP BY file_key
+            ), files_upd AS (
+              UPDATE files f
+                 SET models = (SELECT array(SELECT DISTINCT m
+                                              FROM unnest(f.models || added.added)
+                                             AS m ORDER BY m))
+                FROM added
+               WHERE f.file_key = added.file_key
+            )
+            SELECT count(*) FROM upd
+            """, uuid_params)
+        row = cur.fetchone()
+        changed += row[0] if row and row[0] else 0
+
+        # tool_uses: the same adoption keyed on tool_use_id.
+        cur = conn.execute(
+            """
+            WITH winners AS (
+              SELECT tool_use_id, model FROM tool_uses
+               WHERE is_canonical AND is_replay IS NOT TRUE
+                 AND tool_use_id IS NOT NULL AND model IS NOT NULL
+            ), adopt AS (
+              SELECT t.file_key, t.line_num, t.idx, w.model AS winner_model
+                FROM tool_uses t JOIN winners w ON w.tool_use_id = t.tool_use_id
+               WHERE t.is_replay IS TRUE AND t.is_canonical IS FALSE
+                 AND t.model IS DISTINCT FROM w.model
+                 AND (%(tool_ids)s::text[] IS NULL
+                      OR t.tool_use_id = ANY(%(tool_ids)s))
+            )
+            UPDATE tool_uses t SET model = a.winner_model
+              FROM adopt a
+             WHERE t.file_key = a.file_key AND t.line_num = a.line_num
+               AND t.idx = a.idx
+            """, tool_params)
+        changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        conn.commit()
+    if changed:
+        log.info("adopt_original_models: %d rows adopted", changed)
     return changed
