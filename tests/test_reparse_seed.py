@@ -210,6 +210,24 @@ def test_the_seed_cli_writes_an_absent_family(tmp_path, capsys):
     assert document.read_text(encoding="utf-8") != before
 
 
+def test_the_seed_cli_writes_the_loader_s_canonical_bytes(tmp_path):
+    # The bytes the CLI leaves are the loader's canonical serialisation
+    # (issue #707): a hand-serialised document the loader happens to
+    # accept would otherwise pass the CLI test above, which pins only
+    # that the bytes changed.
+    document = _write(tmp_path, _document(reparse=False))
+    measurement = _write_measurement(tmp_path / "m.json")
+    assert reparse_ratchet.main([
+        "--seed", str(measurement),
+        "--thresholds", str(document)]) == 0
+    loaded = thresholds.load(document, thresholds.validate.ReseedVerdict(
+        False, False))
+    canonical = tmp_path / "canonical.json"
+    thresholds.write(canonical, loaded, thresholds.validate.ReseedVerdict(
+        False, False))
+    assert document.read_bytes() == canonical.read_bytes()
+
+
 def test_the_seed_cli_refuses_a_recorded_family(tmp_path, capsys):
     document = _write(tmp_path, _document())
     measurement = _write_measurement(tmp_path / "m.json")

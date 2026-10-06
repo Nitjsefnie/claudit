@@ -1178,9 +1178,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   marker — suite_cost under `[suite-cost-re-seed]`, reparse under
   `[reparse-re-seed]` — the same bounded walk, fail closed, one probe
   per family: a marker buys that family's ABSENCE only, never a raised
-  budget and never another family's absence (issue #698). The second seeds the new counts through the
-  loader's writer (`suite_ratchet.py --seed`) FROM A RUNNER
-  MEASUREMENT, cited by run id in the PR body, never hand-derived.
+  budget and never another family's absence (issue #698). The second
+  seeds the new counts through the family's own writer —
+  `suite_ratchet.py --seed` for suite_cost, `reparse_ratchet.py
+  --seed` for reparse — FROM A RUNNER MEASUREMENT, cited by run id in
+  the PR body, never hand-derived.
   Against a base that predates the family, those entries are a
   brand-new member's seed. One change cannot do both (the guard refuses
   an upward move the base carries): the delete is its own commit and
@@ -1268,10 +1270,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   an added entry under the frozen core families (the Python and `src/`
   JavaScript scope the size ratchet had when the guard landed) or for
   an unmeasured path. What stays legal is exactly the bots' move set
-  plus the two sanctioned seeds: a raise, a tighten, a brand-new
-  member's entries, a new measured family's one-time seed — and the
-  a cost family's REMOVAL, admitted only on a commit carrying that
-  family's own re-seed marker. A marker buys the absence, never a raised budget
+  — a raise, a tighten, a brand-new member's entries — plus a new
+  measured family's one-time seed and a cost family's REMOVAL, the
+  latter admitted only on a commit carrying that family's own re-seed
+  marker (`[suite-cost-re-seed]` for suite_cost, `[reparse-re-seed]`
+  for reparse). A marker buys the absence, never a raised budget
   (the upward-move refusal stands). The truth of every seed is pinned
   by the committed-document-matches-tree tests, which run on the same
   merge ref.
