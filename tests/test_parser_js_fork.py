@@ -24,10 +24,6 @@ PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 DIFFERENT_MODEL_FORK = FIX_CODEX / "rollout_fork_different_model.jsonl"
 
 _FORK_NODE_HEAD = f"""
@@ -37,6 +33,8 @@ _FORK_NODE_HEAD = f"""
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});"""
 
 
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="node not available")
 def test_the_browser_marks_a_forks_replayed_prefix():
     """The codex lane parser stamps a fork's leading entries isReplay."""
     script = _FORK_NODE_HEAD + f"""
@@ -51,6 +49,8 @@ def test_the_browser_marks_a_forks_replayed_prefix():
     assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
 
 
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="node not available")
 def test_the_browser_fork_scan_advances_past_a_needle_mention():
     """The mirror of the backend's fork-advance edge (issue #687 delta):
     a needle mention does not decide the fork flag - the first real meta
@@ -76,6 +76,8 @@ def test_the_browser_fork_scan_advances_past_a_needle_mention():
         [[4, True], [5, True], [8, False]], [[3, True], [4, True], [7, False]]]
 
 
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="node not available")
 def test_the_browser_parent_and_fork_agree_on_the_parents_model():
     """Issue #713's browser half: a lone fork file cannot know the model
     its replayed prefix ran on (the parent is a different file; a lone
