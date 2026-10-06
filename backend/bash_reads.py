@@ -34,9 +34,11 @@ from __future__ import annotations
 import posixpath
 import re
 
+from typing import cast
+
 from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
-from backend.bash_literals import (ShellWord, destination_paths,
-                                   literal_path, perl_paths, sed_parts)
+from backend.bash_literals import (ShellWord, destination_paths, literal_path,
+                                   perl_paths, sed_parts, shell_tokens)
 from backend.bash_directories import directory_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
@@ -74,6 +76,9 @@ VALUE_FLAGS = frozenset({
 # command text, dropped otherwise.
 _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
+# One command substitution with no nested parens: the double-quoted
+# capture form's whole value, `NAME="$( … )"`.
+_CAPTURE = re.compile(r"\$\(([^()]*)\)", re.S)
 
 # Variable values can grow exponentially across chained assignments. Bound
 # each generated value and the sum generated while scanning one command.
@@ -100,18 +105,27 @@ def _segments(tokens: list[ShellWord]) -> list[list[str]]:
     characters appear constantly INSIDE quoted arguments — a
     `grep 'a\\|b' f.py` alternation is one token, not two segments, and
     splitting it textually both loses the file and invents a segment.
-    A command the tokenizer cannot parse (an unbalanced quote, a heredoc body
-    spliced in) yields no segments rather than a partial misreading.
+    Operators inside a `$( … )` capture or any other `(`-group do not
+    split: the group is one segment ending at its matching `)`, so
+    `d=$(cd /tmp && mktemp -d probe.XXXXXX)` reaches the capture scan
+    whole. A command the tokenizer cannot parse (an unbalanced quote, a
+    heredoc body spliced in) yields no segments rather than a partial misreading.
     """
     segments: list[list[str]] = []
     current: list[str] = []
+    depth = 0
     for tok in tokens:
-        if tok.operator and tok in _OPERATORS:
-            if current:
-                segments.append(current)
-            current = []
-        else:
-            current.append(tok)
+        if getattr(tok, "operator", False):
+            if tok == "(":
+                depth += 1
+            elif tok == ")" and depth > 0:
+                depth -= 1
+            if tok in _OPERATORS and depth == 0:
+                if current:
+                    segments.append(current)
+                current = []
+                continue
+        current.append(tok)
     if current:
         segments.append(current)
     return segments
@@ -151,6 +165,50 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
             env[m.group(1)] = _expand(value, env, state)
         idx += 1
     return segment[idx:]
+
+
+def _matching_paren(tokens: list[str], open_idx: int) -> int | None:
+    """The index of the `)` closing the `(` at open_idx, or None."""
+    depth = 0
+    for idx in range(open_idx, len(tokens)):
+        tok = tokens[idx]
+        if not getattr(tok, "operator", False):
+            continue
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            depth -= 1
+            if depth == 0:
+                return idx
+    return None
+
+
+def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] | None:
+    """Split off a leading assignment's captured substitution: (prefix, inner).
+
+    Two spellings reach the capture: the unquoted `d=$( … )` splits at the
+    `(` the tokenizer keeps out of a word — a `NAME=$` word, then the `(`
+    operator — and the double-quoted `d="$( … )"` stays one word whose
+    value is the whole substitution. Leading `NAME=value` words may
+    precede either, and the closing `)` must end the segment: anything
+    after it (a value suffix, a following command) is not modelled, so a
+    backtick capture never matches.
+    """
+    for idx, tok in enumerate(raw_segment):
+        m = _ASSIGN.match(tok)
+        if m is None:
+            return None
+        value = getattr(tok, "expansion", tok)[m.start(2):]
+        nxt = raw_segment[idx + 1] if idx + 1 < len(raw_segment) else None
+        if (nxt is not None and getattr(nxt, "operator", False) and nxt == "("
+                and value.endswith("$")):
+            close = _matching_paren(raw_segment, idx + 1)
+            if close != len(raw_segment) - 1:
+                return None
+            return raw_segment[:idx], cast("list[ShellWord]", raw_segment[idx + 2:close])
+        if nxt is None and _CAPTURE.fullmatch(value):
+            return raw_segment[:idx], shell_tokens(value[2:-1])
+    return None
 
 
 def _expansion_size(token: str, env: dict[str, str | None],
@@ -326,6 +384,9 @@ class _Scan:
             self.add(self.writes, path)
 
     def segment(self, raw_segment: list[str]) -> None:
+        if (capture := _capture_split(raw_segment)) is not None:
+            self._captured(*capture)
+            return
         segment = _strip_env_prefix(raw_segment, self.env, self)
         if not segment:
             return
@@ -335,6 +396,26 @@ class _Scan:
         except ValueError:
             return
         self.command_effects(name, operands, redirected, inputs)
+
+    def _captured(self, prefix: list[str], inner: list[ShellWord]) -> None:
+        """Writes of one `NAME=$( … )` capture's inner command.
+
+        The commands inside a substitution run for real, so the paths they
+        put on disk are recorded — a `mktemp` template, a `mkdir` operand,
+        a redirect — but the substitution's stdout is captured, not
+        emitted, so its reads and slice/whole kind are not this scan's
+        intake and stay unbooked. A private `_Scan` inherits the parent's
+        cwd and assignments (a `cd` inside stays inside) and its writes
+        join the parent's.
+        """
+        nested = _Scan(self.base or "")
+        nested.env = dict(self.env)
+        _strip_env_prefix(prefix, nested.env, nested)
+        _strip_env_prefix(prefix, self.env, self)
+        for sub in _segments(inner):
+            nested.segment(sub)
+        for path in nested.writes:
+            self.add(self.writes, path)
 
     def command_effects(self, name: str, operands: list[str],
                         redirected: list[str], inputs: list[str]) -> None:

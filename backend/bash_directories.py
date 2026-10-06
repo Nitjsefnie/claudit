@@ -7,7 +7,8 @@ it CREATES, resolved against the command's cwd by the caller.
 
 `command_options` refuses any flag the command's modes dict does not
 list, so an unparsable command names nothing rather than a guessed path.
-Command-substitution forms (`d=$(mktemp …)`) are not scanned: the
+Captured substitutions (`d=$(mktemp …)`) are scanned by bash_reads,
+which re-runs the inner command through this module's dispatch; the
 tokenizer's operator refusal is unchanged.
 """
 from __future__ import annotations
