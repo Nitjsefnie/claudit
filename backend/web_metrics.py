@@ -72,10 +72,57 @@ METRIC_PARTS = {
     "longtask": ("block",),
 }
 
+#: The four fixed regions: the grid, the Inspector, the sign-in page, and
+#: the catch-all. The client declares exactly this set as its own REGIONS
+#: table; the panel terms below are declared client-side as the PANELS
+#: title list instead.
+FIXED_REGIONS = ("panel_grid", "inspector", "signin", "other")
+
 #: Named page regions a shift can be attributed to. The frontend walks up from
-#: the shift's own node to the nearest element carrying `data-perf-region`,
-#: so an unattributed shift lands in `other` rather than being dropped.
-REGIONS = ("panel_grid", "inspector", "signin", "other")
+#: the shift's own node: the nearest element carrying `data-perf-region` wins,
+#: except the grid's own `panel_grid`, which the walk defers (#717 - it wraps
+#: every panel, so it would otherwise win the walk before a panel name was
+#: read); the nearest `data-panel` ancestor names the shift by its own term,
+#: `panel_` + the title folded to a snake_case term. A shift lands `other`
+#: only when no source sits inside any of these. The panel terms are the
+#: closed set of panel titles the dashboard renders - bounded, because every
+#: member is one of the titles in the JSX sources (a free-form selector would
+#: grow the `(metric, part, region, phase)` rollup grain without bound); the
+#: derivation test in tests/test_web_metrics.py reads the titles out of the
+#: sources and requires them to equal this tuple's panel terms, so a panel
+#: added or renamed without its term fails CI.
+REGIONS = FIXED_REGIONS + (
+    "panel_input_tokens",
+    "panel_output_tokens",
+    "panel_thinking_output",
+    "panel_cache_create",
+    "panel_cache_read",
+    "panel_total_tokens",
+    "panel_cost_usd",
+    "panel_lines_added",
+    "panel_lines_deleted",
+    "panel_cost_by_model",
+    "panel_tokens_by_model",
+    "panel_token_breakdown_by_tokens",
+    "panel_token_breakdown_by_cost",
+    "panel_cost_by_agent_type",
+    "panel_tokens_by_agent_type",
+    "panel_cost_by_project",
+    "panel_tokens_by_project",
+    "panel_tool_error_rate",
+    "panel_page_performance",
+    "panel_context_chart",
+    "panel_session_burn_rate",
+    "panel_response_sizes",
+    "panel_tool_usage_ratio",
+    "panel_reply_latency",
+    "panel_activity_heatmap",
+    "panel_activity_heatmap_legend",
+    "panel_tokens_by_context_size",
+    "panel_cost_by_context_size",
+    "panel_prompt_cache_ttl_split",
+    "panel_context_growth_comparison",
+)
 
 #: When in the page's life a measurement was taken. One vocabulary for both
 #: observed classes: a shift during the first render and a long task blocking

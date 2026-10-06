@@ -1,12 +1,12 @@
 """Layout-shift REGION attribution in src/perf.js (node-driven).
 
 The region family of `tests/test_perf_js.py`, plus the #643 all-sources
-walk. The module reads the same faked browser globals the parent harness
-builds (`_run` there stands in for `performance`,
-`PerformanceObserver`, `navigator`, `sessionStorage` and the timers), so
-every assertion here runs against the real shipped client. Split from
-the parent file for the size ratchet: the region family grew past the
-space that file had left.
+walk and the #717 panel terms. The module reads the same faked browser
+globals the parent harness builds (`_run` there stands in for
+`performance`, `PerformanceObserver`, `navigator`, `sessionStorage` and
+the timers), so every assertion here runs against the real shipped
+client. Split from the parent file for the size ratchet: the region
+family grew past the space that file had left.
 """
 from __future__ import annotations
 
@@ -35,9 +35,11 @@ def test_region_falls_back_to_the_nearest_data_panel():
     so a live node inside one panel — under no named region — landed in
     `other`, and `other` is what most production shifts carried. The
     nearest `[data-panel]` ancestor is the attribution the page already
-    names; in the sink's closed vocabulary it is `panel_grid`. The
-    region walk keeps precedence, and the fallback widens nothing it
-    cannot see: a node outside every panel keeps `other`."""
+    names. #717: the name is no longer folded into the grid term — it is
+    the attribution, as its own `panel_` term — so a shift names the
+    panel that moved. The region walk keeps precedence, and the fallback
+    widens nothing it cannot see: a node outside every panel keeps
+    `other`."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -51,8 +53,78 @@ def test_region_falls_back_to_the_nearest_data_panel():
         bare: window.perf.region(mk({}, null)),
       }));
     """, sendBeacon=True, observers=[])
-    assert out == {"inner": "panel_grid", "own": "panel_grid",
+    assert out == {"inner": "panel_cost_by_model", "own": "panel_cost_by_model",
                    "precedence": "inspector", "bare": "other"}, out
+
+
+def test_a_node_under_the_grid_names_its_panel_not_the_grid():
+    """#717: the whole grid carries `data-perf-region="panel_grid"`
+    (src/app.jsx, on both `.dashboard` and `.dash-grid`), so the region
+    walk matched the grid on an ANCESTOR before any panel name was read
+    and every panel shift read `panel_grid`. The walk now defers the grid
+    term: a named panel on the node itself or any ancestor wins over the
+    grid's `panel_grid`, and the grid keeps only what no panel
+    names — grid gaps, the summary strip, elements that carry no
+    `data-panel` of their own."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const dashboard = mk({ 'data-perf-region': 'panel_grid' }, null);
+      const grid = mk({ 'data-perf-region': 'panel_grid' }, dashboard);
+      const svg = mk({ 'data-panel': 'Reply Latency' }, grid);
+      const inner = mk({}, svg);
+      const summary = mk({}, grid);
+      console.log(JSON.stringify({
+        inner: window.perf.region(inner),
+        own: window.perf.region(svg),
+        summary: window.perf.region(summary),
+      }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"inner": "panel_reply_latency", "own": "panel_reply_latency",
+                   "summary": "panel_grid"}, out
+
+
+def test_a_shift_inside_a_panel_beacons_the_panel_term():
+    """End to end through the observer: a shift whose source sits inside
+    a panel names that panel in the beacon the sink receives."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const svg = mk({ 'data-panel': 'Cost by Model' },
+        mk({ 'data-perf-region': 'panel_grid' }, null));
+      const inner = mk({}, svg);
+      __emit('layout-shift', [{ value: 0.3, hadRecentInput: false,
+                                sources: [{node: inner}] }]);
+      __tick();
+      console.log(JSON.stringify({ beacons: beacons() }));
+    """, sendBeacon=True, observers=["layout-shift"])
+    assert out["beacons"] == [{"metric": "layout_shift", "part": "shift",
+                               "value": 0.3, "region": "panel_cost_by_model",
+                               "phase": "pre_paint"}], out
+
+
+def test_an_unrecognised_panel_name_falls_back():
+    """The panel terms are a closed set: a `data-panel` name the sink
+    does not admit is not echoed — it would be a 400 that takes every
+    beacon in the batch with it. The walk moves PAST the unknown name, so
+    a known panel further up still names the shift; with none, the old
+    fallback stands."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const grid = mk({ 'data-perf-region': 'panel_grid' }, null);
+      const unknown = mk({ 'data-panel': 'Brand New Panel' }, grid);
+      const inner = mk({}, unknown);
+      const known = mk({ 'data-panel': 'Reply Latency' }, unknown);
+      const over = mk({}, known);
+      console.log(JSON.stringify({
+        unknown: window.perf.region(unknown),
+        inner: window.perf.region(inner),
+        knownAncestor: window.perf.region(over),
+      }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"unknown": "panel_grid", "inner": "panel_grid",
+                   "knownAncestor": "panel_reply_latency"}, out
 
 
 def test_an_unrecognised_region_attribute_is_not_echoed():
