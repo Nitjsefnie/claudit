@@ -87,18 +87,16 @@ def _capture_close(value: str) -> int | None:
 
     The close must be the value's LAST character: anything after it (a
     value suffix, a following command) is not modelled. Literal parens
-    inside single-quoted spans do not nest, and a backslash escapes the
-    character it precedes. A `"` or a backtick in the body leaves the
+    inside single-quoted spans do not nest. A `"` or a backtick in the body leaves the
     provenance of every later paren unknown — this value's expansion
-    form has already flattened double quotes away — so it refuses.
+    form has already flattened quotes and escapes away — so it refuses.
     """
     depth = 1
     idx = 2
     while idx < len(value):
         ch = value[idx]
-        if ch == "\\":
-            idx += 2
-            continue
+        if ch in '"`\\':
+            return None
         if ch == "'":
             end = value.find("'", idx + 1)
             if end < 0:

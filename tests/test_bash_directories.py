@@ -107,6 +107,8 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("d=\"$( (mktemp -d /tmp/probe.XXXXXX) )\"", ["/tmp/probe.XXXXXX"]),
     ("d=\"$(mktemp -d x)y)\"", []),
     ("d=\"$(mktemp -d `x`)\"", []),
+    ('d="$(mktemp -d /tmp/p\\.XX)"', []),
+    ("d=\"$(mktemp '/tmp/p.XX\" z)", []),
     ("d=\"$(mktemp -d \\\"/tmp/p.XX\\\")\"", []),
     # Issue #747: a declaration builtin runs the same substitution and
     # its assignment arguments carry into the capture's inner scan.
