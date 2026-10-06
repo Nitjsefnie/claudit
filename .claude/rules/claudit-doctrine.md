@@ -39,6 +39,20 @@ Resolve a discrepancy against this spec and the fixtures: fix the side
 that departs. If the spec itself is wrong, change it here, in both
 implementations, and add a pinning fixture, all in one commit.
 
+The replayed-model adoption is INGEST-level, not parser semantics, and
+is deliberately NOT a parser change on either side: a parse sees one
+file, and the parent's model in force lives in a different one. A
+browser parse of a lone fork file keeps the #653 fallback (the fork's
+first declaration) — that is the record the Inspector shows for a
+session whose parent never loads with it. What the browser DOES mirror
+is the cross-file record dedup: `parseLaneCodex` feeds the lane's
+derived record identities through `recordDedup.decide` + `retract` when
+a shared `seenUuids` map is passed (issue #713), so with a parent and
+its fork both loaded the parent's originals survive and the fork's
+replayed records leave — the same winner the DB's canonical rows hold.
+The pass keyed on tool_use_id has no browser mirror (a follow-up gap,
+deliberately not closed here).
+
 ## Cost accounting is split TTL, always (SV-COST-SPLIT)
 
 Every cost computed from `usage` MUST split `cache_creation` into
@@ -259,6 +273,19 @@ the same pass — a compaction sidecar (`agent-acompact-*`) replays the
 main file's tool_use blocks. NULL-`tool_use_id` rows are canonical.
 Every rollup and live read over `tool_uses` MUST filter
 `tu.is_canonical`.
+
+A replayed copy that loses also ADOPTS the winner's model when the
+winner is an original — `adopt_original_models()`, the canonical pass's
+tail (issue #713). The fork's first declaration is the
+model at the fork point, and only the parent's own copy carries the
+model the parent had in force for the record; the adoption rewrites
+`records.model` by uuid and `tool_uses.model` by `tool_use_id`, and
+extends `files.models` with the adopted models. With no original of the
+identity present, the #653 fallback stands; a NULL winner model is never
+adopted; a replay promoted after the original's deletion keeps the model
+it adopted while the original was there. The pass rewrites only
+non-canonical rows, so no rollup re-scope follows. The browser half is
+the codex lane's record dedup (see SV-PARSER-SPEC).
 
 ## Foreign models are purged, not filtered (SV-SUPPRESSED-MODELS)
 

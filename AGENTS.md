@@ -155,8 +155,8 @@ backend/          — FastAPI application
   ingest_resolve.py — per-item outcome pairing (resolve /
                     resolve_futures), failure booking and the fetch
                     error classes; split from ingest_fetch for size
-  ingest_rollup_state.py — suppression, canonical flags, teammate
-                    resolution
+  ingest_rollup_state.py — suppression, canonical flags,
+                    replayed-model adoption, teammate resolution
   ingest_rollup_hourly.py — the seven hour-keyed rollup rebuilds
   ingest_rollup_latency.py — latency_rollup rebuilds
   ingest_rollup_web_metrics.py — web_metrics_rollup rebuilds, over the
@@ -214,7 +214,8 @@ src/              — served at /src/* (in-browser Babel)
                     (SV-PARSER-SPEC lockstep)
   parser-codex.js — browser codex lane parser: cumulative-token
                     differencing, first-declared-model attribution,
-                    replay-prefix marking (SV-PARSER-SPEC lockstep)
+                    replay-prefix marking, multi-load record dedup
+                    (SV-PARSER-SPEC lockstep)
   record-dedup.js — browser half of the canonical winner rule
                     (SV-CANONICAL-FLAG): an original beats a replayed
                     copy, an attributed copy an unattributed one
