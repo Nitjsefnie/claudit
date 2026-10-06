@@ -559,3 +559,20 @@ def test_notice_leaves_an_existing_row_and_member_untouched():
     assert after["models"][GPT_KEY] == before["models"][GPT_KEY]
     assert GPT_KEY in after["long_context_models"]
     assert out.moves == []
+
+
+def test_a_broken_endpoints_fetch_refuses_only_its_model():
+    """Any fetch error — a URL error, a KeyError from a wrong fixture, any
+    non-RefreshError — refuses that one model; the other models still
+    move."""
+    def fetch(mid):
+        if mid == GPT_ID:
+            raise KeyError(mid)
+        return _payload(_endpoint("z-ai", _price(0.2, 1.0)))
+
+    doc = _doc()
+    outcome = vendor.vendor_pass(doc, lambda: _catalog(GPT_ID, GLM_ID),
+                                 fetch, STAMP, NOW)
+    assert len(outcome.refusals) == 1 and GPT_ID in outcome.refusals[0]
+    assert "fetching its endpoints failed" in outcome.refusals[0]
+    assert GLM_KEY in doc["models"]
