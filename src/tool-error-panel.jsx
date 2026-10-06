@@ -17,8 +17,8 @@
 // the API.
 const TH_X = window.dashboardTheme;
 
-// One dash pattern per picked tool, by picked order; cycled when the
-// picker holds more tools than patterns.
+// One dash pattern per tool, by PICKER position; cycled when the picker
+// holds more tools than patterns. Indexed only inside the toolDash map.
 const TOOL_DASHES = ['', '4,3', '1,3', '7,3', '2,4', '5,2'];
 
 // The per-tool picker's Other entry key and its dim swatch colour.
@@ -250,23 +250,27 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     return key;
   }
 
+  // One dash pattern per tool, keyed by the DISPLAY label from the
+  // PICKER position — checked or not. The line loop and the legend both
+  // read this one map (#682); a second index site is the drift again.
+  const toolDash = React.useMemo(() => Object.fromEntries(
+    toolPickerEntries.map((k, ti) =>
+      [labelFor(k.model), TOOL_DASHES[ti % TOOL_DASHES.length]])),
+  [toolPickerEntries, otherTools.length]);
+
   // The per-tool lines are drawn in the MODEL's colour, so the legend
-  // that distinguishes them is the dash pattern: one per picked tool, in
-  // picked order, cycled. Only shown while the toggle is on (#652 point
-  // 3). Packed by the measured advance, like every legend on these
-  // panels — a predicted advance is how a 17-character name ran through
-  // its neighbour (issue #630). Clusters carry the DISPLAY label
-  // (`Other (N)`, never the internal key) and a null count, which packs
-  // as no count text — a reserved-but-never-drawn count makes clusters
-  // wrap earlier than their visible width needs.
+  // that distinguishes them is the dash pattern: one per checked tool,
+  // from the shared toolDash map (its picker position, #682). Shown only
+  // while the toggle is on (#652 point 3). Packed by the measured
+  // advance, like every legend on these panels — a predicted advance is
+  // how a 17-character name ran through its neighbour (issue #630).
   const toolLegend = React.useMemo(() => {
-    if (!showPerTool) return { rows: [], pickedLabels: [] };
+    if (!showPerTool) return { rows: [] };
     const picked = toolPickerEntries.filter(e => selTools.has(e.model));
     return {
       rows: window.panelLayout.packLegend(
         picked.map(e => ({ model: labelFor(e.model), count: null })),
         (adv || 5.7), plotW, 16, 18).rows,
-      pickedLabels: picked.map(e => labelFor(e.model)),
     };
   }, [showPerTool, toolPickerEntries, selTools, plotW, adv, otherTools.length]);
 
@@ -446,7 +450,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
                 colour, behind the aggregate lines. */}
             {showPerTool && drawn.map(d => {
               const c = (window.modelColors && window.modelColors[d.model]) || '#888';
-              return toolPickerEntries.map((k, ti) => {
+              return toolPickerEntries.map((k) => {
                 if (!selTools.has(k.model)) return null;
                 const arr = d.perKey.get(k.model) || [];
                 if (arr.length < 2) return null;
@@ -454,7 +458,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
                 return (
                   <polyline key={`tool-${d.model}-${k.model}`} points={pts} fill="none"
                     stroke={c} strokeWidth="1"
-                    strokeDasharray={TOOL_DASHES[ti % TOOL_DASHES.length]} />
+                    strokeDasharray={toolDash[labelFor(k.model)] || undefined} />
                 );
               });
             })}
@@ -469,7 +473,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
                     transform={`translate(${c.x}, ${c.y})`}>
                     <line x1={c.ruleX} x2={c.ruleX + 16} y1={5} y2={5}
                       stroke={TH_X.text} strokeWidth="1.2"
-                      strokeDasharray={TOOL_DASHES[toolLegend.pickedLabels.indexOf(c.label) % TOOL_DASHES.length] || undefined} />
+                      strokeDasharray={toolDash[c.label] || undefined} />
                     <text x={9} y={9} fontSize="9.5" fontWeight="700"
                       fill={TH_X.text} fontFamily="monospace">{c.text}</text>
                   </g>
