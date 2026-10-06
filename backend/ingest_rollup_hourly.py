@@ -175,7 +175,7 @@ def rebuild_rollup(scope: Scope | None = None) -> int:
         )
         {scope_cte}
         SELECT f.session_id, f.project_id, date_trunc('hour', r.ts) AS hour,
-               COALESCE(NULLIF(r.model, ''), 'unknown') AS model, f.is_main,
+               r.model AS model, f.is_main,
                COALESCE(r.long_context, FALSE) AS long_context,
                COALESCE(r.provider, '') AS provider,
                MIN(r.ts), MAX(r.ts), COUNT(*),
