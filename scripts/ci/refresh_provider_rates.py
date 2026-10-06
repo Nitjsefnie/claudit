@@ -46,8 +46,12 @@ Every other sampled move is still written, then the script exits nonzero
 naming each refusal. A detection time not after a sampled row's newest
 entry leaves that host untouched with a notice; appending after it would
 refuse the file, and one host's damage never blocks the others. The
-one-time, human-reviewed history rewrite
+The one-time, human-reviewed history rewrite
 lives in backfill_provider_rates.py.
+
+The same run refreshes the four first-party vendor prefixes' models-table
+rows and long_context_models membership (refresh_vendor_rates,
+SV-VENDOR-RATES): one report, one PRICING_VERSION bump, one commit.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
@@ -60,6 +64,7 @@ import sys
 import urllib.error
 from dataclasses import dataclass
 from itertools import combinations
+from typing import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -75,10 +80,11 @@ import refresh_pricelog  # noqa: E402
 from refresh_pricelog import (FetchEndpoints as Fetch, FetchLog, FetchModels)  # noqa: E402
 from refresh_common import (bump_pricing_version,  # noqa: E402
                             detection_stamp, sources as _sources)
-from refresh_report import arguments as _arguments  # noqa: E402
-from refresh_report import commit_message, report  # noqa: E402
+from refresh_report import (arguments as _arguments,  # noqa: E402
+                            commit_message, report, vendor_report)
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
+import refresh_vendor_rates  # noqa: E402
 from backend import pricing  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
@@ -394,29 +400,40 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
          fetch_models: FetchModels = refresh_pricelog.fetch_models,
          fetch_log: FetchLog = refresh_pricelog.fetch_listed_pricing,
          now: datetime | None = None, pricing_path: Path = PRICING_JSON,
-         constants_path: Path = CONSTANTS_PY) -> int:
+         constants_path: Path = CONSTANTS_PY,
+         vendor: Callable | None = refresh_vendor_rates.vendor_pass) -> int:
     args = _arguments(argv)
     stamp = detection_stamp(now or datetime.now(timezone.utc))
+    at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     try:
         result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp,
                          fetch_models, fetch_log)
+        # The vendor pass runs on the provider pass's own document, after its
+        # loader validation; it validates the would-be file again itself.
+        outcome = (vendor(result.doc, fetch_models, fetch, stamp, at)
+                   if vendor is not None else None)
+        moved = bool(result.moves) or bool(outcome is not None and outcome.moves)
         constants = constants_path.read_text(encoding="utf-8")
-        if result.moves:
+        if moved:
             constants = bump_pricing_version(constants)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
     body = report(stamp, result, result.doc["openrouter"]["models"])
+    if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
+        body += "\n\n" + vendor_report(stamp, outcome)
     print(body)
-    if result.moves and not args.dry_run:
+    if moved and not args.dry_run:
         pricing_path.write_text(json.dumps(result.doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
         if args.commit_msg:
-            args.commit_msg.write_text(commit_message(result, body), encoding="utf-8")
+            args.commit_msg.write_text(
+                commit_message(result, body, outcome), encoding="utf-8")
     # Every other move is written; the run is still red, so a human sees it.
-    if result.refusals:
-        print("\n".join(f"refresh_provider_rates: {r}" for r in result.refusals),
+    refusals = result.refusals + (outcome.refusals if outcome is not None else [])
+    if refusals:
+        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals),
               file=sys.stderr)
         return 1
     return 0
