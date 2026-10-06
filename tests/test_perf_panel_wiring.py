@@ -368,6 +368,13 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     assert 'data-perf-region="inspector"' in src, (
         "the Inspector carries no region, so its shifts are attributed "
         "to `other`")
+    assert 'data-perf-region="topbar"' in src, (
+        "the top bar carries no region, so its shifts are attributed "
+        "to `other` (#733)")
+    assert src.count('data-perf-region="project_picker"') == 2, (
+        "the project picker strip mounts twice (range and project) and "
+        "both need the region, or a shift in the unmarked one is "
+        "attributed to `other` (#733)")
 
 
 def test_the_client_and_the_panel_are_loaded_before_the_app():

@@ -84,6 +84,52 @@ def test_a_node_under_the_grid_names_its_panel_not_the_grid():
                    "summary": "panel_grid"}, out
 
 
+def test_the_topbar_and_the_picker_strip_name_their_own_terms():
+    """#733: the top bar and the project picker strip carried no region
+    attribute, so a shift sourced in either — the logo, the nav buttons,
+    the picker buttons — landed in `other`, the exact outcome #643's
+    Expected Behavior forbids. Both carry their own terms now (src/app.jsx
+    marks the `<header class="topbar">` and both `.project-picker`
+    mounts); the walk returns them like any named region, and a node
+    under neither still falls to `other`."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const topbar = mk({ 'data-perf-region': 'topbar' }, null);
+      const picker = mk({ 'data-perf-region': 'project_picker' }, null);
+      console.log(JSON.stringify({
+        topbar: window.perf.region(mk({}, topbar)),
+        picker: window.perf.region(mk({}, picker)),
+        bare: window.perf.region(mk({}, null)),
+      }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"topbar": "topbar", "picker": "project_picker",
+                   "bare": "other"}, out
+
+
+def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
+    """End to end through the observer: a shift whose source sits in the
+    top bar or the picker strip names that strip in the beacon the sink
+    receives, where it read `other` before #733."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const navbtn = mk({},
+        mk({ 'data-perf-region': 'topbar' }, null));
+      const ppbtn = mk({},
+        mk({ 'data-perf-region': 'project_picker' }, null));
+      __emit('layout-shift', [
+        { value: 0.04, hadRecentInput: false, sources: [{node: navbtn}] },
+        { value: 0.06, hadRecentInput: false, sources: [{node: ppbtn}] },
+      ]);
+      __tick();
+      console.log(JSON.stringify({ beacons: beacons() }));
+    """, sendBeacon=True, observers=["layout-shift"])
+    rows = out["beacons"]
+    assert [(r["region"], r["value"]) for r in rows] == [
+        ("topbar", 0.04), ("project_picker", 0.06)], out
+
+
 def test_a_shift_inside_a_panel_beacons_the_panel_term():
     """End to end through the observer: a shift whose source sits inside
     a panel names that panel in the beacon the sink receives."""

@@ -35,7 +35,7 @@
   // is a 400, so a typo in a call site reports nothing rather than
   // sending a batch that takes every other beacon in it down.
   const JOURNEYS = ['dashboard_open', 'inspector_open', 'signin'];
-  const REGIONS = ['panel_grid', 'inspector', 'signin', 'other'];
+  const REGIONS = ['panel_grid', 'inspector', 'signin', 'topbar', 'project_picker', 'other'];
 
   // #717: a shift inside one panel names the panel, not just the grid.
   // The closed set of `data-panel` titles the dashboard renders, kept as
@@ -261,10 +261,10 @@
   // every panel, so its attribute sits on an ancestor of each and the
   // first walk used to return it before any panel name was read -- every
   // panel shift read `panel_grid` and never named the panel. The order
-  // is now: a named non-grid region (the Inspector, the sign-in page),
-  // then the nearest named panel as its own `panel_` term, then
-  // `panel_grid` for what sits in the grid but under no named panel
-  // (grid gaps, the summary strip), then `other`.
+  // is now: a named non-grid region (the Inspector, the sign-in page,
+  // the top bar, the picker strip), then the nearest named panel as its
+  // own `panel_` term, then `panel_grid` for what sits in the grid but
+  // under no named panel (grid gaps, the summary strip), then `other`.
   function region(node) {
     let el = node;
     while (el && typeof el.getAttribute === 'function') {

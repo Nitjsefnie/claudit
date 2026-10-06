@@ -596,7 +596,7 @@ def test_the_client_and_the_sink_name_the_same_regions_and_phases():
     quietly stop meaning the same thing. Compare the declarations instead,
     and read them out of the shipped files rather than restating them.
     """
-    # The client declares the four fixed regions as its REGIONS table;
+    # The client declares the six fixed regions as its REGIONS table;
     # its PANELS list carries the panel terms and is derived below.
     assert _client_table("REGIONS") == web_metrics.FIXED_REGIONS
     # The client declares no PHASES table -- it assigns the three literals
