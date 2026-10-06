@@ -40,7 +40,7 @@ from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
 from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    MAX_NESTED_GROUP_DEPTH,
                                    _capture_split, _matching_paren,
-                                   _segments)
+                                   _segments, _split_redirects)
 from backend.bash_literals import (ShellWord, destination_paths, literal_path,
                                    perl_paths, sed_parts)
 from backend.bash_directories import directory_targets
@@ -115,15 +115,27 @@ def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool =
 
 
 def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
-                      state: _Scan) -> list[str]:
+                      state: _Scan) -> list[str] | None:
     """Drop leading `VAR=value` assignments before the command word,
-    recording each so a later `$VAR` in the same command resolves."""
+    recording each so a later `$VAR` in the same command resolves.
+
+    A declaration builtin leads only when an assignment argument follows
+    it: the builtin's remaining words are identifier arguments bash
+    rejects, never a command that runs, so `export cat f.py` refuses the
+    whole segment (None) instead of reading `cat` as the command word.
+    """
     idx = 0
+    builtin_lead = False
     while idx < len(segment):
         tok = segment[idx]
         if tok in _DECLARATION_BUILTINS and "=" not in tok:
+            builtin_lead = True
+            nxt = segment[idx + 1] if idx + 1 < len(segment) else None
+            if nxt is not None and _ASSIGN.match(nxt) is not None:
+                idx += 1
+                continue
             idx += 1
-            continue
+            break
         if tok.startswith("-") or "=" not in tok.split("/")[0]:
             break
         m = _ASSIGN.match(tok)
@@ -134,7 +146,10 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
             # bindings explicitly so an unknown IFS still disables inference.
             env[m.group(1)] = _expand(value, env, state)
         idx += 1
-    return segment[idx:]
+    rest = segment[idx:]
+    if builtin_lead and rest:
+        return None
+    return rest
 
 
 def _expansion_size(token: str, env: dict[str, str | None],
@@ -203,40 +218,6 @@ def _expand(token: str, env: dict[str, str | None],
     else:
         out = source
     return out.replace("\x00", "$")
-
-
-def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
-    """(operands, output files, stdin files) for one segment's arguments.
-
-    A redirect target is a file the command WRITES, so it must be pulled
-    out before operand scanning — otherwise `grep x src.py > out.txt`
-    books out.txt as something that was read. Input and fd redirections also
-    consume an argument, but neither is a destination operand. Unknown shell
-    operators raise ValueError rather than entering the filename heuristics.
-    """
-    operands: list[str] = []
-    writes: list[str] = []
-    inputs: list[str] = []
-    idx = 0
-    while idx < len(args):
-        tok = args[idx]
-        if not getattr(tok, "operator", False):
-            operands.append(tok)
-            idx += 1
-            continue
-        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", tok)
-        if not match or idx + 1 == len(args) or getattr(args[idx + 1], "operator", False):
-            raise ValueError("unsupported or incomplete shell redirection")
-        fd, operator = match.groups()
-        target = args[idx + 1]
-        if operator in (">", ">>"):
-            writes.append(target)
-        elif operator == "<" and fd in ("", "0"):
-            inputs.append(target)
-        elif operator in (">&", "<&") and not re.fullmatch(r"[0-9]+|-", target):
-            raise ValueError("unsupported descriptor target")
-        idx += 2
-    return operands, writes, inputs
 
 
 def _operand_paths(name: str, args: list[str], windows: bool = False) -> list[str]:
@@ -349,12 +330,19 @@ class _Scan:
         The group's stdout is not captured, so unlike a capture its
         intake books. A redirect on the closing paren books its target;
         words after the close would not parse in bash at all, so they
-        refuse the whole group.
+        refuse the whole group. A body that is exactly one nested group
+        refuses too: `(( … ))` is bash's arithmetic command unless its
+        body re-lexes as a subshell, which tokens cannot decide, so the
+        ambiguous spelling books nothing rather than inventing a target.
         """
         if self.depth >= MAX_NESTED_GROUP_DEPTH:
             return
         close = _matching_paren(raw_segment, 0)
         if close is None:
+            return
+        body = raw_segment[1:close]
+        if (body and getattr(body[0], "operator", False) and body[0] == "("
+                and _matching_paren(body, 0) == len(body) - 1):
             return
         try:
             tail_operands, tail_writes, tail_inputs = _split_redirects(
@@ -365,7 +353,7 @@ class _Scan:
             return
         nested = _Scan(self.base or "", self.depth + 1)
         nested.env = dict(self.env)
-        for sub in _segments(cast("list[ShellWord]", raw_segment[1:close])):
+        for sub in _segments(cast("list[ShellWord]", body)):
             nested.segment(sub)
         for path in nested.reads:
             if path not in self.reads:
