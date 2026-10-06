@@ -73,8 +73,6 @@ import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
 // panel; a regex matches by name. A fix makes its entry dead and the
 // stale-entry check fails the run until the line is deleted.
 export const FILED = [
-  // #643: the cold load shifts the layout, CLS about 0.85.
-  { issue: 643, panel: null, kind: 'cold-cls' },
   // #651: Cost by Agent Type (and its Tokens twin) grow a row per role
   // with no bound — the height category's live filed defect.
   { issue: 651, panel: 'Cost by Agent Type', kind: 'height-growth' },

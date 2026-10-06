@@ -1,5 +1,5 @@
 // Sessions page: the sortable table of reconstructed sessions. Reads
-// window.computeSessions (defined in app.jsx) for the fallback
+// window.computeSessions (defined in panel-gating.js) for the fallback
 // clustering, and the window.* helpers for dates, model colors and
 // currency. Split out of app.jsx so that file stays under its recorded
 // module-size ratchet entry.
