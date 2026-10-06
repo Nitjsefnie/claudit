@@ -1239,8 +1239,8 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   an unmeasured path. What stays legal is exactly the bots' move set
   plus the two sanctioned seeds: a raise, a tighten, a brand-new
   member's entries, a new measured family's one-time seed — and the
-  suite-cost family's REMOVAL, admitted only on a commit carrying the
-  re-seed marker. A marker buys the absence, never a raised budget
+  a cost family's REMOVAL, admitted only on a commit carrying that
+  family's own re-seed marker. A marker buys the absence, never a raised budget
   (the upward-move refusal stands). The truth of every seed is pinned
   by the committed-document-matches-tree tests, which run on the same
   merge ref.
