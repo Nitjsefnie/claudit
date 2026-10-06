@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "public" / "index.html"
 CSS = ROOT / "public" / "app.css"
 APP = ROOT / "src" / "app.jsx"
+PICKER = ROOT / "src" / "picker.jsx"
 PERF = ROOT / "src" / "perf.js"
 
 FAMILIES = ("Inter", "JetBrains Mono")
@@ -92,7 +93,7 @@ def test_the_picker_strip_mounts_before_the_list_lands():
     frame). The pin window is the call site; a gate between it and the
     element is the regression."""
     src = APP.read_text(encoding="utf-8")
-    i = src.index("<ProjectPicker")
+    i = src.index("<window.ProjectPicker")
     window = src[max(0, i - 160):i]
     assert "backendOn && !isGuest && (" in window, (
         "ProjectPicker's mount gate no longer reads backendOn && !isGuest "
@@ -108,13 +109,13 @@ def test_the_picker_placeholder_fills_the_loaded_box():
     than inserts. Dropping the `projects || []` placeholder throws on the
     first render instead — and any shape that renders nothing pre-projects
     reopens the insertion shift."""
-    src = APP.read_text(encoding="utf-8")
+    src = PICKER.read_text(encoding="utf-8")
     start = src.index("function ProjectPicker(")
     body = src[start:start + 1600]
     assert "projects || []" in body, (
         "ProjectPicker lost its empty-list placeholder — it renders "
         "nothing (or throws) until the list lands")
-    assert "pp-btn" in src[start:start + 4000], (
+    assert "pp-btn" in src, (
         "ProjectPicker renders no chip — the pre-projects strip has no "
         "box for the loaded row to fill")
 
