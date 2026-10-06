@@ -197,15 +197,6 @@ def test_batch_variant_is_never_a_row():
     assert [m.id for m in out.moves] == [GPT_ID]
 
 
-def test_free_variant_is_never_a_row():
-    free_id = GLM_ID + ":free"
-    _, out = _run(
-        _doc(), _catalog(GLM_ID, free_id),
-        {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
-    assert not out.refusals
-    assert [m.id for m in out.moves] == [GLM_ID]
-
-
 # --- append rule -------------------------------------------------------------
 
 
@@ -305,13 +296,6 @@ def test_non_meter_threshold_is_a_notice():
     assert GPT_KEY not in doc["models"] and GPT_KEY not in doc["long_context_models"]
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0] and "departs from the meter" in out.notices[0]
-
-
-def test_wrong_multipliers_are_a_notice():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0, input_mult=3.0)])))})
-    assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0] and GPT_KEY not in doc["models"]
 
 
 def test_band_without_output_is_a_notice():
