@@ -271,23 +271,22 @@ function CacheTTLPanel({ events, range, binMs }) {
           const h1 = padT + plotH - y1;             // 1h bar height
           const h5 = y1 - y5;                       // 5m bar height
           const isPeak = idx === peakIdx;
-          // The HBar hover treatment — the family's marking for rest-0.85
-          // bars: the hovered bin brightens to full opacity and takes the
-          // white stroke. Keyed on the BIN, so both stacked segments are
-          // marked together (#646).
+          // The family's ONE hover treatment (#697): bars rest a dim 0.3
+          // field and the hovered bin lifts to 0.85, as on the time-series
+          // and context panels. Keyed on the BIN, so both stacked segments
+          // are marked together. The peak bin rests at 0.85: the annotation
+          // is the bin that is already bright.
           const isHover = tip != null && tip.idx === idx;
           return (
             <g key={'bar'+idx}>
               <rect data-hover-target="" x={x} y={y1} width={barW}
                 height={Math.max(0, h1)}
                 fill={COL_X.cacheCreateTokens}
-                fillOpacity={isHover ? 1 : (isPeak ? 0.95 : 0.85)}
-                stroke={isHover ? '#fff' : 'none'} strokeOpacity="0.5" />
+                fillOpacity={isHover || isPeak ? 0.85 : 0.3} />
               <rect data-hover-target="" x={x} y={y5} width={barW}
                 height={Math.max(0, h5)}
                 fill={COL_X.inputTokens}
-                fillOpacity={isHover ? 1 : (isPeak ? 0.95 : 0.85)}
-                stroke={isHover ? '#fff' : 'none'} strokeOpacity="0.5" />
+                fillOpacity={isHover || isPeak ? 0.85 : 0.3} />
             </g>
           );
         })}

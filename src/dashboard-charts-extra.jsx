@@ -530,7 +530,7 @@ function ResponseSizesPanel({ data, bucketS }) {
     if (!best || bestD > 32) { setTip(null); return; }
     const fmt = window.humanFmt;
     setTip({
-      x: mx, y: my,
+      x: mx, y: my, cx: xScale(best.ts),
       title: bestKey + ' · ' + new Date(best.ts).toISOString().slice(0, 10),
       accent: (window.modelColors && window.modelColors[bestKey]) || '#888',
       lines: [
@@ -615,7 +615,7 @@ function ResponseSizesPanel({ data, bucketS }) {
 
           {/* Crosshair */}
           {tip && (
-            <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+            <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
               stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
           )}
 
@@ -978,7 +978,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
         ]);
       }
       setTip({
-        x: mx, y: my,
+        x: mx, y: my, cx: xScale(grid.ts[bIdx]),
         title: `Other · ${dateStr}`,
         accent: _OTHER_COLOR,
         lines,
@@ -986,7 +986,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     } else {
       const n = counts.get(hovered) || 0;
       setTip({
-        x: mx, y: my,
+        x: mx, y: my, cx: xScale(grid.ts[bIdx]),
         title: `${hovered} · ${dateStr}`,
         accent: _toolColor(hovered),
         lines: [
@@ -1125,7 +1125,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
             </text>
           ))}</g>
           {tip && (
-            <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+            <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
               stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
           )}
         </svg>
@@ -1298,7 +1298,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       const fk = String(bestO.file_key || '');
       const fileShort = fk.split('/').slice(-2).join('/');
       setTip({
-        x: mx, y: my,
+        x: mx, y: my, cx: xScale(bestO.tsMs),
         title: 'outlier · ' + bestO.key,
         accent: (window.modelColors && window.modelColors[bestO.key]) || '#888',
         lines: [
@@ -1342,7 +1342,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     }
     if (!best || bestD > 32) { setTip(null); return; }
     setTip({
-      x: mx, y: my,
+      x: mx, y: my, cx: xScale(best.ts),
       title: bestKey + ' · ' + new Date(best.ts).toISOString().slice(0, 10),
       accent: (window.modelColors && window.modelColors[bestKey]) || '#888',
       lines: [
@@ -1452,7 +1452,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
           })}
 
           {tip && (
-            <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+            <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
               stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
           )}
 

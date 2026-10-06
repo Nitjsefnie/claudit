@@ -684,8 +684,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
               <text data-hbar-label="" x={padL - 8} y={y + 18} fontSize="11" fill={TH.text}
                 textAnchor="end" fontFamily="monospace">{r.label}</text>
               <rect data-hover-target="" x={padL} y={y + 4} width={Math.max(2, barW)}
-                height={26} fill={c} fillOpacity={isHover ? 1 : 0.85}
-                stroke={isHover ? '#fff' : 'none'} strokeOpacity={0.5} />
+                height={26} fill={c} fillOpacity={isHover ? 0.85 : 0.3} />
               <text x={padL + barW + 8} y={y + 22} fontSize="11" fontWeight="bold"
                 fill={TH.text} fontFamily="monospace">
                 {fmt ? fmt(r) : humanFmt(r.value)}{pct}
@@ -866,8 +865,7 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
               <rect x={cx - slot / 2} y={padT} width={slot} height={plotH + padB}
                 fill="transparent" />
               <rect data-hover-target="" x={cx - barW / 2} y={y} width={barW}
-                height={barH} fill={c} fillOpacity={isHover ? 1 : 0.85}
-                stroke={isHover ? '#fff' : 'none'} strokeOpacity={0.5} />
+                height={barH} fill={c} fillOpacity={isHover ? 0.85 : 0.3} />
               {/* Cost and share stacked, so both fit above a narrow bar
                   instead of one long line overrunning its neighbour. */}
               <text x={cx} y={y - 15} fontSize="11" fontWeight="bold" fill={TH.text}
