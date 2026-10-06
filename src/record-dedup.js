@@ -1,29 +1,31 @@
 // Cross-file record dedup — the browser half of the canonical winner rule
-// (SV-CANONICAL-FLAG, issue #529). A forked Codex rollout replays its
-// parent's history with no model declaration in front of it, so its copies
-// store model `unknown`, and under a bare file_key ordering they won the
-// ingest's dedup; the winner now prefers an attributed copy. This module
-// mirrors that rule for the browser's directory / multi-load mode, where
-// several files are parsed through one shared `seenUuids` map.
+// (SV-CANONICAL-FLAG, issues #529 and #687). A forked Codex rollout replays
+// its parent's history in its leading lines: under #653 those copies are
+// attributed (the fork's first declared model), and under #687 a replayed
+// copy is marked isReplay and loses to an original of the same uuid,
+// whatever the model and the key order. This module mirrors that rule for
+// the browser's directory / multi-load mode, where several files are parsed
+// through one shared `seenUuids` map.
 //
-// Contract, in parse order per line with a uuid:
-//   prev === true                 -> skip (the seen copy is attributed)
-//   prev === false, not attributed -> skip (duplicate unattributed copy)
-//   prev === false, attributed     -> keep: this copy REPLACES the seen
-//                                     unattributed one
-//   no prev                        -> keep, record the verdict
+// Contract, in parse order per line with a uuid — the seen value is the
+// standing winner's RANK, LOWER WINS (mirrors recompute_canonical's
+// ORDER BY <replay-last>, <unattributed-last>, file_key, line_num, with
+// arrival order standing in for file_key):
+//   prev absent                    -> keep, record the verdict
+//   rank > prev, or rank == prev   -> skip (standing copy outranks or ties)
+//   rank < prev                    -> keep: this copy REPLACES the standing one
 // parseTranscript stamps every entry it emits for a uuid-bearing line with
-// that line's uuid + model and retracts the masked copies itself at end of
-// parse (#562): a stamp is MASKED when its uuid's final verdict is
-// attributed and its own model is unattributed — the loser of the
-// canonical vote, whose entries must leave the output. A requestId merge
-// that folded a surviving fragment's usage into a superseded line's entry
-// re-points that entry to the surviving line at retraction (#568), so the
-// uuid's one usage entry survives, attributed to the winner. After all
-// loads a caller concatenating several files' outputs finishes the job with
-// dropMasked (#563) — the cross-call drop is module code, not a contract
-// the caller has to reimplement; the same masked test, judged on the
-// stamps retract left on the entries.
+// that line's uuid + model + isReplay and retracts the masked copies itself
+// at end of parse (#562): a stamp is MASKED when its own rank loses to the
+// uuid's final verdict — the loser of the canonical vote, whose entries
+// must leave the output. A requestId merge that folded a surviving
+// fragment's usage into a superseded line's entry re-points that entry to
+// the surviving line at retraction (#568), so the uuid's one usage entry
+// survives, attributed to the winner. After all loads a caller
+// concatenating several files' outputs finishes the job with dropMasked
+// (#563) — the cross-call drop is module code, not a contract the caller
+// has to reimplement; the same rank test, judged on the stamps retract
+// left on the entries.
 (function () {
   'use strict';
   function isAttributed(model) {
@@ -31,26 +33,43 @@
       && model !== 'unknown' && model !== '(unknown)'
       && model !== '<synthetic>';
   }
+  function modelOf(obj) {
+    // A raw transcript line names the model inside message; a parsed
+    // entry and a stamp carry it at top level.
+    const msg = obj.message;
+    if (msg && typeof msg === 'object' && typeof msg.model === 'string') {
+      return msg.model;
+    }
+    return typeof obj.model === 'string' ? obj.model : null;
+  }
+
+  // The winner rank of one copy, LOWER WINS: an original (isReplay not
+  // true) beats a replay, an attributed copy beats an unattributed one.
+  // Mirrors _REPLAY_LAST then _UNATTRIBUTED in ingest_rollup_state.py.
+  function rankOf(obj) {
+    return (obj.isReplay === true ? 2 : 0) + (isAttributed(modelOf(obj)) ? 0 : 1);
+  }
 
   // Decide one uuid-carrying line: 'skip' or 'keep'. `seen` is the shared
-  // Map uuid -> attributed. Mirrors _UNATTRIBUTED in ingest_rollup_state.py.
+  // Map uuid -> standing winner's rank.
   window.recordDedup = {
     decide: function (seen, obj, line, stamps) {
       if (!seen || typeof obj.uuid !== 'string' || !obj.uuid) return 'keep';
       const prev = seen.get(obj.uuid);
-      const msg = obj.message;
-      const model = (msg && typeof msg === 'object') ? msg.model : null;
-      const attributed = isAttributed(model);
-      if (strictlyLoses(prev, attributed)) return 'skip';
-      if (prev === false) seen.set(obj.uuid, true);
-      else if (prev === undefined) seen.set(obj.uuid, attributed === true);
-      // prev === true keeps the standing verdict; the winner is unchanged.
-      if (stamps) stamps.set(line, { uuid: obj.uuid, model: model,
-        // The parser's requestId merge key (parser.js's merge-key shape):
-        // retract re-points a merged entry to a surviving line of the
-        // SAME key only (issue #568), never across API calls.
-        req: obj.requestId || (msg && typeof msg.id === 'string' && msg.id
-          ? 'msg:' + msg.id : '') });
+      const rank = rankOf(obj);
+      if (prev !== undefined && rank >= prev) return 'skip';
+      seen.set(obj.uuid, rank);
+      if (stamps) {
+        const msg = obj.message;
+        const mid = (msg && typeof msg === 'object'
+                     && typeof msg.id === 'string' && msg.id) ? msg.id : '';
+        stamps.set(line, { uuid: obj.uuid, model: modelOf(obj),
+          isReplay: obj.isReplay === true,
+          // The parser's requestId merge key (parser.js's merge-key shape):
+          // retract re-points a merged entry to a surviving line of the
+          // SAME key only (issue #568), never across API calls.
+          req: obj.requestId || (mid ? 'msg:' + mid : '') });
+      }
       return 'keep';
     },
 
@@ -108,12 +127,7 @@
   };
 
   function maskedBy(seen, e) {
-    return !!e && !!e.uuid && seen.get(e.uuid) === true
-      && !isAttributed(e.model);
-  }
-
-  // prev === true always loses; prev === false loses only to attributed.
-  function strictlyLoses(prev, attributed) {
-    return prev === true || (prev === false && attributed !== true);
+    return !!e && !!e.uuid && seen.get(e.uuid) !== undefined
+      && rankOf(e) > seen.get(e.uuid);
   }
 })();

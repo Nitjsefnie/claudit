@@ -211,6 +211,9 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
     """
     for r in parsed["records"]:
         r["thinking_tokens"] = r.pop("reasoning_output_tokens", 0)
+        # A Codex fork's replayed prefix carries the flag set (codex_fork
+        # .mark_replay); every other lane row ranks as an original (NULL).
+        r.setdefault("is_replay", None)
         # "" is the schema's sentinel for "no request id" (the
         # records_request_idx partial index keys on request_id <> '').
         r["request_id"] = ""
@@ -237,6 +240,7 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         tu.setdefault("dispatch_prompt_chars", None)
         tu.setdefault("dispatch_brief_ref", None)
         tu["dispatch_name"] = None
+        tu.setdefault("is_replay", None)
         tu["result_chars"] = None
         tu["read_kind"] = None
         tu["read_targets"] = None

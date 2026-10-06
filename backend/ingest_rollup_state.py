@@ -23,6 +23,15 @@ log = logging.getLogger("claudit.ingest")
 _UNATTRIBUTED = ("(COALESCE(model, '')"
                  " IN ('', 'unknown', '(unknown)', '<synthetic>'))")
 
+# A replayed copy loses to an original of the same identity, whatever the
+# key order (issue #687): a forked Codex rollout re-journals its parent's
+# requests in its replayed prefix — attributed, after #653, to the fork's
+# first declared model — so with both copies attributed the attribution
+# rank tied and the fork's `subagents/…` key won, counting the parent's
+# history as the fork's. NULL (every non-Codex row, and every row parsed
+# before #687) ranks as an original.
+_REPLAY_LAST = "(is_replay IS TRUE)"
+
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
     """Use an explicit scope, or the active ingest's scope."""
@@ -167,7 +176,8 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                     SELECT file_key, line_num,
                            (uuid IS NULL OR ROW_NUMBER() OVER (
                               PARTITION BY uuid
-                              ORDER BY {_UNATTRIBUTED}, file_key, line_num
+                              ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED}, file_key,
+                              line_num
                             ) = 1) AS canon
                       FROM records
                   ) w
@@ -183,7 +193,8 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                     SELECT file_key, line_num, idx,
                            (tool_use_id IS NULL OR ROW_NUMBER() OVER (
                               PARTITION BY tool_use_id
-                              ORDER BY {_UNATTRIBUTED}, file_key, line_num, idx
+                              ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED}, file_key,
+                              line_num, idx
                             ) = 1) AS canon
                       FROM tool_uses
                   ) w
@@ -202,7 +213,8 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                       SELECT file_key, line_num,
                              ROW_NUMBER() OVER (
                                PARTITION BY uuid
-                               ORDER BY {_UNATTRIBUTED}, file_key, line_num
+                               ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED},
+                                      file_key, line_num
                              ) = 1 AS canon
                         FROM records WHERE uuid = ANY(%s)
                     ), changed AS (
@@ -241,7 +253,8 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                       SELECT file_key, line_num, idx,
                              ROW_NUMBER() OVER (
                                PARTITION BY tool_use_id
-                               ORDER BY {_UNATTRIBUTED}, file_key, line_num, idx
+                               ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED},
+                                      file_key, line_num, idx
                              ) = 1 AS canon
                         FROM tool_uses WHERE tool_use_id = ANY(%s)
                     ), changed AS (

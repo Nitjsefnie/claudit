@@ -69,6 +69,7 @@ def _harness() -> str:
     return f"""
       global.window = {{}};
       require({str(ROOT / 'src' / 'parser-lanes.js')!r});
+      require({str(ROOT / 'src' / 'parser-codex.js')!r});
       require({str(ROOT / 'src' / 'pricing-loader.js')!r});
       require({str(ROOT / 'src' / 'parser.js')!r});
       require({str(ROOT / 'src' / 'panel-gating.js')!r});
