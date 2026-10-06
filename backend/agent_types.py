@@ -49,6 +49,12 @@ def canonical_agent_type(role: str) -> str:
     return _FOLD.get(role, role)
 
 
+def fold_table() -> dict[str, str]:
+    """A copy of the fold table, for the served injection and its tests:
+    callers never reach into _FOLD directly."""
+    return dict(_FOLD)
+
+
 def fold_js() -> str:
     """The script statement serving the fold table to the Inspector page
     (issue #691): the backend stays the table's only home, and the
@@ -56,4 +62,4 @@ def fold_js() -> str:
     branding.script_json keeps the payload from closing the tag it rides
     in, like window.BRAND beside it.
     """
-    return f"window.AGENT_TYPE_FOLD = {branding.script_json(dict(_FOLD))};"
+    return f"window.AGENT_TYPE_FOLD = {branding.script_json(fold_table())};"
