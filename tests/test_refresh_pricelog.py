@@ -1,8 +1,12 @@
 """Synthetic tests for OpenRouter's per-endpoint listed-pricing log."""
 from __future__ import annotations
 
+import email.message
 import importlib.util
+import io
+import json
 import sys
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -414,3 +418,103 @@ def test_a_series_entirely_after_the_fetch_instant_has_no_state_in_force():
 
     assert match["Wafer"].entries is None
     assert match["Wafer"].reason
+
+
+# --- _fetch_json's bounded retry over transient fetch failures (issue #760)
+
+
+def _fake_open(outcomes: list):
+    """An _open seam whose outcomes are consumed in order; an Exception
+    outcome is raised, a bytes outcome is served as the JSON body."""
+    opened = []
+
+    def _open(url):
+        opened.append(url)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return io.BytesIO(outcome)
+
+    return _open, opened
+
+
+def _fetch_with(monkeypatch, outcomes: list, sleeps: list) -> object:
+    monkeypatch.setattr(pricelog, "_open", _fake_open(outcomes)[0])
+    monkeypatch.setattr(pricelog, "_sleep", sleeps.append)
+    return pricelog._fetch_json(pricelog.MODELS_URL)  # pylint: disable=protected-access
+
+
+def test_one_catalog_timeout_is_retried_so_the_delisted_skip_survives(monkeypatch):
+    """Issue #760: a single read timeout on the models read must not leave
+    the catalog unreadable — an unreadable catalog proves nothing, so the
+    empty-endpoints refusal stood and the run went red although the model
+    was delisted all along."""
+    catalog = {"data": [{"id": "synth/model", "canonical_slug": "synth/canonical"}]}
+    sleeps: list[float] = []
+
+    logs, catalog_set = pricelog.read_logs(
+        {"synthetic/model": {"id": "synth/model"}},
+        lambda: _fetch_with(monkeypatch, [TimeoutError("The read operation timed out"),
+                                          json.dumps(catalog).encode()], sleeps),
+        lambda slug: {},
+    )
+
+    assert catalog_set == {"synth/model"}, "one timeout must not unreadable the catalog"
+    assert logs["synthetic/model"].series is None
+    assert sleeps == [pricelog.FETCH_BACKOFF_S], "the retry backs off once, not forever"
+
+
+def test_a_persistently_failing_fetch_raises_after_bounded_attempts(monkeypatch):
+    """The retry changes only how many tries 'unreadable' takes: a fetch
+    that fails every attempt still raises."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(pricelog, "_open", _fake_open(
+        [TimeoutError("The read operation timed out")] * 3)[0])
+    monkeypatch.setattr(pricelog, "_sleep", sleeps.append)
+
+    with pytest.raises(TimeoutError):
+        pricelog._fetch_json(pricelog.MODELS_URL)  # pylint: disable=protected-access
+
+    assert sleeps == [pricelog.FETCH_BACKOFF_S, pricelog.FETCH_BACKOFF_S * 2]
+
+
+def test_a_client_error_is_never_retried(monkeypatch):
+    """A 4xx is the server's answer to the request as sent — a retry asks
+    the identical question and gets the identical answer."""
+    sleeps: list[float] = []
+    _open, opened = _fake_open(
+        [urllib.error.HTTPError(pricelog.MODELS_URL, 404, "not found",
+                                email.message.Message(), None)])
+    monkeypatch.setattr(pricelog, "_open", _open)
+    monkeypatch.setattr(pricelog, "_sleep", sleeps.append)
+
+    with pytest.raises(urllib.error.HTTPError):
+        pricelog._fetch_json(pricelog.MODELS_URL)  # pylint: disable=protected-access
+
+    assert len(opened) == 1
+    assert not sleeps
+
+
+def test_a_server_error_gets_its_retry(monkeypatch):
+    sleeps: list[float] = []
+
+    payload = _fetch_with(
+        monkeypatch,
+        [urllib.error.HTTPError(pricelog.MODELS_URL, 503, "unavailable",
+                                email.message.Message(), None),
+         b'{"data": []}'],
+        sleeps)
+
+    assert payload == {"data": []}
+    assert sleeps == [pricelog.FETCH_BACKOFF_S]
+
+
+def test_an_empty_body_is_retried_as_transient(monkeypatch):
+    """An empty HTTP 200 is a broken transfer, not a catalog of zero
+    models — the same reasoning _catalog_slugs applies to an empty list."""
+    sleeps: list[float] = []
+
+    payload = _fetch_with(monkeypatch, [b"", b'{"data": []}'], sleeps)
+
+    assert payload == {"data": []}
+    assert sleeps == [pricelog.FETCH_BACKOFF_S]
