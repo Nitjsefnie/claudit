@@ -27,8 +27,9 @@
 //                   a shifted bar;
 //   height-growth   no panel's height grows with the number of models:
 //                   the same payloads with 2 vs 30+ models must render
-//                   every panel at the same height (#652's general
-//                   case, so a third per-model grid cannot ship).
+//                   every panel at the same height within ±1px of
+//                   rendering noise (#652's general case, so a third
+//                   per-model grid cannot ship; #694's noise band).
 //
 // Hover targets are enumerated from the DOM, so a new panel is covered
 // automatically: every bar, bucket and point a panel makes interactive
@@ -101,6 +102,20 @@ export function filedEntry(panel, kind) {
 export function filedFor(panel, kind) {
   const hit = filedEntry(panel, kind);
   return hit ? hit.issue : null;
+}
+
+// --- the height comparison (#694) --------------------------------------
+
+// The two height renders run in separate headless contexts, and
+// Chromium's sub-pixel box rounding is not reproducible between them:
+// the guard reds a one-pixel wobble (run 37427168152 on master —
+// Cost/Tokens by Project 339px -> 338px at 1024px, a SHRINK failing a
+// growth check). Heights agree within ±HEIGHT_NOISE_PX; a real
+// per-entry row growth is many pixels, far outside the band.
+export const HEIGHT_NOISE_PX = 1;
+
+export function heightsAgree(twoPx, manyPx) {
+  return Math.abs(manyPx - twoPx) <= HEIGHT_NOISE_PX;
 }
 
 // --- payload variants: 2 vs 30+ models --------------------------------
@@ -411,7 +426,7 @@ async function main() {
       }
       for (const [name, hMany] of many) {
         if (!two.has(name) || lists.has(name)) continue;
-        if (two.get(name) === hMany) continue;
+        if (heightsAgree(two.get(name), hMany)) continue;
         record('height-growth', name,
           `height ${two.get(name)}px at 2 models -> ${hMany}px at 30+`,
           width);

@@ -240,6 +240,52 @@ def test_lists_without_a_model_field_pass_through_untouched():
     assert out["me"] == BASE["me.json"], out
 
 
+# --- the height comparison (#694) -------------------------------------
+
+def test_a_one_pixel_wobble_passes_the_height_check():
+    """The two height renders are separate headless contexts: Chromium's
+    sub-pixel rounding is not reproducible between them, and the exact
+    comparison reds a one-pixel wobble (#694 hit master as 339px ->
+    338px at 1024px — a shrink failing a growth check). ±1px agrees."""
+    out = _node("""
+      console.log(JSON.stringify({
+        equal: mod.heightsAgree(339, 339),
+        up1: mod.heightsAgree(339, 340),
+        down1: mod.heightsAgree(339, 338),
+      }));
+    """)
+    assert out == {"equal": True, "up1": True, "down1": True}, out
+
+
+def test_a_one_row_growth_or_shrink_still_fails():
+    """A real per-entry row growth is many pixels — one bar row is tens
+    of pixels — and the noise band must never stretch that far. A gross
+    disagreement fails in BOTH directions: the panel is not rendering
+    the same page in the two variants at all. The ±2px probes hold the
+    band's refusal side at its nearest boundary: a silently doubled
+    HEIGHT_NOISE_PX turns these True and reds the test."""
+    out = _node("""
+      console.log(JSON.stringify({
+        grow: mod.heightsAgree(339, 364),
+        shrink: mod.heightsAgree(339, 314),
+        nearGrow: mod.heightsAgree(339, 341),
+        nearShrink: mod.heightsAgree(339, 337),
+      }));
+    """)
+    assert out == {"grow": False, "shrink": False,
+                   "nearGrow": False, "nearShrink": False}, out
+
+
+def test_the_height_loop_compares_through_the_noise_band():
+    """Source pin in the tooltip-oracle's style: the height loop must
+    compare through heightsAgree, so the exact-equality regression that
+    reds on a 1px wobble (#694) cannot return while this file passes."""
+    src = MODULE.read_text(encoding="utf-8")
+    assert "if (heightsAgree(two.get(name), hMany)) continue;" in src, (
+        "the height loop must compare through heightsAgree (#694's noise "
+        "band), not raw equality")
+
+
 # --- the wiring -------------------------------------------------------
 
 def test_the_marks_are_pinned_at_source():
