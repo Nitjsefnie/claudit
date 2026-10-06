@@ -30,8 +30,8 @@ from pathlib import Path
 
 from backend import pricing
 from tests import scan_gate
-from tests.version_literal_guard import (RATE_CALL_NAMES, VERSION_NAMES,
-                                         Site, detect)
+from tests.version_literal_guard import (_names_wanted_row, RATE_CALL_NAMES,
+                                         VERSION_NAMES, Site, detect)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,7 +67,8 @@ def _marker_lines(source: str) -> set[int]:
     return found
 
 
-def _scan_admits(source: str) -> bool:
+def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
+                 wanted_hosts: frozenset[str] = frozenset()) -> bool:
     """Whether one module's source can hold anything check() can flag.
 
     The fail-closed gate that keeps this file's tree scan (issue #510)
@@ -83,10 +84,13 @@ def _scan_admits(source: str) -> bool:
     the gate looks. A marker comment carries ``sv-test-data`` verbatim
     in the text, so it admits on the text alone. A version name is an
     attribute id, or a setenv/setattr argument folded into consts; a
-    rate-call name is an identifier and admits through co_names, never
-    through prose. A source that does not compile raises out of the
-    gate: loud by construction, and collection fails on the same file
-    anyway.
+    rate-call name is an identifier and the ARGUMENT is a wanted row
+    folded into consts — the clause demands that const evidence beside
+    the call's name, because ``resolve`` is spelled by every
+    ``Path(...).resolve()`` caller while a flaggable site always pairs
+    the name with a wanted-literal argument (issue #715). A source
+    that does not compile raises out of the gate: loud by
+    construction, and collection fails on the same file anyway.
 
     Not covered, and unreachable from a flagged shape short of
     steganography: vocabulary spelled only inside a dead branch
@@ -98,12 +102,18 @@ def _scan_admits(source: str) -> bool:
     consts, names = scan_gate.module_vocab(source)
     # Each clause matches the way its shape matches: the version names
     # by membership (setattr/setenv compare the whole argument), the
-    # rate-call names by membership in names (the call's function is
-    # an identifier), the path bind by substring (detect folds a
-    # substring test over the value), the module reference by
-    # attribute name.
+    # rate-call names by membership in names WITH a wanted row as a
+    # string constant — the call's function is an identifier, and the
+    # argument a detector would flag is exactly such a const, so the
+    # pair is the admission's evidence (issue #715), the path bind by
+    # substring (detect folds a substring test over the value), the
+    # module reference by attribute name. Empty wanted sets can hold
+    # no live-call site, so with the defaults the rate clause admits
+    # nothing, as before.
     return (any(v in consts or v in names for v in VERSION_NAMES)
-            or any(r in names for r in RATE_CALL_NAMES)
+            or (any(r in names for r in RATE_CALL_NAMES)
+                and any(_names_wanted_row(c, wanted_models, wanted_hosts)
+                        for c in consts))
             or any("pricing.json" in c for c in consts)
             or "PRICING_JSON" in names)
 
@@ -119,7 +129,8 @@ def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
     walk and tokenizer when it cannot — most tree modules cannot, which
     is what keeps this pinned scan from re-pricing with tree size.
     """
-    if not _scan_admits(source):
+    if not _scan_admits(source, wanted_models=wanted_models,
+                        wanted_hosts=wanted_hosts):
         return []
     sites = detect(source, wanted_models=wanted_models,
                    wanted_hosts=wanted_hosts)
@@ -501,21 +512,25 @@ def test_a_site_free_marker_free_module_is_not_tokenized(monkeypatch):
     # back would tokenize the whole module for nothing — the pass that
     # made check() cost per line. The walk detect() needs stays; the
     # monkeypatch only proves the tokenizer does not.
-    source = "def test_prices(model):\n    return resolve(model)\n"
-    assert _scan_admits(source)
+    source = ("M = 'acme/acme-9'\n\n\n"
+              "def test_prices(model):\n    return resolve(model)\n")
+    assert _scan_admits(source, wanted_models=WANTED_MODELS,
+                        wanted_hosts=WANTED_HOSTS)
 
     calls = []
     with monkeypatch.context() as m:
         m.setattr(sys.modules[__name__], "_marker_lines",
                   lambda src: calls.append(src) or set())
-        assert check(source) == []
+        assert check(source, wanted_models=WANTED_MODELS,
+                     wanted_hosts=WANTED_HOSTS) == []
         assert not calls
     # And a source WITH marker text still pays for it: the short-
     # circuit is on the marker's own substring, never a silent drop —
     # the rot verdict is the tokenizer's own, unpatched.
     marked = source + "x = 1  # sv-test-data: allow (rot)\n"
-    assert check(marked) == [
-        "line 3: sv-test-data marker on a line with no flagged site "
+    assert check(marked, wanted_models=WANTED_MODELS,
+                 wanted_hosts=WANTED_HOSTS) == [
+        "line 6: sv-test-data marker on a line with no flagged site "
         "(marker rot)"]
 
 
@@ -536,3 +551,30 @@ def test_a_prose_rate_or_version_name_is_not_admitted():
     assert not _scan_admits(
         '"""Resolve usage; mentions PARSER_VERSION in prose."""\n'
         "x = 1\n")
+
+
+def test_a_rate_call_without_a_wanted_const_is_not_admitted():
+    # Issue #715: the rate-call clause admitted on the call's name
+    # alone, so any module whose code merely spells ``resolve`` — every
+    # ``Path(...).resolve()`` caller — paid the full AST walk while
+    # nothing flaggable existed. A flaggable live-call site needs a
+    # string constant naming a wanted row (the detector's own
+    # membership test), so admission now demands that const evidence:
+    # the clause stays a strict superset of what detect() can flag.
+    source = ("from pathlib import Path\n\n\n"
+              "def test_ok():\n    return Path('.').resolve()\n")
+    assert not _scan_admits(source, wanted_models=WANTED_MODELS,
+                            wanted_hosts=WANTED_HOSTS)
+    assert check(source, wanted_models=WANTED_MODELS,
+                 wanted_hosts=WANTED_HOSTS) == []
+
+
+def test_a_rate_call_admits_only_with_a_wanted_const():
+    # The complement: the same call shape carrying a wanted literal is
+    # still admitted and still flagged — the const evidence is what
+    # both the gate and the detector read.
+    call = "def test_prices():\n    return resolve(model='acme/acme-9')\n"
+    assert _scan_admits(call, wanted_models=WANTED_MODELS,
+                        wanted_hosts=WANTED_HOSTS)
+    assert len(check(call, wanted_models=WANTED_MODELS,
+                     wanted_hosts=WANTED_HOSTS)) == 1
