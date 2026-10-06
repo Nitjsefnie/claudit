@@ -262,10 +262,21 @@
     // Reporting it would make every interaction read as a defect.
     if (entry.hadRecentInput) return;
     const sources = entry.sources || [];
-    const first = sources[0];
+    // One shift's `sources` name SEVERAL moved nodes, and the first does
+    // not always resolve: #643's production shifts reported `other`
+    // because sources[0] was a bare section div whose panel moved with
+    // it. Walk every source and take the first attribution that names a
+    // region, so a shift lands `other` only when NO source sits inside
+    // one. Sources may be detached (the re-render that moved them has
+    // already run); the walk reads parentElement, which a detached tree
+    // still carries.
+    let where = 'other';
+    for (let i = 0; i < sources.length && where === 'other'; i++) {
+      where = region(sources[i] && sources[i].node);
+    }
     push({
       metric: 'layout_shift', part: 'shift', value: entry.value,
-      region: region(first && first.node),
+      region: where,
       phase: phaseNow(),
     });
   });
