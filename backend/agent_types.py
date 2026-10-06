@@ -10,10 +10,12 @@ showed lane defaults as distinct roles. canonical_agent_type folds them:
 - a plugin-namespaced type (``superpowers:code-reviewer``) splits on the
   last colon and folds to the type itself, whatever lane named it
   namespaced;
-- the lanes' default subagent roles — Kimi's ``coder``, Codex's
-  ``worker`` — are "no real role was selected", the same DEFAULT_AGENT_TYPE
-  bucket the lanes' default MAIN profiles (``agent``/``default``) already
-  land in through parse_lanes.
+- Kimi's ``coder`` profile is the implementer role and resolves to
+  Claude's ``implementer`` spelling (issue #749);
+- the lanes' default subagent role — Codex's ``worker`` — is "no real
+  role was selected", the same DEFAULT_AGENT_TYPE bucket the lanes'
+  default MAIN profiles (``agent``/``default``) already land in through
+  parse_lanes.
 
 One flat fold table: the function runs per named role on every reparse,
 and the reparse CPU gate holds parse_body to a bytecode budget — the
@@ -26,13 +28,14 @@ from backend.constants import DEFAULT_AGENT_TYPE
 
 # The whole fold in one lookup: cross-lane spellings fold to one name (the
 # canonical spellings are Claude's — the vocabulary the dashboard has
-# always reported), and the lanes' default subagent roles (what a spawn
-# runs as when the dispatch asked for no real role — Kimi's coder profile,
-# Codex's worker role) fold to the unattributable bucket, not a role.
+# always reported), Kimi's coder profile is the implementer role (issue
+# #749), and the lanes' default subagent role (what a spawn runs as when
+# the dispatch asked for no real role — Codex's worker role) folds to the
+# unattributable bucket, not a role.
 _FOLD = {
     "explore": "Explore",
     "explorer": "Explore",
-    "coder": DEFAULT_AGENT_TYPE,
+    "coder": "implementer",
     "worker": DEFAULT_AGENT_TYPE,
 }
 
