@@ -89,9 +89,14 @@ def tightenable(data, readings):
     beats its recorded value by more than the hysteresis — the same rule
     the coverage ratchet applies to a raise, with every comparison
     reversed. Only the GATED metrics are read (issue #513): the share
-    rides along in every measurement, and nothing here moves it.
+    rides along in every measurement, and nothing here moves it. A tip
+    inside the reparse re-seed window carries no budget to tighten
+    against: tightening nothing is the whole answer, and the CLI says
+    so.
     """
     candidate = thresholds.normalise(data, thresholds.verdict())
+    if thresholds.REPARSE_FAMILY not in candidate:
+        return {}
     moves = {}
     for phase in thresholds.REPARSE_PHASES:
         if phase not in readings:
@@ -160,8 +165,15 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         data = thresholds.load(args.thresholds)
-        readings = _readings(args.measured_file)
         recorded = read_calibration(data)
+        if not recorded:
+            # The re-seed window: no budget exists to tighten. Saying so
+            # beats a crash on an absent family the walk found the
+            # family's own marker for.
+            print(f'no {thresholds.REPARSE_FAMILY} budget — re-seed in '
+                  'flight: nothing to tighten')
+            return 0
+        readings = _readings(args.measured_file)
         candidate = update(data, readings)
         if candidate is None:
             print('no reparse phase beat its recorded budget by more than '

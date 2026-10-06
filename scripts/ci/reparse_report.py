@@ -60,6 +60,10 @@ PHASES = thresholds.REPARSE_PHASES
 _OVER_BUDGET_REMEDY = (
     'A reparse phase is over its recorded budget: make that phase '
     'cheaper. A recorded budget is never raised by hand.')
+# The pass-through's own line, in the gate's voice when a re-seed
+# window leaves nothing to compare against — the reparse family's own
+# marker (reseed.py, issue #698), mirroring the suite gate's line.
+NO_BUDGET_LINE = 'no reparse budget — re-seed in flight'
 
 
 class Measurement(NamedTuple):
@@ -179,16 +183,14 @@ _GATED = {'bytecodes': (_counted, COUNT_UNIT)}
 
 
 def _over_budget(measurement: Measurement, floors: dict) -> list:
-    """Every phase over a GATED recorded budget, and every phase the gate
-    could not read.
+    """Every phase over a GATED recorded budget.
 
     The bytecode count is the whole of the enforced set (issue #513), so
-    an absent count is an absent gate and is listed as a failure with the
-    reason the bench recorded — fail closed, never a silent pass on an
-    instrument that never ran.
+    an absent count is listed by ``_uncounted`` and fails the gate with
+    the reason the bench recorded — fail closed, never a silent pass on
+    an instrument that never ran.
     """
     over = []
-    reason = measurement.instruction_note
     for phase in PHASES:
         for metric in thresholds.REPARSE_GATED_METRICS:
             entry = _GATED.get(metric)
@@ -199,8 +201,6 @@ def _over_budget(measurement: Measurement, floors: dict) -> list:
             read, unit = entry
             counted = read(measurement, phase)
             if counted is None:
-                over.append(f'{phase}: NOT MEASURED'
-                            f'{f" ({reason})" if reason else ""}')
                 continue
             floor = floors[phase][metric]['floor']
             if counted > floor:
@@ -208,18 +208,44 @@ def _over_budget(measurement: Measurement, floors: dict) -> list:
     return over
 
 
+def _uncounted(measurement: Measurement) -> list:
+    """Every phase the count never reached, labelled — the fail-closed
+    half of the gate, kept separate so it fails even inside a re-seed
+    window, where the pass-through is about the BUDGET only."""
+    reason = measurement.instruction_note
+    return [f'{phase}: NOT MEASURED'
+            f'{f" ({reason})" if reason else ""}'
+            for phase in PHASES if _counted(measurement, phase) is None]
+
+
 def check(path, thresholds_path=None) -> int:
-    """Gate a written measurement against the committed budgets."""
+    """Gate a written measurement against the committed budgets.
+
+    The ONE pass-through is a tip document that carries no reparse
+    budget at all, inside the family's own re-seed window: some commit
+    in the bounded walk's span — from HEAD back to the last
+    family-present commit — carries the ``[reparse-re-seed]`` marker
+    (reseed.py), so the loader accepts the absence whether or not the
+    tip itself declares. The measurement is still taken, still uploaded
+    and still checked for gateability — there is simply nothing to
+    compare it against until the seed commit restores the family. Every
+    other missing budget, every absent count and every over-budget
+    phase fails exactly as before.
+    """
     measurement = measurement_from_file(path)
     floors = thresholds.reparse(
         thresholds.load(thresholds_path or thresholds.THRESHOLDS))
-    over = _over_budget(measurement, floors)
-    if over:
+    uncounted = _uncounted(measurement)
+    over = _over_budget(measurement, floors) if floors else []
+    if uncounted or over:
         print('reparse work over its recorded budget:', file=sys.stderr)
-        for line in over:
+        for line in uncounted + over:
             print(f'  {line}', file=sys.stderr)
         print(_OVER_BUDGET_REMEDY, file=sys.stderr)
         return 1
+    if not floors:
+        print(NO_BUDGET_LINE)
+        return 0
     print(summary_line(measurement))
     return 0
 
