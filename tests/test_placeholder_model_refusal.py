@@ -113,17 +113,20 @@ def test_a_modelless_file_is_refused_and_stores_no_rows(
     assert result["failed"] == 1
     assert result["error"] == "1 object failed after retries"
     with db.viz_conn() as c:
+        # Row-tuple compares: None-safe where fetchone() can answer None.
         assert c.execute(
             "SELECT COUNT(*) FROM files WHERE file_key = %s",
-            (key,)).fetchone()[0] == 0
+            (key,)).fetchone() == (0,)
         assert c.execute(
             "SELECT COUNT(*) FROM records WHERE file_key = %s",
-            (key,)).fetchone()[0] == 0
+            (key,)).fetchone() == (0,)
         assert c.execute(
             "SELECT COUNT(*) FROM tool_uses WHERE file_key = %s",
-            (key,)).fetchone()[0] == 0
+            (key,)).fetchone() == (0,)
         # The well-formed mirror files of the same run still store.
-        assert c.execute("SELECT COUNT(*) FROM files").fetchone()[0] > 0
+        assert c.execute(
+            "SELECT COUNT(*) FROM files WHERE file_key <> %s",
+            (key,)).fetchone() != (0,)
 
 
 def test_the_refusal_names_both_placeholder_spellings():
