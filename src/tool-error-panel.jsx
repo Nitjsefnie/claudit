@@ -358,14 +358,15 @@ function ToolErrorRatePanel({ project, range, nonce }) {
         </div>
       )}
 
-      {/* Model checkbox row: the checked models are the lines drawn.
-          Each checkbox IS its model's colour key (#474). */}
+      {/* Model checkbox strip — BELOW the chart, like every other
+          panel's legend (#773): order 99 paints it after the chart; each
+          checkbox IS its model's colour key (#474). */}
       {models.length > 0 && (
-        <div style={{
-          padding: '8px 14px', borderBottom: `1px solid ${TH_X.border}`,
+        <div data-role="legend" style={{
+          padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
           display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
           fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
-          alignItems: 'center',
+          alignItems: 'center', order: 99,
         }}>
           <span>models:</span>
           {models.map(m => {
@@ -381,15 +382,14 @@ function ToolErrorRatePanel({ project, range, nonce }) {
         </div>
       )}
 
-      {/* Tool picker row: which per-tool lines the toggle adds. Top-3
-          tools by calls checked by default; Aggregate is not in it —
-          every checked model always draws its aggregate line. */}
+      {/* Tool picker strip: which per-tool lines the toggle adds — top-3
+          by calls plus Other; below the chart with the models strip (#773). */}
       {models.length > 0 && (
-        <div style={{
-          padding: '8px 14px', borderBottom: `1px solid ${TH_X.border}`,
+        <div data-role="legend" style={{
+          padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
           display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
           fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
-          alignItems: 'center',
+          alignItems: 'center', order: 99,
         }}>
           <span>per-tool:</span>
           {toolPickerEntries.map(k => {

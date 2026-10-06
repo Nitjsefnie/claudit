@@ -281,7 +281,7 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
       {/* Model checkbox row — directly below the comparison overlay
           (order 3, after the comparison at order 2). The trailing chip
           toggles the per-session traces behind the breakdown. */}
-      <div style={{
+      <div data-role="legend" style={{
         padding: '8px 14px', borderBottom: `1px solid ${TH_X.border}`,
         display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
@@ -559,7 +559,7 @@ function ResponseSizesPanel({ data, bucketS }) {
         </div>
       </div>
 
-      <div style={{
+      <div data-role="legend" style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
         display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
@@ -1065,7 +1065,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
         </div>
       </div>
 
-      <div style={{
+      <div data-role="legend" style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
         display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
@@ -1390,7 +1390,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
         </label>
       </div>
 
-      <div style={{
+      <div data-role="legend" style={{
         padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
         display: 'flex', flexWrap: 'wrap', gap: '14px 14px',
         fontFamily: 'monospace', fontSize: 11, color: TH_X.textDim,
