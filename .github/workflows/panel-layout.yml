@@ -93,3 +93,14 @@ jobs:
         # target anywhere, or a ledger entry that never fired exits
         # non-zero.
         run: node scripts/ci/panel_interactions.mjs
+
+      - name: Check the rendered layout-consistency rules
+        # The same REAL page and fixture set (issue #772): one page load
+        # per width, every registered rule measured on it — today the
+        # vertical-gap rule (no two vertically adjacent sections or
+        # charts flush against each other, #772's missing-gap class) —
+        # and then each rule's seeded red case, which must fire or the
+        # run fails as a lying guard. New layout rules register in
+        # scripts/ci/panel_layout_rules.mjs's RULES array and are covered
+        # automatically.
+        run: node scripts/ci/panel_layout_rules.mjs
