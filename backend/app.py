@@ -34,7 +34,7 @@ db.load_dotenv(str(_REPO_ROOT / ".env"))
 # These imports follow dotenv loading because some modules capture settings
 # while they are imported (for example, EXPORT_PYTHON and CLAUDIT_TIMING).
 # pylint: disable=wrong-import-position
-from backend import api, api_export, constants, events, ingest, login, r2, session  # noqa: E402
+from backend import api, agent_types, api_export, constants, events, ingest, login, r2, session  # noqa: E402
 from backend import branding  # noqa: E402
 # pylint: enable=wrong-import-position
 
@@ -384,7 +384,7 @@ async def root_index(request: Request) -> Response:
         "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
         f"<script>window.BACKEND_URL = '/'; window.IS_GUEST = "
         f"{str(is_guest).lower()}; window.IS_OPERATOR = "
-        f"{str(is_operator).lower()}; {brand_js}</script>",
+        f"{str(is_operator).lower()}; {brand_js} {agent_types.fold_js()}</script>",
     )
     html = branding.brand_page(html)
     # Bust intermediary caches (Cloudflare, browser) on every static-asset
