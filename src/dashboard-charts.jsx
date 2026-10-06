@@ -371,7 +371,7 @@ function useChartA11y(title, summary, description) {
 
 // --- Time-series panel ---
 function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, binMs }) {
-  const ref = React.useRef(null);
+  const ref = React.useRef(null), svgRef = React.useRef(null);
   const [size, setSize] = React.useState({ w: 600, h: 280 });
   const [tip, setTip] = React.useState(null);
   const [yLabelPx, setYLabelPx] = React.useState(0);
@@ -451,24 +451,23 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
     `One bar per ${binMsLabel(binMs)} bucket, the line is the running `
     + `total. Peak bucket ${humanFmt(peakSum, isCurrency)}.`);
 
-  // Mouse tracking — select the bounded interval under the pointer.
+  // Mouse tracking — hit-test in the <svg>'s frame: padT/plotH are svg
+  // coordinates and the container's rect carries the panel's 1px border,
+  // so comparing across the frames parked the active band 1px high and
+  // killed the plot's bottom row (#645). The tip positions in container
+  // coordinates — its offsetParent is the container.
   function onMouseMove(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    if (my < padT || my > padT + plotH) {
-      setTip(null);
-      return;
-    }
-    const idx = timeBinIndexAtX(bins, range, padL, plotW, mx);
-    if (idx < 0) {
-      setTip(null);
-      return;
-    }
+    const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const sx = e.clientX - srect.left, sy = e.clientY - srect.top;
+    if (sy < padT || sy > padT + plotH) { setTip(null); return; }
+    const idx = timeBinIndexAtX(bins, range, padL, plotW, sx);
+    if (idx < 0) { setTip(null); return; }
     const b = bins[idx];
     const cum = cumPts[idx + 1];  // +1 to skip the leading (range.start, 0) anchor
+    const bar = timeBarRect(b, range, padL, plotW);
     setTip({
-      x: mx, y: my, idx,
+      x: mx, y: my, idx, cx: bar.x + bar.width / 2,
       title: `${fmtDate(b.start, {full:true})} – ${fmtDate(b.end, {full:true})} UTC`,
       accent: color,
       lines: [
@@ -487,7 +486,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
     }}
     onMouseMove={onMouseMove}
     onMouseLeave={() => setTip(null)}>
-      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+      <svg ref={svgRef} role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={title} width={w} height={h} style={{ display: 'block' }}>
         {yTicksL.map((v, idx) => (
           <line data-plot-boundary="" key={'g'+idx} x1={padL} x2={w - padR}
@@ -515,9 +514,9 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
           points={cumPts.map(p => `${xScale(p.ts)},${yCum(p.v)}`).join(' ')}
           stroke={color} strokeWidth="2" fill="none" />
 
-        {/* Hover crosshair */}
+        {/* Hover crosshair, snapped to the hovered bucket's centre (#646). */}
         {tip && (
-          <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+          <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
             stroke={color} strokeOpacity="0.4" strokeWidth="1" strokeDasharray="2,3" />
         )}
 
