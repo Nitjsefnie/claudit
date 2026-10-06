@@ -240,8 +240,9 @@ def admitted(reseed_in_flight, families):
                 for family in families}
     raise ValueError(
         'reseed_in_flight must be a thresholds_validate.ReseedVerdict '
-        '(or the legacy single-family bool), not None: ask '
-        'thresholds.verdict() for the tree answer')
+        f'(or the legacy single-family bool), not '
+        f'{type(reseed_in_flight).__name__}: ask thresholds.verdict() '
+        'for the tree answer')
 
 
 def verdict(reseed_in_flight=None):
