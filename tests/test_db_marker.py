@@ -56,31 +56,6 @@ SERVER_CALLS = frozenset({
 # which spelling a test module used.
 _AnyFn = ast.FunctionDef | ast.AsyncFunctionDef
 
-# Tests the scan flags whose bodies provably never reach a server, each
-# with the reason. Every entry names a test that EXISTS: an entry for a
-# name no test carries excuses nothing, and reads as cover while the real
-# offender is left to be found.
-MARK_ALLOWLIST: dict[str, str] = {
-    "test_version.py:test_health_error_branch_reports_version":
-        "monkeypatches db.viz_conn with a function that raises, so the "
-        "health endpoint's error branch runs with no server at all",
-    "test_version.py:test_health_error_branch_answers_503":
-        "monkeypatches db.viz_conn with a function that raises, so the "
-        "health endpoint's error branch runs with no server at all",
-    "test_version.py:test_health_ok_branch_reports_version":
-        "monkeypatches db.viz_conn with a fake connection, so the "
-        "health endpoint's ok branch runs with no server at all",
-    "test_version.py:test_health_last_ingest_carries_newer":
-        "monkeypatches db.viz_conn with a fake connection, so the "
-        "health endpoint's ok branch runs with no server at all",
-    "test_schema_autoapply.py:test_apply_schema_unlock_failure_does_not_mask_the_ddl_error":
-        "monkeypatches db.viz_conn with a fake connection, so "
-        "apply_schema's unlock guard runs with no server at all",
-    "test_schema_autoapply.py:test_apply_schema_swallows_unlock_failure_after_success":
-        "monkeypatches db.viz_conn with a fake connection, so "
-        "apply_schema's unlock guard runs with no server at all",
-}
-
 
 class _StubItem:
     """What mark_db_items needs of a pytest item, no more."""
@@ -384,9 +359,66 @@ def _derive_from_modules(modules) -> set[str]:
     return _rooted_fixture_names(fixtures, rooted)
 
 
-def _derive_db_fixtures() -> set[str]:
-    """The DB-rooted fixture names, re-derived from tests/*.py."""
-    return _derive_from_modules(_modules())
+@functools.cache
+def _relevant_sources(
+        directory: Path | None = None) -> tuple[tuple[str, str], ...]:
+    """(module name, source) for every relevant module, UNPARSED.
+
+    The admission half of _modules, split out so the narrow derivation
+    (issue #715) can walk a subset: reading and admitting is C-side
+    cost, while ast.parse and the facts walk are where a module's line
+    count is paid. The cache is keyed on the directory for the same
+    reason _modules' is: a caller pointing this at a directory of its
+    own must never displace the real tree for later readers.
+    """
+    root = TESTS_DIR if directory is None else directory
+    out = []
+    for path in sorted(root.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if _scan_relevant(source):
+            out.append((path.stem, source))
+    return tuple(out)
+
+
+def _derive_narrow(directory: Path | None = None) -> set[str]:
+    """The DB-rooted fixture names, from the tree on demand (issue #715).
+
+    The mention roots live in server-text modules by construction: a
+    function roots when its body mentions a server call, and the reach
+    is an identifier or a segment string spelled verbatim in the
+    source, so the module carrying it names a server call in its text.
+    The fixpoint then follows chains through the REMAINING fixture
+    modules on demand: each round resolves the registry names so far
+    through the vocabulary index (tests/scan_gate.module_def_vocab),
+    parses only the modules that may define or request one of them,
+    and re-runs the fixpoint. Over-inclusive by construction — the
+    index admits on any identifier, parameter, local or string
+    constant equal to a registry name — so a skip can only save the
+    walk, never hide a chain member. The registry test below and the
+    planted-tree pins (tests/test_db_marker_narrow.py) prove the
+    narrowed path equals the full sweep.
+    """
+    sources = dict(_relevant_sources(directory))
+    chosen = {n for n, s in sources.items()
+              if any(tok in s for tok in SERVER_CALLS)}
+    unchosen = set(sources) - chosen
+    may: dict[str, frozenset[str]] = {}
+    suspect: dict[str, bool] = {}
+    for n in unchosen:
+        may[n], suspect[n] = scan_gate.module_def_vocab(sources[n])
+    parsed: dict[str, ast.Module] = {}
+    while True:
+        modules = []
+        for n in sorted(chosen):
+            if n not in parsed:
+                parsed[n] = ast.parse(sources[n])
+            modules.append((n, parsed[n], sources[n]))
+        derived = _derive_from_modules(modules)
+        hits = {n for n in unchosen - chosen
+                if suspect[n] and may[n] & derived}
+        if not hits:
+            return derived
+        chosen |= hits
 
 
 def _marked_db(fn: _AnyFn) -> bool:
@@ -423,7 +455,7 @@ def _mark_applied(fixturenames: list[str]) -> bool:
 
 
 def test_the_registry_equals_what_the_source_derives():
-    derived = _derive_db_fixtures()
+    derived = _derive_narrow()
     unregistered = derived - db_marker.DB_FIXTURES
     stale = db_marker.DB_FIXTURES - derived
     assert not unregistered and not stale, (
@@ -435,109 +467,6 @@ def test_the_registry_equals_what_the_source_derives():
     assert "fresh_db" in derived, (
         "fresh_db — the canonical DB root fixture — no longer derives "
         "as DB-rooted; the split has silently gone empty.")
-
-
-def _derive_by_sweep(modules) -> set[str]:
-    """The derivation exactly as it read before the incremental union.
-
-    The control the optimisation is measured against: it asks
-    `_rooted_fixture_names` for a full sweep of every module's fixture
-    map at every call, which is what `_derive_from_modules` used to do.
-    """
-    funcs = {name: _functions(tree) for name, tree, _ in modules}
-    fixtures = _registered_fixtures(modules)
-    rooted = {name: _mention_roots(funcs[name], source)
-              for name, _, source in modules}
-    changed = True
-    while changed:
-        changed = False
-        for mod, fns in funcs.items():
-            for fname, fn in fns.items():
-                if fname in rooted[mod]:
-                    continue
-                calls = {n.func.id for n in ast.walk(fn)
-                         if isinstance(n, ast.Call)
-                         and isinstance(n.func, ast.Name)}
-                rooted_params = (_arg_names(fn)
-                                 & _rooted_fixture_names(fixtures, rooted))
-                if calls & rooted[mod] or rooted_params:
-                    rooted[mod].add(fname)
-                    changed = True
-    return _rooted_fixture_names(fixtures, rooted)
-
-
-def _seeded_modules() -> tuple:
-    """Three modules chained by parameter name, as (name, AST, source).
-
-    `seeded_root` mentions a server call, so it is a root from the first
-    round. `late_root` roots only once `seeded_root` is a rooted NAME --
-    the step where the union gains something the initial sweep could not
-    carry. `consumer` then roots through `late_root`, and it is
-    REGISTERED, so a union that dropped the delta would leave it
-    unrooted: the seeded violation this parity pair has to catch.
-    """
-    # The server token is spelled in two halves ON PURPOSE: the seeded
-    # AST still contains it, so `seeded_root` is still a mention root
-    # and the chain still starts here, while this file's own text never
-    # contains the token and the marking guard below sees no server call
-    # to flag. Nothing here reaches a server; the string is only parsed.
-    # pylint: disable-next=implicit-str-concat
-    server = 'viz_' 'conn'
-    sources = {
-        "seeded": 'import pytest\n\n\n@pytest.fixture\n'
-                  f'def seeded_root():\n    return {server}()\n',
-        "late": 'import pytest\n\n\n@pytest.fixture\n'
-                'def late_root(seeded_root):\n    return None\n',
-        "consumer": 'import pytest\n\n\n@pytest.fixture\n'
-                    'def consumer(late_root):\n    return None\n',
-    }
-    return tuple((name, ast.parse(src), src) for name, src in sources.items())
-
-
-# The frozen parity slice: four real, fixture-carrying modules, named.
-# Named rather than the dynamic biggest-four so this test's cost
-# tracks these files alone, never tree membership (issue #675).
-# test_ci_reseed replaced test_workflow_release when the gate's fixture
-# half moved to compile-level vocabulary (issue #679): the release
-# module's only ``fixture`` occurrences are comment prose, so the gate
-# rightly skips it, and a parity slice must name modules the gate
-# admits. All four carry real fixture decorators and fixture chains.
-_PARITY_SLICE = ("test_web_metrics_rollup", "test_parse_lanes",
-                 "test_ci_reseed", "test_api")
-
-
-def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
-    # Parity on REAL sources, both forms over the same slice: a union
-    # that dropped or double-counted a name would move a fixture in or
-    # out of the registry this module guards. The slice is a FROZEN
-    # list of four real modules, named: a dynamic biggest-N would
-    # re-price this test whenever a pull request's added lines pushed
-    # a different file into the top four (issue #675), and a guard that
-    # costs more than the thing it guards is not a guard. The named
-    # four were the largest modules when the slice froze. Their
-    # fixture chains resolve from the initial mention-root sweep alone,
-    # so this real-source leg on its own does not discriminate a broken
-    # incremental union — the seeded pair below is the leg that does;
-    # the two together are the control.
-    by_name = {name: (name, tree, source)
-               for name, tree, source in _modules()}
-    missing = [name for name in _PARITY_SLICE if name not in by_name]
-    assert not missing, (
-        f"the frozen parity slice named missing modules: {missing}")
-    biggest = [by_name[name] for name in _PARITY_SLICE]
-    assert _derive_from_modules(biggest) == _derive_by_sweep(biggest)
-
-
-def test_the_incremental_derivation_equals_the_full_sweep_on_seeded_modules():
-    # The same pair on a seeded tree whose transitive chain runs THROUGH
-    # the union's delta, and which ends in a registered fixture that must
-    # be rooted. Both forms are the production code path: `_sweep` is the
-    # pre-optimisation control, `_derive_from_modules` is what ships, so
-    # breaking the union fails here rather than passing vacuously.
-    modules = _seeded_modules()
-    derived = _derive_from_modules(modules)
-    assert derived == _derive_by_sweep(modules)
-    assert derived == {"seeded_root", "late_root", "consumer"}
 
 
 def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
@@ -612,7 +541,7 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
             if _marked_db(fn):
                 continue
             entry = f"{mod_name}.py:{fname}"
-            if MARK_ALLOWLIST.get(entry):
+            if db_marker.MARK_ALLOWLIST.get(entry):
                 continue
             offenders.append(entry)
     return offenders
