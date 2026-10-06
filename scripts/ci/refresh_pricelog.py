@@ -7,7 +7,10 @@ left for the hourly refresh's detection-time sampler.
 """
 from __future__ import annotations
 
+import http.client
 import json
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
@@ -24,6 +27,22 @@ LOG_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
 ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 _RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# Bounded retries for the fetches below (issue #760): one transient timeout
+# on the catalog read must not leave it unreadable, which would turn a
+# delisted model's empty endpoints into a refusal. The retry changes only
+# how many tries "unreadable" takes; a fetch failing every attempt still
+# raises into the callers' existing unreadable handling.
+FETCH_ATTEMPTS = 3
+FETCH_BACKOFF_S = 2.0
+# Transport failures a retry can plausibly clear. HTTPError is one of these
+# (it subclasses URLError) and is refined by _transient: only a server-side
+# "try again" — 5xx or 429 — is transient; a 4xx is the answer to the
+# request as sent and never gets a second try. An empty or unparseable body
+# is a broken transfer, never a valid listing (the same reasoning
+# _catalog_slugs applies to an empty models list).
+_TRANSIENT = (urllib.error.URLError, http.client.HTTPException,
+              TimeoutError, ConnectionError, json.JSONDecodeError)
 
 FetchModels = Callable[[], object]
 FetchLog = Callable[[str], object]
@@ -73,11 +92,37 @@ def fetch_listed_pricing(canonical_slug: str) -> object:
     return _fetch_json(f"{LOG_URL}?{query}")
 
 
-def _fetch_json(url: str) -> object:
+def _transient(exc: BaseException) -> bool:
+    """Whether a retry could plausibly clear this fetch failure."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    return isinstance(exc, _TRANSIENT)
+
+
+def _open(url: str):
+    """Issue one GET for `_fetch_json`; the seam tests fake in place of the
+    network."""
     request = urllib.request.Request(
         url, headers={"User-Agent": "claudit-refresh-provider-rates"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    return urllib.request.urlopen(request, timeout=30)
+
+
+def _sleep(seconds: float) -> None:
+    """The backoff clock; tests replace this so no test ever really sleeps."""
+    time.sleep(seconds)
+
+
+def _fetch_json(url: str) -> object:
+    """GET the URL as JSON, retrying bounded transient transport failures."""
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            with _open(url) as response:
+                return json.load(response)
+        except _TRANSIENT as exc:
+            if not _transient(exc) or attempt + 1 == FETCH_ATTEMPTS:
+                raise
+            _sleep(FETCH_BACKOFF_S * 2 ** attempt)
+    raise AssertionError("unreachable: every attempt returns or raises")
 
 
 def _rounded(value: float) -> float:
