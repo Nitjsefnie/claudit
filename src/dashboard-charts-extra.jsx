@@ -1850,7 +1850,7 @@ const BAR_OPACITY_HOVER = 0.85;
 // copy would drift out from under those guards.
 function CostByContextPanel({ models, project, range, nonce, measure }) {
   const isTokens = measure === 'tokens';
-  const ref = React.useRef(null);
+  const ref = React.useRef(null), svgRef = React.useRef(null);
   const [w, setW] = React.useState(1200);
   const [tip, setTip] = React.useState(null);
   const [data, setData] = React.useState([]);
@@ -1959,16 +1959,16 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     ? humanFmt_X(v)
     : (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v < 10 ? 2 : 0)}`));
 
-  // On the CONTAINER, not the <svg>: that is the tooltip's offsetParent,
-  // so its coordinates need no second frame of reference — and it is
-  // where TimeSeriesPanel puts it. The vertical guard keeps the tooltip
-  // out of the header and the x-axis gutter.
+  // Hit-test in the <svg>'s frame: padT/plotH are svg coordinates, and the
+  // container's rect carries the header block above the svg, so comparing
+  // across the frames parked the active band a header-height high (#645).
+  // The tip still positions in container coordinates — its offsetParent.
   function onMove(e) {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    if (my < padT || my > padT + plotH) { setTip(null); return; }
-    const i = Math.floor((mx - padL) / bw);
+    if (!ref.current || !svgRef.current) return;
+    const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top, sx = e.clientX - srect.left, sy = e.clientY - srect.top;
+    if (sy < padT || sy > padT + plotH) { setTip(null); return; }
+    const i = Math.floor((sx - padL) / bw);
     if (i < 0 || i >= bars.length) { setTip(null); return; }
     const b = bars[i];
     const lo = fmtTok(b.edge);
@@ -2040,7 +2040,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
         </div>
       </div>
 
-      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+      <svg ref={svgRef} role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel={isTokens ? 'Tokens by Context Size' : 'Cost by Context Size'}
         width={w} height={h} style={{ display: 'block' }}>
         <rect data-role="plot" x={padL} y={padT} width={plotW} height={plotH} fill="none" />{[0, 0.25, 0.5, 0.75, 1].map(f => (
