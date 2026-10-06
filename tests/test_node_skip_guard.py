@@ -58,3 +58,36 @@ def _mentions_node(value: ast.expr) -> bool:
         isinstance(n, ast.Constant) and isinstance(n.value, str)
         and "node" in n.value
         for n in ast.walk(value))
+
+
+def test_the_guard_detects_a_module_level_node_mark() -> None:
+    """A module-wide node skipif is the shape the guard exists for."""
+    mod = ast.parse(
+        "import shutil\nimport pytest\n"
+        "pytestmark = pytest.mark.skipif(\n"
+        '    shutil.which("node") is None, reason="node not available")\n')
+    values = [v for v in
+              (_pytestmark_value(s) for s in mod.body) if v is not None]
+    assert len(values) == 1
+    assert _mentions_node(values[0])
+
+
+def test_the_guard_detects_an_annotated_module_level_node_mark() -> None:
+    """An annotated binding (pytestmark: object = ...) is the same shape."""
+    mod = ast.parse(
+        "import shutil\nimport pytest\n"
+        "pytestmark: object = pytest.mark.skipif(\n"
+        '    shutil.which("node") is None, reason="node not available")\n')
+    values = [v for v in
+              (_pytestmark_value(s) for s in mod.body) if v is not None]
+    assert len(values) == 1
+    assert _mentions_node(values[0])
+
+
+def test_the_guard_leaves_a_non_node_module_mark_alone() -> None:
+    """A module mark that does not mention node is out of scope here."""
+    mod = ast.parse("import pytest\npytestmark = pytest.mark.db\n")
+    values = [v for v in
+              (_pytestmark_value(s) for s in mod.body) if v is not None]
+    assert len(values) == 1
+    assert not _mentions_node(values[0])
