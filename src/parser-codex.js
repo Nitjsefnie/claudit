@@ -58,7 +58,8 @@ function laneCodexOutputText(payload) {
 }
 
 function parseLaneCodex(blob, opts) {
-  const lines = String(blob).split(/\r?\n/);
+  const text = String(blob);
+  const lines = text.split(/\r?\n/);
   const events = [];
   const meta = [];
   const fileKey = (opts && opts.fileKey) || '';
@@ -74,13 +75,21 @@ function parseLaneCodex(blob, opts) {
   let firstDeclaredModel = null;
   let firstDeclaredLine = null;
   let isFork = false;
+  // One needle search keeps the per-line session_meta check off the
+  // common non-fork path (backend codex_fork.head_scan).
+  let forkSettled = !text.includes('"forked_from_id"');
   for (let ln = 0; ln < lines.length; ln++) {
     const line = lines[ln];
-    if (!isFork && line.includes('"session_meta"')) {
+    if (!forkSettled && line.includes('"session_meta"')) {
       let sm = null;
       try { sm = JSON.parse(line); } catch { sm = null; }
-      if (laneIsPlainObject(sm) && laneIsPlainObject(sm.payload)
-          && sm.payload.forked_from_id) isFork = true;
+      if (laneIsPlainObject(sm) && sm.type === 'session_meta') {
+        // The FIRST session_meta decides (the parse loop's own head
+        // rule); a non-meta line mentioning the needle just advances.
+        const ffid = laneIsPlainObject(sm.payload) ? sm.payload.forked_from_id : null;
+        isFork = typeof ffid === 'string' && ffid.trim() !== '';
+        forkSettled = true;
+      }
     }
     if (firstDeclaredLine !== null) continue;
     if (!line.includes('"turn_context"') && !line.includes('"thread_settings_applied"')) continue;

@@ -136,6 +136,30 @@ def test_the_browser_marks_a_forks_replayed_prefix():
     assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
 
 
+def test_the_browser_fork_scan_advances_past_a_needle_mention():
+    """The mirror of the backend's fork-advance edge: a line merely
+    MENTIONING the session_meta needle does not decide the fork flag -
+    the first real meta does - so the fixture's replayed prefix, one
+    line later, is still marked (issue #687 delta round)."""
+    mention = ('{"timestamp":"2026-06-14T12:00:00.000Z","type":"event_msg",'
+               '"payload":{"type":"agent_message",'
+               '"message":"roles: [\\"session_meta\\"]"}}\n')
+    text = mention + DIFFERENT_MODEL_FORK.read_text(encoding="utf-8")
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      const {{ events, meta }} = window.parseTranscript({json.dumps(text)});
+      console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
+        .map(m => [m.line, m.isReplay === true])));
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True,
+                          text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == [[4, True], [5, True], [8, False]]
+
+
 def _browser_records(name: str) -> list[dict]:
     return _browser_lane_output()[name]["records"]
 
