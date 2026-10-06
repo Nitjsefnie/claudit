@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture,
