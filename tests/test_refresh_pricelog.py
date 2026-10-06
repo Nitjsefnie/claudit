@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import email.message
+import http.client
 import importlib.util
 import io
 import json
@@ -459,7 +460,7 @@ def test_one_catalog_timeout_is_retried_so_the_delisted_skip_survives(monkeypatc
         lambda slug: {},
     )
 
-    assert catalog_set == {"synth/model"}, "one timeout must not unreadable the catalog"
+    assert catalog_set == {"synth/model"}, "one timeout must not leave the catalog unreadable"
     assert logs["synthetic/model"].series is None
     assert sleeps == [pricelog.FETCH_BACKOFF_S], "the retry backs off once, not forever"
 
@@ -524,6 +525,38 @@ def test_the_final_attempt_still_returns_instead_of_raising(monkeypatch):
 
     assert payload == {"data": []}
     assert sleeps == [pricelog.FETCH_BACKOFF_S, pricelog.FETCH_BACKOFF_S * 2]
+
+
+def test_a_rate_limit_answer_gets_its_retry(monkeypatch):
+    """429 is the server asking to try again, the same side of the
+    classification as a 5xx; its conjunct is pinned separately so a dropped
+    `or exc.code == 429` fails this test instead of reading as 5xx coverage."""
+    sleeps: list[float] = []
+
+    payload = _fetch_with(
+        monkeypatch,
+        [urllib.error.HTTPError(pricelog.MODELS_URL, 429, "too many requests",
+                                email.message.Message(), None),
+         b'{"data": []}'],
+        sleeps)
+
+    assert payload == {"data": []}
+    assert sleeps == [pricelog.FETCH_BACKOFF_S]
+
+
+def test_a_truncated_transfer_is_retried(monkeypatch):
+    """A mid-response drop surfaces as http.client.IncompleteRead — the
+    transient tuple's HTTPException member; the empty-body case is its
+    JSON twin."""
+    sleeps: list[float] = []
+
+    payload = _fetch_with(
+        monkeypatch,
+        [http.client.IncompleteRead(b"x", 8), b'{"data": []}'],
+        sleeps)
+
+    assert payload == {"data": []}
+    assert sleeps == [pricelog.FETCH_BACKOFF_S]
 
 
 def test_an_empty_body_is_retried_as_transient(monkeypatch):
