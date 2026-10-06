@@ -23,7 +23,7 @@
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1361,
     "src/dashboard-charts-extra.jsx": 2143,
-    "src/dashboard-charts.jsx": 912,
+    "src/dashboard-charts.jsx": 910,
     "src/parser.js": 666
   },
   "pylint_suppression_baseline": {
