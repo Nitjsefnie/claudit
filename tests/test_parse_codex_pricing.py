@@ -186,6 +186,7 @@ def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
     out = parse.parse_file("codex/gpt55_flat.jsonl", blob)
 
     rec = out["records"][0]
+    assert rec["long_context"] is False
     resolved = pricing.resolve("gpt-5.5", ts, None)  # sv-test-data: allow (derived: the pinned claim is that the dotted id resolves exact, not the default — the value the row itself carries)
     assert resolved.kind == "exact"
     metered = pricing.compute_cost(
