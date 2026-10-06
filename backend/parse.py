@@ -512,7 +512,7 @@ class _LineWalk:
             "uuid": obj.get("uuid") or None,
             "request_id": req_id,
             "ts": obj.get("timestamp", "") or "",
-            "model": msg.get("model") or "(unknown)",
+            "model": msg.get("model") or None,  # no placeholder: parse_file refuses a None model (issue #688)
             "usage": dict(usage),
             "text_chars": text_chars,
             "reply_latency_s": reply_latency_s,
@@ -826,7 +826,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         "prompt_ts": walk.user_text_ts,
         # Every model that answered in this file, BEFORE ingest purges
         # suppressed ones: the only trace that a session changed lanes.
-        "models": sorted({r["model"] for r in records}),
+        "models": sorted(filter(None, {r["model"] for r in records})),  # None dropped: a model-less row is refused before anything stores (issue #688)
         "rate_limit_hits": walk.rate_limit_hits,
         "tool_uses": walk.tool_uses,
         "agent_type": resolve_agent_type(walk),
@@ -847,6 +847,6 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     its role itself), which agent_sidecar.apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
-    if fmt == "claude":
-        return _parse_claude(file_key, blob)
-    return parse_lanes.refuse_unattributed(to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt), fmt, file_key)
+    parsed = (_parse_claude(file_key, blob) if fmt == "claude"
+              else to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt))
+    return parse_lanes.refuse_unattributed(parsed, fmt, file_key)
