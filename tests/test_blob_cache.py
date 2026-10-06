@@ -3,6 +3,7 @@ every failure, size-capped LRU prune.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -111,7 +112,6 @@ def test_prune_drops_the_oldest_first(cache_root):
 
 def entry_of(root: Path, key: str, etag: str) -> Path:
     """The entry path the cache module derives for (key, etag)."""
-    import hashlib
     digest = hashlib.sha256(f"{key}\0{etag}".encode()).hexdigest()
     return root / digest[:2] / digest
 
