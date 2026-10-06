@@ -95,7 +95,7 @@ def _folded_names(text: str) -> list[str]:
     script = f"""
       global.window = {{}};
       require({str(AGENT_TYPES_JS)!r});
-      window.AGENT_TYPE_FOLD = {json.dumps(dict(agent_types._FOLD))};
+      window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
@@ -150,7 +150,7 @@ def test_a_subagent_type_only_dispatch_folds_the_same():
     script = f"""
       global.window = {{}};
       require({str(AGENT_TYPES_JS)!r});
-      window.AGENT_TYPE_FOLD = {json.dumps(dict(agent_types._FOLD))};
+      window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(PARSER_JS)!r});
@@ -185,7 +185,7 @@ def test_index_injects_the_served_fold_table(page_client):
     body = page_client.get("/").text
     match = re.search(r"window\.AGENT_TYPE_FOLD = (\{.*?\});", body)
     assert match, body
-    assert json.loads(match.group(1)) == dict(agent_types._FOLD)
+    assert json.loads(match.group(1)) == agent_types.fold_table()
 
 
 def test_index_loads_the_helper_before_the_parser():
