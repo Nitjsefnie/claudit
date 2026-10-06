@@ -408,7 +408,7 @@ function App() {
           outside (issue #447). */}
       <main id="main">
         {backendOn && !isGuest && (
-          <ProjectPicker
+          <window.ProjectPicker
             projects={projects}
             active={activeProject}
             onChange={setActiveProject}
@@ -515,74 +515,6 @@ function ExportButton({ range, project }) {
       >{busy ? 'rendering…' : 'Export PNG'}</button>
       {err && <span style={{ color: '#ff6b6b', fontSize: 11, marginLeft: 8 }}>{err}</span>}
     </span>
-  );
-}
-
-// /api/projects returns every project ordered by total_cost DESC, which is
-// enough chips to push the dashboard below the fold. Page the list; "All" and
-// the pager stay pinned outside it so the reset control and the page controls
-// are reachable from every page.
-const PROJECTS_PER_PAGE = 24;
-
-function ProjectPicker({ projects, active, onChange }) {
-  const [page, setPage] = useState(0);
-
-  // Mounted before the list lands (#643): the strip sits above the fold,
-  // so mounting it only once /api/projects resolves moves the whole page.
-  // Until then it renders its "All" chip alone inside the same fixed
-  // one-row strip box, so the list's arrival fills instead of inserts.
-  const list = projects || [];
-  const pageCount = Math.max(1, Math.ceil(list.length / PROJECTS_PER_PAGE));
-  // Clamp rather than store a corrected page: if `projects` shrinks under us
-  // (refetch with fewer rows), a stale index would strand the user on a blank
-  // page with no chips to click their way out of.
-  const safePage = Math.min(page, pageCount - 1);
-  const start = safePage * PROJECTS_PER_PAGE;
-  const shown = list.slice(start, start + PROJECTS_PER_PAGE);
-
-  // The active chip may live on another page. Nothing renders as `on` then —
-  // including "All" — so surface the selection instead of leaving the filtered
-  // dashboard looking unfiltered.
-  const activeOffPage = active !== '' && !shown.some(p => p.project_id === active);
-
-  return (
-    <div className="project-picker" data-perf-region="project_picker">
-      <button className={'pp-btn ' + (active === '' ? 'on' : '')} onClick={() => onChange('')}>All</button>
-      {shown.map(p => (
-        <button
-          key={p.project_id}
-          className={'pp-btn ' + (active === p.project_id ? 'on' : '')}
-          onClick={() => onChange(p.project_id)}
-          title={`${p.session_count} sessions · $${p.total_cost.toFixed(2)}`}
-        >{p.display_name}</button>
-      ))}
-      {pageCount > 1 && (
-        <span className="pp-pager">
-          <button
-            className="pp-btn pp-nav"
-            onClick={() => setPage(safePage - 1)}
-            disabled={safePage === 0}
-            title="Previous page"
-          >‹</button>
-          <span className="pp-count">{safePage + 1} / {pageCount}</span>
-          <button
-            className="pp-btn pp-nav"
-            onClick={() => setPage(safePage + 1)}
-            disabled={safePage >= pageCount - 1}
-            title="Next page"
-          >›</button>
-          {activeOffPage && (
-            <button
-              className="pp-btn on pp-jump"
-              onClick={() => setPage(Math.floor(
-                list.findIndex(p => p.project_id === active) / PROJECTS_PER_PAGE
-              ))}
-              title="Jump to the selected project"
-            >{active} ↩</button>
-          )}
-        </span>
-      )}
-    </div>
   );
 }
 
