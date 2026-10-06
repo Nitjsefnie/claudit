@@ -230,10 +230,12 @@ function binMsLabel(ms) {
 const HOUR_MS = 3600_000;
 
 // --- Tooltip primitive (positioned in container, follows the cursor) ---
-// Flips left/up when it would overflow the viewport right/bottom edges.
+// Flips left/up when it would overflow the viewport right/bottom edges;
+// moves by `transform: translate`, never left/top — a transform move is
+// outside Layout Instability, so following the cursor shifts nothing (#642).
 function Tooltip({ tip }) {
   const ref = React.useRef(null);
-  const [pos, setPos] = React.useState({ left: 0, top: 0, ready: false });
+  const [pos, setPos] = React.useState({ x: 0, y: 0, ready: false });
   React.useLayoutEffect(() => {
     if (!tip || !ref.current) return;
     const el = ref.current;
@@ -241,45 +243,43 @@ function Tooltip({ tip }) {
     const parentRect = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
     const margin = 8;
     // Default: lower-right of cursor
-    let left = tip.x + 12;
-    let top  = tip.y + 12;
-    // Absolute viewport position the tooltip would occupy
-    const absRight  = parentRect.left + left + w;
-    const absBottom = parentRect.top  + top  + h;
-    if (absRight  > window.innerWidth  - margin) left = tip.x - w - 12;
-    if (absBottom > window.innerHeight - margin) top  = tip.y - h - 12;
-    // Don't overflow LEFT/TOP edges of the viewport either
+    let x = tip.x + 12, y = tip.y + 12;
+    const absRight  = parentRect.left + x + w, absBottom = parentRect.top  + y + h;
+    if (absRight  > window.innerWidth  - margin) x = tip.x - w - 12;
+    if (absBottom > window.innerHeight - margin) y = tip.y - h - 12;
     const minLeft = -parentRect.left + margin;
     const minTop  = -parentRect.top  + margin;
-    if (left < minLeft) left = minLeft;
-    if (top  < minTop)  top  = minTop;
-    setPos({ left, top, ready: true });
+    if (x < minLeft) x = minLeft;
+    if (y < minTop)  y = minTop;
+    setPos({ x, y, ready: true });
   }, [tip]);
 
   if (!tip) return null;
   const style = {
     position: 'absolute',
-    left: pos.left,
-    top: pos.top,
+    left: 0, top: 0,
+    transform: `translate(${pos.x}px, ${pos.y}px)`,
     visibility: pos.ready ? 'visible' : 'hidden',
     borderColor: tip.accent || undefined,
     pointerEvents: 'none',
     zIndex: 5,
-    maxWidth: 280,
   };
   return (
     <div ref={ref} className="chart-tooltip" style={style}>
-      {tip.title && (
-        <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
-          {tip.title}
-        </div>
-      )}
-      {(tip.lines || []).map((l, i) => (
-        <div key={i} className="chart-tooltip-row">
-          <span className="chart-tooltip-key">{l[0]}</span>
-          <span className="chart-tooltip-val" style={{ color: l[2] || undefined }}>{l[1]}</span>
-        </div>
-      ))}
+      <div key={tip.title + ':' + (tip.lines || []).join(';')}>
+        {/* remounts per row — reflowing the old rows would shift (#642) */}
+        {tip.title && (
+          <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
+            {tip.title}
+          </div>
+        )}
+        {(tip.lines || []).map((l, i) => (
+          <div key={i} className="chart-tooltip-row">
+            <span className="chart-tooltip-key">{l[0]}</span>
+            <span className="chart-tooltip-val" style={{ color: l[2] || undefined }}>{l[1]}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
