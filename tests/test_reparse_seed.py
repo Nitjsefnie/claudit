@@ -14,6 +14,7 @@ import importlib.util
 import json
 import re
 import sys
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 
@@ -136,6 +137,51 @@ def test_the_seed_restores_both_metrics_per_phase():
         for metric in thresholds.REPARSE_METRICS:
             record = seeded[thresholds.REPARSE_FAMILY][phase][metric]
             assert record["floor"] == record["measured"] + GAP
+
+
+def test_an_empty_family_is_present_and_refuses_the_seed():
+    # The decoy the falsy test would admit: `"reparse": {}` is the
+    # family PRESENT and malformed (the loader refuses its shape), and
+    # a seed that read emptiness as the absent family would replace it
+    # without the marked delete — the hand-raise's doorway in miniature
+    # (issue #703 review; guards/distinguish-absent-from-empty).
+    data = _document(reparse=False)
+    data[thresholds.REPARSE_FAMILY] = {}
+    readings = {
+        phase: {"share": "9.0", "bytecodes": "1.0"}
+        for phase in thresholds.REPARSE_PHASES}
+    with pytest.raises(ValueError, match="already recorded"):
+        reparse_ratchet.seed(data, readings)
+    # load_for_seed hands a PRESENT family to the loader, whose own
+    # shape refusal fires before any seed could: a different message,
+    # the same outcome — no replace without the marked delete.
+    with pytest.raises(ValueError, match="missing reparse CPU phase"):
+        _load_for_seed_of_bytes(data)
+
+
+def _load_for_seed_of_bytes(data):
+    """load_for_seed against raw bytes, through a temp file."""
+    with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False) as handle:
+        json.dump(data, handle, default=float)
+        name = handle.name
+    try:
+        return reparse_ratchet.load_for_seed(Path(name))
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def test_a_missing_phase_reading_is_a_clean_refusal():
+    # A direct caller's contract: the same ValueError shape the CLI's
+    # guard produces, never a KeyError (issue #703 review, minor).
+    data = _document(reparse=False)
+    readings = {
+        phase: {"share": "9.0", "bytecodes": "1.0"}
+        for phase in thresholds.REPARSE_PHASES}
+    del readings["sidecar"]
+    with pytest.raises(ValueError,
+                       match="no bytecodes reading for sidecar"):
+        reparse_ratchet.seed(data, readings)
 
 
 def test_a_counts_less_measurement_is_refused(tmp_path):

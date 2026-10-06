@@ -205,7 +205,12 @@ def load_for_seed(path):
     gone, the one state seed() accepts.
     """
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    if data.get(thresholds.REPARSE_FAMILY):
+    # PRESENCE, never emptiness, the loader's own rule (issue #703
+    # review): `"reparse": {}` is a family PRESENT and malformed — the
+    # loader refuses it and the seed must not quietly replace it. A
+    # falsy test would read the decoy as the absent family only the
+    # marker's delete may produce.
+    if thresholds.REPARSE_FAMILY in data:
         return thresholds.load(path), False
     return data, True
 
@@ -226,7 +231,10 @@ def seed(data, readings):
     measurement (``reparse_bench.py --write``); both metrics are
     written per phase, the share as the reading it was recorded beside.
     """
-    if data.get(thresholds.REPARSE_FAMILY):
+    if thresholds.REPARSE_FAMILY in data:
+        # PRESENCE, for the same reason load_for_seed tests it: an
+        # empty family is a present one, and overwriting it is the
+        # hand-raise's doorway whatever its (broken) shape.
         # Imported HERE, the way the loader's verdict does it: the
         # refusal is the one place this module names the marker, and
         # the git-reading module stays off the tighten path's imports.
@@ -243,6 +251,13 @@ def seed(data, readings):
         family[phase] = {}
         for metric in thresholds.REPARSE_METRICS:
             label = f'{phase}.{metric}'
+            if metric not in readings.get(phase, {}):
+                # The CLI's seed path reaches here guarded by
+                # _seed_readings; a direct caller gets the same clean
+                # refusal instead of a KeyError.
+                raise ValueError(
+                    f'the measurement carries no {metric} reading for '
+                    f'{phase}')
             measured = _VALIDATE[metric](
                 measurement(readings[phase][metric], label), label)
             family[phase][metric] = {
