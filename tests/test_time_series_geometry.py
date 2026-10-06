@@ -11,10 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS_JSX = ROOT / "src" / "dashboard-charts.jsx"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node(script: str) -> dict:
     proc = subprocess.run(
@@ -25,6 +21,7 @@ def _node(script: str) -> dict:
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_backend_bucket_centers_expand_to_their_full_coverage():
     result = _node(r"""
       const src = require('fs').readFileSync('src/app.jsx', 'utf8');
@@ -46,6 +43,7 @@ def test_backend_bucket_centers_expand_to_their_full_coverage():
     }
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_backend_adapter_uses_complete_bucket_coverage():
     result = _node(r"""
       global.window = {shortModelName: model => model};
@@ -100,6 +98,7 @@ def _bounded_geometry_fixture() -> dict:
     """)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_final_interval_is_capped_to_the_range(bounded_geometry):
     assert not bounded_geometry["missing"], "bounded geometry helpers missing"
     assert bounded_geometry["bins"] == [
@@ -108,6 +107,7 @@ def test_final_interval_is_capped_to_the_range(bounded_geometry):
     ]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_bar_rectangles_never_enter_the_axis_gutter(bounded_geometry):
     assert not bounded_geometry["missing"], "bounded geometry helpers missing"
     assert bounded_geometry["rects"] == [
@@ -119,11 +119,13 @@ def test_bar_rectangles_never_enter_the_axis_gutter(bounded_geometry):
     )
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_hover_selection_uses_the_bounded_intervals(bounded_geometry):
     assert not bounded_geometry["missing"], "bounded geometry helpers missing"
     assert bounded_geometry["indices"] == [-1, 0, 1, 1, 1, -1]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_cumulative_series_ends_at_the_bounded_range_edge(bounded_geometry):
     assert bounded_geometry["cumulative"] == [
         {"ts": 0, "v": 0, "binIdx": -1},

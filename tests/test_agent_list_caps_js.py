@@ -21,10 +21,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CAPS = ROOT / "src" / "agent-list-caps.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node(body: str):
     """Run `body` against the real src/agent-list-caps.js in node."""
@@ -47,6 +43,7 @@ def _rows(n):
             for i in range(n)]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_eight_roles_render_whole_nine_create_the_aggregate():
     """The fold boundary from both sides: 8 roles render as-is (8 is the
     cap, not the cap minus one), and the 9th role creates the `other`
@@ -70,6 +67,7 @@ def test_eight_roles_render_whole_nine_create_the_aggregate():
     assert out["r9kept"] == [f"role-{i:02d}" for i in range(7)], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_thirty_roles_collapse_to_seven_plus_other():
     """#651's subject: 30 roles render 7 kept + one aggregate, whose
     value and request count are the hidden tail's sums computed from the
@@ -92,6 +90,7 @@ def test_thirty_roles_collapse_to_seven_plus_other():
     assert out["keptValues"] == [30 - i for i in range(7)], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_unsorted_input_is_sorted_biggest_first_before_the_fold():
     """The cap owns the ordering: an arbitrarily ordered input still
     folds away the true tail, never the first-arriving rows."""
@@ -111,6 +110,7 @@ def test_unsorted_input_is_sorted_biggest_first_before_the_fold():
     assert out["other"] == [29, "other (3 roles)"], out  # a(1) + d(3) + c(25)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_expanded_cap_passes_every_role_through():
     """The toggle's expanded state: an Infinity cap returns every role,
     no aggregate, nothing hidden."""
@@ -127,6 +127,7 @@ def test_expanded_cap_passes_every_role_through():
                    "first": "role-00", "last": "role-29"}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_empty_list_and_zero_value_rows():
     """No roles -> an empty list; zero-value rows are roles too (a free
     lane costs nothing but dispatched) and fold away like any other

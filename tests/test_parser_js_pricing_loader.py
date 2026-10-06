@@ -24,10 +24,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 # The model id a transcript carries, and the row key it resolves to (the
 # same shapes the real pricing.json and test_provider_rate_refresh.py use).
 MODEL_ID = "z-ai/glm-5.3-flash"
@@ -173,6 +169,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
 # --- a schedule time spelled with an exponent or a fraction --------------------
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_an_exponent_spelled_schedule_start_throws_naming_pricing_json(
         tmp_path):
     out = _run(tmp_path, _render(_doc(start1=SENTINEL), spelling="14e2"))
@@ -182,6 +179,7 @@ def test_an_exponent_spelled_schedule_start_throws_naming_pricing_json(
     assert "offset" in out["error"], out["error"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_fractional_schedule_end_throws_naming_pricing_json(tmp_path):
     out = _run(tmp_path, _render(_doc(end1=SENTINEL), spelling="30.0"))
     assert out["error"], "the loader must refuse a fractional spelling"
@@ -193,6 +191,7 @@ def test_a_fractional_schedule_end_throws_naming_pricing_json(tmp_path):
 # --- a valid file --------------------------------------------------------------
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_plain_integer_schedule_times_load_and_price_the_windows(tmp_path):
     out = _run(tmp_path, _render(_doc()))
     assert out["error"] is None, out["error"]
@@ -202,6 +201,7 @@ def test_plain_integer_schedule_times_load_and_price_the_windows(tmp_path):
 # --- a fractional start outside a schedule -------------------------------------
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_fractional_start_outside_a_schedule_loads_as_a_number(tmp_path):
     out = _run(tmp_path, _render(
         _doc(openrouter_start=SENTINEL), spelling="30.0"))
@@ -213,6 +213,7 @@ def test_a_fractional_start_outside_a_schedule_loads_as_a_number(tmp_path):
 # --- the browser load path -----------------------------------------------------
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_browser_load_path_checks_the_spelling_and_prices_a_valid_file(
         tmp_path):
     bad = _run(tmp_path, _render(_doc(end1=SENTINEL), spelling="30.0"),
@@ -229,6 +230,7 @@ def test_the_browser_load_path_checks_the_spelling_and_prices_a_valid_file(
 # --- scoping: a start inside a window's rates object ---------------------------
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_start_inside_a_window_rates_object_is_not_an_offense(tmp_path):
     rates = {**DAY, "start": SENTINEL}
     out = _run(tmp_path, _render(_doc(rates1=rates), spelling="30.0"))

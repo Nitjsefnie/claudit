@@ -19,10 +19,6 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "src" / "app.jsx"
 HELPER = ROOT / "src" / "timeline-selection.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _run_helper(script: str) -> dict:
     proc = subprocess.run(
@@ -36,6 +32,7 @@ def _run_helper(script: str) -> dict:
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_selection_recovers_when_a_search_shrinks_the_timeline():
     """The #364 sequence: row 3 of four selected, then a search leaves two
     rows. The active option, the selected row and the detail row derive
