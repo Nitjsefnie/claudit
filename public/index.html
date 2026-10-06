@@ -19,19 +19,6 @@
 <link rel="preload" href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2" as="font" type="font/woff2" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=block" rel="stylesheet">
-<script>
-// Eager font-face load (#643): faces register when the css2 stylesheet
-// lands (~1s) but load LAZILY — the first text that needs them paints at
-// React mount, seconds later, and the metrics landing mid-layout reflowed
-// the page (measured 0.07-0.12 CLS at phone widths). load() at parse time
-// runs against an empty document: the faces complete before anything is
-// laid out, so text paints once, already in its final metrics.
-if (document.fonts && document.fonts.load) {
-  ['400 16px Inter', '500 16px Inter', '600 16px Inter', '700 16px Inter',
-   '400 12px "JetBrains Mono"', '500 12px "JetBrains Mono"']
-    .forEach(f => document.fonts.load(f, 'ABCXYZabcxyz0123456789'));
-}
-</script>
 <!-- display=block (#643): a swap landing after first paint reflows every
      text block as the webfont takes over. block holds text invisible for
      up to 3s while the webfont loads, so the fallback never paints a frame

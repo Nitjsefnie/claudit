@@ -42,6 +42,23 @@
   let buffer = [];
   let timer = null;
 
+  // Eager font-face load (issue #643): the css2 stylesheet registers the
+  // faces early, but a face only LOADS when the first text that uses it
+  // paints — at React mount, seconds in — and metrics landing mid-layout
+  // reflow the page (measured 0.07-0.12 CLS at phone widths). load() this
+  // early runs against a document with nothing laid out, so the faces
+  // complete before the first paint and text renders once, already in its
+  // final metrics. The suite's fake document has no `fonts`, so the guard
+  // keeps this inert there.
+  if (typeof document !== 'undefined' && document.fonts
+      && typeof document.fonts.load === 'function') {
+    ['400 16px Inter', '500 16px Inter', '600 16px Inter', '700 16px Inter',
+      '400 12px "JetBrains Mono"', '500 12px "JetBrains Mono"']
+      .forEach(function (spec) {
+        document.fonts.load(spec, 'ABCXYZabcxyz0123456789');
+      });
+  }
+
   // Epoch ms, so a journey can be measured across the sign-in redirect:
   // two documents, two time origins, one clock. Durations are differences,
   // so the origin itself never leaks into a reported value.
