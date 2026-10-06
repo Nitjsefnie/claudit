@@ -34,6 +34,10 @@ os.environ.setdefault("R2_BUCKET", "claude")
 os.environ.setdefault("R2_ACCOUNT_ID", "")
 os.environ.setdefault("R2_ACCESS_KEY_ID", "")
 os.environ.setdefault("R2_SECRET_ACCESS_KEY", "")
+# The blob cache's off default must not rest on the host env happening
+# to leave it unset (issue #684): a developer's exported cache
+# directory would otherwise answer every fetch's consult.
+os.environ.pop("R2_BLOB_CACHE", None)
 os.environ.setdefault("ADMIN_TOKEN", "test-admin")
 # Keep settings captured during app imports deterministic in the test suite.
 # Exported values still win because these are set with setdefault.

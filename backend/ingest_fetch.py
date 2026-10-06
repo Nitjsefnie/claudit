@@ -283,7 +283,7 @@ def parse_wire(item: tuple, parse_call: Callable,
         return parse_call(obj.key, obj.sidecar_key, obj.etag, obj.size)
     _STAGES.stages = {}
     try:
-        parsed = parse_call(obj.key, obj.sidecar_key)
+        parsed = parse_call(obj.key, obj.sidecar_key, obj.etag, obj.size)
         return parsed, _STAGES.stages
     finally:
         _STAGES.stages = None
