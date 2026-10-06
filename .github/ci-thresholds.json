@@ -33,48 +33,6 @@
     "backend/ingest_fetch.py": 5,
     "backend/ingest_reprice.py": 1
   },
-  "reparse": {
-    "parse_body": {
-      "bytecodes": {
-        "floor": 27.7,
-        "measured": 26.2
-      },
-      "share": {
-        "floor": 84.8,
-        "measured": 83.3
-      }
-    },
-    "residual": {
-      "bytecodes": {
-        "floor": 2.9,
-        "measured": 1.4
-      },
-      "share": {
-        "floor": 6.8,
-        "measured": 5.3
-      }
-    },
-    "sidecar": {
-      "bytecodes": {
-        "floor": 1.5,
-        "measured": 0.0
-      },
-      "share": {
-        "floor": 1.5,
-        "measured": 0.0
-      }
-    },
-    "sniff": {
-      "bytecodes": {
-        "floor": 3.4,
-        "measured": 1.9
-      },
-      "share": {
-        "floor": 12.2,
-        "measured": 10.7
-      }
-    }
-  },
   "schema_version": 1,
   "suite_cost": {
     "collection": {
