@@ -73,7 +73,7 @@ function inputPreview(name, input) {
       return input.url || input.query || '';
     case 'Agent':
     case 'Task':
-      return `${input.subagent_type || input.name || '?'}: ${input.description || ''}`;
+      return `${(window.canonicalAgentType || (n => n))(input.subagent_type || input.name || '?')}: ${input.description || ''}`;
     default:
       try { return JSON.stringify(input).slice(0, 200); } catch { return ''; }
   }
