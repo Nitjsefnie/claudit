@@ -662,7 +662,8 @@ async function main() {
             + 'effect never ran inside the probe window');
         } else if (probe.overflow) {
           record('tooltip-overflow', '(long-key probe)',
-            `long-key row: ${probe.overflow}`, width);
+            `long-key row: ${probe.overflow} (key ${probe.keyWidth}px)`,
+            width);
         }
       }
       await ctx.close();

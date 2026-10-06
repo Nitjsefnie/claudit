@@ -451,8 +451,12 @@ def test_both_primitives_render_identical_row_spans():
     the SHARED .chart-tooltip-key / .chart-tooltip-val rules in
     public/app.css, and carry no inline sizing styles — that per-
     primitive divergence was the defect. The spans must stay
-    byte-identical across the two modules; the guard's rendered long-key
-    probe proves the CSS contract live on every run."""
+    byte-identical across the two modules. The rendered long-key probe
+    pins the BEHAVIOR the contract names — a key longer than the box
+    wraps inside it because the row may shrink — and any shrink-lock,
+    inline or CSS-side, turns it red. It cannot pin WHICH rule supplies
+    the wrap: the box's own overflow-wrap inherits into the row, so a
+    delete of the key rule's copy alone renders green by equivalence."""
     tags = {}
     for fname in ("dashboard-charts.jsx", "dashboard-charts-extra.jsx"):
         src = (ROOT / "src" / fname).read_text(encoding="utf-8")
@@ -476,12 +480,17 @@ def test_the_guard_probes_a_rendered_long_key_row():
     longer than the box — is the ONE fixture case that renders a long
     key at every run. Drop it and #701's row contract loses its
     rendered witness; the byte-identical pin above still holds the
-    source half."""
+    source half. The oracle strings are asserted inside the LONGKEY
+    body's own slice: the sweep's READ carries byte-identical copies,
+    and a whole-source assert would be satisfied by that sibling while
+    the probe's own copy drifted."""
     src = MODULE.read_text(encoding="utf-8")
-    assert "window.DashTooltip" in src, (
+    probe = src[src.index("const LONGKEY"):src.index("async function main")]
+    assert "window.DashTooltip" in probe, (
         "the guard no longer mounts the real DashTooltip primitive for "
         "the long-key probe — #701's rendered row witness is gone")
-    assert "(long-key probe)" in src, (
-        "the long-key probe finding lost its ledger name")
-    assert "tip.scrollWidth > tip.clientWidth + 1" in src
-    assert "r.right > vw + 0.5" in src
+    assert "tip.scrollWidth > tip.clientWidth + 1" in probe
+    assert "r.right > vw + 0.5" in probe
+    assert src.count("(long-key probe)") == 1, (
+        "the long-key probe finding lost its ledger name, or a second "
+        "site now answers for it")
