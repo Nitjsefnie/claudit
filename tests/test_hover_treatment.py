@@ -16,7 +16,12 @@ The crosshair guards pin WHERE the dashed vertical is drawn: at the x of
 the datum the tooltip describes -- the bucket/bar centre on a bucketed
 panel, the interpolated point on a line panel -- never at the raw
 cursor. Cursor-following is the TOOLTIP's job; a crosshair at tip.x
-describes nothing (issue #697).
+describes nothing (issue #697). The sweep behind the enumeration is
+complete over src/ as of this fix: the eight hover crosshairs in served
+sources are the six below plus ToolErrorRatePanel and the context-growth
+ComparisonRow, all eight guarded here. A NINTH crosshair arriving in a
+new file is not covered -- the guards are per-file lists, not a tree
+scan -- so a new panel with a dashed vertical extends these lists.
 """
 from __future__ import annotations
 
@@ -27,6 +32,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
+TOOLERR = ROOT / "src" / "tool-error-panel.jsx"
+COMPARISON = ROOT / "src" / "context-growth-comparison.jsx"
 
 # The treatment's two levels, as the reference spells them.
 FIELD = "fillOpacity={isHover ? 0.85 : 0.3}"
@@ -96,10 +103,11 @@ def test_every_bar_panel_carries_the_one_field_treatment():
     assert FIELD in tsp, "TimeSeriesPanel is the reference treatment; reread it"
     assert FIELD in hbar, "HBar bars must rest at 0.3 and lift to 0.85 on hover"
     assert FIELD in vbar, "VBar bars must rest at 0.3 and lift to 0.85 on hover"
-    # TTL: same levels, with the peak bin resting pre-lifted.
-    assert ttl.count("fillOpacity={isHover || isPeak ? 0.85 : 0.3}") == 2, (
-        "both stacked TTL segments must carry the field treatment "
-        "(the peak bin rests at 0.85)")
+    # TTL: same levels on both stacked segments. (The peak bin once rested
+    # pre-lifted at 0.85, which made its own hover a no-op -- the rendered
+    # interaction gate fails that -- so the annotation folded away.)
+    assert ttl.count(FIELD) == 2, (
+        "both stacked TTL segments must carry the field treatment")
     # Cost by Context spells the levels through its module constants;
     # their values are pinned by test_panel_wiring.py.
     assert "BAR_OPACITY_HOVER : BAR_OPACITY" in cbc
@@ -157,3 +165,17 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
                 assert snap in src, (
                     f"{name}: no snap computation for {snap!r} -- the tip must "
                     f"carry the datum's x the crosshair draws at")
+
+    # The two sites the first sweep missed (found by review): the Tool
+    # Error Rate panel snaps its hover to the nearest bucket centre
+    # (xs(ts + bucketMs / 2) is where its own lines plot) and the
+    # context-growth ComparisonRow to the hovered turn. Both single-
+    # branch handlers.
+    terr = _strip_line_comments(TOOLERR.read_text(encoding="utf-8"))
+    cmp_ = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
+    assert _crosshair_x1(terr, "ToolErrorRatePanel") == "tip.cx"
+    assert "cx: xs(ts + bucketMs / 2)," in terr, (
+        "ToolErrorRatePanel: the tip must carry the snapped bucket centre")
+    assert _crosshair_x1(cmp_, "ComparisonRow") == "tip.cx"
+    assert "cx: xScale(turn)," in cmp_, (
+        "ComparisonRow: the tip must carry the hovered turn's plotted x")
