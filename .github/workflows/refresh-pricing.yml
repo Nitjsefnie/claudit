@@ -1,8 +1,10 @@
 name: refresh-pricing
 
-# The automated half of SV-RATE-REFRESH: re-fetch OpenRouter's per-provider
-# prices for every model src/pricing.json tracks, and when a price moved or a
-# host appeared, commit the appended entries straight to master.
+# The automated half of SV-RATE-REFRESH and SV-VENDOR-RATES: re-fetch
+# OpenRouter's per-provider prices for every model src/pricing.json tracks
+# and the four first-party vendors' models-table list prices (the vendor
+# pass inside refresh_provider_rates.py), and when a price moved or a host
+# appeared, commit the appended entries straight to master.
 #
 # LOG-BACKED HOSTS use OpenRouter's endpoint change times, so moves between
 # hourly runs are retained at their own times. A host without an unambiguous
