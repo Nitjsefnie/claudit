@@ -83,8 +83,5 @@
     return fitCount(room0, widths, gap, core + jumpW);
   }
 
-  const api = { fitCount, computeFit };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  /* eslint-disable-next-line no-param-reassign */
-  global.pickerFit = api;
+  global.pickerFit = { fitCount, computeFit };
 })(typeof window !== 'undefined' ? window : globalThis);
