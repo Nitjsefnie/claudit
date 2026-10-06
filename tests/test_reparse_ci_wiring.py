@@ -157,6 +157,46 @@ def test_the_action_measures_once_and_gates_that_same_file():
         "shared variable")
 
 
+def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
+    """That the steps share the NAME is pinned above; what it is BOUND to
+    is not (issue #712): a step can keep reading `"$MEASUREMENT"` while an
+    edit points the variable at a file the measuring step never wrote --
+    the gate then passes on whatever is at the second path, which on a
+    fresh runner is nothing at all.
+    """
+    misbound = [
+        step.get("name", "<unnamed>")
+        for step in _action_steps()
+        if "run" in step
+        and step.get("env", {}).get("MEASUREMENT") != "${{ inputs.measurement }}"
+    ]
+    assert not misbound, (
+        "these run steps bind MEASUREMENT to anything other than the "
+        f"action's measurement input: {misbound}")
+
+
+def test_the_measurement_default_is_the_file_the_ratchet_reads(workflow):
+    """The caller passes no `measurement` input, so the action input's
+    default is the operative path -- and tests.yml's ratchet step reads
+    the measurement back through a plain literal (`--measured-file`,
+    issue #712). Two independently editable literals: when they stop
+    agreeing, the ratchet tightens on a file the bench never wrote.
+    """
+    gate = _step(workflow, GATE_STEP)
+    assert "measurement" not in (gate.get("with") or {}), (
+        "the caller overrides the measurement input, so the default is no "
+        "longer the operative path this test pins")
+    default = yaml.safe_load(ACTION.read_text(encoding="utf-8"))[
+        "inputs"]["measurement"]["default"]
+    found = re.search(
+        r"reparse_ratchet\.py\s+--measured-file\s+(\S+)",
+        _step(workflow, RATCHET_STEP).get("run", ""))
+    assert found, "the ratchet step no longer names its measurement file"
+    assert default == found.group(1), (
+        f"the measurement input's default {default!r} is not the path the "
+        f"ratchet step reads back ({found.group(1)!r})")
+
+
 def test_the_action_uploads_the_measurement_as_an_artifact():
     """The reparse seed's runner-measurement source is this artifact
     (issue #710): without it, a seed can only be transcribed by hand or
