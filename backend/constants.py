@@ -120,7 +120,7 @@ PRICING_VERSION = "237"
 # 5 -- the replayed-model adoption pass (issue #713): a losing replayed
 #     copy takes its uuid's original's model. Rewrites stored records, so
 #     one complete derived rebuild, no reparse.
-DERIVED_STATE_VERSION = "5"
+DERIVED_STATE_VERSION = "6"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from

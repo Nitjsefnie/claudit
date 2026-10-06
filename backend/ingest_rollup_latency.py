@@ -138,7 +138,7 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                                * {bucket_width} + {bucket_width} / 2
                              ) AS bucket,
                              {project_expr} AS project_id,
-                             COALESCE(NULLIF(r.model, ''), 'unknown') AS model,
+                             r.model AS model,
                              r.ts, r.file_key, r.line_num,
                              r.reply_latency_s AS latency_s
                         FROM records r
