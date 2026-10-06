@@ -264,10 +264,11 @@ def test_codex_spawn_agent_calls_record_what_they_asked_for():
 
 
 def test_kimi_code_first_profile_name_is_the_agent_type():
-    """kimi's default subagent profile folds to the default bucket
-    (issue #650); a named profile folds to its canonical name."""
+    """The in-band profile names the role: kimi's `coder` profile is the
+    implementer role (issue #749); a named profile folds to its
+    canonical name."""
     assert _lane("kimi_code_agent_dispatch.jsonl")[
-        "agent_type"] == constants.DEFAULT_AGENT_TYPE
+        "agent_type"] == "implementer"
 
 
 def _kc_profile(profile: str) -> bytes:
@@ -318,7 +319,7 @@ def test_kimi_code_message_tool_call_agent_carries_a_model():
             b'"time":1782740973431}\n')
     tu = parse.parse_file("sessions/p/s/wire.jsonl", blob)["tool_uses"][0]
     assert _dispatch_cols(tu) == (
-        constants.DEFAULT_AGENT_TYPE, "k3", 5, False)
+        "implementer", "k3", 5, False)
 
 
 def test_legacy_has_no_role_and_its_agent_call_is_shaped():
