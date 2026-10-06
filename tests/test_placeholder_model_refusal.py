@@ -26,10 +26,8 @@ FIX_CODEX = ROOT / "fixtures" / "codex"
 PARSER_JS = ROOT / "src" / "parser.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
+# The node skip rides only the one test that runs node (#743): the
+# backend pins below must hold wherever pytest runs, node or not.
 PLACEHOLDERS = ("unknown", "(unknown)")
 
 
@@ -51,6 +49,8 @@ def test_no_parser_fixture_carries_a_placeholder_model():
                     f"{sub.name}/{path.name} line {r.get('line_num')}: {m!r}")
 
 
+@pytest.mark.skipif(shutil.which("node") is None,
+                    reason="node not available")
 def test_a_browser_claude_parse_keeps_a_modelless_record_null():
     """The browser mirror (issue #688): a model-less assistant usage line
     parses to a null model — never the `(unknown)` placeholder, which
