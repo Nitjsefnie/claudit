@@ -171,3 +171,48 @@ def test_a_stored_dotted_id_matches_its_dashed_membership_key(monkeypatch):
     assert pricing.is_long_context_model("gpt-5.6-sol")
     assert pricing.is_long_context_model("gpt-6.1-sol")
     assert not pricing.is_long_context_model("gpt-6-1-ghost")
+
+
+def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
+    """gpt-5.5 has a models row (issue #723): the dotted wire id resolves
+    EXACT through the parser path, never the catch-all default. The
+    expected cost is derived from the same loaded tables at the record's
+    own ts, so the pin is twofold: the row's existence (kind exact) and
+    the parser's agreement with it."""
+    ts = _to_dt("2026-08-24T12:00:00.000Z")
+    blob = _codex_usage_lines(model="gpt-5.5", snapshots=[
+        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
+    ])
+    out = parse.parse_file("codex/gpt55_flat.jsonl", blob)
+
+    rec = out["records"][0]
+    resolved = pricing.resolve("gpt-5.5", ts, None)  # sv-test-data: allow (derived: the pinned claim is that the dotted id resolves exact, not the default — the value the row itself carries)
+    assert resolved.kind == "exact"
+    metered = pricing.compute_cost(
+        "gpt-5.5", fresh=100_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
+        eph5=0, eph1h=0, unsplit_create=0, read=0, ts=ts,
+    )
+    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
+
+
+def test_a_gpt_5_5_codex_record_bills_the_long_context_meter():
+    """OpenAI bills gpt-5.5 above 272k input at the meter's own shape (2x
+    the input side, 1.5x output), so the dashed key joins
+    long_context_models: membership decides at reprice (the flag is
+    recomputed from stored tokens), while a fresh parse bills the meter on
+    the threshold alone. Both are pinned."""
+    ts = _to_dt("2026-08-24T12:00:00.000Z")
+    assert pricing.is_long_context_model("gpt-5.5")
+    blob = _codex_usage_lines(model="gpt-5.5", snapshots=[
+        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
+    ])
+    out = parse.parse_file("codex/gpt55_long.jsonl", blob)
+
+    rec = out["records"][0]
+    assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
+    assert rec["long_context"] is True
+    metered = pricing.compute_cost(
+        "gpt-5.5", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables, meter on)
+        eph5=0, eph1h=0, unsplit_create=0, read=0, long_context=True, ts=ts,
+    )
+    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)

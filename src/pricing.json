@@ -1,5 +1,6 @@
 {
   "long_context_models": [
+    "gpt-5-5",
     "gpt-5-6-luna",
     "gpt-5-6-sol",
     "gpt-5-6-terra",
@@ -271,6 +272,17 @@
         "note": "List. Cache writes are free and reads are 0.2x input, so the Anthropic 1.25x/2x/0.1x relations do not hold.",
         "output": 0.5,
         "read": 0.03
+      }
+    ],
+    "gpt-5-5": [
+      {
+        "create_1h": 6.25,
+        "create_5m": 6.25,
+        "fresh": 5.0,
+        "from": null,
+        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+        "output": 30.0,
+        "read": 0.5
       }
     ],
     "gpt-5-6-luna": [
