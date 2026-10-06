@@ -121,6 +121,21 @@ def test_fixed_and_foreign_names_are_never_run_databases(name):
     assert not scratch_db.is_run_database(name)
 
 
+def test_the_scratch_schema_lists_every_schema_files_path():
+    """tests.scratch_db.SCHEMA and backend.schema_files.SCHEMA_PATHS agree,
+    as paths, in order.
+
+    A split file added to SCHEMA_PATHS but missing from SCHEMA leaves
+    scratch databases without its tables; tests that persist rows directly
+    then fail with UndefinedColumn while every ingest-driven test passes
+    (issue #692). Pinned by equality so the drift fails at the committing
+    change's own CI run, not 226 failures later.
+    """
+    from backend import schema_files  # pylint: disable=import-outside-toplevel
+
+    assert scratch_db.SCHEMA == tuple(schema_files.SCHEMA_PATHS)
+
+
 # ---- create / drop ----------------------------------------------------
 
 @pytest.mark.db
