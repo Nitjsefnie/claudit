@@ -7,6 +7,7 @@ from its row.
 from __future__ import annotations
 
 from backend import constants, db
+from backend.ingest_persist import _strip_nul
 
 
 def stored_markers() -> dict[str, tuple[str, str, str | None]]:
@@ -43,7 +44,9 @@ def save_markers(read: dict[str, tuple[str, str | None]],
                  listed: set[str]) -> None:
     """Store the markers this run read, under the current reader version,
     and drop the rows of keys the listing no longer shows. `read` maps
-    key -> (etag, path) and holds only markers whose GET succeeded."""
+    key -> (etag, path) and holds only markers whose GET succeeded.
+    The path is marker content, so it takes the same NUL strip every
+    other marker-derived text takes before a text column (issue #673)."""
     version = constants.MARKER_READER_VERSION
     with db.viz_conn() as c, c.cursor() as cur:
         cur.executemany(
@@ -52,7 +55,7 @@ def save_markers(read: dict[str, tuple[str, str | None]],
             "VALUES (%s, %s, %s, %s) ON CONFLICT (marker_key) DO UPDATE SET "
             "r2_etag = EXCLUDED.r2_etag, "
             "reader_version = EXCLUDED.reader_version, path = EXCLUDED.path",
-            [(key, etag, version, path)
+            [(key, etag, version, _strip_nul(path))
              for key, (etag, path) in read.items()],
         )
         cur.execute(
