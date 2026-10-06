@@ -19,7 +19,9 @@
 //                   from its resting style, so the response is visible
 //                   on the element itself, panel to panel alike (#646);
 //   tooltip-overflow a visible tooltip must stay inside the viewport
-//                   and must not scroll its own content (#642);
+//                   and must not scroll its own content (#642), and a
+//                   rendered long-KEY row must wrap inside the box — the
+//                   probe mounts the real primitive with one (#701);
 //   other-region    every sweep-time layout shift must resolve to a
 //                   named region or panel through src/perf.js (#647
 //                   item 5) — `other` means 'outside the panel grid',
@@ -353,6 +355,63 @@ const SHIFTS = sweepStart => {
   return { sweep, coldSum };
 };
 
+// The #701 long-key probe: mounts the REAL DashTooltip primitive with a
+// row whose key is longer than the 280px tooltip box, inside a panel's
+// own positioned wrapper — the rendered case the sweep cannot reach,
+// because every key the live panels draw is a short fixed label. The
+// containment comparison restates READ's overflow oracle on purpose
+// (in-page functions are serialized without their closure).
+const LONGKEY = () => {
+  const svg = document.querySelector('[data-panel]');
+  const host = svg && svg.parentElement;
+  if (!host) return { mounted: false };
+  svg.scrollIntoView({ block: 'center' });
+  const mount = document.createElement('div');
+  mount.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+  host.appendChild(mount);
+  const KEY = 'a-very-long-tooltip-row-key-that-no-row-may-render-unwrapped-0123456789';
+  const root = ReactDOM.createRoot(mount);
+  let lastFacts = null;
+  const read = () => {
+    const tip = mount.querySelector('.chart-tooltip');
+    if (!tip) return null;
+    const r = tip.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let overflow = null;
+    if (r.left < -0.5 || r.top < -0.5
+        || r.right > vw + 0.5 || r.bottom > vh + 0.5) overflow = 'viewport';
+    if (tip.scrollWidth > tip.clientWidth + 1) {
+      overflow = overflow ? `${overflow}+width` : 'width';
+    }
+    if (tip.scrollHeight > tip.clientHeight + 1) {
+      overflow = overflow ? `${overflow}+height` : 'height';
+    }
+    return { visible: tip.style.visibility === 'visible', overflow,
+      keyWidth: Math.round(tip.querySelector('.chart-tooltip-key')
+        .getBoundingClientRect().width) };
+  };
+  return (async () => {
+    try {
+      root.render(React.createElement(window.DashTooltip, {
+        tip: {
+          x: 12, y: 12, title: KEY,
+          lines: [[KEY, '999,999,999,999,999'], ['short', '1']],
+        },
+      }));
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => requestAnimationFrame(r));
+        const facts = read();
+        if (facts && facts.visible) return { mounted: true, ...facts };
+        if (facts) lastFacts = facts;
+      }
+      return { mounted: true, ...(lastFacts || { visible: false, overflow: null, keyWidth: 0 }) };
+    } finally {
+      root.unmount();
+      mount.remove();
+    }
+  })();
+};
+
 async function main() {
   const { chromium } = await import('playwright');
   const base = {};
@@ -580,6 +639,30 @@ async function main() {
             `${others.length} of ${sweep.length} shifts resolve to `
             + `${others[0].region ?? 'no-source'} (${att} source(s) `
             + 'still attached)', width);
+        }
+      }
+
+      // The rendered long-key case (#701): the sweep's real tooltips all
+      // draw short fixed keys, so the probe mounts the real primitive
+      // with a key longer than the box — the row must wrap inside it
+      // under the same containment oracle the sweep reads. Run after the
+      // shifts are read, so the probe's own mount and unmount can add
+      // nothing to the sweep's ledger.
+      if (panels.length) {
+        const probe = await page.evaluate(LONGKEY);
+        if (!probe.mounted) {
+          failures += 1;
+          console.log(`PROBE GONE  ${width}px  the long-key probe could `
+            + 'not mount window.DashTooltip — the page renders no '
+            + 'positioned panel wrapper to host it');
+        } else if (!probe.visible) {
+          failures += 1;
+          console.log(`PROBE HIDDEN  ${width}px  the long-key probe's `
+            + 'tooltip never became visible — DashTooltip\'s ready '
+            + 'effect never ran inside the probe window');
+        } else if (probe.overflow) {
+          record('tooltip-overflow', '(long-key probe)',
+            `long-key row: ${probe.overflow}`, width);
         }
       }
       await ctx.close();
