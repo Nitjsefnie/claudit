@@ -116,37 +116,78 @@ def test_the_ratchet_actually_runs_the_reparse_ratchet(workflow):
         "nothing to read and cannot tighten anything")
 
 
+def _action_steps() -> list[dict]:
+    return yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
+
+
 def test_the_action_measures_once_and_gates_that_same_file():
     """Measure and gate must name ONE file.
 
     Two names is the skew the corpus records: a measurement written to one
     path and checked against another gates whatever happened to be at the
     second path, which on a fresh runner is nothing at all.
+
+    The shape is measure -> upload -> gate: two run steps invoking the
+    bench exactly twice, with the upload between them (issue #710).
     """
-    steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
-    assert len(steps) == 1, "the action grew a second step; re-check the shape"
-    body = steps[0]["run"]
-    assert body.count("scripts/ci/reparse_bench.py") == 2, (
+    runs = [step for step in _action_steps() if "run" in step]
+    assert len(runs) == 2, (
+        "the action is two run steps, measure and gate; re-check the shape")
+    measure, gate = runs
+    for body in (measure["run"], gate["run"]):
+        assert "set -euo pipefail" in body, (
+            "a step's shell does not stop on the first failure, so a failed "
+            "measure can be followed by a gate that passes on a stale file")
+    assert measure["run"].count("scripts/ci/reparse_bench.py") == 1
+    assert gate["run"].count("scripts/ci/reparse_bench.py") == 1, (
         "the action must invoke the bench exactly twice: once to measure and "
         "write, once to gate what it wrote")
-    assert "--write" in body and "--check" in body, (
-        "the action no longer both writes and checks a measurement")
-    # Both invocations must read the same path, taken from the input rather
-    # than written out twice.
-    # Three: `--write` and `--report` on the measuring invocation, `--check`
-    # on the gating one. All three must read the SAME variable, so a
-    # hard-coded path in any of them is the skew this test exists to catch.
-    assert body.count('"$MEASUREMENT"') == 3, (
-        "the invocations do not all name the measurement path they share")
-    assert "set -euo pipefail" in body, (
-        "the action's shell does not stop on the first failure, so a failed "
-        "measure can be followed by a gate that passes on a stale file")
+    assert "--write" in measure["run"] and "--report" in measure["run"], (
+        "the measuring invocation no longer both writes and reports the "
+        "measurement")
+    assert "--check" in gate["run"], (
+        "the gating invocation no longer checks the measurement")
+    # All three references must read the SAME variable, so a hard-coded
+    # path in any of them is the skew this test exists to catch.
+    assert measure["run"].count('"$MEASUREMENT"') == 2, (
+        "the measuring invocation does not name the measurement path twice, "
+        "via the shared variable")
+    assert gate["run"].count('"$MEASUREMENT"') == 1, (
+        "the gating invocation does not name the measurement path via the "
+        "shared variable")
+
+
+def test_the_action_uploads_the_measurement_as_an_artifact():
+    """The reparse seed's runner-measurement source is this artifact
+    (issue #710): without it, a seed can only be transcribed by hand or
+    measured off-runner, both forbidden by the re-seed rules.
+
+    The whole shape is pinned by position, so removing the upload, moving
+    it after the gate, or slipping in a step fails here.
+    """
+    steps = _action_steps()
+    assert [step.get("uses", "") for step in steps] == [
+        "",
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "",
+    ], ("the action's shape is measure -> upload -> gate; the upload step "
+        "with the repo's hash-pinned action is missing or displaced")
+    upload = steps[1]
+    assert upload["if"] == "${{ !cancelled() }}", (
+        "the upload is not always-on: a breached gate is exactly when the "
+        "runner number is needed")
+    with_ = upload["with"]
+    assert with_["name"] == "reparse-measurement"
+    assert with_["path"] == "${{ inputs.measurement }}"
+    assert with_["if-no-files-found"] == "error"
+    assert with_["retention-days"] == 1, (
+        "short retention, matching the suite-measurement artifact")
 
 
 def test_the_action_fails_the_job_when_a_phase_is_over_budget():
     """The gate's whole job is a nonzero exit, so nothing may absorb it."""
-    steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
-    body = steps[0]["run"]
+    gate = [step for step in _action_steps() if "run" in step][-1]
+    body = gate["run"]
     check = body[body.index("--check"):]
     assert "||" not in check and "|| true" not in check, (
         "the gating invocation absorbs its own failure")

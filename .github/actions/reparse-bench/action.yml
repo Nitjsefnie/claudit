@@ -12,6 +12,10 @@ description: >-
 #   measure ONCE, into a file the caller's ratchet step can read
 #     -> print the human report into the step summary (per-phase shares
 #        ride along as TELEMETRY; only the counts gate, issue #513)
+#     -> upload the measurement as the reparse-measurement artifact
+#        (issue #710), the reparse seed's runner-measurement source; it
+#        sits BEFORE the gate so a breach still lands, and runs whenever
+#        the action runs
 #     -> gate every phase against the committed count ceilings (nonzero
 #        on a phase over its count, or on a count that was never taken,
 #        which fails the caller's job)
@@ -28,7 +32,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Measure and gate the reparse hot path
+    - name: Measure and report the reparse pass
       shell: bash
       env:
         MEASUREMENT: ${{ inputs.measurement }}
@@ -40,4 +44,23 @@ runs:
           python3 scripts/ci/reparse_bench.py \
             --write "$MEASUREMENT" --report "$MEASUREMENT"
         } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the reparse measurement
+      # A breach is exactly when the number is needed, so this runs
+      # whenever the action runs: before the gate, never conditioned on
+      # its outcome.
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: reparse-measurement
+        path: ${{ inputs.measurement }}
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: Gate the reparse hot path
+      shell: bash
+      env:
+        MEASUREMENT: ${{ inputs.measurement }}
+      run: |
+        set -euo pipefail
         python3 scripts/ci/reparse_bench.py --check "$MEASUREMENT"
