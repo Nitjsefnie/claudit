@@ -98,8 +98,11 @@ def test_the_ttl_hover_hit_tests_in_the_svg_frame():
     assert m, "could not locate the panel's hover handler"
     body = m.group(1)
     assert ("svgRef.current.getBoundingClientRect()" in body
-            and "sy < padT || sy > shareBot" in body), (
-        "hover must hit-test and guard in the svg frame (#696)")
+            and "sx < padL || sx > w - padR || sy < padT || sy > shareBot" in body), (
+        "hover must hit-test and guard in the svg frame, every limb of "
+        "the guard (#696)")
+    assert "frac = (sx - padL) / plotW" in body, (
+        "bin selection must map from the svg-frame x (#696)")
     assert "ref.current.getBoundingClientRect()" in body, (
         "the tooltip must still position in container coordinates")
     assert "ref={svgRef}" in src, "the svg must carry the hit-test frame's ref"
