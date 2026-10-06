@@ -14,7 +14,7 @@ const fmtDate_X  = window.fmtDate;
 // ──────────────────────────────────────────────────────────────────────
 
 function CacheTTLPanel({ events, range, binMs }) {
-  const ref = React.useRef(null);
+  const ref = React.useRef(null), svgRef = React.useRef(null);
   const [size, setSize] = React.useState({ w: 1200, h: 320 });
   const [tip, setTip] = React.useState(null);
   const [yLabelPx, setYLabelPx] = React.useState(0);
@@ -187,14 +187,19 @@ function CacheTTLPanel({ events, range, binMs }) {
 
   function shareY(p) { return shareBot - (p / 100) * sharePctH; }
 
+  // Hit-test in the <svg>'s frame: padT/shareBot are svg coordinates and
+  // the container's rect carries the panel's 1px border, so comparing
+  // across the frames killed the share strip's bottom row and parked a
+  // live 1px band over the title area (#696). The tip still positions
+  // in container coordinates — its offsetParent.
   function onMove(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    if (mx < padL || mx > w - padR || my < padT || my > shareBot) {
+    const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const sx = e.clientX - srect.left, sy = e.clientY - srect.top;
+    if (sx < padL || sx > w - padR || sy < padT || sy > shareBot) {
       setTip(null); return;
     }
-    const frac = (mx - padL) / plotW;
+    const frac = (sx - padL) / plotW;
     const ts = useRange.start + frac * (useRange.end - useRange.start);
     let idx = Math.floor((ts - bins[0].start) / useBin);
     if (idx < 0) idx = 0;
@@ -238,7 +243,7 @@ function CacheTTLPanel({ events, range, binMs }) {
     }}
     onMouseMove={onMove}
     onMouseLeave={() => setTip(null)}>
-      <svg role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
+      <svg ref={svgRef} role="img" aria-label={a11y.label} aria-describedby={a11y.descId}
         data-panel="Prompt-Cache TTL Split" width={w} height={h} style={{ display: 'block' }}>
         {/* Title */}
         <text data-role="title" x={w/2} y={20} fontSize="14" fontWeight="bold" fill={TH_X.text}

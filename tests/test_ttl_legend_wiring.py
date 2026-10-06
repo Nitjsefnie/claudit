@@ -83,3 +83,24 @@ def test_the_ttl_legend_band_is_sized_from_its_row_count():
     assert "legRows.push([])" in src, (
         "the legend never wraps, so the row-count-sized band is dead "
         "arithmetic and a narrow viewport overflows instead")
+
+
+def test_the_ttl_hover_hit_tests_in_the_svg_frame():
+    """The panel's hit test reads the cursor in the frame its bounds are
+    expressed in (#696): padT/shareBot are svg coordinates and the
+    container's rect carries the panel's 1px border, so comparing across
+    the frames left the share strip's bottom row dead and parked a live
+    1px band over the title area. The tip still positions in container
+    coordinates (its offsetParent) -- the svg-frame shape the family's
+    other panels took in #645."""
+    src = _strip_line_comments(_ttl_module().read_text(encoding="utf-8"))
+    m = re.search(r"function onMove\(e\) \{(.*?)\n  \}", src, re.S)
+    assert m, "could not locate the panel's hover handler"
+    body = m.group(1)
+    assert ("svgRef.current.getBoundingClientRect()" in body
+            and "sy < padT || sy > shareBot" in body), (
+        "hover must hit-test and guard in the svg frame (#696)")
+    assert "ref.current.getBoundingClientRect()" in body, (
+        "the tooltip must still position in container coordinates")
+    assert "ref={svgRef}" in src, "the svg must carry the hit-test frame's ref"
+    assert "onMouseMove={onMove}" in src and "onMouseLeave" in src
