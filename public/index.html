@@ -27,7 +27,10 @@
      shows. optional was tried and rejected: it decides font-vs-fallback
      per document within 100ms, so a warm cache flips the decision between
      loads and a font-dependent height reads differently on each side of a
-     rendered comparison. -->
+     rendered comparison. The css2 link below is the fallback path: a
+     pinned woff2 that Google rotates away 404s and the face then loads
+     lazily through css2 — the status quo this page fixes — so rotation
+     degrades the fix, never the page. -->
 <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
