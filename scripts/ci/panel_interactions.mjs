@@ -102,7 +102,7 @@ export const KINDS = [
 ];
 
 // The matched LEDGER ENTRY (or null) — per entry, not per (issue, kind):
-// two entries may share both, as #645's two panel scopes do, and a
+// two entries may share both, as #651's two panels do, and a
 // liveness set keyed on the pair would call one twin's firing proof of
 // the other's. filedFor keeps the issue-only view for callers that do
 // not care which twin matched.
