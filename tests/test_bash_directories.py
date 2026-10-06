@@ -101,6 +101,22 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("e=y d=$(mktemp -d /tmp/p.XX) cmd", []),
     ("d=`mktemp -d /tmp/probe.XXXXXX`", []),
     ("d=$(mktemp -d \"$(dirname f)/p.XX\")", []),
+    # Issue #741: a literal paren inside the quoted template is quote
+    # provenance, not substitution nesting.
+    ("d=\"$(mktemp '/tmp/p(1).XXXXXX')\"", ["/tmp/p(1).XXXXXX"]),
+    ("d=\"$( (mktemp -d /tmp/probe.XXXXXX) )\"", ["/tmp/probe.XXXXXX"]),
+    ("d=\"$(mktemp -d x)y)\"", []),
+    ("d=\"$(mktemp -d `x`)\"", []),
+    ("d=\"$(mktemp -d \\\"/tmp/p.XX\\\")\"", []),
+    # Issue #747: a declaration builtin runs the same substitution and
+    # its assignment arguments carry into the capture's inner scan.
+    ("export d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("local d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("readonly d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("declare d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("typeset d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("export d=$(mktemp -d /tmp/p.XX) extra", []),
+    ("export T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
 ])
 def test_captured_substitution_templates_are_write_targets(command, expected):
     assert scan(command, "/work")[2] == expected

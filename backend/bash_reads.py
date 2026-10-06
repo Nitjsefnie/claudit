@@ -37,8 +37,12 @@ import re
 from typing import cast
 
 from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
+from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
+                                   MAX_NESTED_GROUP_DEPTH,
+                                   _capture_split, _matching_paren,
+                                   _segments)
 from backend.bash_literals import (ShellWord, destination_paths, literal_path,
-                                   perl_paths, sed_parts, shell_tokens)
+                                   perl_paths, sed_parts)
 from backend.bash_directories import directory_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
@@ -75,11 +79,11 @@ VALUE_FLAGS = frozenset({
 # `$NAME` / `${NAME}` — expanded when NAME is assigned in the same
 # command text, dropped otherwise.
 _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
-_ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
-# One command substitution with no nested parens: the double-quoted
-# capture form's whole value, `NAME="$( … )"`.
-_CAPTURE = re.compile(r"\$\(([^()]*)\)", re.S)
 
+# Bash's declaration builtins: `NAME=$( … )` behind one runs the same
+# substitution a bare capture does, so the capture scan looks past
+# them, and a value they assign carries into later segments exactly
+# like a bare assignment's.
 # Variable values can grow exponentially across chained assignments. Bound
 # each generated value and the sum generated while scanning one command.
 MAX_MATERIALIZED_EXPANSION_CHARS = MAX_COMMAND_CHARS
@@ -90,45 +94,8 @@ MAX_SCAN_MATERIALIZED_EXPANSION_CHARS = 4 * MAX_COMMAND_CHARS
 # "TODO", and a subcommand like `diff --git` is not a file.
 _PATH_RE = re.compile(r"\.[A-Za-z0-9_]{1,8}$")
 
-# Shell operators the tokenizer identifies, each of which ends a
-# command segment.
-_OPERATORS = frozenset({"|", "||", "&&", ";", "&", "|&"})
-
 # Tools whose operands are files they write, not read.
 _WRITE_CMDS = frozenset({"tee"})
-
-
-def _segments(tokens: list[ShellWord]) -> list[list[str]]:
-    """Split decoded shell words into command segments, honouring quotes.
-
-    Quote-preserving shell tokens are used instead of splitting on `|;&`: those
-    characters appear constantly INSIDE quoted arguments — a
-    `grep 'a\\|b' f.py` alternation is one token, not two segments, and
-    splitting it textually both loses the file and invents a segment.
-    Operators inside a `$( … )` capture or any other `(`-group do not
-    split: the group is one segment ending at its matching `)`, so
-    `d=$(cd /tmp && mktemp -d probe.XXXXXX)` reaches the capture scan
-    whole. A command the tokenizer cannot parse (an unbalanced quote, a
-    heredoc body spliced in) yields no segments rather than a partial misreading.
-    """
-    segments: list[list[str]] = []
-    current: list[str] = []
-    depth = 0
-    for tok in tokens:
-        if getattr(tok, "operator", False):
-            if tok == "(":
-                depth += 1
-            elif tok == ")" and depth > 0:
-                depth -= 1
-            if tok in _OPERATORS and depth == 0:
-                if current:
-                    segments.append(current)
-                current = []
-                continue
-        current.append(tok)
-    if current:
-        segments.append(current)
-    return segments
 
 
 def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool = True) -> bool:
@@ -154,6 +121,9 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
     idx = 0
     while idx < len(segment):
         tok = segment[idx]
+        if tok in _DECLARATION_BUILTINS and "=" not in tok:
+            idx += 1
+            continue
         if tok.startswith("-") or "=" not in tok.split("/")[0]:
             break
         m = _ASSIGN.match(tok)
@@ -165,50 +135,6 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
             env[m.group(1)] = _expand(value, env, state)
         idx += 1
     return segment[idx:]
-
-
-def _matching_paren(tokens: list[str], open_idx: int) -> int | None:
-    """The index of the `)` closing the `(` at open_idx, or None."""
-    depth = 0
-    for idx in range(open_idx, len(tokens)):
-        tok = tokens[idx]
-        if not getattr(tok, "operator", False):
-            continue
-        if tok == "(":
-            depth += 1
-        elif tok == ")":
-            depth -= 1
-            if depth == 0:
-                return idx
-    return None
-
-
-def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] | None:
-    """Split off a leading assignment's captured substitution: (prefix, inner).
-
-    Two spellings reach the capture: the unquoted `d=$( … )` splits at the
-    `(` the tokenizer keeps out of a word — a `NAME=$` word, then the `(`
-    operator — and the double-quoted `d="$( … )"` stays one word whose
-    value is the whole substitution. Leading `NAME=value` words may
-    precede either, and the closing `)` must end the segment: anything
-    after it (a value suffix, a following command) is not modelled, so a
-    backtick capture never matches.
-    """
-    for idx, tok in enumerate(raw_segment):
-        m = _ASSIGN.match(tok)
-        if m is None:
-            return None
-        value = getattr(tok, "expansion", tok)[m.start(2):]
-        nxt = raw_segment[idx + 1] if idx + 1 < len(raw_segment) else None
-        if (nxt is not None and getattr(nxt, "operator", False) and nxt == "("
-                and value.endswith("$")):
-            close = _matching_paren(raw_segment, idx + 1)
-            if close != len(raw_segment) - 1:
-                return None
-            return raw_segment[:idx], cast("list[ShellWord]", raw_segment[idx + 2:close])
-        if nxt is None and _CAPTURE.fullmatch(value):
-            return raw_segment[:idx], shell_tokens(value[2:-1])
-    return None
 
 
 def _expansion_size(token: str, env: dict[str, str | None],
@@ -351,8 +277,9 @@ class _Scan:
     """One command's running state: the cwd as `cd` moves it, the
     variables the command itself assigned, and the three answers."""
 
-    def __init__(self, cwd: str) -> None:
+    def __init__(self, cwd: str, depth: int = 0) -> None:
         self.base: str | None = cwd or ""
+        self.depth = depth
         self.env: dict[str, str | None] = {}
         self.expansion_chars = 0
         self.expansion_budget_exceeded = False
@@ -384,10 +311,24 @@ class _Scan:
             self.add(self.writes, path)
 
     def segment(self, raw_segment: list[str]) -> None:
-        if (capture := _capture_split(raw_segment)) is not None:
+        """One command segment: a capture, a group, or a plain command.
+
+        A segment whose first token is the `{` reserved word has that
+        word stripped before anything else — `{ cat f.py; }`'s commands
+        scan as plainly as unbraced ones. A segment whose first token is
+        the group's `(` is a subshell (`_subshell`); a capture never
+        starts with an operator, so the two do not collide.
+        """
+        body = raw_segment
+        if body and getattr(body[0], "operator", False) and body[0] == "{":
+            body = body[1:]
+        if body and getattr(body[0], "operator", False) and body[0] == "(":
+            self._subshell(body)
+            return
+        if (capture := _capture_split(body)) is not None:
             self._captured(*capture)
             return
-        segment = _strip_env_prefix(raw_segment, self.env, self)
+        segment = _strip_env_prefix(body, self.env, self)
         if not segment:
             return
         name = posixpath.basename(segment[0])
@@ -396,6 +337,62 @@ class _Scan:
         except ValueError:
             return
         self.command_effects(name, operands, redirected, inputs)
+
+    def _subshell(self, raw_segment: list[str]) -> None:
+        """Reads and writes of one `( … )` subshell group.
+
+        The commands inside run for real with this scan's cwd, so —
+        like a `{ …; }` group's, which reach the scanner as plain
+        segments — their reads, slice/whole kind and writes join this
+        call's. A `cd` (and every assignment) moves only a nested scan,
+        like a capture's, so none of it leaks past the closing paren.
+        The group's stdout is not captured, so unlike a capture its
+        intake books. A redirect on the closing paren books its target;
+        words after the close would not parse in bash at all, so they
+        refuse the whole group.
+        """
+        if self.depth >= MAX_NESTED_GROUP_DEPTH:
+            return
+        close = _matching_paren(raw_segment, 0)
+        if close is None:
+            return
+        try:
+            tail_operands, tail_writes, tail_inputs = _split_redirects(
+                raw_segment[close + 1:])
+        except ValueError:
+            return
+        if tail_operands:
+            return
+        nested = _Scan(self.base or "", self.depth + 1)
+        nested.env = dict(self.env)
+        for sub in _segments(cast("list[ShellWord]", raw_segment[1:close])):
+            nested.segment(sub)
+        for path in nested.reads:
+            if path not in self.reads:
+                self.reads.append(path)
+        if nested.reads:
+            self.kind = ("slice"
+                         if "slice" in (self.kind, nested.kind)
+                         else self.kind if self.kind is not None else nested.kind)
+        for path in nested.writes:
+            self.add(self.writes, path)
+        self._group_tail(tail_writes, tail_inputs, had_reads=bool(nested.reads))
+
+    def _group_tail(self, tail_writes: list[str], tail_inputs: list[str],
+                    had_reads: bool) -> None:
+        """Booking for what follows a group's closing paren.
+
+        A redirect books its target — a write always, an input as a
+        read when the group itself read content. Words after the close
+        would not parse in bash at all; their group refused earlier.
+        """
+        for path in tail_writes:
+            if literal_path(path) or _looks_like_path(path):
+                self.add(self.writes, path)
+        if had_reads:
+            for path in tail_inputs:
+                if _looks_like_path(path, windows_absolute(self.base)):
+                    self.add(self.reads, path)
 
     def _captured(self, prefix: list[str], inner: list[ShellWord]) -> None:
         """Writes of one `NAME=$( … )` capture's inner command.
@@ -408,7 +405,9 @@ class _Scan:
         cwd and assignments (a `cd` inside stays inside) and its writes
         join the parent's.
         """
-        nested = _Scan(self.base or "")
+        if self.depth >= MAX_NESTED_GROUP_DEPTH:
+            return
+        nested = _Scan(self.base or "", self.depth + 1)
         nested.env = dict(self.env)
         _strip_env_prefix(prefix, nested.env, nested)
         _strip_env_prefix(prefix, self.env, self)

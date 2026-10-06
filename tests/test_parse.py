@@ -488,6 +488,24 @@ def test_bash_captured_mktemp_template_is_a_write_target():
     assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
 
 
+def test_bash_quoted_capture_paren_template_is_a_write_target():
+    """#741: the double-quoted capture tokenizes its body with quote
+    provenance intact, so a literal paren in a quoted template books."""
+    out = parse.parse_file(
+        "k/sess-mktq/sess-mktq.jsonl", _read("bash_quoted_capture.jsonl"))
+    assert out["tool_uses"][0]["write_targets"] == ["/tmp/p(1).XXXXXX"]
+
+
+def test_bash_subshell_group_books_targets():
+    """#748: commands inside a `( … )` subshell book reads and writes,
+    and a redirect on the closing paren books its target."""
+    out = parse.parse_file(
+        "k/sess-ssg/sess-ssg.jsonl", _read("bash_subshell_group.jsonl"))
+    tool = out["tool_uses"][0]
+    assert tool["read_targets"] == ["/work/a.py"]
+    assert tool["write_targets"] == ["/work/b.txt", "/work/c.txt"]
+
+
 def test_agent_type_from_attribution_agent():
     """A dispatched agent's transcript carries attributionAgent."""
     out = parse.parse_file(
