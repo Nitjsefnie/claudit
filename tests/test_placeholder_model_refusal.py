@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 from backend import db, ingest, parse
+from backend.parse_lanes import refuse_unattributed
 from tests import scratch_db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,8 +132,6 @@ def test_the_refusal_names_both_placeholder_spellings():
     parenthesised sentinel each refuse — and a real model (plus the
     <synthetic> stub, which #563/#688 keep OUT of the refusal) passes
     through unchanged."""
-    from backend.parse_lanes import refuse_unattributed
-
     for fmt, row in (("claude", {"model": None}),
                      ("claude", {"model": ""}),
                      ("codex", {"model": "unknown"}),
