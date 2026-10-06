@@ -308,6 +308,7 @@ _OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
 
 
 class TestNodeDrivenBrowserMirror:
+    # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_parser_js_rate_table_matches_backend_pricing(self):
@@ -471,6 +472,7 @@ class TestNodeDrivenBrowserMirror:
 
 
 class TestNodeDrivenBrowserProviderParsing:
+    # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_parser_js_resolves_provider_rates_like_the_backend(self):

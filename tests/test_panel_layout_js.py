@@ -189,6 +189,7 @@ def _cap_readers(root: Path) -> list[str]:
 
 
 class TestNodeDrivenPanelAndCtxAxis:
+    # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_text_that_already_fits_is_returned_unchanged(self):
@@ -393,6 +394,7 @@ class TestNodeDrivenPanelAndCtxAxis:
 
 
 class TestNodeDrivenCtxAxis:
+    # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_ctx_peak_is_the_largest_turn_across_every_session(self):
