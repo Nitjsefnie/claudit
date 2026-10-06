@@ -89,6 +89,40 @@ def test_mktemp_template_is_a_write_target(command, expected):
     assert scan(command, "/work")[2] == expected
 
 
+@pytest.mark.parametrize("command,expected", [
+    ("d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ('d="$(mktemp -d /tmp/probe.XXXXXX)"', ["/tmp/probe.XXXXXX"]),
+    ("d=$(mkdir /tmp/rc)", ["/tmp/rc"]),
+    ("d=$(mkdir -p /tmp/a /tmp/b)", ["/tmp/a", "/tmp/b"]),
+    ("d=$(cd /tmp && mktemp -d probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
+    ("d=$(mktemp -d /tmp/p.XX", []),
+    ("d=$(mktemp -d /tmp/p.XX)/f", []),
+    ("e=y d=$(mktemp -d /tmp/p.XX) cmd", []),
+    ("d=`mktemp -d /tmp/probe.XXXXXX`", []),
+    ("d=$(mktemp -d \"$(dirname f)/p.XX\")", []),
+])
+def test_captured_substitution_templates_are_write_targets(command, expected):
+    assert scan(command, "/work")[2] == expected
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("d=$(head -50 f.py)", (None, [], [])),
+    ("d=$(head -50 f.py); cat g.py", ("whole", ["/work/g.py"], [])),
+    ("d=$(cd /tmp && mktemp -d probe.XXXXXX); cat out.py",
+     ("whole", ["/work/out.py"], ["/tmp/probe.XXXXXX"])),
+])
+def test_captured_substitution_books_no_intake(command, expected):
+    """A capture's stdout feeds a variable, not the transcript: its inner
+    reads and slice/whole kind stay unbooked, and a `cd` inside moves
+    only the nested scan."""
+    assert scan(command, "/work") == expected
+
+
+def test_stray_close_paren_keeps_operator_splitting():
+    assert scan("(a)) | cat f.py", "/work") == ("whole", ["/work/f.py"], [])
+
+
 def test_directory_targets_join_file_writes_in_order():
     writes = scan("mkdir -p /tmp/w && cd /tmp/w && git clone https://github.com/x/y",
                   "/repo")[2]
