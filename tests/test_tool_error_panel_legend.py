@@ -56,7 +56,7 @@ def test_the_map_is_keyed_from_the_picker_position():
     assert "toolPickerEntries" in body, (
         "toolDash must be built from toolPickerEntries — keying it from "
         "the picked-only order is the #682 bug again")
-    for banned in ("selTools", "pickedLabels", "indexOf"):
+    for banned in ("selTools", "pickedLabels", "indexOf", ".filter("):
         assert banned not in body, (
             f"toolDash's build names {banned!r} — a checked-subset or "
             "indexOf keying is the #682 bug again")
