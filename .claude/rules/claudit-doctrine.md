@@ -1088,7 +1088,10 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `[reparse-re-seed]`, then a runner-measured seed of the final tree,
   exactly the suite-cost path — and while the family is absent the
   reparse gate prints `no reparse budget — re-seed in flight` and exits
-  0 (issue #698).
+  0 (issue #698). Every run that wrote its measurement uploads it as the
+  `reparse-measurement` workflow artifact — the runner-measurement
+  source a reparse seed is fed through `reparse_ratchet.py --seed`, the
+  way `suite-measurement` feeds the suite-cost seed.
 - Module size (`module_size_baseline`): every tracked `*.py` under
   `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
   the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
