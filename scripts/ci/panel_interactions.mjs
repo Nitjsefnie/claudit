@@ -29,7 +29,11 @@
 //                   the same payloads with 2 vs 30+ models must render
 //                   every panel at the same height within ±1px of
 //                   rendering noise (#652's general case, so a third
-//                   per-model grid cannot ship; #694's noise band).
+//                   per-model grid cannot ship; #694's noise band) --
+//                   or stay under the absolute ceiling a panel declares
+//                   with data-max-h, the bounded treatment a capped
+//                   list takes (#651): shorter at 2 roles than at 30+
+//                   is the design there, not growth.
 //
 // Hover targets are enumerated from the DOM, so a new panel is covered
 // automatically: every bar, bucket and point a panel makes interactive
@@ -73,12 +77,7 @@ import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
 // all, and must say so out loud every run. `panel` null matches every
 // panel; a regex matches by name. A fix makes its entry dead and the
 // stale-entry check fails the run until the line is deleted.
-export const FILED = [
-  // #651: Cost by Agent Type (and its Tokens twin) grow a row per role
-  // with no bound — the height category's live filed defect.
-  { issue: 651, panel: 'Cost by Agent Type', kind: 'height-growth' },
-  { issue: 651, panel: 'Tokens by Agent Type', kind: 'height-growth' },
-];
+export const FILED = [];
 
 // The failure kinds this guard classifies. Closed: a kind outside this
 // table is a bug in the guard itself.
@@ -404,9 +403,13 @@ async function main() {
         heights[set] = await page.evaluate(() =>
           [...document.querySelectorAll('[data-panel]')]
             .filter(s => s.getBoundingClientRect().height > 0)
-            .map(s => [s.getAttribute('data-panel'),
-              Math.round(s.getBoundingClientRect().height),
-              s.hasAttribute('data-list-panel')]));
+            .map(s => {
+              const host = s.closest('[data-max-h]');
+              return [s.getAttribute('data-panel'),
+                Math.round(s.getBoundingClientRect().height),
+                s.hasAttribute('data-list-panel'),
+                host ? host.getAttribute('data-max-h') : null];
+            }));
         await ctx.close();
       }
       if (!heights.two.length || !heights.many.length) {
@@ -416,6 +419,13 @@ async function main() {
       }
       const two = new Map(heights.two.map(([n, h]) => [n, h]));
       const many = new Map(heights.many.map(([n, h]) => [n, h]));
+      // A panel's declared absolute bound, when it declares one: the
+      // nearest [data-max-h] ancestor the page reported. A bounded
+      // panel is judged against its ceiling in BOTH worlds and skips
+      // the equality check -- a capped list is shorter at 2 roles than
+      // at 30+, and that is the design (#651), not growth.
+      const boundOf = new Map([...heights.two, ...heights.many]
+        .map(([n, , , b]) => [n, b]).filter(([, b]) => b !== null));
       const lists = new Set([...heights.two, ...heights.many]
         .filter(([, , isList]) => isList).map(([n]) => n));
       for (const name of lists) {
@@ -425,11 +435,24 @@ async function main() {
         }
       }
       for (const [name, hMany] of many) {
-        if (!two.has(name) || lists.has(name)) continue;
+        if (!two.has(name) || lists.has(name) || boundOf.has(name)) continue;
         if (heightsAgree(two.get(name), hMany)) continue;
         record('height-growth', name,
           `height ${two.get(name)}px at 2 models -> ${hMany}px at 30+`,
           width);
+      }
+      // The absolute bound, both worlds, every width: the ceiling a
+      // bounded panel declares is its own promise (#651), and a breach
+      // fails outright -- no ledger entry absorbs it.
+      for (const [name, bound] of boundOf) {
+        for (const set of [two, many]) {
+          const h = set.get(name);
+          if (h !== undefined && h > Number(bound)) {
+            record('height-growth', name,
+              `height ${h}px exceeds its ${bound}px data-max-h bound`,
+              width);
+          }
+        }
       }
       for (const name of two.keys()) {
         if (!many.has(name)) {

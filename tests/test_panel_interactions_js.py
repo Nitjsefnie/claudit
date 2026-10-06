@@ -102,22 +102,34 @@ def test_the_ledger_does_not_over_match():
 
 
 def test_liveness_is_keyed_per_entry_not_per_issue_kind_pair():
-    """Two entries may share an issue and a kind — #651 scopes
-    height-growth to its two panels. The matcher must hand back the
-    ENTRY, so the sweep's liveness set can prove each twin fired on its
-    own; a matcher that collapses to the issue/kind pair lets one twin's
-    firing stand as the other's."""
+    """Two entries may share an issue and a kind -- #651's twins were
+    the motivating case -- and the matcher must hand back the ENTRY, so
+    the sweep's liveness set can prove each twin fired on its own; a
+    matcher that collapses to the issue/kind pair lets one twin's
+    firing stand as the other's. The live ledger is empty now that #651
+    is fixed, so the pin drives synthetic twin entries and puts the
+    ledger back the way it found it."""
     out = _node("""
-      const a = mod.filedEntry('Cost by Agent Type', 'height-growth');
-      const b = mod.filedEntry('Tokens by Agent Type', 'height-growth');
+      const a = { issue: 4242, panel: 'Cost by Agent Type',
+        kind: 'height-growth' };
+      const b = { issue: 4242, panel: 'Tokens by Agent Type',
+        kind: 'height-growth' };
+      const c = { issue: 4243, panel: null, kind: 'hover-style' };
+      mod.FILED.push(a, b, c);
+      const fa = mod.filedEntry('Cost by Agent Type', 'height-growth');
+      const fb = mod.filedEntry('Tokens by Agent Type', 'height-growth');
+      const fc = mod.filedEntry('Anything At All', 'hover-style');
+      const emptyAgain = (mod.FILED.pop() === c && mod.FILED.pop() === b
+        && mod.FILED.pop() === a && mod.FILED.length === 0);
       console.log(JSON.stringify({
-        distinctScopes: a !== b,
-        sameIssuePair: a !== null && b !== null && a.issue === b.issue,
-        eachMatchesOwn: [a, b].map(e => e === null ? null : e.issue),
+        distinctScopes: fa !== fb && fa !== null && fb !== null,
+        sameIssuePair: fa.issue === 4242 && fb.issue === 4242,
+        nullPanelMatches: fc === c,
+        emptyAgain,
       }));
     """)
     assert out == {"distinctScopes": True, "sameIssuePair": True,
-                   "eachMatchesOwn": [651, 651]}, out
+                   "nullPanelMatches": True, "emptyAgain": True}, out
 
 
 def test_every_ledger_kind_is_in_the_closed_set():
@@ -308,9 +320,45 @@ def test_the_marks_are_pinned_at_source():
         "the bar-list marker is gone; the height check would fail the "
         "list panels for growing with their own entries")
     assert 'listPanel' not in extra, (
-        "dashboard-charts-extra carries the agent-type bar panels "
-        "(#651's subject) — a listPanel prop there would exempt the "
-        "one panel the height category exists to fail")
+        "dashboard-charts-extra must carry no listPanel prop: the height "
+        "category's subject, the agent-type bar panels, is exempted by "
+        "one (#651) -- in this module or in "
+        "src/cost-by-agent-panel.jsx, where the panels now live")
+
+
+def test_the_agent_panel_declares_a_bound_the_guard_reads():
+    """#651's fixed bound, pinned on both sides of the shared literal:
+    the panel card declares data-max-h and never a listPanel prop (that
+    would exempt the one panel the height category exists to fail), and
+    the guard reads the bound off the nearest [data-max-h] ancestor.
+    Drop either half and a rename on the other silently disarms the
+    check; the rendered leg proves the pair live on every CI run."""
+    panel = ROOT / "src" / "cost-by-agent-panel.jsx"
+    assert panel.exists(), "the #651 panel module is missing"
+    src = panel.read_text(encoding="utf-8")
+    assert "data-max-h={" in src, (
+        "the agent panel declares no data-max-h bound; the guard has "
+        "nothing to enforce")
+    assert "listPanel" not in src, (
+        "the agent panel carries a listPanel prop -- that would exempt "
+        "the one panel the height category exists to fail")
+    guard = MODULE.read_text(encoding="utf-8")
+    assert "closest('[data-max-h]')" in guard, (
+        "the guard no longer reads a panel's data-max-h bound")
+
+
+def test_the_agent_panel_modules_are_loaded_by_the_page():
+    """A script tag someone drops fails no layout check -- the guard
+    counts the panels that render, never the ones that should -- so the
+    two #651 modules are load-pinned like every other panel module."""
+    index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
+    assert '/src/agent-list-caps.js' in index, (
+        "agent-list-caps.js is not loaded by the page, so "
+        "window.agentListCaps is undefined at render and the panel "
+        "throws")
+    assert '/src/cost-by-agent-panel.jsx' in index, (
+        "cost-by-agent-panel.jsx is not loaded by the page, so the "
+        "Cost by Agent Type panel silently disappears from the Overview")
 
 
 def test_the_workflow_runs_the_sweep():
