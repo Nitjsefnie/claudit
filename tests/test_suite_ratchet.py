@@ -154,6 +154,28 @@ def test_seed_refuses_when_the_member_exists(tmp_path, capsys):
     assert "already recorded" in capsys.readouterr().err
 
 
+def test_an_empty_family_is_present_and_refuses_the_seed(tmp_path):
+    # The decoy a falsy test admits: `"suite_cost": {}` is the family
+    # PRESENT and malformed (the loader refuses its shape — see the
+    # empty-family decoy pins in test_ci_reseed.py), and a seed that
+    # read emptiness as the absent family would replace it without the
+    # marked delete — the hand-raise's doorway (issue #705; PR #704
+    # fixed the reparse writer's twin,
+    # tests/test_reparse_seed.py's empty-family test).
+    ratchet = _ratchet()
+    data = _seeded_document()
+    data["suite_cost"] = {}
+    with pytest.raises(ValueError, match="already recorded"):
+        ratchet.seed(data, COUNTS)
+    # load_for_seed hands a PRESENT family to the loader, whose own
+    # shape refusal fires before any seed could: a different message,
+    # the same outcome — no replace without the marked delete.
+    decoy = tmp_path / "decoy.json"
+    decoy.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing suite cost"):
+        ratchet.load_for_seed(decoy)
+
+
 def test_seed_writes_canonical_bytes(tmp_path):
     # The seeded bytes are the loader writer's canonical bytes: the
     # round trip through normalise is lossless, so the committed
