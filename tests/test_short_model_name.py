@@ -25,10 +25,6 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 CHARTS_EXTRA_JSX = ROOT / "src" / "dashboard-charts-extra.jsx"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _source() -> str:
     src = CHARTS_EXTRA_JSX.read_text(encoding="utf-8")
@@ -66,6 +62,7 @@ CASES = [
 ]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize("raw,key", CASES)
 def test_short_model_name_keeps_the_vendor_prefix(raw, key):
     got = _node(
@@ -74,6 +71,7 @@ def test_short_model_name_keeps_the_vendor_prefix(raw, key):
     assert got == key
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_short_model_name_falls_back_to_unknown():
     got = _node(
         "console.log(JSON.stringify([shortModelName(''), "
@@ -82,6 +80,7 @@ def test_short_model_name_falls_back_to_unknown():
     assert got == ["unknown", "unknown", "unknown"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_no_claude_key_loses_its_prefix():
     """The regression itself, stated over every Claude id in the corpus's
     shape: a dated snapshot, a bracketed variant, a plain id. Each keeps

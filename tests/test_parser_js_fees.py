@@ -21,10 +21,6 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 FEE = 0.0137
 FEE2 = 0.045
 CUTOVER = "2026-08-01T00:00:00Z"
@@ -81,6 +77,7 @@ def _node(sandbox, script: str) -> dict:
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_exposes_the_parsed_fees(sandbox):
     got = _node(sandbox, f"""
       global.window = {{}};
@@ -97,6 +94,7 @@ def test_browser_exposes_the_parsed_fees(sandbox):
     }
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_resolves_the_entry_in_force_fee(sandbox):
     got = _node(sandbox, f"""
       global.window = {{}};
@@ -113,6 +111,7 @@ def test_browser_resolves_the_entry_in_force_fee(sandbox):
     assert got == {"before": FEE, "after": FEE2, "list": FEE2, "bare": 0.0}
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_compute_session_stats_folds_the_fee(sandbox):
     # One record on the fee row, 1M fresh tokens at 2.0/M plus the fee
     # in force at the record's own ts; the rounded shape mirrors the

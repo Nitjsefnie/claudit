@@ -37,10 +37,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS_JSX = ROOT / "src" / "dashboard-charts.jsx"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 ANGLE = 35.0
 LINE_H = 12.0   # VBAR_LABEL_FS 10 * 1.2
 LABEL_Y = 10.0
@@ -124,6 +120,7 @@ def _js_probe():
     return _node_probe()
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_constants_match_the_rotation_and_font_the_jsx_uses(js):
     # If the JSX's rotate(-35 ...) or fontSize 10 drifts from these
     # constants, padB is computed for a different geometry than rendered.
@@ -133,6 +130,7 @@ def test_constants_match_the_rotation_and_font_the_jsx_uses(js):
     assert "fontSize={VBAR_LABEL_FS}" in src
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_wrap_never_truncates(js):
     w = js["wrap"]
     assert w["short"] == ["abc"]           # short label: untouched
@@ -143,6 +141,7 @@ def test_wrap_never_truncates(js):
     assert w["maxLen"] <= 12
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_wrap_breaks_on_separators_not_mid_token(js):
     # Blind every-N-chars chunking split "-root-robot-islands" into
     # "-root-robot-isla" / "nds" — mid-word. The wrap must instead break
@@ -158,6 +157,7 @@ def test_wrap_breaks_on_separators_not_mid_token(js):
     assert w["shortNoWrap"] == ["kvalita"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_depth_is_the_rotated_line_step_plus_rotated_length(js):
     d = js["depth"]
     assert d["oneLine"] == pytest.approx(d["expectOneLine"])
@@ -166,6 +166,7 @@ def test_depth_is_the_rotated_line_step_plus_rotated_length(js):
     assert d["twoLines"] > d["oneLine"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_max_chars_bounds_horizontal_projection(js):
     mc = js["maxChars"]
     assert mc["wide"] == mc["expectWide"]
@@ -174,6 +175,7 @@ def test_max_chars_bounds_horizontal_projection(js):
     assert mc["tiny"] == 1
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_padb_shrinks_for_short_labels_and_grows_for_long_ones(js):
     p = js["padB"]
     # No empty gutter: a 3-char label needs a fraction of the old fixed

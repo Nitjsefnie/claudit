@@ -19,10 +19,6 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 FIX = ROOT / "fixtures" / "parser"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _user_messages(name):
     script = f"""
@@ -48,6 +44,7 @@ def _user_messages(name):
     return json.loads(proc.stdout)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_prompt_image_only_record_counts_once():
     """A text prompt and a later image-only record each emit exactly one
     user_message event; the image detail names the attachment."""
@@ -56,6 +53,7 @@ def test_browser_prompt_image_only_record_counts_once():
     assert out["userMsgs"] == 2
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_prompt_image_with_injected_text_counts():
     """Injected-only text pushes nothing; the image still emits the
     record's single user_message event."""
@@ -64,6 +62,7 @@ def test_browser_prompt_image_with_injected_text_counts():
     assert out["userMsgs"] == 1
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_prompt_multi_text_block_counts_once():
     """One record, many human text blocks: ONE event joining them, not
     one per block."""
@@ -72,6 +71,7 @@ def test_browser_prompt_multi_text_block_counts_once():
     assert out["userMsgs"] == 1
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_prompt_image_inside_tool_result_never_counts():
     """An image inside a tool_result is result payload: no user_message
     event, and the tool result still lands."""

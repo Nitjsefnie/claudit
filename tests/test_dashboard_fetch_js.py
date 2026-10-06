@@ -23,10 +23,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 FETCH_JS = ROOT / "src" / "dashboard-fetch.js"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node(body: str):
     """Run `body` against the real src/dashboard-fetch.js in node."""
@@ -48,6 +44,7 @@ def _node(body: str):
 
 # --- the state machine -------------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_states_are_tracked_apart_from_the_data():
     """A request in flight, a landed request and a failed request are three
     different things, and none of them is "the data is null"."""
@@ -64,12 +61,14 @@ def test_states_are_tracked_apart_from_the_data():
     assert out["error"] == {"status": "error", "detail": "HTTP 500"}
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_failed_without_a_message_still_names_itself():
     """A rejection with an empty message must not render a blank error."""
     out = _node("console.log(JSON.stringify(window.dashboardFetch.failed('')));")
     assert out["detail"], "an error state with no detail renders as nothing"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_loading_and_empty_and_error_summaries_differ():
     """The bug in one assertion: every unresolved case said loading…."""
     out = _node("""
@@ -91,6 +90,7 @@ def test_loading_and_empty_and_error_summaries_differ():
         "a landed-but-empty response still says loading")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_empty_summary_uses_the_other_panels_wording():
     """'no ... data in range' is what every other panel already says."""
     out = _node("""
@@ -100,6 +100,7 @@ def test_empty_summary_uses_the_other_panels_wording():
     assert out["text"] == "no usage data in range"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_data_replaces_every_placeholder():
     """With a rendered shape the summary is the stat block, not a status."""
     out = _node("""
@@ -123,6 +124,7 @@ def test_data_replaces_every_placeholder():
 
 # --- the request itself ------------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_parses_a_successful_response():
     out = _node("""
       const F = window.dashboardFetch;
@@ -136,6 +138,7 @@ def test_load_parses_a_successful_response():
     assert out["rows"] == 1
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_carries_the_run_signal_and_credentials():
     """The supersede guard (issue #179) is the abort signal; dropping it
     lets a stale response overwrite a fresher one."""
@@ -154,6 +157,7 @@ def test_load_carries_the_run_signal_and_credentials():
     assert out.get("creds") == "same-origin"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_raises_naming_the_status_on_a_500_text_body():
     """A 500 is text/plain, so the body cannot be trusted to parse."""
     out = _node("""
@@ -169,6 +173,7 @@ def test_load_raises_naming_the_status_on_a_500_text_body():
     assert out["msg"] and "500" in out["msg"], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_surfaces_a_json_detail_field():
     """A 503 body is JSON with a `detail` -- show it, as the transcript
     loader already does."""
@@ -185,6 +190,7 @@ def test_load_surfaces_a_json_detail_field():
     assert out["msg"] == "HTTP 503: database is down", out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_rejects_rather_than_returning_a_failed_response():
     """An `if (!r.ok)` check that only logs leaves the caller holding a
     body it cannot use; load must either resolve with the payload or

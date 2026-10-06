@@ -25,10 +25,6 @@ LAYOUT = ROOT / "scripts" / "ci" / "panel_layout.mjs"
 SERVER = ROOT / "scripts" / "ci" / "panel_server.mjs"
 WORKFLOW = ROOT / ".github" / "workflows" / "panel-layout.yml"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
-)
-
 
 def _node(body: str):
     """Import the guard in node and evaluate `body` against its exports.
@@ -57,6 +53,7 @@ def _node(body: str):
 
 # --- the KNOWN ledger -------------------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_ledger_entry_fires_on_the_defect_it_names():
     """Each entry must match a synthetic finding of its kind — an entry
     that matches nothing is dead weight the stale-entry check would
@@ -87,6 +84,7 @@ def test_every_ledger_entry_fires_on_the_defect_it_names():
             f"{kind} on {panel!r} classified as #{matched}, not #{issue}")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_ledger_does_not_over_match():
     """A kind/panel pair with no entry must classify as a FAILURE — the
     ledger absorbs only the defect it names, never a new one."""
@@ -102,6 +100,7 @@ def test_the_ledger_does_not_over_match():
                    "heatStyle": None, "unknownKind": None}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_liveness_is_keyed_per_entry_not_per_issue_kind_pair():
     """Two entries may share an issue and a kind -- #651's twins were
     the motivating case -- and the matcher must hand back the ENTRY, so
@@ -133,6 +132,7 @@ def test_liveness_is_keyed_per_entry_not_per_issue_kind_pair():
                    "nullPanelMatches": True, "emptyAgain": True}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_ledger_kind_is_in_the_closed_set():
     out = _node("""
       console.log(JSON.stringify({
@@ -167,6 +167,7 @@ BASE = {
 }
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_two_keeps_two_models_and_drops_the_rest():
     out = _node(f"""
       const v = mod.variantsFrom({json.dumps(BASE)});
@@ -185,6 +186,7 @@ def test_two_keeps_two_models_and_drops_the_rest():
     assert out["gammaGone"], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_many_yields_at_least_thirty_distinct_models():
     out = _node(f"""
       const v = mod.variantsFrom({json.dumps(BASE)});
@@ -205,6 +207,7 @@ def test_many_yields_at_least_thirty_distinct_models():
     assert out["firstIsAlpha"], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_agent_keyed_lists_scale_like_model_lists():
     """#651's category: the agent-role identity drives the height check
     the same way the model identity does, so a panel cannot hide behind
@@ -224,6 +227,7 @@ def test_agent_keyed_lists_scale_like_model_lists():
     assert out["longLast"], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_last_expanded_copy_carries_a_long_label():
     """#642's overflow half never fires on the frozen fixtures' labels;
     the long identity the rewriter appends is the ONE fixture case that
@@ -239,6 +243,7 @@ def test_the_last_expanded_copy_carries_a_long_label():
     assert out["longs"] == [True, True], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_lists_without_a_model_field_pass_through_untouched():
     out = _node(f"""
       const v = mod.variantsFrom({json.dumps(BASE)});
@@ -255,6 +260,7 @@ def test_lists_without_a_model_field_pass_through_untouched():
 
 # --- the height comparison (#694) -------------------------------------
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_one_pixel_wobble_passes_the_height_check():
     """The two height renders are separate headless contexts: Chromium's
     sub-pixel rounding is not reproducible between them, and the exact
@@ -270,6 +276,7 @@ def test_a_one_pixel_wobble_passes_the_height_check():
     assert out == {"equal": True, "up1": True, "down1": True}, out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_one_row_growth_or_shrink_still_fails():
     """A real per-entry row growth is many pixels — one bar row is tens
     of pixels — and the noise band must never stretch that far. A gross
@@ -353,6 +360,7 @@ def test_the_agent_panel_declares_a_bound_the_guard_reads():
         "pin")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_bound_comparison_fires_by_near_miss():
     """The bounded branch's pinnable half: the comparison a declared
     bound feeds must fire above the ceiling and hold at and under it,
