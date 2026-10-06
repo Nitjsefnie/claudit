@@ -342,24 +342,24 @@ def get_object(key: str, etag: str | None = None,
     """
     file_mode, root = _is_file_mode()
     bucket, object_key = _configured(key)
-    data: bytes | None = None
     if etag is not None:
-        data = blob_cache.lookup(key, etag, size)
-    if data is None:
-        if file_mode:
-            scan_root = _scan_root(root, bucket, len(buckets()) > 1)
-            if scan_root is None:
-                raise FileNotFoundError(
-                    f"no mirror directory for bucket {bucket!r}"
-                )
-            full = _safe_join(scan_root, object_key)
-            with open(full, "rb") as f:
-                data = f.read()
-        else:
-            s3 = _boto_client()
-            data = s3.get_object(Bucket=bucket, Key=object_key)["Body"].read()
-        if etag is not None:
-            blob_cache.store(key, etag, data)
+        cached = blob_cache.lookup(key, etag, size)
+        if cached is not None:
+            return maybe_inflate(key, cached)
+    if file_mode:
+        scan_root = _scan_root(root, bucket, len(buckets()) > 1)
+        if scan_root is None:
+            raise FileNotFoundError(
+                f"no mirror directory for bucket {bucket!r}"
+            )
+        full = _safe_join(scan_root, object_key)
+        with open(full, "rb") as f:
+            data = f.read()
+    else:
+        s3 = _boto_client()
+        data = s3.get_object(Bucket=bucket, Key=object_key)["Body"].read()
+    if etag is not None:
+        blob_cache.store(key, etag, data)
     # Bucket objects may be stored per-object xz-compressed (`*.jsonl.xz`).
     # Inflate transparently so callers (ingest, transcript serving) always
     # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
