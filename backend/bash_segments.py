@@ -87,8 +87,8 @@ def _capture_close(value: str) -> int | None:
 
     The close must be the value's LAST character: anything after it (a
     value suffix, a following command) is not modelled. Literal parens
-    inside single-quoted spans do not nest. A `"` or a backtick in the body leaves the
-    provenance of every later paren unknown — this value's expansion
+    inside single-quoted spans do not nest. A ", a backtick or a
+    backslash in the body leaves the provenance of every later paren unknown — this value's expansion
     form has already flattened quotes and escapes away — so it refuses.
     """
     depth = 1
@@ -103,8 +103,6 @@ def _capture_close(value: str) -> int | None:
                 return None
             idx = end + 1
             continue
-        if ch in '"`':
-            return None
         if ch == "(":
             depth += 1
         elif ch == ")":
@@ -113,6 +111,21 @@ def _capture_close(value: str) -> int | None:
                 return idx if idx == len(value) - 1 else None
         idx += 1
     return None
+
+
+def _quoted_capture_value(value: str) -> list[ShellWord] | None:
+    """Inner tokens of a double-quoted capture's `$( … )` value, or None.
+
+    `$(( … ))` is an arithmetic expansion's opener, never a group; token
+    level cannot ask for whitespace, so the adjacent spelling refuses. A
+    spaced `$( ( … ) )` is a real captured subshell and tokenizes.
+    """
+    if value[2] == "(":
+        return None
+    close = _capture_close(value)
+    if close is None:
+        return None
+    return shell_tokens(value[2:close])
 
 
 def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] | None:
@@ -144,12 +157,52 @@ def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] 
         nxt = raw_segment[idx + 1] if idx + 1 < len(raw_segment) else None
         if (nxt is not None and getattr(nxt, "operator", False) and nxt == "("
                 and value.endswith("$")):
+            nxt2 = raw_segment[idx + 2] if idx + 2 < len(raw_segment) else None
+            if nxt2 is not None and getattr(nxt2, "operator", False) and nxt2 == "(":
+                # `$((` is an arithmetic expansion's opener, never a
+                # group; token-level whitespace is gone, so the adjacent
+                # spelling refuses however it was quoted.
+                return None
             close = _matching_paren(raw_segment, idx + 1)
             if close != len(raw_segment) - 1:
                 return None
             return raw_segment[:idx], cast("list[ShellWord]", raw_segment[idx + 2:close])
         if nxt is None and value.startswith("$("):
-            close = _capture_close(value)
-            if close is not None:
-                return raw_segment[:idx], shell_tokens(value[2:close])
+            tokens = _quoted_capture_value(value)
+            if tokens is not None:
+                return raw_segment[:idx], tokens
     return None
+
+
+def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """(operands, output files, stdin files) for one segment's arguments.
+
+    A redirect target is a file the command WRITES, so it must be pulled
+    out before operand scanning — otherwise `grep x src.py > out.txt`
+    books out.txt as something that was read. Input and fd redirections also
+    consume an argument, but neither is a destination operand. Unknown shell
+    operators raise ValueError rather than entering the filename heuristics.
+    """
+    operands: list[str] = []
+    writes: list[str] = []
+    inputs: list[str] = []
+    idx = 0
+    while idx < len(args):
+        tok = args[idx]
+        if not getattr(tok, "operator", False):
+            operands.append(tok)
+            idx += 1
+            continue
+        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", tok)
+        if not match or idx + 1 == len(args) or getattr(args[idx + 1], "operator", False):
+            raise ValueError("unsupported or incomplete shell redirection")
+        fd, operator = match.groups()
+        target = args[idx + 1]
+        if operator in (">", ">>"):
+            writes.append(target)
+        elif operator == "<" and fd in ("", "0"):
+            inputs.append(target)
+        elif operator in (">&", "<&") and not re.fullmatch(r"[0-9]+|-", target):
+            raise ValueError("unsupported descriptor target")
+        idx += 2
+    return operands, writes, inputs

@@ -12,7 +12,11 @@ from backend.bash_reads import scan
     ("(cat a.py; cat b.py) > c.txt", ("whole", ["/w/a.py", "/w/b.py"], ["/w/c.txt"])),
     ("cat a.py && (echo y > o.txt)", ("whole", ["/w/a.py"], ["/w/o.txt"])),
     ("(cd /sub && cat a.py); cat b.py", ("whole", ["/sub/a.py", "/w/b.py"], [])),
-    ("( ( echo x > deep.txt ) )", (None, [], ["/w/deep.txt"])),
+    # `(( … ))` is arithmetic unless its body re-lexes; the ambiguous
+    # lone-nested spelling refuses instead of inventing a target.
+    ("( ( echo x > deep.txt ) )", (None, [], [])),
+    ("((x > y))", (None, [], [])),
+    ("( (cat a.py); echo x > b.txt )", ("whole", ["/w/a.py"], ["/w/b.txt"])),
     ("{ cat f.py; }", ("whole", ["/w/f.py"], [])),
     ("{ (cd /x && cat f.py); cat g.py; }", ("whole", ["/x/f.py", "/w/g.py"], [])),
     ("(cat a.py) | head -c 1", ("slice", ["/w/a.py"], [])),
@@ -29,17 +33,23 @@ def test_subshell_and_group_commands_are_scanned(command, expected):
 @pytest.mark.parametrize("command", [
     "(cat a.py",            # unclosed group books nothing
     "(cat a.py) foo",       # words after the close: not a redirect
+    "(echo x) < in.txt",    # a non-reading group takes no stdin input
 ])
 def test_subshell_refusals_stay_conservative(command):
     assert scan(command, "/w") == (None, [], [])
 
 
 @pytest.mark.parametrize("depth,expected", [
-    (32, ("whole", ["/w/f.py"], [])),
+    (32, (None, [], ["/w/f.txt"])),
     (33, (None, [], [])),
 ])
-def test_nested_group_depth_bound(depth, expected):
-    assert scan("(" * depth + "cat f.py" + ")" * depth, "/w") == expected
+def test_nested_capture_depth_bound(depth, expected):
+    # Captures nest where groups cannot (a lone-nested group refuses
+    # before depth matters), so the bound is driven on the capture path.
+    command = "echo x > f.txt"
+    for k in range(depth):
+        command = f"d{k}=$(" + command + ")"
+    assert scan(command, "/w") == expected
 
 
 def test_deeply_nested_groups_stay_bounded():

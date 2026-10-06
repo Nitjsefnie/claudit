@@ -118,6 +118,7 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("declare d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
     ("typeset d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
     ("export d=$(mktemp -d /tmp/p.XX) extra", []),
+    ("res=$((x > y))", []),  # arithmetic expansion, not a group write
     ("export T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
 ])
 def test_captured_substitution_templates_are_write_targets(command, expected):
@@ -145,3 +146,17 @@ def test_directory_targets_join_file_writes_in_order():
     writes = scan("mkdir -p /tmp/w && cd /tmp/w && git clone https://github.com/x/y",
                   "/repo")[2]
     assert writes == ["/tmp/w", "/tmp/w/y"]
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("export cat f.py", (None, [], [])),
+    ("export PATH=/usr/bin:$PATH grep x f.py", (None, [], [])),
+    ("readonly x=1", (None, [], [])),
+    ("local -a arr=(x y)", (None, [], [])),
+    # A bare assignment list behind the builtin still carries.
+    ("export T=/tmp; cat $T/f.py", ("whole", ["/tmp/f.py"], [])),
+])
+def test_declaration_builtin_args_are_not_commands(command, expected):
+    """#747 review: the builtin's non-assignment words are identifier
+    arguments bash rejects, never a command that runs."""
+    assert scan(command, "/work") == expected
