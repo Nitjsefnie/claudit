@@ -954,9 +954,8 @@ namespace), never a third-party host. No per-model allowlist: a model the
 vendor adds under its prefix is picked up on the next run. The pass lives
 in `scripts/ci/refresh_vendor_rates.py` and runs inside
 `refresh_provider_rates.main()`: one report, one commit, refusals block
-only their own model. PRICING_VERSION bumps one past the file each pass
-sees — a run where both passes appended moves it by two, which reprices
-identically.
+only their own model. PRICING_VERSION bumps once, one past the file, when
+either pass moved.
 
 - **Variants are never rows.** A catalog id with a `:<suffix>` variant
   (a `:batch` discounted tier, a `:free` tier — priced at zero by resolve()
@@ -971,8 +970,10 @@ identically.
   endpoint at all is a NOTICE + skip (the model is offered only through
   third-party hosts; any row's own history stands).
 - **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
-  `gpt-5-5`) — the normalisation resolve() applies to the transcript's own
-  id.
+  `gpt-5-5`) — the normalisation resolve() applies to a transcript naming
+  the bare first-party id. The parity is a bare-id claim: a transcript
+  spelling the vendor prefix is OpenRouter provider-row traffic, priced by
+  that table by design.
 - **A listed price change APPENDS**, never rewrites: a hand-curated row
   whose vendor source has moved on gets the appended entry too (the listing
   governs a row the refresh owns — where a vendor's real first-party tier
@@ -986,16 +987,22 @@ identically.
   stored rates stay the sub-threshold listing, and compute_cost applies the
   meter above the threshold. Membership follows the listing for
   vendor-tracked keys; non-vendor keys stand untouched. A band departing
-  the meter's shape (the 200k-band Claude models) REFUSES the model — the
-  table models exactly one band shape — until the table learns it.
+  the meter's shape (the 200k-band Claude models) is NOT TRACKED — the
+  notice rule below — until the table learns the shape.
+- **An unmodelled shape is a NOTICE, never red.** The pass notices it as
+  "not tracked: <reason>" and moves on: no row is created and no existing
+  row is touched. Red is reserved for ambiguity a human must resolve
+  (multi-price without a pin, a stale or malformed recorded pin) and for
+  broken or unrecognised fetches — each clearing on a human action or a
+  retry, never standing every hour.
 - **Fees are provenance notes, never the priced fee shape.** A RECORDED_FEE
   (web_search) at a nonzero price enters the entry note WITHOUT the
   `/request` note shape: the models table prices first-party traffic, whose
   requests pay no per-request fee, and the priced note shape is exactly
   what the loaders fold in once per request. Discount notes as provider
   rows.
-- **A weekly schedule refuses** the model: a models row carries no schedule
-  (the loaders admit one on provider rows only).
+- **A weekly schedule is not tracked** (notice): a models row carries no
+  schedule (the loaders admit one on provider rows only).
 - **The loaders run on the would-be file** before anything is written; a
   failure writes nothing.
 
