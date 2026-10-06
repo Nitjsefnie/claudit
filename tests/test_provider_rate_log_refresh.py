@@ -160,7 +160,7 @@ def _run_case(tmp_path: Path, capsys, case: RefreshCase):
     rc = refresh.main([], fetch=fetches.fetch_endpoints,
                       fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
                       now=case.now, pricing_path=pricing_path,
-                      constants_path=constants_path)
+                      constants_path=constants_path, vendor=None)
     out, err = capsys.readouterr()
     return rc, out, err, pricing_path, constants_path
 
@@ -257,7 +257,7 @@ def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):
     rc = refresh.main([], fetch=fetches.fetch_endpoints,
                       fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
                       now=NOW, pricing_path=pricing_path,
-                      constants_path=constants_path)
+                      constants_path=constants_path, vendor=None)
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
@@ -455,7 +455,7 @@ def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
     rc = refresh.main([], fetch=fetches.fetch_endpoints,
                       fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
                       now=datetime(2031, 1, 1, 1, 30, tzinfo=timezone.utc),
-                      pricing_path=pricing_path, constants_path=constants_path)
+                      pricing_path=pricing_path, constants_path=constants_path, vendor=None)
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err

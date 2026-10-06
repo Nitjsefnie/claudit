@@ -127,7 +127,8 @@ def test_a_fee_host_is_sampled_even_when_the_log_could_back_it(tmp_path, capsys)
             for source in run.doc()["openrouter"]["models"].values()]},
         fetch_log=lambda _slug: {"data": {"series": [
             _series(slug="openinference", host="OpenInference", rates=rates)]}},
-        now=NOW, pricing_path=run.pricing, constants_path=run.constants)
+        now=NOW, pricing_path=run.pricing, constants_path=run.constants,
+        vendor=None)
     out, err = capsys.readouterr()
     assert rc == 0, err
     assert "per-request fee the price log cannot carry" in out

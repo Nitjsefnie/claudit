@@ -338,7 +338,8 @@ def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys):
         return copy.deepcopy(run.payloads[model_id])
 
     rc = refresh.main(["--commit-msg", str(run.commit_msg)], fetch=fetch, now=NOW,
-                      pricing_path=run.pricing, constants_path=run.constants)
+                      pricing_path=run.pricing, constants_path=run.constants,
+                      vendor=None)
     err = capsys.readouterr().err
     assert rc != 0 and f"{V41}: fetching {failing} failed" in err
     assert run.doc()["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
