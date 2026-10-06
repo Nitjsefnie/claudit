@@ -182,7 +182,8 @@ class Run:
                                   {"id": source["id"], "canonical_slug": source["id"]}
                                   for source in self.doc()["openrouter"]["models"].values()]}),
                           fetch_log=lambda _slug: {"data": {"series": []}},
-                          now=now, pricing_path=self.pricing, constants_path=self.constants)
+                          now=now, pricing_path=self.pricing, constants_path=self.constants,
+                          vendor=None)
         out, err = capsys.readouterr()
         return rc, out, err
 

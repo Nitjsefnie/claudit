@@ -943,6 +943,62 @@ same rules:
   A resolution is never a price value: a price pin breaks the moment
   the price moves.
 
+## First-party vendor rates refresh from OpenRouter (SV-VENDOR-RATES)
+
+The same hourly run refreshes the four vendors' first-party list prices
+(`src/pricing.json`'s `models` table) and `long_context_models` membership,
+selected by VENDOR PREFIX over OpenRouter's catalog — every id under
+`anthropic/*`, `openai/*`, `moonshotai/*` and `z-ai/*` — at the vendor's own
+first-party endpoint (the endpoint whose tag prefix is the vendor's own
+namespace), never a third-party host. No per-model allowlist: a model the
+vendor adds under its prefix is picked up on the next run. The pass lives
+in `scripts/ci/refresh_vendor_rates.py` and runs inside
+`refresh_provider_rates.main()`: one report, one commit, refusals block
+only their own model. PRICING_VERSION bumps one past the file each pass
+sees — a run where both passes appended moves it by two, which reprices
+identically.
+
+- **Variants are never rows.** A catalog id with a `:<suffix>` variant
+  (a `:batch` discounted tier, a `:free` tier — priced at zero by resolve()
+  before any table — or any other suffix) is skipped: the bare id is the
+  model.
+- **The vendor endpoint.** The BARE tag (namespace, no suffix) is the list
+  price; the vendor's other tags are its own service tiers (fast, flex) or
+  quantizations. With no bare tag, the vendor-prefix endpoints must agree
+  on one price (equal prices collapse); several prices refuse, and a
+  `{"tag": ..., "why": ...}` pin recorded in
+  `openrouter.vendor.resolve.<derived key>` takes one. No vendor-prefix
+  endpoint at all is a NOTICE + skip (the model is offered only through
+  third-party hosts; any row's own history stands).
+- **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
+  `gpt-5-5`) — the normalisation resolve() applies to the transcript's own
+  id.
+- **A listed price change APPENDS**, never rewrites: a hand-curated row
+  whose vendor source has moved on gets the appended entry too (the listing
+  governs a row the refresh owns — where a vendor's real first-party tier
+  differs from OpenRouter's listing shape, the listing still wins; the
+  correction is a human commit). Rows with no vendor source (aliases, the
+  delisted) stand untouched, and a quiet source writes nothing.
+- **The long-context band folds to the meter.** A `min_prompt_tokens`
+  override whose threshold and multipliers equal the meter's
+  (`pricing.LONG_CONTEXT_THRESHOLD` / `INPUT_MULT` / `OUTPUT_MULT`) sets
+  `long_context_models` membership and contributes NO rates: the five
+  stored rates stay the sub-threshold listing, and compute_cost applies the
+  meter above the threshold. Membership follows the listing for
+  vendor-tracked keys; non-vendor keys stand untouched. A band departing
+  the meter's shape (the 200k-band Claude models) REFUSES the model — the
+  table models exactly one band shape — until the table learns it.
+- **Fees are provenance notes, never the priced fee shape.** A RECORDED_FEE
+  (web_search) at a nonzero price enters the entry note WITHOUT the
+  `/request` note shape: the models table prices first-party traffic, whose
+  requests pay no per-request fee, and the priced note shape is exactly
+  what the loaders fold in once per request. Discount notes as provider
+  rows.
+- **A weekly schedule refuses** the model: a models row carries no schedule
+  (the loaders admit one on provider rows only).
+- **The loaders run on the would-be file** before anything is written; a
+  failure writes nothing.
+
 ## The reprice pass recomputes stored prices in place (SV-REPRICE)
 
 `backend/ingest_reprice.py` recomputes rate-derived STORED state for
