@@ -110,8 +110,10 @@ def _scan_relevant(source: str) -> bool:
     decorator carries ``fixture`` as an identifier or a whole string
     constant, and a server reach is a Name/Attribute id or raw segment
     text, each spelled verbatim in the source — so a skip can only save
-    the walk, never hide a violation. Pinned by the plant tests below
-    and by the vocabulary-free-module test.
+    the walk, never hide a violation. A source that does not compile
+    raises out of the gate: loud by construction, and collection fails
+    on the same file anyway. Pinned by the plant tests below and by
+    the vocabulary-free-module test.
     """
     if any(tok in source for tok in SERVER_CALLS):
         return True
