@@ -101,6 +101,8 @@ def test_the_ttl_hover_hit_tests_in_the_svg_frame():
             and "sx < padL || sx > w - padR || sy < padT || sy > shareBot" in body), (
         "hover must hit-test and guard in the svg frame, every limb of "
         "the guard (#696)")
+    assert "frac = (sx - padL) / plotW" in body, (
+        "bin selection must map from the svg-frame x (#696)")
     assert "srect = svgRef.current.getBoundingClientRect()" in body, (
         "the rect sx/sy read must be the svg's own -- a rect captured "
         "from anything else is the container's, border included (#735)")
