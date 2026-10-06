@@ -123,7 +123,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
       lines.push([`${s.model} p90`, fmt(s.stats.p90[turn])]);
       lines.push([`${s.model} active`, `${live} / ${s.count}`]);
     }
-    setTip({ x: mx, y: my, title: `turn ${turn}`, accent: '#ffffff', lines });
+    setTip({ x: mx, y: my, cx: xScale(turn), title: `turn ${turn}`, accent: '#ffffff', lines });
   }
 
   const titleText = series.length === 0
@@ -307,7 +307,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
 
         {/* Crosshair */}
         {tip && (
-          <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+          <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
             stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
         )}
 

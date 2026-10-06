@@ -221,13 +221,6 @@ function CacheTTLPanel({ events, range, binMs }) {
     });
   }
 
-  // Find peak bin for annotation
-  let peakIdx = -1, peakVal = 0;
-  for (let i = 0; i < bins.length; i++) {
-    const t = bins[i].s5 + bins[i].s1;
-    if (t > peakVal) { peakVal = t; peakIdx = i; }
-  }
-
   const grandTotal = total5 + total1;
   const sharePctOverall = grandTotal > 0 ? (total5 / grandTotal) * 100 : 0;
   const a11y = window.useChartA11y(
@@ -270,23 +263,24 @@ function CacheTTLPanel({ events, range, binMs }) {
           const y5 = yBar(b.s5 + b.s1);             // top of 5m
           const h1 = padT + plotH - y1;             // 1h bar height
           const h5 = y1 - y5;                       // 5m bar height
-          const isPeak = idx === peakIdx;
           // The family's ONE hover treatment (#697): bars rest a dim 0.3
-          // field and the hovered bin lifts to 0.85, as on the time-series
-          // and context panels. Keyed on the BIN, so both stacked segments
-          // are marked together. The peak bin rests at 0.85: the annotation
-          // is the bin that is already bright.
+          // field and the hovered bin lifts to 0.85, keyed on the BIN so
+          // both stacked segments are marked together. The old peak-bin
+          // annotation folded away: resting the peak pre-lifted at 0.85
+          // made its own hover a no-op — the interaction gate fails any
+          // hoverable mark that does not visibly respond — and the peak
+          // is already the tallest bar, self-annotating.
           const isHover = tip != null && tip.idx === idx;
           return (
             <g key={'bar'+idx}>
               <rect data-hover-target="" x={x} y={y1} width={barW}
                 height={Math.max(0, h1)}
                 fill={COL_X.cacheCreateTokens}
-                fillOpacity={isHover || isPeak ? 0.85 : 0.3} />
+                fillOpacity={isHover ? 0.85 : 0.3} />
               <rect data-hover-target="" x={x} y={y5} width={barW}
                 height={Math.max(0, h5)}
                 fill={COL_X.inputTokens}
-                fillOpacity={isHover || isPeak ? 0.85 : 0.3} />
+                fillOpacity={isHover ? 0.85 : 0.3} />
             </g>
           );
         })}

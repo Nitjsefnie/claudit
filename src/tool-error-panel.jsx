@@ -322,7 +322,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       }
     }
     setTip({
-      x: mx, y: my,
+      x: mx, y: my, cx: xs(ts + bucketMs / 2),
       title: new Date(ts).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
       accent: '#ddd',
       lines,
@@ -482,7 +482,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
             )}
 
             {tip && (
-              <line x1={tip.x} x2={tip.x} y1={padT} y2={padT + plotH}
+              <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
                 stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
             )}
           </svg>
