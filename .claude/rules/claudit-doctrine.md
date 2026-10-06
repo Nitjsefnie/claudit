@@ -1082,7 +1082,13 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   than a phase, and needs a counter facility a hosted runner may
   refuse. When an instrument is unavailable the bench prints NOT
   MEASURED with the reason — an absent measurement must never read as
-  a passing one. Never raise a floor by hand, for any reason.
+  a passing one. Never raise a floor by hand, for any reason. A
+  parse-semantics change that legitimately spends the headroom takes
+  the reparse family's own sanctioned re-seed — the delete under
+  `[reparse-re-seed]`, then a runner-measured seed of the final tree,
+  exactly the suite-cost path — and while the family is absent the
+  reparse gate prints `no reparse budget — re-seed in flight` and exits
+  0 (issue #698).
 - Module size (`module_size_baseline`): every tracked `*.py` under
   `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
   the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
@@ -1137,7 +1143,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a
   family-absent document; the suite-cost gate then prints `no suite_cost
   budget — re-seed in flight` and exits 0, and the guard reads the
-  removal as legal. The second seeds the new counts through the
+  removal as legal. Each cost family's re-seed runs under its OWN
+  marker — suite_cost under `[suite-cost-re-seed]`, reparse under
+  `[reparse-re-seed]` — the same bounded walk, fail closed, one probe
+  per family: a marker buys that family's ABSENCE only, never a raised
+  budget and never another family's absence (issue #698). The second seeds the new counts through the
   loader's writer (`suite_ratchet.py --seed`) FROM A RUNNER
   MEASUREMENT, cited by run id in the PR body, never hand-derived.
   Against a base that predates the family, those entries are a

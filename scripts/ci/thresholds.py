@@ -41,6 +41,8 @@ _Verdict = Callable[..., 'str | None']
 verdict: _Verdict = validate.verdict
 _Identity = Callable[[object, str], int]
 suite_identity: _Identity = validate.suite_identity
+_ReseedVerdict = validate.ReseedVerdict
+_admitted = validate.admitted
 
 THRESHOLDS = (Path(__file__).resolve().parents[2]
               / '.github' / 'ci-thresholds.json')
@@ -111,17 +113,17 @@ SUITE_COST_PHASES = ('collection', 'run', 'residual')
 SUITE_COST_IDENTITY = 'tests_tree_lines'
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
-_TOP_LEVEL_FIELDS = ('schema_version', 'coverage',
-                     REPARSE_FAMILY, *BASELINE_MEMBERS)
-# The suite-cost family is required like the rest, EXCEPT while a
-# re-seed is in flight (reseed.py): the delete-then-seed sequence needs
-# commits whose documents carry no budget at all, and the declaring
-# commit names the window with the marker. The tolerance spans the
-# whole sequence — the walk (reseed.py) keeps it alive across the
-# commits that land on the delete before the seed, and the bound is the
-# last family-present commit — and it is the only absence the loader
-# tolerates, and only for this family.
-_RESEED_OPTIONAL_FIELDS = (SUITE_COST_FAMILY,)
+# Every family whose ABSENCE a re-seed window may admit, each under its
+# OWN marker (reseed.py): the delete-then-seed sequence needs commits
+# whose documents carry no budget at all, and the declaring commit
+# names the window with the marker. The tolerance spans the whole
+# sequence — the walk (reseed.py) keeps it alive across the commits
+# that land on the delete before the seed, and the bound is the last
+# family-present commit — and it is the only absence the loader
+# tolerates, only for the family whose own marker declared, never a
+# raised budget and never the other family.
+_RESEED_OPTIONAL_FIELDS = (SUITE_COST_FAMILY, REPARSE_FAMILY)
+_TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *BASELINE_MEMBERS)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
     'thresholds': 'field: {field}',
@@ -150,26 +152,30 @@ def _required_fields(value, expected, name, optional=()):
 def normalise(data, reseed_in_flight):
     """The document in canonical form, or a refusal naming the offender.
 
-    ``reseed_in_flight`` is REQUIRED and is the re-seed marker's verdict
-    (reseed.py), never a mode a caller picks for its own convenience:
-    with it, the suite-cost family may be ABSENT, and stays absent in the
-    result, so the document's bytes round-trip unchanged. Everything else
-    — the family's own validation when it is present, the required
-    fields, the unknown-key refusal — is unchanged, so a marker can buy
-    the absence and nothing else.
+    ``reseed_in_flight`` is REQUIRED and is the re-seed markers' verdict
+    (thresholds_validate.ReseedVerdict, from reseed.py), never a mode a
+    caller picks for its own convenience: with it, a family MAY be
+    absent under its own marker's window and stays absent in the
+    result, so the document's bytes round-trip unchanged; the other
+    family is still required, so a marker buys the absence of its own
+    family and nothing else. Everything else — a present family's own
+    validation, the required fields, the unknown-key refusal — is
+    unchanged, so a marker can buy the absence and nothing else. The
+    legacy single-family bool is accepted for the callers predating the
+    second marker: True is the suite-cost window, False strict.
 
     No default: the caller is the only one who knows whether it is
     holding a document the loader accepted or one it just built. ``None``
     is not accepted here either — ask through ``verdict()``, so the tree
     is consulted in one named place rather than by omission.
     """
-    if not isinstance(reseed_in_flight, bool):
-        raise ValueError('reseed_in_flight must be a bool, not None: ask '
-                         'thresholds.verdict() for the tree answer')
-    required = (_TOP_LEVEL_FIELDS if reseed_in_flight
-                else _TOP_LEVEL_FIELDS + _RESEED_OPTIONAL_FIELDS)
-    _required_fields(data, required, 'thresholds',
-                     _RESEED_OPTIONAL_FIELDS if reseed_in_flight else ())
+    admitted = _admitted(reseed_in_flight, _RESEED_OPTIONAL_FIELDS)
+    _required_fields(
+        data,
+        _TOP_LEVEL_FIELDS + tuple(
+            f for f in _RESEED_OPTIONAL_FIELDS if not admitted[f]),
+        'thresholds',
+        tuple(f for f in _RESEED_OPTIONAL_FIELDS if admitted[f]))
     schema = _number(data['schema_version'], 'schema_version')
     if schema != _SCHEMA_VERSION or schema != schema.to_integral_value():
         raise ValueError(
@@ -197,16 +203,17 @@ def normalise(data, reseed_in_flight):
     normalised = {
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
-        REPARSE_FAMILY: _reparse(data[REPARSE_FAMILY]),
     }
-    if SUITE_COST_FAMILY in data:
-        # PRESENCE, never emptiness: `"suite_cost": {}` is a family that
-        # is present and malformed, and validating on emptiness would
-        # normalise it to the same absent family only the marker can
-        # authorise — a hand-deleted budget reaching the no-budget
-        # state on any tree. Here it is refused, marker or no marker,
-        # exactly as master refused it.
-        normalised[SUITE_COST_FAMILY] = _suite_cost(data[SUITE_COST_FAMILY])
+    # PRESENCE, never emptiness, for either family: `"reparse": {}` is a
+    # family that is present and malformed, and validating on emptiness
+    # would normalise it to the same absent family only the marker can
+    # authorise — a hand-deleted budget reaching the no-budget state on
+    # any tree. Present families validate exactly as master did.
+    for family in _RESEED_OPTIONAL_FIELDS:
+        if family in data:
+            normalised[family] = (_suite_cost(data[family])
+                                  if family == SUITE_COST_FAMILY
+                                  else _reparse(data[family]))
     for member in BASELINE_MEMBERS:
         normalised[member] = _baseline(data[member], member)
     return normalised
@@ -344,8 +351,15 @@ def module_size_baseline(data, reseed_in_flight=None):
 
 
 def reparse(data, reseed_in_flight=None):
-    """The reparse bench's records: phase -> metric -> measured/floor."""
-    return dict(normalise(data, verdict(reseed_in_flight))[REPARSE_FAMILY])
+    """The reparse bench's records: phase -> metric -> measured/floor.
+
+    Empty inside the reparse re-seed window — while any commit in the
+    walk's span from HEAD back to the last family-present one carries
+    the family's marker (reseed.py): no budget exists to read. A
+    budget-carrying tip reads exactly as it always did.
+    """
+    family = normalise(data, verdict(reseed_in_flight)).get(REPARSE_FAMILY)
+    return dict(family) if family else {}
 
 
 def _json_ready(value):
@@ -428,6 +442,8 @@ def _reparse_pair(data, phase_metric, field, reseed_in_flight=None):
     loader's own messages speak of the document."""
     phase, metric = phase_metric
     records = reparse(data, reseed_in_flight)
+    if not records:
+        raise ValueError('no reparse budget — re-seed in flight')
     if phase not in records:
         raise ValueError(f'unknown reparse phase: {phase}')
     if metric not in records[phase]:

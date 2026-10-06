@@ -450,7 +450,10 @@ def test_reparse_family_seed_to_arbitrary_values_is_clean(tmp_path):
 
 def test_removed_reparse_member_fails(tmp_path):
     # Deleting the family would leave the bench with no floors at all.
-    # The loader refuses such a head, so the bytes are hand-placed.
+    # The loader refuses such a head OUTSIDE the family's own re-seed
+    # window (issue #698: the [reparse-re-seed] marker, reseed.py), so
+    # the bytes are hand-placed; the verdict follows THIS tree's own
+    # declaration, exactly as the suite-cost removal above it does.
     base = _document()
     head = _document()
     head.pop("reparse")
@@ -458,8 +461,11 @@ def test_removed_reparse_member_fails(tmp_path):
     head_path = tmp_path / "head.json"
     head_path.write_text(json.dumps(head, indent=2, default=float),
                          encoding="utf-8")
+    declared = _reseed().in_flight(
+        REPO_ROOT, family=_thresholds().REPARSE_FAMILY)
     assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == 1
+        "--base", str(base_path), "--head", str(head_path)]) == (
+        0 if declared else 1)
 
 
 def test_main_prints_the_suite_cost_remedy(tmp_path, capsys):

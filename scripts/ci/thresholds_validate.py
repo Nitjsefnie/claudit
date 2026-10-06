@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib
 import json
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 
 _INVALID_PATH_CHARS = set('<>:"|?*')
 _DEVICE_NAMES = {
@@ -208,6 +209,41 @@ def suite_identity(value, name):
     return int(result)
 
 
+class ReseedVerdict(NamedTuple):
+    """One tree's per-family re-seed answer (reseed.py).
+
+    The fields ARE the two re-seedable families, in the order the
+    re-seed module's ``in_flight`` names them: a field's truth is that
+    family's marker being read in the bounded walk, which admits THAT
+    family's absence and no other's — the shape the loader takes, and
+    what a caller states explicitly when it means to pin the verdict.
+    """
+
+    suite_cost: bool
+    reparse: bool
+
+
+def admitted(reseed_in_flight, families):
+    """Which of ``families`` the verdict admits the absence of.
+
+    A ``ReseedVerdict`` answers per family, by its own field. A bare
+    bool is the legacy single-family spelling — the shape every caller
+    predating the second marker spelled — and maps True to the FIRST
+    family only, False to strict. Anything else is the caller
+    forgetting the verdict: a refusal naming the one named way to ask.
+    """
+    if isinstance(reseed_in_flight, ReseedVerdict):
+        return {family: bool(getattr(reseed_in_flight, family))
+                for family in families}
+    if isinstance(reseed_in_flight, bool):
+        return {family: (family == families[0] and reseed_in_flight)
+                for family in families}
+    raise ValueError(
+        'reseed_in_flight must be a thresholds_validate.ReseedVerdict '
+        '(or the legacy single-family bool), not None: ask '
+        'thresholds.verdict() for the tree answer')
+
+
 def verdict(reseed_in_flight=None):
     """The re-seed verdict to validate under: asked of the TREE unless a
     caller states one.
@@ -219,6 +255,9 @@ def verdict(reseed_in_flight=None):
     while its caller read the tree, and a document the loader accepted
     would be refused one frame lower -- on the master-only ratchet step,
     on every push.
+
+    The answer is the per-family ``ReseedVerdict``: one probe per
+    re-seedable family (reseed.py), each its own bounded walk.
     """
     if reseed_in_flight is not None:
         return reseed_in_flight
@@ -230,4 +269,6 @@ def verdict(reseed_in_flight=None):
     # answer a question it never asks.
     # pylint: disable-next=import-outside-toplevel
     reseed = importlib.import_module('reseed')
-    return reseed.in_flight()
+    return ReseedVerdict(
+        suite_cost=reseed.in_flight(family=reseed.SUITE_COST_FAMILY),
+        reparse=reseed.in_flight(family=reseed.REPARSE_FAMILY))
