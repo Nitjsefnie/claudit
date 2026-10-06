@@ -40,8 +40,14 @@ _MIN_FALLBACK_MARGIN_S = 1.0
 # not in wall time: the timeouts the reap passes asyncio.wait_for are
 # recorded at that seam, and must sum to at most one budget — the per-child
 # shape sums to N budgets. The numbers are argument floats, so runner load
-# cannot flip the verdict; a wall ceiling here read 0.61s of runner stall
-# against a 0.5s bound on the Windows leg (issue #736).
+# cannot flip the verdict (the +1e-9 in the comparison absorbs clock
+# rounding; a per-child sum clears the ceiling by five orders of
+# magnitude); a wall ceiling here read 0.61s of runner stall against a
+# 0.5s bound on the Windows leg (issue #736). One catch the wall ceiling
+# had is dropped deliberately: 0.5–5s of real whole-budget slowness that
+# never passes the seam (a sleep ahead of the loop) is now invisible — a
+# planted 0.6s sleep leaves both reap tests green — and that is the
+# accepted price of a bound that cannot judge the shape on runner load.
 _REAP_BUDGET_S = 0.2
 _WEDGED_CHILDREN = 3
 
@@ -321,11 +327,13 @@ async def test_the_reap_bounds_itself_as_a_whole_not_per_child(monkeypatch):
             api_export.reap_live_renders(_REAP_BUDGET_S), timeout=5.0)
 
     assert waits, (
-        "the reap issued no bounded wait at all: a budget that never waits "
-        "is the shape the companion test below exists to catch, and an "
-        "empty recording would pass the sum here for free")
+        "the reap issued no bounded wait at the asyncio.wait_for seam: a "
+        "budget that never waits is the shape the companion test below "
+        "exists to catch, and an empty recording would pass the sum here "
+        "for free — if the reap moved to another wait primitive, this is "
+        "the assertion that says so")
     waited = sum(t for t in waits if t is not None)
-    assert waited <= _REAP_BUDGET_S, (
+    assert waited <= _REAP_BUDGET_S + 1e-9, (
         f"the reap's bounded waits summed to {waited:.2f}s against a "
         f"{_REAP_BUDGET_S}s budget: the wait is bounded per CHILD, so N live "
         f"renders spend N times the stop budget's share (issue #414)")
