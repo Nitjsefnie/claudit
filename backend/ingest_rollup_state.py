@@ -16,8 +16,9 @@ log = logging.getLogger("claudit.ingest")
 # replayed copies store model `unknown` — and their `subagents/…` file key
 # sorts before the parent's `wire.jsonl`, so a bare file_key ordering let
 # them win the dedup and the Models panel showed usage every other copy
-# attributes as `unknown`. NULL is unattributed too. `unknown` is the lane
-# parsers' fallback; `(unknown)` is the Claude path's; `<synthetic>` is
+# attributes as `unknown`. NULL is unattributed too. The placeholder
+# spellings are HISTORICAL rows only: since #653/#688 no parser emits
+# them (a live model-less file is refused at parse); `<synthetic>` is
 # Claude's harness-fabricated stub model, which names no model at all
 # (issue #563, kept in lockstep with the browser's isAttributed).
 _UNATTRIBUTED = ("(COALESCE(model, '')"

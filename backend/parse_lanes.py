@@ -166,15 +166,17 @@ def lane_sidecar_agent_type(role: str) -> str:
 
 
 def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
-    """Refuse a lane parse whose rows name no model (issue #653).
+    """Refuse a parse whose rows name no model (issues #653, #688).
 
-    A lane row without a model is a code error — the model was never
+    A row without a model is a code error — the model was never
     actually unknown — so ingest fails loudly on the file instead of
-    storing an unattributed placeholder. The Claude path's own
-    `(unknown)` fallback is a different sentinel, out of scope here.
+    storing an unattributed placeholder. Every format routes through
+    here: the Claude path leaves a model-less line None, and both
+    placeholder spellings, `unknown` and `(unknown)`, are refused
+    outright.
     """
     for row in parsed["records"] + parsed["tool_uses"]:
-        if not row.get("model") or row["model"] == "unknown":
+        if not row.get("model") or row["model"] in ("unknown", "(unknown)"):
             raise ValueError(
                 f"{file_key}: a {fmt} row names no model; refusing the file "
                 "rather than storing an unattributed one (issue #653)")

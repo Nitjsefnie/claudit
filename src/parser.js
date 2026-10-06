@@ -305,7 +305,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
         const mergeKey = reqId || (typeof m.id === 'string' && m.id ? `msg:${m.id}` : '');
         const ev = {
           line: i + 1, type: 'assistant_usage', ts,
-          model: m.model || '(unknown)',
+          model: m.model || null, // model-less: null, the backend refuses the file (issue #688)
           // The serving host (OpenRouter only). Mirrors parse._provider.
           provider: (typeof m.provider === 'string' && m.provider.trim()) || null,
           requestId: reqId,
