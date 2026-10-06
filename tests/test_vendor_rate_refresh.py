@@ -529,8 +529,33 @@ def test_derived_key_matches_resolver_normalisation():
     from a catalog id is the key resolve() matches for a transcript naming
     the bare first-party model."""
     for vendor_prefix, slug in (("openai", "gpt-test-9.9"),
-                                ("z-ai", "glm-test-1.5"),
+                                ("z-ai", "GLM-Test-1.5"),
                                 ("moonshotai", "kimi-test-2"),
-                                ("anthropic", "claude-test-4.5")):
+                                ("anthropic", "Claude-Test-4.5")):
         assert vendor.derive_key(f"{vendor_prefix}/{slug}") == (
             pricing._normalise(slug))  # pylint: disable=protected-access
+
+
+def test_notice_leaves_an_existing_row_and_member_untouched():
+    """The not-tracked contract's second half: a model with a stored row
+    and meter membership whose source turns untracked keeps both, byte
+    for byte."""
+    banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                    overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                     write_1h=2.0)])
+    scheduled = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                       overrides=[{"utc_days": ["monday"], "utc_start": 0,
+                                   "utc_end": 100, "prompt": _per_token(1.0),
+                                   "completion": _per_token(5.0)}])
+    before, out1 = _run(
+        _doc(members=[], models={}),
+        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
+    assert GPT_KEY in before["models"] and GPT_KEY in before["long_context_models"]
+    after, out = _run(
+        before,
+        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0]
+    assert after["models"][GPT_KEY] == before["models"][GPT_KEY]
+    assert GPT_KEY in after["long_context_models"]
+    assert out.moves == []
