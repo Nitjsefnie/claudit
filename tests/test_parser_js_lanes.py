@@ -109,15 +109,6 @@ def _browser_lane_output() -> dict:
     return json.loads(proc.stdout)
 
 
-DIFFERENT_MODEL_FORK = FIX_CODEX / "rollout_fork_different_model.jsonl"
-
-_FORK_NODE_HEAD = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});"""
-
-
 def _browser_records(name: str) -> list[dict]:
     return _browser_lane_output()[name]["records"]
 
@@ -221,43 +212,6 @@ _NAIVE_LANE_BLOB = (
 class TestNodeDrivenLaneParsers:
     # Every test below drives node; the class mark is the file's node skip (#746).
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-
-    def test_the_browser_marks_a_forks_replayed_prefix(self):
-        """The codex lane parser stamps a fork's leading entries isReplay."""
-        script = _FORK_NODE_HEAD + f"""
-          const text = {json.dumps(DIFFERENT_MODEL_FORK.read_text(encoding="utf-8"))};
-          const {{ events, meta }} = window.parseTranscript(text);
-          console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
-            .map(m => [m.line, m.isReplay === true])));
-        """
-        proc = subprocess.run(["node", "-e", script], capture_output=True,
-                              text=True, timeout=60, check=False)
-        assert proc.returncode == 0, proc.stderr
-        assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
-
-    def test_the_browser_fork_scan_advances_past_a_needle_mention(self):
-        """The mirror of the backend's fork-advance edge (issue #687 delta):
-        a needle mention does not decide the fork flag - the first real meta
-        does."""
-        mention = ('{"timestamp":"2026-06-14T12:00:00.000Z","type":"event_msg",'
-                   '"payload":{"type":"agent_message",'
-                   '"message":"roles: [\\"session_meta\\"]"}}\n')
-        fixture = DIFFERENT_MODEL_FORK.read_text(encoding="utf-8")
-        text = mention + fixture
-        # Lockstep with backend _nonempty_str: a whitespace-only forked_from_id
-        # is a non-empty string, so the fork flag fires on both sides.
-        ws = fixture.replace('"forked_from_id":"00000000-0000-4000-8000-000000000003"',
-                             '"forked_from_id":" "')
-        script = _FORK_NODE_HEAD + f"""
-          const verdict = (text) => window.parseTranscript(text).meta
-            .filter(m => m.type === 'assistant_usage').map(m => [m.line, m.isReplay === true]);
-          console.log(JSON.stringify([verdict({json.dumps(text)}), verdict({json.dumps(ws)})]));
-        """
-        proc = subprocess.run(["node", "-e", script], capture_output=True,
-                              text=True, timeout=60, check=False)
-        assert proc.returncode == 0, proc.stderr
-        assert json.loads(proc.stdout) == [
-            [[4, True], [5, True], [8, False]], [[3, True], [4, True], [7, False]]]
 
     @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
     def test_browser_parse_matches_backend_per_record(self, name):

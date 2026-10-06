@@ -208,6 +208,28 @@ function parseLaneCodex(blob, opts) {
     for (const e of events) e.isReplay = e.line < firstDeclaredLine;
   }
 
+  // Cross-file record dedup (issue #713): the lane's derived record
+  // identities join the shared seenUuids map the way parser.js feeds the
+  // Claude path's line uuids — decide per assistant_usage entry, then
+  // this call's retraction drops the copies a standing winner outranks.
+  // Without it a parent and its fork loaded together keep BOTH copies of
+  // every replayed record and the Inspector double-counts replayed
+  // history. The dedup is record-level: a replayed tool_call's identity
+  // (call_id) is the tool_use_id keyspace, which no browser half mirrors
+  // yet. The winner's model adoption itself stays DB-side: a lone fork
+  // file has no parent to read, so its parse keeps the #653 fallback.
+  const seenUuids = (opts && opts.seenUuids) || null;
+  if (seenUuids && window.recordDedup) {
+    const stamps = new Map();
+    for (const m of meta) {
+      if (m.type !== 'assistant_usage' || !m.uuid) continue;
+      window.recordDedup.decide(seenUuids,
+        { uuid: m.uuid, model: m.model, isReplay: m.isReplay === true },
+        m.line, stamps);
+    }
+    window.recordDedup.retract(events, meta, stamps, seenUuids);
+  }
+
   lanePairToolEvents(events);
   return { events, meta };
 }
