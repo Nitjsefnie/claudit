@@ -54,6 +54,7 @@ lives in backfill_provider_rates.py.
 from __future__ import annotations
 
 import copy
+import http.client
 import json
 import sys
 import urllib.error
@@ -263,7 +264,8 @@ def _fetch(fetch: Fetch, model: str, source: object) -> object:
         raise RefreshError(f"{model}: openrouter entry needs an 'id'")
     try:
         return fetch(source["id"])
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, OSError,
+            ValueError) as exc:
         raise RefreshError(f"{model}: fetching {source['id']} failed: {exc}") from exc
 
 
