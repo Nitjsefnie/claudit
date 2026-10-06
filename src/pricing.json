@@ -493,7 +493,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-06T01:47:36Z",
+  "provider_rates_fetched": "2026-10-06T02:54:12Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2681,6 +2681,14 @@
           "from": null,
           "output": 0.5889156762,
           "read": 0.0165441975
+        },
+        {
+          "create_1h": 0.02552,
+          "create_5m": 0.02552,
+          "fresh": 0.02552,
+          "from": "2026-10-06T02:54:12Z",
+          "output": 1.408,
+          "read": 0.02552
         }
       ],
       "Parasail": [
@@ -4806,6 +4814,14 @@
           "from": null,
           "output": 0.3288778555,
           "read": 0.0144083699
+        },
+        {
+          "create_1h": 0.01298,
+          "create_5m": 0.01298,
+          "fresh": 0.01298,
+          "from": "2026-10-06T02:54:12Z",
+          "output": 1.408,
+          "read": 0.01298
         }
       ],
       "Parasail": [
@@ -8161,6 +8177,22 @@
           "from": "2026-10-06T01:40:40Z",
           "output": 4.2,
           "read": 0.24
+        },
+        {
+          "create_1h": 0.152,
+          "create_5m": 0.152,
+          "fresh": 0.152,
+          "from": "2026-10-06T02:10:19Z",
+          "output": 4.2,
+          "read": 0.15
+        },
+        {
+          "create_1h": 0.152,
+          "create_5m": 0.152,
+          "fresh": 0.152,
+          "from": "2026-10-06T02:15:27Z",
+          "output": 6.0,
+          "read": 0.15
         }
       ],
       "Sail Research": [
@@ -10761,6 +10793,14 @@
           "from": null,
           "output": 0.4972627392,
           "read": 0.0244132525
+        },
+        {
+          "create_1h": 0.03058,
+          "create_5m": 0.03058,
+          "fresh": 0.03058,
+          "from": "2026-10-06T02:54:12Z",
+          "output": 0.6875,
+          "read": 0.02013
         }
       ],
       "Parasail": [
@@ -10920,6 +10960,15 @@
           "note": "10% off",
           "output": 2.25,
           "read": 0.09
+        },
+        {
+          "create_1h": 0.4,
+          "create_5m": 0.4,
+          "fresh": 0.4,
+          "from": "2026-10-06T02:35:19Z",
+          "note": "20% off",
+          "output": 2.0,
+          "read": 0.08
         }
       ],
       "Relace": [
