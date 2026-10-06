@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import r2, timing
+from backend import blob_cache, r2, timing
 
 
 @pytest.fixture(name="mini_r2")
@@ -136,6 +136,67 @@ def test_get_stream_inflates_xz(mini_r2):
     )
     with r2.get_stream("claude/proj-a/sess-1/s.jsonl.xz") as fh:
         assert fh.read() == plain
+
+
+# ------------------------------------ get_object's blob cache (#684)
+
+def test_get_object_cache_hit_skips_the_read(mini_r2, monkeypatch, tmp_path):
+    """A (key, etag) hit answers from the disk cache: the mirror file is
+    rewritten underneath it and the cached bytes still come back."""
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    key = "claude/proj-a/sess-1/sess-1.jsonl"
+    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
+    (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl").write_bytes(b"CHANGED")
+    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
+
+
+def test_get_object_cache_miss_falls_through_to_the_object(
+        mini_r2, monkeypatch, tmp_path):
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    key = "claude/proj-a/sess-1/sess-1.jsonl"
+    # No entry yet: the miss reads the object and stores it for the next
+    # run, and a different etag is a different entry.
+    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
+    (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl").write_bytes(b"CHANGED")
+    assert r2.get_object(key, "etag-two", 7) == b"CHANGED"
+    assert r2.get_object(key, "etag-two", 7) == b"CHANGED"
+    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
+
+
+def test_get_object_cache_miss_on_size_mismatch(
+        mini_r2, monkeypatch, tmp_path):
+    """An entry whose length disagrees with the listing's reads as a
+    miss — the torn-write shape is refused, never served."""
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    key = "claude/proj-a/sess-1/sess-1.jsonl"
+    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
+    assert r2.get_object(key, "etag-one", 99) == b"hello\n"  # re-read, not served
+
+
+def test_get_object_cache_stores_raw_xz_bytes(
+        mini_r2, monkeypatch, tmp_path):
+    """The entry holds the compressed bytes; a hit inflates like the GET
+    would, so TIMING's decompress stage stays booked either way."""
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    plain = b'{"type":"user"}\n{"type":"assistant"}\n'
+    key = "claude/proj-a/sess-1/sess-1.jsonl.xz"
+    path = mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl.xz"
+    path.write_bytes(lzma.compress(plain))
+    compressed = path.read_bytes()
+    assert r2.get_object(key, "etag-xz", len(compressed)) == plain
+    cached = blob_cache.lookup(key, "etag-xz", None)
+    assert cached == compressed
+    path.unlink()
+    assert r2.get_object(key, "etag-xz", len(compressed)) == plain
+
+
+def test_get_object_without_etag_never_touches_the_cache(
+        mini_r2, monkeypatch, tmp_path):
+    """Serving and the bench speak the plain (key) shape: even with the
+    cache enabled, no entry is written or read."""
+    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    assert r2.get_object("claude/proj-a/sess-1/sess-1.jsonl") == b"hello\n"
+    assert not (tmp_path / "cache").exists()
 
 
 def test_path_traversal_blocked(mini_r2):

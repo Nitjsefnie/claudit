@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import NamedTuple
 
 from backend import key_layout, lane_markers, r2
-from backend.ingest_fetch import (
+from backend.ingest_resolve import (
     VanishedObject, record_failure as _record_failure, resolve as _resolve,
 )
 from backend.ingest_timing import _timed_step
