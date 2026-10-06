@@ -8,7 +8,39 @@
 <link rel="icon" href="/favicon.ico" sizes="32x32" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Preload the two latin faces (#643): a css2 face only STARTS downloading
+     when the first text that uses it paints — at React mount, seconds in —
+     so its metrics landed mid-layout and reflowed the page (measured
+     0.07-0.12 CLS at phone widths). Preloaded at parse, both files land
+     during the script-compile dead time, before anything is laid out.
+     display=block on the stylesheet keeps a slow network from painting the
+     fallback and swapping later; the fallback only takes over if the
+     request fails. -->
+<link rel="preload" href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2" as="font" type="font/woff2" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=block" rel="stylesheet">
+<script>
+// Eager font-face load (#643): faces register when the css2 stylesheet
+// lands (~1s) but load LAZILY — the first text that needs them paints at
+// React mount, seconds later, and the metrics landing mid-layout reflowed
+// the page (measured 0.07-0.12 CLS at phone widths). load() at parse time
+// runs against an empty document: the faces complete before anything is
+// laid out, so text paints once, already in its final metrics.
+if (document.fonts && document.fonts.load) {
+  ['400 16px Inter', '500 16px Inter', '600 16px Inter', '700 16px Inter',
+   '400 12px "JetBrains Mono"', '500 12px "JetBrains Mono"']
+    .forEach(f => document.fonts.load(f, 'ABCXYZabcxyz0123456789'));
+}
+</script>
+<!-- display=block (#643): a swap landing after first paint reflows every
+     text block as the webfont takes over. block holds text invisible for
+     up to 3s while the webfont loads, so the fallback never paints a frame
+     it would later reflow out of; with the preloads above the font is
+     typically ready before the first paint and the block period never
+     shows. optional was tried and rejected: it decides font-vs-fallback
+     per document within 100ms, so a warm cache flips the decision between
+     loads and a font-dependent height reads differently on each side of a
+     rendered comparison. -->
 <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
