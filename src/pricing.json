@@ -503,6 +503,14 @@
       "z-ai/glm-5-3-flash": {
         "id": "z-ai/glm-5.3-flash"
       }
+    },
+    "vendor": {
+      "resolve": {
+        "kimi-k2-7-code": {
+          "tag": "moonshotai/int4",
+          "why": "Moonshot lists kimi-k2.7-code under two tags at two prices: moonshotai/int4 at the existing hand row's own rates (0.95 fresh, 0.95 cache write, 0.19 cache read, 4 output per million) and moonshotai/highspeed, a speed tier at double. Pinned to int4: it is the list price the first-party row already tracks; highspeed is a throughput tier, not the list price."
+        }
+      }
     }
   },
   "provider_rates_fetched": "2026-10-07T07:54:20Z",

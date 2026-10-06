@@ -396,6 +396,12 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
     return result
 
 
+def _refusals(result: Result, outcome) -> list[str]:
+    """Both passes' refusals, the provider pass's own when no vendor pass
+    ran."""
+    return result.refusals + (outcome.refusals if outcome is not None else [])
+
+
 def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch_endpoints,
          fetch_models: FetchModels = refresh_pricelog.fetch_models,
          fetch_log: FetchLog = refresh_pricelog.fetch_listed_pricing,
@@ -404,17 +410,17 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
          vendor: Callable | None = refresh_vendor_rates.vendor_pass) -> int:
     args = _arguments(argv)
     stamp = detection_stamp(now or datetime.now(timezone.utc))
-    at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     try:
         result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp,
                          fetch_models, fetch_log)
         # The vendor pass runs on the provider pass's own document, after its
         # loader validation; it validates the would-be file again itself.
-        outcome = (vendor(result.doc, fetch_models, fetch, stamp, at)
+        outcome = (vendor(result.doc, fetch_models, fetch, stamp,
+                          datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
+                          .replace(tzinfo=timezone.utc))
                    if vendor is not None else None)
-        moved = bool(result.moves) or bool(outcome is not None and outcome.moves)
         constants = constants_path.read_text(encoding="utf-8")
-        if moved:
+        if result.moves or (outcome is not None and outcome.moves):
             constants = bump_pricing_version(constants)
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
@@ -423,7 +429,8 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
         body += "\n\n" + vendor_report(stamp, outcome)
     print(body)
-    if moved and not args.dry_run:
+    if (result.moves or (outcome is not None and outcome.moves)) \
+            and not args.dry_run:
         pricing_path.write_text(json.dumps(result.doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
@@ -431,9 +438,9 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
             args.commit_msg.write_text(
                 commit_message(result, body, outcome), encoding="utf-8")
     # Every other move is written; the run is still red, so a human sees it.
-    refusals = result.refusals + (outcome.refusals if outcome is not None else [])
-    if refusals:
-        print("\n".join(f"refresh_provider_rates: {r}" for r in refusals),
+    if _refusals(result, outcome):
+        print("\n".join(f"refresh_provider_rates: {r}"
+                        for r in _refusals(result, outcome)),
               file=sys.stderr)
         return 1
     return 0

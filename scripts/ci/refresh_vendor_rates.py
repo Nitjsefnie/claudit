@@ -34,8 +34,11 @@ rather than guessing:
   models); there is no first-party list price to track, and any row's own
   history stands untouched.
 
-An unmodelled listed shape refuses the model and appends nothing, with a
-reason in the run report:
+An unmodelled listed shape is a NOTICE — "not tracked: <reason>": no row
+is created and no existing row is touched. Red is reserved for ambiguity a
+human must resolve (multi-price without a pin, a stale or malformed pin),
+and for broken or unrecognised fetches — each clearing on a human action
+or a retry:
 
 - a pricing key outside PRICED at a nonzero price, unless it is a
   RECORDED_FEE (web_search). A fee is never dropped in silence, but on a
@@ -86,8 +89,15 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (PRICED, RECORDED_FEES, RefreshError,  # noqa: E402
                             is_zero, rates_of)
+from refresh_report import vendor_report  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
+
+
+class Untracked(RefreshError):
+    """A listed shape the table deliberately does not track: the model
+    is a NOTICE — no row created, no existing row touched — never red."""
+
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
@@ -122,9 +132,11 @@ class VendorOutcome:
 
 def derive_key(catalog_id: str) -> str:
     """The models-table key a catalog id derives: the slug, dot-folded —
-    ``openai/gpt-5.5`` → ``gpt-5-5``, the normalisation resolve() applies
-    to the transcript's own id (the prefix is routing; the dots are the
-    vendor's spelling)."""
+    ``openai/gpt-5.5`` → ``gpt-5-5``, the same normalisation resolve()
+    applies to a transcript naming the bare first-party id (the dots are
+    the vendor's spelling). Prefix parity is a bare-id claim: a transcript
+    spelling the vendor prefix is OpenRouter provider-row traffic, priced
+    by that table by design."""
     return catalog_id.partition("/")[2].replace(".", "-").lower()
 
 
@@ -162,13 +174,13 @@ def _split_overrides(price: dict, where: str) -> tuple[list, list]:
     for override in overrides:
         if _MIN_PROMPT in override:
             if set(override) & {"utc_days", "utc_start", "utc_end"}:
-                raise RefreshError(f"{where}: a band and utc fields on one "
-                                   "override is not modelled")
+                raise Untracked(f"{where}: a band and utc fields on one "
+                                "override is not modelled")
             bands.append(override)
             continue
         unknown = set(override) - {"utc_days", "utc_start", "utc_end", *PRICED}
         if unknown:
-            raise RefreshError(f"{where}: override kind not modelled: {sorted(unknown)}")
+            raise Untracked(f"{where}: override kind not modelled: {sorted(unknown)}")
         weekly.append(override)
     return bands, weekly
 
@@ -206,8 +218,8 @@ def _note_parts(price: dict, where: str) -> tuple[str, ...]:
         except InvalidOperation:
             amount = None
         if amount is None or not amount.is_finite() or amount < 0:
-            raise RefreshError(f"{where}: fee {key} {value!r} is not a nonnegative "
-                               "decimal string")
+            raise Untracked(f"{where}: fee {key} {value!r} is not a nonnegative "
+                            "decimal string")
         parts.append(f"{key} ${format(amount.normalize(), 'f')} per tool call on "
                      "the listing: not a per-request cost")
     return tuple(parts)
@@ -225,27 +237,27 @@ def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, tuple[str, ..
     for key, value in price.items():
         if (key not in (*PRICED, *RECORDED_FEES, "discount", "overrides")
                 and not is_zero(value)):
-            raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
+            raise Untracked(f"{where}: pricing {key} {value!r} is not modelled")
     rates = rates_of(price, where)
     bands, weekly = _split_overrides(price, where)
     if weekly:
-        raise RefreshError(f"{where}: a weekly schedule: a models row carries "
-                           "no schedule")
+        raise Untracked(f"{where}: a weekly schedule: a models row carries "
+                        "no schedule")
     metered = False
     if bands:
         if len(bands) > 1:
-            raise RefreshError(f"{where}: {len(bands)} long-context bands are "
-                               "not modelled")
+            raise Untracked(f"{where}: {len(bands)} long-context bands are "
+                            "not modelled")
         band = bands[0]
         if set(band) - {*PRICED, _MIN_PROMPT}:
-            raise RefreshError(f"{where}: band kind not modelled: "
-                               f"{sorted(set(band) - {*PRICED, _MIN_PROMPT})}")
+            raise Untracked(f"{where}: band kind not modelled: "
+                            f"{sorted(set(band) - {*PRICED, _MIN_PROMPT})}")
         if not (isinstance(band.get("prompt"), str)
                 and isinstance(band.get("completion"), str)):
-            raise RefreshError(f"{where}: the band does not restate input and "
-                               "output: not modelled")
+            raise Untracked(f"{where}: the band does not restate input and "
+                            "output: not modelled")
         if not _meter_shape_ok(rates, band, rates_of(band, where)):
-            raise RefreshError(
+            raise Untracked(
                 f"{where}: long-context band departs from the meter "
                 f"({band.get(_MIN_PROMPT)!r} against the meter's "
                 f"{pricing.LONG_CONTEXT_THRESHOLD}): a models row cannot carry it")
@@ -298,10 +310,84 @@ def _append(entry: dict, stamp: str | None, rates: dict,
     return entry
 
 
+def _fold_membership(members: list, key: str, metered: bool) -> str:
+    """Fold `key` in or out of long_context_models per the listing, and
+    name the fold for the move."""
+    if metered and key not in members:
+        members.append(key)
+        return "+"
+    if not metered and key in members:
+        members.remove(key)
+        return "-"
+    return ""
+
+
+def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
+            outcome: VendorOutcome):
+    """The chosen listing, or None when the pass moves on: the findings
+    (no first-party endpoint, not-tracked, refusal) land in `outcome`."""
+    try:
+        selected = _choose(
+            model_id, _extract_endpoints(model_id, fetch_endpoints(model_id)),
+            ((doc.get("openrouter") or {}).get("vendor") or {}).get(
+                "resolve", {}).get(key))
+        if selected is None:
+            outcome.notices.append(
+                f"{model_id}: the vendor lists no first-party endpoint; skipped")
+        return selected
+    except Untracked as exc:
+        outcome.notices.append(f"{model_id}: not tracked: {exc}")
+    except RefreshError as exc:
+        outcome.refusals.append(str(exc))
+    return None
+
+
+def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
+               stamp: str, at: datetime, outcome: VendorOutcome) -> None:
+    """One catalog id's selection, comparison and row write; findings land
+    in `outcome`. An Untracked shape notices; red stays for ambiguity,
+    pins and broken fetches."""
+    key = derive_key(model_id)
+    selected = _select(model_id, fetch_endpoints, doc, key, outcome)
+    if selected is None:
+        return
+    rates, metered, notes = selected
+    if doc["models"].get(key) is None:
+        membership = _fold_membership(members, key, metered)
+        doc["models"][key] = [_append({}, None, rates, notes)]
+        outcome.moves.append(VendorMove(
+            model_id, key, None, doc["models"][key][0], 1, membership))
+        return
+    newest = doc["models"][key][-1]
+    moved = any(round(float(newest[f]), 10) != round(float(rates[f]), 10)
+                for f in _RATE_FIELDS)
+    if moved and newest.get("from") is not None and pricing._instant(  # pylint: disable=protected-access
+            newest["from"], key) >= at:
+        outcome.notices.append(
+            f"{key}: the stored newest entry is dated {newest['from']}, not "
+            "before the detection instant; the row was left untouched")
+        return
+    membership = _fold_membership(members, key, metered)
+    if not moved and not membership:
+        return
+    if moved:
+        doc["models"][key].append(_append({}, stamp, rates, notes))
+        outcome.moves.append(VendorMove(
+            model_id, key, {f: newest[f] for f in _RATE_FIELDS},
+            doc["models"][key][-1], 1, membership))
+        return
+    outcome.moves.append(VendorMove(model_id, key, None, rates, 0, membership))
+
+
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints, stamp: str,
                 at: datetime) -> VendorOutcome:
     """One vendor pass over `doc` (mutated in place: models rows and
-    long_context_models), returning the moves and what a human must read."""
+    long_context_models), returning the moves and what a human must read.
+    An unmodelled shape is a NOTICE — "not tracked: <reason>": no row is
+    created and no existing row is touched. Red is reserved for ambiguity a
+    human must resolve (multi-price without a pin, a stale or malformed
+    pin), and for broken or unrecognised fetches — each clearing on a human
+    action or a retry."""
     outcome = VendorOutcome()
     try:
         ids = catalog_ids(fetch_models())
@@ -312,56 +398,7 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints, stamp: str,
         return outcome
     members: list = doc.setdefault("long_context_models", [])
     for model_id in ids:
-        key = derive_key(model_id)
-        pin = ((doc.get("openrouter") or {}).get("vendor") or {}).get(
-            "resolve", {}).get(key)
-        try:
-            endpoint = _choose(model_id, _extract_endpoints(
-                model_id, fetch_endpoints(model_id)), pin)
-            if endpoint is None:
-                outcome.notices.append(
-                    f"{model_id}: the vendor lists no first-party endpoint; skipped")
-                continue
-            rates, metered, notes = endpoint
-        except RefreshError as exc:
-            outcome.refusals.append(str(exc))
-            continue
-        history = doc["models"].get(key)
-        if history is None:
-            membership = ""
-            if metered and key not in members:
-                members.append(key)
-                membership = "+"
-            entry = _append({}, None, rates, notes)
-            doc["models"][key] = [entry]
-            outcome.moves.append(VendorMove(model_id, key, None, entry, 1, membership))
-            continue
-        newest = history[-1]
-        changed = any(round(float(newest[f]), 10) != round(float(rates[f]), 10)
-                      for f in _RATE_FIELDS)
-        if changed and newest.get("from") is not None and pricing._instant(  # pylint: disable=protected-access
-                newest["from"], key) >= at:
-            outcome.notices.append(
-                f"{key}: the stored newest entry is dated {newest['from']}, not "
-                "before the detection instant; the row was left untouched")
-            continue
-        membership = ""
-        if metered and key not in members:
-            members.append(key)
-            membership = "+"
-        elif not metered and key in members:
-            members.remove(key)
-            membership = "-"
-        if not changed and not membership:
-            continue
-        if changed:
-            entry = _append({}, stamp, rates, notes)
-            history.append(entry)
-            outcome.moves.append(VendorMove(
-                model_id, key, {f: newest[f] for f in _RATE_FIELDS}, entry, 1,
-                membership))
-        else:
-            outcome.moves.append(VendorMove(model_id, key, None, rates, 0, membership))
+        _one_model(doc, members, model_id, fetch_endpoints, stamp, at, outcome)
     members.sort()
     # The loaders' rules, run on what would be written: among them, a
     # member naming no models-table key, and a models entry with fields
@@ -383,7 +420,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    from refresh_report import vendor_report  # local import: report shape only
     try:
         doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
         vendor = vendor_pass(doc, refresh_pricelog.fetch_models,
