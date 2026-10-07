@@ -4,11 +4,15 @@
 An OpenRouter host whose listed price moves inside a range and returns to
 levels it has held before is dynamic, not repriced: the hourly refresh
 appended every move, so master gained a commit and a PRICING_VERSION bump
-nearly every hour. This is the one-time, human-reviewed rewrite that gives
-each such row the band the hourly run then maintains (SV-RATE-REFRESH,
-SV-RATE-DATA): the row keeps its own start, its five rate fields become
-the time-weighted mean over its history, and a band spans every level it
-held. STEP and STABLE rows are left exactly as they are.
+nearly every hour. This is the one-time, human-reviewed whole-history pass
+that gives each such row the band the hourly run then maintains (issues
+#640, #663; SV-RATE-REFRESH, SV-RATE-DATA): the row keeps its own start,
+its five rate fields become the time-weighted mean over the window that
+classified it, and the band spans the window's levels — an old level far
+from the oscillation neither widens the band nor pulls the mean. STEP and
+STABLE rows are left exactly as they are. The hourly run forms bands
+itself (issue #664), so no rerun is needed to stop the churn going
+forward.
 
 No row is rewritten here that the classifier does not call TOGGLE or BAND,
 and the report names every host it collapsed, because a host whose prices
@@ -45,7 +49,8 @@ from backend import pricing  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
-DEFAULT_DAYS = 7.0
+# The collapse's default window is the band machinery's own.
+DEFAULT_DAYS = price_band.WINDOW_DAYS
 _AS_OF = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
@@ -96,7 +101,7 @@ def collapse(doc: dict, days: float, as_of: str) -> tuple[dict, list[str], set[s
             if shape not in price_band.OSCILLATING:
                 continue
             try:
-                collapsed = price_band.collapse(history, at)
+                collapsed = price_band.collapse(history, at, days)
             except ValueError as exc:
                 reports.append(f"  {model} via {host}: kept {len(history)} "
                                f"entries ({shape}); {exc}")
