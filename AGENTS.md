@@ -127,6 +127,9 @@ backend/          — FastAPI application
                     the paths they write. Needs-to-run → 0, never guessed
   bash_churn_errors.py — whether a heredoc write survives a later
                     stage's failure
+  bash_heredocs.py — what a heredoc opener's context means (patch,
+                    python, file write) and diff-body hunk counts; split
+                    from bash_churn for size
   pricing.py      — model and (model, provider) rate resolution; logic
                     only (SV-RATE-DATA, SV-PROVIDER-RATES)
   pricing_load.py — loads src/pricing.json's rate tables, checked, at

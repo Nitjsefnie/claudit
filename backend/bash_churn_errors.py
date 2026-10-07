@@ -5,9 +5,9 @@ import posixpath
 import re
 import shlex
 
-from backend.bash_churn import (
-    MAX_COMMAND_CHARS,
-    BashCommand,
+from backend.bash_churn import BashCommand, MAX_COMMAND_CHARS
+from backend.bash_heredocs import (
+    _FD_TARGET,
     _NULL_SINKS,
     _REDIRECT,
     _TEE,
@@ -39,7 +39,8 @@ def _verbatim_targets(context: str) -> list[str]:
                     break
                 targets.append(tok)
             seen_tee = seen_tee or posixpath.basename(tok) == "tee"
-    return [t for t in targets if t and t not in _NULL_SINKS]
+    return [t for t in targets if t and t not in _NULL_SINKS
+            and not _FD_TARGET.fullmatch(t)]
 
 
 def churn_survives_error(command: str, error_text: str) -> bool:
