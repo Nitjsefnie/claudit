@@ -455,26 +455,23 @@ async function seedPickerPagingShift(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the no-shift rule: arm a one-shot resize listener that drops
-// a tall element into the strip on the next width change — a DOM
-// injection standing in for whatever would make a re-fit grow the row.
-// A flex-row item taller than the chips grows the line's cross size, so
-// the strip's row — and its box — gets taller without wrapping (chips
-// are 28px tall; 64 wins). The rule's interaction (its own resize)
-// detonates it.
+// Seed for the no-shift rule: arm a one-shot resize listener that
+// pushes the content below the strip down on the next width change — a
+// DOM injection standing in for whatever would wedge space under the
+// row. The strip's own box stays constant (a margin is outside it), so
+// the SEAT limb of the comparison gets this proof alone; the height
+// limb's isolating proof is the paging seed's padding growth. The
+// rule's interaction (its own resize) detonates it.
 async function seedPickerShift(page) {
   return page.evaluate((sel) => {
     const strip = document.querySelector(sel);
     if (!strip) return null;
     const onResize = () => {
-      const tall = document.createElement('div');
-      tall.style.height = '64px';
-      tall.setAttribute('data-seeded-shift', 'yes');
-      strip.appendChild(tall);
+      strip.style.marginBottom = '64px';
       window.removeEventListener('resize', onResize);
     };
     window.addEventListener('resize', onResize);
-    return { armed: 'strip grows 64px on next resize' };
+    return { armed: 'content below moves 64px down on next resize' };
   }, PICKER_SEL);
 }
 
@@ -611,6 +608,9 @@ export const RULES = [
     },
   },
   {
+    // Keep LAST in RULES: its run turns the picker to page 2 on the
+    // shared unseeded page (only the viewport is restored), so a rule
+    // appended after it would measure a paged picker.
     id: 'project-picker-no-shift-paging',
     description: 'the picker\'s row keeps its height and its seat while'
       + ' the pager turns a page, and the page really turns (#774)',
