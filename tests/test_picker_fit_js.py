@@ -218,16 +218,39 @@ def test_compute_fit_reserves_the_jump_from_the_measure_row():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_compute_fit_clamps_to_one_chip_when_nothing_fits():
-    """Below the width of All + pager + one chip the fit clamps to ONE
-    chip per page (#807): the degenerate strip still reaches every
-    project, and the jump's index / perPage never divides by zero (perPage
-    0 showed empty pages and a NaN page counter). The clamp is computeFit
-    policy — the pure fitCount still returns 0 for the same widths (pinned
-    by test_fit_boundary_is_exact_fits_and_over_breaks' zeroAvail)."""
+def test_compute_fit_returns_zero_when_nothing_fits():
+    """Below the width of All + pager + one chip the page size is zero:
+    the fit stays truthful (0 = room for none). The component floors the
+    page at one PINCHED chip (picker.jsx, #807) and the chip's pp-only
+    CSS keeps it inside the strip — computeFit itself still measures 0,
+    so the rendered guard's red proof keeps its overflowing shape."""
     r = _stub_strip(inner=400, gap=6, widths=(500,), all_w=40,
                     pager_core=100)
-    assert r == 1
+    assert r == 0
+
+
+def test_picker_floors_the_degenerate_page_at_one_pinched_chip():
+    """#807: a strip too narrow for any full chip still pages one project
+    at a time and never shows NaN. The JSX glue floors the measured fit
+    at one for paging (Math.max(1, perPage)) and gates the forced chip's
+    inline shrink-to-fit style on the pinched state, so the chip takes
+    exactly the room left after All and the pager. Plain chips keep
+    flex-shrink: 0 — the rendered guard's red proof seeds plain chips,
+    which must still overflow."""
+    body = _picker_body()
+    assert "Math.max(1, perPage)" in body, (
+        "ProjectPicker does not floor the page size at one chip — a strip "
+        "too narrow for any chip shows empty pages and a NaN pager (#807)")
+    assert "pinched ? {" in body, (
+        "ProjectPicker does not gate the pinched chip's style on the "
+        "pinched state — the forced chip renders at its natural width and "
+        "overflows the strip")
+    assert "textOverflow" in body, (
+        "the pinched chip's style does not ellipsize — a long project name "
+        "overflows the strip instead of truncating")
+    assert "flex-shrink: 0" in _css(), (
+        "plain chips lost flex-shrink: 0 — a squeezed chip wraps (#643) "
+        "and the rendered guard's seeded chips would stop overflowing")
 
 
 # --- the JSX wiring (source pins) ---------------------------------------
@@ -243,6 +266,10 @@ def _picker_body() -> str:
     src = PICKER.read_text(encoding="utf-8")
     start = src.index("function ProjectPicker(")
     return src[start:]
+
+
+def _css() -> str:
+    return (ROOT / "public" / "app.css").read_text(encoding="utf-8")
 
 
 def test_picker_measures_in_a_layout_effect():
