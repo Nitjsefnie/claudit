@@ -14,8 +14,8 @@ A class-level ``pytestmark`` is the documented skip shape for a class
 whose every test drives node, and a per-test skipif the shape for one
 test; both are checked (#759), as is a mark inherited through a
 same-file base chain or a conditional class-body mark (#776): a node
-skip - own mark, its class's, inherited, or conditional - must ride a
-test that itself runs node, judged by its
+skip - own, class's, inherited, or conditional - must ride a test that
+itself runs node, judged by its
 transitive same-file call closure grounding in a node string constant
 (a helper chain resolves; the issue's purely-syntactic trap is the
 chain the closure exists to resolve). Decorators are excluded from
@@ -25,7 +25,9 @@ prose must not ground its closure). Residuals, disclosed: a helper
 outside the ``tests.`` package (or a conftest fixture) resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
 direction; a mark predicate built without a node string (a module
-variable) is invisible to the scan; an out-of-file base collects no mark (#776); and the grounding
+variable) is invisible to the scan; a base the walk cannot resolve (out of
+file, dotted, called) collects no mark; the chain-walk ORs every same-file
+base, matching pytest's own MRO-wide mark accumulation (#776); and the grounding
 scan itself is
 substring-wide over the whole body, so an incidental node string in a
 marked test's body (an assert message, a payload variable) grounds
@@ -315,9 +317,8 @@ def test_marks_nested_in_class_body_conditionals_are_detected() -> None:
 
 
 def test_the_mro_walk_descends_the_base_s_own_conditionals() -> None:
-    """The MRO walk collects the base's mark through the same
-    conditional-descending walk: a base's if-wrapped mark reaches the child,
-    while a conditional mark that never mentions node checks nothing."""
+    """The MRO walk descends the base's own conditionals too; a conditional
+    mark that never mentions node checks nothing."""
     base = ("import shutil\nimport pytest\nclass TestBase:\n    if True:\n"
             "        pytestmark = pytest.mark.skipif(\n"
             '            shutil.which("node") is None,\n            reason="node not available")\n')
