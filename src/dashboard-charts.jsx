@@ -628,7 +628,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
     Math.max(60, w * 0.45),
     Math.ceil(Math.max(labelPx, estLabelPx)) + 20
   );
-  const padR = 60, padT = 32;
+  const labMax = Math.floor((padL - 16) / monoAdvancePx(11)); const padR = 60, padT = 32;
   const plotW = Math.max(10, w - padL - padR);
   const max = Math.max(1, ...rows.map(r => r.value));
   const xMax = max * 1.4;
@@ -682,7 +682,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
               style={{ cursor: 'pointer' }}>
               <rect x={0} y={y} width={w} height={32} fill="transparent" />
               <text data-hbar-label="" x={padL - 8} y={y + 18} fontSize="11" fill={TH.text}
-                textAnchor="end" fontFamily="monospace">{r.label}</text>
+                textAnchor="end" fontFamily="monospace">{r.label.length > labMax ? r.label.slice(0, Math.max(1, labMax - 1)) + '\u2026' : r.label}<title>{r.label}</title></text>
               <rect data-hover-target="" x={padL} y={y + 4} width={Math.max(2, barW)}
                 height={26} fill={c} fillOpacity={isHover ? 0.85 : 0.3} />
               <text x={padL + barW + 8} y={y + 22} fontSize="11" fontWeight="bold"
