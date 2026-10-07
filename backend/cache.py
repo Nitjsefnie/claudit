@@ -13,6 +13,8 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
+from backend.cache_outcomes import OutcomeCounters
+
 log = logging.getLogger("claudit.cache")
 
 
@@ -121,8 +123,13 @@ class _TTLCache:
     cold path once an hour — and cold means 8s+ for the dashboard. It now
     calls ``invalidate()``, which bumps a generation counter so existing
     entries read as STALE but stay servable. A stale hit is returned
-    immediately and refreshed in the background; the TTL remains the hard
-    limit past which an entry is dropped and must be recomputed inline.
+    immediately and refreshed in the background; the TTL is a soft bound
+    on served age, not a drop: an entry past it is served stale exactly
+    like a generation-stale one, because dropping it put the request on
+    the cold inline path — the cold build a first open after a quiet gap
+    paid (issue #641). The ``max_entries`` cap stays the hard bound on
+    memory, and it is the only thing that drops an entry while it is
+    being served.
 
     The per-key locks that single-flight a cold compute live here too
     (``lock_for``), and are reclaimed whenever their entry is dropped or
@@ -141,6 +148,20 @@ class _TTLCache:
         self._generation = 0
         self._guard = threading.Lock()
         self._key_locks: dict[str, threading.Lock] = {}
+        self.counters = OutcomeCounters()
+
+    def outcomes(self) -> dict[str, int]:
+        """Every outcome counter, zero included, so a /health scraper
+        never distinguishes 'zero' from 'missing key'."""
+        return self.counters.outcomes()
+
+    def count(self, **deltas: int) -> None:
+        """Count request/background outcomes (see cache_outcomes)."""
+        self.counters.count(**deltas)
+
+    def _take_since(self) -> dict[str, int]:
+        """Return and zero the since-last-invalidate window."""
+        return self.counters.take_window()
 
     def lock_for(self, key: str) -> threading.Lock:
         """Return the single-flight lock for `key`, creating it once."""
@@ -175,21 +196,34 @@ class _TTLCache:
             self._reclaim_lock(key)
 
     def get_entry(self, key: str) -> tuple[Any, bool] | None:
-        """Return ``(value, is_stale)``, or None on miss/expiry."""
+        """Return ``(value, is_stale)``, or None on miss.
+
+        An entry past its TTL reads STALE, not absent: serving it costs
+        nothing and the recompute moves off the request path, where
+        dropping it put every first open after a quiet gap (issue #641).
+        The entry heals when the refresh's put re-stamps its timestamp.
+        """
         with self._guard:
             item = self._items.get(key)
             if item is None:
                 return None
             value, ts, generation = item
             if time.time() - ts > self.ttl_seconds:
-                self._items.pop(key, None)
-                self._reclaim_lock(key)
-                return None
+                return value, True
             return value, generation != self._generation
 
     def get(self, key: str) -> Any | None:
-        entry = self.get_entry(key)
-        return None if entry is None else entry[0]
+        """The raw value, or None when absent OR past its TTL — the unit
+        accessor, not a serving path (the serving paths read
+        ``get_entry``, which serves the expired entry stale)."""
+        with self._guard:
+            item = self._items.get(key)
+            if item is None:
+                return None
+            value, ts, _gen = item
+            if time.time() - ts > self.ttl_seconds:
+                return None
+            return value
 
     def current_generation(self) -> int:
         """The generation a compute starting now must stamp its entry with.
@@ -244,9 +278,18 @@ class _TTLCache:
             self._reclaim_lock(k)
 
     def invalidate(self) -> None:
-        """Mark every entry stale WITHOUT dropping it."""
+        """Mark every entry stale WITHOUT dropping it.
+
+        Also logs the outcome counters accumulated since the last
+        invalidate, so the journal carries the cache outcomes of one
+        inter-ingest window per line — the split by ingest overlap the
+        slow-open investigation needs, with no post-hoc joining (issue
+        #641).
+        """
         with self._guard:
             self._generation += 1
+        log.info("response-cache outcomes since the last invalidate: %s",
+                 self._take_since())
 
     def clear(self) -> None:
         with self._guard:
@@ -276,13 +319,22 @@ def _schedule_refresh(key: str, fn: Callable[..., dict], kwargs: dict[str, Any])
 
     def _run() -> None:
         try:
+            entry = response_cache.get_entry(key)
+            if entry is not None and not entry[1]:
+                # A warm (or another refresh) healed this key while ours
+                # sat queued behind them: recomputing would double a full
+                # build (issue #641).
+                response_cache.count(refresh_skip_fresh=1)
+                return
             # Capture BEFORE the compute: an invalidate() landing mid-run
             # must leave the entry born stale (issue #371).
             generation = response_cache.current_generation()
             response_cache.put(key, fn(**kwargs), generation=generation)
+            response_cache.count(refresh_run=1)
         except Exception:
             # A failed refresh leaves the stale entry in place, which is
             # the whole point — better stale than a 500 or an 8s wait.
+            response_cache.count(refresh_error=1)
             log.exception("background refresh failed for %s", key)
         finally:
             with _refreshing_guard:
@@ -348,6 +400,7 @@ def warm(fn: Callable[..., dict], **overrides: Any) -> None:
             with response_cache.lock_for(key):
                 entry = response_cache.get_entry(key)
                 if entry is not None and not entry[1]:
+                    response_cache.count(warm_skip_fresh=1)
                     return  # someone beat us to it; nothing left to warm
                 # Claim the key in `_refreshing` for the duration of the
                 # compute. The entry is still stale, so a request arriving
@@ -357,12 +410,14 @@ def warm(fn: Callable[..., dict], **overrides: Any) -> None:
                 # (issue #641, review).
                 with _refreshing_guard:
                     if key in _refreshing:
+                        response_cache.count(warm_skip_inflight=1)
                         return  # a refresh is already computing this key
                     _refreshing.add(key)
                 try:
                     generation = response_cache.current_generation()
                     response_cache.put(
                         key, target(**kwargs), generation=generation)
+                    response_cache.count(warm_run=1)
                 finally:
                     with _refreshing_guard:
                         _refreshing.discard(key)
@@ -373,6 +428,7 @@ def warm(fn: Callable[..., dict], **overrides: Any) -> None:
             # Without this the warm leaks a lock per failing key — and it
             # runs right after `invalidate()`, where the database is
             # busiest and a blip is likeliest.
+            response_cache.count(warm_error=1)
             response_cache.reclaim_failed_lock(key)
             log.exception("cache warm failed for %s %r", fn.__qualname__, overrides)
 
@@ -395,6 +451,7 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
     - fresh hit  → return it.
     - stale hit  → return it IMMEDIATELY and refresh in the background.
       Serving slightly-old numbers beats blocking a page load for 8s+.
+      An entry past its TTL takes this path too (issue #641).
     - miss       → compute inline, single-flighted per key so a burst of
       concurrent cold requests (a dashboard fires ~7 at once) runs the
       query once instead of N times.
@@ -410,7 +467,10 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
         if entry is not None:
             value, is_stale = entry
             if is_stale:
+                response_cache.count(stale_hit=1)
                 _schedule_refresh(key, fn, kwargs)
+            else:
+                response_cache.count(fresh_hit=1)
             return value
 
         try:
@@ -418,14 +478,17 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
                 # Another thread may have populated it while we queued.
                 entry = response_cache.get_entry(key)
                 if entry is not None:
+                    response_cache.count(miss_waited=1)
                     return entry[0]
                 # Capture BEFORE the compute (issue #371): an invalidate()
                 # landing mid-compute must leave the entry born stale.
                 generation = response_cache.current_generation()
                 result = fn(**kwargs)
                 response_cache.put(key, result, generation=generation)
+                response_cache.count(miss_inline=1)
                 return result
         except BaseException:  # noqa: BLE001
+            response_cache.count(miss_error=1)
             response_cache.reclaim_failed_lock(key)
             raise
 

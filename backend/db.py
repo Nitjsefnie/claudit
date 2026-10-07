@@ -128,6 +128,18 @@ def reset_viz_pool() -> None:
     _VIZ = None
 
 
+def viz_pool_statistics() -> dict:
+    """Current viz-pool gauges for /health's cache readout (issue #641):
+    requests_waiting is the acquire-queue depth; {} when no pool exists,
+    because its absence must not gain /health a failure mode."""
+    try:
+        stats = viz_pool().get_stats()
+    except Exception:  # noqa: BLE001 - a readout must not fail the readout
+        return {}
+    return {k: stats[k] for k in
+            ("pool_available", "pool_max", "pool_size", "requests_waiting")}
+
+
 def auth_pool() -> ConnectionPool:
     global _AUTH
     if _AUTH is None:

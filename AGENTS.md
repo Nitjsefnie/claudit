@@ -150,7 +150,8 @@ backend/          — FastAPI application
   ingest_walk.py  — project identity and stored-version helpers
   ingest_persist.py — `_persist`: one file per transaction, INSERT
                     columns and placeholders one per line, same order
-  ingest_progress.py — /health progress readout
+  ingest_progress.py — /health: progress readout, the cache block
+                    (outcome counters + pool gauges), last-ingest row
   ingest_timing.py — per-run timing state
   ingest_scope.py — per-run dirty scope and derived-state fingerprint
                     (SV-ROLLUP, SV-SCHEMA-AUTOAPPLY)
@@ -198,6 +199,8 @@ backend/          — FastAPI application
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
                     READ-ONLY); pools never join across DBs
   cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
+  cache_outcomes.py — the response cache's outcome counters; invalidate()
+                    logs the since-last-invalidate window, /health the totals
   blob_cache.py   — disk blob cache for unchanged R2 objects, keyed
                     (bucket-qualified key, etag), raw compressed bytes,
                     best-effort, mtime-LRU prune (#684)

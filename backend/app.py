@@ -18,7 +18,6 @@ from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
     HTMLResponse,
-    JSONResponse,
     Response,
 )
 from starlette.datastructures import MutableHeaders
@@ -36,6 +35,10 @@ db.load_dotenv(str(_REPO_ROOT / ".env"))
 # pylint: disable=wrong-import-position
 from backend import api, agent_types, api_export, constants, events, ingest, login, r2, session  # noqa: E402
 from backend import branding  # noqa: E402
+# /health lives in ingest_progress (its readout module) since the cache
+# block joined the response (issue #641); app.py was at the module-size
+# ceiling and could not grow it.
+from backend.ingest_progress import health  # noqa: E402
 # pylint: enable=wrong-import-position
 
 log = logging.getLogger("claudit.app")
@@ -278,83 +281,10 @@ app.middleware("http")(session.auth_middleware)
 app.add_middleware(_SecurityHeaders)
 app.include_router(login.router)
 app.include_router(api.router)
-
-
-@app.get("/health")
-def health() -> Response:
-    parser_version = constants.PARSER_VERSION
-    last_ingest = None
-    try:
-        with db.viz_conn() as c:
-            row = c.execute(
-                "SELECT id, started_at, finished_at, trigger, "
-                "r2_listed, reparsed, newer, error "
-                "FROM ingest_runs ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if row:
-                error = r2.redact(row[7])
-                if error:
-                    # Net for rows stored by older builds; new rows are
-                    # count-only at the source.
-                    error = re.sub(
-                        r"(?s)^(\d+ objects? failed after retries):.*", r"\1", error)
-                last_ingest = {
-                    "id": row[0],
-                    "started_at": row[1].isoformat() if row[1] else None,
-                    "finished_at": row[2].isoformat() if row[2] else None,
-                    "trigger": row[3],
-                    "r2_listed": row[4],
-                    "reparsed": row[5],
-                    "newer": row[6],
-                    "error": error,
-                }
-    except Exception:  # noqa: BLE001
-        # Driver text can name hosts, databases, buckets — the public
-        # body gets a generic message; the details go to the logs.
-        log.exception("health: database query failed")
-        # A status-code monitor (curl -fsS, an LB probe) never parses the
-        # body, so failing only in the body reads as healthy to it. 503
-        # carries the same JSON fields (issue #104).
-        return JSONResponse(
-            status_code=503,
-            content={
-                "ok": False, "db": False, "error": "database unavailable",
-                "version": constants.VERSION,
-                "parser_version": parser_version,
-                "now": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-    # Live progress for the run in flight. ingest_runs only gains its
-    # counters in the final UPDATE, which is written only after the
-    # derived-state rebuilds finish — so a caller watching that row sees
-    # nothing for minutes, then "done" with the rollups already rebuilt;
-    # the progress readout below is what shows the rebuilds in flight.
-    prog = ingest.progress_snapshot()
-    running = prog.get("phase") not in (None, "idle")
-    ingest_progress = None
-    if running:
-        done, total = prog.get("done") or 0, prog.get("total") or 0
-        ingest_progress = {
-            "phase": prog.get("phase"),
-            "done": done,
-            "total": total,
-            "pct": round(100.0 * done / total, 1) if total else None,
-            "run_id": prog.get("run_id"),
-            "started_at": prog.get("started_at"),
-        }
-
-    return JSONResponse(content={
-        "ok": True, "db": True,
-        "ingest_running": running,
-        "ingest_progress": ingest_progress,
-        "last_ingest": last_ingest,
-        # Which build is answering. The DB-error branch above reports it
-        # too: "which version is broken" is exactly the question asked when
-        # /health is failing, so it must not be the field that goes missing.
-        "version": constants.VERSION,
-        "parser_version": parser_version,
-        "now": datetime.now(timezone.utc).isoformat(),
-    })
+# /health lives in ingest_progress (its readout module) since the cache
+# block joined the response (issue #641); app.py was at the module-size
+# ceiling and could not grow it.
+app.get("/health")(health)
 
 
 @app.post("/admin/ingest")
