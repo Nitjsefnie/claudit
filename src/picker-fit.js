@@ -34,8 +34,10 @@
   const SLACK = 1;
 
   // Read the strip and return its page size: how many project chips fit
-  // beside the All chip and the reserves. Returns 0..len; the component
-  // applies the number as its page size.
+  // beside the All chip and the reserves. Returns null for an
+  // unmeasurable strip (absent or zero-width), else 0..len; the
+  // component applies the number as its page size, floored at one chip
+  // (#807).
   //
   // Chip widths come from the hidden measure row (.pp-measure), not the
   // real chips: the real strip renders only the fitted slice, so its own
@@ -73,7 +75,11 @@
     const room0 = Math.max(0, inner - allW - gap);
     if (fitCount(room0, widths, gap, 0) >= len) return len; // no pager ever
 
-    // A pager will render; reserve its core as rendered (jump excluded).
+    // Not everything fits beside All. With len > 1 a pager will render
+    // once the fit lands (the applied size then sits below len, so the
+    // component's pageCount is >= 2); with one project the pageCount
+    // stays 1 and no pager ever renders — the DOM guard below finds none
+    // and reserves nothing. Reserve the core as rendered (jump excluded).
     const pager = strip.querySelector('.pp-pager');
     let core = 0;
     if (pager) {
