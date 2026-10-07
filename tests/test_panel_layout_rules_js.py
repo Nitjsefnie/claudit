@@ -508,6 +508,33 @@ def test_multichart_rule_id_and_tagged_rule_id_registered():
     assert "section-gap-consistency" in out
     assert "legend-strips-tagged" in out
     assert "legend-below-plot-multichart" in out
+    assert "panel-label-fits" in out
+
+
+def test_picker_rule_family_registered():
+    """The picker shift rules are one rule per limb, each with its own
+    seed (#808), the pinched-page rules cover #821, and the two
+    two-limb rules they replace are gone."""
+    out = _node("console.log(JSON.stringify(mod.RULES"
+                ".map((r) => r.id)));")
+    for rid in (
+        "project-picker-overflow",
+        "project-picker-overflow-after-paging",
+        "project-picker-scrollbar",
+        "project-picker-no-shift-height",
+        "project-picker-no-shift-seat",
+        "project-picker-no-shift-paging-height",
+        "project-picker-no-shift-paging-seat",
+        "project-picker-no-shift-paging-position",
+        "project-picker-underfill",
+        "project-picker-pinched-nonempty",
+        "project-picker-pinched-pager-present",
+        "project-picker-pinched-pager-sane",
+        "project-picker-pinched-complete",
+    ):
+        assert rid in out, f"{rid} not registered"
+    assert "project-picker-no-shift" not in out
+    assert "project-picker-no-shift-paging" not in out
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
