@@ -60,3 +60,13 @@ def test_fd_digit_two_with_filename_books_nothing():
     """`2>& file` is a bash ambiguous-redirect error — nothing runs, so
     the scan books nothing rather than a guessed write."""
     assert scan("echo hi 2>& two.txt", "/work") == (None, [], [])
+
+
+@pytest.mark.parametrize("command,target", [
+    ("echo hi >& 2f.txt", "/work/2f.txt"),
+    ("echo hi >& 22sep.txt", "/work/22sep.txt"),
+])
+def test_fd_dup_predicate_is_not_a_leading_digit_read(command, target):
+    """The dup predicate is all-digits-or-`-`, fullmatch: a filename that
+    merely STARTS with a digit is a file and books (#802)."""
+    assert scan(command, "/work")[2] == [target]
