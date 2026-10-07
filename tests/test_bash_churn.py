@@ -507,3 +507,33 @@ def test_interpreter_given_by_path_is_still_python(interp):
            "open(p, 'w').write(t.replace('a\\nb', 'c'))\n"
            "PY\n")
     assert bash_churn(cmd) == (1, 2)
+
+
+@pytest.mark.parametrize("redirect", [">", ">|", "&>", "&>>", ">&"])
+def test_heredoc_cat_books_churn_through_every_stream_spelling(redirect):
+    """Bash writes the heredoc body into the target whatever the
+    redirect spelling: `>|` clobbers, `&>`/`&>>` and `>& file` take
+    stdout+stderr, and each books the body like plain `>` (#803, #802)."""
+    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (3, 0)
+
+
+@pytest.mark.parametrize("redirect", [">&2", "2>&1", ">&-"])
+def test_heredoc_cat_through_an_fd_dup_books_no_churn(redirect):
+    """`>& digits` duplicates and `>&-` closes: the body goes to a
+    stream, never a file, so no churn is booked (#803)."""
+    command = f"cat <<EOF {redirect}\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (0, 0)
+
+
+def test_stream_redirect_into_a_pipe_target_counts_the_churn_line():
+    """`2>| g.txt` clobbers g.txt exactly like `2>`: SV-BASH-CHURN
+    counts one added line per call for a recognized write of unknown
+    addition size, whatever the spelling (#805)."""
+    assert bash_churn("grep x f.py 2>| g.txt") == (1, 0)
+
+
+def test_echo_into_fd_dup_filename_books_its_payload():
+    """`>& file` is a real stdout sink, so echo's payload books like it
+    does behind `&>` (#802)."""
+    assert bash_churn("echo hi >& both.txt") == (1, 0)

@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from backend.bash_dash_c import _PYTHON_STDIN, _dash_c_sources
 from backend.bash_literals import MAX_LITERAL_CHARS, ShellWord, shell_tokens
 from backend.bash_effects import effects_from_tokens
+from backend.bash_heredocs import (_NULL_SINKS, diff_churn as _diff_churn,
+                                   heredoc_context_kind as _heredoc_context_kind)
 from backend.bash_loops import heredoc_repeats
 
 # Commands longer than this are pathological (a base64 blob, a giant
@@ -32,15 +34,6 @@ MAX_COMMAND_CHARS = 1_000_000
 _HEREDOC_OPEN = re.compile(
     r"<<(-?)\s*(?:'([^']*)'|\"([^\"]*)\"|([A-Za-z_][A-Za-z0-9_]*))"
 )
-
-# A redirect to a path, ignoring fd duplication (`2>&1`, `>&2`).
-_REDIRECT = re.compile(r"(?<![0-9<>&])>>?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";&|<>()]+))")
-
-_CAT = re.compile(r"(?:^|[|;&(]|\s)cat\b")
-_TEE = re.compile(r"(?:^|[|;&(]|\s)tee\b")
-_PATCH = re.compile(r"(?:^|[|;&(]|\s)(?:git\s+apply|patch)\b")
-
-_NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 
 # Attribute writes that put bytes on disk. `sys.stdout.write` is excluded
 # by name below — it is the one common `.write` that is not a file.
@@ -121,42 +114,6 @@ def _split_heredocs(command: str) -> tuple[list[tuple[str, str]], str]:
                 i += 1
             pairs.append((context, "\n".join(body)))
     return pairs, "\n".join(leftover)
-
-
-def _writes_to_a_file(context: str) -> bool:
-    """True when this heredoc's body lands in a file verbatim."""
-    if _TEE.search(context):
-        return True
-    if not _CAT.search(context):
-        return False
-    targets = [m.group(1) or m.group(2) or m.group(3)
-               for m in _REDIRECT.finditer(context)]
-    return any(t and t not in _NULL_SINKS for t in targets)
-
-
-def _heredoc_context_kind(context: str) -> str | None:
-    """Classify an opener context with churn's existing precedence."""
-    if _PATCH.search(context):
-        return "patch"
-    if _PYTHON_STDIN.search(context):
-        return "python"
-    if _writes_to_a_file(context):
-        return "file"
-    return None
-
-
-def _diff_churn(body: str) -> tuple[int, int]:
-    """+/- hunk lines of a unified diff. The `+++`/`---` file headers
-    name files, they do not change lines."""
-    added = deleted = 0
-    for line in body.split("\n"):
-        if line.startswith("+++") or line.startswith("---"):
-            continue
-        if line.startswith("+"):
-            added += 1
-        elif line.startswith("-"):
-            deleted += 1
-    return added, deleted
 
 
 def _const_str(node: ast.expr) -> str | None:
