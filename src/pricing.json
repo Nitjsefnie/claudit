@@ -1162,7 +1162,13 @@
         }
       },
       "z-ai/glm-5-3-flash": {
-        "id": "z-ai/glm-5.3-flash"
+        "id": "z-ai/glm-5.3-flash",
+        "resolve": {
+          "Parasail": {
+            "tag": "parasail/fp4",
+            "why": "Parasail lists glm-5.3-flash under two fp4 endpoints at two prices: parasail/fp4 at the model's list price (fresh 0.15, output 0.5, cache read 0.03 per million) and a dearer parasail/fast throughput tier (1.25x on every rate). No bare parasail tag exists, so the fast-tier rule cannot take a base. Pinned to parasail/fp4: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          }
+        }
       }
     },
     "vendor": {
