@@ -388,7 +388,7 @@ def _pipeline_payloads(tokens: list[ShellWord], inherited: bool | None) -> list[
         empty_input = any(t.operator and t in ("<&", "0<&", "<", "0<")
                           and i + 1 < len(stage) and stage[i + 1] in ("-", "/dev/null")
                           for i, t in enumerate(stage))
-        other_sink = any(t.operator and re.fullmatch(r"[2-9][0-9]*(?:>>|>\|?)", t)
+        other_sink = any(t.operator and re.fullmatch(r"(?:[2-9]|[0-9]{2,})[0-9]*(?:>>|>\|?)", t)
                          and i + 1 < len(stage) and _file_sink(stage[i + 1])
                          for i, t in enumerate(stage))
         stage = []

@@ -602,3 +602,13 @@ def test_word_adjacent_digit_is_a_word_not_an_fd_prefix():
     unknown-size line stands (#819)."""
     command = "cat <<EOF f1> out.txt\nl1\nl2\nl3\nEOF\n"
     assert bash_churn(command) == (1, 0)
+
+
+@pytest.mark.parametrize("fd", ["11>", "10>", "100>"])
+def test_heredoc_sink_line_through_multi_digit_fds(fd):
+    """An fd of two or more digits still opens the target: bash creates
+    f.txt before the command runs, so the redirect is a recognized write
+    of unknown addition size — the same one line a single-digit fd
+    counts (#854)."""
+    command = f"cat <<EOF {fd} f.txt\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (1, 0)
