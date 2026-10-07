@@ -66,46 +66,122 @@ export const COLLECT_SELECTOR =
 
 // Over `boxes` ([{ name, x, y, w, h }], viewport coords), return every
 // vertically adjacent pair — stacked, horizontally overlapping, neither
-// containing the other — whose gap is under `minGap`. Side-by-side grid
-// columns, interleaved (overlapping) boxes and contained cards never
-// pair, so the rule reads stacked sections and nothing else.
-export function gapViolations(boxes, minGap = GAP_MIN) {
+// containing the other — as { upper, lower, gap }, whatever the gap.
+// Side-by-side grid columns, interleaved (overlapping) boxes and
+// contained cards never pair, so the gap rules read stacked sections and
+// nothing else. gapViolations thresholds the pairs; gapConsistencyViolations
+// compares ADJACENT pairs against the expected container distance.
+
+// The stacking primitives both enumerations share. `boxContains` is the
+// containment skip (their edges may disagree by CONTAIN_TOL and the two
+// are still one section holding the other); `stackedGap` orients a pair
+// — upper above lower, real horizontal overlap — and reports its gap,
+// or null when the boxes interleave or barely overlap.
+const boxContains = (outer, inner) =>
+  inner.x >= outer.x - CONTAIN_TOL
+  && inner.y >= outer.y - CONTAIN_TOL
+  && inner.x + inner.w <= outer.x + outer.w + CONTAIN_TOL
+  && inner.y + inner.h <= outer.y + outer.h + CONTAIN_TOL;
+
+const stackedGap = (a, b) => {
+  let upper;
+  let lower;
+  // Stacked, in one order or the other: the lower must start at or
+  // below the upper's bottom (within NOISE), or the boxes interleave.
+  if (b.y >= a.y + a.h - NOISE) [upper, lower] = [a, b];
+  else if (a.y >= b.y + b.h - NOISE) [upper, lower] = [b, a];
+  else return null;
+  // Vertically adjacent requires real horizontal overlap: grid
+  // columns side by side share a row but never an x-range.
+  const overlap = Math.min(upper.x + upper.w, lower.x + lower.w)
+    - Math.max(upper.x, lower.x);
+  if (overlap <= 0.5 * Math.min(upper.w, lower.w)) return null;
+  return {
+    upper,
+    lower,
+    gap: Math.round((lower.y - (upper.y + upper.h)) * 10) / 10,
+  };
+};
+
+export function stackedPairs(boxes) {
   const live = boxes.filter(b => b.w > 0 && b.h > 0);
   const sorted = [...live].sort((a, b) => a.y - b.y || a.x - b.x);
-  const contains = (outer, inner) =>
-    inner.x >= outer.x - CONTAIN_TOL
-    && inner.y >= outer.y - CONTAIN_TOL
-    && inner.x + inner.w <= outer.x + outer.w + CONTAIN_TOL
-    && inner.y + inner.h <= outer.y + outer.h + CONTAIN_TOL;
   const out = [];
   for (let i = 0; i < sorted.length; i++) {
     for (let j = i + 1; j < sorted.length; j++) {
-      const a = sorted[i];
-      const b = sorted[j];
-      if (contains(a, b) || contains(b, a)) continue;
-      // Stacked, in one order or the other: the lower must start at or
-      // below the upper's bottom (within NOISE), or the boxes interleave.
-      let upper;
-      let lower;
-      if (b.y >= a.y + a.h - NOISE) [upper, lower] = [a, b];
-      else if (a.y >= b.y + b.h - NOISE) [upper, lower] = [b, a];
-      else continue;
-      // Vertically adjacent requires real horizontal overlap: grid
-      // columns side by side share a row but never an x-range.
-      const overlap = Math.min(upper.x + upper.w, lower.x + lower.w)
-        - Math.max(upper.x, lower.x);
-      if (overlap <= 0.5 * Math.min(upper.w, lower.w)) continue;
-      const gap = lower.y - (upper.y + upper.h);
-      if (gap < minGap) {
+      if (boxContains(sorted[i], sorted[j])
+        || boxContains(sorted[j], sorted[i])) continue;
+      const g = stackedGap(sorted[i], sorted[j]);
+      if (g) {
         out.push({
-          upper: upper.name,
-          lower: lower.name,
-          gap: Math.round(gap * 10) / 10,
+          upper: g.upper.name,
+          lower: g.lower.name,
+          gap: g.gap,
+          upperMb: g.upper.mb || 0,
+          lowerMt: g.lower.mt || 0,
         });
       }
     }
   }
   return out;
+}
+
+// ADJACENT stacked pairs only (#796): the FIRST stacked, non-contained
+// successor of each box in y-order, and the scan stops there. For the
+// sections this rule reads — boxes many pixels tall, sibling gaps at
+// or above the GAP_MIN floor — sorted-by-y nearest emission IS
+// adjacency: any box stacked between a pair sorts before the further
+// member and pairs with the earlier box first. The claim is scoped:
+// a box at most CONTAIN_TOL + NOISE tall nested inside its neighbour's
+// edge — its predecessor's bottom edge (e.g. y=0 h100, y=99.5 h1,
+// y=116) or the top edge of the box below at a 1px gap — is
+// containment-skipped against that neighbour, so nearest emission
+// pairs across it where a between-box search would have suppressed
+// the pair. An equality rule over EVERY stacked pair would fire on
+// sections pages apart — the flex gap is a property of neighbours,
+// so neighbours are what the rule reads.
+export function adjacentStackedPairs(boxes) {
+  const live = boxes.filter(b => b.w > 0 && b.h > 0);
+  const sorted = [...live].sort((a, b) => a.y - b.y || a.x - b.x);
+  const out = [];
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      const a = sorted[i];
+      const b = sorted[j];
+      if (boxContains(a, b) || boxContains(b, a)) continue;
+      const g = stackedGap(a, b);
+      if (!g) continue;
+      out.push({
+        upper: g.upper.name,
+        lower: g.lower.name,
+        gap: g.gap,
+        upperMb: g.upper.mb || 0,
+        lowerMt: g.lower.mt || 0,
+      });
+      break;
+    }
+  }
+  return out;
+}
+
+export function gapViolations(boxes, minGap = GAP_MIN) {
+  return stackedPairs(boxes).filter((p) => p.gap < minGap);
+}
+
+// The gap-consistency classifier (#796): every ADJACENT stacked pair of
+// a flex-column stack sits at `expected` (the dashboard's own row gap)
+// plus the pair's own margins — flex adds the gap to whatever the
+// margins contribute, so the header's margin-bottom is legitimate while
+// a drifted or vanished container gap is not. Violations carry the
+// expected distance so the printout names what the page owed.
+export function gapConsistencyViolations(boxes, expected, tol = NOISE) {
+  return adjacentStackedPairs(boxes)
+    .map((p) => ({
+      ...p,
+      expected: Math.round((expected
+        + p.upperMb + p.lowerMt) * 10) / 10,
+    }))
+    .filter((p) => Math.abs(p.gap - p.expected) > tol);
 }
 
 // --- the in-page collectors --------------------------------------------
@@ -116,10 +192,11 @@ export function gapViolations(boxes, minGap = GAP_MIN) {
 // travels as an argument.
 //
 // Two notions, both structural and list-free:
-//   section — an effective flex item of .dashboard: a boxed child, or a
-//             descendant promoted through display:contents ancestors
-//             (the self-fetch wrapper becomes display:contents in the
-//             fix for #772, promoting its children to sections);
+//   section — an effective flex item of .dashboard: a boxed direct
+//             child. The self-fetch wrapper is one since the #772 fix
+//             gave it display:flex column with its own 14px gap, so the
+//             wrapper is the section and the panels inside it are its
+//             cards;
 //   card    — the topmost element below its section on a marked
 //             element's ancestor chain. data-panel sits on the chart
 //             svg, and inner wrappers (the tooltip's position:relative
@@ -169,8 +246,9 @@ export const COLLECT_PROBE = (selector) => {
 
 // Per [data-panel] element: the panel's own box, its CARD box, and
 // every [data-role] region scoped to that card. The card is the
-// effective section of .dashboard holding the mark (boxed children,
-// promoted through display:contents): the chart svgs are display:block,
+// effective section of .dashboard holding the mark (a boxed direct
+// child; the wrapper is boxed since the #772 fix, so the panels inside
+// it stop their climb there): the chart svgs are display:block,
 // so a boxed ancestor climb stops at the svg and never sees the legend
 // strips that are html siblings of it (#773). Sections only exist
 // inside .dashboard; without one, fall back to the nearest boxed
@@ -264,6 +342,74 @@ async function seedZeroGap(page) {
   });
 }
 
+// In-page (#796): the flex-column stacks of the page and their effective
+// boxed children, with the children's own vertical margins — the raw
+// material for gapConsistencyViolations. .dashboard is always the first
+// group; every boxed direct child that computes to flex column (the
+// self-fetch wrapper since #772) adds one more. The expected distance
+// lives on the rule side: it is the dashboard's own row gap for EVERY
+// group, whatever the group's own gap says — a wrapper whose gap drifted
+// from the dashboard's is exactly the finding (#772's regression shape).
+const GAP_CONTAINERS_PROBE = () => {
+  const dash = document.querySelector('.dashboard');
+  if (!dash) return { error: 'no .dashboard on the page' };
+  const isBoxed = (el) => {
+    const d = getComputedStyle(el).display;
+    return d !== 'inline' && d !== 'contents';
+  };
+  const effective = (parent) => [...parent.children].flatMap(
+    (c) => (isBoxed(c) ? [c] : effective(c)),
+  );
+  const nm = (el) => (el.className && String(el.className).trim())
+    || el.tagName.toLowerCase();
+  const boxOf = (el) => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return {
+      name: nm(el),
+      x: r.x, y: r.y, w: r.width, h: r.height,
+      mt: parseFloat(s.marginTop) || 0,
+      mb: parseFloat(s.marginBottom) || 0,
+    };
+  };
+  const dashGap = parseFloat(getComputedStyle(dash).rowGap) || 0;
+  const groups = [{ name: nm(dash), boxes: effective(dash).map(boxOf) }];
+  for (const c of effective(dash)) {
+    const s = getComputedStyle(c);
+    if (s.display === 'flex' && s.flexDirection === 'column') {
+      groups.push({ name: nm(c), boxes: effective(c).map(boxOf) });
+    }
+  }
+  return { dashboardGap: dashGap, groups };
+};
+
+// Seed for the gap-consistency rule's red proof (#796): shrink the
+// flex-column section's own gap to 4px — still above the vertical-gap
+// rule's 2px floor, so ONLY the consistency rule reads it — the drift
+// shape #772 shipped and #796 pins. A DOM injection on the fresh
+// reloaded page; no app change, no route.
+async function seedWrapperGap(page) {
+  return page.evaluate(() => {
+    const dash = document.querySelector('.dashboard');
+    if (!dash) return null;
+    const isBoxed = (el) => {
+      const d = getComputedStyle(el).display;
+      return d !== 'inline' && d !== 'contents';
+    };
+    const wrap = [...dash.children].filter(isBoxed).find((c) => {
+      const s = getComputedStyle(c);
+      return s.display === 'flex' && s.flexDirection === 'column';
+    });
+    if (!wrap) return null;
+    wrap.style.gap = '4px';
+    return {
+      wrapper: (wrap.className && String(wrap.className).trim())
+        || wrap.tagName.toLowerCase(),
+      gap: '4px',
+    };
+  });
+}
+
 // --- the legend-placement classifier (pure; node tests pin it) ---------
 //
 // Over owned chart groups — PANELS_OWNERSHIP_PROBE's output, one entry
@@ -293,48 +439,93 @@ export function legendBelowViolations(groups, eps = NOISE) {
   return out;
 }
 
+// The topmost plot of a multi-chart section (#797): the box with the
+// least y (ties keep the first). A section legend pairs against THIS
+// plot only — the convention the multichart rule holds is "not above
+// the section's charts", and a strip sitting under chart 1 of a stacked
+// grid must not fire against chart 2 below it (a union box would).
+export function topPlotBox(plots) {
+  let top = null;
+  for (const p of plots) {
+    if (!top || p.y < top.y) top = p;
+  }
+  return top;
+}
+
+// The multichart rule's wiring decision, extracted so the node tests
+// can pin it (#797): a SECTION group's legends pair against the
+// section's TOPMOST plot only — a strip under chart 1 of a stacked grid
+// must not fire against chart 2 below it, which a union-of-plots box
+// would make it do. Mark-owned groups pass through unchanged. This is
+// the decision a union refactor would silently flip; the between-charts
+// pin below fails on exactly that mutant.
+export function pairSectionLegendsTop(groups) {
+  return groups.map((g) => (g.section
+    ? { ...g, plots: [topPlotBox(g.plots)].filter(Boolean) }
+    : g));
+}
+
 // In-page: group every marked legend and plot under the chart it
 // belongs to. A role inside a marked svg belongs to that svg; an html
 // legend strip belongs to the nearest ancestor holding EXACTLY ONE
 // marked svg — the chart card. An ancestor with two or more marked svgs
-// (a grid section of chart cards) owns nothing: a legend there is
-// unattributable, so it pairs with no plot rather than firing against a
-// neighbouring card's chart, and a card holding several marked svgs
-// keeps its strips unowned too. That is the conservative reading: the
-// browser legs prove attribution where it exists (the seeded strip
-// fires) and no finding where it does not (the unseeded page is green).
+// (a grid section of chart cards) owns the strip itself (#797): the
+// group is flagged `section` with ALL its plots, and the shared run
+// pairs a section legend against the section's TOPMOST plot
+// (topPlotBox, on the node side — a function handed to page.evaluate
+// closes over nothing from this module), so a legend above the
+// section's charts fires while one under chart 1 of a stacked grid
+// does not pair against chart 2. A card holding several marked svgs
+// keeps its strips unowned (the climb never reaches such an ancestor
+// from inside a single-mark card), and a legend with no marked
+// ancestor at all pairs with nothing. The browser legs prove
+// attribution where it exists (the seeded strips fire) and no finding
+// where it does not (the unseeded page is green).
 const LEGEND_GROUPS_PROBE = () => {
   const boxOf = (el) => {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   };
   const SEL = '[data-panel]';
+  const nm = (el) => (el.className && String(el.className).trim())
+    || el.tagName.toLowerCase();
   const ownerOf = (el) => {
     const inner = el.closest(SEL);
     if (inner) return inner;
     for (let a = el.parentElement; a; a = a.parentElement) {
       const marks = a.querySelectorAll(SEL).length;
       if (marks === 1) return a.querySelector(SEL);
-      if (marks > 1) return null;
+      if (marks > 1) return a;
     }
     return null;
   };
   const groups = new Map();
-  for (const mark of document.querySelectorAll(SEL)) {
-    const plots = mark.matches('[data-role="plot"]')
-      ? [mark]
-      : [...mark.querySelectorAll('[data-role="plot"]')];
-    groups.set(mark, {
-      panel: mark.getAttribute('data-panel'),
-      plots: plots
+  const groupOf = (owner) => {
+    if (!groups.has(owner)) {
+      const isMark = owner.hasAttribute('data-panel');
+      const raw = isMark
+        ? (owner.matches('[data-role="plot"]')
+          ? [owner]
+          : [...owner.querySelectorAll('[data-role="plot"]')])
+        : [...owner.querySelectorAll('[data-role="plot"]')];
+      const plots = raw
         .map((el) => boxOf(el))
-        .filter((b) => b.w > 0 && b.h > 0),
-      legends: [],
-    });
-  }
+        .filter((b) => b.w > 0 && b.h > 0);
+      groups.set(owner, {
+        panel: isMark
+          ? owner.getAttribute('data-panel')
+          : `${nm(owner)} (multi-chart section)`,
+        section: !isMark,
+        plots,
+        legends: [],
+      });
+    }
+    return groups.get(owner);
+  };
+  for (const mark of document.querySelectorAll(SEL)) groupOf(mark);
   for (const el of document.querySelectorAll('[data-role="legend"]')) {
     const owner = ownerOf(el);
-    const group = owner && groups.get(owner);
+    const group = owner && groupOf(owner);
     if (!group) continue;
     const box = boxOf(el);
     if (box.w < 1 || box.h < 1) continue;
@@ -344,10 +535,18 @@ const LEGEND_GROUPS_PROBE = () => {
     });
   }
   return [...groups.values()].map((g) => ({
-    panel: g.panel,
-    plots: g.plots,
-    legends: g.legends,
+    panel: g.panel, plots: g.plots, legends: g.legends,
+    section: g.section || false,
   }));
+};
+
+// The shared run of both legend-below rules: the probe is serialized
+// into the page, where module bindings do not travel, so the
+// topmost-plot pairing for section groups comes from the node side,
+// through pairSectionLegendsTop.
+const legendBelowRun = async (ctx) => {
+  const groups = await ctx.page.evaluate(LEGEND_GROUPS_PROBE);
+  return legendBelowViolations(pairSectionLegendsTop(groups));
 };
 
 // Seed for the legend rule's red proof: inject a marked legend strip as
@@ -386,6 +585,107 @@ async function seedLegendAbovePlot(page) {
       strip.style.padding = '6px 14px';
       card.insertBefore(strip, card.firstChild);
       return { seeded: mark.getAttribute('data-panel') };
+    }
+    return null;
+  });
+}
+
+// In-page (#797): every element in the dashboard that is shaped like the
+// legend strips but carries no tag — two or more direct-child labels
+// holding checkbox colour keys (the one shape every strip in src/ shares
+// since #474 made the checkbox the colour key) — with the tagged strips
+// and everything inside them excluded. A cluster anywhere in the
+// dashboard is legend-shaped enough to measure: the dashboard is the
+// chart surface, and the page chrome around it holds no checkboxes.
+const UNTAGGED_LEGENDS_PROBE = () => {
+  const dash = document.querySelector('.dashboard');
+  if (!dash) return { error: 'no .dashboard on the page' };
+  const untagged = [];
+  for (const el of dash.querySelectorAll('*')) {
+    if (el.closest('[data-role="legend"]')) continue;
+    const rows = [...el.children]
+      .filter((c) => c.tagName === 'LABEL'
+        && c.querySelector('input[type="checkbox"]'));
+    if (rows.length >= 2) {
+      untagged.push({
+        name: (el.className && String(el.className).trim())
+          || el.tagName.toLowerCase(),
+        label: (el.textContent || '').trim().replace(/\s+/g, ' ')
+          .slice(0, 40),
+      });
+    }
+  }
+  return { untagged };
+};
+
+// Seed for the untagged rule's red proof (#797): inject a strip shaped
+// like the real ones — checkbox colour-key rows — WITHOUT the tag, into
+// a single-chart card. The below-plot rules never see it (no data-role),
+// so this seed fires the tag rule alone.
+async function seedUntaggedLegend(page) {
+  return page.evaluate(() => {
+    const dash = document.querySelector('.dashboard');
+    if (!dash) return null;
+    const isBoxed = (el) => {
+      const d = getComputedStyle(el).display;
+      return d !== 'inline' && d !== 'contents';
+    };
+    const effective = (parent) => [...parent.children].flatMap(
+      (c) => (isBoxed(c) ? [c] : effective(c)),
+    );
+    const sections = new Set(effective(dash));
+    for (const mark of document.querySelectorAll('[data-panel]')) {
+      let card = null;
+      for (let a = mark; a; a = a.parentElement) {
+        if (sections.has(a)) {
+          card = a;
+          break;
+        }
+      }
+      if (!card) continue;
+      if (card.querySelectorAll('[data-panel]').length !== 1) continue;
+      const strip = document.createElement('div');
+      for (let i = 0; i < 3; i++) {
+        const row = document.createElement('label');
+        const key = document.createElement('input');
+        key.type = 'checkbox';
+        row.appendChild(key);
+        row.appendChild(document.createTextNode(`seeded series ${i}`));
+        strip.appendChild(row);
+      }
+      card.insertBefore(strip, card.firstChild);
+      return { seeded: mark.getAttribute('data-panel') };
+    }
+    return null;
+  });
+}
+
+// Seed for the multichart rule's red proof (#797): inject a TAGGED
+// legend strip as the first child of a section holding two or more
+// marked panels — above the section's charts, the shape the ownership
+// gap left unmeasured. The tag keeps the untagged rule quiet, so this
+// seed fires the multichart rule alone.
+async function seedMultichartLegendAbovePlot(page) {
+  return page.evaluate(() => {
+    const dash = document.querySelector('.dashboard');
+    if (!dash) return null;
+    const isBoxed = (el) => {
+      const d = getComputedStyle(el).display;
+      return d !== 'inline' && d !== 'contents';
+    };
+    for (const c of [...dash.children].filter(isBoxed)) {
+      const marks = c.querySelectorAll('[data-panel]').length;
+      if (marks < 2) continue;
+      const strip = document.createElement('div');
+      strip.setAttribute('data-role', 'legend');
+      strip.textContent = 'seeded section legend';
+      strip.style.padding = '6px 14px';
+      c.insertBefore(strip, c.firstChild);
+      return {
+        seeded: (c.className && String(c.className).trim())
+          || c.tagName.toLowerCase(),
+        marks,
+      };
     }
     return null;
   });
@@ -489,13 +789,51 @@ export const RULES = [
     },
   },
   {
+    id: 'section-gap-consistency',
+    description: 'every flex-column stack (the dashboard itself and its'
+      + ' flex-column sections) sits at the dashboard\'s own row gap,'
+      + ' plus each pair\'s own margins — a section gap that drifts'
+      + ' from it is a finding (issue #796)',
+    seed: seedWrapperGap,
+    run: async (ctx) => {
+      const { dashboardGap, groups } = await ctx.page
+        .evaluate(GAP_CONTAINERS_PROBE);
+      const out = [];
+      for (const g of groups) {
+        out.push(...gapConsistencyViolations(g.boxes, dashboardGap));
+      }
+      return out;
+    },
+  },
+  {
     id: 'legend-below-plot',
     description: 'every legend renders below every plot of its own chart'
       + ' — the dashboard-wide legend convention (issue #773)',
     seed: seedLegendAbovePlot,
-    run: async (ctx) => legendBelowViolations(
-      await ctx.page.evaluate(LEGEND_GROUPS_PROBE),
-    ),
+    run: legendBelowRun,
+  },
+  {
+    id: 'legend-below-plot-multichart',
+    description: 'a legend in a multi-chart section renders below the'
+      + ' section\'s topmost plot — the same convention, measured where'
+      + ' single-chart attribution now finds an owner (issue #797)',
+    seed: seedMultichartLegendAbovePlot,
+    run: legendBelowRun,
+  },
+  {
+    id: 'legend-strips-tagged',
+    description: 'every legend-shaped strip (checkbox colour-key rows)'
+      + ' inside the dashboard carries data-role="legend", so the'
+      + ' below-plot rules can measure it (issue #797)',
+    seed: seedUntaggedLegend,
+    run: async (ctx) => {
+      const { untagged } = await ctx.page.evaluate(UNTAGGED_LEGENDS_PROBE);
+      return untagged.map((u) => ({
+        upper: `untagged legend "${u.label}"`,
+        lower: 'legend strip carries no data-role="legend" tag',
+        gap: 0,
+      }));
+    },
   },
   {
     id: 'project-picker-overflow',
