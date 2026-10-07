@@ -25,6 +25,7 @@ FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 PARSER_JS = ROOT / "src" / "parser.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 
 # The node skip rides only the one test that runs node (#743): the
 # backend pins below must hold wherever pytest runs, node or not.
@@ -63,7 +64,8 @@ def test_a_browser_claude_parse_keeps_a_modelless_record_null():
     )
     script = f"""
       global.window = {{}};
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(RATES_JS)!r});
+      require({str(PARSER_JS)!r});
       const {{ meta }} = window.parseTranscript({json.dumps(text)});
       console.log(JSON.stringify(
         meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));

@@ -17,6 +17,7 @@ from backend import prompt_gate
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "parser"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 
 PROMPT_LINES = {
@@ -58,6 +59,7 @@ def _node_prompt_results(transcripts: dict[str, str]) -> dict:
     script = f"""
       global.window = {{}};
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(transcripts)};
       const out = {{}};
