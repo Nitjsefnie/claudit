@@ -182,20 +182,14 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     setToolOverrides(prev => ({ ...prev, [k]: !selTools.has(k) }));
   }
 
-  // Per-model drawn lines for the checked models; the rate sequences
-  // and their EMA come from src/rate-series.js — plain JS, so the math
-  // is node-testable and the JSX stays layout-only.
-  const drawn = React.useMemo(() => {
-    const out = [];
-    for (const m of models) {
-      if (!selModels.has(m.model)) continue;
-      const perKey = window.rateSeries.buildModelSeries(
-        byModel[m.model], visibleTools, otherTools, OTHER);
-      window.rateSeries.emaSeries(perKey, 0.15);
-      out.push({ model: m.model, perKey });
-    }
-    return out;
-  }, [models, selModels, byModel, visibleTools, otherTools]);
+  // Per-model drawn lines for the checked models; the rate math comes
+  // from src/rate-series.js (plain JS, node-testable).
+  const drawn = React.useMemo(
+    () => window.rateSeries.drawnLines(models, selModels, byModel, visibleTools, otherTools, OTHER),
+    [models, selModels, byModel, visibleTools, otherTools]);
+
+  // The union bucket list the tip snaps across (#690) — the hit columns' index space.
+  const hitBuckets = [...new Set(drawn.flatMap(d => byModel[d.model].buckets))].sort((a, b) => a - b);
 
   // Y axis: 0 → max EMA across the DRAWN lines (aggregate always; picked
   // tools when the toggle is on), +10% headroom, floored off 0.
@@ -293,7 +287,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
         if (!best || d2 < best.d2) best = { d2, ts };
       }
     }
-    const ts = best.ts;
+    const ts = best.ts, bi = hitBuckets.indexOf(best.ts);
     const lines = [];
     for (const d of drawn) {
       const md = byModel[d.model];
@@ -322,7 +316,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       }
     }
     setTip({
-      x: mx, y: my, cx: xs(ts + bucketMs / 2),
+      x: mx, y: my, cx: xs(ts + bucketMs / 2), bi,
       title: new Date(ts).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
       accent: '#ddd',
       lines,
@@ -382,8 +376,8 @@ function ToolErrorRatePanel({ project, range, nonce }) {
         </div>
       )}
 
-      {/* Tool picker strip: which per-tool lines the toggle adds — top-3
-          by calls plus Other; below the chart with the models strip (#773). */}
+      {/* Tool picker strip: top-3 tools by calls plus Other, below the
+          chart with the models strip (#773). */}
       {models.length > 0 && (
         <div data-role="legend" style={{
           padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
@@ -481,10 +475,11 @@ function ToolErrorRatePanel({ project, range, nonce }) {
               </g>
             )}
 
-            {tip && (
-              <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
-                stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
-            )}
+            {/* Hit columns per union bucket (#690): the lift is the position indicator and the mark. */}
+            {hitBuckets.map((ts, i) => <rect data-hover-target="" key={'h' + i}
+              x={xs(ts)} y={padT} width={xs(ts + bucketMs) - xs(ts)}
+              height={plotH} fill="#fff"
+              fillOpacity={tip && tip.bi === i ? 0.12 : 0} />)}
           </svg>
           {a11y.descText && (
             <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>

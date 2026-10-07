@@ -21,7 +21,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
+# #690 moved ActivityHeatmapPanel into its own module; the pins
+# moved with it.
+EXTRA = ROOT / "src" / "activity-heatmap-panel.jsx"
 
 
 def _geometry_block() -> str:
