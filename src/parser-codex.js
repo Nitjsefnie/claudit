@@ -223,10 +223,9 @@ function parseLaneCodex(blob, opts) {
   // this call's retraction drops the copies a standing winner outranks.
   // Without it a parent and its fork loaded together keep BOTH copies of
   // every replayed record and the Inspector double-counts replayed
-  // history. The dedup is record-level: a replayed tool_call's identity
-  // (call_id) is the tool_use_id keyspace, which no browser half mirrors
-  // yet. The winner's model adoption itself stays DB-side: a lone fork
-  // file has no parent to read, so its parse keeps the #653 fallback.
+  // history. The winner's model adoption itself stays DB-side: a lone
+  // fork file has no parent to read, so its parse keeps the #653
+  // fallback.
   const seenUuids = (opts && opts.seenUuids) || null;
   if (seenUuids && window.recordDedup) {
     const stamps = new Map();
@@ -237,6 +236,21 @@ function parseLaneCodex(blob, opts) {
         m.line, stamps);
     }
     window.recordDedup.retract(events, meta, stamps, seenUuids);
+  }
+
+  // Tool-call dedup (issue #766): the replayed prefix replays the
+  // parent's call_ids, so the same winner rule joins a shared seenToolIds
+  // map keyed on tool_use_id — decide per tool_call (the call owns the
+  // identity; results settle onto it in the DB), then this call's drop
+  // splices the copies the standing winner outranks, tool_call and
+  // tool_result events together, before lanePairToolEvents pairs the
+  // survivors.
+  const seenToolIds = (opts && opts.seenToolIds) || null;
+  if (seenToolIds && window.recordDedup) {
+    for (const e of events) {
+      if (e.type === 'tool_call') window.recordDedup.decideTool(seenToolIds, e);
+    }
+    window.recordDedup.dropMaskedTools(events, seenToolIds);
   }
 
   lanePairToolEvents(events);
