@@ -120,7 +120,9 @@ def shell_tokens(command: str) -> list[ShellWord]:
             continue
         if char in "\n|;&<>()":
             end = idx + 1
-            if command[idx:end + 1] in ("&&", "||", ">>", "<<", "|&", ">&", "<&"):
+            if command[idx:end + 2] == "&>>":
+                end += 2
+            elif command[idx:end + 1] in ("&&", "||", ">>", "<<", "|&", ">&", "<&", ">|", "&>"):
                 end += 1
             operator = ";" if char == "\n" else command[idx:end]
             if char in "<>" and idx and command[idx - 1].isdigit() and tokens and tokens[-1].isdigit():

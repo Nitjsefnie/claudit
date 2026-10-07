@@ -227,12 +227,17 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
             operands.append(tok)
             idx += 1
             continue
-        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", tok)
+        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&|>\||&>>?)", tok)
         if not match or idx + 1 == len(args) or getattr(args[idx + 1], "operator", False):
             raise ValueError("unsupported or incomplete shell redirection")
         fd, operator = match.groups()
+        if fd and operator in ("&>", "&>>"):
+            # bash keeps a digit before `&>` a plain word (`2&> f` runs `2`
+            # as an argument), so an fd-prefixed spelling never reaches
+            # this scan as one token; refuse the defensive shape.
+            raise ValueError("the stream redirects take no fd prefix")
         target = args[idx + 1]
-        if operator in (">", ">>"):
+        if operator in (">", ">>", ">|", "&>", "&>>"):
             writes.append(target)
         elif operator == "<" and fd in ("", "0"):
             inputs.append(target)

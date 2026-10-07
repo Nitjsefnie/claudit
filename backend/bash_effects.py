@@ -247,12 +247,17 @@ def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bo
     idx = 0
     while idx < len(words):
         word = words[idx]
-        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&)", word) if word.operator else None
+        match = re.fullmatch(r"([0-9]*)(>>?|<|>&|<&|>\||&>>?)", word) if word.operator else None
         if match:
             if idx + 1 == len(words):
                 return [], False, True
             fd, redirect = match.groups()
-            if fd in ("", "1") and redirect in (">", ">>", ">&"):
+            if fd and redirect in ("&>", "&>>"):
+                # bash keeps a digit before `&>` a plain word, so this
+                # shape never tokenizes; refuse it like an incomplete
+                # redirect rather than reading the target as an operand.
+                return [], False, True
+            if fd in ("", "1") and redirect in (">", ">>", ">&", ">|", "&>", "&>>"):
                 sink = redirect != ">&" and _file_sink(words[idx + 1])
             if fd in ("", "0") and redirect in ("<", "<&"):
                 stdin_replaced = True

@@ -42,6 +42,9 @@ from backend.bash_reads import scan
     # reads, no kind (issue #785).
     ("((x)) > wide.txt", (None, [], ["/w/wide.txt"])),
     ("(( echo x > o.txt )) > wide.txt", (None, [], ["/w/wide.txt"])),
+    ("((x)) >| wide.txt", (None, [], ["/w/wide.txt"])),
+    ("((x)) &> wide.txt", (None, [], ["/w/wide.txt"])),
+    ("((x)) &>> wide.txt", (None, [], ["/w/wide.txt"])),
     ("((x)) < in.txt", (None, [], [])),
     ("( (cat a.py); echo x > b.txt )", ("whole", ["/w/a.py"], ["/w/b.txt"])),
     ("{ cat f.py; }", ("whole", ["/w/f.py"], [])),
