@@ -537,3 +537,13 @@ def test_echo_into_fd_dup_filename_books_its_payload():
     """`>& file` is a real stdout sink, so echo's payload books like it
     does behind `&>` (#802)."""
     assert bash_churn("echo hi >& both.txt") == (1, 0)
+
+
+def test_fd_dup_target_is_not_an_error_line_path():
+    """A bare digit `>&` target is filtered as a descriptor, so an error
+    line naming a digit-leading path (`2.py`) cannot match it and zero
+    counted tee churn: the filter limb in bash_churn_errors is
+    load-bearing (#802)."""
+    command = "cat <<E | tee >&2\nbody\nE\npython3 2.py"
+    text = "python3: cannot open file '2.py': No such file or directory"
+    assert churn_survives_error(command, text) is True
