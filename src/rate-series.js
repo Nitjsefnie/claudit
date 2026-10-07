@@ -68,5 +68,22 @@
     return perKey;
   }
 
-  window.rateSeries = { buildModelSeries, emaSeries };
+  // The panel's `drawn` memo, hoisted here so the rate logic stays
+  // node-testable and the JSX stays layout-only (#690 moved it: the
+  // panel file sat one line under its size ceiling and an outgrown
+  // rework moves code into a new module).
+  function drawnLines(models, selModels, byModel, visibleTools,
+      otherTools, otherKey) {
+    const out = [];
+    for (const m of models) {
+      if (!selModels.has(m.model)) continue;
+      const perKey = buildModelSeries(
+        byModel[m.model], visibleTools, otherTools, otherKey);
+      emaSeries(perKey, 0.15);
+      out.push({ model: m.model, perKey });
+    }
+    return out;
+  }
+
+  window.rateSeries = { buildModelSeries, emaSeries, drawnLines };
 })();

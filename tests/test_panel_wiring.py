@@ -21,6 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
+# #690 moved ActivityHeatmapPanel into its own module.
+HEATMAP = ROOT / "src" / "activity-heatmap-panel.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
 
 
@@ -291,7 +293,7 @@ def test_activity_heatmap_drops_its_cost_metric_when_the_range_is_free():
     """The heatmap's metric toggle offers cost; on a free lane every cell
     is $0, so the button is filtered out and the default metric falls
     back to one that has data rather than painting an empty grid."""
-    src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
+    src = _strip_line_comments(HEATMAP.read_text(encoding="utf-8"))
     assert "const hasCost = cells.some(c => (c.cost_usd || 0) > 0);" in src
     assert "_HEAT_METRICS.filter(m => m.key !== 'cost_usd' || hasCost)" in src
     # And the selected metric cannot stay on a filtered-out button.

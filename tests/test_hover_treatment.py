@@ -32,6 +32,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
+# #690 moved ReplyLatencyPanel and ResponseSizesPanel into their own
+# modules.
+REPLY = ROOT / "src" / "reply-latency-panel.jsx"
+RSIZES = ROOT / "src" / "response-sizes-panel.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
 TOOLERR = ROOT / "src" / "tool-error-panel.jsx"
 COMPARISON = ROOT / "src" / "context-growth-comparison.jsx"
@@ -131,9 +135,9 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     tsp = _charts_panel("TimeSeriesPanel")
     ttl = _strip_line_comments(TTL.read_text(encoding="utf-8"))
     cbc = _extra_panel("CostByContextPanel")
-    rs = _extra_panel("ResponseSizesPanel")
+    rs = _strip_line_comments(RSIZES.read_text(encoding="utf-8"))
     tu = _extra_panel("ToolUsagePanel")
-    rl = _extra_panel("ReplyLatencyPanel")
+    rl = _strip_line_comments(REPLY.read_text(encoding="utf-8"))
 
     # Bucketed panels: the crosshair sits on the hovered bucket/bar centre.
     assert _crosshair_x1(tsp, "TimeSeriesPanel") == "tip.cx"
@@ -172,10 +176,18 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     # Error Rate panel snaps its hover to the nearest bucket centre
     # (xs(ts + bucketMs / 2) is where its own lines plot) and the
     # context-growth ComparisonRow to the hovered turn. Both single-
-    # branch handlers.
+    # branch handlers. #690: the tool panel's crosshair became its hit
+    # columns -- the hovered union bucket's column lifts, keyed on the
+    # same snapped tip -- so its position indicator is pinned as the
+    # column keying, not a crosshair x1.
     terr = _strip_line_comments(TOOLERR.read_text(encoding="utf-8"))
     cmp_ = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
-    assert _crosshair_x1(terr, "ToolErrorRatePanel") == "tip.cx"
+    assert "tip.bi === i ? 0.12 : 0" in terr, (
+        "ToolErrorRatePanel: the hit columns must key the hovered union "
+        "bucket's lift on the snapped tip, not the cursor")
+    assert "const ts = best.ts, bi = hitBuckets.indexOf(best.ts);" in terr, (
+        "ToolErrorRatePanel: the tip must carry the snapped bucket's "
+        "union index")
     assert "cx: xs(ts + bucketMs / 2)," in terr, (
         "ToolErrorRatePanel: the tip must carry the snapped bucket centre")
     assert _crosshair_x1(cmp_, "ComparisonRow") == "tip.cx"
