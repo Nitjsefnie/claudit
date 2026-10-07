@@ -415,8 +415,14 @@ def _one_model(doc: dict, members: list, meters: dict, model_id: str,
                outcome: VendorOutcome) -> None:
     """One catalog id's selection, comparison and row write; findings land
     in `outcome`. An Untracked shape notices; red stays for ambiguity,
-    pins and broken fetches."""
+    pins and broken fetches. A key the tracked table already carries with
+    a vendor_host is SKIPPED: its first-party pricing moved to the tracked
+    table (issue #851), and re-adding the models row would collide with
+    the tracked entry's bare form and refuse the whole file."""
     key = derive_key(model_id)
+    if ((doc.get("openrouter") or {}).get("models") or {}).get(
+            key, {}).get("vendor_host"):
+        return
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return

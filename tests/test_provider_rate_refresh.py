@@ -79,11 +79,29 @@ refresh_prices = _load_prices()
 
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
-    rows first seen by a refresh or reserved for test-data fuzzing dropped."""
+    rows first seen by a refresh or reserved for test-data fuzzing dropped,
+    and the migrated bare vendor keys dropped: this fixture's world tracks
+    the pre-migration prefixed keys, one tracked entry per catalog id —
+    the vendor_host mechanics carry their own tests
+    (tests/test_pricing_vendor.py)."""
     doc = copy.deepcopy(doc)
+    # claude-opus-5-5 keeps its rows: the fee tests' subject (its tracked
+    # entry is marked vendor_host in the real file, but this fixture world
+    # predates the marking — the refresh mechanics never read it).
+    vendor_keys = {model for model, entry in
+                   doc["openrouter"]["models"].items()
+                   if entry.get("vendor_host") and model != "claude-opus-5-5"}
+    doc["openrouter"]["models"] = {model: entry
+                                   for model, entry in
+                                   doc["openrouter"]["models"].items()
+                                   if model not in vendor_keys}
+    doc["long_context_models"] = [m for m in doc["long_context_models"]
+                                  if m not in vendor_keys]
     providers = {}
     for model, hosts in doc["providers"].items():
         if model.startswith(FUZZ_RESERVED_NAMESPACE):
+            continue
+        if model in vendor_keys:
             continue
         seeded_hosts = {
             host: history[:1] for host, history in hosts.items()
@@ -93,6 +111,13 @@ def _seeded(doc: dict) -> dict:
         if seeded_hosts:
             providers[model] = seeded_hosts
     doc["providers"] = providers
+    # The vendor rows this fixture world drops carry the claude families;
+    # give the default estimate its own seeded models row (no cutover, so
+    # no epoch moves).
+    if "claude-opus-4-7" not in doc["models"]:
+        doc["models"]["claude-opus-4-7"] = [
+            {"from": None, "fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
+             "read": 0.5, "output": 25.0}]
     doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
     return doc
 
@@ -193,11 +218,19 @@ class Run:
 
 
 def test_every_provider_table_model_names_its_openrouter_id():
+    """One convention per key shape: an OpenRouter-tracking key normalises
+    to its full id (deepseek/..., z-ai/glm-5-3); a tracked VENDOR key is
+    bare and normalises to the id's slug — the same bare first-party id
+    resolve() prices through it (issue #851)."""
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
     assert set(doc["openrouter"]["models"]) == set(doc["providers"])
     for key, entry in doc["openrouter"]["models"].items():
-        assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
+        if entry.get("vendor_host"):
+            slug = entry["id"].partition("/")[2]
+            assert pricing._normalise(slug) == key  # pylint: disable=protected-access
+        else:
+            assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
 
 
 # --- nothing moved -----------------------------------------------------------

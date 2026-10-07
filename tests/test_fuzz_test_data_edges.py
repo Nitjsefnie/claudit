@@ -60,6 +60,9 @@ def _seed_document() -> dict:
                 {"from": None, **RATES_A},
                 {"from": FLOOR_STAMP, **RATES_B},
             ],
+            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
+                                 "create_5m": 6.25, "create_1h": 10.0,
+                                 "read": 0.5, "output": 25.0}],
         },
         "providers": {
             "acme/existing-9": {
@@ -68,7 +71,9 @@ def _seed_document() -> dict:
         },
         "provider_rates_fetched": FLOOR_STAMP,
         "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {}},
+        "openrouter": {"data_region": "global", "models": {},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
     }
 
 

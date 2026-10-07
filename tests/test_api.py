@@ -493,6 +493,17 @@ def test_cache_session_total_estimated_rate_true_when_any_model_estimated(
     """
     patched = {k: v for k, v in pricing.MODEL_RATES.items() if k != "claude-sonnet-4-5"}
     monkeypatch.setattr(pricing, "MODEL_RATES", patched)
+    # The claude families are tracked vendor rows since the migration:
+    # un-pricing the model means dropping it from the merged view's other
+    # table too, and clearing the memoized match scans.
+    monkeypatch.setattr(pricing, "VENDOR_BARE",
+                        {k: v for k, v in pricing.VENDOR_BARE.items()
+                         if k != "claude-sonnet-4-5"})
+    monkeypatch.setattr(pricing, "VENDOR_HOSTS",
+                        {k: v for k, v in pricing.VENDOR_HOSTS.items()
+                         if k != "claude-sonnet-4-5"})
+    monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
+    monkeypatch.setattr(pricing, "_VENDOR_MATCH_CACHE", {})
 
     body = app_with_data.get("/api/cache?range=3650d").json()
     assert len(body["per_model"]) >= 2, body["per_model"]

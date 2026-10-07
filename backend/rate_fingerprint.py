@@ -179,6 +179,23 @@ def _provider_doc(norm: str, provider: str) -> dict:
     }
 
 
+def _vendor_doc(norm: str) -> dict:
+    """The bare-id vendor branch: the tracked key the bare form matches,
+    and that row's list price, dated windows and start — the inputs the
+    bare path consults (its fee and schedule are deliberately not inputs:
+    the bare path prices fee-free and schedule-free)."""
+    tracked = pricing._vendor_match(norm)  # pylint: disable=protected-access
+    if tracked is None:
+        return {"key": None, "list": None, "windows": [], "start": None}
+    row = (tracked, pricing.VENDOR_HOSTS[tracked])
+    return {
+        "key": [tracked, row[1]],
+        "list": _rates(pricing.PROVIDER_RATES.get(row)),
+        "windows": _windows(pricing.PROVIDER_DATED_RATES.get(row)),
+        "start": _iso(pricing.PROVIDER_STARTS.get(row)),
+    }
+
+
 def _document(model: str, provider: str | None) -> dict:
     """The fingerprinted structure, exactly the inputs resolve()
     consults for this pair."""
@@ -193,6 +210,12 @@ def _document(model: str, provider: str | None) -> dict:
         # either must move every pair's fingerprint.
         "metered": sorted(pricing.LONG_CONTEXT_MODELS),
         "meter_thresholds": sorted(pricing.LONG_CONTEXT_METERS.items()),
+        # The bare-id vendor branch's inputs: the bare-form match table
+        # (through the match itself) and the vendor row's data. Included
+        # for every non-free pair — a provider-named pair never consults
+        # it, and a stale fingerprint there only means a recompute, never
+        # a wrong price.
+        "vendor": _vendor_doc(norm),
     }
     if doc["free"]:
         # A free id prices at zero without consulting any table, so its

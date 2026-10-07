@@ -605,7 +605,10 @@ record by ITS OWN rate epochs — the instants where
 provider), listed by `rate_boundaries` — AND by `COALESCE(long_context,
 FALSE)` (the Codex meter multiplies the whole input side by 2 and output
 by 1.5; a fold ignoring it drifts from `SUM(cost_usd)`). Totals always
-come from stored `cost_usd`; never recompute them at read time.
+come from stored `cost_usd`; never recompute them at read time. The
+bare first-party id of a tracked vendor row resolves through that row
+(SV-RATE-DATA), so its epochs are the vendor row's: dated-window ends
+plus the row's start when it has one.
 
 Epochs are per (model, provider), never the global `pricing.RATE_EPOCHS`:
 a log-backed provider row adds thousands of boundaries, and a fold over
@@ -620,8 +623,26 @@ exact, only slower.
 
 Every rate lives in `src/pricing.json`: `models` (normalised key →
 history), `providers` (normalised model → provider → history),
-`provider_rates_fetched`, and `openrouter` (the account's data region
-and each provider-table model's OpenRouter id, SV-RATE-REFRESH).
+`provider_rates_fetched`, and `openrouter` — the account's data region,
+each provider-table model's OpenRouter id (SV-RATE-REFRESH), the vendor
+configuration, and the tracked table. `openrouter.vendor.prefixes` lists
+the namespaces whose first-party list pricing the file tracks; a tracked
+entry `openrouter.models[key]` carries `id` and — when the key prices a
+first-party vendor model — `vendor_host`: the host whose provider row
+`providers[key][vendor_host]` holds that model's history, which the
+vendor's BARE first-party id resolves through. A bare id prices from
+that row's dated windows, fee-free and schedule-free — a host's
+per-request fee and time-of-day windows are the host's own terms for
+requests THROUGH it, and a bare id names no host. A transcript id
+spelled WITH the vendor prefix (`z-ai/glm-5-3`) names the OpenRouter
+catalog model, not the bare first-party id, and prices default, as it
+did before the tracked table carried vendor rows. The bare forms are a
+validated namespace: one bare form per tracked vendor entry, and never
+one that is also a models-table key — a transcript id would otherwise
+resolve two ways, so the loaders refuse the file naming both rows.
+`long_context_models` members are dashed names of models-table keys OR
+tracked keys, whichever table's row the id prices through; a member
+naming neither is refused.
 `backend/pricing.py` and `src/rates.js` hold logic only and both read
 it — the backend at import through `backend/pricing_load.py`, which
 `pricing.py` re-exports, the browser synchronously before first use
@@ -1073,9 +1094,10 @@ Pair-qualified staleness: before the keyset loop, the pass classifies
 the stale `(model, provider)` pairs with one DISTINCT scan and
 SQL-restamps, in one set-based UPDATE, every stale row whose stored
 `rate_fingerprint` equals its pair's CURRENT fingerprint — the fp
-covers every rate input `pricing.resolve()` consults (both resolution
-branches, windows, schedules, start, tier, default, free shape) plus
-the pricing modules' source (`backend/rate_fingerprint.py`), so an
+covers every rate input `pricing.resolve()` consults (all three
+resolution branches — provider row, models table, tracked vendor row —
+with their windows, schedules, start, tier, default and free shape)
+plus the pricing modules' source (`backend/rate_fingerprint.py`), so an
 edited entry, a correction, a schedule change or a logic change all
 move it while an untouched pair's stands still; the recomputation for
 matching rows is the identity by construction and reads zero rows into

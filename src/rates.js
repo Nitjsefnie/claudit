@@ -19,13 +19,17 @@
 
 // Family fallbacks for unrecognised Claude models — current-generation
 // list rates for the tier, never a dated promotion. The generation is the
-// highest-versioned key of the family in the table, so a new model row
-// moves its family's fallback with no second edit. Ties keep table order.
+// highest-versioned key of the family in the MERGED view (models-table
+// keys and tracked vendor bare keys — the claude families live in the
+// tracked table since the vendor migration), so a new model row moves its
+// family's fallback with no second edit. Ties keep table order. Mirrors
+// pricing._latest.
 const _VERSIONED_KEY = /^claude-([a-z]+)-(\d+(?:-\d+)*)$/;
 const _latestKey = (families) => {
   let best = null;
   let bestVersion = null;
-  for (const key of Object.keys(window.modelRates)) {
+  for (const key of [...Object.keys(window.modelRates),
+                     ...Object.keys(window.vendorBare)]) {
     const m = _VERSIONED_KEY.exec(key);
     if (!m || !families.includes(m[1])) continue;
     const version = m[2].split('-').map(Number);
@@ -76,6 +80,24 @@ function _matchRateKey(norm) {
     if (rest === '' || rest[0] === '[' || rest[0] === '@' || _SNAPSHOT_SUFFIX.test(rest)) best = k;
   }
   return best;
+}
+
+// The tracked key whose vendor bare form norm names, by the models
+// table's own longest-match and suffix rules (empty rest, '[', '@', a
+// snapshot suffix). An id spelled WITH the vendor prefix
+// ('z-ai/glm-5-3') matches no bare form: it names the OpenRouter catalog
+// model, not the first-party id, and keeps pricing default. Mirrors
+// pricing._vendor_match.
+function _matchVendorKey(norm) {
+  let best = null;
+  for (const form of Object.keys(window.vendorBare)) {
+    if (!norm.startsWith(form) || (best && form.length <= best.length)) continue;
+    const rest = norm.slice(form.length);
+    if (rest === '' || rest[0] === '[' || rest[0] === '@' || _SNAPSHOT_SUFFIX.test(rest)) {
+      best = form;
+    }
+  }
+  return best === null ? null : window.vendorBare[best];
 }
 
 function _toMillis(ts) {
@@ -161,10 +183,31 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
              kind: 'exact', key,
              fee: _feeAt(window.modelFees[key], windows, t) };
   }
-  for (const [re, tierKey] of _TIER_FALLBACKS) {
-    if (re.test(norm)) return { rates: window.modelRates[tierKey], kind: 'tier', key: null, fee: 0 };
+  // The vendor bare path: the tracked key the bare form names prices the
+  // id from its own (tracked key, host) row's dated windows, fee-free and
+  // schedule-free — a host's fee and time-of-day windows are the host's
+  // own terms for requests THROUGH it, and a bare id names no host. A row
+  // that begins at a time does not exist for a record before it: fall
+  // through, exactly as a rowless model does. Mirrors the vendor branch
+  // of pricing.resolve.
+  const vkey = _matchVendorKey(norm);
+  if (vkey) {
+    const host = window.vendorHosts[vkey];
+    const hosts = window.providerRates[vkey] || {};
+    if (Object.prototype.hasOwnProperty.call(hosts, host)) {
+      const start = (window.providerStarts[vkey] || {})[host];
+      const t = _toMillis(ts);
+      if (!(start !== undefined && t != null && t < start)) {
+        const windows = (window.providerDatedRates[vkey] || {})[host];
+        return { rates: _inWindow(windows, ts, hosts[host]),
+                 kind: 'exact', key: vkey, fee: 0 };
+      }
+    }
   }
-  return { rates: window.modelRates['claude-opus-4-7'], kind: 'default', key: null, fee: 0 };
+  for (const [re, tierKey] of _TIER_FALLBACKS) {
+    if (re.test(norm)) return { rates: window.keyListRates(tierKey), kind: 'tier', key: null, fee: 0 };
+  }
+  return { rates: window.keyListRates('claude-opus-4-7'), kind: 'default', key: null, fee: 0 };
 };
 
 window.rateForModel = function rateForModel(model, ts, provider) {

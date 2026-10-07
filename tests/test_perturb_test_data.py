@@ -59,6 +59,9 @@ def _seed_doc() -> dict:
                 {"from": None, **RATES_A},
                 {"from": "2026-06-01T00:00:00Z", **RATES_B},
             ],
+            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
+                                 "create_5m": 6.25, "create_1h": 10.0,
+                                 "read": 0.5, "output": 25.0}],
             "free/acme-0": [{"from": None, **RATES_ZERO}],
         },
         "providers": {
@@ -71,7 +74,9 @@ def _seed_doc() -> dict:
         },
         "provider_rates_fetched": "2026-06-01T00:00:00Z",
         "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {}},
+        "openrouter": {"data_region": "global", "models": {},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
     }
 
 
@@ -246,7 +251,7 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     rows, _seed, _base = perturb_module.perturb_pricing(
         pricing_path, seed=int(NOW.timestamp()))
-    assert rows == 3
+    assert rows == 4, "the seed doc's four rate rows"
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert pricing.load_tables(perturbed)
     for entries in _histories(perturbed):
@@ -366,6 +371,9 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     seed_doc["models"] = {f"acme/model-{index:02d}":
                           [{"from": None, **RATES_A}]
                           for index in range(12)}
+    seed_doc["models"]["claude-opus-4-7"] = [
+        {"from": None, "fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
+         "read": 0.5, "output": 25.0}]
     pricing_path.write_text(
         json.dumps(seed_doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")

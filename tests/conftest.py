@@ -90,20 +90,24 @@ def seam_now() -> datetime:
 def synthetic_dated_rate(monkeypatch):
     """Install a made-up dated-rate window for the duration of one test.
 
-    pricing.DATED_RATES is empty in production right now (Sonnet 5's launch
-    price became its standard price), but SV-DATED-RATES requires the
-    machinery to keep working for the next promotion. Tests that exercise
-    it install their own window here rather than depending on a live one —
-    otherwise the code path is untested until the day a promotion lands.
-
-    The rates are deliberately unlike any real price so a test asserting
-    against them can never be mistaken for a pricing fact.
+    SV-DATED-RATES requires the models-table window machinery to keep
+    working for the next promotion, but the claude rows are tracked vendor
+    rows since the vendor migration (issue #851), so the models table
+    holds no claude row a live window could hang on. The fixture installs
+    its OWN models-table row and window — synthetic rates, unlike any real
+    price, so a test asserting against them can never be mistaken for a
+    pricing fact.
     """
     cutover = datetime(2026, 9, 1, tzinfo=timezone.utc)
     before = {
         "fresh": 9.00, "create_5m": 11.25, "create_1h": 18.00,
         "read": 0.90, "output": 45.00,
     }
+    after = {
+        "fresh": 3.30, "create_5m": 4.125, "create_1h": 6.60,
+        "read": 0.33, "output": 16.50,
+    }
+    monkeypatch.setattr(pricing, "MODEL_RATES", {"claude-sonnet-5": after})
     monkeypatch.setattr(pricing, "DATED_RATES", {"claude-sonnet-5": [(cutover, before)]})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
 
@@ -111,7 +115,7 @@ def synthetic_dated_rate(monkeypatch):
         model="claude-sonnet-5",
         cutover=cutover,
         before=before,
-        after=pricing.MODEL_RATES["claude-sonnet-5"],
+        after=after,
     )
 
 

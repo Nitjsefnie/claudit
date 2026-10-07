@@ -60,14 +60,23 @@ def _series(host: str, slug: str, states: list[tuple[str, dict]]) -> dict:
             "providerSlug": slug, **fields}
 
 
+# The default-estimate row every loadable document carries (frozen
+# synthetic rates at no cutover).
+_DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
+                "create_1h": 10.0, "read": 0.5, "output": 25.0}
+
+
 def _doc(hosts: dict[str, list[dict]]) -> dict:
     return {
-        "models": {MODEL: [{"from": None, **RATE_A}]},
+        "models": {MODEL: [{"from": None, **RATE_A}],
+                   "claude-opus-4-7": [_DEFAULT_ROW]},
         "providers": {MODEL: copy.deepcopy(hosts)},
         "provider_rates_fetched": "2026-01-01T00:00:00Z",
         "long_context_models": [],
         "openrouter": {"data_region": "global",
-                       "models": {MODEL: {"id": MODEL_ID}}},
+                       "models": {MODEL: {"id": MODEL_ID}},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
     }
 
 

@@ -52,7 +52,8 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
     call whose positional or keyword argument is a string constant
     naming a wanted model (``pricing._normalise`` membership, or a
     suffixed spelling folded the way ``pricing._match_key`` folds
-    ``MODEL_RATES``) or equal to a wanted host. The reported line is
+    ``MODEL_RATES`` and ``pricing._vendor_match`` folds the tracked
+    table's bare forms) or equal to a wanted host. The reported line is
     the literal's own line — the marker excuses the literal, so it
     sits beside what it excuses.
     """
@@ -112,9 +113,10 @@ def _names_wanted_row(literal: str, wanted_models: frozenset[str],
 
     Hosts compare exactly; models by ``pricing._normalise`` membership
     or by the longest-key fold ``pricing._match_key`` applies to
-    ``MODEL_RATES`` — mirrored over the wanted set here, because that
-    helper reads the global table and a parameter set cannot pass
-    through it.
+    ``MODEL_RATES`` and ``pricing._vendor_match`` to the tracked table's
+    bare forms (one rule set, two tables) — mirrored over the wanted set
+    here, because those helpers read the global tables and a parameter
+    set cannot pass through them.
     """
     if literal in wanted_hosts:
         return True
@@ -127,7 +129,8 @@ def _names_wanted_row(literal: str, wanted_models: frozenset[str],
 def _match_wanted(norm: str, wanted: frozenset[str]) -> str | None:
     """The LONGEST wanted key `norm` names, or None.
 
-    The fold pricing._match_key applies to MODEL_RATES, over a
+    The fold pricing._match_key applies to MODEL_RATES and
+    pricing._vendor_match to the tracked table's bare forms, over a
     parameter set: a key matches when `norm` starts with it and the
     rest is empty or a bracket, at-suffix or snapshot spelling.
 

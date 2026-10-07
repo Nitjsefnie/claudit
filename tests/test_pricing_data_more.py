@@ -65,7 +65,7 @@ def test_a_malformed_history_is_refused(damage):
     """A misordered or rewritten history, or a rate that is not a finite
     non-negative number, would silently misprice or crash ingest, so the
     loader refuses it, naming the row, and the suite goes red instead."""
-    with pytest.raises(ValueError, match=r"glm-5-3-flash\[\d+\]"):
+    with pytest.raises(ValueError, match=r"bonsai-2-27b\[\d+\]"):
         pricing.load_tables(_damaged(damage))
 
 
@@ -75,7 +75,7 @@ def test_a_malformed_history_is_refused_in_the_browser(tmp_path, request, damage
     error = _node_load(tmp_path, _damaged(damage))
     assert error and error.startswith("pricing.json: "), error
     if request.node.callspec.id not in UNSPELLABLE_IN_JSON:
-        assert re.search(r"glm-5-3-flash\[\d+\]", error), error
+        assert re.search(r"bonsai-2-27b\[\d+\]", error), error
 
 
 def test_a_string_provider_rate_is_refused_naming_the_row():
@@ -97,7 +97,7 @@ def test_the_browser_loads_the_url_the_page_names_synchronously():
         "method": "GET", "url": ORIGIN + "/src/pricing.json?v=7",
         "async": False, "headers": {"Cache-Control": "no-cache"},
     }]
-    assert got["fresh"] == pricing.MODEL_RATES["claude-opus-4-7"]["fresh"]
+    assert got["fresh"] == pricing._list_rates("claude-opus-4-7")["fresh"]  # pylint: disable=protected-access
 
 
 @needs_node
@@ -156,8 +156,14 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     model = "acme/edge-9"
     doc = {
         "models": {model: [{"from": None, **rates},
-                           {"from": stamp, **rates}]},
+                           {"from": stamp, **rates}],
+                   "claude-opus-4-7": [{"from": None, "fresh": 5.0,
+                                        "create_5m": 6.25, "create_1h": 10.0,
+                                        "read": 0.5, "output": 25.0}]},
         "providers": {},
+        "openrouter": {"data_region": "global", "models": {},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
         "provider_rates_fetched": "2030-01-01T00:00:00Z",
         "long_context_models": [],
     }
@@ -211,14 +217,14 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
 def test_a_model_row_cannot_begin_at_a_time():
     """A model row has no honest fallback — before it, the id would price
     as a tier or default estimate — so it always covers all of time."""
-    with pytest.raises(ValueError, match=r"glm-5-3-flash\[0\]"):
+    with pytest.raises(ValueError, match=r"bonsai-2-27b\[0\]"):
         pricing.load_tables(_model_row_beginning())
 
 
 @needs_node
 def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
     error = _node_load(tmp_path, _model_row_beginning())
-    assert error and "glm-5-3-flash[0]" in error, error
+    assert error and "bonsai-2-27b[0]" in error, error
 
 
 @pytest.mark.parametrize("stamp, want", SCHEDULE_CASES)
@@ -294,14 +300,14 @@ def test_a_malformed_schedule_is_refused_in_the_browser(tmp_path, schedule):
 
 
 def test_a_model_row_cannot_carry_a_schedule():
-    with pytest.raises(ValueError, match=r"glm-5-3-flash\[\d+\]"):
+    with pytest.raises(ValueError, match=r"bonsai-2-27b\[\d+\]"):
         pricing.load_tables(_model_schedule())
 
 
 @needs_node
 def test_a_model_row_cannot_carry_a_schedule_in_the_browser(tmp_path):
     error = _node_load(tmp_path, _model_schedule())
-    assert error and "glm-5-3-flash[" in error, error
+    assert error and "bonsai-2-27b[" in error, error
 
 
 def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
@@ -432,9 +438,10 @@ def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
 
 
 def test_an_unknown_long_context_member_is_refused_naming_it():
-    """pricing.json's long_context_models are dashed keys of the models
-    table; a name that is not one is a typo'd data edit the loader
-    refuses (SV-RATE-DATA: both loaders refuse a rule-breaking file)."""
+    """pricing.json's long_context_models are dashed names of models-table
+    keys or tracked keys; a name that is neither is a typo'd data edit the
+    loader refuses (SV-RATE-DATA: both loaders refuse a rule-breaking
+    file)."""
     doc = _doc()
     doc["long_context_models"] = ["gpt-5-6-sol", "gpt-9-ghost"]
     with pytest.raises(ValueError, match="gpt-9-ghost"):

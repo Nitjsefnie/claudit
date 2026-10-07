@@ -48,7 +48,10 @@ def _doc(provider_entries: list[dict] | None = None,
     if model_note is not None:
         model_entries[0]["note"] = model_note
     doc = {
-        "models": {"acme/acme-9": model_entries},
+        "models": {"acme/acme-9": model_entries,
+                   "claude-opus-4-7": [{"from": None, "fresh": 5.0,
+                                        "create_5m": 6.25, "create_1h": 10.0,
+                                        "read": 0.5, "output": 25.0}]},
         "providers": {
             "acme/acme-9": {"HostCo": provider_entries
                             if provider_entries is not None
@@ -58,6 +61,9 @@ def _doc(provider_entries: list[dict] | None = None,
                                          note=_fee_note(FEE))]},
         },
         "long_context_models": [],
+        "openrouter": {"data_region": "global", "models": {},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
         "provider_rates_fetched": "2026-09-24T22:03:13Z",
     }
     return doc

@@ -78,12 +78,16 @@ def test_two_providers_of_one_model_price_differently(monkeypatch):
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
     # A host that lists no write price is charged the input rate for the
-    # write, never a free one: every seeded row's create buckets carry a
-    # positive rate, whatever tier the host split them into.
+    # write, never a free one: every seeded HOST row's create buckets
+    # carry a positive rate, whatever tier the host split them into. The
+    # tracked vendor rows living beside them since the migration are
+    # excluded — a vendor may legitimately list its cache writes at zero
+    # (the glm list eras, Kimi's flat-zero writes).
     for model, provider in pricing.PROVIDER_RATES:
         if (model.startswith(FUZZ_RESERVED_NAMESPACE)
                 or provider.startswith(FUZZ_RESERVED_NAMESPACE)
-                or (model, provider) in pricing.PROVIDER_STARTS):
+                or (model, provider) in pricing.PROVIDER_STARTS
+                or pricing.VENDOR_HOSTS.get(model) == provider):
             continue
         rates = pricing.rate_for(model, SEEDED, provider)
         if rates["fresh"]:
@@ -222,8 +226,8 @@ def test_the_zai_subscription_glm_is_not_repriced():
     # own row's list price at the record's time — never an OpenRouter
     # host's rate. The promotion's boundary comes from the row's loaded
     # window, so the assertion moves with the file.
-    listed = pricing.MODEL_RATES["glm-5-3-flash"]
-    windows = pricing.DATED_RATES["glm-5-3-flash"]
+    listed = pricing.PROVIDER_RATES[("glm-5-3-flash", "Z.AI")]
+    windows = pricing.PROVIDER_DATED_RATES[("glm-5-3-flash", "Z.AI")]
     cutover, promo = windows[0]
     tokens = {"fresh": 1_000_000, "output": 1_000_000, "read": 1_000_000}
     assert _cost("glm-5.3-flash", **tokens) == pytest.approx(
