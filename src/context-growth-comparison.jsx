@@ -123,7 +123,8 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
       lines.push([`${s.model} p90`, fmt(s.stats.p90[turn])]);
       lines.push([`${s.model} active`, `${live} / ${s.count}`]);
     }
-    setTip({ x: mx, y: my, cx: xScale(turn), title: `turn ${turn}`, accent: '#ffffff', lines });
+    // bi keys the turn's hit column (#690): the hovered column lifts.
+    setTip({ x: mx, y: my, cx: xScale(turn), bi: turn, title: `turn ${turn}`, accent: '#ffffff', lines });
   }
 
   const titleText = series.length === 0
@@ -310,6 +311,17 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
           <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
             stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
         )}
+
+        {/* Hit columns, one per turn (#690): invisible at rest, the
+            hovered turn's column lifts when the tooltip snaps to it. */}
+        {Array.from({ length: xMax + 1 }, (_, turn) => (
+          <rect key={'hit' + turn} data-hover-target=""
+            x={turn === 0 ? padL
+              : padL + (turn - 0.5) * plotW / xMax} y={padT}
+            width={turn === 0 ? plotW / xMax / 2 : plotW / xMax}
+            height={plotH} fill="#fff"
+            fillOpacity={tip && tip.bi === turn ? 0.12 : 0} />
+        ))}
 
         {/* Y labels. Every tick is drawn: the panel used to drop any tick
             within one label-height of the cap line, because that cap sat

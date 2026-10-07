@@ -147,7 +147,7 @@ function WebMetricsPanel({ range, nonce }) {
   const header = ['journey', 'samples', 'p50 total', 'p75 total',
                   'p50 fetch', 'p75 fetch', 'p50 client', 'p75 client'];
   return (
-    <div data-panel="Page performance" style={{
+    <div data-panel="Page performance" data-static-panel="" style={{
       background: 'var(--bg-card)', border: '1px solid var(--border)',
       borderRadius: 4, padding: '10px 14px 14px',
     }}>

@@ -35,6 +35,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
 TOOL_PANEL = ROOT / "src" / "tool-error-panel.jsx"
+REPLY_PANEL = ROOT / "src" / "reply-latency-panel.jsx"
+RSIZES_PANEL = ROOT / "src" / "response-sizes-panel.jsx"
+HEATMAP_PANEL = ROOT / "src" / "activity-heatmap-panel.jsx"
 APP = ROOT / "src" / "app.jsx"
 CSS = ROOT / "public" / "app.css"
 
@@ -86,9 +89,13 @@ def _legend_srcs() -> list[str]:
     -extra.jsx and, since #652 moved the Tool Error Rate panel into its
     own module, that module too. A hand-rolled row cannot hide in
     either."""
+    # #690 moved ReplyLatencyPanel and ResponseSizesPanel into their own
+    # modules; their rows are the shared component's like every other.
     return [
         _strip_line_comments(EXTRA.read_text(encoding="utf-8")),
         _strip_line_comments(TOOL_PANEL.read_text(encoding="utf-8")),
+        _strip_line_comments(REPLY_PANEL.read_text(encoding="utf-8")),
+        _strip_line_comments(RSIZES_PANEL.read_text(encoding="utf-8")),
     ]
 
 
@@ -304,9 +311,11 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
         "legend row appeared; reuse the shared component")
     box = _legend_box_px(rows[0][1])
     gaps = [g for src in srcs for g in _legend_container_gaps(src)]
-    # Seven call sites share six containers (ToolUsagePanel renders one
-    # container for its per-tool rows and its Other row; the tool panel
-    # renders the model row and the tool picker).
+    # Eight call sites share six containers: ToolUsagePanel renders one
+    # container for its per-tool rows and its Other row, and #773 moved
+    # the tool panel's two strips below its chart as separate
+    # data-role="legend" containers (#690's PickerRow fold is gone with
+    # that relocation).
     assert len(gaps) == 6, (
         f"{len(gaps)} of the 6 legend containers read as a wrapping flex "
         f"row with an explicit px gap -- one moved or lost its spacing")
@@ -367,9 +376,11 @@ def test_panel_toolbars_wrap_below_320():
     scrollWidth 539 (measured, signed-in, headless Chromium): the page
     scrolled horizontally. Each toolbar and its header row must wrap."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    for panel in ("ToolUsagePanel", "ActivityHeatmapPanel",
-                  "CostByContextPanel"):
-        body = _panel_src(panel, src)
+    heat = _strip_line_comments(HEATMAP_PANEL.read_text(encoding="utf-8"))
+    for panel, psrc in (("ToolUsagePanel", src),
+                        ("ActivityHeatmapPanel", heat),
+                        ("CostByContextPanel", src)):
+        body = _panel_src(panel, psrc)
         assert _has_flexwrap(body), (
             f"{panel} carries no flexWrap: 'wrap' anywhere -- one of its "
             f"rows refuses to wrap and overflows 320 px")

@@ -104,3 +104,12 @@ jobs:
         # scripts/ci/panel_layout_rules.mjs's RULES array and are covered
         # automatically.
         run: node scripts/ci/panel_layout_rules.mjs
+
+      - name: Prove the sweep fails on one seeded violation per category
+        # #690: each Expected-Behavior bullet is only as good as the
+        # seeded violation that fails the sweep on it. The runner plants
+        # one violation per category (a stripped panel, an unnamed sweep
+        # shift, an unnamed cold-load shift), asserts exit 1 per seed,
+        # and greps for the finding kind each seed exists to prove — so
+        # a seed that fails for the wrong reason is not a proof.
+        run: node scripts/ci/panel_interactions_seeds.mjs

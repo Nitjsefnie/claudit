@@ -39,8 +39,12 @@
 //
 // Hover targets are enumerated from the DOM, so a new panel is covered
 // automatically: every bar, bucket and point a panel makes interactive
-// carries `data-hover-target`. A panel may legitimately carry none (a
-// legend, a stat panel) — those are printed, never failed. A panel whose
+// carries `data-hover-target`. A panel that renders with data but none
+// is a `no-targets` finding — the sweep FAILS it (#690), so coverage is
+// never opt-in again. A panel that carries no interactive surface by
+// design (a legend, a stat panel) declares `data-static-panel` and is
+// printed every run like the ledger above; declaring it on a panel with
+// marked targets is a guard defect and fails the run. A panel whose
 // height is a per-entry LIST by design (one bar per row: Cost by Model,
 // Tokens by Model) carries `data-list-panel` and is exempt from
 // height-growth, printed every run like the ledger above.
@@ -85,7 +89,7 @@ export const FILED = [];
 // table is a bug in the guard itself.
 export const KINDS = [
   'cold-cls', 'sweep-shift', 'hover-tooltip', 'hover-style',
-  'tooltip-overflow', 'other-region', 'height-growth',
+  'tooltip-overflow', 'other-region', 'height-growth', 'no-targets',
 ];
 
 // The matched LEDGER ENTRY (or null) — per entry, not per (issue, kind):
@@ -213,9 +217,44 @@ const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
 
 const MAX_TARGETS = Number(process.env.PANEL_INTERACTIONS_MAX_TARGETS || '24');
 
+// --- the #690 seeded-violation hooks -----------------------------------
+
+// Each Expected-Behavior bullet of #690 has a seed that plants ONE
+// violation of its category and must turn the sweep red — proven red
+// locally and in panel-layout.yml's seeded step (driven by
+// scripts/ci/panel_interactions_seeds.mjs, which asserts exit 1 per
+// seed). A seed name outside the table is a setup error, refused.
+export const SEEDS = ['no-targets', 'other-region', 'cold-region'];
+const SEED = process.env.PANEL_INTERACTIONS_SEED || '';
+
+if (SEED && !SEEDS.includes(SEED)) {
+  console.error(`unknown PANEL_INTERACTIONS_SEED '${SEED}' — known: `
+    + SEEDS.join(', '));
+  process.exit(2);
+}
+
+// The no-targets seed strips every mark from ONE rendered non-static
+// panel, the way a forgotten mark would leave it: MARK has already
+// counted, so the panel's count is zeroed from the node side to match
+// the page the sweep then reads. Returns the panel index it stripped.
+const STRIP = panelIdx => {
+  const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
+  if (!svg) return -1;
+  let n = 0;
+  for (const el of svg.querySelectorAll('[data-hover-target]')) {
+    el.removeAttribute('data-hover-target');
+    n += 1;
+  }
+  return n;
+};
+
 // Installed before the page's own scripts, so the observer sees the cold
 // load. Shifts are buffered in-page; the sweep splits them into the cold
 // load (before the first hover) and the sweep by the time it reads them.
+// A region seed plants an extra shift whose node sits outside every
+// named region and panel: `cold-region` plants it at document start
+// (the cold-load half), `other-region` starts planting once the sweep is
+// under way, so each half's attribution is asserted where it lands.
 const INSTALL = () => {
   window.__sw = { shifts: [], registry: [] };
   try {
@@ -229,6 +268,20 @@ const INSTALL = () => {
     });
     po.observe({ type: 'layout-shift', buffered: true });
   } catch (_) { /* no layout-shift observer in this browser */ }
+  if (typeof window.__swSeed === 'string') {
+    const plant = () => window.__sw.shifts.push({
+      v: 0.001, input: false, t: performance.now(), node: document.body,
+    });
+    if (window.__swSeed === 'cold-region') plant();
+    else {
+      let planted = 0;
+      const timer = setInterval(() => {
+        plant();
+        if (++planted >= 40) clearInterval(timer);
+      }, 500);
+    }
+    window.__swSeed = null;
+  }
 };
 
 // Enumerates every rendered panel and marks its hover targets, capturing
@@ -259,6 +312,7 @@ const MARK = () => {
     panels.push({
       name: svg.getAttribute('data-panel'),
       list: svg.hasAttribute('data-list-panel'),
+      static: svg.hasAttribute('data-static-panel'),
       nTargets: ids.length,
     });
   }
@@ -301,6 +355,24 @@ const AIM = panelIdx => {
 // Reads the current response state for one hovered target: is the
 // panel's tooltip visible, does it overflow, did the target's own style
 // move off its resting snapshot?
+// The failing target's own geometry, for the finding line: a FAIL you
+// cannot place is a FAIL you cannot fix.
+const TARGET = ({ id }) => {
+  const el = window.__sw.registry[id];
+  if (!el) return 'gone';
+  const r = el.getBoundingClientRect();
+  return `${el.tagName} @${Math.round(r.x)},${Math.round(r.y)} `
+    + `${Math.round(r.width)}x${Math.round(r.height)}`;
+};
+
+// The tooltip text the page showed at read time: a FAIL line that
+// names what the tooltip said is diagnosable from the log alone.
+const TIPTXT = ({ panelIdx }) => {
+  const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
+  const tipEl = svg && svg.parentElement.querySelector('.chart-tooltip');
+  return tipEl ? (tipEl.textContent || '').slice(0, 40) : null;
+};
+
 const READ = ({ id, panelIdx }) => {
   // The same channels MARK captured; the list is restated here on
   // purpose (see MARK) — in-page functions are serialized without their
@@ -333,26 +405,30 @@ const READ = ({ id, panelIdx }) => {
   return { visible, overflow, changed };
 };
 
-// Hands the buffered shifts back, split into cold-load and sweep halves.
-// A sweep shift must attribute through the REAL src/perf.js logic; a
-// cold-load shift's attribution is counted for the log, not asserted —
-// its nodes are routinely detached by the re-render that shifted them.
+// Hands the buffered shifts back, split into cold-load and sweep halves,
+// EVERY entry attributed through the real src/perf.js logic (#690): a
+// cold-load shift's attribution is asserted exactly like a sweep
+// shift's — the cold load renders shift-free today (#643), so a shift
+// there is a defect to name, not a background hum to log.
 const SHIFTS = sweepStart => {
   const sweep = [];
+  const cold = [];
   let coldSum = 0;
   for (const s of window.__sw.shifts) {
     if (s.input) continue;               // user-caused: not a defect
+    const entry = {
+      v: s.v,
+      region: s.node ? window.perf.region(s.node) : null,
+      attached: s.node ? s.node.isConnected : null,
+    };
     if (s.t < sweepStart) {
       coldSum += s.v;
+      cold.push(entry);
     } else {
-      sweep.push({
-        v: s.v,
-        region: s.node ? window.perf.region(s.node) : null,
-        attached: s.node ? s.node.isConnected : null,
-      });
+      sweep.push(entry);
     }
   }
-  return { sweep, coldSum };
+  return { sweep, cold, coldSum };
 };
 
 // The #701 long-key probe: mounts the REAL DashTooltip primitive with a
@@ -547,6 +623,12 @@ async function main() {
         viewport: { width, height: 1000 },
       });
       await ctx.route('**/api/**', routeTo('many'));
+      // The seed marker lands before INSTALL's script, so INSTALL sees
+      // it: init scripts evaluate in the order they were added.
+      if (SEED === 'other-region' || SEED === 'cold-region') {
+        await ctx.addInitScript(
+          `window.__swSeed = ${JSON.stringify(SEED)};`);
+      }
       await ctx.addInitScript(INSTALL);
       const page = await ctx.newPage();
       await page.goto('http://127.0.0.1:' + server.address().port + '/',
@@ -555,7 +637,17 @@ async function main() {
         .catch(() => { });
       await page.waitForTimeout(1_500);
       const t0 = await page.evaluate(() => performance.now());
-      const panels = await page.evaluate(MARK);
+      let panels = await page.evaluate(MARK);
+      if (SEED === 'no-targets') {
+        const pi = panels.findIndex(p => !p.static && p.nTargets > 0);
+        if (pi < 0 || await page.evaluate(STRIP, pi) < 1) {
+          failures += 1;
+          console.log(`SEED GONE   ${width}px  the no-targets seed found `
+            + 'no rendered non-static panel with marks to strip');
+        } else {
+          panels[pi].nTargets = 0;
+        }
+      }
       if (!panels.length) {
         failures += 1;
         console.log(`NO PANELS  ${width}px sweep  no [data-panel] rendered `
@@ -564,11 +656,21 @@ async function main() {
       let targetsTotal = 0;
       for (let pi = 0; pi < panels.length; pi++) {
         const panel = panels[pi];
-        if (width === WIDTHS[0]) {
-          if (!panel.nTargets) {
-            console.log(`NO TARGETS  ${panel.name}: renders no `
-              + '[data-hover-target] — printed, not failed');
+        if (panel.static) {
+          if (width === WIDTHS[0]) {
+            console.log(`STATIC      ${panel.name}: declares `
+              + 'data-static-panel — no interactive surface by design, '
+              + 'no hover check');
           }
+        } else if (!panel.nTargets) {
+          record('no-targets', panel.name,
+            'renders with data but carries no [data-hover-target]', width);
+        }
+        if (panel.static && panel.nTargets) {
+          failures += 1;
+          console.log(`BAD STATIC  ${width}px  ${panel.name} declares `
+            + 'data-static-panel but renders marked targets — the '
+            + 'declaration is a guard defect at this panel');
         }
         targetsTotal += panel.nTargets;
         const aimed = await page.evaluate(AIM, pi);
@@ -595,18 +697,47 @@ async function main() {
         for (const t of targets) {
           for (const point of [['centre', t.cx, t.cy],
             ['bottom', t.cx, t.bottom]]) {
+            const where = `${point[0]} <${
+              await page.evaluate(TARGET, { id: t.id })}>${
+              await page.evaluate(TIPTXT, { panelIdx: pi }) || ''}`;
             await page.mouse.move(point[1], point[2], { steps: 3 });
+            // Settle before reading: the page's response is a React
+            // commit (the lit target, the tooltip's second positioning
+            // commit) and a READ that races it measures the PREVIOUS
+            // hover — a stale tooltip reads visible and an unlit target
+            // reads hover-style. Two animation frames bound the commit;
+            // rAF is the page's own clock, not a sleep.
+            await page.evaluate(() => new Promise(r => requestAnimationFrame(
+              () => requestAnimationFrame(r))));
             const got = await page.evaluate(
               READ, { id: t.id, panelIdx: pi });
             if (got.gone) break;
-            const where = `target #${t.id} ${point[0]}`;
-            if (!got.visible) record('hover-tooltip', panel.name, where, width);
+            const where2 = `target #${t.id} ${where}`;
+            if (!got.visible) record('hover-tooltip', panel.name, where2,
+              width);
             if (!got.changed.length) {
-              record('hover-style', panel.name, where, width);
+              // The style assertion applies where the pointer is ON the
+              // target. Overlapping marks — coincident scatter dots, a
+              // neighbour's disc under the probe point — answer through
+              // the winner (the nearest datum wins, and the tooltip
+              // above asserted it); the pointer not being on THIS mark
+              // is printed, not failed.
+              const onTarget = await page.evaluate(([x, y, id]) => {
+                const el = document.elementFromPoint(x, y);
+                const at = el && el.getAttribute('data-sw-id');
+                return at !== null && Number(at) === id;
+              }, [point[1], point[2], t.id]);
+              if (onTarget) {
+                record('hover-style', panel.name, where2, width);
+              } else if (width === WIDTHS[0]) {
+                console.log(`OVERLAPPED  ${panel.name}: target #${t.id} `
+                  + point[0] + ' — another mark owns the pointer here; '
+                  + 'the tooltip check carried the pixel');
+              }
             }
             if (got.overflow) {
               record('tooltip-overflow', panel.name,
-                `${where}: ${got.overflow}`, width);
+                `${where2}: ${got.overflow}`, width);
             }
           }
         }
@@ -618,10 +749,24 @@ async function main() {
           + 'target] on the page — the marks or the panels are gone, and '
           + 'this guard would be checking nothing');
       }
-      const { sweep, coldSum } = await page.evaluate(SHIFTS, t0);
+      const { sweep, cold, coldSum } = await page.evaluate(SHIFTS, t0);
       if (coldSum > 0.1) {
         record('cold-cls', '(page)', `cold-load CLS ${coldSum.toFixed(3)}`,
           width);
+      }
+      // #690: cold-load attribution is asserted, not logged — a shift the
+      // cold load cannot name is the same blindness a sweep shift's
+      // would be. The FILED ledger carries no catch-all for `other`
+      // (#642's entry left with its fix, and a pinned test bans the
+      // shape's return), so this finding fails the run.
+      const coldOthers = cold.filter(s => s.region === 'other'
+        || s.region === null);
+      if (coldOthers.length) {
+        const att = coldOthers.filter(s => s.attached).length;
+        record('other-region', '(cold load)',
+          `${coldOthers.length} cold-load shift(s) resolve to `
+          + `${coldOthers[0].region ?? 'no-source'} (${att} source(s) `
+          + 'still attached)', width);
       }
       if (sweep.length) {
         // One finding per width: the shifts are one defect's symptoms

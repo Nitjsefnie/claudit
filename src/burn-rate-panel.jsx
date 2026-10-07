@@ -8,15 +8,11 @@
 // (the same split as context-growth-comparison.jsx, #630) — except the
 // two fixes themselves:
 //
-//   * The heading is two lines (#635): the bold panel name on line one,
-//     the dates and counts on a dimmed subtitle beneath, elided by
-//     fitText where even the subtitle is wider than the panel. The old
-//     single centred line was ~608px and overflowed both panel edges at
-//     375 and 320px.
-//   * The legend is packed BEFORE the plot box is sized (#634): padB is
-//     one 16px band per packed legend row and the panel grows downward by
-//     the same rows, so a five-row legend at phone width no longer slides
-//     its lower rows up into the plot and across the x-tick labels.
+//   * Two-line heading (#635), elided by fitText: the old single centred
+//     line was ~608px and overflowed both panel edges below 375px.
+//   * The legend packs BEFORE the plot box is sized (#634): padB is one
+//     16px band per legend row, so a five-row legend at phone width no
+//     longer slides its lower rows up across the x-tick labels.
 //
 // Shared values are captured at module scope under _B names: the
 // text/babel scripts share one global lexical scope, so a plain `TH_B`
@@ -274,7 +270,13 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
       const lx = xScale(lh.ts);
       if (Math.abs(lx - mx) < 5) nearLimit = lh;
     }
-    if (nearLimit) {
+    // A rate-limit band explains a hover only when the pointer is not
+    // aimed inside a dot's own disc (the bands draw over the dots).
+    const dotRBest = best
+      ? Math.sqrt(Math.min(Math.max(
+          best.ctxEnd != null ? best.ctxEnd / 4000 : 16, 25), 250))
+      : 0;
+    if (nearLimit && !(best && bestD < dotRBest + 2)) {
       setTip({ x: mx, y: my, title: 'Rate limit hit', accent: '#ff3366',
         lines: [['when', fmtDate_B(nearLimit.ts, {full:true}) + ' UTC']] });
       return;
@@ -294,9 +296,13 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
           if (d < bestSeriesD) { bestSeriesD = d; bestSeriesKey = k; bestPoint = p; }
         }
       }
-      // Prefer line over dot when line is significantly closer
+      // Prefer line over dot when line is significantly closer — but
+      // never over a pointer aimed inside the nearest dot's own disc
+      // (#690): the swept bottom row grazes the dense 320px EMA curves,
+      // and an EMA tip there left the aimed-at dot unlit.
       const dotD = best ? Math.hypot(xScale(best.mid)-mx, yScale(best.cost_per_h_x100)-my) : 1e9;
-      if (bestSeriesKey && bestSeriesD < 14 && bestSeriesD < dotD - 4) {
+      if (bestSeriesKey && bestSeriesD < 14 && bestSeriesD < dotD - 4
+          && !(best && dotD <= dotRBest + 2)) {
         const sk = series[bestSeriesKey];
         const sAtCol = sessionData[bestPoint.srcIdx];
         const raw = {
@@ -331,6 +337,7 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
         : `${dotR.toFixed(1)}px (ctx unknown)`;
       setTip({
         x: mx, y: my,
+        sessionIdx: best.idx,
         title: 'Session ' + (best.idx + 1),
         accent: MODEL_COLORS_B[best.primary] || '#888',
         lines: [
@@ -357,6 +364,8 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     `Each dot is one session, its area scaled by context at session end; `
     + `open dashed dots have unknown context. `
     + `${limitHits.length} rate-limit ${limitHits.length === 1 ? 'line' : 'lines'} marked.`);
+  // Marks are taken top-down in render order (see the dot map below).
+  const dotSeen = new Set();
   return (
     <div ref={ref} style={{
       background: TH_B.bgAxes, border: `1px solid ${TH_B.border}`,
@@ -401,21 +410,34 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
             stroke={TH_B.grid} strokeOpacity="0.25" />
         ))}
         {sessionData.map((s, i) => {
-          // Scale dot AREA by ctx-at-end-of-session.
-          //   100k ctx → 25 area-pts²,  1M ctx → 250 area-pts²
-          // When ctxEnd is null (empty ctx_turns),
-          // render a fixed small open circle instead of the old durH × 60
-          // duration fallback — that fallback collapsed every kvalita
-          // subagent-only / synthetic-trailing session to either max-r or
-          // a meaningless duration-scaled size.
+          // One mark per printed pixel (#690): stacked sessions share one
+          // dot on screen; only the topmost carries the mark.
+          const pxKey = `${Math.round(xScale(s.mid))},${
+            Math.round(yScale(s.cost_per_h_x100))}`;
+          const marked = !dotSeen.has(pxKey);
+          dotSeen.add(pxKey);
+          // Scale dot AREA by ctx-at-end-of-session (100k → 25 pts²,
+          // 1M → 250). When ctxEnd is null (empty ctx_turns), render a
+          // fixed small open circle: the old durH × 60 fallback collapsed
+          // every subagent-only session to a meaningless size.
           const ctxKnown = s.ctxEnd != null;
           const areaPts2 = ctxKnown
             ? Math.min(Math.max(s.ctxEnd / 4000, 25), 250)
             : 16; // r ≈ 4 px sentinel for ctx-unknown
           const r = Math.sqrt(areaPts2);
-          const isHover = tip && tip.title === 'Session ' + (s.idx + 1);
+          // The named session lights this dot when the two plot to the
+          // same pixel (twins differ sub-pixel, #690).
+          const named = tip && tip.sessionIdx != null
+            ? sessionData[tip.sessionIdx] : null;
+          const isAimed = named != null
+            && Math.abs(xScale(named.mid) - xScale(s.mid)) <= 1.5
+            && Math.abs(yScale(named.cost_per_h_x100)
+              - yScale(s.cost_per_h_x100)) <= 1.5;
+          const isHover = (tip && tip.title === 'Session ' + (s.idx + 1))
+            || isAimed;
           return (
-            <circle key={'sd'+i} cx={xScale(s.mid)} cy={yScale(s.cost_per_h_x100)}
+            <circle key={'sd'+i} data-hover-target={marked ? '' : undefined}
+              cx={xScale(s.mid)} cy={yScale(s.cost_per_h_x100)}
               r={isHover ? r + 2 : r}
               fill={ctxKnown ? (MODEL_COLORS_B[s.primary] || '#888') : 'none'}
               fillOpacity={isHover ? 0.95 : 0.5}

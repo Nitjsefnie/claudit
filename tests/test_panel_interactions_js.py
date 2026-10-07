@@ -502,3 +502,90 @@ def test_the_guard_probes_a_rendered_long_key_row():
     assert src.count("(long-key probe)") == 1, (
         "the long-key probe finding lost its ledger name, or a second "
         "site now answers for it")
+
+
+# --- #690: coverage is never opt-in -----------------------------------
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_no_target_kind_is_in_the_closed_kind_table():
+    """A panel rendered with data but no [data-hover-target] is the
+    sweep's own finding kind — printed NO TARGETS is the #690 blindness
+    and may not come back."""
+    out = _node("""
+      console.log(JSON.stringify({
+        kinds: mod.KINDS,
+        seeds: mod.SEEDS,
+      }));
+    """)
+    assert "no-targets" in out["kinds"], out
+    # The sweep fails an unmarked non-static panel and refuses a static
+    # declaration that covers marked targets; both sites stay in source.
+    src = MODULE.read_text(encoding="utf-8")
+    assert "renders with data but carries no [data-hover-target]" in src
+    assert "data-static-panel but renders marked targets" in src
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_ledger_never_carries_an_other_region_catch_all():
+    """#690's second bullet: every layout shift, cold-load included,
+    resolves to a named region or panel. The old escape — a catch-all
+    `{ panel: null, kind: 'other-region' }` entry that matched every
+    unnamed attribution and could never fail — is banned outright: a
+    future `other` shift must fail the run, not match a ledger line."""
+    out = _node("""
+      console.log(JSON.stringify(
+        mod.FILED.filter(f => f.kind === 'other-region'
+          && (f.panel === null || f.panel === 'other' || f.panel === '(sweep)'
+            || f.panel === '(cold load)'))));
+    """)
+    assert out == [], out
+
+
+def test_the_static_panels_declare_their_exemption():
+    """The two panels with no interactive surface by design — the
+    heatmap's gradient legend and the Page performance stat panel —
+    declare `data-static-panel`, the only path the sweep's no-targets
+    check exempts. A third declaration belongs only on a genuinely
+    static panel; the sweep fails a static panel that renders marks."""
+    for fname in ("activity-heatmap-panel.jsx", "perf-panel.jsx"):
+        src = (ROOT / "src" / fname).read_text(encoding="utf-8")
+        assert 'data-static-panel=""' in src, (
+            f"{fname} no longer declares data-static-panel — the sweep "
+            "would fail it as a data panel with no hover target")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_seeded_violations_are_wired_end_to_end():
+    """Each seed the guard exports is driven once by the seeds runner,
+    which asserts exit 1 per seed and greps the finding kind the seed
+    exists to prove; the workflow runs it beside the sweep. A seed
+    without the runner leg is a self-check nobody runs."""
+    seeds = _node("console.log(JSON.stringify(mod.SEEDS));")
+    assert seeds == ["no-targets", "other-region", "cold-region"], seeds
+    runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
+        .read_text(encoding="utf-8")
+    for seed in seeds:
+        assert f"'{seed}'" in runner, (
+            f"the seeds runner never drives {seed}")
+    # The runner greps the finding kind each seed proves, so a seed
+    # failing for the wrong reason is not a proof.
+    for kind in ("no-targets", "other-region"):
+        assert f"'{kind}'" in runner, (
+            f"the seeds runner does not verify the {kind} kind by name")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "node scripts/ci/panel_interactions_seeds.mjs" in workflow, (
+        "panel-layout.yml no longer runs the seeded-violation proof")
+
+
+def test_cold_load_shifts_are_attributed_in_the_guard_source():
+    """#690's cold-load half at source level, beside the rendered proof:
+    SHIFTS attributes the cold half like the sweep half, and the sweep
+    records an other-region finding when a cold shift cannot name its
+    region — the old 'counted for the log, not asserted' posture is the
+    blindness the issue closes."""
+    src = MODULE.read_text(encoding="utf-8")
+    shifts = src[src.index("const SHIFTS"):src.index("const LONGKEY")]
+    assert "cold.push(entry)" in shifts, (
+        "SHIFTS no longer returns the cold half's attributed entries")
+    assert "cold-load shift(s) resolve to" in src, (
+        "the sweep no longer asserts the cold load's shift attribution")
