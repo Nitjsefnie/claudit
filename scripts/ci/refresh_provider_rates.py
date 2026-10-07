@@ -101,6 +101,9 @@ class Move:
     new: Listing
     entries_appended: int = 1
     source: str = "sampled"
+    # The `fresh` rate of the entry the run appended, when it is not the
+    # listing's — a band entry prices the window mean, not the listing.
+    entry_fresh: float | None = None
 
 
 def _entry(stamp: str, listing: Listing) -> dict:
@@ -195,59 +198,46 @@ def _new_log_states(model: str, host: str, entries: list[dict],
 
 def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    entries: list[dict], at: datetime) -> Move | None:
-    """Append every new log state after the stored row without rewriting it.
+    """Append every new log state after the stored row without rewriting it,
+    forming or re-forming the row's band as the window decides (issues
+    #663, #664, #665; SV-RATE-REFRESH).
 
-    A row whose newest entry carries a price band is appended to at most
-    once: a state inside the band is no news — a Move with nothing in it
+    A row whose newest entry carries a band is appended to at most once per
+    run: a state inside the band is no news — a Move with nothing in it
     would still bump PRICING_VERSION, write both files and commit, which is
-    the churn the band exists to stop — and a state outside it appends the
-    one widened entry the band re-forms to (SV-RATE-REFRESH).
-    """
+    the churn the band exists to stop — and the states outside it append
+    the ONE entry price_band.reform returns: the band re-forms, or the
+    price in force is followed when the window no longer oscillates. An
+    unbanded row whose window classifies as
+    oscillating gets its new states plus the ONE band entry
+    price_band.formation returns, dated at the detection instant."""
     history = hosts.get(host)
     if history is None:
-        hosts[host] = copy.deepcopy(entries)
-        return Move(model, host, None, listing, len(entries), "log")
-    newest = history[-1]
-    additions = _new_log_states(model, host, entries, newest)
-    if not additions:
-        return None
-    if price_band.entry_band(newest) is not None:
-        widened = _widened(model, host, newest, additions, at)
-        if widened is None:
+        history = hosts[host] = copy.deepcopy(entries)
+        move = Move(model, host, None, listing, len(entries), "log")
+    else:
+        newest = history[-1]
+        additions = _new_log_states(model, host, entries, newest)
+        if not additions:
             return None
-        history.append(widened)
-        return Move(model, host, newest, listing, 1, "log")
-    history.extend(additions)
-    return Move(model, host, newest, listing, len(additions), "log")
-
-
-def _widened(model: str, host: str, newest: dict, additions: list[dict],
-             at: datetime) -> dict | None:
-    """The one entry a banded row appends, or None when every new log state
-    lies inside its band.
-
-    EVERY state outside the band is covered, not only the last: two escapes
-    in opposite directions inside one detection window would otherwise
-    record one of them and leave the other outside the range the row claims
-    to have covered. The LAST of them is the level now in force, so the
-    entry is dated at that state's own change point — later than the newest
-    stored entry by construction, since that is the cutoff the states came
-    through — and the row stays append-only whatever the detection instant
-    is.
-
-    An entry's five rates are its banded mean, and a widening does not
-    reprice it (price_band.widen), so this entry prices exactly what the
-    one before it did from `moved_at` on.
-    """
-    outside = [entry for entry in additions
-               if not price_band.in_band(newest, {f: entry[f] for f in RATE_FIELDS})]
-    if not outside:
-        return None
-    moved = outside[-1]
-    moved_at = _price_instant(moved["from"], f"{model} via {host}")
-    return price_band.widen(newest, [{f: entry[f] for f in RATE_FIELDS}
-                                     for entry in outside],
-                            max(at, moved_at))
+        if price_band.entry_band(newest) is not None:
+            reformed = price_band.reform(history, newest, additions, at,
+                                         price_band.WINDOW_DAYS)
+            if reformed is None:
+                return None
+            history.append(reformed)
+            if "band" in reformed:
+                return Move(model, host, newest, listing, 1, "band",
+                            reformed["fresh"])
+            return Move(model, host, newest, listing, 1, "log")
+        history.extend(additions)
+        move = Move(model, host, newest, listing, len(additions), "log")
+    formed = price_band.formation(history, at, price_band.WINDOW_DAYS)
+    if formed is not None:
+        history.append(formed)
+        move = Move(model, host, move.old, listing, move.entries_appended + 1,
+                    "band", formed["fresh"])
+    return move
 
 
 def _scales_alike(listing: Listing) -> bool:
