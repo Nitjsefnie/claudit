@@ -84,8 +84,8 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
     }
 
 
-def _entry(at: str | None, rates: dict) -> dict:
-    return {"from": at, **rates}
+def _entry(at: str | None, rates: dict, **extra) -> dict:
+    return {"from": at, **rates, **extra}
 
 
 def _endpoint(host: str, rates: dict) -> dict:
@@ -179,12 +179,21 @@ def test_log_backed_history_appends_every_move_at_its_own_time_through_a_flip(
     assert rc == 0 and not err
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     history = saved["providers"][MODEL][HOST]
+    # Issue #836: the undated first entry is the level in force before the
+    # window, so the flip returns to it and the row is a TOGGLE — the run
+    # appends both moves at their own times and forms the band on top.
+    mean = {f: round((RATE_A[f] * 603600 + RATE_B[f] * 600 + RATE_A[f] * 600)
+                     / 604800, 10) for f in pricing.RATE_FIELDS}
+    band = {f: [min(RATE_A[f], RATE_B[f]), max(RATE_A[f], RATE_B[f])]
+            for f in pricing.RATE_FIELDS}
     assert history == [_entry(None, RATE_A), _entry(states[1][0], RATE_B),
-                       _entry(states[2][0], RATE_A)]
+                       _entry(states[2][0], RATE_A),
+                       _entry(STAMP, mean, band=band)]
     assert saved["provider_rates_fetched"] == STAMP
     assert 'PRICING_VERSION = "72"' in constants_path.read_text(encoding="utf-8")
     assert "alternating price" not in out
-    assert "2 log entries, newest fresh 0.3 → 0.3" in out
+    assert (f"changed   {HOST}: 3 entries with a band, newest prices "
+            f"fresh {RATE_A['fresh']!r} → {mean['fresh']!r}") in out
 
 
 def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys):
@@ -199,31 +208,54 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
 
     assert rc == 0 and not err
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
-    assert saved["providers"][MODEL][HOST] == row + [_entry(states[2][0], RATE_A)]
+    # Issue #836: the undated baseline makes the return to it a TOGGLE, so
+    # the run appends the new state and forms the band; the states at or
+    # before the newest entry are still ignored. Window: the undated A
+    # weighs 603600s from the open to B@00:10, B holds 300s, A 900s.
+    mean = {f: round((RATE_A[f] * 603600 + RATE_B[f] * 300 + RATE_A[f] * 900)
+                     / 604800, 10) for f in pricing.RATE_FIELDS}
+    band = {f: [min(RATE_A[f], RATE_B[f]), max(RATE_A[f], RATE_B[f])]
+            for f in pricing.RATE_FIELDS}
+    assert saved["providers"][MODEL][HOST] == row + [
+        _entry(states[2][0], RATE_A), _entry(STAMP, mean, band=band)]
 
 
-@pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,additions", [
+@pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,additions,band_mean", [
     (
         "2031-01-01T05:00:00+05:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:15:00Z", RATE_B)],
         RATE_B, [_entry("2031-01-01T00:15:00Z", RATE_B)],
+        # Issue #836: the undated baseline makes B a return to it, so the
+        # row is a TOGGLE and the run forms the band on top. Window: the
+        # undated A weighs 603000s from the open to the dated A@00:00Z,
+        # which holds 900s, then B 900s.
+        {f: round((RATE_A[f] * 603000 + RATE_A[f] * 900 + RATE_B[f] * 900)
+                  / 604800, 10) for f in pricing.RATE_FIELDS},
     ),
     (
         "2031-01-01T00:00:00-00:15", RATE_B,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:05:00Z", RATE_C),
          ("2031-01-01T00:10:00Z", RATE_B), ("2031-01-01T00:20:00Z", RATE_C)],
         RATE_C, [_entry("2031-01-01T00:20:00Z", RATE_C)],
+        None,
     ),
     (
         "2031-01-01T00:00:00+00:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:00:00Z", RATE_B)],
         RATE_B, [],
+        None,
     ),
 ])
 def test_log_append_compares_offset_timestamps_as_instants(
-        tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions):
+        tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions,
+        band_mean):
     row = [_entry(None, RATE_A), _entry(row_at, row_rates)]
     expected = row + additions
+    if band_mean is not None:
+        expected = expected + [_entry(
+            STAMP, band_mean,
+            band={f: [min(RATE_A[f], RATE_B[f]), max(RATE_A[f], RATE_B[f])]
+                  for f in pricing.RATE_FIELDS})]
 
     rc, _, err, pricing_path, _ = _run(
         tmp_path, capsys, history=states, hosts={HOST: row},
@@ -391,15 +423,14 @@ def test_missing_canonical_slug_samples_every_host_without_refusal(tmp_path, cap
 
 def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys):
     states = [("2030-12-31T23:00:00Z", RATE_A),
-              ("2031-01-01T00:10:00Z", RATE_B),
-              ("2031-01-01T00:20:00Z", RATE_A)]
+              ("2031-01-01T00:10:00Z", RATE_B)]
     rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states)
 
     assert rc == 0 and not err
     written = json.loads(pricing_path.read_text(encoding="utf-8"))
     loaded = pricing.load_tables(written)
-    assert loaded["PROVIDER_RATES"][(MODEL, HOST)] == RATE_A
-    assert len(loaded["PROVIDER_DATED_RATES"][(MODEL, HOST)]) == 2
+    assert loaded["PROVIDER_RATES"][(MODEL, HOST)] == RATE_B
+    assert len(loaded["PROVIDER_DATED_RATES"][(MODEL, HOST)]) == 1
     if shutil.which("node"):
         parser_path = ROOT / "src" / "parser.js"
         browser_dir = tmp_path / "browser"
@@ -417,7 +448,7 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
              "window.rateForModel('synthetic/model', ts, 'Wafer').fresh)));"],
             cwd=browser_dir, capture_output=True, text=True, timeout=60, check=False)
         assert proc.returncode == 0, proc.stderr
-        assert json.loads(proc.stdout) == [0.3, 0.2, 0.3]
+        assert json.loads(proc.stdout) == [0.3, 0.2, 0.2]
 
 
 def test_a_future_log_point_is_sampled_not_committed_as_the_newest_entry(
