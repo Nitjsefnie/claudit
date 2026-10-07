@@ -48,6 +48,13 @@ def _move_text(move: Move) -> str:
     new = move.new
     off = f" ({_discount_note(new.discount)})" if new.discount else ""
     windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
+    if move.source == "band":
+        verb = "changed" if move.old is not None else "new"
+        old = f"{move.old['fresh']!r} → " if move.old is not None else ""
+        fresh = move.entry_fresh if move.entry_fresh is not None \
+            else new.rates["fresh"]
+        return (f"  {verb:<9} {move.host}: {move.entries_appended} entries "
+                f"with a band, newest prices fresh {old}{fresh!r}{off}")
     if move.source == "log" and move.entries_appended > 1:
         if move.old is None:
             return (f"  new       {move.host}: {move.entries_appended} log entries, "
