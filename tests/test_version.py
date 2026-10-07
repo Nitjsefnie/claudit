@@ -165,7 +165,8 @@ def test_health_ok_branch_reports_version(monkeypatch):
 
     monkeypatch.setattr(app_mod.db, "viz_conn", _FakeConn)
     monkeypatch.setattr(
-        app_mod.ingest, "progress_snapshot", lambda: {"phase": "idle"}
+        "backend.ingest_progress.progress_snapshot",
+        lambda: {"phase": "idle"},
     )
 
     response = app_mod.health()
@@ -212,7 +213,8 @@ def test_health_last_ingest_carries_newer(monkeypatch):
 
     monkeypatch.setattr(app_mod.db, "viz_conn", _RowConn)
     monkeypatch.setattr(
-        app_mod.ingest, "progress_snapshot", lambda: {"phase": "idle"}
+        "backend.ingest_progress.progress_snapshot",
+        lambda: {"phase": "idle"},
     )
 
     response = app_mod.health()
