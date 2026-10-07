@@ -338,3 +338,314 @@ class TestLegendBelowViolations:
         out = _node("console.log(JSON.stringify(mod.RULES"
                     ".map((r) => r.id)));")
         assert "legend-below-plot" in out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+class TestGapConsistencyViolations:
+    """The gap-consistency classifier over a flex-column stack (#796).
+
+    Convention under test: a stack's children sit at the stack's own flex
+    gap PLUS the pair's own margins (flex adds the gap to whatever the
+    margins contribute), and the dashboard-wide convention is that the
+    stack gap is .dashboard's row gap. The probe supplies the groups (the
+    dashboard itself and each flex-column section); the classifier is
+    pure over their boxes.
+    """
+
+    @staticmethod
+    def _violations(boxes, expected, tol=1):
+        return _node(
+            "console.log(JSON.stringify(mod.gapConsistencyViolations("
+            + json.dumps(boxes) + ", " + json.dumps(expected) + ", "
+            + json.dumps(tol) + ")));"
+        )
+
+    @staticmethod
+    def _boxes(*specs):
+        # name, x, y, w, h, mt, mb — margins optional, as the probe
+        # reports them only when the layout gives them.
+        return [
+            {"name": n, "x": x, "y": y, "w": w, "h": h, "mt": mt, "mb": mb}
+            for n, x, y, w, h, mt, mb in specs
+        ]
+
+    def test_pairs_at_the_expected_gap_pass(self):
+        out = self._violations(
+            self._boxes(("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 314, 800, 200, 0, 0)), 14)
+        assert out == []
+
+    def test_only_adjacent_pairs_are_measured(self):
+        # A, B, C stacked: A->B at the expected 14, B->C drifted to 86.
+        # Exactly ONE finding (B->C): the A->C distance is not a flex
+        # gap, it is whatever the stack adds up to between neighbours —
+        # the all-pairs reading fired on sections pages apart.
+        out = self._violations(
+            self._boxes(("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 314, 800, 200, 0, 0),
+                        ("C", 0, 600, 800, 200, 0, 0)), 14)
+        assert len(out) == 1
+        assert {out[0]["upper"], out[0]["lower"]} == {"B", "C"}
+
+    def test_a_drifted_pair_fires(self):
+        out = self._violations(
+            self._boxes(("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 304, 800, 200, 0, 0)), 14)
+        assert len(out) == 1
+        assert out[0]["upper"] == "A"
+        assert out[0]["lower"] == "B"
+        assert out[0]["gap"] == 4.0
+        assert out[0]["expected"] == 14.0
+
+    def test_a_wider_pair_fires_too(self):
+        out = self._violations(
+            self._boxes(("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 318, 800, 200, 0, 0)), 14)
+        assert len(out) == 1
+        assert out[0]["gap"] == 18.0
+
+    def test_rounding_within_tolerance_passes(self):
+        # 13.2 is 0.8 under the expected 14: within the 1px rounding
+        # slack both gap rules share (NOISE), it still reads as the
+        # expected gap.
+        out = self._violations(
+            self._boxes(("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 313.2, 800, 200, 0, 0)), 14)
+        assert out == []
+
+    def test_margins_extend_the_expected_distance(self):
+        # The header shape the real page renders: page-head carries
+        # margin-bottom 18px, so its pair distance is 14 + 18 = 32 and a
+        # bare comparison against 14 would fire on a conforming page.
+        out = self._violations(
+            self._boxes(("page-head", 0, 0, 800, 60, 0, 18),
+                        ("dash-summary", 0, 92, 800, 40, 0, 0)), 14)
+        assert out == []
+        # And the same pair 10px SHORT of its expected 32 is the drift
+        # the rule exists for.
+        out = self._violations(
+            self._boxes(("page-head", 0, 0, 800, 60, 0, 18),
+                        ("dash-summary", 0, 82, 800, 40, 0, 0)), 14)
+        assert len(out) == 1
+        assert out[0]["expected"] == 32.0
+
+    def test_side_by_side_and_contained_boxes_never_pair(self):
+        # Same exclusions as the vertical-gap classifier: grid columns
+        # and contained cards are not stacked sections.
+        out = self._violations(
+            self._boxes(("A", 0, 0, 390, 300, 0, 0),
+                        ("B", 400, 0, 390, 300, 0, 0)), 14)
+        assert out == []
+        out = self._violations(
+            self._boxes(("wrap", 0, 0, 800, 300, 0, 0),
+                        ("card", 0, 299, 800, 2, 0, 0)), 14)
+        assert out == []
+
+    def test_zero_boxes_are_skipped(self):
+        # display:contents wrappers report an all-zero rect; they
+        # generate no box and must not pair with anything.
+        out = self._violations(
+            self._boxes(("wrapper", 0, 0, 0, 0, 0, 0),
+                        ("A", 0, 0, 800, 300, 0, 0),
+                        ("B", 0, 314, 800, 200, 0, 0)), 14)
+        assert out == []
+
+
+# The in-page halves (the probes and the seeds) run only in the browser
+# leg: node cannot drive a DOM. What the suite CAN pin is the source
+# signatures they read, so a rename in the module turns these pins into
+# failures instead of silent drift (the test_picker_fit_js pattern).
+
+
+def _module_text() -> str:
+    return MODULE.read_text(encoding="utf-8")
+
+
+def test_untagged_legend_detector_reads_checkbox_colour_keys():
+    """The legend-shape detector must read the one shape every strip in
+    src/ shares (#474 made the checkbox the colour key): direct-child
+    labels carrying checkboxes. A detector keyed on anything rarer
+    misses the next panel's legend."""
+    assert 'input[type="checkbox"]' in _module_text(), (
+        "the untagged-legend detector does not read checkbox colour keys"
+    )
+
+
+def test_wrapper_gap_seed_drives_the_style():
+    """The seeded red case for the gap-consistency rule must shrink the
+    wrapper's own flex gap on the live page (a DOM injection, not an app
+    change)."""
+    assert "style.gap" in _module_text(), (
+        "seedWrapperGap does not set the wrapper's style.gap"
+    )
+
+
+def test_gap_consistency_probe_reads_flex_direction():
+    """The consistency probe scopes its groups by computed flex
+    direction: .dashboard plus every flex-column section — not a listed
+    class set."""
+    text = _module_text()
+    assert "flexDirection" in text, (
+        "the gap-consistency probe does not read flexDirection"
+    )
+    assert "rowGap" in text, (
+        "the gap-consistency probe does not read the container's row gap"
+    )
+
+
+def test_multichart_legend_rules_share_the_probe():
+    """Both legend-below rules measure the SAME probe output — the
+    multichart rule is the same convention with a different seed, not a
+    parallel implementation."""
+    text = _module_text()
+    assert "legendBelowViolations" in text
+    assert "legend-below-plot-multichart" in text
+
+
+def test_multichart_rule_id_and_tagged_rule_id_registered():
+    out = _node("console.log(JSON.stringify(mod.RULES"
+                ".map((r) => r.id)));")
+    assert "section-gap-consistency" in out
+    assert "legend-strips-tagged" in out
+    assert "legend-below-plot-multichart" in out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+class TestTopPlotBox:
+    """The multichart legend rule pairs a section legend against the
+    section's TOPMOST plot: the convention it holds is 'not above the
+    charts', and a strip sitting under chart 1 of a stacked grid must
+    not fire against chart 2 below it (a union box would)."""
+
+    def test_lowest_y_wins(self):
+        out = _node(
+            "console.log(JSON.stringify(mod.topPlotBox("
+            + json.dumps([
+                {"x": 0, "y": 300, "w": 800, "h": 100},
+                {"x": 0, "y": 100, "w": 800, "h": 100},
+            ])
+            + ")));"
+        )
+        assert out["y"] == 100
+
+    def test_ties_keep_the_first(self):
+        out = _node(
+            "console.log(JSON.stringify(mod.topPlotBox("
+            + json.dumps([
+                {"x": 0, "y": 100, "w": 800, "h": 100},
+                {"x": 400, "y": 100, "w": 800, "h": 100},
+            ])
+            + ")));"
+        )
+        assert out["x"] == 0
+
+    def test_empty_is_null(self):
+        out = _node("console.log(JSON.stringify(mod.topPlotBox([])));")
+        assert out is None
+
+    def test_single_is_itself(self):
+        out = _node(
+            "console.log(JSON.stringify(mod.topPlotBox("
+            + json.dumps([{"x": 0, "y": 100, "w": 800, "h": 100}])
+            + ")));"
+        )
+        assert out["y"] == 100
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+class TestPairSectionLegendsTop:
+    """The multichart rule's wiring decision, pinned where a union
+    refactor fails (#797): a SECTION group's legends pair against the
+    section's TOPMOST plot only. The discriminating case is the strip
+    UNDER chart 1 of a stacked grid — topmost pairing passes it, a
+    union-of-plots box fires it against chart 2 (the union mutant the
+    review's M4 plant proved every leg survives)."""
+
+    @staticmethod
+    def _group(panel, plots, legends, section=False):
+        return {
+            "panel": panel,
+            "section": section,
+            "plots": [{"x": x, "y": y, "w": w, "h": h}
+                      for x, y, w, h in plots],
+            "legends": [{"label": label, "x": x, "y": y, "w": w, "h": h}
+                        for label, x, y, w, h in legends],
+        }
+
+    def _violations(self, groups):
+        return _node(
+            "console.log(JSON.stringify(mod.legendBelowViolations("
+            "mod.pairSectionLegendsTop(" + json.dumps(groups) + "))));"
+        )
+
+    def test_strip_under_chart1_of_a_stacked_grid_passes(self):
+        # The union mutant FIRES here: chart 2's plot bottom lies below
+        # the strip, so a union box reads the strip as above-plot.
+        # Topmost pairing passes: the strip is under chart 1.
+        groups = [self._group(
+            "dash-grid (multi-chart section)",
+            [(0, 100, 800, 200), (0, 400, 800, 200)],
+            [("show:", 0, 320, 700, 30)], section=True)]
+        assert self._violations(groups) == []
+
+    def test_strip_above_the_top_plot_fires(self):
+        groups = [self._group(
+            "dash-grid (multi-chart section)",
+            [(0, 100, 800, 200), (0, 400, 800, 200)],
+            [("seeded:", 0, 40, 700, 30)], section=True)]
+        v = self._violations(groups)
+        assert len(v) == 1
+        assert v[0]["gap"] == -260.0
+
+    def test_mark_group_passes_through_unchanged(self):
+        # A mark-owned group keeps ALL its plots: a legend sandwiched
+        # between two plots of one chart still fires against the lower
+        # one — the substitution touches section groups only.
+        groups = [self._group(
+            "P",
+            [(0, 100, 800, 100), (0, 300, 800, 100)],
+            [("show:", 0, 210, 700, 30)], section=False)]
+        v = self._violations(groups)
+        assert len(v) == 1
+        assert v[0]["gap"] == -190.0
+
+    def test_section_without_plots_checks_nothing(self):
+        groups = [self._group(
+            "sec", [], [("show:", 0, 320, 700, 30)], section=True)]
+        assert self._violations(groups) == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+class TestMultichartRuleRunWiring:
+    """The rule's own run() applies the topmost substitution.
+
+    Node drives run() through a fake page serving the between-charts
+    groups. The review's mutation (the shared run skipping the
+    pairSectionLegendsTop substitution) passed every pure test AND the
+    browser harness — the seed sits above every chart, so both wirings
+    fire it — and this test exists to die on exactly that mutant.
+    """
+
+    def _run_multichart(self):
+        groups = [
+            {"panel": "dash-grid (multi-chart section)",
+             "section": True,
+             "plots": [{"x": 0, "y": 100, "w": 800, "h": 200},
+                       {"x": 0, "y": 400, "w": 800, "h": 200}],
+             "legends": [{"label": "show:", "x": 0, "y": 320,
+                          "w": 700, "h": 30}]},
+        ]
+        return _node(
+            "const rule = mod.RULES.find((r) => "
+            "r.id === 'legend-below-plot-multichart');"
+            "const ctx = { page: { evaluate: async () => "
+            + json.dumps(groups) + " } };"
+            "console.log(JSON.stringify(await rule.run(ctx)));"
+        )
+
+    def test_run_pairs_the_between_charts_strip_against_the_top_plot(self):
+        # The strip sits under chart 1 (y 320; plot bottoms 300 and
+        # 600): the substitution must limit pairing to the top plot, or
+        # chart 2's plot claims the strip and run() returns a violation
+        # instead of [].
+        assert self._run_multichart() == []
