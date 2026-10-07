@@ -10,7 +10,7 @@ import warnings
 import pytest
 
 from backend.bash_churn import bash_churn, python_write_paths
-from backend.bash_churn_errors import churn_survives_error
+from backend.bash_churn_errors import _verbatim_targets, churn_survives_error
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -542,8 +542,63 @@ def test_echo_into_fd_dup_filename_books_its_payload():
 def test_fd_dup_target_is_not_an_error_line_path():
     """A bare digit `>&` target is filtered as a descriptor, so an error
     line naming a digit-leading path (`2.py`) cannot match it and zero
-    counted tee churn: the filter limb in bash_churn_errors is
-    load-bearing (#802)."""
-    command = "cat <<E | tee >&2\nbody\nE\npython3 2.py"
+    counted tee churn; the real tee target beside it keeps the write
+    alive: the filter limb in bash_churn_errors is load-bearing (#802)."""
+    command = "cat <<E | tee >&2 real.txt\nbody\nE\npython3 2.py"
     text = "python3: cannot open file '2.py': No such file or directory"
     assert churn_survives_error(command, text) is True
+
+
+def test_tee_into_stderr_alone_has_no_survivable_write():
+    """With the operator token filtered (#820), `tee >&2` books no file
+    target at all: the counted body churn has no verbatim write behind
+    it, so an errored later stage zeroes it."""
+    command = "cat <<E | tee >&2\nbody\nE\npython3 2.py"
+    text = "python3: cannot open file '2.py': No such file or directory"
+    assert churn_survives_error(command, text) is False
+
+
+@pytest.mark.parametrize("redirect", ["1>", "1>>", "1>|", "1>&"])
+def test_heredoc_cat_books_churn_through_fd_one_stdout_spellings(redirect):
+    """fd 1 IS stdout: bash lands the heredoc body in the target through
+    the fd-spelled stdout forms exactly like plain `>` (#819)."""
+    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (3, 0)
+
+
+def test_heredoc_cat_through_an_fd_dup_books_no_churn_case():
+    """`1>&2` duplicates stdout into stderr: no file at all, no churn
+    (#819)."""
+    command = "cat <<EOF 1>&2\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (0, 0)
+
+
+def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line():
+    """`21>` points another descriptor at f.txt — the body lands on
+    stdout (no heredoc churn), but bash creates f.txt, and the redirect
+    itself is a recognized write of unknown addition size: the one
+    unknown-size line, `2>`'s parity (#805, #819)."""
+    command = "cat <<EOF 21> f.txt\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (1, 0)
+
+
+@pytest.mark.parametrize("context,expected", [
+    ("cat <<E | tee >&2", []),
+    ("tee <<E >&2", []),
+    ("cat <<E | tee f.txt >&2", ["f.txt"]),
+    ("cat <<E | tee -a log.txt", ["log.txt"]),
+])
+def test_tee_arm_books_no_operator_tokens(context, expected):
+    """The tee arm reads raw shlex tokens, so a redirect operator rides
+    in looking like a path: `>&2` is not a file, and the operator shape
+    is filtered while real targets book (#820)."""
+    assert _verbatim_targets(context) == expected
+
+
+def test_word_adjacent_digit_is_a_word_not_an_fd_prefix():
+    """`f1>` is the word `f1` plus a plain stdout redirect in bash — the
+    digit only reads as an fd when it STARTS the token — so the heredoc
+    body lands nowhere the fd-1 branch may claim and master's
+    unknown-size line stands (#819)."""
+    command = "cat <<EOF f1> out.txt\nl1\nl2\nl3\nEOF\n"
+    assert bash_churn(command) == (1, 0)
