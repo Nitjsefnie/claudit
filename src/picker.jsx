@@ -20,15 +20,25 @@ function ProjectPicker({ projects, active, onChange }) {
   const [page, setPage] = useState(0);
   const [perPage, setPerPage] = useState(null); // null = unfitted first render
   const list = projects || [];
-  const pageCount = perPage > 0
-    ? Math.max(1, Math.ceil(list.length / perPage))
+  // The applied page size floors the measured fit at one chip (#807): a
+  // strip too narrow for any full chip still pages one project at a
+  // time — perPage 0 showed empty pages and made the jump's index / 0
+  // produce NaN. The floor lives HERE, not in computeFit, so the
+  // measured fit stays truthful (0 = room for none), and the pinched
+  // chip's shrink-to-fit style below is what keeps the forced page inside
+  // the strip: plain chips keep flex-shrink: 0, which is also the shape the
+  // rendered guard's red proof needs to overflow.
+  const size = perPage == null ? null : Math.max(1, perPage);
+  const pinched = perPage === 0;
+  const pageCount = size != null
+    ? Math.max(1, Math.ceil(list.length / size))
     : (list.length || 1);
   // Clamp rather than store a corrected page: a stale index would strand
   // the user on a blank page with no chips to click their way out of.
   const safePage = Math.min(page, pageCount - 1);
   const shown = perPage == null
     ? list
-    : list.slice(safePage * perPage, safePage * perPage + perPage);
+    : list.slice(safePage * size, safePage * size + size);
   // The active chip may live on another page. Nothing renders as `on` then
   // — including "All" — so surface the selection instead of leaving the
   // filtered dashboard looking unfiltered.
@@ -69,6 +79,10 @@ function ProjectPicker({ projects, active, onChange }) {
         <button
           key={p.project_id}
           className={'pp-btn pp-proj' + (active === p.project_id ? ' on' : '')}
+          style={pinched ? {
+            flex: '0 1 auto', minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          } : undefined}
           onClick={() => onChange(p.project_id)}
           title={`${p.session_count} sessions · $${p.total_cost.toFixed(2)}`}
         >{p.display_name}</button>
@@ -92,7 +106,7 @@ function ProjectPicker({ projects, active, onChange }) {
             <button
               className="pp-btn on pp-jump"
               onClick={() => setPage(Math.floor(
-                list.findIndex(p => p.project_id === active) / perPage
+                list.findIndex(p => p.project_id === active) / size
               ))}
               title="Jump to the selected project"
             >{active} &#8617;</button>
