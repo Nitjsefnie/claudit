@@ -50,8 +50,12 @@ derived record identities through `recordDedup.decide` + `retract` when
 a shared `seenUuids` map is passed (issue #713), so with a parent and
 its fork both loaded the parent's originals survive and the fork's
 replayed records leave — the same winner the DB's canonical rows hold.
-The pass keyed on tool_use_id has no browser mirror (a follow-up gap,
-deliberately not closed here).
+The tool_use_id pass is mirrored the same way (issue #766):
+`parseLaneCodex` decides each `tool_call` into a shared `seenToolIds` map
+through `recordDedup.decideTool` and drops the copies the standing winner
+outranks with `recordDedup.dropMaskedTools`, tool_call and tool_result
+events together — the same winner the DB's `tool_uses.is_canonical` rows
+hold.
 
 ## Cost accounting is split TTL, always (SV-COST-SPLIT)
 

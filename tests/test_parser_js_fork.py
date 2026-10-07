@@ -151,3 +151,144 @@ def test_the_browser_parent_and_fork_agree_on_the_parents_model():
         [["100500", "gpt-5.6-sol", False],
          ["110920", "gpt-5.6-terra", False]],
     ] * 2
+
+
+def _tool_rollout(text, session_id, lines):
+    base = [
+        {"timestamp": "2026-06-14T11:00:01.000Z", "type": "session_meta",
+         "payload": {"session_id": session_id,
+                     "id": "00000000-0000-4000-8000-000000000003",
+                     "cwd": "/workspace/toy-project",
+                     "originator": "codex-tui", "cli_version": "1.0.0"}},
+        {"timestamp": "2026-06-14T11:00:02.000Z", "type": "turn_context",
+         "payload": {"model": text}},
+    ]
+    for ts, kind, call_id, body in lines:
+        ts_iso = f"2026-06-14T11:00:{ts}.000Z"
+        if kind == "call":
+            payload = {"type": "custom_tool_call", "name": "exec",
+                       "input": body}
+            if call_id is not None:
+                payload["call_id"] = call_id
+        else:
+            payload = {"type": "custom_tool_call_output", "output": body}
+            if call_id is not None:
+                payload["call_id"] = call_id
+        base.append({"timestamp": ts_iso, "type": "response_item",
+                     "payload": payload})
+    return "".join(
+        json.dumps(lne, separators=(",", ":")) + "\n" for lne in base)
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="node not available")
+def test_the_browser_dedups_a_forks_replayed_tool_calls():
+    """Issue #766's browser half: with a parent and its fork loaded
+    together, one copy of each replayed tool call survives — the parent's
+    original, the same winner the DB's tool_uses.is_canonical keeps — and
+    computeSessionStats does not double-count the replayed calls. The
+    fork's own calls (its first declaration onward) and the empty-id calls
+    (the NULL tool_use_id rows, always canonical) are never deduped. The
+    record-side contract is test_the_browser_parent_and_fork_agree_on_
+    the_parents_model's; this is the tool_use_id keyspace beside it."""
+    parent = _tool_rollout(
+        "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001",
+        [("03", "call", "c1", "alpha(1);"),
+         ("04", "out", "c1", "ok"),
+         ("05", "call", None, "gamma(3);"),
+         ("06", "out", None, "ok")])
+    # The fork: session_meta (forked_from_id) + replayed c1, then the
+    # boundary turn_context, then its own c2 and an empty-id call.
+    fork_lines = [
+        {"timestamp": "2026-06-14T11:00:01.000Z", "type": "session_meta",
+         "payload": {"session_id": "00000000-0000-4000-8000-000000000002",
+                     "id": "00000000-0000-4000-8000-000000000005",
+                     "forked_from_id": "00000000-0000-4000-8000-000000000003",
+                     "parent_thread_id": "00000000-0000-4000-8000-000000000003",
+                     "cwd": "/workspace/toy-project",
+                     "originator": "codex-tui", "cli_version": "1.0.0"}},
+        {"timestamp": "2026-06-14T11:00:02.000Z", "type": "event_msg",
+         "payload": {"type": "agent_reasoning",
+                     "text": "Replaying the parent's history."}},
+        {"timestamp": "2026-06-14T11:00:03.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call", "name": "exec",
+                     "input": "alpha(1)-REPLAY;", "call_id": "c1"}},
+        {"timestamp": "2026-06-14T11:00:04.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call_output", "output": "replayed-ok",
+                     "call_id": "c1"}},
+        {"timestamp": "2026-06-14T11:00:05.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-terra"}},
+        {"timestamp": "2026-06-14T11:00:06.000Z", "type": "event_msg",
+         "payload": {"type": "agent_reasoning",
+                     "text": "Picking up where the parent thread left off."}},
+        {"timestamp": "2026-06-14T11:00:07.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call", "name": "exec",
+                     "input": "beta(2);", "call_id": "c2"}},
+        {"timestamp": "2026-06-14T11:00:08.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call_output", "output": "own-ok",
+                     "call_id": "c2"}},
+        {"timestamp": "2026-06-14T11:00:09.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call", "name": "exec",
+                     "input": "delta(4);"}},
+        {"timestamp": "2026-06-14T11:00:10.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call_output", "output": "ok"}},
+    ]
+    fork_text = "".join(
+        json.dumps(lne, separators=(",", ":")) + "\n" for lne in fork_lines)
+
+    script = _FORK_NODE_HEAD + f"""
+      require({str(ROOT / 'src' / 'record-dedup.js')!r});
+      const parent = {json.dumps(parent)};
+      const fork = {json.dumps(fork_text)};
+      const run = (texts) => {{
+        const seen = new Map();
+        const seenToolIds = new Map();
+        const allEvents = [], allMeta = [];
+        for (const text of texts) {{
+          const {{ events, meta }} =
+            window.parseTranscript(text, {{ seenUuids: seen, seenToolIds }});
+          allEvents.push(...events);
+          allMeta.push(...meta);
+        }}
+        window.recordDedup.dropMasked(allMeta, seen);
+        window.recordDedup.dropMaskedTools(allEvents, seenToolIds);
+        const stats = window.computeSessionStats(allEvents, allMeta);
+        return {{
+          calls: allEvents.filter(e => e.type === 'tool_call')
+            .map(e => [e.tool_use_id, e.tool_input._raw, e.isReplay === true])
+            .sort(),
+          results: allEvents.filter(e => e.type === 'tool_result')
+            .map(e => [e.tool_use_id, e.detail]).sort(),
+          statsToolCalls: stats.toolCalls,
+        }};
+      }};
+      console.log(JSON.stringify(
+        [run([parent, fork]), run([fork, parent]), run([fork])]));
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True,
+                          text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    together = {
+        "calls": sorted([
+            ["c1", "alpha(1);", False],      # the parent's original wins
+            ["c2", "beta(2);", False],       # the fork's own call survives
+            ["", "delta(4);", False],        # NULL-identity: never deduped
+            ["", "gamma(3);", False],
+        ]),
+        "results": sorted([
+            ["c1", "ok"], ["c2", "own-ok"], ["", "ok"], ["", "ok"],
+        ]),
+        "statsToolCalls": 4,
+    }
+    lone_fork = {
+        "calls": sorted([
+            ["c1", "alpha(1)-REPLAY;", True],  # no parent: the fallback
+            ["c2", "beta(2);", False],
+            ["", "delta(4);", False],
+        ]),
+        "results": sorted([
+            ["c1", "replayed-ok"], ["c2", "own-ok"], ["", "ok"],
+        ]),
+        "statsToolCalls": 3,
+    }
+    assert json.loads(proc.stdout) == [together, together, lone_fork]

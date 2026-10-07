@@ -124,6 +124,41 @@
       }
       return list;
     },
+
+    // Tool-call identity (issue #766): the same winner rule keyed on
+    // tool_use_id — the canonical pass's tool_uses partition (mirrors
+    // ingest_rollup_state.py's PARTITION BY tool_use_id with the same
+    // replay-last, unattributed-last order). The CALL owns the identity
+    // (the DB stores one tool_uses row per call; results settle onto it),
+    // so decide runs per tool_call only and the paired tool_result is
+    // judged by the same id's verdict through dropMaskedTools. An empty
+    // tool_use_id (the NULL rows) is never recorded and never deduped;
+    // arrival order stands in for file_key, as above.
+    decideTool: function (seen, obj) {
+      if (!seen) return 'keep';
+      const id = obj.tool_use_id;
+      if (typeof id !== 'string' || !id) return 'keep';
+      const prev = seen.get(id);
+      const rank = rankOf(obj);
+      if (prev !== undefined && rank >= prev) return 'skip';
+      seen.set(id, rank);
+      return 'keep';
+    },
+
+    // The tool-side drop: splice every tool event whose id's standing
+    // winner outranks it (per-file tail and the caller's cross-call drop
+    // both run this). Tool events carry no model, so the rank's
+    // attribution term is constant here — the replay flag decides, which
+    // is the only original-vs-replay shape the keyspace holds.
+    dropMaskedTools: function (list, seen) {
+      for (let k = list.length - 1; k >= 0; k--) {
+        const e = list[k];
+        if (e && typeof e.tool_use_id === 'string' && e.tool_use_id
+            && seen.get(e.tool_use_id) !== undefined
+            && rankOf(e) > seen.get(e.tool_use_id)) list.splice(k, 1);
+      }
+      return list;
+    },
   };
 
   function maskedBy(seen, e) {
