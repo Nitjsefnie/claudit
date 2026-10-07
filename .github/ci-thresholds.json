@@ -12,7 +12,7 @@
   "module_size_baseline": {
     "backend/api.py": 886,
     "backend/api_dashboard.py": 796,
-    "backend/bash_churn.py": 917,
+    "backend/bash_churn.py": 874,
     "backend/ingest.py": 673,
     "backend/parse.py": 852,
     "backend/parse_codex.py": 684,
