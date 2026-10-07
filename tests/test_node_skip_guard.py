@@ -12,8 +12,10 @@ The skip must otherwise ride only the tests that run node.
 
 A class-level ``pytestmark`` is the documented skip shape for a class
 whose every test drives node, and a per-test skipif the shape for one
-test; both are checked (#759): a node skip - own mark or inherited
-class mark - must ride a test that itself runs node, judged by its
+test; both are checked (#759), as is a mark inherited through a
+same-file base chain or a conditional class-body mark (#776): a node
+skip - own mark, its class's, inherited, or conditional - must ride a
+test that itself runs node, judged by its
 transitive same-file call closure grounding in a node string constant
 (a helper chain resolves; the issue's purely-syntactic trap is the
 chain the closure exists to resolve). Decorators are excluded from
@@ -23,7 +25,8 @@ prose must not ground its closure). Residuals, disclosed: a helper
 outside the ``tests.`` package (or a conftest fixture) resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
 direction; a mark predicate built without a node string (a module
-variable) is invisible to the scan; and the grounding scan itself is
+variable) is invisible to the scan; an out-of-file base collects no mark (#776); and the grounding
+scan itself is
 substring-wide over the whole body, so an incidental node string in a
 marked test's body (an assert message, a payload variable) grounds
 that test, where a comment does not (comments are not AST). The scan
@@ -268,6 +271,62 @@ def test_a_self_call_to_a_plain_method_does_not_ground() -> None:
         (12, "test_via_self_call")]
 
 
+_INHERITED_MARK = ("import shutil\nimport pytest\n"
+                   "class TestNodeBase:\n    pytestmark = pytest.mark.skipif(\n"
+                   '        shutil.which("node") is None,\n'
+                   '        reason="node not available")\n')
+
+
+def test_an_inherited_node_mark_reaches_the_derived_class() -> None:
+    """Shape three (#776): the mark rides the MRO - a base-class mark skips a derived Python-only member."""
+    direct = ast.parse(_INHERITED_MARK + "class TestNodeChild(TestNodeBase):\n    def test_python_only_child(self):\n        assert sum([1, 2]) == 3\n")
+    chain = ast.parse(_INHERITED_MARK + "class TestMid(TestNodeBase):\n    pass\nclass TestLeaf(TestMid):\n    def test_python_only_leaf(self):\n        assert sum([1, 2]) == 3\n")
+    assert _skip_without_node_lines(direct) == [(8, "test_python_only_child")]
+    assert _skip_without_node_lines(chain) == [(10, "test_python_only_leaf")]
+
+
+def test_an_inherited_mark_member_that_runs_node_is_left_alone() -> None:
+    """The inherited shape's control: grounding holds through the MRO too."""
+    mod = ast.parse(_INHERITED_MARK + "def _node(body):\n    return subprocess.run(['node'], input=body)\nclass TestNodeChild(TestNodeBase):\n    def test_drives_node(self):\n        assert _node('1+1')\n")
+    assert not _skip_without_node_lines(mod)
+
+
+def test_a_base_mark_the_guard_cannot_see_leaves_the_child_alone() -> None:
+    """The inherited shape's disclosed fail-open and its non-node sibling: a
+    base outside the file resolves to no mark; a non-node mark has none to inherit."""
+    unknown = ast.parse("class TestChild(TestExternal):\n    def test_python_only(self):\n        assert sum([1, 2]) == 3\n")
+    plain = ast.parse("import pytest\nclass TestBase:\n    pytestmark = pytest.mark.db\nclass TestChild(TestBase):\n    def test_python_only(self):\n        assert sum([1, 2]) == 3\n")
+    assert not _skip_without_node_lines(unknown)
+    assert not _skip_without_node_lines(plain)
+
+
+def test_marks_nested_in_class_body_conditionals_are_detected() -> None:
+    """Shape four (#776): if/try at class level hide a pytestmark no better
+    than module-level ones - both wrapped classes get checked."""
+    mod = ast.parse(
+        "import shutil\nimport pytest\nclass TestIfWrap:\n    if True:\n        pytestmark = pytest.mark.skipif(\n"
+        '            shutil.which("node") is None,\n            reason="node not available")\n'
+        "    def test_python_only_if(self):\n        assert sum([1, 2]) == 3\n"
+        "class TestTryWrap:\n    try:\n        pytestmark = pytest.mark.skipif(\n"
+        '            shutil.which("node") is None,\n            reason="node not available")\n'
+        "    except NameError:\n        pytestmark = None\n"
+        "    def test_python_only_try(self):\n        assert sum([1, 2]) == 3\n")
+    assert _skip_without_node_lines(mod) == [(8, "test_python_only_if"), (17, "test_python_only_try")]
+
+
+def test_the_mro_walk_descends_the_base_s_own_conditionals() -> None:
+    """The MRO walk collects the base's mark through the same
+    conditional-descending walk: a base's if-wrapped mark reaches the child,
+    while a conditional mark that never mentions node checks nothing."""
+    base = ("import shutil\nimport pytest\nclass TestBase:\n    if True:\n"
+            "        pytestmark = pytest.mark.skipif(\n"
+            '            shutil.which("node") is None,\n            reason="node not available")\n')
+    inherited = ast.parse(base + "class TestChild(TestBase):\n    def test_python_only(self):\n        assert sum([1, 2]) == 3\n")
+    plain = ast.parse("import pytest\nclass TestBase:\n    if True:\n        pytestmark = pytest.mark.db\n    def test_python_only(self):\n        assert sum([1, 2]) == 3\n")
+    assert _skip_without_node_lines(inherited) == [(9, "test_python_only")]
+    assert not _skip_without_node_lines(plain)
+
+
 def test_an_imported_helper_grounds_across_files(tmp_path) -> None:
     """A helper imported from a sibling tests module grounds the same as
     a local one (test_parser_js_dedup_merge's shape)."""
@@ -384,10 +443,7 @@ def _test_offenders_in_ctx(ctx: dict) -> list[tuple[int, str]]:
     for cls in ctx["classes"].values():
         methods = {s.name: s for s in cls.body
                    if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))}
-        class_mark = any(
-            _mentions_node(v)
-            for s in cls.body
-            if (v := _pytestmark_value(s)) is not None)
+        class_mark = _class_mark_mentions_node(cls, ctx)
         for func in methods.values():
             if func.name.startswith("test_"):
                 offenders += _skip_without_node(
@@ -551,29 +607,40 @@ def _named_targets(func_expr, ctx, class_methods) -> list:
     return []
 
 
-def _module_level_statements(tree: ast.Module) -> list[tuple[ast.stmt, int]]:
-    """Every module-level statement, descending into module-level
-    ``if``/``try``/``with``/``for`` bodies (a conditional wrapper hides
-    nothing) but never into function or class bodies (a class-level
-    ``pytestmark`` is the documented skip shape; whether its class's
-    tests really run node is the #759 branch's own check)."""
-    out: list[tuple[ast.stmt, int]] = []
-    stack: list[ast.stmt] = list(tree.body)
+def _class_mark_mentions_node(cls: ast.ClassDef, ctx: dict) -> bool:
+    """cls's pytestmark or a same-file base's, conditionals descended (#776)."""
+    seen: set[int] = set()
+    stack = [cls]
+    while stack:
+        c = stack.pop()
+        if id(c) in seen:
+            continue
+        seen.add(id(c))
+        if any(_mentions_node(v) for s in _conditionals_descended(c.body)
+               if (v := _pytestmark_value(s)) is not None):
+            return True
+        stack += [ctx["classes"][b.id] for b in c.bases if isinstance(b, ast.Name) and b.id in ctx["classes"]]
+    return False
+
+
+def _conditionals_descended(stmts: list[ast.stmt]) -> list[ast.stmt]:
+    """``stmts`` with ``if``/``try``/``with``/``for``/``while`` bodies and else/finally/handler arms descended."""
+    out: list[ast.stmt] = []
+    stack = list(stmts)
     while stack:
         stmt = stack.pop(0)
-        out.append((stmt, stmt.lineno))
-        if not isinstance(stmt, (ast.If, ast.Try, ast.With, ast.AsyncWith,
-                                 ast.For, ast.AsyncFor, ast.While)):
+        out.append(stmt)
+        if not isinstance(stmt, (ast.If, ast.Try, ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While)):
             continue
-        for child in (list(getattr(stmt, "body", []))
-                      + list(getattr(stmt, "orelse", []))
-                      + list(getattr(stmt, "finalbody", []))
-                      + list(getattr(stmt, "handlers", []))):
-            if isinstance(child, ast.ExceptHandler):
-                stack.extend(child.body)
-            else:
-                stack.append(child)
+        kids = (list(getattr(stmt, "body", [])) + list(getattr(stmt, "orelse", []))
+                + list(getattr(stmt, "finalbody", [])) + list(getattr(stmt, "handlers", [])))
+        stack += [s for k in kids for s in (k.body if isinstance(k, ast.ExceptHandler) else [k])]
     return out
+
+
+def _module_level_statements(tree: ast.Module) -> list[tuple[ast.stmt, int]]:
+    """Every module-level statement, conditionals descended (see _conditionals_descended)."""
+    return [(s, s.lineno) for s in _conditionals_descended(tree.body)]
 
 
 def _node_mark_lines(tree: ast.Module) -> list[int]:
