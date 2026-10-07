@@ -248,7 +248,10 @@ def test_picker_floors_the_degenerate_page_at_one_pinched_chip():
     assert "textOverflow" in body, (
         "the pinched chip's style does not ellipsize — a long project name "
         "overflows the strip instead of truncating")
-    assert "flex-shrink: 0" in _css(), (
+    # Scoped to the .pp-btn rule, not the file: a file-global pin is
+    # satisfied by a sibling occurrence and survives the rule losing it.
+    btn = _css()[_css().index(".pp-btn {"):]
+    assert "flex-shrink: 0" in btn, (
         "plain chips lost flex-shrink: 0 — a squeezed chip wraps (#643) "
         "and the rendered guard's seeded chips would stop overflowing")
 
