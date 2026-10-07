@@ -624,3 +624,12 @@ def test_tee_arm_books_no_stdin_redirect_target(context, expected):
     stdin-redirect shape filters with the other operators while real
     targets book (#855)."""
     assert _verbatim_targets(context) == expected
+
+
+def test_heredoc_sink_line_stays_off_for_a_bare_fd_zero():
+    """The sink line's fd exclusion is deliberate at both ends: `0>`
+    opens f.txt for writing yet books nothing here — shipped semantics,
+    pinned so the lead cannot quietly widen to `[0-9]+` (#854 review
+    N1; whether fd 0's creation should count is #854-class follow-up)."""
+    command = "cat <<EOF 0> f.txt\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == (0, 0)
