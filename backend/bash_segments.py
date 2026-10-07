@@ -244,7 +244,7 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
             # `>& file` with the fd omitted (or spelled 1) is bash's
             # stdout+stderr-to-file spelling, `&>`'s twin (#802); against
             # a digit or `-` it is a duplication or close, and a digit
-            # fd of 2 or more refuses the filename form outright
+            # fd of 0 or 2+ refuses the filename form outright
             # (ambiguous redirect, nothing runs).
             writes.append(target)
         elif operator == "<" and fd in ("", "0"):
