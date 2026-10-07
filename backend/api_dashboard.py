@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from starlette.requests import Request
 
-from backend import db
+from backend import db, api_ctx_growth
 from backend.api_common import Phases, _bucket_seconds, _iso, _parse_range
 from backend.cache import cache_response
 
@@ -359,41 +359,12 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
     ).fetchall()
 
     # Per-FILE ctx traces — one row per main file AND per sub-agent
-    # file with usage. The "Per-Session Context Growth" panel
-    # treats each file as its own conversation, so a sub-agent
-    # invocation surfaces under whatever model it ran on, even if
-    # there's no main session file on disk.
-    ctx_traces_rows = ph.execute(
-        "ctx_traces", c, f"""
-        WITH scoped_files AS (
-          SELECT f.file_key, f.session_id, f.is_main, f.ctx_turns
-          FROM files f
-          WHERE f.r2_last_modified >= %s {src["proj_filter"]}
-            AND jsonb_array_length(f.ctx_turns) > 0
-        ),
-        -- Scoped to the files actually returned. Unrestricted, this
-        -- ran an ordered-set aggregate over every record in the
-        -- table on every request, ignoring both range and project.
-        file_models AS (
-          SELECT r.file_key,
-                 COALESCE(
-                   MODE() WITHIN GROUP (ORDER BY r.model) FILTER (
-                     WHERE r.model <> '' AND r.model <> '<synthetic>'
-                   ),
-                   MODE() WITHIN GROUP (ORDER BY NULLIF(r.model, ''))
-                 ) AS model
-          FROM records r
-          WHERE r.file_key IN (SELECT file_key FROM scoped_files)
-          GROUP BY r.file_key
-        )
-        SELECT sf.file_key, sf.session_id, sf.is_main,
-               COALESCE(fm.model, '') AS model,
-               sf.ctx_turns
-        FROM scoped_files sf
-        LEFT JOIN file_models fm ON fm.file_key = sf.file_key
-        """,
-        list(src["file_args"]),
-    ).fetchall()
+    # file with usage. The SQL moved to api_ctx_growth.ctx_traces_rows
+    # (issue #644), where the panel endpoint shares it; the dashboard
+    # keeps the rows only to fold sessions' ctx_at_end.
+    _t_ctx = time.perf_counter()
+    ctx_traces_rows = api_ctx_growth.ctx_traces_rows(c, *src["file_args"])
+    ph.mark("ctx_traces", time.perf_counter() - _t_ctx)
 
     rl_rows = ph.execute(
         "rate_limit_hits", c, f"""
@@ -740,17 +711,10 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         # instead of ~6, repeated across 54k turns. session_id/is_main are
         # dropped too: they are only used server-side above (to fold in
         # ctx_turns) and no consumer reads them off the wire.
-        "ctx_traces": [
-            {
-                "model": model or "",
-                "turns": [
-                    int(t.get("input", 0) or 0)
-                    for t in (turns or [])
-                    if isinstance(t, dict)
-                ],
-            }
-            for (_fk, _sid, _is_main, model, turns) in rows["ctx_traces"]
-        ],
+        # The per-file ctx traces moved to /api/context-growth/traces
+        # (issue #644): they were 82% of this payload's gzip (1.83 MB of
+        # a 2.36 MB body at range=all) while drawing one panel of ~30.
+        # The session fold above still reads the rows server-side.
         "response_sizes": [
             {
                 "ts": _iso(bucket),
@@ -797,17 +761,15 @@ def dashboard(
     model: str | None = Query(None),
     fresh: int = Query(0),
 ) -> dict:
-    """Hourly aggregates + per-session burns + per-session ctx_lines.
+    """Hourly aggregates + per-session burns + per-session ctx_at_end.
 
     Cross-file uuid dedup is resolved at ingest into
     records.is_canonical (ingest.recompute_canonical); the queries here
-    just filter that boolean. Legacy NULL-uuid rows are kept verbatim
-    and always canonical. The canonical set is materialised once per
-    request into a ``ON COMMIT DROP`` temp table, then read by the five
-    panel queries. `model=opus-4-7` filters the deduped body so every
-    panel derived from it (hourly, cost_by_model, response_sizes,
-    sessions, ctx_traces) is constrained to records matching the model
-    substring. cost_by_project is folded from the same rollup source as
+    just filter that boolean — there is no temp table (#790). Legacy
+    NULL-uuid rows are kept verbatim and always canonical.
+    `model=opus-4-7` filters the deduped body so every panel derived
+    from it is constrained to records matching the model substring.
+    cost_by_project is folded from the same rollup source as
     cost_by_model, and tokens_by_project beside it measures the billed
     token partition per project; the route wrapper strips BOTH
     per-project keys for guests."""
@@ -829,6 +791,6 @@ def dashboard(
     ph.done(
         hourly=len(out["hourly"]),
         sessions=len(out["sessions"]),
-        ctx_traces=len(out["ctx_traces"]),
+        ctx_traces=len(rows["ctx_traces"]),
     )
     return out

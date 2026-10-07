@@ -10,7 +10,6 @@ const humanFmt_X = window.humanFmt;
 // Per-Session Context Growth panel
 // ──────────────────────────────────────────────────────────────────────
 
-const CTX_TURN_CAP = Infinity;
 // The y axis is the observed peak with headroom, through the rule every
 // context panel shares (issue #648). There is no per-model cap table:
 // the one that lived here named ten Claude models and fell back to a
@@ -56,40 +55,6 @@ function buildSessionTurns(events) {
     out[dom].push({ id: sid, seq });
   }
   return out;
-}
-
-function perTurnStats(sessions) {
-  const empty = { turns: [], median: [], p25: [], p75: [], p90: [], count: [], maxT: 0 };
-  if (!sessions || !sessions.length) return empty;
-  const byTurn = new Map();
-  for (const s of sessions) {
-    for (const p of s.seq) {
-      if (p.t >= CTX_TURN_CAP) break;
-      if (!byTurn.has(p.t)) byTurn.set(p.t, []);
-      byTurn.get(p.t).push(p.ctx);
-    }
-  }
-  if (!byTurn.size) return empty;
-  const maxT = Math.max(...byTurn.keys());
-  const turns = [], median = [], p25 = [], p75 = [], p90 = [], count = [];
-  const pick = (arr, q) => arr[Math.min(arr.length - 1, Math.floor(arr.length * q))];
-  for (let t = 0; t <= maxT; t++) {
-    const vals = byTurn.get(t);
-    if (!vals || vals.length < 1) {
-      turns.push(t);
-      median.push(null); p25.push(null); p75.push(null); p90.push(null);
-      count.push(0);
-      continue;
-    }
-    vals.sort((a, b) => a - b);
-    turns.push(t);
-    median.push(vals[Math.floor(vals.length / 2)]);
-    p25.push(pick(vals, 0.25));
-    p75.push(pick(vals, 0.75));
-    p90.push(pick(vals, 0.9));
-    count.push(vals.length);
-  }
-  return { turns, median, p25, p75, p90, count, maxT };
 }
 
 // Backend bucket projections center on bucket midpoint, so a polyline
@@ -150,9 +115,16 @@ function shortModelName(m) {
   return s;
 }
 
-function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
+function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(1200);
+  // The panel fetches its own traces (issue #644): they left the
+  // /api/dashboard payload — 82% of its gzip for one panel of ~30 —
+  // and this panel now fetches /api/context-growth/traces like the
+  // other self-fetching panels. `null` while the fetch is in flight;
+  // [] after a failure, which selects the same fallback paths as the
+  // old empty-array prop did.
+  const [traces, setTraces] = React.useState(null);
 
   React.useEffect(() => {
     if (!ref.current) return;
@@ -160,6 +132,15 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
+
+  React.useEffect(() => {
+    const q = project ? `&project=${encodeURIComponent(project)}` : '';
+    fetch(`/api/context-growth/traces?range=${range || 'all'}${q}`,
+          { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(b => setTraces(b.traces || []))
+      .catch(() => setTraces([]));
+  }, [project, range, nonce]);
 
   // Prefer real per-session ctx traces from the backend when present;
   // fall back to bucket-grouping the synth/live events. The
@@ -178,9 +159,9 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
     // origin so every trace — including single-turn sub-agent calls
     // — has at least 2 points and renders as a polyline + contributes
     // a value-0 anchor to the per-turn median/p25/p75/p90 stats.
-    if (ctxTraces && ctxTraces.length) {
+    if (traces && traces.length) {
       const out = {};
-      for (const t of ctxTraces) {
+      for (const t of traces) {
         if (!t.turns || !t.turns.length) continue;
         const key = shortModelName(t.model);
         if (dropKey(key)) continue;
@@ -224,7 +205,7 @@ function ContextGrowthPanel({ events, realSessions, ctxTraces }) {
     const m = buildSessionTurns(events);
     for (const k of Object.keys(m)) if (dropKey(k)) delete m[k];
     return m;
-  }, [events, realSessions, ctxTraces]);
+  }, [events, realSessions, traces]);
 
   // Models present, sorted by session count desc. This drives both the
   // checkbox row and the per-model sub-panels.
@@ -922,6 +903,24 @@ const BAR_OPACITY_HOVER = 0.85;
 // halo, container hover, rotated axis captions) is pinned by
 // tests/test_panel_wiring.py against this implementation, and a second
 // copy would drift out from under those guards.
+
+// app.jsx renders the tokens and the cost variants of this panel side by
+// side; both draw from ONE endpoint response, but each instance used to
+// GET the same URL. The first caller to ask for a URL starts the fetch,
+// the second joins the in-flight promise (issue #644).
+const _cbcPending = new Map();
+function fetchCostByContext(url) {
+  let p = _cbcPending.get(url);
+  if (!p) {
+    p = fetch(url, { credentials: 'same-origin' }).then(r => r.json());
+    _cbcPending.set(url, p);
+    // Drop the entry once settled: a later refetch (a range or model
+    // change) must re-request, not read a stale body.
+    p.finally(() => { if (_cbcPending.get(url) === p) _cbcPending.delete(url); });
+  }
+  return p;
+}
+
 function CostByContextPanel({ models, project, range, nonce, measure }) {
   const isTokens = measure === 'tokens';
   const ref = React.useRef(null), svgRef = React.useRef(null);
@@ -943,8 +942,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetch(`/api/cost-by-context?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
-      .then(r => r.json())
+    fetchCostByContext(`/api/cost-by-context?range=${range || 'all'}${q}`)
       .then(b => {
         setData(b.buckets || []);
         setMeta({
@@ -1212,7 +1210,6 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
 window.ContextGrowthPanel = ContextGrowthPanel;
 window.DashTooltip = DashTooltip;
 window.shortModelName = shortModelName;
-window.perTurnStats = perTurnStats;
 window.LegendCheckboxRow = LegendCheckboxRow;
 window.ToggleChip = ToggleChip;
 window.toolColor = _toolColor;
