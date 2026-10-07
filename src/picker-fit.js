@@ -34,13 +34,8 @@
   const SLACK = 1;
 
   // Read the strip and return its page size: how many project chips fit
-  // beside the All chip and the reserves. Returns len when everything
-  // fits; otherwise 1..len for a non-empty list and 0 only when the list
-  // itself is empty — the component applies the number as its page size.
-  //
-  // The floor is one chip (#807): a strip too narrow to fit even one
-  // still pages one project at a time, so the pager's count and the
-  // jump's index / page size never divide by zero.
+  // beside the All chip and the reserves. Returns 0..len; the component
+  // applies the number as its page size.
   //
   // Chip widths come from the hidden measure row (.pp-measure), not the
   // real chips: the real strip renders only the fitted slice, so its own
@@ -85,9 +80,7 @@
       pager.querySelectorAll('.pp-nav, .pp-count').forEach(el => { core += widthOf(el); });
       core += 2 * gap;
     }
-    // The clamp only ever fires here, where len >= 1 and a pager will
-    // render (#807): the no-pager branch above already returned len.
-    return Math.max(1, fitCount(room0, widths, gap, core + jumpW));
+    return fitCount(room0, widths, gap, core + jumpW);
   }
 
   global.pickerFit = { fitCount, computeFit };
