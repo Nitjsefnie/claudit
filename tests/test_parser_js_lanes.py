@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
 CODEX_JS = ROOT / "src" / "parser-codex.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
@@ -68,7 +69,7 @@ def _browser_lane_output() -> dict:
       global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
       const out = {{}};
       for (const [name, text] of Object.entries(fixtures)) {{
@@ -155,7 +156,7 @@ def _node_long_context(plan_type: str | None) -> dict:
       global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
       const text = {json.dumps(_long_context_blob(plan_type).decode())};
       const {{ events, meta }} = window.parseTranscript(text);
       const s = window.computeSessionStats(events, meta);
@@ -336,7 +337,7 @@ class TestNodeDrivenLaneParsers:
           global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
-          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           const {{ events, meta }} = window.parseTranscript(
             {json.dumps(blob.decode())});
           console.log(JSON.stringify(
@@ -409,7 +410,7 @@ class TestNodeDrivenLaneParsers:
           global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
-          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           const fixtures = {json.dumps(fixtures)};
           const out = {{}};
           for (const [name, text] of Object.entries(fixtures)) {{
@@ -483,7 +484,7 @@ class TestNodeDrivenLaneParsers:
           global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
-          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           window.dashboardCol = {{}};
           eval({json.dumps(_token_breakdown_source())});
           const events = [
@@ -558,7 +559,7 @@ class TestNodeDrivenLaneParsers:
           global.window = {{ shortModelName: m => m }};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
-          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           const text = {json.dumps(_long_context_blob(None).decode())};
           const tx = window.parseTranscript(text);
           const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
@@ -593,7 +594,7 @@ class TestNodeDrivenLaneParsers:
           global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
-          require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           const {{ events, meta }} = window.parseTranscriptLanes(
             {json.dumps(_NAIVE_LANE_BLOB.decode())});
           const usage = meta.find((m) => m.type === 'assistant_usage');

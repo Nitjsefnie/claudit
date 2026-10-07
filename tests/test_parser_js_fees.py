@@ -19,6 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
+RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 
 FEE = 0.0137
@@ -61,6 +62,7 @@ def _sandbox(tmp_path, monkeypatch):
     """parser.js + the synthetic pricing.json, alone in a tmp dir."""
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    shutil.copy(RATES_JS, tmp_path / "rates.js")
     (tmp_path / "pricing.json").write_text(
         json.dumps(_doc(), indent=2, sort_keys=True), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -82,6 +84,7 @@ def test_browser_exposes_the_parsed_fees(sandbox):
     got = _node(sandbox, f"""
       global.window = {{}};
       require({str(sandbox / 'pricing-loader.js')!r});
+      require({str(sandbox / 'rates.js')!r});
       require({str(sandbox / 'parser.js')!r});
       console.log(JSON.stringify({{
         modelFees: window.modelFees,
@@ -99,6 +102,7 @@ def test_browser_resolves_the_entry_in_force_fee(sandbox):
     got = _node(sandbox, f"""
       global.window = {{}};
       require({str(sandbox / 'pricing-loader.js')!r});
+      require({str(sandbox / 'rates.js')!r});
       require({str(sandbox / 'parser.js')!r});
       const r = (m, ts, p) => window.resolveModelRate(m, ts, p).fee;
       console.log(JSON.stringify({{
@@ -119,6 +123,7 @@ def test_browser_compute_session_stats_folds_the_fee(sandbox):
     got = _node(sandbox, f"""
       global.window = {{}};
       require({str(sandbox / 'pricing-loader.js')!r});
+      require({str(sandbox / 'rates.js')!r});
       require({str(sandbox / 'parser.js')!r});
       const m = {{ type: 'assistant_usage', line: 1,
                    ts: '2026-07-01T12:00:00Z', model: 'acme/acme-9',

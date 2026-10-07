@@ -23,6 +23,7 @@ from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 PRICING_PY = ROOT / "backend" / "pricing.py"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -120,12 +121,18 @@ def _node_raw(script: str):
     return json.loads(proc.stdout)
 
 
+def _copy_browser(tmp_path):
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+
+
 def _node(parser_js, body: str):
-    # A sandboxed parser.js requires the pricing-loader.js copied beside
-    # it first: the resolver half reads the tables the loader builds.
-    loader = parser_js.parent / "pricing-loader.js"
-    pre = (f"require({str(loader)!r});\n      "
-           if loader.exists() else "")
+    # A sandboxed parser.js requires its loader and rates.js beside it first.
+    pre = "".join(
+        f"require({str(p)!r});\n      "
+        for p in (parser_js.parent / "pricing-loader.js",
+                  parser_js.parent / "rates.js") if p.exists())
     return _node_raw(f"""
       global.window = {{}};
       {pre}require({str(parser_js)!r});
@@ -201,8 +208,7 @@ def test_both_sides_resolve_every_row_the_file_defines_identically(
         monkeypatch, tmp_path, factory):
     doc = _install(monkeypatch, factory)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     cases = _cases(doc)
     got_all = _node(tmp_path / "parser.js", f"""
       const cases = {json.dumps(cases)};
@@ -267,7 +273,6 @@ def test_the_longest_matching_key_wins_in_the_backend():
 def test_the_longest_matching_key_wins_in_the_browser():
     cases = _extending_ids()
     got = _node(PARSER_JS, f"""
-      require({str(LOADER_JS)!r});
       const ids = {json.dumps([m for m, _ in cases])};
       console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m).key)));
     """)
@@ -283,7 +288,6 @@ def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
     arguments, so no row value is pinned."""
     ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
     got = _node(PARSER_JS, f"""
-      require({str(LOADER_JS)!r});
       const ids = {json.dumps(ids)};
       console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
     """)
@@ -307,7 +311,7 @@ def test_neither_side_carries_a_rate_literal():
     field is unique to rate rows, so a literal one is a copied row."""
     assert not re.search(r"""["']create_5m["']\s*:\s*[\d.]""",
                          PRICING_PY.read_text(encoding="utf-8"))
-    for js in (PARSER_JS, LOADER_JS):
+    for js in (PARSER_JS, RATES_JS, LOADER_JS):
         assert not re.search(r"\bc5\s*:\s*[\d.]",
                              js.read_text(encoding="utf-8"))
 
@@ -373,8 +377,7 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_browser(
         tmp_path, path, model, host):
     doc, before, after = _appended(path)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     cut = _at(doc["provider_rates_fetched"])
     stamps = [_stamp(cut - timedelta(seconds=1)),
               doc["provider_rates_fetched"], None]
@@ -692,6 +695,5 @@ def _variant_row_doc() -> dict:
 
 def _variant_node(tmp_path, doc: dict, body: str):
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     return _node(tmp_path / "parser.js", body)

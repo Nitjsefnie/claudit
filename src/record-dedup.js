@@ -125,6 +125,30 @@
       return list;
     },
 
+    // The Claude path's per-file tail (issue #795): a compaction sidecar
+    // replays the main file's tool_use blocks under new line uuids, so
+    // the line-uuid dedup cannot catch them. The same winner rule keyed
+    // on tool_use_id decides per tool_call/agent_spawn event, and the
+    // losing copies leave call AND result together (results settle onto
+    // the call, as in the DB's tool_uses partition). The Claude format
+    // marks no replays and tool events carry no model, so every copy
+    // ties on the rank's two terms and the FIRST-loaded copy wins —
+    // arrival order stands in for file_key, as in decide. The premise is
+    // CROSS-FILE: one copy per file (tool_use ids are unique within a real
+    // Claude transcript), so the splice below never meets the id's winner.
+    dedupToolCalls: function (events, seen) {
+      const masked = new Set();
+      for (const e of events) {
+        if ((e.type === 'tool_call' || e.type === 'agent_spawn')
+            && this.decideTool(seen, e) === 'skip') masked.add(e.tool_use_id);
+      }
+      for (let k = events.length - 1; k >= 0; k--) {
+        const e = events[k];
+        if (e && masked.has(e.tool_use_id)) events.splice(k, 1);
+      }
+      return events;
+    },
+
     // Tool-call identity (issue #766): the same winner rule keyed on
     // tool_use_id — the canonical pass's tool_uses partition (mirrors
     // ingest_rollup_state.py's PARTITION BY tool_use_id with the same

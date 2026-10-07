@@ -12,7 +12,7 @@
 // Exposes the derived tables (modelRates, datedRates, modelFees,
 // providerRates, providerDatedRates, providerStarts, providerSchedules,
 // providerFees, rateEpochs, FREE_RATES) and scheduleRatesAt, the weekly
-// schedule-window lookup the resolver in parser.js uses. Fees (issue
+// schedule-window lookup the resolver in src/rates.js uses. Fees (issue
 // #469) ride the same tables, parsed from the entry notes exactly as the
 // backend loader parses them.
 
@@ -458,7 +458,8 @@ window.rateEpochs = [...new Set([
 ])].sort((a, b) => a - b);
 
 // Every rate an OpenRouter free model carries: zero. Returned for any id
-// ending in ':free' or starting with 'stealth/' — see _isFreeModel.
+// ending in ':free' or starting with 'stealth/' — see _isFreeModel in
+// src/rates.js.
 // Deliberately NOT a window.modelRates row, so it is not enumerable as an
 // exact key.
 window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));

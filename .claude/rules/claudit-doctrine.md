@@ -619,11 +619,11 @@ Every rate lives in `src/pricing.json`: `models` (normalised key →
 history), `providers` (normalised model → provider → history),
 `provider_rates_fetched`, and `openrouter` (the account's data region
 and each provider-table model's OpenRouter id, SV-RATE-REFRESH).
-`backend/pricing.py` and `src/parser.js` hold logic only and both read
+`backend/pricing.py` and `src/rates.js` hold logic only and both read
 it — the backend at import through `backend/pricing_load.py`, which
 `pricing.py` re-exports, the browser synchronously before first use
 (node reads it beside the module). The browser fetches the URL in the
-parser.js tag's `data-pricing` attribute in `public/index.html`,
+pricing-loader tag's `data-pricing` attribute in `public/index.html`,
 cache-busted like every `/src` asset; the file sits in `src/` because
 that is what the app serves. No rate literal belongs in either source
 file.

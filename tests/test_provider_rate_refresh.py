@@ -31,6 +31,7 @@ PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed templa
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
+RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 UTC = timezone.utc
@@ -334,11 +335,13 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(RATES_JS, where / "rates.js")
     shutil.copy(PARSER_JS, where / "parser.js")
     before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()
     script = f"""
       global.window = {{}};
       require({str(where / "pricing-loader.js")!r});
+      require({str(where / "rates.js")!r});
       require({str(where / "parser.js")!r});
       const K = {{fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
                   read: 'read', out: 'output'}};

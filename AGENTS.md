@@ -208,6 +208,9 @@ src/              — served at /src/* (in-browser Babel)
   app.jsx         — shell, routing, dashboard fetcher, SSE, synthetic
                     preview
   parser.js       — browser transcript parser (SV-PARSER-SPEC)
+  rates.js        — browser rate resolution, pricing.resolve's mirror
+                    (SV-RATE-DATA); what computeSessionStats prices
+                    through
   pricing.json    — every rate table (SV-RATE-DATA)
   parser-lanes.js — browser lane sniff + shared helpers + the Kimi
                     parsers + window.LONG_CONTEXT_*
