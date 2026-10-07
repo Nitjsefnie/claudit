@@ -417,6 +417,44 @@ async function seedPickerOverflow(page) {
   }, PICKER_SEL);
 }
 
+// Seed for the scrollbar rule's red proof: flip the strip's overflow-x
+// to scroll — the DOM change of a picker that permits scrolling again.
+// Headless Chromium hides scrollbars (--hide-scrollbars), so no gutter
+// ever appears to measure; the property itself is what permits the
+// scrolling the ruling forbids, and it is honest to assert directly.
+async function seedPickerScrollbar(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    strip.style.overflowX = 'scroll';
+    return { overflowX: 'scroll' };
+  }, PICKER_SEL);
+}
+
+// Seed for the paging-shift rule's red proof: arm a one-shot click
+// listener on the next control that grows the strip's padding — the
+// DOM shape of a page turn that moves the row. The rule's own page
+// turn detonates it.
+async function seedPickerPagingShift(page) {
+  return page.evaluate((sel) => {
+    // The pager only exists where chips do not all fit, and the rule
+    // journeys to such a width before it clicks — so the detonator is a
+    // capture-phase document listener scoped to THIS strip, armed at
+    // whatever width the seed runs at.
+    const onTurn = (e) => {
+      const btn = e.target.closest('.pp-nav[title="Next page"]');
+      if (!btn || !btn.closest('[data-picker="projects"]')) return;
+      const strip = document.querySelector(sel);
+      // The strip's box includes its padding, so top padding grows the
+      // row without wrapping.
+      strip.style.paddingTop = '32px';
+      document.removeEventListener('click', onTurn, true);
+    };
+    document.addEventListener('click', onTurn, true);
+    return { armed: 'strip grows 32px on next page turn' };
+  }, PICKER_SEL);
+}
+
 // Seed for the no-shift rule: arm a one-shot resize listener that drops
 // a tall element into the strip on the next width change — a DOM
 // injection standing in for whatever would make a re-fit grow the row.
@@ -466,55 +504,78 @@ export const RULES = [
       + ' no scrollbar: only chips that fit the strip render (#774)',
     seed: seedPickerOverflow,
     run: async (ctx) => {
-      const st = await ctx.page.evaluate((sel) => {
+      const over = await ctx.page.evaluate((sel) => {
         const strip = document.querySelector(sel);
-        if (!strip) return null;
-        return {
-          over: strip.scrollWidth - strip.clientWidth,
-          scrollbar: strip.clientWidth < strip.offsetWidth,
-        };
+        return strip ? strip.scrollWidth - strip.clientWidth : null;
       }, PICKER_SEL);
-      if (!st) return [{ upper: 'project picker present',
-        lower: 'strip missing', gap: 0 }];
-      const out = [];
-      if (st.over > 0) {
-        out.push({ upper: 'picker strip fits its width',
-          lower: 'rendered content wider than the strip', gap: st.over });
+      if (over === null) {
+        return [{ upper: 'project picker present', lower: 'strip missing',
+          gap: 0 }];
       }
-      if (st.scrollbar) {
-        out.push({ upper: 'picker strip without a scrollbar',
-          lower: 'horizontal scrollbar eating strip height', gap: 1 });
+      if (over > 0) {
+        return [{ upper: 'picker strip fits its width',
+          lower: 'rendered content wider than the strip', gap: over }];
       }
-      return out;
+      return [];
+    },
+  },
+  {
+    id: 'project-picker-scrollbar',
+    description: 'the project picker cuts overflow off: overflow-x is'
+      + ' neither auto nor scroll, so nothing may scroll it (#774)',
+    seed: seedPickerScrollbar,
+    run: async (ctx) => {
+      const v = await ctx.page.evaluate((sel) => {
+        const strip = document.querySelector(sel);
+        return strip ? getComputedStyle(strip).overflowX : null;
+      }, PICKER_SEL);
+      if (v === null) {
+        return [{ upper: 'project picker present', lower: 'strip missing',
+          gap: 0 }];
+      }
+      if (v === 'auto' || v === 'scroll') {
+        return [{ upper: 'picker strip with overflow-x cut off',
+          lower: `overflow-x: ${v} permits scrolling`, gap: 0 }];
+      }
+      return [];
     },
   },
   {
     id: 'project-picker-no-shift',
     description: 'the picker\'s row keeps its height and the content'
-      + ' below keeps its seat while the width re-fits and while paging'
-      + ' (#774)',
+      + ' below keeps its seat while the width re-fits (#774)',
     seed: seedPickerShift,
     run: async (ctx) => {
       const { page, width } = ctx;
       // Seat = how far the content below the picker sits from the
       // picker's bottom edge. Topbar reflow moves strip and seat alike
       // at phone widths, so the seat gap — not the absolute y — is the
-      // invariant; the strip's own height is the second one.
+      // invariant; the strip's own height is the second one. The probe
+      // reports below: false when nothing sits below — a constant
+      // sentinel would check nothing.
       const probe = () => page.evaluate((sel) => {
         const strip = document.querySelector(sel);
         if (!strip) return null;
         const s = strip.getBoundingClientRect();
-        const below = strip.nextElementSibling
-          || document.querySelector('main > *:nth-child(2)');
-        const b = below ? below.getBoundingClientRect() : null;
-        return { h: Math.round(s.height * 10) / 10,
-          seat: b ? Math.round((b.y - (s.y + s.height)) * 10) / 10 : -1 };
+        const b = strip.nextElementSibling
+          ? strip.nextElementSibling.getBoundingClientRect()
+          : (document.querySelector('main > *:nth-child(2)')
+            ? document.querySelector('main > *:nth-child(2)')
+              .getBoundingClientRect()
+            : null);
+        return { h: Math.round(s.height * 10) / 10, below: !!b,
+          seat: b ? Math.round((b.y - (s.y + s.height)) * 10) / 10 : 0 };
       }, PICKER_SEL);
       const out = [];
       const compare = (tag, base, now) => {
         if (!base || !now) {
           out.push({ upper: 'project picker present', lower: 'strip missing',
             gap: 0 });
+          return;
+        }
+        if (!now.below) {
+          out.push({ upper: 'content below the picker',
+            lower: 'nothing below the strip to seat', gap: 0 });
           return;
         }
         if (now.h !== base.h) {
@@ -527,6 +588,11 @@ export const RULES = [
         }
       };
       const base = await probe();
+      if (base && !base.below) {
+        out.push({ upper: 'content below the picker',
+          lower: 'nothing below the strip to seat', gap: 0 });
+        return out;
+      }
       try {
         // The re-fit journey: a different width (the RO refit), then
         // back. Same-width resize fires nothing, so 320's 0.6x clamp
@@ -536,20 +602,92 @@ export const RULES = [
         await page.setViewportSize({ width: narrowW, height: 900 });
         await page.waitForTimeout(350);
         compare('narrow-width', base, await probe());
-        // Paging, at whatever width the pager exists: chips swap, the
-        // row must not.
-        const hasPager = await page.evaluate((sel) =>
-          !!document.querySelector(`${sel} .pp-count`), PICKER_SEL);
-        if (hasPager) {
-          await page.click('.pp-pager .pp-nav:last-of-type');
-          await page.waitForTimeout(250);
-          compare('after paging', base, await probe());
-        }
       } finally {
         await page.setViewportSize({ width, height: 900 });
         await page.waitForTimeout(350);
       }
       compare('after the refit round-trip', base, await probe());
+      return out;
+    },
+  },
+  {
+    id: 'project-picker-no-shift-paging',
+    description: 'the picker\'s row keeps its height and its seat while'
+      + ' the pager turns a page, and the page really turns (#774)',
+    seed: seedPickerPagingShift,
+    run: async (ctx) => {
+      const { page, width } = ctx;
+      const probe = () => page.evaluate((sel) => {
+        const strip = document.querySelector(sel);
+        if (!strip) return null;
+        const s = strip.getBoundingClientRect();
+        const b = strip.nextElementSibling
+          ? strip.nextElementSibling.getBoundingClientRect()
+          : (document.querySelector('main > *:nth-child(2)')
+            ? document.querySelector('main > *:nth-child(2)')
+              .getBoundingClientRect()
+            : null);
+        return { h: Math.round(s.height * 10) / 10, below: !!b,
+          seat: b ? Math.round((b.y - (s.y + s.height)) * 10) / 10 : 0,
+          over: strip.scrollWidth - strip.clientWidth,
+          count: strip.querySelector('.pp-count')
+            ? strip.querySelector('.pp-count').textContent : null };
+      }, PICKER_SEL);
+      const out = [];
+      const base = await probe();
+      if (!base) {
+        return [{ upper: 'project picker present', lower: 'strip missing',
+          gap: 0 }];
+      }
+      if (!base.below) {
+        out.push({ upper: 'content below the picker',
+          lower: 'nothing below the strip to seat', gap: 0 });
+      }
+      try {
+        // The pager only exists where the chips do not all fit, so the
+        // rule journeys to a narrower width first; 320's 0.6x clamp
+        // grows instead of no-opping (a same-width resize fires
+        // nothing).
+        let narrowW = Math.max(320, Math.round(width * 0.6));
+        if (narrowW === width) narrowW = width + 160;
+        await page.setViewportSize({ width: narrowW, height: 900 });
+        await page.waitForTimeout(350);
+        const seated = await probe();
+        if (!seated.count) {
+          out.push({ upper: 'a pager at a width chips do not all fit',
+            lower: 'no pager ever renders — nothing pages', gap: 0 });
+          return out;
+        }
+        const nextSel = 'main .project-picker[data-picker="projects"]'
+          + ' .pp-nav[title="Next page"]';
+        await page.click(nextSel);
+        await page.waitForTimeout(300);
+        const turned = await probe();
+        if (turned.count === seated.count) {
+          out.push({ upper: 'the page turns on next',
+            lower: `counter stuck at ${turned.count}`, gap: 0 });
+        }
+        if (turned.h !== seated.h) {
+          out.push({ upper: `picker row height ${seated.h}px`,
+            lower: `after paging height ${turned.h}px`,
+            gap: turned.h - seated.h });
+        }
+        if (turned.below && seated.below && turned.seat !== seated.seat) {
+          out.push({ upper: `seat gap below the picker ${seated.seat}px`,
+            lower: `after paging seat gap ${turned.seat}px`,
+            gap: turned.seat - seated.seat });
+        }
+        // The overflow property holds on later pages too, not only page
+        // 1 at the starting width.
+        if (turned.over > 0) {
+          out.push({ upper: 'picker strip fits its width',
+            lower: 'rendered content wider than the strip after paging',
+            gap: turned.over });
+        }
+      } finally {
+        await page.setViewportSize({ width, height: 900 });
+        await page.waitForTimeout(350);
+      }
       return out;
     },
   },
