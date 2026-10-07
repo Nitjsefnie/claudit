@@ -27,8 +27,9 @@ invisible:
 - the flat config still reads its environment, parser options and cross-file
   globals from where `.eslintrc.json` left them. The ONE deliberate
   behavioural difference in the migration is the browser environment, and
-  pinning `globals` to an exact version is what pins it: a bump that moves
-  the set has to be a reviewed diff, not a silent widening;
+  the `globals` entry is what ties that set to the manifest: since #814 a
+  consistent bump lands green BY DESIGN, and the reviewed diff is the
+  guard — a bump that moves the set arrives as a manifest diff;
 - the JS coverage gate still folds with c8 and still reads one decimal off
   `total.lines.pct`, against the committed javascript floor.
 
@@ -52,24 +53,22 @@ FLAT_CONFIG = REPO_ROOT / "eslint.config.mjs"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
-# The tools the two gates need, and the exact version each is pinned at.
-# Exact versions only: this repo pins deliberately (dependabot.yml's own
-# header) so a tool release can never turn CI red on an unchanged commit.
-# The values are the current supported releases as of issue #361:
-# `npm view eslint version` -> 10.11.0, `npm view c8 version` -> 12.0.0.
-# eslint-plugin-react's latest is unchanged at 7.37.5 and `globals` is what
-# the flat config reads the browser environment from.
-EXPECTED_DEV_DEPENDENCIES = {
-    # The rendered-layout guard's headless browser (issue #631). Pinned
-    # like every other tool here, and like every other tool here nothing
-    # in the shipped app reads it: the running page loads React and Babel
-    # from a CDN and still has no build step.
-    "playwright": "1.63.0",
-    "c8": "12.0.0",
-    "eslint": "10.11.0",
-    "eslint-plugin-react": "7.37.5",
-    "globals": "17.12.0",
-}
+# The tools the two gates need. The NAMES are the pin; the VERSIONS are
+# data the repository's bots own (issue #814): Dependabot bumps them in
+# package.json + package-lock.json together, and that is a green PR by
+# design, never a reviewed one. What the pin doctrine still freezes is
+# the SHAPE — every version an exact `\d+.\d+.\d+`, no range, no tilde,
+# no caret, so a tool release can never resolve to something new at
+# install time — and the tool SET: a tool added to or dropped from the
+# toolchain is a reviewed diff. Lockfile agreement with the manifest is
+# `test_the_lockfile_is_committed_and_matches_the_manifest`'s job.
+EXPECTED_DEV_TOOLS = (
+    "playwright",
+    "c8",
+    "eslint",
+    "eslint-plugin-react",
+    "globals",
+)
 
 # The rule set `.eslintrc.json` carried, rule for rule. The one change is
 # `no-unused-vars`'s `caughtErrors`, whose DEFAULT ESLint 9 flipped from
@@ -159,20 +158,33 @@ def _flat_rules() -> dict:
     return rules
 
 
-def test_ci_tools_are_pinned_to_exact_versions() -> None:
-    r"""No range, no tilde, no caret: a release cannot move CI under us.
+_EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
 
-    Equality against the expected map does the whole job — every value it
-    accepts is an exact `\d+.\d+.\d+` by construction, so a separate shape
-    loop would be a second guard that cannot fail. Editing
-    EXPECTED_DEV_DEPENDENCIES to a range is a reviewed diff, and the
-    environment assertions below are what make the `globals` entry there
-    load-bearing.
+
+def test_ci_tools_are_pinned_to_exact_versions() -> None:
+    r"""The pins are exact SHAPES, not named numbers.
+
+    Equality against a literal map used to do the whole job — every value
+    it accepted was an exact `\d+.\d+.\d+` by construction — until #814:
+    the versions are data Dependabot changes BY DESIGN, so the map turned
+    every consistent bump into a red PR. What the pin doctrine needs is
+    the shape, asserted directly: no range, no tilde, no caret, so a tool
+    release cannot resolve to something new at install time. The tool set
+    is held by EXPECTED_DEV_TOOLS, and the lockfile's agreement with the
+    manifest is the lockfile test's job — a package.json/lockfile
+    disagreement fails there, not here.
     """
     dev = _package().get("devDependencies") or {}
-    assert dev == EXPECTED_DEV_DEPENDENCIES, (
-        "package.json devDependencies drifted from the pinned toolchain: "
-        f"{dev!r} (expected {EXPECTED_DEV_DEPENDENCIES!r})")
+    assert set(dev) == set(EXPECTED_DEV_TOOLS), (
+        "package.json devDependencies no longer name exactly the pinned "
+        f"toolchain: {sorted(dev)} (expected "
+        f"{sorted(EXPECTED_DEV_TOOLS)}); adding or dropping a tool is a "
+        "reviewed diff")
+    offenders = {name: version for name, version in dev.items()
+                 if not _EXACT_VERSION.fullmatch(version)}
+    assert not offenders, (
+        "devDependencies left the exact-pin shape — no range, no tilde, "
+        f"no caret: {offenders!r}")
 
 
 def test_manifest_is_private_and_carries_no_runtime_dependencies() -> None:
@@ -333,23 +345,24 @@ def test_flat_config_still_supplies_the_browser_environment() -> None:
 
     `.eslintrc.json` got that from `env: {browser: true}`, which eslint
     8.57.1 expanded through the globals@13.24.0 it bundles. The flat config
-    gets it from `globals.browser` at whatever version is pinned — 17.12.0
-    today, a DIFFERENT set: 464 names added, 23 removed, measured by name in
-    both directions (see the config's own header).
+    gets it from `globals.browser` at whatever version is pinned, a
+    DIFFERENT set from the bundled one: 464 names added, 23 removed,
+    measured by name in both directions (see the config's own header).
 
-    So the environment is pinned TRANSITIVELY, and that is worth pinning
-    explicitly: the exact-version assertion in
-    `test_ci_tools_are_pinned_to_exact_versions` is what freezes the set,
-    and this test is what fails if a `globals` bump moves it. A Dependabot PR
-    that changes these 1204 names is a change a reviewer should read, not one
-    that arrives silently with a green gate.
+    So the environment is pinned TRANSITIVELY, and that is worth naming:
+    the `globals` entry in EXPECTED_DEV_TOOLS is what keeps the set behind
+    a manifest diff a reviewer reads (#814 took the literal version pins
+    out of the way so a consistent bump lands green). Nothing here gates
+    the set's movement — the reviewer diffing the manifests is the check;
+    what the pin guarantees is that the movement cannot happen OUTSIDE a
+    manifest diff.
     """
     text = FLAT_CONFIG.read_text(encoding="utf-8")
     assert "...globals.browser" in text, (
         f"{FLAT_CONFIG.name} no longer spreads globals.browser into "
         "languageOptions.globals; every browser global becomes an undefined "
         "identifier and the gate reports the whole tree")
-    assert EXPECTED_DEV_DEPENDENCIES["globals"], (
+    assert "globals" in EXPECTED_DEV_TOOLS, (
         "the globals pin is gone, so the browser environment above is "
         "whatever npm resolves at install time")
 
