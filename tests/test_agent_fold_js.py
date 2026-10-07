@@ -37,6 +37,7 @@ AGENT_TYPES_JS = ROOT / "src" / "agent-types.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 
 # Every branch of the fold: plugin namespace, a nested one, canonical
 # passthrough, both cross-lane spellings, the default bucket, an unknown
@@ -94,6 +95,7 @@ def _folded_names(text: str) -> list[str]:
       window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const {{ events }} = window.parseTranscript({json.dumps(text)}, {{}});
       console.log(JSON.stringify(
@@ -151,6 +153,7 @@ def test_a_subagent_type_only_dispatch_folds_the_same():
       window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const {{ events }} = window.parseTranscript({json.dumps(line)}, {{}});
       console.log(JSON.stringify(

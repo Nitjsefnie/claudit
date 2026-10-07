@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
+RATES_JS = ROOT / "src" / "rates.js"
 UTC = timezone.utc
 
 
@@ -77,6 +78,7 @@ def _node_rates():
     script = f"""
       global.window = {{}};
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const cases = {json.dumps(CASES)};
       const out = cases.map(([m, ts]) => {{
@@ -101,6 +103,7 @@ def _node_cost(output_tokens: int) -> float:
     script = f"""
       global.window = {{}};
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const m = {{ type: 'assistant_usage', line: 1,
                    ts: '2026-06-14T12:00:00Z', model: 'gpt-6-luna',
@@ -123,6 +126,7 @@ def _node_usage_records(text: str) -> list[dict]:
     script = f"""
       global.window = {{}};
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const {{ meta }} = window.parseTranscript({json.dumps(text)});
       console.log(JSON.stringify(meta
@@ -171,6 +175,7 @@ def _node_dedup_survivor(*files):
       global.window = {{}};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       const seen = new Map();
       const allEvents = [];
@@ -235,6 +240,7 @@ def _node_json(body: str):
     script = f"""
       global.window = {{}};
       require({str(LOADER_JS)!r});
+      require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
       {body}
     """
@@ -329,6 +335,7 @@ class TestNodeDrivenBrowserMirror:
         script = f"""
           global.window = {{}};
           require({str(LOADER_JS)!r});
+          require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           console.log(JSON.stringify(window.rateEpochs));
         """
@@ -566,6 +573,7 @@ class TestNodeDrivenBrowserProviderParsing:
         script = f"""
           global.window = {{}};
           require({str(LOADER_JS)!r});
+          require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           const fixtures = {json.dumps(texts)};
           const out = {{}};
@@ -610,6 +618,7 @@ class TestNodeDrivenBrowserProviderParsing:
         script = f"""
           global.window = {{}};
           require({str(LOADER_JS)!r});
+          require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           window.datedRates['claude-opus-4-7'] = [
             {{ endExclusive: Date.parse('2026-09-10T00:00:00Z'),

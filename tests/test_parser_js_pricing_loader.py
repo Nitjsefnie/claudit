@@ -99,6 +99,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     fixture = where / "pricing.json"
     fixture.write_text(text, encoding="utf-8")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a
     # plain parse: a reviver that rewrote values (the old _hhmmSpelling)
@@ -136,6 +137,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
       try {{ require({json.dumps(str(where / "pricing-loader.js"))}); }}
       catch (e) {{ error = String(e.message); }}
       if (error === null) {{
+        try {{ require({json.dumps(str(where / "rates.js"))}); }}
+        catch (e) {{ error = String(e.message); }}
         try {{ require({json.dumps(str(where / "parser.js"))}); }}
         catch (e) {{ error = String(e.message); }}
       }}

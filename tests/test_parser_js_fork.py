@@ -22,6 +22,7 @@ CODEX_JS = ROOT / "src" / "parser-codex.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
+RATES_JS = ROOT / "src" / "rates.js"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
 DIFFERENT_MODEL_FORK = FIX_CODEX / "rollout_fork_different_model.jsonl"
@@ -30,7 +31,8 @@ _FORK_NODE_HEAD = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
-      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});"""
+      require({str(LOADER_JS)!r}); require({str(RATES_JS)!r});
+      require({str(PARSER_JS)!r});"""
 
 
 @pytest.mark.skipif(

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "parser"
 LANES_JS = ROOT / "src" / "parser-lanes.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 
 LINE_FIXTURES = {
@@ -192,6 +193,7 @@ def _node_parse(transcripts: dict[str, str]) -> dict[str, Any]:
       require({json.dumps(str(LANES_JS))});
       require({json.dumps(str(ROOT / 'src' / 'parser-codex.js'))});
       require({json.dumps(str(LOADER_JS))});
+      require({json.dumps(str(RATES_JS))});
       require({json.dumps(str(PARSER_JS))});
       const fixtures = {json.dumps(transcripts)};
       const out = {{}};
