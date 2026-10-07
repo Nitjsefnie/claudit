@@ -43,6 +43,7 @@ from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    _segments, _split_redirects,
                                    _unmatched_close)
 from backend.bash_literals import ShellWord, literal_path
+from backend.bash_operand import _looks_like_path, _operand_paths
 from backend.bash_effects import destination_paths, perl_paths, sed_parts
 from backend.bash_directories import directory_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
@@ -60,23 +61,6 @@ SLICE_CMDS = frozenset({
 })
 READ_CMDS = WHOLE_CMDS | SLICE_CMDS
 
-# Commands taking a PATTERN (or program text) operand before their file
-# operands. Skipping one non-path operand for these is what stops
-# `grep config.py *.txt` from booking the pattern as a file.
-PATTERN_CMDS = frozenset({
-    "grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "jq",
-})
-
-# Flags whose VALUE is the following token. Without this, `grep -e
-# foo.py file.txt` books the pattern as a path, and `head -n 50 f`
-# books "50".
-VALUE_FLAGS = frozenset({
-    "-e", "-f", "--regexp", "--file", "-n", "--lines", "-c", "--bytes",
-    "-m", "--max-count", "-A", "-B", "-C", "--after-context",
-    "--before-context", "--context", "--include", "--exclude",
-    "--exclude-dir", "-d", "--delimiter", "-t",
-})
-
 # `$NAME` / `${NAME}` — expanded when NAME is assigned in the same
 # command text, dropped otherwise.
 _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
@@ -90,29 +74,8 @@ _VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]
 MAX_MATERIALIZED_EXPANSION_CHARS = MAX_COMMAND_CHARS
 MAX_SCAN_MATERIALIZED_EXPANSION_CHARS = 4 * MAX_COMMAND_CHARS
 
-# A token is a candidate path when it carries a short extension or a
-# separator. Bare words are rejected: `grep TODO notes.md` must not book
-# "TODO", and a subcommand like `diff --git` is not a file.
-_PATH_RE = re.compile(r"\.[A-Za-z0-9_]{1,8}$")
-
 # Tools whose operands are files they write, not read.
 _WRITE_CMDS = frozenset({"tee"})
-
-
-def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool = True) -> bool:
-    """True when a bare operand is plausibly a filename."""
-    if not token or token.startswith("-"):
-        return False
-    if token in (".", "..", "*"):
-        return False
-    if windows_roots and windows_absolute(token):
-        return True
-    # An unexpanded glob names no single file; refusing it here is the
-    # same rule as bash_churn's — the shell would have to run for this
-    # to become a path.
-    if any(ch in token for ch in "*?["):
-        return False
-    return bool("/" in token or (windows and "\\" in token) or _PATH_RE.search(token))
 
 
 def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
@@ -223,36 +186,6 @@ def _expand(token: str, env: dict[str, str | None],
     return out.replace("\x00", "$")
 
 
-def _operand_paths(name: str, args: list[str], windows: bool = False) -> list[str]:
-    """File operands of one command, minus flags and pattern operands."""
-    if name == "sed":
-        return [p for p in sed_parts(args)[1] if literal_path(p)]
-    pending_pattern = 1 if name in PATTERN_CMDS else 0
-    paths: list[str] = []
-    idx = 0
-    while idx < len(args):
-        tok = args[idx]
-        if tok in VALUE_FLAGS:
-            idx += 2
-            continue
-        if tok.startswith("-"):
-            idx += 1
-            continue
-        if pending_pattern and not _looks_like_path(tok, windows_roots=False):
-            # The pattern operand. A pattern that DOES look like a path
-            # (`grep config.py *.log`) is ambiguous; treating it as the
-            # pattern would lose a real file more often than it invents
-            # one, so path-shaped tokens fall through to the path branch.
-            pending_pattern = 0
-            idx += 1
-            continue
-        pending_pattern = 0
-        if _looks_like_path(tok, windows):
-            paths.append(tok)
-        idx += 1
-    return paths
-
-
 def _sed_in_place(args: list[str]) -> bool:
     return sed_parts(args)[2]
 
@@ -336,7 +269,10 @@ class _Scan:
         refuse the whole group. An adjacent `((` books nothing only when
         the construct's parens balance — close doubled, expression free
         of an unmatched `)`: that is the one spelling bash terminates as
-        its arithmetic command, whose `>` compares rather than redirects.
+        its arithmetic command, whose `>` compares rather than
+        redirects. Its tail redirect still books its write: bash opens
+        the file before the (failing) evaluation, though the compound
+        itself stays unmodelled (issue #785).
         An expression carrying an unmatched `)` — or an undoubled close —
         never balances, and bash re-lexes and RUNS the construct as
         nested subshells; the general body scan below models exactly
@@ -348,16 +284,18 @@ class _Scan:
         if close is None:
             return
         body = raw_segment[1:close]
-        if (getattr(raw_segment[0], "double_paren", False)
-                and getattr(raw_segment[close], "double_paren", False)
-                and not _unmatched_close(raw_segment[2:close - 1])):
-            return
+        balanced_arith = (getattr(raw_segment[0], "double_paren", False)
+                          and getattr(raw_segment[close], "double_paren", False)
+                          and not _unmatched_close(raw_segment[2:close - 1]))
         try:
             tail_operands, tail_writes, tail_inputs = _split_redirects(
                 raw_segment[close + 1:])
         except ValueError:
             return
         if tail_operands:
+            return
+        if balanced_arith:
+            self._group_tail(tail_writes, [], had_reads=False)
             return
         nested = _Scan(self.base or "", self.depth + 1)
         nested.env = dict(self.env)

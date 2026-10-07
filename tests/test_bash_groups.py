@@ -36,6 +36,13 @@ from backend.bash_reads import scan
     ("((x > y ; z))", (None, [], [])),
     ("(( (x) ; y ))", (None, [], [])),
     ("((x > y && z))", (None, [], [])),
+    # A redirect on the close of the REFUSED arithmetic compound still
+    # runs: bash opens the target before the (failing) evaluation, so
+    # the write books while the compound itself stays unmodelled — no
+    # reads, no kind (issue #785).
+    ("((x)) > wide.txt", (None, [], ["/w/wide.txt"])),
+    ("(( echo x > o.txt )) > wide.txt", (None, [], ["/w/wide.txt"])),
+    ("((x)) < in.txt", (None, [], [])),
     ("( (cat a.py); echo x > b.txt )", ("whole", ["/w/a.py"], ["/w/b.txt"])),
     ("{ cat f.py; }", ("whole", ["/w/f.py"], [])),
     ("{ (cd /x && cat f.py); cat g.py; }", ("whole", ["/x/f.py", "/w/g.py"], [])),
@@ -59,6 +66,7 @@ def test_subshell_and_group_commands_are_scanned(command, expected):
     # comparison, never a redirect, so inventing `o.txt` is a phantom.
     "(( echo x > o.txt ))",
     "(( x + 1 ))",
+    "((x)) foo",            # words after the arithmetic close: no parse
 ])
 def test_subshell_refusals_stay_conservative(command):
     assert scan(command, "/w") == (None, [], [])
