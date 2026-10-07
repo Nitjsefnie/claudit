@@ -611,6 +611,36 @@ def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
     assert version == constants.PRICING_VERSION
 
 
+def test_reprice_unbills_a_lapsed_members_stored_true(fresh_db):
+    """Issue #833 at DB level: a non-member row whose stored TRUE is the
+    lapsed member era's — 250k tokens, under the global threshold, no
+    parse path stores TRUE there — reprices to FALSE and the flat cost,
+    what a reparse stores for every format."""
+    flat = round(pricing.compute_cost(
+        "claude-opus-4-7", fresh=250_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+    with db.viz_conn() as c:
+        _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=250_000,
+                        long_context=True)
+        c.execute("UPDATE records SET model = 'claude-opus-4-7' "
+                  "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+        c.commit()
+
+    assert ingest_reprice.reprice_stale() == 1
+
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT long_context, cost_usd, pricing_version FROM records "
+            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+    assert row is not None, "the seeded lapsed row must exist"
+    flag, cost, version = row
+    assert flag is False, (
+        "the lapsed member's stored TRUE unbills: the reprice re-derives "
+        "the Codex threshold test for a non-member's stored TRUE")
+    assert float(cost) == flat
+    assert version == constants.PRICING_VERSION
+
+
 def test_reprice_derives_a_provider_rows_flag_too(fresh_db):
     """The meter decision ignores the provider because the parse's does:
     a provider-tagged member row re-derives whatever its stored flag —

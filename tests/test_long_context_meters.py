@@ -188,6 +188,24 @@ def test_reprice_derives_the_flag_from_the_model_threshold(monkeypatch):
     assert kept_false["long_context"] is False
 
 
+def test_reprice_unbills_a_lapsed_members_stored_true(monkeypatch):
+    """Issue #833: the membership lapsed but the stored flag is the
+    member era's TRUE — below the global threshold the one non-member
+    shape no parse path stores. The reprice re-derives the Codex path's
+    threshold test for a non-member's stored TRUE: the row unbills; a
+    TRUE above the global threshold is the Codex path's own shape and
+    stands; FALSE and NULL non-member rows keep (every path's shape)."""
+    _install_tables(monkeypatch)
+    lapsed = _record_updates(_stale_row("claude-opus-4-7", 250_000, True))
+    assert lapsed["long_context"] is False
+    codex_shaped = _record_updates(_stale_row("claude-opus-4-7", 300_000, True))
+    assert codex_shaped["long_context"] is True
+    kept_false = _record_updates(_stale_row("claude-opus-4-7", 250_000, False))
+    assert kept_false["long_context"] is False
+    kept_null = _record_updates(_stale_row("claude-opus-4-7", 250_000, None))
+    assert kept_null["long_context"] is None
+
+
 # ---------------------------------------------------------------------------
 # rate_fingerprint: the meters ride the digest
 # ---------------------------------------------------------------------------

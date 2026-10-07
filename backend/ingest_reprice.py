@@ -226,18 +226,35 @@ def _record_updates(row: _StaleRow) -> dict:
     re-grounded by issue #765): a MEMBER row re-derives whatever its
     stored flag — a refresh fold move (a band learned or moved) bumps
     PRICING_VERSION only, and the reprice must then land exactly what a
-    reparse stores, including converting the pre-fold NULL rows; the
-    decision ignores the provider because the parse's does. A
-    NON-MEMBER row keeps its stored flag: the parse stores NULL for a
-    Claude-format non-member and the threshold test's result for a
-    Codex-format one, and a kept flag matches one of the two paths —
-    the residual case, a stored TRUE on a model whose membership since
-    lapsed, heals at the next reparse (a reparse stores the current
-    path's shape; filed as the follow-up on the out-fold).
+    reparse stores, including converting the 200k-band pre-fold NULL
+    rows; the decision ignores the provider because the parse's does.
+    A NON-MEMBER row keeps its stored flag — except a stored TRUE,
+    which only the Codex path's threshold test (issue #194) can have
+    written: the pass re-derives that test, so a lapsed member's TRUE
+    unbills at the global threshold (issue #833) and a genuinely
+    above-threshold Codex row keeps its meter. Two residuals remain,
+    both format-blind and named in issue #833: a lapsed member's
+    Claude-format row ABOVE the global threshold stays metered where a
+    reparse flattens (the pass keeps the band — the reading exact for
+    the only format that writes non-member TRUEs going forward), and a
+    lapsed member's Codex-format row between ITS old band and the
+    global threshold prices flat while a membership-blind reparse still
+    meters it; both heal at the next reparse and both need a listing
+    lapse to reach.
     """
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
     if pricing.is_long_context_model(row.model):
+        long_context = (row.fresh_tokens + row.cache_creation_tokens
+                        + row.cache_read_tokens
+                        > pricing.long_context_threshold(row.model))
+    elif row.long_context:
+        # A non-member's stored TRUE can only be the Codex path's
+        # threshold test (issue #194) — or a lapsed member's leftover,
+        # which keeps over-billing (issue #833). Re-deriving that test
+        # is the one non-member rule every format's reparse prices
+        # identically: the row unbills below the global threshold and a
+        # genuinely above-threshold Codex row keeps its meter.
         long_context = (row.fresh_tokens + row.cache_creation_tokens
                         + row.cache_read_tokens
                         > pricing.long_context_threshold(row.model))
