@@ -296,7 +296,7 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
     st.sessionId ? `${st.sessionId}:${cumulative.total_tokens}` : `${fileKey}:${lineNum}`,
     laneCodexModel(st.model),
     fresh, create, read, output,
-    totalIn > window.LONG_CONTEXT_THRESHOLD,
+    totalIn > window.longContextThresholdFor(st.model),
   );
   record.thinking_tokens = reasoning;
   meta.push(record);

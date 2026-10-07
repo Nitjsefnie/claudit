@@ -1,4 +1,5 @@
 {
+  "long_context_meters": {},
   "long_context_models": [
     "gpt-5-4",
     "gpt-5-4-pro",

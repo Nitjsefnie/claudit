@@ -251,9 +251,11 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 parsed["tool_uses"],
             )
         if parsed["records"]:
-            # long_context is lane-only (parse_common._append_usage_record),
-            # provider Claude-only (parse._provider); a record lacking the
-            # key stores NULL, and readers COALESCE long_context to FALSE.
+            # long_context is a lane row's meter decision
+            # (parse_common._append_usage_record) or, since issue #765, a
+            # Claude-format meter member's (parse._project_record); any
+            # other record lacks the decision and stores NULL, and
+            # readers COALESCE long_context to FALSE.
             # request_fee_usd likewise: only a Claude-format record naming
             # a serving host whose resolved entry carries a fee carries
             # the key (issue #469). pricing_version is NOT a record field:

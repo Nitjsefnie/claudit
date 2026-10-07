@@ -220,26 +220,27 @@ def _record_updates(row: _StaleRow) -> dict:
 
     cost_usd and the long-context flag together (issue #194): for the
     meter's models the flag is a pure function of stored columns —
-    fresh + cache_creation + cache_read against the threshold — and
-    rides the same selection, batch, keyset and guard as the cost. The
-    re-derivation is for LANE rows only (issue #249): the meter is
-    applied by parse_codex, never by the Claude path, so NULL is the
-    Claude format's parse-stored marker and a row whose flag is NULL
-    keeps it — pricing flat — whatever its model and tally; re-deriving
-    it there would diverge from what a reparse stores. A row of a model
-    whose card carries no meter, and a row naming a provider host (which
-    prices by that host's card, not this one), likewise keeps its stored
-    flag untouched: a Claude record's NULL stays NULL and a Kimi
-    record's FALSE stays FALSE.
+    fresh + cache_creation + cache_read against the model's own
+    threshold — and rides the same selection, batch, keyset and guard
+    as the cost. The derivation is membership-keyed (issue #249's law,
+    re-grounded by issue #765): a MEMBER row re-derives whatever its
+    stored flag — a refresh fold move (a band learned or moved) bumps
+    PRICING_VERSION only, and the reprice must then land exactly what a
+    reparse stores, including converting the pre-fold NULL rows; the
+    decision ignores the provider because the parse's does. A
+    NON-MEMBER row keeps its stored flag: the parse stores NULL for a
+    Claude-format non-member and the threshold test's result for a
+    Codex-format one, and a kept flag matches one of the two paths —
+    the residual case, a stored TRUE on a model whose membership since
+    lapsed, heals at the next reparse (a reparse stores the current
+    path's shape; filed as the follow-up on the out-fold).
     """
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
-    if (row.long_context is not None
-            and pricing.is_long_context_model(row.model)
-            and not row.provider):
+    if pricing.is_long_context_model(row.model):
         long_context = (row.fresh_tokens + row.cache_creation_tokens
                         + row.cache_read_tokens
-                        > pricing.LONG_CONTEXT_THRESHOLD)
+                        > pricing.long_context_threshold(row.model))
     else:
         long_context = row.long_context
     # One resolution per row: the same Resolution prices the tokens and

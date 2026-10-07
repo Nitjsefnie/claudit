@@ -15,6 +15,8 @@ FIXTURE_DIR = ROOT / "fixtures" / "parser"
 PARSER_LANES_JS = ROOT / "src" / "parser-lanes.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
+CTX_INPUT_JS = ROOT / "src" / "ctx-input.js"
+RATES_JS = ROOT / "src" / "rates.js"
 CONTEXT_GROWTH_JSX = ROOT / "src" / "context-growth-view.jsx"
 
 
@@ -44,10 +46,12 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
       const fs = require('fs');
       const path = require('path');
       global.window = {};
-      const [lanesPath, loaderPath, parserPath, viewPath] = __MODULE_PATHS__;
+      const [lanesPath, loaderPath, ratesPath, parserPath, ctxInputPath, viewPath] = __MODULE_PATHS__;
       require(lanesPath);
       require(loaderPath);
+      require(ratesPath);
       require(parserPath);
+      require(ctxInputPath);
       const source = fs.readFileSync(viewPath, 'utf8');
       const boundary = source.indexOf('function ContextGrowthView');
       if (boundary < 0) throw new Error('ContextGrowthView boundary not found');
@@ -73,7 +77,8 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
     """
     script = script.replace(
         "__MODULE_PATHS__",
-        json.dumps([str(PARSER_LANES_JS), str(LOADER_JS), str(PARSER_JS),
+        json.dumps([str(PARSER_LANES_JS), str(LOADER_JS), str(RATES_JS),
+                    str(PARSER_JS), str(CTX_INPUT_JS),
                     str(CONTEXT_GROWTH_JSX)]),
     ).replace(
         "__FIXTURE_PATHS__",

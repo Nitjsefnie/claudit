@@ -25,6 +25,12 @@
 window.LONG_CONTEXT_THRESHOLD = 272000;
 window.LONG_CONTEXT_INPUT_MULT = 2.0;
 window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
+// Per-model thresholds (issue #765): mirrors pricing.long_context_threshold.
+window.longContextThresholdFor = function (model) {
+  const norm = String(model || '').trim().toLowerCase();
+  const key = (norm.indexOf('claude') > 0 ? norm.slice(norm.indexOf('claude')) : norm).replace(/\./g, '-');
+  return (window.longContextMeters || {})[key] || window.LONG_CONTEXT_THRESHOLD;
+};
 
 // Context Growth drops cumulative counters above this derived-series bound.
 // Mirror backend.constants.MAX_PLAUSIBLE_CTX; tests pin both values.

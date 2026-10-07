@@ -449,3 +449,47 @@ def test_long_context_models_stay_distinct_and_string_typed():
     doc["long_context_models"] = [42]
     with pytest.raises(ValueError, match="long_context_models"):
         pricing.load_tables(doc)
+
+
+def test_long_context_meters_default_to_empty_and_load_flat():
+    """Absent the key the meter map is empty (a member keeps the global
+    threshold); present, the loader folds each {"threshold": N} to the
+    flat key -> int table the lookups read (issue #765)."""
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol"]
+    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
+    doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200_000}}
+    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
+        "gpt-5-6-sol": 200_000}
+    # An integral float spelling folds to the integer, so both loaders
+    # accept the same bytes (JSON has already collapsed the spelling).
+    doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200000.0}}
+    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
+        "gpt-5-6-sol": 200_000}
+
+
+def test_a_long_context_meter_names_a_member():
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol"]
+    doc["long_context_meters"] = {"claude-sonnet-4-5": {"threshold": 200_000}}
+    with pytest.raises(ValueError, match="names no long_context_models"):
+        pricing.load_tables(doc)
+
+
+def test_a_long_context_meter_value_is_a_threshold_map():
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol"]
+    for bad in (None, 200_000, {"threshold": 0}, {"threshold": -1},
+                {"threshold": True}, {"threshold": "200000"},
+                {"threshold": 2.5}, {"threshold": 200_000, "mult": 2.0}, {}):
+        doc["long_context_meters"] = {"gpt-5-6-sol": bad}
+        with pytest.raises(ValueError, match="long_context_meters"):
+            pricing.load_tables(doc)
+
+
+def test_long_context_meters_must_be_a_map():
+    doc = _doc()
+    doc["long_context_models"] = ["gpt-5-6-sol"]
+    doc["long_context_meters"] = ["gpt-5-6-sol"]
+    with pytest.raises(ValueError, match="not a map"):
+        pricing.load_tables(doc)

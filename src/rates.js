@@ -170,3 +170,18 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
 window.rateForModel = function rateForModel(model, ts, provider) {
   return window.resolveModelRate(model, ts, provider).rates;
 };
+
+// ─── the long-context meter (issue #765) ────────────────────────────────
+// Per-model membership and thresholds: pricing.json's long_context_models
+// and long_context_meters, both set by pricing-loader.js; a member without
+// an entry keeps the meter's global default (window.LONG_CONTEXT_THRESHOLD,
+// parser-lanes.js, whose longContextThresholdFor is the lane seam). Mirrors
+// pricing.meter_flag, normalising the way resolveModelRate normalises.
+window.longContextFlagFor = function longContextFlagFor(model, usage) {
+  const key = _normaliseModel(model);
+  if (!(window.longContextModels || []).includes(key)) return null;
+  const u = usage || {};
+  const inWindow = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+      + (u.cache_read_input_tokens || 0);
+  return inWindow > window.longContextThresholdFor(model);
+};

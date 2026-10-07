@@ -352,7 +352,7 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         _codex_model(st.model),
         (fresh, create, read, output),
         reasoning=reasoning,
-        long_context=(total_in > pricing.LONG_CONTEXT_THRESHOLD),
+        long_context=(total_in > pricing.long_context_threshold(st.model)),
     )
 
 
