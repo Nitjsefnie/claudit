@@ -289,6 +289,19 @@ def test_non_vendor_member_stands():
     assert "bonsai-test-1" in doc["long_context_models"]
 
 
+@pytest.mark.parametrize("kw", [{"input_mult": 3.0}, {"output_mult": 1.25}])
+def test_departing_multiplier_band_is_a_notice(kw):
+    """Each multiplier clause of the meter-shape check kills on its own: a
+    band departing on the input side or on output is a notice — no row, no
+    membership."""
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+        "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0, **kw)])))})
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0]
+    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["long_context_models"]
+
+
 def test_non_meter_threshold_is_a_notice():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1,
