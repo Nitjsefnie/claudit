@@ -52,8 +52,8 @@ def test_arithmetic_tail_fd_dup_filename_books_write_target(command):
     "echo hi 2>&1",
 ])
 def test_descriptor_targets_stay_non_writes(command):
-    """`>& digits` duplicates and `>&-` closes; nothing touches disk."""
-    assert scan(command, "/work")[2] == []
+    """`>& digits` duplicates and `>&-` closes; nothing is read or written."""
+    assert scan(command, "/work") == (None, [], [])
 
 
 def test_fd_digit_two_with_filename_books_nothing():
