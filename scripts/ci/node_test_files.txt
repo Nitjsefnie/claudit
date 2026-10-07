@@ -23,6 +23,7 @@ tests/test_parser_js_lanes.py
 tests/test_parser_js_mirror.py
 tests/test_parser_js_pricing_loader.py
 tests/test_parser_js_user_prompt.py
+tests/test_per_turn_stats_js.py
 tests/test_perf_js.py
 tests/test_picker_fit_js.py
 tests/test_placeholder_model_refusal.py

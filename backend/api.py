@@ -20,11 +20,12 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from starlette.responses import StreamingResponse
 
 from backend import db, events, r2
 from backend.api_cache import router as cache_router
+from backend.api_ctx_growth import router as ctx_growth_router
 from backend.api_common import HEATMAP_TZ, _bucket_seconds, _iso, _parse_range
 from backend.api_dashboard import router as dashboard_router
 from backend.api_export import router as export_router
@@ -39,6 +40,7 @@ router.include_router(export_router)
 router.include_router(dashboard_router)
 router.include_router(sessions_router)
 router.include_router(cache_router)
+router.include_router(ctx_growth_router)
 router.include_router(web_metrics_router)
 
 
@@ -783,16 +785,19 @@ def cost_by_agent(
 
 
 @router.get("/models")
+@cache_response
 def list_models() -> dict:
     """All distinct (real, non-synthetic) model strings ever recorded,
     with counts. Frontend canonicalizes via shortModelName for the
-    dropdown."""
+    dropdown. Cached (issue #644: it re-ran a ~1s GROUP BY over
+    records on every open); reads filter is_canonical (SV-CANONICAL-FLAG),
+    so a model seen only by a replayed copy never lists."""
     with db.viz_conn() as c:
         rows = c.execute(
             """
             SELECT model, COUNT(*) AS n
             FROM records
-            WHERE model <> '' AND model <> '<synthetic>'
+            WHERE is_canonical AND model <> '' AND model <> '<synthetic>'
             GROUP BY model
             ORDER BY 2 DESC
             """
@@ -878,109 +883,4 @@ def list_projects(rng: str = Query("30d", alias="range")) -> dict:
             }
             for pid, name, sessions, cost in rows
         ],
-    }
-
-
-@router.get("/context-growth/agg")
-@cache_response
-def context_growth_agg(
-    rng: str = Query("30d", alias="range"),
-    project: str | None = Query(None),
-) -> dict:
-    """Distribution stats for context size, computed two ways:
-       - per_turn: every turn across every file in scope (input distribution)
-       - per_session_final: the LAST turn of each MAIN file's ctx_turns
-    Returns mean, p50, p90, p99, max, n for both."""
-    delta = _parse_range(rng)
-    since = datetime.now(timezone.utc) - delta
-    proj_filter = ""
-    args: list[Any] = [since]
-    if project:
-        proj_filter = "AND f.project_id = %s"
-        args.append(project)
-
-    with db.viz_conn() as c:
-        per_turn = c.execute(
-            db.sql_text(f"""
-            SELECT
-              COUNT(*) AS n,
-              AVG(input_int) AS mean,
-              PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY input_int) AS p50,
-              PERCENTILE_CONT(0.9)  WITHIN GROUP (ORDER BY input_int) AS p90,
-              PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY input_int) AS p99,
-              MAX(input_int) AS max
-            FROM (
-              SELECT ((turn->>'input')::int) AS input_int
-              FROM files f, jsonb_array_elements(f.ctx_turns) AS turn
-              WHERE f.r2_last_modified >= %s {proj_filter}
-            ) t
-            """),
-            args,
-        ).fetchone()
-
-        per_session = c.execute(
-            db.sql_text(f"""
-            SELECT
-              COUNT(*) AS n,
-              AVG(final_input) AS mean,
-              PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY final_input) AS p50,
-              PERCENTILE_CONT(0.9)  WITHIN GROUP (ORDER BY final_input) AS p90,
-              PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY final_input) AS p99,
-              MAX(final_input) AS max
-            FROM (
-              SELECT ((f.ctx_turns -> -1 ->> 'input')::int) AS final_input
-              FROM files f
-              WHERE f.is_main = TRUE
-                AND f.r2_last_modified >= %s {proj_filter}
-                AND jsonb_array_length(f.ctx_turns) > 0
-            ) t
-            """),
-            args,
-        ).fetchone()
-
-    def _stats(row):
-        if row is None:
-            return {"n": 0, "mean": 0, "p50": 0, "p90": 0, "p99": 0, "max": 0}
-        n, mean, p50, p90, p99, mx = row
-        return {
-            "n": int(n or 0),
-            "mean": int(mean or 0),
-            "p50": int(p50 or 0),
-            "p90": int(p90 or 0),
-            "p99": int(p99 or 0),
-            "max": int(mx or 0),
-        }
-
-    return {
-        "range": rng,
-        "project": project,
-        "per_turn": _stats(per_turn),
-        "per_session_final": _stats(per_session),
-    }
-
-
-@router.get("/context-growth/session/{session_id}")
-def context_growth_session(request: Request, session_id: str) -> dict:
-    """Main-file ctx_turns, without file_key for guests (issue #244)."""
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT file_key, ctx_turns, turn_count "
-            "FROM files WHERE session_id = %s AND is_main = TRUE LIMIT 1",
-            (session_id,),
-        ).fetchone()
-    if row is None:
-        raise HTTPException(404, "session not found")
-    file_key, turns, count = row
-    final_ctx, is_guest = 0, bool(getattr(request.state, "is_guest", False))
-    if turns:
-        try:
-            final_ctx = int(turns[-1].get("input", 0))
-        except (KeyError, IndexError, TypeError):
-            final_ctx = 0
-    return {
-        "session_id": session_id,
-        **({} if is_guest else {"file_key": r2.public_key(file_key)}),
-        "turns": turns,
-        "total_turns": count,
-        "final_ctx": final_ctx,
     }
