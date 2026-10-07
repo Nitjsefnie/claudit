@@ -11,6 +11,7 @@ in the test module, which the suite-cost bench already pins.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from typing import NamedTuple
 
 from backend import pricing
@@ -129,7 +130,43 @@ def _match_wanted(norm: str, wanted: frozenset[str]) -> str | None:
     The fold pricing._match_key applies to MODEL_RATES, over a
     parameter set: a key matches when `norm` starts with it and the
     rest is empty or a bracket, at-suffix or snapshot spelling.
+
+    The candidates are derived from the QUERY, never the set: the keys
+    some fold-accepted rest completes are exactly `norm` minus such a
+    tail, so `_splits` enumerates those and membership decides — the
+    cost is the query's own length, never |wanted| (issue #829: the
+    tree scan pays this per string constant under tests/, and a linear
+    fold priced the suite-cost run phase by src/pricing.json's row
+    count, moving it on every hourly refresh). ``_match_wanted_scan``
+    is the literal scan; the parity test pins the two together.
     """
+    best = None
+    for key in _splits(norm):
+        if key in wanted and (best is None or len(key) > len(best)):
+            best = key
+    return best
+
+
+def _splits(norm: str) -> Iterator[str]:
+    """Every key candidate the fold can accept: `norm` itself (the
+    empty rest), and `norm` minus any tail the fold accepts — one
+    opening with ``[`` or ``@``, or a snapshot suffix. The predicate is
+    the scan's own rest-validity, applied to tails of the query. A
+    non-empty `norm` yields only non-empty candidates (the loop starts
+    at 1); the empty query yields the empty candidate, which no
+    committed table names as a key, so the fold still answers None on
+    it."""
+    yield norm
+    for i in range(1, len(norm)):
+        rest = norm[i:]
+        # pylint: disable-next=protected-access
+        if rest[0] in "[@" or pricing._SNAPSHOT_SUFFIX.match(rest):
+            yield norm[:i]
+
+
+def _match_wanted_scan(norm: str, wanted: frozenset[str]) -> str | None:
+    """The literal O(|wanted|) scan, kept as the reference the parity
+    test pins ``_match_wanted`` against; no production path calls it."""
     best = None
     for key in wanted:
         if not norm.startswith(key) or (best and len(key) <= len(best)):

@@ -29,8 +29,9 @@ import tokenize
 from pathlib import Path
 
 from backend import pricing
-from tests import scan_gate
-from tests.version_literal_guard import (_names_wanted_row, RATE_CALL_NAMES,
+from tests import scan_gate, version_literal_guard
+from tests.version_literal_guard import (_match_wanted, _match_wanted_scan,
+                                         _names_wanted_row, RATE_CALL_NAMES,
                                          VERSION_NAMES, Site, detect)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -585,3 +586,62 @@ def test_a_rate_call_admits_only_with_a_wanted_const():
                         wanted_hosts=WANTED_HOSTS)
     assert len(check(call, wanted_models=WANTED_MODELS,
                      wanted_hosts=WANTED_HOSTS)) == 1
+
+
+# --- issue #829: the wanted-row fold is rows-independent ---
+
+def _synthetic_wanted(count: int) -> frozenset[str]:
+    """A synthetic wanted set exercising every fold shape (SV-TEST-DATA:
+    no live row is named). ``acme-model`` prefixes the whole family, so
+    the longest-key fold has real work."""
+    return frozenset(
+        ["acme-model"] + [f"acme-model-{n}" for n in range(count)])
+
+
+_SYNTHETIC_QUERIES = (
+    "acme-model", "acme-model-7", "acme-model-7[1m]", "acme-model-7@x",
+    "acme-model-7-20250514", "acme-model-7-202505", "acme-model-77",
+    "acme-x", "acme-model-7-20250514[1m]", "acme-model-7.2025",
+    "ACME-MODEL-7.X", "x-acme-model-7", "")
+
+
+def test_match_wanted_agrees_with_the_literal_scan():
+    """The fold over a parameter set answers exactly what the literal
+    O(|wanted|) scan answers, whatever the query."""
+    wanted = _synthetic_wanted(40)
+    for query in _SYNTHETIC_QUERIES:
+        norm = pricing._normalise(query)  # pylint: disable=protected-access
+        assert _match_wanted_scan(norm, wanted) == _match_wanted(
+            norm, wanted), query
+
+
+def test_the_fold_matches_pricings_own_key_fold():
+    # The rest-validity predicate the fold mirrors lives in production
+    # too (pricing._match_key over MODEL_RATES); nothing else pins this
+    # module's copy against it, so a new accepted tail shape there
+    # would drift the guard silently.
+    key = sorted(pricing.MODEL_RATES)[0]
+    for query in ("", "x", key, key + "[1m]", key + "-20250514",
+                  key + "@x"):
+        assert (_match_wanted(query, frozenset(pricing.MODEL_RATES))
+                == pricing._match_key(query)), query  # pylint: disable=protected-access
+
+
+def test_names_wanted_row_never_pays_the_scan(monkeypatch):
+    """The hot path is candidate lookup, not the linear scan: the tree
+    scan pays ``_names_wanted_row`` once per string constant under
+    tests/, so a per-call scan would price the guard by the committed
+    document's row count and the suite-cost run phase would move on
+    every pricing refresh (issue #829)."""
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("the linear wanted-row scan ran")
+
+    monkeypatch.setattr(version_literal_guard, "_match_wanted_scan", _boom)
+    wanted = _synthetic_wanted(4)
+    hosts = frozenset({"HostCo"})
+    assert _names_wanted_row("acme-model-2", wanted, hosts)
+    assert _names_wanted_row("acme-model-2[1m]", wanted, hosts)
+    assert _names_wanted_row("acme-model-2@x", wanted, hosts)
+    assert _names_wanted_row("acme-model-2-20250514", wanted, hosts)
+    assert not _names_wanted_row("acme-ghost", wanted, hosts)
+    assert _names_wanted_row("HostCo", frozenset(), hosts)
