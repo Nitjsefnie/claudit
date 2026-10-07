@@ -459,8 +459,10 @@ async function seedPickerPagingShift(page) {
 // pushes the content below the strip down on the next width change — a
 // DOM injection standing in for whatever would wedge space under the
 // row. The strip's own box stays constant (a margin is outside it), so
-// the SEAT limb of the comparison gets this proof alone; the height
-// limb's isolating proof is the paging seed's padding growth. The
+// the SEAT limb of the comparison gets this proof alone. With one seed
+// per rule, the no-shift rule's height limb and the paging rule's seat
+// limb carry no isolating red proof: the paging seed's padding growth
+// proves the PAGING rule's height comparison, not this rule's. The
 // rule's interaction (its own resize) detonates it.
 async function seedPickerShift(page) {
   return page.evaluate((sel) => {
