@@ -1174,7 +1174,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-07T20:40:04Z",
+  "provider_rates_fetched": "2026-10-07T20:54:10Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -2284,6 +2284,14 @@
           "from": "2026-10-07T12:00:33Z",
           "output": 0.424,
           "read": 0.009
+        },
+        {
+          "create_1h": 0.041,
+          "create_5m": 0.041,
+          "fresh": 0.041,
+          "from": "2026-10-07T20:54:10Z",
+          "output": 0.424,
+          "read": 0.009
         }
       ],
       "NextBit": [
@@ -3209,6 +3217,14 @@
           "create_5m": 0.0392,
           "fresh": 0.0392,
           "from": "2026-10-07T19:57:01Z",
+          "output": 1.2,
+          "read": 0.02
+        },
+        {
+          "create_1h": 0.0328,
+          "create_5m": 0.0328,
+          "fresh": 0.0328,
+          "from": "2026-10-07T20:54:10Z",
           "output": 1.2,
           "read": 0.02
         }
@@ -5661,6 +5677,14 @@
           "create_5m": 0.089,
           "fresh": 0.089,
           "from": "2026-10-07T20:25:52Z",
+          "output": 0.28,
+          "read": 0.028
+        },
+        {
+          "create_1h": 0.099,
+          "create_5m": 0.099,
+          "fresh": 0.099,
+          "from": "2026-10-07T20:54:10Z",
           "output": 0.28,
           "read": 0.028
         }
@@ -12756,6 +12780,14 @@
           "from": "2026-10-07T20:05:48Z",
           "output": 4.2,
           "read": 0.2
+        },
+        {
+          "create_1h": 0.2867,
+          "create_5m": 0.2867,
+          "fresh": 0.2867,
+          "from": "2026-10-07T20:54:10Z",
+          "output": 4.2,
+          "read": 0.2
         }
       ],
       "Sail Research": [
@@ -15208,6 +15240,14 @@
           "fresh": 0.17,
           "from": "2026-10-07T00:15:26Z",
           "output": 7.0,
+          "read": 0.16
+        },
+        {
+          "create_1h": 0.17,
+          "create_5m": 0.17,
+          "fresh": 0.17,
+          "from": "2026-10-07T20:54:10Z",
+          "output": 3.39,
           "read": 0.16
         }
       ],
