@@ -558,7 +558,9 @@ def test_resolve_reports_tier_fallback_for_unknown_claude_model():
 
 
 def test_resolve_reports_default_for_wholly_unknown_model():
-    assert pricing.resolve("gpt-5").kind == "default"
+    # A synthetic id: no rate row the refresh can add may ever match it,
+    # so "wholly unknown" stays true against refreshed data (issue #824).
+    assert pricing.resolve("totally-unknown-model").kind == "default"
 
 
 def test_fast_variants_are_not_silently_billed_at_standard_rates():
