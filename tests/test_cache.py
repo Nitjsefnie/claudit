@@ -222,19 +222,21 @@ def test_ttl_cache_cap_evicts_expired_then_oldest(monkeypatch):
 
 
 def test_ttl_cache_evicts_key_lock_with_entry(monkeypatch):
-    """A key's lock is reclaimed whenever its entry is dropped: on the
-    expiry pop, on cap eviction, and on clear()."""
+    """A key's lock is reclaimed whenever its entry is dropped: on cap
+    eviction and on clear(). An expiry drops nothing since #641 — the
+    entry is served stale — so its lock stays with it."""
     clock = {"t": 1000.0}
     monkeypatch.setattr(cache_mod.time, "time", lambda: clock["t"])
     c = _TTLCache(ttl_seconds=60, max_entries=2)
 
-    # expiry pop in get_entry
+    # expiry serves stale, drops nothing
     c.put("exp", 1)
     exp_lock = c.lock_for("exp")
     clock["t"] += 1000.0
-    assert c.get("exp") is None
-    assert "exp" not in c._key_locks  # pylint: disable=protected-access
-    assert c.lock_for("exp") is not exp_lock      # a new lock was minted
+    assert c.get("exp") is None                 # the raw accessor reads absent
+    assert c.get_entry("exp") == (1, True)      # the serving path reads stale
+    assert "exp" in c._key_locks  # pylint: disable=protected-access
+    assert c.lock_for("exp") is exp_lock
 
     # cap eviction in put
     c.put("cap1", 1)
@@ -262,7 +264,7 @@ def test_ttl_cache_keeps_held_lock_through_eviction(monkeypatch):
     clock = {"t": 1000.0}
     monkeypatch.setattr(cache_mod.time, "time", lambda: clock["t"])
 
-    # expiry pop while the lock is held
+    # expiry (drops nothing since #641) while the lock is held
     c = _TTLCache(ttl_seconds=60)
     c.put("k", 1)
     held = c.lock_for("k")
@@ -490,8 +492,12 @@ def test_warm_recomputes_a_stale_entry_in_one_hop(monkeypatch):
     cache_mod.response_cache.invalidate()  # the ingest's invalidate()
 
     cache_mod.warm(endpoint, rng="all")
+    warm_run_before = cache_mod.response_cache.outcomes()["warm_run"]
 
     pool.run_one()
+    outcomes = cache_mod.response_cache.outcomes()
+    assert outcomes["warm_run"] - warm_run_before == 1, (
+        "the warm's own recompute counted no warm_run outcome")
     entry = cache_mod.response_cache.get_entry(_key_for(endpoint, {"rng": "all"}))
     assert entry is not None, "warm() dropped the entry"
     assert entry[1] is False, (
@@ -528,9 +534,14 @@ def test_warm_reclaims_the_lock_of_a_failing_endpoint(monkeypatch):
     monkeypatch.setattr(cache_mod, "_refresh_pool", pool)
     cache_mod.response_cache.clear()
 
+    err_before = cache_mod.response_cache.outcomes()["warm_error"]
     for i in range(50):  # distinct keys, and NO clear() between them
         cache_mod.warm(endpoint, rng=f"r{i}")
     pool.run_all()  # the warms must actually RUN, or no lock is ever taken
+    outcomes = cache_mod.response_cache.outcomes()
+    assert outcomes["warm_error"] - err_before == 50, (
+        f"a failing warm counted "
+        f"{outcomes['warm_error'] - err_before} warm_error outcome(s)")
 
     # Read the privates directly: neither has a public accessor, and the
     # properties they hold here are otherwise unobservable.
@@ -569,8 +580,12 @@ def test_warm_skips_a_key_that_is_already_fresh(monkeypatch):
 
     endpoint(rng="all")
     cache_mod.warm(endpoint, rng="all")
+    skip_before = cache_mod.response_cache.outcomes()["warm_skip_fresh"]
     pool.run_all()
     assert len(calls) == 1, "warm() recomputed an already-fresh entry"
+    outcomes = cache_mod.response_cache.outcomes()
+    assert outcomes["warm_skip_fresh"] - skip_before == 1, (
+        "the skip counted no warm_skip_fresh outcome")
 
 
 def test_warm_claims_the_key_while_it_computes(monkeypatch):
