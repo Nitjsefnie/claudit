@@ -173,14 +173,14 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      (cwd_rebuild). Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
--- 2026-09-22: the Codex long-context meter, per record. A Codex request
--- whose prompt exceeded the 272k threshold bills the WHOLE request at 2x
--- input side / 1.5x output (pricing.LONG_CONTEXT_*), whatever plan served
--- it — every record is billed as if it were an API call (issue #194) — so
--- a per-component cost re-derived from the stored tokens at the flat rate
--- disagrees with the stored cost_usd unless the fold knows the flag.
--- NULL on everything that is not a lane record (Claude never bills this
--- way); readers COALESCE to FALSE.
+-- 2026-09-22: the long-context meter, per record; issue #765: per-model
+-- thresholds (pricing.json's long_context_meters), and Claude-format rows
+-- of a meter member carry the flag. A request above ITS model's threshold
+-- bills the WHOLE request at 2x input side / 1.5x output
+-- (pricing.LONG_CONTEXT_*_MULT), whatever plan served it (issue #194), so
+-- a per-component cost re-derived from the flat tokens disagrees with the
+-- stored cost_usd unless the fold knows the flag.
+-- NULL on rows that are no meter decision (non-members); readers COALESCE.
 ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN;
 -- 2026-09-25: the host that served the request, OpenRouter's
 -- message.provider ("Novita", "Morph", "Stealth"). Priced by
@@ -520,7 +520,7 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
 -- context, so scoring them alike ranks grep-then-narrow as more wasteful
 -- than one indiscriminate cat.
 --
--- `is_reread` is resolved at PARSE time (parse._resolve_rereads), not
+-- `is_reread` is resolved at PARSE time (rereads.resolve_rereads), not
 -- derivable at read time without an ordered self-join per file, and NULL
 -- for anything that is not a settled whole-file read. Targets come from
 -- tool arguments for Read/Edit/Write and from COMMAND TEXT for Bash

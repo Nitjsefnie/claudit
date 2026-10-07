@@ -7,33 +7,7 @@
 // Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
 // by src/parser-lanes.js, which emits the same shapes; parseTranscript
 // sniffs the format and delegates. One rate table only — src/pricing.json,
-// loaded below.
-
-// Per-call context-window size. Mirrors backend/ctx_input.py.
-// When usage.iterations has >1 entries (advisor()/sub-agent fan-out), the
-// top-level fresh+create+read is the BILLING sum across iterations, not
-// the peak single-call window.
-// For context-growth views we want the peak: max-of-iteration-totals.
-// Exposed at top level (not inside parseTranscript) so the lane delegation
-// path, which returns before this body runs, still exposes it.
-function usageCtxInput(u) {
-  if (!u) return 0;
-  const iters = u.iterations;
-  if (Array.isArray(iters) && iters.length > 1) {
-    let peak = 0;
-    for (const it of iters) {
-      const t = (it.input_tokens || 0)
-              + (it.cache_creation_input_tokens || 0)
-              + (it.cache_read_input_tokens || 0);
-      if (t > peak) peak = t;
-    }
-    return peak;
-  }
-  return (u.input_tokens || 0)
-       + (u.cache_creation_input_tokens || 0)
-       + (u.cache_read_input_tokens || 0);
-}
-window.usageCtxInput = usageCtxInput;
+// loaded by src/pricing-loader.js, which runs before this script.
 
 // A user text that OPENS with an XML tag is harness-injected data, not a
 // prompt (issue #213) — deny-by-default, so an unknown future harness tag
@@ -311,6 +285,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
           requestId: reqId,
           uuid: obj.uuid || '',
           sessionId: obj.sessionId || '',
+          // The meter decision (issue #765), recomputed after a streaming
+          // merge below — mirrors parse._project_record.
+          long_context: window.longContextFlagFor(m.model, usage),
           usage: { ...usage },
         };
         if (mergeKey && seenReq.has(mergeKey)) {
@@ -319,6 +296,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
           const existing = seenReq.get(mergeKey);
           existing.usage = mergeUsageMax(existing.usage, usage);
           if (existing.provider == null) existing.provider = ev.provider;
+          existing.long_context = window.longContextFlagFor(existing.model, existing.usage);
         } else {
           if (mergeKey) seenReq.set(mergeKey, ev);
           meta.push(ev);

@@ -582,17 +582,16 @@ def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch)
     assert float(row[1]) == flat
 
 
-def test_reprice_keeps_a_claude_rows_stored_null_flag(fresh_db):
-    """Issue #249: a CLAUDE-format record from a bare meter model stores
-    long_context NULL — the flag is lane-only
-    (parse_common._append_usage_record), so NULL is the parse-stored value
-    and the pass must keep it, pricing the tally flat. A bare model id
-    with no provider above the threshold is exactly the shape
-    re-derivation must not claim: a reparse of the same record stores
-    NULL and a flat cost."""
-    flat = round(pricing.compute_cost(
+def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
+    """Issue #765, the review's C1 at DB level: the refresh learns a band
+    and bumps PRICING_VERSION only; every pre-fold row of the newly
+    learned member carries the parse-stored NULL flag (non-member
+    marker) priced flat. The reprice re-derives member rows whatever the
+    stored flag — so the row lands exactly what a reparse would store:
+    the band decision and the metered cost."""
+    metered = round(pricing.compute_cost(
         "gpt-6-sol", fresh=300_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=300_000)
         c.commit()
@@ -605,18 +604,18 @@ def test_reprice_keeps_a_claude_rows_stored_null_flag(fresh_db):
             "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
     assert row is not None, "the seeded meter row must exist"
     flag, cost, version = row
-    assert flag is None, (
-        "a Claude-format row's NULL flag is the parse-stored value, and a "
-        "reprice must not claim it for the meter")
-    assert float(cost) == flat
+    assert flag is True, (
+        "the pre-fold NULL row of a learned member reprices to the band "
+        "decision — reprice equals what a reparse stores")
+    assert float(cost) == metered
     assert version == constants.PRICING_VERSION
 
 
-def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
-    """A row naming a provider host prices by that host's card, not the
-    meter model's, so its stored long_context is left exactly as parse
-    stored it: FALSE stays FALSE even though the model is one of the
-    meter's and the tally sits above the threshold."""
+def test_reprice_derives_a_provider_rows_flag_too(fresh_db):
+    """The meter decision ignores the provider because the parse's does:
+    a provider-tagged member row re-derives whatever its stored flag —
+    a stored FALSE above the threshold moves to TRUE and the metered
+    cost, what a reparse of the same record stores."""
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
                         provider="OpenRouter", long_context=False)
@@ -627,13 +626,13 @@ def test_reprice_keeps_a_provider_rows_stored_flag(fresh_db):
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT long_context, cost_usd, pricing_version FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "WHERE (file_key, line_num) = (%s, 1)", (_FILE_KEY,)).fetchone()
     assert row is not None, "the seeded provider row must exist"
     flag, cost, version = row
-    assert flag is False
+    assert flag is True
     assert float(cost) == round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False,
+        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True,
         res=pricing.resolve("gpt-5.6-sol", _SEED_TS, "OpenRouter")), 6)  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
     assert version == constants.PRICING_VERSION
 

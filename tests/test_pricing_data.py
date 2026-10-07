@@ -664,6 +664,7 @@ def _provider_only_doc() -> dict:
     at P_START and moves at P_CUT, at rates unlike any real price."""
     return {
         "models": {},
+        "long_context_models": [],
         "providers": {"acme/acme-9": {"HostCo": [
             {"from": P_START, **P_BEFORE},
             {"from": P_CUT, **P_AFTER},

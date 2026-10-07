@@ -464,3 +464,37 @@ window.rateEpochs = [...new Set([
 // exact key.
 window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
 window.scheduleRatesAt = _scheduledRates;
+
+// The long-context meter's membership and per-model thresholds (issue
+// #765): pricing.json's long_context_models and long_context_meters,
+// validated like backend/pricing_load.py — a rule-breaking file throws
+// naming the key. window.longContextModels is the dashed-key membership
+// list; window.longContextMeters maps a member to its threshold integer,
+// the override of the global default (window.LONG_CONTEXT_THRESHOLD,
+// parser-lanes.js) window.longContextThresholdFor reads.
+const _lcMembers = _PRICING.long_context_models;
+if (_lcMembers === undefined) {
+  throw _pricingError('long_context_models is missing');
+}
+if (!Array.isArray(_lcMembers)
+    || !_lcMembers.every((k) => typeof k === 'string' && k)
+    || new Set(_lcMembers).size !== _lcMembers.length) {
+  throw _pricingError('long_context_models: not a list of distinct non-empty keys');
+}
+for (const k of _lcMembers)
+  if (!(k in window.modelRates))
+    throw _pricingError(`long_context_models: ${k} names no models-table key`);
+window.longContextModels = _lcMembers;
+window.longContextMeters = {};
+const _lcMeters = _PRICING.long_context_meters;
+if (_lcMeters != null && (typeof _lcMeters !== 'object' || Array.isArray(_lcMeters)))
+  throw _pricingError('long_context_meters: not a map of member keys to thresholds');
+for (const [k, v] of Object.entries(_lcMeters || {})) {
+  if (!window.longContextModels.includes(k))
+    throw _pricingError(`long_context_meters: ${k} names no long_context_models member`);
+  if (!v || typeof v !== 'object' || Array.isArray(v)
+      || Object.keys(v).length !== 1 || !Number.isInteger(v.threshold)
+      || v.threshold <= 0)
+    throw _pricingError(`long_context_meters: ${k} is not a {threshold: positive integer}`);
+  window.longContextMeters[k] = v.threshold;
+}

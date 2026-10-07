@@ -49,21 +49,23 @@ or a retry:
 - a WEEKLY schedule (pricing.overrides with utc windows): a models row
   cannot carry one — the loaders admit a schedule on provider rows only —
   so the model refuses until the table learns the shape;
-- a long-context band (a min_prompt_tokens override) whose threshold or
-  multipliers depart from the meter — pricing.LONG_CONTEXT_THRESHOLD, the
-  input side at LONG_CONTEXT_INPUT_MULT, output at LONG_CONTEXT_OUTPUT_MULT.
-  The table models exactly one band shape, the Codex meter's, by folding
-  the key into long_context_models; the band's own rates never enter the
-  row (the five stored rates stay the sub-threshold listing, and
-  compute_cost applies the meter above the threshold). A departing shape
-  refuses: the 200k-band Claude models are the live case.
+- a long-context band (a min_prompt_tokens override) whose multipliers
+  depart from the meter's — the input side at LONG_CONTEXT_INPUT_MULT,
+  output at LONG_CONTEXT_OUTPUT_MULT. A band AT the multipliers is the
+  meter at the band's own threshold (issue #765): the key folds into
+  long_context_models and the threshold is learned into
+  long_context_meters, the per-model override both loaders carry beside
+  the membership. The band's own rates never enter the row (the five
+  stored rates stay the sub-threshold listing, and compute_cost applies
+  the meter above the model's threshold).
 
-Membership is data the listing governs, for vendor-tracked keys: a banded
-model's key joins long_context_models (adding a member requires its
-models-table row, which the same run adds), an unbanded vendor-tracked key
-leaves it, and every non-vendor key stands untouched. Membership-only
-changes move the version: the reprice pass re-derives records.long_context
-from the membership.
+Membership and threshold are data the listing governs, for vendor-tracked
+keys: a banded model's key joins long_context_models and its band's
+threshold lands in long_context_meters (adding a member requires its
+models-table row, which the same run adds), an unbanded vendor-tracked
+key leaves both, and every non-vendor key stands untouched.
+Membership- or threshold-only changes move the version: the reprice pass
+re-derives records.long_context from the membership and the thresholds.
 
 A listed price change APPENDS a dated entry, the way the provider refresh
 appends; a hand-curated row whose vendor source has moved on gets the
@@ -112,14 +114,15 @@ _MIN_PROMPT = "min_prompt_tokens"
 
 @dataclass
 class VendorMove:
-    """One models-table move: a new row, an appended entry, or a
-    membership-only change (entries 0)."""
+    """One models-table move: a new row, an appended entry, a
+    membership-only change (entries 0), or a meter-threshold write."""
     id: str
     key: str
     old: dict | None
     new: dict
     entries: int = 1
     membership: str = ""  # "+" joined long_context_models, "-" left, "" untouched
+    meter: int | None = None  # the threshold written or moved, None untouched
 
 
 @dataclass
@@ -185,17 +188,26 @@ def _split_overrides(price: dict, where: str) -> tuple[list, list]:
     return bands, weekly
 
 
-def _meter_shape_ok(base: dict, band: dict, band_rates: dict) -> bool:
-    """Whether one band is the meter: the threshold constant (read off the
-    raw band), the input side at the input multiplier, output at the output
-    multiplier. `base` and `band_rates` are rates_of() shapes."""
-    if band[_MIN_PROMPT] != pricing.LONG_CONTEXT_THRESHOLD:
-        return False
+def _meter_shape_ok(base: dict, band_rates: dict) -> bool:
+    """Whether one band's rates are the meter's multipliers: the input
+    side at the input multiplier, output at the output multiplier. The
+    threshold is the band's own — the model's meter takes it (issue
+    #765) — so only the multipliers decide the shape. `base` and
+    `band_rates` are rates_of() shapes."""
     for f in _INPUT_FIELDS:
         if round(band_rates[f], 10) != round(base[f] * pricing.LONG_CONTEXT_INPUT_MULT, 10):
             return False
     return round(band_rates["output"], 10) == round(
         base["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT, 10)
+
+
+def _band_threshold(band: dict, where: str) -> int:
+    """The band's threshold, checked: a positive integer."""
+    value = band[_MIN_PROMPT]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise Untracked(f"{where}: band threshold {value!r} is not a "
+                        "positive integer")
+    return value
 
 
 def _note_parts(price: dict, where: str) -> tuple[str, ...]:
@@ -225,10 +237,11 @@ def _note_parts(price: dict, where: str) -> tuple[str, ...]:
     return tuple(parts)
 
 
-def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, tuple[str, ...]]:
-    """One endpoint as (five rates, metered?, note parts), refusing an
-    unmodelled shape. The metered flag reads the long-context band; the
-    band's rates never enter the row."""
+def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, int | None,
+                                                       tuple[str, ...]]:
+    """One endpoint as (five rates, metered?, the band's threshold, note
+    parts), refusing an unmodelled shape. The metered flag reads the
+    long-context band; the band's rates never enter the row."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{model_id}: unrecognised endpoint shape")
@@ -243,7 +256,7 @@ def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, tuple[str, ..
     if weekly:
         raise Untracked(f"{where}: a weekly schedule: a models row carries "
                         "no schedule")
-    metered = False
+    metered, threshold = False, None
     if bands:
         if len(bands) > 1:
             raise Untracked(f"{where}: {len(bands)} long-context bands are "
@@ -256,17 +269,18 @@ def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, tuple[str, ..
                 and isinstance(band.get("completion"), str)):
             raise Untracked(f"{where}: the band does not restate input and "
                             "output: not modelled")
-        if not _meter_shape_ok(rates, band, rates_of(band, where)):
+        threshold = _band_threshold(band, where)
+        if not _meter_shape_ok(rates, rates_of(band, where)):
             raise Untracked(
-                f"{where}: long-context band departs from the meter "
-                f"({band.get(_MIN_PROMPT)!r} against the meter's "
-                f"{pricing.LONG_CONTEXT_THRESHOLD}): a models row cannot carry it")
+                f"{where}: long-context band departs from the meter's "
+                f"multipliers at threshold {threshold}: a models row "
+                "cannot carry it")
         metered = True
-    return rates, metered, _note_parts(price, where)
+    return rates, metered, threshold, _note_parts(price, where)
 
 
 def _choose(model_id: str, endpoints: list, pin: object
-            ) -> tuple[dict, bool, tuple[str, ...]] | None:
+            ) -> tuple[dict, bool, int | None, tuple[str, ...]] | None:
     """The vendor's own endpoint's listing, refusing an ambiguous one.
     None means the vendor lists no first-party endpoint (a notice, not a
     refusal)."""
@@ -322,6 +336,21 @@ def _fold_membership(members: list, key: str, metered: bool) -> str:
     return ""
 
 
+def _fold_meter(meters: dict, key: str, metered: bool,
+                threshold: int | None) -> int | None:
+    """Write or drop the model's meter threshold per the listing, and
+    name the written threshold for the move (None: untouched). The drop
+    keeps the loaders' rule — a meters key names a member."""
+    if metered and threshold is not None:
+        if meters.get(key) != {"threshold": threshold}:
+            meters[key] = {"threshold": threshold}
+            return threshold
+        return None
+    if not metered and key in meters:
+        del meters[key]
+    return None
+
+
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             outcome: VendorOutcome):
     """The chosen listing, or None when the pass moves on: the findings
@@ -348,8 +377,42 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
     return None
 
 
-def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
-               stamp: str, at: datetime, outcome: VendorOutcome) -> None:
+def _new_row(doc: dict, members: list, meters: dict, key: str, model_id: str,
+             selected: tuple, outcome: VendorOutcome) -> None:
+    """First sight of the key: the row is born at the listed rates and the
+    band fold lands beside it."""
+    rates, metered, threshold, notes = selected
+    membership = _fold_membership(members, key, metered)
+    meter = _fold_meter(meters, key, metered, threshold)
+    doc["models"][key] = [_append({}, None, rates, notes)]
+    outcome.moves.append(VendorMove(
+        model_id, key, None, doc["models"][key][0], 1, membership, meter))
+
+
+def _apply_fold(doc: dict, members: list, meters: dict, key: str,
+                model_id: str, selected: tuple, moved: bool, stamp: str,
+                outcome: VendorOutcome) -> None:
+    """Land the band fold beside the row: the membership, the meter
+    threshold, and the move. A rate move appends its entry first; a
+    fold- or threshold-only change moves with entries 0."""
+    rates, metered, threshold, notes = selected
+    membership = _fold_membership(members, key, metered)
+    meter = _fold_meter(meters, key, metered, threshold)
+    if not moved and not membership and meter is None:
+        return
+    if moved:
+        doc["models"][key].append(_append({}, stamp, rates, notes))
+        outcome.moves.append(VendorMove(
+            model_id, key, {f: doc["models"][key][-2][f] for f in _RATE_FIELDS},
+            doc["models"][key][-1], 1, membership, meter))
+        return
+    outcome.moves.append(VendorMove(model_id, key, None, rates, 0,
+                                    membership, meter))
+
+
+def _one_model(doc: dict, members: list, meters: dict, model_id: str,
+               fetch_endpoints, stamp: str, at: datetime,
+               outcome: VendorOutcome) -> None:
     """One catalog id's selection, comparison and row write; findings land
     in `outcome`. An Untracked shape notices; red stays for ambiguity,
     pins and broken fetches."""
@@ -357,13 +420,10 @@ def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return
-    rates, metered, notes = selected
     if doc["models"].get(key) is None:
-        membership = _fold_membership(members, key, metered)
-        doc["models"][key] = [_append({}, None, rates, notes)]
-        outcome.moves.append(VendorMove(
-            model_id, key, None, doc["models"][key][0], 1, membership))
+        _new_row(doc, members, meters, key, model_id, selected, outcome)
         return
+    rates = selected[0]
     newest = doc["models"][key][-1]
     moved = any(round(float(newest[f]), 10) != round(float(rates[f]), 10)
                 for f in _RATE_FIELDS)
@@ -373,16 +433,8 @@ def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
             f"{key}: the stored newest entry is dated {newest['from']}, not "
             "before the detection instant; the row was left untouched")
         return
-    membership = _fold_membership(members, key, metered)
-    if not moved and not membership:
-        return
-    if moved:
-        doc["models"][key].append(_append({}, stamp, rates, notes))
-        outcome.moves.append(VendorMove(
-            model_id, key, {f: newest[f] for f in _RATE_FIELDS},
-            doc["models"][key][-1], 1, membership))
-        return
-    outcome.moves.append(VendorMove(model_id, key, None, rates, 0, membership))
+    _apply_fold(doc, members, meters, key, model_id, selected, moved, stamp,
+                outcome)
 
 
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints, stamp: str,
@@ -403,8 +455,10 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints, stamp: str,
             f"({str(exc) or type(exc).__name__})")
         return outcome
     members: list = doc.setdefault("long_context_models", [])
+    meters: dict = doc.setdefault("long_context_meters", {})
     for model_id in ids:
-        _one_model(doc, members, model_id, fetch_endpoints, stamp, at, outcome)
+        _one_model(doc, members, meters, model_id, fetch_endpoints, stamp,
+                   at, outcome)
     members.sort()
     # The loaders' rules, run on what would be written: among them, a
     # member naming no models-table key, and a models entry with fields

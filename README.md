@@ -131,8 +131,9 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
 - **Codex and Kimi transcripts parse into the same tables.** Codex
   rollouts are differenced out of their cumulative token counters, dedup
   by request identity across resumed/forked rollouts, and billed on the
-  long-context meter when a request's prompt exceeds the
-  272k threshold (2× input side, 1.5× output — persisted per record so
+  long-context meter when a request's prompt exceeds the model's own
+  threshold — a per-model datum (issue #765), defaulting to the Codex
+  meter's 272k (2× input side, 1.5× output — persisted per record so
   every cost breakdown reconciles). Kimi's kimi-code and legacy wire
   formats land in the same tables with their own rate rows. The
   browser's Inspector parses every format too (`src/parser-lanes.js`).
