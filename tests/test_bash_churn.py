@@ -612,3 +612,15 @@ def test_heredoc_sink_line_through_multi_digit_fds(fd):
     counts (#854)."""
     command = f"cat <<EOF {fd} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (1, 0)
+
+
+@pytest.mark.parametrize("context,expected", [
+    ("cat <<E | tee <f.txt", []),
+    ("cat <<E | tee <f.txt out.txt", ["out.txt"]),
+])
+def test_tee_arm_books_no_stdin_redirect_target(context, expected):
+    """A `<` token is tee's INPUT redirect, never a file the tee writes:
+    bash opens f.txt for reading and the body lands on stdout, so the
+    stdin-redirect shape filters with the other operators while real
+    targets book (#855)."""
+    assert _verbatim_targets(context) == expected
