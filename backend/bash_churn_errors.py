@@ -22,6 +22,12 @@ _TARGET_FAILURE = ("No such file or directory", "Permission denied",
 _CANNOT_CREATE_DIR = re.compile(r"cannot create directory [`'\"]([^'`\"]+)")
 _STAGE_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 
+# A shell operator or heredoc marker as one raw shlex token — never a
+# path, so the tee arm never books it (#820). The char classes carry a
+# redirect's fd prefix and its digit/`-` target (`>&2`, `2>&1`); `<<`
+# absorbs the marker's tag.
+_REDIRECT_TOKEN = re.compile(r"[0-9]*(?:>>?|<&?)[&|]?[0-9-]*|<<\S*")
+
 
 def _verbatim_targets(context: str) -> list[str]:
     """Files a `cat > F` / `tee F` heredoc opener lands its body in."""
@@ -37,7 +43,8 @@ def _verbatim_targets(context: str) -> list[str]:
             if seen_tee and tok and not tok.startswith("-"):
                 if tok in ("|", "||", "&&", ";"):
                     break
-                targets.append(tok)
+                if not _REDIRECT_TOKEN.fullmatch(tok):
+                    targets.append(tok)
             seen_tee = seen_tee or posixpath.basename(tok) == "tee"
     return [t for t in targets if t and t not in _NULL_SINKS
             and not _FD_TARGET.fullmatch(t)]
