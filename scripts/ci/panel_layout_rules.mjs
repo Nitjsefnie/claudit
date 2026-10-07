@@ -391,6 +391,55 @@ async function seedLegendAbovePlot(page) {
   });
 }
 
+// --- the project picker's rules (#774) ----------------------------------
+
+// The project picker strip: the one .project-picker that pages projects
+// (the range strip shares the class and is #755's). The marker is on the
+// component's root; see src/picker.jsx.
+const PICKER_SEL = '.project-picker[data-picker="projects"]';
+
+// Seed for the overflow rule's red proof: inject twelve wide chips into
+// the strip, the DOM shape of more projects than fit — a DOM injection,
+// not an app change. The pager keeps its slot; the injected chips sit
+// before it, so the strip holds more content than its width.
+async function seedPickerOverflow(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const pager = strip.querySelector('.pp-pager');
+    for (let i = 0; i < 12; i++) {
+      const b = document.createElement('button');
+      b.className = 'pp-btn pp-proj';
+      b.textContent = `seeded-chip-with-a-deliberately-long-name-${i}`;
+      strip.insertBefore(b, pager);
+    }
+    return { injected: 12 };
+  }, PICKER_SEL);
+}
+
+// Seed for the no-shift rule: arm a one-shot resize listener that drops
+// a tall element into the strip on the next width change — a DOM
+// injection standing in for whatever would make a re-fit grow the row.
+// A flex-row item taller than the chips grows the line's cross size, so
+// the strip's row — and its box — gets taller without wrapping (chips
+// are 28px tall; 64 wins). The rule's interaction (its own resize)
+// detonates it.
+async function seedPickerShift(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const onResize = () => {
+      const tall = document.createElement('div');
+      tall.style.height = '64px';
+      tall.setAttribute('data-seeded-shift', 'yes');
+      strip.appendChild(tall);
+      window.removeEventListener('resize', onResize);
+    };
+    window.addEventListener('resize', onResize);
+    return { armed: 'strip grows 64px on next resize' };
+  }, PICKER_SEL);
+}
+
 export const RULES = [
   {
     id: 'vertical-gap',
@@ -410,6 +459,99 @@ export const RULES = [
     run: async (ctx) => legendBelowViolations(
       await ctx.page.evaluate(LEGEND_GROUPS_PROBE),
     ),
+  },
+  {
+    id: 'project-picker-overflow',
+    description: 'the project picker holds no horizontal overflow and'
+      + ' no scrollbar: only chips that fit the strip render (#774)',
+    seed: seedPickerOverflow,
+    run: async (ctx) => {
+      const st = await ctx.page.evaluate((sel) => {
+        const strip = document.querySelector(sel);
+        if (!strip) return null;
+        return {
+          over: strip.scrollWidth - strip.clientWidth,
+          scrollbar: strip.clientWidth < strip.offsetWidth,
+        };
+      }, PICKER_SEL);
+      if (!st) return [{ upper: 'project picker present',
+        lower: 'strip missing', gap: 0 }];
+      const out = [];
+      if (st.over > 0) {
+        out.push({ upper: 'picker strip fits its width',
+          lower: 'rendered content wider than the strip', gap: st.over });
+      }
+      if (st.scrollbar) {
+        out.push({ upper: 'picker strip without a scrollbar',
+          lower: 'horizontal scrollbar eating strip height', gap: 1 });
+      }
+      return out;
+    },
+  },
+  {
+    id: 'project-picker-no-shift',
+    description: 'the picker\'s row keeps its height and the content'
+      + ' below keeps its seat while the width re-fits and while paging'
+      + ' (#774)',
+    seed: seedPickerShift,
+    run: async (ctx) => {
+      const { page, width } = ctx;
+      // Seat = how far the content below the picker sits from the
+      // picker's bottom edge. Topbar reflow moves strip and seat alike
+      // at phone widths, so the seat gap — not the absolute y — is the
+      // invariant; the strip's own height is the second one.
+      const probe = () => page.evaluate((sel) => {
+        const strip = document.querySelector(sel);
+        if (!strip) return null;
+        const s = strip.getBoundingClientRect();
+        const below = strip.nextElementSibling
+          || document.querySelector('main > *:nth-child(2)');
+        const b = below ? below.getBoundingClientRect() : null;
+        return { h: Math.round(s.height * 10) / 10,
+          seat: b ? Math.round((b.y - (s.y + s.height)) * 10) / 10 : -1 };
+      }, PICKER_SEL);
+      const out = [];
+      const compare = (tag, base, now) => {
+        if (!base || !now) {
+          out.push({ upper: 'project picker present', lower: 'strip missing',
+            gap: 0 });
+          return;
+        }
+        if (now.h !== base.h) {
+          out.push({ upper: `picker row height ${base.h}px`,
+            lower: `${tag} height ${now.h}px`, gap: now.h - base.h });
+        }
+        if (now.seat !== base.seat) {
+          out.push({ upper: `seat gap below the picker ${base.seat}px`,
+            lower: `${tag} seat gap ${now.seat}px`, gap: now.seat - base.seat });
+        }
+      };
+      const base = await probe();
+      try {
+        // The re-fit journey: a different width (the RO refit), then
+        // back. Same-width resize fires nothing, so 320's 0.6x clamp
+        // grows instead of no-opping.
+        let narrowW = Math.max(320, Math.round(width * 0.6));
+        if (narrowW === width) narrowW = width + 160;
+        await page.setViewportSize({ width: narrowW, height: 900 });
+        await page.waitForTimeout(350);
+        compare('narrow-width', base, await probe());
+        // Paging, at whatever width the pager exists: chips swap, the
+        // row must not.
+        const hasPager = await page.evaluate((sel) =>
+          !!document.querySelector(`${sel} .pp-count`), PICKER_SEL);
+        if (hasPager) {
+          await page.click('.pp-pager .pp-nav:last-of-type');
+          await page.waitForTimeout(250);
+          compare('after paging', base, await probe());
+        }
+      } finally {
+        await page.setViewportSize({ width, height: 900 });
+        await page.waitForTimeout(350);
+      }
+      compare('after the refit round-trip', base, await probe());
+      return out;
+    },
   },
 ];
 
