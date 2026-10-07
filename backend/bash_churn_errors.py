@@ -25,8 +25,8 @@ _STAGE_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 # A shell operator or heredoc marker as one raw shlex token — never a
 # path, so the tee arm never books it (#820). The char classes carry a
 # redirect's fd prefix and its digit/`-` target (`>&2`, `2>&1`); `<<`
-# absorbs the marker's tag.
-_REDIRECT_TOKEN = re.compile(r"[0-9]*(?:>>?|<&?)[&|]?[0-9-]*|<<\S*")
+# absorbs the marker's tag and a `<`-led form its input target (#855).
+_REDIRECT_TOKEN = re.compile(r"[0-9]*(?:>>?|<&?)[&|]?[0-9-]*|<<\S*|<[^\s;&|]*")
 
 
 def _verbatim_targets(context: str) -> list[str]:
