@@ -262,6 +262,15 @@
         "from": null,
         "output": 10.0,
         "read": 0.2
+      },
+      {
+        "create_1h": 4.0,
+        "create_5m": 2.5,
+        "fresh": 2.0,
+        "from": "2026-10-07T18:54:35Z",
+        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+        "output": 10.0,
+        "read": 0.1
       }
     ],
     "glm-4-5": [
@@ -1165,7 +1174,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-07T17:54:23Z",
+  "provider_rates_fetched": "2026-10-07T18:54:35Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -3609,6 +3618,14 @@
           "from": "2026-10-07T16:45:52Z",
           "output": 1.2,
           "read": 0.059
+        },
+        {
+          "create_1h": 0.045,
+          "create_5m": 0.045,
+          "fresh": 0.045,
+          "from": "2026-10-07T18:45:52Z",
+          "output": 1.2,
+          "read": 0.03
         }
       ]
     },
