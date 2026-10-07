@@ -218,13 +218,16 @@ def test_compute_fit_reserves_the_jump_from_the_measure_row():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_compute_fit_returns_zero_when_nothing_fits():
-    """Below the width of All + pager + one chip the page size is zero:
-    the pager still pages (an overflow-free degenerate beats a scrollbar)
-    and the strip keeps its height."""
+def test_compute_fit_clamps_to_one_chip_when_nothing_fits():
+    """Below the width of All + pager + one chip the fit clamps to ONE
+    chip per page (#807): the degenerate strip still reaches every
+    project, and the jump's index / perPage never divides by zero (perPage
+    0 showed empty pages and a NaN page counter). The clamp is computeFit
+    policy — the pure fitCount still returns 0 for the same widths (pinned
+    by test_fit_boundary_is_exact_fits_and_over_breaks' zeroAvail)."""
     r = _stub_strip(inner=400, gap=6, widths=(500,), all_w=40,
                     pager_core=100)
-    assert r == 0
+    assert r == 1
 
 
 # --- the JSX wiring (source pins) ---------------------------------------
