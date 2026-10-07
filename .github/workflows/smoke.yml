@@ -87,13 +87,14 @@ jobs:
             pip-${{ runner.os }}-3.13-
 
       - name: Install postgresql-client
+        timeout-minutes: 5
         # smoke.py shells out to psql, and the client major
         # must match the service.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-16
+          sudo apt-get update -qq -o Acquire::Retries=3
+          sudo apt-get install -y -qq -o Acquire::Retries=3 postgresql-client-16
 
       - name: Install dependencies
         # Runtime deps only. This job boots the real server; it does not
