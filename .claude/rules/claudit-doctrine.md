@@ -853,7 +853,8 @@ same rules:
   rates — the time-weighted mean over the window that formed the band, the
   classifier's trailing `days`: the level in force at its open — the last
   entry dated before it, or the row's leading undated entry when nothing
-  dated precedes the window — plus every entry in it, the mean weighting
+  dated precedes the window, which is the classifier's baseline too (issue
+  #836) — plus every entry in it, the mean weighting
   that window so a level predating it weighs only from the window's open
   (issues #663, #665) — so no rate
   math reads the band; the

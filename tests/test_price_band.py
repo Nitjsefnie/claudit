@@ -137,6 +137,19 @@ def test_the_classifier_names_each_shape(levels, shape):
     assert price_band.classify(history, AT, DAYS)["shape"] == shape
 
 
+def test_the_classifier_counts_an_undated_baseline_like_a_dated_one():
+    """Issue #836: the row's undated first entry is the level in force
+    before the window, so an undated row and its dated equivalent classify
+    the same — B then A inside the window is a TOGGLE (two changes, one
+    return against the baseline), not a one-change STABLE that needs one
+    more move before the row bands."""
+    inside = [_entry(_ago(30), RATE_B), _entry(_ago(20), RATE_A)]
+    undated = [_entry(None, RATE_A)] + inside
+    dated = [_entry(_ago(400), RATE_A)] + inside
+    assert price_band.classify(undated, NOW, 7.0)["shape"] == "TOGGLE"
+    assert price_band.classify(dated, NOW, 7.0)["shape"] == "TOGGLE"
+
+
 # --- 4 & 5. the one-time collapse, and the rows it must not touch -------------
 
 # Four days at A then four at B: a return, and a mean of exactly MEAN.
@@ -342,10 +355,13 @@ def test_an_escape_that_keeps_oscillating_re_forms_the_band(tmp_path, capsys):
     levels span, priced by their time-weighted mean, dated at the last
     escape's change point. The banded entry's note carries over. The
     banded entry and an older level both sit OUTSIDE the window (400h and
-    200h ago, window 168h), so the window's baseline is the banded entry
-    and the old level must neither widen the band nor pull the mean — the
-    reform-side pin of issue #663's window semantics."""
-    row = [_entry(_ago(400), RATE_A),
+    200h ago, window 168h), and the old level sits OUTSIDE the surviving
+    band's span, so re-forming from the whole history instead of the
+    window's levels widens the band and fails — the reform-side pin of
+    issue #663's window semantics."""
+    old = {**RATE_B, "fresh": 0.1, "create_5m": 0.1, "create_1h": 0.1,
+           "read": 0.004}
+    row = [_entry(_ago(400), old),
            {"from": _ago(200), **MEAN, "band": _band_of(RATE_A, RATE_B),
             "note": "10% off"}]
     states = [(_ago(18.5), RATE_HIGH), (_ago(12.5), RATE_LOW),
@@ -357,7 +373,9 @@ def test_an_escape_that_keeps_oscillating_re_forms_the_band(tmp_path, capsys):
     history = saved["providers"][MODEL][HOST]
     # The banded baseline entry predates the window (200h ago, window
     # 168h), so it weighs only from the window's open: 149.5h, not the
-    # 181.5h since its own `from` (issue #663).
+    # 181.5h since its own `from` (issue #663). The old level is excluded
+    # from the window's levels entirely: the band pins that, the mean pins
+    # the clipping.
     mean = _mean_of((MEAN, 538200), (RATE_HIGH, 21600), (RATE_LOW, 21600),
                     (RATE_HIGH, 23400))
     assert history == [row[0], row[1],

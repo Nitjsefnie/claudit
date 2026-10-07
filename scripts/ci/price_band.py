@@ -97,10 +97,19 @@ def _window_levels(history: list[dict], at: datetime, days: float) -> list[dict]
     since = at - timedelta(days=days)
     before = [entry for entry in dated if _instant(entry["from"]) < since]
     inside = [entry for entry in dated if _instant(entry["from"]) >= since]
-    baseline = before[-1:]
-    if not baseline and history and history[0].get("from") is None:
-        baseline = [history[0]]
-    return baseline + inside
+    return _baseline(history, before) + inside
+
+
+def _baseline(history: list[dict], before: list[dict]) -> list[dict]:
+    """The level in force at the window's open: the last entry dated before
+    it, or the row's leading undated entry when nothing dated precedes the
+    window (issue #836) — an undated row and its dated equivalent classify
+    and form alike."""
+    if before:
+        return before[-1:]
+    if history and history[0].get("from") is None:
+        return [history[0]]
+    return []
 
 
 def classify(history: list[dict], at: datetime, days: float) -> dict:
@@ -109,8 +118,9 @@ def classify(history: list[dict], at: datetime, days: float) -> dict:
     STABLE moved at most once; STEP never returned to a level it had held
     and either stayed at three levels or moved less than once a day; TOGGLE
     returned within three levels; BAND moved through four or more. The
-    baseline is the last entry dated before the window, so the first
-    in-window entry counts as a change.
+    baseline is the level in force before the window — the last entry dated
+    before it, or the row's leading undated entry (issue #836) — so the
+    first in-window entry counts as a change.
     """
     if days <= 0:
         raise ValueError(f"the classification window is {days} days; it must be positive")
@@ -118,7 +128,7 @@ def classify(history: list[dict], at: datetime, days: float) -> dict:
     dated = [entry for entry in history if entry.get("from") is not None]
     inside = [entry for entry in dated if _instant(entry["from"]) >= since]
     before = [entry for entry in dated if _instant(entry["from"]) < since]
-    levels = [_level(entry) for entry in before[-1:] + inside]
+    levels = [_level(entry) for entry in _baseline(history, before) + inside]
     changes = max(0, len(levels) - 1)
     seen = set(levels[:1])
     returns = 0
