@@ -147,9 +147,9 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
-    # /api/dashboard at range=all returns ~4.5 MB (8.8k ctx_traces spanning
-    # 54k turns). Starlette's JSONResponse runs jsonable_encoder over that
-    # whole structure and then stdlib json.dumps — measured at 475ms + 257ms.
+    # /api/dashboard at range=all returns a multi-MB payload. Starlette's
+    # JSONResponse runs jsonable_encoder over that whole structure and
+    # then stdlib json.dumps — measured at 475ms + 257ms.
     # orjson serialises the same payload in 11ms.
     default_response_class=ORJSONResponse,
 )
@@ -266,8 +266,11 @@ class _SecurityHeaders:
 # request, which the CDN then had to pull in full before it could
 # compress and serve it on. The body is JSON and compresses ~5x.
 # minimum_size skips the many small responses (/api/me, /api/models)
-# where framing would cost more than it saves.
-app.add_middleware(_SelectiveGZip, minimum_size=1024)
+# where framing would cost more than it saves. compresslevel 6 (issue
+# #644: the default 9 spent 107 ms of event-loop CPU per dashboard
+# response — mid-fan-out it delayed every concurrent response — for
+# ~2.5% fewer bytes than 6).
+app.add_middleware(_SelectiveGZip, minimum_size=1024, compresslevel=6)
 app.middleware("http")(session.auth_middleware)
 # Added LAST so it is the outermost middleware: the auth middleware's
 # own redirect for an unauthenticated page load never passes an inner
@@ -481,13 +484,9 @@ async def root_css() -> Response:
 
 @app.get("/favicon.ico")
 async def root_favicon() -> Response:
-    """The tab icon: public (a browser fetches it before any sign-in),
-    byte-identical to the committed public/favicon.ico -- a 32x32 ICO
-    (PNG-compressed) hand-generated for the dark theme: the topbar's
-    teal chevron on the --bg surface. Declared by index.html's
-    <link rel="icon"> (issue #448); img-src 'self' admits the
-    same-origin fetch, and no data: URI can stand in for it.
-    """
+    """The tab icon: public (a browser fetches it before any sign-in);
+    img-src 'self' admits the same-origin fetch, and no data: URI can
+    stand in for it (issue #448)."""
     return FileResponse(
         str(_PUBLIC / "favicon.ico"),
         media_type="image/x-icon",

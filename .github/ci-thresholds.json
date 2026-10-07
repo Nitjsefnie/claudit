@@ -10,8 +10,8 @@
     }
   },
   "module_size_baseline": {
-    "backend/api.py": 986,
-    "backend/api_dashboard.py": 834,
+    "backend/api.py": 886,
+    "backend/api_dashboard.py": 796,
     "backend/bash_churn.py": 917,
     "backend/ingest.py": 673,
     "backend/parse.py": 852,
@@ -21,7 +21,7 @@
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1293,
-    "src/dashboard-charts-extra.jsx": 1221,
+    "src/dashboard-charts-extra.jsx": 1218,
     "src/dashboard-charts.jsx": 910,
     "src/parser.js": 509
   },

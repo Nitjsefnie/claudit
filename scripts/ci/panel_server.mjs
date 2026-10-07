@@ -27,6 +27,7 @@ export const WIDTHS = (process.env.PANEL_LAYOUT_WIDTHS || '1440,1024,375,320')
 // Every /api path the frontend fetches, and the fixture that answers it.
 export const API = {
   '/api/dashboard': 'dashboard.json',
+  '/api/context-growth/traces': 'ctx_traces.json',
   '/api/projects': 'projects.json',
   '/api/models': 'models.json',
   '/api/me': 'me.json',

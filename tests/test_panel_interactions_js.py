@@ -153,9 +153,9 @@ BASE = {
             {"model": "beta", "cost_usd": 2.0},
             {"model": "gamma", "cost_usd": 1.0},
         ],
-        "ctx_traces": [{"model": "alpha", "turns": [1, 2]}],
         "hourly": [{"hour": "h1", "input_tokens": 5}],
     },
+    "ctx_traces.json": {"traces": [{"model": "alpha", "turns": [1, 2]}]},
     "models.json": {"models": [
         {"model": "alpha", "n": 12}, {"model": "beta", "n": 8},
         {"model": "gamma", "n": 3}]},
@@ -174,7 +174,7 @@ def test_two_keeps_two_models_and_drops_the_rest():
       const models = a => [...new Set(a.map(r => r.model))];
       console.log(JSON.stringify({{
         cbm: models(v.two['dashboard.json'].cost_by_model),
-        traces: models(v.two['dashboard.json'].ctx_traces),
+        traces: models(v.two['ctx_traces.json'].traces),
         sel: models(v.two['models.json'].models),
         gammaGone: !v.two['dashboard.json'].cost_by_model.some(
           r => r.model === 'gamma'),

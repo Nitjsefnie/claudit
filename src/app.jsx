@@ -634,7 +634,6 @@ function backendDashToShape(b) {
     totalPrompts: b.total_prompts,
     totalTurns: b.total_turns,
     responseSizes: b.response_sizes || [],
-    ctxTraces: b.ctx_traces || [],
     bucketS: b.bucket_s || 86400,
     // Which token types survived the backend's zero-suppression
     // (api_dashboard.drop_zero_token_types). Absent on the synthetic
@@ -782,7 +781,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     tokensByProject: backendTokensByProject = [],
     sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
     subagentOnlySessions, totalPrompts, totalTurns, responseSizes,
-    ctxTraces, bucketS, tokenTypes,
+    bucketS, tokenTypes,
   } = synth || {};
   // Placeholder window so the bin-size maths below stays finite pre-data.
   const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
@@ -991,7 +990,8 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       )}
 
       <div className="dash-context">
-        <window.ContextGrowthPanel events={events} realSessions={sessionsOverride} ctxTraces={ctxTraces} />
+        <window.ContextGrowthPanel events={events} realSessions={sessionsOverride}
+            project={activeProject} range={activeRange} nonce={dashNonce} />
       </div>
 
       <div className="dash-burn">

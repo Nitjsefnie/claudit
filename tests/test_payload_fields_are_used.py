@@ -136,6 +136,7 @@ ENDPOINTS = [
     ("/api/reply-latency?range=all", "reply latency"),
     ("/api/activity-heatmap?range=all", "activity heatmap"),
     ("/api/context-growth/agg?range=all", "context growth agg"),
+    ("/api/context-growth/traces?range=all", "context growth traces"),
     ("/api/models", "models"),
     ("/api/projects", "projects"),
 ]

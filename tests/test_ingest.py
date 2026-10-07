@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from backend import api, cache, constants, db, ingest
+from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
 from tests import mini_mirror, scratch_db
@@ -407,7 +408,7 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
     warmed = (
         dashboard, api.activity_heatmap, api.tool_usage,
         api.tool_error_rate, api.reply_latency, api.list_projects,
-        web_metrics_readout,
+        web_metrics_readout, context_growth_traces,
     )
     # The warms run on a background pool; give them a bounded moment.
     deadline = time.time() + 60
@@ -425,19 +426,34 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
 
     assert not missing, "warm_common left these uncached: " + ", ".join(missing)
 
+    # The no-range warm: /api/models takes no range, so warm_common
+    # warms ONE key per ingest, not one per WARM_RANGES entry (issue
+    # #644). Forcing `rng` into its key would reproduce a key nothing
+    # writes — the same trap the /api/projects regression was.
+    deadline = time.time() + 60
+    while (cache.response_cache.get(_warm_key(api.list_models, None))
+           is None and time.time() < deadline):
+        time.sleep(0.25)
+    assert cache.response_cache.get(
+        _warm_key(api.list_models, None)) is not None, \
+        "warm_common left /api/models uncached"
 
-def _warm_key(fn, rng: str) -> str:
+
+def _warm_key(fn, rng: str | None) -> str:
     """Reproduce cache_response's key for a request at `rng`.
 
     Built from the endpoint's own signature so it stays correct as params
-    are added — which is exactly what broke /api/projects.
+    are added — which is exactly what broke /api/projects. `rng` is
+    forced in only where the endpoint actually takes one; a no-range
+    endpoint's key must carry no range or it matches nothing.
     """
     target = getattr(fn, "__wrapped__", fn)
     kwargs = {}
     for name, param in inspect.signature(target).parameters.items():
         default = param.default
         kwargs[name] = getattr(default, "default", default)
-    kwargs["rng"] = rng
+    if "rng" in kwargs:
+        kwargs["rng"] = rng
     if "fresh" in kwargs:
         kwargs["fresh"] = 0
     return target.__qualname__ + ":" + repr(sorted(kwargs.items()))

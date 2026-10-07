@@ -13,6 +13,7 @@ import logging
 import os
 
 from backend import api, cache
+from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
 
@@ -53,8 +54,16 @@ def warm_common() -> None:
     # cheap. "1d" is arguably the most valuable: its 5-minute buckets are
     # below the rollups' 1h gate, so it is the one range still served by
     # live queries.)
+    # /api/models takes no range — one key, warmed once per ingest. It is
+    # fetched on every page open and its query is a full GROUP BY over
+    # records (issue #644).
+    cache.warm(api.list_models)
     for rng in WARM_RANGES:
         cache.warm(dashboard, rng=rng)
+        # /api/context-growth/traces is fetched by the Per-Session
+        # Context Growth panel on every open (issue #644); cold, its
+        # jsonb explode is the heaviest panel query.
+        cache.warm(context_growth_traces, rng=rng)
         cache.warm(api.activity_heatmap, rng=rng)
         cache.warm(api.tool_usage, rng=rng)
         cache.warm(api.tool_error_rate, rng=rng)
