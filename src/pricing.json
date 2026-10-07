@@ -1180,7 +1180,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-07T22:53:45Z",
+  "provider_rates_fetched": "2026-10-07T23:13:57Z",
   "providers": {
     "claude-opus-5-5": {
       "Amazon Bedrock": [
@@ -1611,6 +1611,14 @@
           "from": "2026-10-07T01:15:35Z",
           "output": 0.72,
           "read": 0.006
+        },
+        {
+          "create_1h": 0.225,
+          "create_5m": 0.225,
+          "fresh": 0.225,
+          "from": "2026-10-07T23:01:58Z",
+          "output": 0.9,
+          "read": 0.006
         }
       ],
       "Fireworks": [
@@ -1882,6 +1890,14 @@
           "create_5m": 0.049,
           "fresh": 0.049,
           "from": "2026-10-07T17:11:24Z",
+          "output": 1.2,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.065,
+          "create_5m": 0.065,
+          "fresh": 0.065,
+          "from": "2026-10-07T23:13:57Z",
           "output": 1.2,
           "read": 0.03
         }
@@ -3287,6 +3303,14 @@
           "create_5m": 0.2,
           "fresh": 0.2,
           "from": "2026-10-07T21:31:56Z",
+          "output": 0.8,
+          "read": 0.005
+        },
+        {
+          "create_1h": 0.0152,
+          "create_5m": 0.0152,
+          "fresh": 0.0152,
+          "from": "2026-10-07T22:56:31Z",
           "output": 0.8,
           "read": 0.005
         }
@@ -5763,6 +5787,22 @@
           "create_5m": 0.099,
           "fresh": 0.099,
           "from": "2026-10-07T20:54:10Z",
+          "output": 0.28,
+          "read": 0.028
+        },
+        {
+          "create_1h": 0.089,
+          "create_5m": 0.089,
+          "fresh": 0.089,
+          "from": "2026-10-07T21:26:23Z",
+          "output": 0.28,
+          "read": 0.028
+        },
+        {
+          "create_1h": 0.14,
+          "create_5m": 0.14,
+          "fresh": 0.14,
+          "from": "2026-10-07T22:46:49Z",
           "output": 0.28,
           "read": 0.028
         }
@@ -13107,6 +13147,14 @@
           "from": "2026-10-07T21:11:44Z",
           "output": 5.0,
           "read": 0.2
+        },
+        {
+          "create_1h": 0.4,
+          "create_5m": 0.4,
+          "fresh": 0.4,
+          "from": "2026-10-07T23:13:57Z",
+          "output": 4.0,
+          "read": 0.2
         }
       ]
     },
@@ -15156,6 +15204,14 @@
           "from": "2026-10-07T06:55:21Z",
           "output": 6.3,
           "read": 0.0585
+        },
+        {
+          "create_1h": 0.0496,
+          "create_5m": 0.0496,
+          "fresh": 0.0496,
+          "from": "2026-10-07T22:51:34Z",
+          "output": 6.3,
+          "read": 0.0461
         }
       ],
       "Sail Research": [
