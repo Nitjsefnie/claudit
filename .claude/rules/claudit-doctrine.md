@@ -1045,7 +1045,9 @@ or rollup reads `pricing_version`. The recomputed state is `cost_usd`
 (`records.long_context` — membership-keyed since issue #765: a MEMBER
 row re-derives whatever its stored flag, so a refresh fold move
 converting the pre-fold NULL rows lands exactly what a reparse stores;
-a NON-MEMBER row keeps its stored flag), and the fee column
+a NON-MEMBER row keeps its stored flag — except a stored TRUE, which
+only the Codex path's threshold test can have written, re-derived so a
+lapsed member's TRUE unbills (issue #833)), and the fee column
 (`records.request_fee_usd`), re-derived from the same columns under the
 same switch. The completion marker follows SV-SCHEMA-AUTOAPPLY.
 
