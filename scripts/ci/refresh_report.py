@@ -131,6 +131,7 @@ def vendor_report(stamp: str, vendor) -> str:
     for move in vendor.moves:
         tail = (" [metered]" if move.membership == "+"
                 else " [unmetered]" if move.membership == "-" else "")
+        tail += f" [threshold {move.meter}]" if move.meter is not None else ""
         if move.entries and move.old is None:
             rates = ", ".join(f"{f} {move.new[f]!r}" for f in _RATE_FIELDS)
             lines.append(f"  new       {move.key} ({move.id}): {rates}{tail}")
@@ -138,11 +139,19 @@ def vendor_report(stamp: str, vendor) -> str:
             moved = ", ".join(f"{f} {move.old[f]!r} -> {move.new[f]!r}"
                               for f in _RATE_FIELDS if move.old[f] != move.new[f])
             lines.append(f"  changed   {move.key} ({move.id}): {moved}{tail}")
-        else:
-            on = move.membership == "+"
-            lines.append(f"  {'metered' if on else 'unmetered'}  {move.key} "
-                         f"({move.id}): long-context meter "
-                         f"{'on' if on else 'off'}")
+        elif move.membership or move.meter is not None:
+            if move.membership == "+":
+                line = (f"  metered  {move.key} ({move.id}): long-context "
+                        "meter on")
+                if move.meter is not None:
+                    line += f" at threshold {move.meter}"
+                lines.append(line)
+            elif move.membership == "-":
+                lines.append(f"  unmetered  {move.key} ({move.id}): "
+                             "long-context meter off")
+            else:
+                lines.append(f"  meter  {move.key} ({move.id}): long-context "
+                             f"threshold {move.meter}")
         if move.entries and move.new.get("note"):
             lines.append(f"            note: {move.new['note']}")
     if vendor.refusals:

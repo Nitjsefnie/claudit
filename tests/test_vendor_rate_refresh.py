@@ -45,9 +45,10 @@ def _per_token(rate: float) -> str:
     return format(Decimal(repr(rate)).scaleb(-6).normalize(), "f")
 
 
-def _doc(*, members=None, models=None, resolve=None) -> dict:
+def _doc(*, members=None, models=None, resolve=None, meters=None) -> dict:
     return {
         "long_context_models": list(members or []),
+        "long_context_meters": dict(meters or {}),
         "models": copy.deepcopy(models) if models else {},
         "openrouter": {"data_region": "global", "models": {},
                        "vendor": {"resolve": resolve or {}}},
@@ -257,10 +258,13 @@ def test_banded_model_joins_the_meter_with_its_row():
     entry = doc["models"][GPT_KEY][0]
     assert entry["fresh"] == 1.0, "the band's own rates entered the row"
     assert out.moves[0].membership == "+"
+    assert doc["long_context_meters"][GPT_KEY] == {
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
+    assert out.moves[0].meter == long_context.LONG_CONTEXT_THRESHOLD
 
 
-def test_banded_model_with_a_current_row_moves_membership_only():
-    _, out = _run(
+def test_banded_model_with_a_current_row_folds_membership_and_meter():
+    doc, out = _run(
         _doc(models={GPT_KEY: _stored(RATES)}),
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint(
@@ -270,14 +274,81 @@ def test_banded_model_with_a_current_row_moves_membership_only():
     assert not out.refusals
     assert len(out.moves) == 1 and out.moves[0].entries == 0
     assert out.moves[0].membership == "+"
+    assert doc["long_context_meters"][GPT_KEY] == {
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
 
 
 def test_band_removal_leaves_the_meter():
     doc, out = _run(
-        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY]),
+        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 200_000}}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
     assert out.moves[0].membership == "-"
     assert GPT_KEY not in doc["long_context_models"]
+    assert GPT_KEY not in doc["long_context_meters"]
+
+
+def test_a_new_threshold_is_learned_from_the_band():
+    """The issue #765 case: a band at a threshold of its own (Claude's
+    200k) with the meter's multipliers is the meter — the pass folds the
+    membership and learns the threshold into long_context_meters."""
+    doc, out = _run(
+        _doc(models={GPT_KEY: _stored(RATES)}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0, threshold=200_000)])))})
+    assert not out.refusals and out.notices == []
+    assert GPT_KEY in doc["long_context_models"]
+    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 200_000}
+    assert out.moves[0].entries == 0 and out.moves[0].meter == 200_000
+
+
+def test_the_stored_meter_moves_with_the_band():
+    """A listed band at a threshold other than the stored meter's is a
+    move the listing governs: the meter rewrites, membership stays."""
+    doc, out = _run(
+        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 200_000}}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0, threshold=300_000)])))})
+    assert not out.refusals and out.notices == []
+    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 300_000}
+    assert GPT_KEY in doc["long_context_models"]
+    assert out.moves[0].entries == 0 and out.moves[0].meter == 300_000
+
+
+def test_a_rate_move_that_also_moves_the_meter_reports_both():
+    """The report carries the threshold on a rate move too (the common
+    hourly case after a band move) — not only on entries==0 folds."""
+    _, out = _run(
+        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 200_000}}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 6.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 6.0, read=0.1, write=1.25,
+                                              write_1h=2.0,
+                                              threshold=300_000)])))})
+    assert out.moves[0].entries == 1 and out.moves[0].meter == 300_000
+    report = _load("refresh_report").vendor_report(STAMP, out)
+    assert "[threshold 300000]" in report and "changed" in report
+
+
+def test_a_quiet_band_writes_nothing():
+    _, out = _run(
+        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 272_000}}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0)])))})
+    assert out.moves == [] and not out.refusals and out.notices == []
 
 
 def test_non_vendor_member_stands():
@@ -302,13 +373,18 @@ def test_departing_multiplier_band_is_a_notice(kw):
     assert GPT_KEY not in doc["long_context_models"]
 
 
-def test_non_meter_threshold_is_a_notice():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1,
-                                                              threshold=200000)])))})
-    assert GPT_KEY not in doc["models"] and GPT_KEY not in doc["long_context_models"]
-    assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0] and "departs from the meter" in out.notices[0]
+def test_a_bad_band_threshold_is_a_notice():
+    """A band threshold that is no positive integer is not a meter shape
+    the table can carry — a notice, never red, never a fold."""
+    for bad in (0, -1, 2.0, True, "200000"):
+        doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1,
+                             overrides=[_band(1.0, 5.0, threshold=bad)])))})
+        assert GPT_KEY not in doc["models"]
+        assert GPT_KEY not in doc["long_context_models"]
+        assert GPT_KEY not in doc["long_context_meters"]
+        assert out.refusals == [] and len(out.notices) == 1
+        assert "not tracked" in out.notices[0] and "positive integer" in out.notices[0]
 
 
 def test_band_without_output_is_a_notice():

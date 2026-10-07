@@ -370,7 +370,9 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
             version=newer, cost=0.5),                           # guard
         dict(row("claude-opus-4-7", _SEED_TS), fp=None),        # NULL fp
         # A consistent TRUE flag needs a tally the derivation agrees is
-        # above the threshold; FALSE and the #249 NULL keep any tally.
+        # above the threshold; FALSE and the NULL seed keep any tally
+        # (the NULL seed's own derivation is FALSE — issue #765's
+        # membership-keyed reprice).
         row(_METER_MODEL, _SEED_TS, fresh=300_000, flag=True,
             cost=round(pricing.compute_cost(
                 _METER_MODEL, fresh=300_000, output=100, eph5=250,
@@ -380,9 +382,14 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
         row(_METER_MODEL, _SEED_TS, flag=False,
             cost=cost(_METER_MODEL, _SEED_TS),
             fp=fp(_METER_MODEL)),                               # meter FALSE
-        row(_METER_MODEL, _SEED_TS, flag=None,
-            cost=cost(_METER_MODEL, _SEED_TS),
-            fp=fp(_METER_MODEL)),                               # #249 NULL
+        # The NULL flag of a member row is a PRE-FOLD shape: under the
+        # membership-keyed reprice (issue #765) a reparse stores the
+        # decision, so a hand-consistent fingerprint can never pair with
+        # it — persist stamps the derived flag beside the fingerprint.
+        # Seeded with fp NULL (the conservative stale shape), so both
+        # passes take the keyset path and derive FALSE.
+        dict(row(_METER_MODEL, _SEED_TS, flag=None,
+                 cost=cost(_METER_MODEL, _SEED_TS)), fp=None),   # #249 NULL
         row("gpt-9:free", _SEED_TS, cost=0.0,
             fp=fp("gpt-9:free")),                               # free
         row("claude-opus-99", _SEED_TS),                        # tier

@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from backend import constants, parse, pricing
+from backend.rereads import resolve_rereads
 
 from tests.test_parse import (
     _read,
@@ -213,7 +214,7 @@ def test_errored_read_neither_flags_nor_marks_seen():
         {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
          "is_error": False, "is_reread": None},
     ]
-    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    resolve_rereads(rows)
     assert [r["is_reread"] for r in rows] == [None, False]
 
 
@@ -225,7 +226,7 @@ def test_partial_overlap_is_not_a_reread():
         {"read_kind": "whole", "read_targets": ["/a", "/b"],
          "write_targets": [], "is_error": False, "is_reread": None},
     ]
-    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    resolve_rereads(rows)
     assert [r["is_reread"] for r in rows] == [False, False]
 
 
@@ -272,7 +273,7 @@ def test_new_bash_write_invalidates_reread(family):
     read = {"read_kind": "whole", "read_targets": ["/work/README.md"],
             "write_targets": [], "is_error": False, "is_reread": None}
     rows = [read.copy(), out["tool_uses"][0], read.copy()]
-    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    resolve_rereads(rows)
     assert [row["is_reread"] for row in rows] == [False, None, False]
 
 
@@ -400,7 +401,7 @@ def test_windows_copy_preserves_write_estimate():
 def test_rereads_compare_supported_windows_spellings_only(first, second, expected):
     rows = [{"read_kind": "whole", "read_targets": [path], "write_targets": [], "is_error": False, "is_reread": None}
             for path in (first, second)]
-    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    resolve_rereads(rows)
     assert rows[1]["is_reread"] is expected
     assert [row["read_targets"] for row in rows] == [[first], [second]]
 
@@ -412,7 +413,7 @@ def test_raw_windows_write_invalidates_equivalent_read_without_rewriting(name):
     rows = [{"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None},
             {"read_kind": kind, "read_targets": reads, "write_targets": writes, "is_error": False, "is_reread": None},
             {"read_kind": "whole", "read_targets": [first], "write_targets": [], "is_error": False, "is_reread": None}]
-    parse._resolve_rereads(rows)  # pylint: disable=protected-access
+    resolve_rereads(rows)
     assert [row["is_reread"] for row in rows] == [False, None, False]
     assert rows[1]["write_targets"] == [written]
 

@@ -47,6 +47,9 @@ class RateTables(TypedDict):
     # long_context_models): dashed keys of the models table, compared
     # against a record's normalised model id.
     LONG_CONTEXT_MODELS: frozenset[str]
+    # The meter's per-model thresholds (issue #765): member key ->
+    # threshold integer, overriding the meter's global default.
+    LONG_CONTEXT_METERS: dict[str, int]
 
 
 # The one timestamp spelling both loaders accept: whole seconds and an
@@ -276,6 +279,39 @@ def _long_context_members(doc: dict) -> frozenset[str]:
     return frozenset(members)
 
 
+def _long_context_meters(doc: dict) -> dict[str, int]:
+    """The meter's per-model thresholds (issue #765), checked: a map of
+    member keys to exactly {"threshold": N} for a positive integral N —
+    an integral float spelling (200000.0) folds to the integer, so both
+    loaders accept the same bytes where JSON has already collapsed the
+    spelling (the browser's Number sees one value); a fractional one is
+    refused. A member absent here keeps the meter's global threshold.
+    The key must be a member — a threshold for a model that does not
+    meter is inert data the loaders refuse."""
+    meters = doc.get("long_context_meters") or {}
+    if not isinstance(meters, dict):
+        raise ValueError("long_context_meters: not a map of member keys "
+                         "to thresholds")
+    members = _long_context_members(doc)
+    for key, value in meters.items():
+        if key not in members:
+            raise ValueError(
+                f"long_context_meters: {key!r} names no long_context_models "
+                "member")
+        if not isinstance(value, dict) or set(value) != {"threshold"}:
+            raise ValueError(
+                f"long_context_meters: {key!r} is not a {{threshold: "
+                "positive integer}}")
+        threshold = value["threshold"]
+        if (isinstance(threshold, bool)
+                or not isinstance(threshold, (int, float))
+                or not float(threshold).is_integer() or threshold <= 0):
+            raise ValueError(
+                f"long_context_meters: {key!r} is not a {{threshold: "
+                "positive integer}}")
+    return {k: int(v["threshold"]) for k, v in meters.items()}
+
+
 def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict, dict]:
     """The provider-row tables (rates, dated windows, fees, starts,
     schedules), one row per (model, host) the document names."""
@@ -334,6 +370,7 @@ def load_tables(doc: dict) -> RateTables:
             | set(provider_starts.values())
         ),
         "LONG_CONTEXT_MODELS": _long_context_members(doc),
+        "LONG_CONTEXT_METERS": _long_context_meters(doc),
     }
 
 
@@ -369,5 +406,8 @@ RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # The Codex long-context meter's membership: dashed models-table keys, the
 # shape SV-RATE-ESTIMATES' comparison needs. pricing re-exports it.
 LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
+# The meter's per-model thresholds (issue #765): a member key's
+# {"threshold": N} override of the global default. pricing re-exports it.
+LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]
 
 DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]

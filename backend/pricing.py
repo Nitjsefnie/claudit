@@ -68,6 +68,7 @@ from backend.pricing_load import (
     RATE_EPOCHS,
     RATE_FIELDS,
     LONG_CONTEXT_MODELS,
+    LONG_CONTEXT_METERS,
     _DAYS,
     Windows,
     RateTables,
@@ -84,6 +85,7 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
 
 __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
     "DATED_RATES", "DEFAULT_RATES", "FEES", "LONG_CONTEXT_MODELS",
+    "LONG_CONTEXT_METERS",
     "MODEL_RATES", "PROVIDER_DATED_RATES", "PROVIDER_FEES",
     "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
     "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
@@ -367,6 +369,32 @@ def is_long_context_model(model: str) -> bool:
     the dotted gpt-5.6-sol matches key gpt-5-6-sol (SV-RATE-ESTIMATES).
     """
     return _normalise(model) in LONG_CONTEXT_MODELS
+
+
+def long_context_threshold(model: str | None) -> int:
+    """The meter threshold in force for a model (issue #765): its
+    long_context_meters entry when the card carries one, else the Codex
+    meter's global threshold. The id normalises the way
+    is_long_context_model normalises."""
+    return LONG_CONTEXT_METERS.get(_normalise(model),
+                                   LONG_CONTEXT_THRESHOLD)
+
+
+def meter_flag(model: str | None, window: int) -> bool | None:
+    """The meter decision for one record of `model` at input window
+    `window` — the billed input side, fresh + cache_creation + cache_read.
+
+    A member above its own threshold bills the band and a member at or
+    below it stays flat; every non-member keeps the NULL marker, the
+    Claude format's parse-stored shape (issue #249: the reprice pass
+    re-derives only what a reparse would store, so the decision lives in
+    the parse path). The Codex lane passes its threshold test alone and
+    never consults this — parse_codex bills every record above the
+    threshold whatever its model (issue #194)."""
+    norm = _normalise(model)
+    if norm not in LONG_CONTEXT_MODELS:
+        return None
+    return window > long_context_threshold(norm)
 
 
 def rate_for(model: str | None, ts: datetime | None = None,

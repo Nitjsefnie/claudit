@@ -33,7 +33,10 @@ attribution, tool-result settling — REQUIRES the same change there, or
 the Inspector disagrees with the database. `tests/test_parser_js_lanes.py`
 fails on drift; the lane browser test fails when
 `window.LONG_CONTEXT_THRESHOLD` / `LONG_CONTEXT_INPUT_MULT` /
-`LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`.
+`LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`, or
+when the loader's `window.longContextModels` / `window.longContextMeters`
+stop matching the file's `long_context_models` / `long_context_meters`
+(the per-model thresholds, issue #765).
 
 Resolve a discrepancy against this spec and the fixtures: fix the side
 that departs. If the spec itself is wrong, change it here, in both
@@ -628,6 +631,15 @@ cache-busted like every `/src` asset; the file sits in `src/` because
 that is what the app serves. No rate literal belongs in either source
 file.
 
+Beside the tables sits `long_context_meters`: a map of
+`long_context_models` member keys to exactly `{"threshold": N}` for a
+positive integer N — the model's own long-context threshold (issue
+#765), an override of `pricing.LONG_CONTEXT_THRESHOLD`; a member absent
+from the map keeps the global default, a key naming no member is
+refused, and the meter thresholds ride the reprice pass's
+rate_fingerprint. Both loaders validate and fold it (the browser to
+`window.longContextMeters`).
+
 Each row's history is append-only, oldest first. Every entry carries
 five finite non-negative rates (`fresh`, `create_5m`, `create_1h`,
 `read`, `output`), an optional string `note`, an optional `schedule`, and
@@ -981,14 +993,17 @@ either pass moved.
   correction is a human commit). Rows with no vendor source (aliases, the
   delisted) stand untouched, and a quiet source writes nothing.
 - **The long-context band folds to the meter.** A `min_prompt_tokens`
-  override whose threshold and multipliers equal the meter's
-  (`pricing.LONG_CONTEXT_THRESHOLD` / `INPUT_MULT` / `OUTPUT_MULT`) sets
-  `long_context_models` membership and contributes NO rates: the five
-  stored rates stay the sub-threshold listing, and compute_cost applies the
-  meter above the threshold. Membership follows the listing for
-  vendor-tracked keys; non-vendor keys stand untouched. A band departing
-  the meter's shape (the 200k-band Claude models) is NOT TRACKED — the
-  notice rule below — until the table learns the shape.
+  override whose multipliers equal the meter's (`INPUT_MULT` /
+  `OUTPUT_MULT`) is the meter at the band's own threshold (issue #765):
+  it sets `long_context_models` membership and lands the threshold in
+  `long_context_meters` (a member key's `{"threshold": N}` override of
+  the global default; a member absent from the map keeps
+  `pricing.LONG_CONTEXT_THRESHOLD`), and contributes NO rates: the five
+  stored rates stay the sub-threshold listing, and compute_cost applies
+  the meter above the model's own threshold. Membership and threshold
+  follow the listing for vendor-tracked keys; non-vendor keys stand
+  untouched; a threshold move rewrites the meter. A band departing the
+  meter's multipliers is NOT TRACKED — the notice rule below.
 - **An unmodelled shape is a NOTICE, never red.** The pass notices it as
   "not tracked: <reason>" and moves on: no row is created and no existing
   row is touched. Red is reserved for ambiguity a human must resolve
@@ -1026,8 +1041,11 @@ rows never reprice. If it changes any row (a cost or a flag moved — a
 restamp changes none), the run takes a full derived rebuild, since
 repricing can move rollups outside the dirty files. No endpoint, panel
 or rollup reads `pricing_version`. The recomputed state is `cost_usd`
-(the per-request fee folded in, SV-RATE-DATA), the Codex long-context
-flag (`records.long_context`), and the fee column
+(the per-request fee folded in, SV-RATE-DATA), the long-context flag
+(`records.long_context` — membership-keyed since issue #765: a MEMBER
+row re-derives whatever its stored flag, so a refresh fold move
+converting the pre-fold NULL rows lands exactly what a reparse stores;
+a NON-MEMBER row keeps its stored flag), and the fee column
 (`records.request_fee_usd`), re-derived from the same columns under the
 same switch. The completion marker follows SV-SCHEMA-AUTOAPPLY.
 

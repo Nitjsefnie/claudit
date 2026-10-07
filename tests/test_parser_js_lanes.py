@@ -176,6 +176,28 @@ def _node_long_context(plan_type: str | None) -> dict:
     return json.loads(proc.stdout)
 
 
+def _node_long_context_shape(blob: str, meters: dict) -> list:
+    """The codex lane's long_context flags for one blob, under injected
+    per-model meters (issue #765)."""
+    script = f"""
+      global.window = {{}};
+      require({str(LANES_JS)!r});
+      require({str(CODEX_JS)!r});
+      require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
+      window.longContextMeters = {json.dumps(meters)};
+      const {{ meta }} = window.parseTranscript({json.dumps(blob)});
+      console.log(JSON.stringify(
+        meta.filter(m => m.type === 'assistant_usage')
+            .map(m => m.long_context)));
+    """
+    proc = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
 def _node_sniff(blobs: list[bytes]) -> list[str]:
     script = f"""
       global.window = {{}};
@@ -193,6 +215,7 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
 
 
 APP_JSX = ROOT / "src" / "app.jsx"
+CTX_INPUT_JS = ROOT / "src" / "ctx-input.js"
 
 
 def _token_breakdown_source() -> str:
@@ -385,6 +408,58 @@ class TestNodeDrivenLaneParsers:
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout) == pricing.LONG_CONTEXT_THRESHOLD
 
+    def test_browser_threshold_and_flag_decide_per_model(self):
+        """With synthetic meters injected, the threshold lookup and the
+        Claude-path flag follow the model's own band (issue #765); a
+        non-member keeps null."""
+        script = f"""
+          global.window = {{}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
+          window.longContextModels = ['acme-test-1'];
+          window.longContextMeters = {{'acme-test-1': 200000}};
+          const usage = {{input_tokens: 250000, cache_creation_input_tokens: 0,
+                         cache_read_input_tokens: 10000}};
+          console.log(JSON.stringify({{
+            override: window.longContextThresholdFor('acme-test-1'),
+            fallback: window.longContextThresholdFor('no-such-model'),
+            above: window.longContextFlagFor('acme-test-1', usage),
+            below: window.longContextFlagFor('acme-test-1',
+              {{...usage, input_tokens: 150000}}),
+            nonmember: window.longContextFlagFor('no-such-model', usage),
+          }}));
+        """
+        proc = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == {
+            "override": 200_000,
+            "fallback": pricing.LONG_CONTEXT_THRESHOLD,
+            "above": True,
+            "below": False,
+            "nonmember": None,
+        }
+
+    def test_browser_codex_lane_decides_on_the_model_threshold(self):
+        """The lane decision consults the injected per-model threshold:
+        250k GPT tokens are flat at the 272k default and metered once the
+        model's own band pulls the threshold down (issue #765)."""
+        usage = {"input_tokens": 250_000, "cached_input_tokens": 0,
+                 "cache_write_input_tokens": 0, "output_tokens": 1_000,
+                 "reasoning_output_tokens": 0, "total_tokens": 251_000}
+        info = {"total_token_usage": usage, "last_token_usage": usage,
+                "model_context_window": 400000}
+        blob = "".join(json.dumps(line) + "\n" for line in [
+            {"timestamp": "2026-07-01T00:00:00.000Z", "type": "turn_context",
+             "payload": {"model": "gpt-5.6-sol"}},
+            {"timestamp": "2026-07-01T00:00:01.000Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": info}}])
+        got = _node_long_context_shape(blob, {"gpt-5-6-sol": 200000})
+        assert got == [True]
+
     @pytest.mark.parametrize(
         "label",
         [p.name for p in LANE_FIXTURES]
@@ -560,6 +635,7 @@ class TestNodeDrivenLaneParsers:
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
+          require({str(CTX_INPUT_JS)!r});
           const text = {json.dumps(_long_context_blob(None).decode())};
           const tx = window.parseTranscript(text);
           const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');

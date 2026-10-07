@@ -87,9 +87,9 @@ def _lane_blob(session_id: str, *, plan_type: str | None) -> bytes:
 def _claude_blob() -> bytes:
     """One Claude-format transcript: a plain prompt, then one assistant
     line from the bare long-context model id gpt-6-sol with no provider
-    and a 300k-fresh tally — above the REAL threshold, so the reprice's
-    non-derivation (issue #249) must keep what the parse stored (NULL
-    flag, flat cost), the same values a reparse stores."""
+    and a 300k-fresh tally — above the REAL threshold, so both the parse
+    (issue #765's derivation) and the reprice store the metered shape,
+    the same values a reparse stores."""
     lines = [
         {"type": "user", "timestamp": "2026-09-01T12:00:00.000Z",
          "uuid": "u249", "sessionId": "iss249-sess",
@@ -217,9 +217,10 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     parses TRUE; the two meter-shaped files sit above the REAL 272k, so
     the reprice (re-derivation) and the reparse agree for both plan
     shapes. A Claude-format file from the bare meter model gpt-6-sol
-    with no provider (issue #249): its record keeps long_context NULL
-    and a flat cost across the reprice, so reprice equals reparse for
-    the shape the pass used to flip. The provider-row and
+    with no provider (issue #249): the parse path itself now derives the
+    meter decision for a member above its threshold (issue #765), and
+    the reprice re-derives the same from the stored columns — reprice
+    equals reparse for the shape the pass used to flip. The provider-row and
     weekly-schedule shapes have no
     fixture-backed record; the seeded tests price them through the same
     compute_cost call the parse path makes — parity by construction,
@@ -229,8 +230,8 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
     # Threshold 1: the small codex fixture parses long_context=TRUE; the
     # two 300k rollouts clear the REAL threshold either way, and the
-    # claude rows re-derive nothing (their models carry no meter, and
-    # the Claude-format row's stored flag is NULL — issue #249).
+    # claude rows carry no meter decision (non-members), and the
+    # Claude-format member row's flag comes from the parse (issue #765).
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
     assert ingest.run_ingest(trigger="manual")["error"] is None
 
@@ -291,11 +292,12 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
             "the reprice re-derives the codex rows' flag in both plan "
             "shapes (issue #194): every codex record stores TRUE")
         assert c.execute(
-            "SELECT COUNT(*) FROM records WHERE file_key LIKE "
-            "'claude/issue249/%' AND long_context IS NULL"
-        ).fetchall() == [(1,)], (
-            "the reprice keeps a Claude-format bare-meter-model record's NULL "
-            "flag (issue #249): a reparse stores NULL, so reprice must too")
+            "SELECT long_context, COUNT(*) FROM records "
+            "WHERE file_key LIKE 'claude/issue249/%' GROUP BY 1"
+        ).fetchall() == [(True, 1)], (
+            "the Claude-format bare-meter-model record stores the parse's "
+            "decision (issue #765) and the reprice re-derives the same: "
+            "reprice equals reparse (issue #249's law)")
 
 
 # Rates deliberately unlike any real price (SV-TEST-DATA). E2 prices the

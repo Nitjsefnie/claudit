@@ -14,7 +14,7 @@
     "backend/api_dashboard.py": 796,
     "backend/bash_churn.py": 874,
     "backend/ingest.py": 673,
-    "backend/parse.py": 852,
+    "backend/parse.py": 824,
     "backend/parse_codex.py": 684,
     "backend/parse_kimi.py": 565,
     "backend/schema.sql": 834,
@@ -22,8 +22,7 @@
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1293,
     "src/dashboard-charts-extra.jsx": 1218,
-    "src/dashboard-charts.jsx": 910,
-    "src/parser.js": 509
+    "src/dashboard-charts.jsx": 910
   },
   "pylint_suppression_baseline": {
     "backend/bash_dash_c.py": 2,

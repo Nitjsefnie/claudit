@@ -31,7 +31,7 @@ from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
                                   _to_dt, iter_lines)
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.ctx_input import usage_ctx_input
-from backend.target_paths import target_key
+from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
 
 
@@ -645,40 +645,6 @@ def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
                     tu["write_targets"] = []  # wrote nothing
 
 
-def _resolve_rereads(tool_uses: list) -> None:
-    """Flag each whole-file read that added nothing new to the context.
-
-    Walked in line order over ONE jsonl, which is the right scope: the
-    context this measures is a session's, and a file boundary is where
-    that context restarts.
-
-    A read is a re-read when EVERY file it names was already read whole
-    in this file and none of them has been written since. Three things
-    that look like waste and are not, all excluded here:
-
-    - a SLICE. `sed -n '1,200p' f` then `sed -n '200,400p' f` read
-      different halves; only a whole read can be wholly redundant.
-    - a read after a WRITE. The bytes changed, so re-reading them is
-      the only way to see the new ones.
-    - an ERRORED read. It returned a failure, not the file, so it
-      neither wasted context nor counts as having seen the file —
-      which is why it does not mark its targets either.
-
-    Partial overlap (`cat a b` where only `a` was read before) is NOT
-    flagged: something new arrived, so the call was not wasted. The
-    flag stays deliberately conservative — it is easier to argue up
-    from a floor than to defend a number that counted useful reads.
-    """
-    seen_whole: set[str] = set()
-    for tu in tool_uses:
-        targets = [target_key(path) for path in tu.get("read_targets") or []]
-        if tu.get("read_kind") == "whole" and targets and not tu["is_error"]:
-            tu["is_reread"] = all(path in seen_whole for path in targets)
-            seen_whole.update(targets)
-        for path in tu.get("write_targets") or []:
-            seen_whole.discard(target_key(path))
-
-
 def _provider(msg: dict) -> str | None:
     """message.provider, the host an OpenRouter request was served by."""
     value = msg.get("provider")
@@ -695,10 +661,13 @@ def _project_record(file_key: str, ev: dict) -> dict:
     eph = as_dict(u.get("cache_creation") or {})
     eph5 = int(eph.get("ephemeral_5m_input_tokens", 0) or 0)
     eph1h = int(eph.get("ephemeral_1h_input_tokens", 0) or 0)
-    details = u.get("output_tokens_details") or {}
-    thinking = int(details.get("thinking_tokens", 0) or 0) if isinstance(details, dict) else 0
     ts = _to_dt(ev["ts"])
     res = pricing.resolve(ev["model"], ts, ev.get("provider"))
+    # The meter decision (issue #765): a meter member above its own
+    # threshold bills the band; every other Claude-format row keeps the
+    # NULL marker. The window is the billed input side, the same columns
+    # the reprice pass re-derives from.
+    long_context = pricing.meter_flag(ev["model"], fresh + create + read)
     cost = pricing.compute_cost(
         ev["model"],
         fresh=fresh, output=output,
@@ -706,6 +675,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
         unsplit_create=max(0, create - eph5 - eph1h), read=read,
         # Dated rates apply to when the tokens were spent, not to
         # when this file happens to be parsed.
+        long_context=bool(long_context),
         res=res,
     )
     return {
@@ -724,13 +694,15 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "reply_latency_s": ev.get("reply_latency_s"),
         "stop_reason": ev.get("stop_reason"),
         "effort": ev.get("effort"),
-        "thinking_tokens": thinking,
+        "thinking_tokens": int(details.get("thinking_tokens", 0) or 0)
+        if isinstance(details := u.get("output_tokens_details") or {}, dict) else 0,
         "cli_version": ev.get("cli_version"),
         "turn_flags": ev.get("turn_flags") or [],
         "turn_tool_results": int(ev.get("turn_tool_results") or 0),
         "eph5_tokens": eph5,
         "eph1h_tokens": eph1h,
         "cost_usd": round(cost, 6),
+        "long_context": long_context,
         # The fee compute_cost folded (issue #469); NULL when none.
         "request_fee_usd": res.request_fee or None,
         "ctx_input": usage_ctx_input(u),
@@ -808,7 +780,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
 
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
                          walk.tool_result_text, walk.tool_result_chars)
-    _resolve_rereads(walk.tool_uses)
+    resolve_rereads(walk.tool_uses)
     records = [
         _project_record(file_key, ev) for ev in walk.records_in_order
     ]

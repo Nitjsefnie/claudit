@@ -134,10 +134,13 @@ backend/          — FastAPI application
                     only (SV-RATE-DATA, SV-PROVIDER-RATES)
   pricing_load.py — loads src/pricing.json's rate tables, checked, at
                     import; pricing.py re-exports them (SV-RATE-DATA)
-  long_context.py — Codex long-context meter constants (threshold,
-                    multipliers); dependency-free; the meter membership
-                    is pricing.json data (long_context_models),
-                    re-exported as pricing.LONG_CONTEXT_MODELS
+  long_context.py — the long-context meter's global constants (threshold,
+                    multipliers) — the DEFAULT a member without a
+                    long_context_meters entry keeps; dependency-free; the
+                    meter membership and per-model thresholds are
+                    pricing.json data (long_context_models,
+                    long_context_meters), re-exported through
+                    pricing.LONG_CONTEXT_MODELS/_METERS
   rate_fingerprint.py — per-(model, provider) digest of the rate data
                     resolve() consults, plus the pricing modules' source;
                     the reprice pass's clean restamp proves a row clean
@@ -213,11 +216,15 @@ src/              — served at /src/* (in-browser Babel)
   parser.js       — browser transcript parser (SV-PARSER-SPEC)
   rates.js        — browser rate resolution, pricing.resolve's mirror
                     (SV-RATE-DATA); what computeSessionStats prices
-                    through
+                    through; the Claude-path meter decision
+                    (longContextFlagFor)
   pricing.json    — every rate table (SV-RATE-DATA)
   parser-lanes.js — browser lane sniff + shared helpers + the Kimi
-                    parsers + window.LONG_CONTEXT_*
+                    parsers + window.LONG_CONTEXT_* +
+                    longContextThresholdFor
                     (SV-PARSER-SPEC lockstep)
+  ctx-input.js    — window.usageCtxInput, moved out of parser.js (the
+                    browser half of backend/ctx_input.py)
   parser-codex.js — browser codex lane parser: cumulative-token
                     differencing, first-declared-model attribution,
                     replay-prefix marking, multi-load record dedup
@@ -446,8 +453,11 @@ never loosening `*`.
   a project filter changes each group's population, and an all-projects
   p50 is not derivable from per-project ones.
 
-- **A Codex record above the 272k threshold bills the whole record on
-  the long-context meter**, persisted on `records.long_context`
+- **A record above ITS model's long-context threshold bills the whole
+  record on the meter** — the threshold is per-model data
+  (pricing.json's `long_context_meters`, defaulting to the Codex meter's
+  272k), and a Claude-format row of a meter member carries the flag too
+  (issue #765) — persisted on `records.long_context`
   (SV-DATED-RATES).
 
 - **The rest is doctrine** — read the rule before touching its area:
