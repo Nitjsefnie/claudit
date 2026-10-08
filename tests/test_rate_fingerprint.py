@@ -79,12 +79,16 @@ def _rate_tables_fixture(monkeypatch):
     monkeypatch.setattr(pricing, "FEES", {})
     monkeypatch.setattr(pricing, "PROVIDER_FEES", {})
     monkeypatch.setattr(pricing, "DEFAULT_RATES", dict(_R3))
+    # The tier table derives lazily under the cache-clearing contract:
+    # empty the derived state FIRST, then seed the memo with these rows,
+    # so _tier_fallbacks() honors them instead of re-deriving from the
+    # patched tables (which carry no versioned family rows).
+    rate_fingerprint.clear_fingerprint_cache()
     monkeypatch.setattr(pricing, "_TIER_FALLBACKS", (
         (re.compile(r"fable"), dict(_R4)),
         (re.compile(r"opus"), dict(_R5)),
         (re.compile(r"sonnet"), dict(_R6)),
     ))
-    rate_fingerprint.clear_fingerprint_cache()
     yield
     rate_fingerprint.clear_fingerprint_cache()
 
@@ -158,9 +162,10 @@ def _mutations():
     def newer_family_key_moves_tier(monkeypatch):
         monkeypatch.setattr(pricing, "MODEL_RATES", {
             **pricing.MODEL_RATES, "claude-sonnet-6": dict(_R7)})
-        # Production derives _TIER_FALLBACKS from MODEL_RATES at import;
-        # re-derive the sonnet family the same way so the patched table
-        # is what resolves (the other families keep the fixture's rows).
+        # The tier table derives lazily from the tables in force; seed
+        # the memo with the sonnet family re-derived from the patched
+        # table so it is what resolves (the other families keep the
+        # fixture's rows).
         monkeypatch.setattr(pricing, "_TIER_FALLBACKS", (
             (re.compile(r"fable"), dict(_R4)),
             (re.compile(r"opus"), dict(_R5)),
@@ -358,3 +363,32 @@ def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
     importlib.reload(rate_fingerprint)
     assert after != before, (
         "editing the reprice pass's source must move the fingerprint")
+
+
+_FAMILY_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
+                 "read": 0.1, "output": 4.0}
+
+
+def test_lazy_tier_table_skips_empty_families_and_forgets_on_clear(monkeypatch):
+    """The lazy tier table skips a family no key carries a row for — the
+    bench's bounded document and patched-tables tests name none — and a
+    table derived under one state does not outlive the clearing contract:
+    the next derivation reads the tables then in force."""
+    monkeypatch.setattr(pricing, "VENDOR_BARE", {})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {})
+    pricing.clear_tier_fallbacks()
+    try:
+        monkeypatch.setattr(pricing, "MODEL_RATES",
+                            {"suite-synth-model": dict(_FAMILY_RATES)})
+        assert pricing._tier_fallbacks() == ()  # pylint: disable=protected-access
+        pricing.clear_tier_fallbacks()
+        monkeypatch.setattr(pricing, "MODEL_RATES",
+                            {"claude-opus-9": dict(_FAMILY_RATES)})
+        populated = pricing._tier_fallbacks()  # pylint: disable=protected-access
+        assert [p.pattern for p, _ in populated] == ["opus"]
+        pricing.clear_tier_fallbacks()
+        monkeypatch.setattr(pricing, "MODEL_RATES",
+                            {"suite-synth-model": dict(_FAMILY_RATES)})
+        assert pricing._tier_fallbacks() == ()  # pylint: disable=protected-access
+    finally:
+        pricing.clear_tier_fallbacks()
