@@ -282,8 +282,8 @@ def test_dated_window_does_not_leak_to_other_models(synthetic_dated_rate):
         # which holds whatever the rows' appended history looks like.
         for ts in (datetime(2026, 7, 21, tzinfo=UTC),
                    datetime(2026, 9, 1, tzinfo=UTC), None):
-            expected = pricing._in_window(pricing._key_windows(m), ts,
-                                          pricing._list_rates(m))
+            expected = pricing._in_window(pricing._key_windows(m), ts,  # pylint: disable=protected-access
+                                          pricing._list_rates(m))  # pylint: disable=protected-access
             assert pricing.rate_for(m, ts=ts) == expected
 
 
