@@ -7,9 +7,16 @@
 // reason (the page broke, the ledger fired, the fixtures vanished) does
 // not read as the proof passing.
 //
+// #843: the seeded runs used to re-drive the FULL sweep, one after
+// another — half the leg's wall time for a proof of three classifiers.
+// The three seeds now run concurrently, each at ONE viewport width (the
+// seeds prove the classifiers, not the sweep's reach) and without a
+// target cap, so each seeded run exercises the real default config. The
+// sweep skips its height pass under a seed for the same reason.
+//
 // Runs in panel-layout.yml right after the sweep step. Needs no
 // database and no R2 — the same real page, the same fixtures.
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,22 +30,31 @@ const SEED_KINDS = {
   'cold-region': 'other-region',
 };
 
-let failed = 0;
-for (const [seed, kind] of Object.entries(SEED_KINDS)) {
-  const r = spawnSync(process.execPath, [SWEEP], {
+// One seeded run: the sweep process with the seed set, resolved with
+// its exit code and the output the kind grep reads.
+const runSeed = ([seed, kind]) => new Promise(resolve => {
+  const child = spawn(process.execPath, [SWEEP], {
     env: { ...process.env, PANEL_INTERACTIONS_SEED: seed,
-      // The seeds prove the CLASSIFIER, not the sweep's reach: a bound
-      // of 8 targets per panel keeps each seeded run short without
-      // touching what the seed plants or what must fire.
-      PANEL_INTERACTIONS_MAX_TARGETS: '8' },
-    encoding: 'utf8',
+      // One width: the seeds prove the CLASSIFIER, not the sweep's
+      // reach, so three of the four renders add cost and prove nothing.
+      PANEL_LAYOUT_WIDTHS: '1440' },
   });
-  const out = (r.stdout || '') + (r.stderr || '');
-  const failedOnTheSeed = r.status === 1 && out.includes(kind);
+  let out = '';
+  child.stdout.on('data', d => { out += d; });
+  child.stderr.on('data', d => { out += d; });
+  child.on('close', code => resolve({ seed, kind, code, out }));
+});
+
+const results = await Promise.all(
+  Object.entries(SEED_KINDS).map(runSeed));
+
+let failed = 0;
+for (const { seed, kind, code, out } of results) {
+  const failedOnTheSeed = code === 1 && out.includes(kind);
   if (!failedOnTheSeed) {
     failed += 1;
     console.error(`SEED ${seed}: expected exit 1 naming ${kind}, got `
-      + `exit ${r.status}${r.signal ? ` (${r.signal})` : ''}`
+      + `exit ${code}${code === null ? ' (killed by a signal)' : ''}`
       + (out.includes(kind) ? '' : ' without naming the kind')
       + `\n--- sweep output ---\n${out.slice(-4000)}`);
   } else {

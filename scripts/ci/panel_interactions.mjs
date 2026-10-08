@@ -42,12 +42,15 @@
 // carries `data-hover-target`. A panel that renders with data but none
 // is a `no-targets` finding — the sweep FAILS it (#690), so coverage is
 // never opt-in again. A panel that carries no interactive surface by
-// design (a legend, a stat panel) declares `data-static-panel` and is
-// printed every run like the ledger above; declaring it on a panel with
-// marked targets is a guard defect and fails the run. A panel whose
-// height is a per-entry LIST by design (one bar per row: Cost by Model,
-// Tokens by Model) carries `data-list-panel` and is exempt from
-// height-growth, printed every run like the ledger above.
+// design (a legend, a stat panel) declares `data-static-panel` — but
+// the declaration is listed, not free: STATIC_PANELS below names every
+// static panel the guard has reviewed, and a declaration off the list
+// is the `unlisted-static` finding (#834) — a data panel cannot exempt
+// itself, which is how 'Page performance' hid a data table behind the
+// declaration. A panel whose height is a per-entry LIST by design (one
+// bar per row: Cost by Model, Tokens by Model) carries
+// `data-list-panel` and is exempt from height-growth, printed every
+// run like the ledger above.
 //
 // What WOULD hide a regression is failed loudly instead of passed
 // silently:
@@ -64,12 +67,13 @@
 // database and no R2. The browser driver is a devDependency like every
 // other CI tool here; nothing in the shipped app reads package.json.
 //
-// Bounds: the sweep hovers each target twice (centre, bottom row) at
-// every width, which is the guard's whole cost, so a panel contributes
-// at most PANEL_INTERACTIONS_MAX_TARGETS targets (default 24, sampled
-// evenly with the first and last target kept; 0 = unlimited for a local
-// full sweep). A truncation is printed, never silent — a bound that
-// quietly samples is a guard that checks less than it claims.
+// Bounds: the sweep hovers every marked target twice (centre, bottom
+// row) at every width, which is the guard's whole cost.
+// PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (#834: a
+// cap that silently samples is a guard that checks less than it
+// claims). An explicit cap that BITES is the `unhovered-targets`
+// finding and fails the run; the knob is for local debugging only.
+// A truncation is printed, never silent.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -85,11 +89,19 @@ import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
 // stale-entry check fails the run until the line is deleted.
 export const FILED = [];
 
+// The static panels the guard has reviewed: a [data-panel] declaring
+// data-static-panel whose name is not listed here is the
+// `unlisted-static` finding (#834) — the declaration is not a
+// self-service exemption. The one listed name is the heatmap's
+// aria-hidden gradient legend, which renders no data at all.
+export const STATIC_PANELS = ['Activity Heatmap — legend'];
+
 // The failure kinds this guard classifies. Closed: a kind outside this
 // table is a bug in the guard itself.
 export const KINDS = [
   'cold-cls', 'sweep-shift', 'hover-tooltip', 'hover-style',
   'tooltip-overflow', 'other-region', 'height-growth', 'no-targets',
+  'unhovered-targets', 'unlisted-static',
 ];
 
 // The matched LEDGER ENTRY (or null) — per entry, not per (issue, kind):
@@ -210,12 +222,14 @@ export function variantsFrom(base) {
 
 // The style channels a hover highlight moves. fill-opacity (0.3 -> 0.85
 // on a hovered time bar) and stroke (none -> white on a hovered hbar)
-// are the two treatments in the panels today; a new panel that
-// highlights by another channel must add it here or the guard fails it.
+// are the two treatments in the panels today; background-color is the
+// HTML-table rows' treatment (#834's Page performance rows). A new
+// panel that highlights by another channel must add it here — and to
+// the restated lists in MARK and READ below — or the guard fails it.
 const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
-  'stroke-width', 'stroke-dasharray'];
+  'stroke-width', 'stroke-dasharray', 'background-color'];
 
-const MAX_TARGETS = Number(process.env.PANEL_INTERACTIONS_MAX_TARGETS || '24');
+const MAX_TARGETS = Number(process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0');
 
 // --- the #690 seeded-violation hooks -----------------------------------
 
@@ -290,7 +304,7 @@ const MARK = () => {
   // The same channels READ diffs; in-page functions are serialized
   // without their closure, so the list is restated here on purpose.
   const props = ['fill', 'fill-opacity', 'opacity', 'stroke',
-    'stroke-width', 'stroke-dasharray'];
+    'stroke-width', 'stroke-dasharray', 'background-color'];
   window.__sw.rest = {};
   const panels = [];
   let next = 0;
@@ -319,37 +333,38 @@ const MARK = () => {
   return panels;
 };
 
-// Scrolls a panel into view and reads its targets' CURRENT boxes — the
-// viewport-relative coordinates the pointer needs. Zero-height marks
-// (an empty bin draws a zero-height bar) have no hover surface and are
-// dropped here, not in MARK, so the target counts stay the drawn truth.
+// Enumerates one panel's marked targets with their heights — the
+// zero-height marks (an empty bin draws a zero-height bar) have no
+// hover surface and are dropped node-side, not here, so the target
+// count stays the drawn truth.
 const AIM = panelIdx => {
   const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
   if (!svg) return null;
-  svg.scrollIntoView({ block: 'center' });
-  let dropped = 0;
   const targets = [...svg.querySelectorAll('[data-hover-target]')]
-    .map(el => {
-      const r = el.getBoundingClientRect();
-      return {
-        id: Number(el.getAttribute('data-sw-id')),
-        h: r.height,
-        cx: r.x + r.width / 2,
-        cy: r.y + r.height / 2,
-        bottom: r.y + r.height - 0.5,
-      };
-    })
-    // Both hover points must be INSIDE the viewport: a mouse.move to a
-    // row below the fold is a silent no-op, and sweeping it would read
-    // the PREVIOUS target's tooltip and call the pass honest.
-    .filter(t => {
-      const inX = t.cx > 0 && t.cx < window.innerWidth;
-      const both = inX && t.cy > 0 && t.cy < window.innerHeight
-        && t.bottom > 0 && t.bottom < window.innerHeight;
-      if (!both && t.h >= 1) dropped += 1;
-      return both && t.h >= 1;
-    });
-  return { name: svg.getAttribute('data-panel'), targets, dropped };
+    .map(el => ({
+      id: Number(el.getAttribute('data-sw-id')),
+      h: el.getBoundingClientRect().height,
+    }));
+  return { name: svg.getAttribute('data-panel'), targets };
+};
+
+// Scrolls ONE target into view and returns the viewport-relative hover
+// points the pointer needs (#834): a mark below the fold is hovered,
+// not dropped — its own scrollIntoView centres it first. `out` means
+// even its own scroll could not bring both hover points inside the
+// viewport (a mark taller than the viewport), which the sweep fails
+// on; every mark on the healthy page poses fine.
+const POSE = id => {
+  const el = window.__sw.registry[id];
+  if (!el || !el.isConnected) return { gone: true };
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  const r = el.getBoundingClientRect();
+  const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+  const bottom = r.y + r.height - 0.5;
+  const both = cx > 0 && cx < window.innerWidth
+    && cy > 0 && cy < window.innerHeight
+    && bottom > 0 && bottom < window.innerHeight;
+  return both ? { cx, cy, bottom } : { out: true };
 };
 
 // Reads the current response state for one hovered target: is the
@@ -378,7 +393,7 @@ const READ = ({ id, panelIdx }) => {
   // purpose (see MARK) — in-page functions are serialized without their
   // closure, so nothing outside the function body is in scope.
   const props = ['fill', 'fill-opacity', 'opacity', 'stroke',
-    'stroke-width', 'stroke-dasharray'];
+    'stroke-width', 'stroke-dasharray', 'background-color'];
   const el = window.__sw.registry[id];
   if (!el || !el.isConnected) return { gone: true };
   const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
@@ -529,96 +544,106 @@ async function main() {
   };
 
   try {
-    for (const width of WIDTHS) {
+    // #843: widths run concurrently — the leg's wall time becomes the
+    // slowest width, not their sum. The shared browser multiplexes the
+    // contexts; the findings ledger and the failure count fold into the
+    // same single-threaded maps they always were, and the summary below
+    // reads them only after every width has landed.
+    const runWidth = async width => {
       // --- the height pass: the same payloads at 2 vs 30+ models ------
-      const heights = {};
-      for (const set of ['two', 'many']) {
-        const ctx = await browser.newContext({
-          viewport: { width, height: 1000 },
-        });
-        await ctx.route('**/api/**', routeTo(set));
-        const page = await ctx.newPage();
-        await page.goto('http://127.0.0.1:' + server.address().port + '/',
-          { waitUntil: 'load' });
-        await page.waitForSelector('[data-panel]', { timeout: 30_000 })
-          .catch(() => { });
-        await page.waitForTimeout(1_500);
-        heights[set] = await page.evaluate(() =>
-          [...document.querySelectorAll('[data-panel]')]
-            .filter(s => s.getBoundingClientRect().height > 0)
-            .map(s => {
-              const host = s.closest('[data-max-h]');
-              return [s.getAttribute('data-panel'),
-                Math.round(s.getBoundingClientRect().height),
-                s.hasAttribute('data-list-panel'),
-                host ? host.getAttribute('data-max-h') : null];
-            }));
-        await ctx.close();
-      }
-      if (!heights.two.length || !heights.many.length) {
-        failures += 1;
-        console.log(`NO PANELS  ${width}px height  a variant rendered no `
-          + '[data-panel] — the payload rewrite or the fixtures broke');
-      }
-      const two = new Map(heights.two.map(([n, h]) => [n, h]));
-      const many = new Map(heights.many.map(([n, h]) => [n, h]));
-      // A panel's declared absolute bound, when it declares one: the
-      // nearest [data-max-h] ancestor the page reported. A bounded
-      // panel is judged against its ceiling in BOTH worlds and skips
-      // the equality check -- a capped list is shorter at 2 roles than
-      // at 30+, and that is the design (#651), not growth.
-      const boundOf = new Map([...heights.two, ...heights.many]
-        .map(([n, , , b]) => [n, b]).filter(([, b]) => b !== null));
-      const lists = new Set([...heights.two, ...heights.many]
-        .filter(([, , isList]) => isList).map(([n]) => n));
-      for (const name of lists) {
-        if (width === WIDTHS[0]) {
-          console.log(`LIST        ${name}: per-entry bar list, exempt `
-            + 'from height-growth (data-list-panel)');
+      // (skipped under a seed: the seeded run proves the sweep's
+      // classifiers, and the two extra renders would double its cost
+      // for nothing — #843)
+      if (!SEED) {
+        const heights = {};
+        for (const set of ['two', 'many']) {
+          const ctx = await browser.newContext({
+            viewport: { width, height: 1000 },
+          });
+          await ctx.route('**/api/**', routeTo(set));
+          const page = await ctx.newPage();
+          await page.goto('http://127.0.0.1:' + server.address().port + '/',
+            { waitUntil: 'load' });
+          await page.waitForSelector('[data-panel]', { timeout: 60_000 })
+            .catch(() => { });
+          await page.waitForTimeout(1_500);
+          heights[set] = await page.evaluate(() =>
+            [...document.querySelectorAll('[data-panel]')]
+              .filter(s => s.getBoundingClientRect().height > 0)
+              .map(s => {
+                const host = s.closest('[data-max-h]');
+                return [s.getAttribute('data-panel'),
+                  Math.round(s.getBoundingClientRect().height),
+                  s.hasAttribute('data-list-panel'),
+                  host ? host.getAttribute('data-max-h') : null];
+              }));
+          await ctx.close();
         }
-      }
-      for (const [name, bound] of boundOf) {
-        if (width === WIDTHS[0]) {
-          console.log(`BOUNDED     ${name}: declared data-max-h `
-            + `${bound}px -- judged against the ceiling in both worlds, `
-            + 'equality skipped');
+        if (!heights.two.length || !heights.many.length) {
+          failures += 1;
+          console.log(`NO PANELS  ${width}px height  a variant rendered no `
+            + '[data-panel] — the payload rewrite or the fixtures broke');
         }
-      }
-      for (const [name, hMany] of many) {
-        if (!two.has(name) || lists.has(name) || boundOf.has(name)) continue;
-        if (heightsAgree(two.get(name), hMany)) continue;
-        record('height-growth', name,
-          `height ${two.get(name)}px at 2 models -> ${hMany}px at 30+`,
-          width);
-      }
-      // The absolute bound, both worlds, every width: the ceiling a
-      // bounded panel declares is its own promise (#651). A breach
-      // records like any finding; the ledger names no height-growth
-      // entry today, so it fails the run.
-      for (const [name, bound] of boundOf) {
-        for (const set of [two, many]) {
-          const h = set.get(name);
-          if (h !== undefined && breachesBound(h, bound)) {
-            record('height-growth', name,
-              `height ${h}px exceeds its ${bound}px data-max-h bound`,
-              width);
+        const two = new Map(heights.two.map(([n, h]) => [n, h]));
+        const many = new Map(heights.many.map(([n, h]) => [n, h]));
+        // A panel's declared absolute bound, when it declares one: the
+        // nearest [data-max-h] ancestor the page reported. A bounded
+        // panel is judged against its ceiling in BOTH worlds and skips
+        // the equality check -- a capped list is shorter at 2 roles than
+        // at 30+, and that is the design (#651), not growth.
+        const boundOf = new Map([...heights.two, ...heights.many]
+          .map(([n, , , b]) => [n, b]).filter(([, b]) => b !== null));
+        const lists = new Set([...heights.two, ...heights.many]
+          .filter(([, , isList]) => isList).map(([n]) => n));
+        for (const name of lists) {
+          if (width === WIDTHS[0]) {
+            console.log(`LIST        ${name}: per-entry bar list, exempt `
+              + 'from height-growth (data-list-panel)');
           }
         }
-      }
-      for (const name of two.keys()) {
-        if (!many.has(name)) {
-          failures += 1;
-          console.log(`PANEL GONE  ${width}px  ${name} rendered with 2 `
-            + 'models but not with 30+ — the panel or its gating broke');
+        for (const [name, bound] of boundOf) {
+          if (width === WIDTHS[0]) {
+            console.log(`BOUNDED     ${name}: declared data-max-h `
+              + `${bound}px -- judged against the ceiling in both worlds, `
+              + 'equality skipped');
+          }
         }
+        for (const [name, hMany] of many) {
+          if (!two.has(name) || lists.has(name) || boundOf.has(name)) continue;
+          if (heightsAgree(two.get(name), hMany)) continue;
+          record('height-growth', name,
+            `height ${two.get(name)}px at 2 models -> ${hMany}px at 30+`,
+            width);
+        }
+        // The absolute bound, both worlds, every width: the ceiling a
+        // bounded panel declares is its own promise (#651). A breach
+        // records like any finding; the ledger names no height-growth
+        // entry today, so it fails the run.
+        for (const [name, bound] of boundOf) {
+          for (const set of [two, many]) {
+            const h = set.get(name);
+            if (h !== undefined && breachesBound(h, bound)) {
+              record('height-growth', name,
+                `height ${h}px exceeds its ${bound}px data-max-h bound`,
+                width);
+            }
+          }
+        }
+        for (const name of two.keys()) {
+          if (!many.has(name)) {
+            failures += 1;
+            console.log(`PANEL GONE  ${width}px  ${name} rendered with 2 `
+              + 'models but not with 30+ — the panel or its gating broke');
+          }
+        }
+
       }
 
       // --- the sweep pass ---------------------------------------------
       // Swept over the MANY variant, not the base fixtures: it carries
       // the expanded identity list, so the hovers read 30+ roles and —
       // through the last copy's over-long identity (#642's overflow
-      // probe) — the longest labels the page can render. The per-panel
-      // target cap bounds the extra cost.
+      // probe) — the longest labels the page can render.
       const ctx = await browser.newContext({
         viewport: { width, height: 1000 },
       });
@@ -633,7 +658,7 @@ async function main() {
       const page = await ctx.newPage();
       await page.goto('http://127.0.0.1:' + server.address().port + '/',
         { waitUntil: 'load' });
-      await page.waitForSelector('[data-panel]', { timeout: 30_000 })
+      await page.waitForSelector('[data-panel]', { timeout: 60_000 })
         .catch(() => { });
       await page.waitForTimeout(1_500);
       const t0 = await page.evaluate(() => performance.now());
@@ -645,7 +670,13 @@ async function main() {
           console.log(`SEED GONE   ${width}px  the no-targets seed found `
             + 'no rendered non-static panel with marks to strip');
         } else {
-          panels[pi].nTargets = 0;
+          // #835: the count must come from the PAGE, not this node-side
+          // copy: re-run the mark pass on the stripped page, so the
+          // no-targets finding fires through the same count an unseeded
+          // run reads. The registry resets first — a second MARK appends
+          // to it while ids restart at 0.
+          await page.evaluate(() => { window.__sw.registry = []; });
+          panels = await page.evaluate(MARK);
         }
       }
       if (!panels.length) {
@@ -656,13 +687,16 @@ async function main() {
       let targetsTotal = 0;
       for (let pi = 0; pi < panels.length; pi++) {
         const panel = panels[pi];
-        if (panel.static) {
-          if (width === WIDTHS[0]) {
-            console.log(`STATIC      ${panel.name}: declares `
-              + 'data-static-panel — no interactive surface by design, '
-              + 'no hover check');
-          }
-        } else if (!panel.nTargets) {
+        const listed = STATIC_PANELS.includes(panel.name);
+        if (panel.static && !listed) {
+          record('unlisted-static', panel.name,
+            'declares data-static-panel — the guard lists: '
+            + STATIC_PANELS.join(' | '), width);
+        } else if (panel.static && width === WIDTHS[0]) {
+          console.log(`STATIC      ${panel.name}: no interactive surface `
+            + 'by design (listed) — no hover check');
+        }
+        if (!panel.static && !panel.nTargets) {
           record('no-targets', panel.name,
             'renders with data but carries no [data-hover-target]', width);
         }
@@ -673,14 +707,19 @@ async function main() {
             + 'declaration is a guard defect at this panel');
         }
         targetsTotal += panel.nTargets;
+        if (panel.static) continue;
         const aimed = await page.evaluate(AIM, pi);
-        // Even sampling with both ends kept, so a cap narrows the sweep
-        // without biasing it toward one end.
-        if (aimed.dropped && width === WIDTHS[0]) {
-          console.log(`FOLDED      ${panel.name}: ${aimed.dropped} target(s) `
-            + 'dropped — both hover points must sit inside the viewport');
+        const hoverable = aimed.targets.filter(t => t.h >= 1);
+        const flat = aimed.targets.length - hoverable.length;
+        if (flat && width === WIDTHS[0]) {
+          console.log(`FLAT        ${panel.name}: ${flat} zero-height `
+            + 'mark(s) — no hover surface, nothing to hover');
         }
-        let targets = aimed.targets;
+        let targets = hoverable;
+        // An explicit cap that BITES is a finding, never a silent sample
+        // (#834); the knob is for local debugging only. Even sampling
+        // with both ends kept, so a debugging cap still narrows the
+        // sweep without biasing it toward one end.
         if (MAX_TARGETS > 0 && targets.length > MAX_TARGETS) {
           const step = (targets.length - 1) / (MAX_TARGETS - 1);
           const picked = new Set();
@@ -688,18 +727,28 @@ async function main() {
             picked.add(Math.round(i * step));
           }
           targets = [...picked].map(i => targets[i]);
+          record('unhovered-targets', panel.name,
+            `swept ${targets.length} of ${hoverable.length} targets `
+            + `(PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS})`, width);
           if (width === WIDTHS[0]) {
             console.log(`CAPPED      ${panel.name}: swept `
-              + `${targets.length} of ${aimed.targets.length} targets `
+              + `${targets.length} of ${hoverable.length} targets `
               + `(PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS}; 0 lifts it)`);
           }
         }
         for (const t of targets) {
-          for (const point of [['centre', t.cx, t.cy],
-            ['bottom', t.cx, t.bottom]]) {
-            const where = `${point[0]} <${
-              await page.evaluate(TARGET, { id: t.id })}>${
-              await page.evaluate(TIPTXT, { panelIdx: pi }) || ''}`;
+          // #834: every mark is hovered — its own scrollIntoView brings
+          // it into the viewport first; `out` (a mark taller than the
+          // viewport) fails rather than passes.
+          const pose = await page.evaluate(POSE, t.id);
+          if (!pose || pose.out || pose.gone) {
+            record('unhovered-targets', panel.name,
+              `target #${t.id} outside the viewport after its own `
+              + 'scrollIntoView', width);
+            continue;
+          }
+          for (const point of [['centre', pose.cx, pose.cy],
+            ['bottom', pose.cx, pose.bottom]]) {
             await page.mouse.move(point[1], point[2], { steps: 3 });
             // Settle before reading: the page's response is a React
             // commit (the lit target, the tooltip's second positioning
@@ -712,36 +761,58 @@ async function main() {
             const got = await page.evaluate(
               READ, { id: t.id, panelIdx: pi });
             if (got.gone) break;
-            const where2 = `target #${t.id} ${where}`;
-            if (!got.visible) record('hover-tooltip', panel.name, where2,
-              width);
-            if (!got.changed.length) {
-              // The style assertion applies where the pointer is ON the
-              // target. Overlapping marks — coincident scatter dots, a
-              // neighbour's disc under the probe point — answer through
-              // the winner (the nearest datum wins, and the tooltip
-              // above asserted it); the pointer not being on THIS mark
-              // is printed, not failed.
-              const onTarget = await page.evaluate(([x, y, id]) => {
-                const el = document.elementFromPoint(x, y);
-                const at = el && el.getAttribute('data-sw-id');
-                return at !== null && Number(at) === id;
-              }, [point[1], point[2], t.id]);
-              if (onTarget) {
-                record('hover-style', panel.name, where2, width);
-              } else if (width === WIDTHS[0]) {
-                console.log(`OVERLAPPED  ${panel.name}: target #${t.id} `
-                  + point[0] + ' — another mark owns the pointer here; '
-                  + 'the tooltip check carried the pixel');
+            if (!got.visible || !got.changed.length || got.overflow) {
+              // The diagnostics are failure-path work: two page
+              // round-trips per HOVER were half the sweep's per-target
+              // cost (#843); the healthy hover reads one.
+              const where = `target #${t.id} ${point[0]} <${
+                await page.evaluate(TARGET, { id: t.id })}>${
+                await page.evaluate(TIPTXT, { panelIdx: pi }) || ''}`;
+              if (!got.visible) {
+                record('hover-tooltip', panel.name, where, width);
               }
-            }
-            if (got.overflow) {
-              record('tooltip-overflow', panel.name,
-                `${where2}: ${got.overflow}`, width);
+              if (!got.changed.length) {
+                // The style assertion applies where the pointer is ON the
+                // target. Overlapping marks — coincident scatter dots, a
+                // neighbour's disc under the probe point — answer through
+                // the winner (the nearest datum wins, and the tooltip
+                // above asserted it); the pointer not being on THIS mark
+                // is printed, not failed.
+                const onTarget = await page.evaluate(([x, y, id]) => {
+                  const el = document.elementFromPoint(x, y);
+                  const at = el && el.getAttribute('data-sw-id');
+                  return at !== null && Number(at) === id;
+                }, [point[1], point[2], t.id]);
+                if (onTarget) {
+                  record('hover-style', panel.name, where, width);
+                } else if (width === WIDTHS[0]) {
+                  console.log(`OVERLAPPED  ${panel.name}: ${where} `
+                    + '— another mark owns the pointer here; the tooltip '
+                    + 'check carried the pixel');
+                }
+              }
+              if (got.overflow) {
+                record('tooltip-overflow', panel.name,
+                  `${where}: ${got.overflow}`, width);
+              }
             }
           }
         }
         await page.mouse.move(1, 1, { steps: 3 });
+      }
+      // The static list is a ledger: a listed name that rendered no
+      // panel is a dead entry the guard would carry forever (#834) —
+      // the same liveness the FILED ledger's stale check enforces.
+      if (width === WIDTHS[0]) {
+        const seen = new Set(panels.map(p => p.name));
+        for (const s of STATIC_PANELS) {
+          if (!seen.has(s)) {
+            failures += 1;
+            console.log(`STALE STATIC  ${s} is listed but rendered no `
+              + '[data-panel] — the rename or removal left a dead list '
+              + 'entry. Fix the list.');
+          }
+        }
       }
       if (!targetsTotal) {
         failures += 1;
@@ -812,7 +883,19 @@ async function main() {
         }
       }
       await ctx.close();
-    }
+    };
+    // #843: widths run concurrently, TWO at a time — the leg's wall time
+    // approaches two widths, not their four-wide sum, while every page
+    // load still gets the CPU an in-browser Babel compile needs: at full
+    // four-wide parallelism the starved renders blew the selector wait
+    // and rendered no panels at all. The findings ledger and the failure
+    // count fold into the same single-threaded maps they always were,
+    // and the summary below reads them only after every width landed.
+    const queue = [...WIDTHS];
+    await Promise.all(Array.from(
+      { length: Math.min(2, queue.length) }, async () => {
+        while (queue.length) await runWidth(queue.shift());
+      }));
   } finally {
     await browser.close();
     server.close();
