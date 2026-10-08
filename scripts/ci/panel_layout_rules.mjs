@@ -1118,7 +1118,7 @@ const PREV_SEL = '.pp-nav[title="Previous page"]';
 // hangs Playwright for its whole 30s timeout, and the shared unseeded
 // page accumulates paging state across rules — so every paging rule
 // pages back to 1 on the way out (backToFirst).
-const clickNextGuarded = async (page, width) => {
+const clickNextGuarded = async (page) => {
   const nextSel = 'main .project-picker[data-picker="projects"]'
     + ' ' + NEXT_SEL;
   const enabled = await page.$eval(nextSel,
@@ -1237,7 +1237,7 @@ export const RULES = [
     seed: seedPickerOverflowAfterPaging,
     run: narrowRun(async (ctx) => {
       await journeyNarrow(ctx);
-      const clickOut = await clickNextGuarded(ctx.page, ctx.width);
+      const clickOut = await clickNextGuarded(ctx.page);
       if (clickOut.length) return clickOut;
       const over = await ctx.page.evaluate((sel) => {
         const strip = document.querySelector(sel);
@@ -1365,7 +1365,7 @@ export const RULES = [
         return [{ upper: 'a pager at a width chips do not all fit',
           lower: 'no pager ever renders — nothing pages', gap: 0 }];
       }
-      const clickOut = await clickNextGuarded(ctx.page, ctx.width);
+      const clickOut = await clickNextGuarded(ctx.page);
       if (clickOut.length) return clickOut;
       const turned = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
@@ -1397,7 +1397,7 @@ export const RULES = [
         return [{ upper: 'content below the picker',
           lower: 'nothing below the strip to seat', gap: 0 }];
       }
-      const clickOut = await clickNextGuarded(ctx.page, ctx.width);
+      const clickOut = await clickNextGuarded(ctx.page);
       if (clickOut.length) return clickOut;
       const turned = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
@@ -1425,7 +1425,7 @@ export const RULES = [
         return [{ upper: 'project picker present', lower: 'strip missing',
           gap: 0 }];
       }
-      const clickOut = await clickNextGuarded(ctx.page, ctx.width);
+      const clickOut = await clickNextGuarded(ctx.page);
       if (clickOut.length) return clickOut;
       const turned = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
