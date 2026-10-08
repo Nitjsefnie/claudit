@@ -612,9 +612,12 @@ def test_the_reply_latency_outlier_dots_are_swept():
         "the outlier dots lost their hover marks")
     assert "tip.oi === i" in src, (
         "the outlier dots no longer light on the tip's datum")
-    assert "One dot per distinct position" in src, (
-        "the plotted dots lost the coincidence dedup — stacked copies "
-        "leave every dot under the top one dark")
+    plotted = src[src.index("const plottedOutliers"):
+                  src.index("}, [visibleOutliers]")]
+    assert "seen.has(" in plotted, (
+        "the plotted-dots memo no longer dedups by position — the "
+        "coincidence dedup is the rendered sweep's green, and stacked "
+        "copies leave every dot under the top one dark")
     fixture = json.loads(
         (ROOT / "fixtures" / "layout" / "reply_latency.json")
         .read_text(encoding="utf-8"))
@@ -647,10 +650,9 @@ def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
 
 
 def test_the_seeded_runs_run_one_width_and_uncapped():
-    """#843: the seeded-violation proof re-drove the FULL sweep three
-    times over — half the leg's wall time. The runner drives the three
-    seeds concurrently, each at ONE width (the seeds prove the
-    classifiers, not the sweep's reach), and without a target cap."""
+    """#843: the seeded proof re-drove the FULL sweep three times over —
+    half the leg's wall. The runner drives the seeds concurrently, each
+    at ONE width (they prove classifiers, not reach), uncapped."""
     runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
         .read_text(encoding="utf-8")
     assert "PANEL_LAYOUT_WIDTHS" in runner, (
