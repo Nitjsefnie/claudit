@@ -1,0 +1,49 @@
+{
+  "long_context_meters": {},
+  "long_context_models": [],
+  "models": {
+    "claude-opus-4-7": [
+      {
+        "create_1h": 5.0,
+        "create_5m": 3.125,
+        "fresh": 2.5,
+        "from": null,
+        "output": 10.0,
+        "read": 0.25
+      }
+    ],
+    "suite-synth-model": [
+      {
+        "create_1h": 1.0,
+        "create_5m": 0.625,
+        "fresh": 0.5,
+        "from": null,
+        "output": 2.0,
+        "read": 0.05
+      }
+    ]
+  },
+  "openrouter": {
+    "models": {},
+    "vendor": {
+      "prefixes": [
+        "suite-synth"
+      ]
+    }
+  },
+  "provider_rates_fetched": "2026-10-08T00:00:00Z",
+  "providers": {
+    "suite-synth-model": {
+      "SynthHost": [
+        {
+          "create_1h": 0.8,
+          "create_5m": 0.5,
+          "fresh": 0.4,
+          "from": "2026-01-01T00:00:00Z",
+          "output": 1.6,
+          "read": 0.04
+        }
+      ]
+    }
+  }
+}

@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from backend import pricing
+from tests import gpt56_cuts
 
 # The lane ids this repo serves; the rates live in the table.
 LANE_MODELS = (
@@ -110,10 +111,10 @@ def test_gpt56_dated_windows_survive_the_port(model, before, rates):
 @pytest.mark.parametrize("model,cut,list_rates", [
     # The window ends are end-EXCLUSIVE: at the cut instant itself the
     # window is over and the next rate (list) applies. Cuts referenced
-    # from pricing.py so the boundary moves with the table.
-    ("gpt-5.6-sol", pricing.AUG21_CUT, (4.00, 5.00, 0.40, 20.00)),
-    ("gpt-5.6-terra", pricing.JUL30_CUT, (2.00, 2.50, 0.20, 12.00)),
-    ("gpt-5.6-luna", pricing.JUL30_CUT, (0.20, 0.25, 0.02, 1.20)),
+    # from tests/gpt56_cuts.py so the boundary moves with the table.
+    ("gpt-5.6-sol", gpt56_cuts.AUG21_CUT, (4.00, 5.00, 0.40, 20.00)),
+    ("gpt-5.6-terra", gpt56_cuts.JUL30_CUT, (2.00, 2.50, 0.20, 12.00)),
+    ("gpt-5.6-luna", gpt56_cuts.JUL30_CUT, (0.20, 0.25, 0.02, 1.20)),
 ])
 def test_gpt56_windows_are_end_exclusive_at_the_cut(model, cut, list_rates):
     r = pricing.rate_for(model, cut)
