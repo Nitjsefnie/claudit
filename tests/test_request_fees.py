@@ -22,6 +22,7 @@ from tests.refresh_fixture_builders import RATES_B as PROVIDER_RATES, seed_doc
 
 
 from backend import pricing
+from backend.pricing_load import RateTables
 from backend.pricing_load import RATE_FIELDS, load_tables
 
 UTC = timezone.utc
@@ -52,14 +53,14 @@ def _doc(provider_entries: list[dict] | None = None,
     return seed_doc(
         models={"acme/acme-9": model_entries},
         providers={"acme/acme-9": {"HostCo": provider_entries
-                                    if provider_entries is not None
-                                    else [_entry(PROVIDER_RATES,
-                                                 note=_fee_note(FEE))]}},
+                                   if provider_entries is not None
+                                   else [_entry(PROVIDER_RATES,
+                                                note=_fee_note(FEE))]}},
         fetched="2026-09-24T22:03:13Z",
     )
 
 
-def _install_provider_tables(monkeypatch, tables: dict) -> None:
+def _install_provider_tables(monkeypatch, tables: RateTables) -> None:
     for name in ("PROVIDER_FEES", "PROVIDER_RATES", "PROVIDER_DATED_RATES"):
         monkeypatch.setattr(pricing, name, tables[name])
 

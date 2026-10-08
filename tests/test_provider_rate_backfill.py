@@ -42,6 +42,7 @@ RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
 RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
           "read": 0.02, "output": 0.7}
 
+
 def _entry(at: str | None, rates: dict) -> dict:
     return {"from": at, **rates}
 
