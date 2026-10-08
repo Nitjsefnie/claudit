@@ -507,13 +507,13 @@ def test_the_live_migrated_rows_price_their_frozen_first_entries():
 
 def test_every_migrated_row_keeps_the_models_shape_rules():
     """Live file: every vendor_host-carrying tracked entry carries its id
-    and host, and every provider-table key is tracked. A newly auto-added
-    entry sits ahead of its provider row for one run — the pickup delay is
-    the design (SV-VENDOR-RATES) — so the row's arrival is the provider
-    pass's own move report, not this test's."""
+    and host. (The provider-table-keys-are-tracked half of this invariant
+    is pinned by test_provider_rate_refresh's
+    test_every_provider_table_model_names_its_openrouter_id; the pickup
+    delay — an entry ahead of its row for one run — is the design,
+    SV-VENDOR-RATES.)"""
     doc = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
     tracked = doc["openrouter"]["models"]
-    assert set(doc["providers"]) <= set(tracked)
     for key, entry in tracked.items():
         if "vendor_host" not in entry:
             continue
