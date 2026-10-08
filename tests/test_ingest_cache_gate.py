@@ -61,17 +61,19 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
     # Issue #339: a restamp-only bump changes no data and must stay
     # quiet; the simulated bump moves real rates so the reprice pass has
     # something to reprice.
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES,
-        "claude-opus-4-7": _BUMP_RATES,
+    # claude-opus-4-7 is a tracked vendor key since the migration: the
+    # pair its bare path reads is (key, vendor_host), and replacing the
+    # WHOLE row in the provider tables is what makes the move
+    # perturbation-proof (the perturbed tree appends dated entries to
+    # every row).
+    opus_row = ("claude-opus-4-7", pricing.VENDOR_HOSTS["claude-opus-4-7"])
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **pricing.PROVIDER_RATES,
+        opus_row: _BUMP_RATES,
     })
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        # The window covers every fixture timestamp, so the synthetic
-        # vector applies on the dated path too — replacing the whole row
-        # in BOTH tables is what makes the move perturbation-proof (the
-        # perturbed tree appends dated entries to every row).
-        "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        **pricing.PROVIDER_DATED_RATES,
+        opus_row: [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
     })
     # The fingerprints the first ingest stamped came from the
     # pre-mutation tables (rate_fingerprint memoizes per pair, and the

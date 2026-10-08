@@ -90,1063 +90,79 @@
         "output": 0.0,
         "read": 0.0
       }
-    ],
-    "claude-3-5-haiku-": [
-      {
-        "create_1h": 1.6,
-        "create_5m": 1.0,
-        "fresh": 0.8,
-        "from": null,
-        "output": 4.0,
-        "read": 0.08
-      }
-    ],
-    "claude-3-5-sonnet-": [
-      {
-        "create_1h": 6.0,
-        "create_5m": 3.75,
-        "fresh": 3.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "claude-3-7-sonnet-": [
-      {
-        "create_1h": 6.0,
-        "create_5m": 3.75,
-        "fresh": 3.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "claude-3-haiku-": [
-      {
-        "create_1h": 0.5,
-        "create_5m": 0.3,
-        "fresh": 0.25,
-        "from": null,
-        "output": 1.25,
-        "read": 0.03
-      }
-    ],
-    "claude-3-opus-": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 18.75,
-        "fresh": 15.0,
-        "from": null,
-        "output": 75.0,
-        "read": 1.5
-      }
-    ],
-    "claude-fable-5": [
-      {
-        "create_1h": 20.0,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "output": 50.0,
-        "read": 1.0
-      }
-    ],
-    "claude-fable-5-1": [
-      {
-        "create_1h": 20.0,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "note": "Cache reads at 0.025x base input.",
-        "output": 50.0,
-        "read": 0.25
-      }
-    ],
-    "claude-haiku-4-5": [
-      {
-        "create_1h": 2.0,
-        "create_5m": 1.25,
-        "fresh": 1.0,
-        "from": null,
-        "output": 5.0,
-        "read": 0.1
-      }
-    ],
-    "claude-mythos-5": [
-      {
-        "create_1h": 20.0,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "output": 50.0,
-        "read": 1.0
-      }
-    ],
-    "claude-mythos-5-1": [
-      {
-        "create_1h": 20.0,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "note": "Cache reads at 0.025x base input.",
-        "output": 50.0,
-        "read": 0.25
-      }
-    ],
-    "claude-opus-4": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 18.75,
-        "fresh": 15.0,
-        "from": null,
-        "output": 75.0,
-        "read": 1.5
-      }
-    ],
-    "claude-opus-4-1": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 18.75,
-        "fresh": 15.0,
-        "from": null,
-        "output": 75.0,
-        "read": 1.5
-      }
-    ],
-    "claude-opus-4-5": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "output": 25.0,
-        "read": 0.5
-      }
-    ],
-    "claude-opus-4-6": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "output": 25.0,
-        "read": 0.5
-      }
-    ],
-    "claude-opus-4-7": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "output": 25.0,
-        "read": 0.5
-      }
-    ],
-    "claude-opus-4-8": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "output": 25.0,
-        "read": 0.5
-      }
-    ],
-    "claude-opus-5": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "output": 25.0,
-        "read": 0.5
-      }
-    ],
-    "claude-opus-5-5": [
-      {
-        "create_1h": 8.0,
-        "create_5m": 5.0,
-        "fresh": 4.0,
-        "from": null,
-        "note": "Cache reads at 0.05x base input.",
-        "output": 20.0,
-        "read": 0.2
-      }
-    ],
-    "claude-sonnet-4": [
-      {
-        "create_1h": 6.0,
-        "create_5m": 3.75,
-        "fresh": 3.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "claude-sonnet-4-5": [
-      {
-        "create_1h": 6.0,
-        "create_5m": 3.75,
-        "fresh": 3.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "claude-sonnet-4-6": [
-      {
-        "create_1h": 6.0,
-        "create_5m": 3.75,
-        "fresh": 3.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "claude-sonnet-5": [
-      {
-        "create_1h": 4.0,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "output": 10.0,
-        "read": 0.2
-      }
-    ],
-    "claude-sonnet-5-5": [
-      {
-        "create_1h": 4.0,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "output": 10.0,
-        "read": 0.2
-      },
-      {
-        "create_1h": 4.0,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": "2026-10-07T18:54:35Z",
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.1
-      }
-    ],
-    "glm-4-5": [
-      {
-        "create_1h": 0.6,
-        "create_5m": 0.6,
-        "fresh": 0.6,
-        "from": null,
-        "output": 2.2,
-        "read": 0.11
-      }
-    ],
-    "glm-4-5-air": [
-      {
-        "create_1h": 0.2,
-        "create_5m": 0.2,
-        "fresh": 0.2,
-        "from": null,
-        "output": 1.1,
-        "read": 0.03
-      }
-    ],
-    "glm-4-5v": [
-      {
-        "create_1h": 0.6,
-        "create_5m": 0.6,
-        "fresh": 0.6,
-        "from": null,
-        "output": 1.8,
-        "read": 0.11
-      }
-    ],
-    "glm-4-6": [
-      {
-        "create_1h": 0.6,
-        "create_5m": 0.6,
-        "fresh": 0.6,
-        "from": null,
-        "output": 2.2,
-        "read": 0.11
-      }
-    ],
-    "glm-4-6v": [
-      {
-        "create_1h": 0.3,
-        "create_5m": 0.3,
-        "fresh": 0.3,
-        "from": null,
-        "output": 0.9,
-        "read": 0.05
-      }
-    ],
-    "glm-4-7": [
-      {
-        "create_1h": 0.6,
-        "create_5m": 0.6,
-        "fresh": 0.6,
-        "from": null,
-        "output": 2.2,
-        "read": 0.11
-      }
-    ],
-    "glm-5": [
-      {
-        "create_1h": 1.0,
-        "create_5m": 1.0,
-        "fresh": 1.0,
-        "from": null,
-        "output": 3.2,
-        "read": 0.2
-      }
-    ],
-    "glm-5-1": [
-      {
-        "create_1h": 1.4,
-        "create_5m": 1.4,
-        "fresh": 1.4,
-        "from": null,
-        "output": 4.4,
-        "read": 0.26
-      }
-    ],
-    "glm-5-2": [
-      {
-        "create_1h": 1.4,
-        "create_5m": 1.4,
-        "fresh": 1.4,
-        "from": null,
-        "output": 4.4,
-        "read": 0.26
-      }
-    ],
-    "glm-5-3": [
-      {
-        "create_1h": 1.4,
-        "create_5m": 1.4,
-        "fresh": 1.4,
-        "from": null,
-        "output": 4.4,
-        "read": 0.26
-      }
-    ],
-    "glm-5-3-flash": [
-      {
-        "create_1h": 0.0,
-        "create_5m": 0.0,
-        "fresh": 0.075,
-        "from": null,
-        "note": "Launch promotion: 50% off list through 2026-09-09 24:00 UTC+8.",
-        "output": 0.25,
-        "read": 0.015
-      },
-      {
-        "create_1h": 0.0,
-        "create_5m": 0.0,
-        "fresh": 0.15,
-        "from": "2026-09-09T16:00:00Z",
-        "note": "List. Cache writes are free and reads are 0.2x input, so the Anthropic 1.25x/2x/0.1x relations do not hold.",
-        "output": 0.5,
-        "read": 0.03
-      },
-      {
-        "create_1h": 0.15,
-        "create_5m": 0.15,
-        "fresh": 0.15,
-        "from": "2026-10-07T10:42:29Z",
-        "output": 0.5,
-        "read": 0.03
-      }
-    ],
-    "glm-5-3-flashx": [
-      {
-        "create_1h": 0.37,
-        "create_5m": 0.37,
-        "fresh": 0.37,
-        "from": null,
-        "output": 1.25,
-        "read": 0.09
-      }
-    ],
-    "glm-5-turbo": [
-      {
-        "create_1h": 1.2,
-        "create_5m": 1.2,
-        "fresh": 1.2,
-        "from": null,
-        "output": 4.0,
-        "read": 0.24
-      }
-    ],
-    "glm-5v-turbo": [
-      {
-        "create_1h": 1.2,
-        "create_5m": 1.2,
-        "fresh": 1.2,
-        "from": null,
-        "output": 4.0,
-        "read": 0.24
-      }
-    ],
-    "gpt-3-5-turbo": [
-      {
-        "create_1h": 0.5,
-        "create_5m": 0.5,
-        "fresh": 0.5,
-        "from": null,
-        "output": 1.5,
-        "read": 0.0
-      }
-    ],
-    "gpt-3-5-turbo-16k": [
-      {
-        "create_1h": 3.0,
-        "create_5m": 3.0,
-        "fresh": 3.0,
-        "from": null,
-        "output": 4.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-3-5-turbo-instruct": [
-      {
-        "create_1h": 1.5,
-        "create_5m": 1.5,
-        "fresh": 1.5,
-        "from": null,
-        "output": 2.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-4": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 30.0,
-        "fresh": 30.0,
-        "from": null,
-        "output": 60.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-4-1": [
-      {
-        "create_1h": 2.0,
-        "create_5m": 2.0,
-        "fresh": 2.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 8.0,
-        "read": 0.5
-      }
-    ],
-    "gpt-4-1-mini": [
-      {
-        "create_1h": 0.4,
-        "create_5m": 0.4,
-        "fresh": 0.4,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 1.6,
-        "read": 0.1
-      }
-    ],
-    "gpt-4-1-nano": [
-      {
-        "create_1h": 0.1,
-        "create_5m": 0.1,
-        "fresh": 0.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 0.4,
-        "read": 0.025
-      }
-    ],
-    "gpt-4-turbo": [
-      {
-        "create_1h": 10.0,
-        "create_5m": 10.0,
-        "fresh": 10.0,
-        "from": null,
-        "output": 30.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-4o": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.5,
-        "from": null,
-        "output": 10.0,
-        "read": 1.25
-      }
-    ],
-    "gpt-4o-2024-05-13": [
-      {
-        "create_1h": 5.0,
-        "create_5m": 5.0,
-        "fresh": 5.0,
-        "from": null,
-        "output": 15.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-4o-2024-08-06": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.5,
-        "from": null,
-        "output": 10.0,
-        "read": 1.25
-      }
-    ],
-    "gpt-4o-2024-11-20": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.5,
-        "from": null,
-        "output": 10.0,
-        "read": 1.25
-      }
-    ],
-    "gpt-4o-mini": [
-      {
-        "create_1h": 0.15,
-        "create_5m": 0.15,
-        "fresh": 0.15,
-        "from": null,
-        "output": 0.6,
-        "read": 0.075
-      }
-    ],
-    "gpt-4o-mini-2024-07-18": [
-      {
-        "create_1h": 0.15,
-        "create_5m": 0.15,
-        "fresh": 0.15,
-        "from": null,
-        "output": 0.6,
-        "read": 0.075
-      }
-    ],
-    "gpt-5": [
-      {
-        "create_1h": 1.25,
-        "create_5m": 1.25,
-        "fresh": 1.25,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.125
-      }
-    ],
-    "gpt-5-1": [
-      {
-        "create_1h": 1.25,
-        "create_5m": 1.25,
-        "fresh": 1.25,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.125
-      }
-    ],
-    "gpt-5-2": [
-      {
-        "create_1h": 1.75,
-        "create_5m": 1.75,
-        "fresh": 1.75,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 14.0,
-        "read": 0.175
-      }
-    ],
-    "gpt-5-2-pro": [
-      {
-        "create_1h": 21.0,
-        "create_5m": 21.0,
-        "fresh": 21.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 168.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-5-3-codex": [
-      {
-        "create_1h": 1.75,
-        "create_5m": 1.75,
-        "fresh": 1.75,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 14.0,
-        "read": 0.175
-      }
-    ],
-    "gpt-5-4": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.5,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 15.0,
-        "read": 0.25
-      }
-    ],
-    "gpt-5-4-mini": [
-      {
-        "create_1h": 0.75,
-        "create_5m": 0.75,
-        "fresh": 0.75,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 4.5,
-        "read": 0.075
-      }
-    ],
-    "gpt-5-4-nano": [
-      {
-        "create_1h": 0.2,
-        "create_5m": 0.2,
-        "fresh": 0.2,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 1.25,
-        "read": 0.02
-      }
-    ],
-    "gpt-5-4-pro": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 30.0,
-        "fresh": 30.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 180.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-5-5": [
-      {
-        "create_1h": 6.25,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 30.0,
-        "read": 0.5
-      },
-      {
-        "create_1h": 5.0,
-        "create_5m": 5.0,
-        "fresh": 5.0,
-        "from": "2026-10-07T10:42:29Z",
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 30.0,
-        "read": 0.5
-      }
-    ],
-    "gpt-5-5-pro": [
-      {
-        "create_1h": 30.0,
-        "create_5m": 30.0,
-        "fresh": 30.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 180.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-5-6-luna": [
-      {
-        "create_1h": 1.25,
-        "create_5m": 1.25,
-        "fresh": 1.0,
-        "from": null,
-        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 6.0,
-        "read": 0.1
-      },
-      {
-        "create_1h": 0.25,
-        "create_5m": 0.25,
-        "fresh": 0.2,
-        "from": "2026-07-30T18:12:00Z",
-        "note": "Cut -80%. From: OpenAI's post time, 20:12 Europe/Prague.",
-        "output": 1.2,
-        "read": 0.02
-      }
-    ],
-    "gpt-5-6-luna-pro": [
-      {
-        "create_1h": 0.25,
-        "create_5m": 0.25,
-        "fresh": 0.2,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 1.2,
-        "read": 0.02
-      }
-    ],
-    "gpt-5-6-sol": [
-      {
-        "create_1h": 6.25,
-        "create_5m": 6.25,
-        "fresh": 5.0,
-        "from": null,
-        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 30.0,
-        "read": 0.5
-      },
-      {
-        "create_1h": 5.0,
-        "create_5m": 5.0,
-        "fresh": 4.0,
-        "from": "2026-08-21T19:40:00Z",
-        "note": "Cut -20% in / -33% out, promotional, announced through at least 2026-11-21. From: OpenAI's post time, 21:40 Europe/Prague.",
-        "output": 20.0,
-        "read": 0.4
-      },
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": "2026-10-07T10:42:29Z",
-        "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-5-6-sol-pro": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-5-6-terra": [
-      {
-        "create_1h": 3.125,
-        "create_5m": 3.125,
-        "fresh": 2.5,
-        "from": null,
-        "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 15.0,
-        "read": 0.25
-      },
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": "2026-07-30T18:12:00Z",
-        "note": "Cut -20%. From: OpenAI's post time, 20:12 Europe/Prague.",
-        "output": 12.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-5-6-terra-pro": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 12.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-5-mini": [
-      {
-        "create_1h": 0.25,
-        "create_5m": 0.25,
-        "fresh": 0.25,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 2.0,
-        "read": 0.025
-      }
-    ],
-    "gpt-5-nano": [
-      {
-        "create_1h": 0.05,
-        "create_5m": 0.05,
-        "fresh": 0.05,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 0.4,
-        "read": 0.005
-      }
-    ],
-    "gpt-5-pro": [
-      {
-        "create_1h": 15.0,
-        "create_5m": 15.0,
-        "fresh": 15.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 120.0,
-        "read": 0.0
-      }
-    ],
-    "gpt-6-1-sol": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "Cache writes at 1.25x uncached input whatever the TTL; reads at 0.05x - the official cached-input price halves the older gpt-6 rows' 0.1x.",
-        "output": 10.0,
-        "read": 0.1
-      }
-    ],
-    "gpt-6-1-sol-pro": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.1
-      }
-    ],
-    "gpt-6-astra": [
-      {
-        "create_1h": 12.5,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 50.0,
-        "read": 1.0
-      }
-    ],
-    "gpt-6-astra-pro": [
-      {
-        "create_1h": 12.5,
-        "create_5m": 12.5,
-        "fresh": 10.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 50.0,
-        "read": 1.0
-      }
-    ],
-    "gpt-6-luna": [
-      {
-        "create_1h": 0.125,
-        "create_5m": 0.125,
-        "fresh": 0.1,
-        "from": null,
-        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 0.5,
-        "read": 0.01
-      }
-    ],
-    "gpt-6-luna-pro": [
-      {
-        "create_1h": 0.125,
-        "create_5m": 0.125,
-        "fresh": 0.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 0.5,
-        "read": 0.01
-      }
-    ],
-    "gpt-6-sol": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
-        "output": 10.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-6-sol-pro": [
-      {
-        "create_1h": 2.5,
-        "create_5m": 2.5,
-        "fresh": 2.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 10.0,
-        "read": 0.2
-      }
-    ],
-    "gpt-chat-latest": [
-      {
-        "create_1h": 5.0,
-        "create_5m": 5.0,
-        "fresh": 5.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 30.0,
-        "read": 0.5
-      }
-    ],
-    "kimi-k2-6": [
-      {
-        "create_1h": 0.0,
-        "create_5m": 0.0,
-        "fresh": 0.95,
-        "from": null,
-        "note": "Kimi bills cache writes at a flat zero.",
-        "output": 4.0,
-        "read": 0.16
-      },
-      {
-        "create_1h": 0.95,
-        "create_5m": 0.95,
-        "fresh": 0.95,
-        "from": "2026-10-07T10:42:29Z",
-        "output": 4.0,
-        "read": 0.16
-      }
-    ],
-    "kimi-k2-7-code": [
-      {
-        "create_1h": 0.0,
-        "create_5m": 0.0,
-        "fresh": 0.95,
-        "from": null,
-        "note": "Kimi bills cache writes at a flat zero.",
-        "output": 4.0,
-        "read": 0.19
-      },
-      {
-        "create_1h": 0.95,
-        "create_5m": 0.95,
-        "fresh": 0.95,
-        "from": "2026-10-07T10:42:29Z",
-        "output": 4.0,
-        "read": 0.19
-      }
-    ],
-    "kimi-k3": [
-      {
-        "create_1h": 0.0,
-        "create_5m": 0.0,
-        "fresh": 3.0,
-        "from": null,
-        "note": "Kimi bills cache writes at a flat zero.",
-        "output": 15.0,
-        "read": 0.3
-      },
-      {
-        "create_1h": 3.0,
-        "create_5m": 3.0,
-        "fresh": 3.0,
-        "from": "2026-10-07T10:42:29Z",
-        "output": 15.0,
-        "read": 0.3
-      }
-    ],
-    "o1": [
-      {
-        "create_1h": 15.0,
-        "create_5m": 15.0,
-        "fresh": 15.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 60.0,
-        "read": 7.5
-      }
-    ],
-    "o1-pro": [
-      {
-        "create_1h": 150.0,
-        "create_5m": 150.0,
-        "fresh": 150.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 600.0,
-        "read": 0.0
-      }
-    ],
-    "o3": [
-      {
-        "create_1h": 2.0,
-        "create_5m": 2.0,
-        "fresh": 2.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 8.0,
-        "read": 0.5
-      }
-    ],
-    "o3-mini": [
-      {
-        "create_1h": 1.1,
-        "create_5m": 1.1,
-        "fresh": 1.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 4.4,
-        "read": 0.55
-      }
-    ],
-    "o3-mini-high": [
-      {
-        "create_1h": 1.1,
-        "create_5m": 1.1,
-        "fresh": 1.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 4.4,
-        "read": 0.55
-      }
-    ],
-    "o3-pro": [
-      {
-        "create_1h": 20.0,
-        "create_5m": 20.0,
-        "fresh": 20.0,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 80.0,
-        "read": 0.0
-      }
-    ],
-    "o4-mini": [
-      {
-        "create_1h": 1.1,
-        "create_5m": 1.1,
-        "fresh": 1.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 4.4,
-        "read": 0.275
-      }
-    ],
-    "o4-mini-high": [
-      {
-        "create_1h": 1.1,
-        "create_5m": 1.1,
-        "fresh": 1.1,
-        "from": null,
-        "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
-        "output": 4.4,
-        "read": 0.275
-      }
     ]
   },
   "openrouter": {
     "data_region": "global",
     "models": {
+      "claude-3-5-haiku-": {
+        "id": "anthropic/claude-3-5-haiku-",
+        "vendor_host": "Anthropic"
+      },
+      "claude-3-5-sonnet-": {
+        "id": "anthropic/claude-3-5-sonnet-",
+        "vendor_host": "Anthropic"
+      },
+      "claude-3-7-sonnet-": {
+        "id": "anthropic/claude-3-7-sonnet-",
+        "vendor_host": "Anthropic"
+      },
+      "claude-3-haiku-": {
+        "id": "anthropic/claude-3-haiku-",
+        "vendor_host": "Anthropic"
+      },
+      "claude-3-opus-": {
+        "id": "anthropic/claude-3-opus-",
+        "vendor_host": "Anthropic"
+      },
+      "claude-fable-5": {
+        "id": "anthropic/claude-fable-5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-fable-5-1": {
+        "id": "anthropic/claude-fable-5.1",
+        "vendor_host": "Anthropic"
+      },
+      "claude-haiku-4-5": {
+        "id": "anthropic/claude-haiku-4.5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-mythos-5": {
+        "id": "anthropic/claude-mythos-5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-mythos-5-1": {
+        "id": "anthropic/claude-mythos-5-1",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4": {
+        "id": "anthropic/claude-opus-4",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4-1": {
+        "id": "anthropic/claude-opus-4.1",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4-5": {
+        "id": "anthropic/claude-opus-4.5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4-6": {
+        "id": "anthropic/claude-opus-4.6",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4-7": {
+        "id": "anthropic/claude-opus-4.7",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-4-8": {
+        "id": "anthropic/claude-opus-4.8",
+        "vendor_host": "Anthropic"
+      },
+      "claude-opus-5": {
+        "id": "anthropic/claude-opus-5",
+        "vendor_host": "Anthropic"
+      },
       "claude-opus-5-5": {
         "id": "anthropic/claude-opus-5.5",
         "resolve": {
@@ -1154,7 +170,28 @@
             "tag": "anthropic",
             "why": "Anthropic lists claude-opus-5.5 under two tags: the base anthropic endpoint at the model's list price and a dearer anthropic/fast throughput tier, double the price. Pinned to anthropic: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
           }
-        }
+        },
+        "vendor_host": "Anthropic"
+      },
+      "claude-sonnet-4": {
+        "id": "anthropic/claude-sonnet-4",
+        "vendor_host": "Anthropic"
+      },
+      "claude-sonnet-4-5": {
+        "id": "anthropic/claude-sonnet-4.5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-sonnet-4-6": {
+        "id": "anthropic/claude-sonnet-4.6",
+        "vendor_host": "Anthropic"
+      },
+      "claude-sonnet-5": {
+        "id": "anthropic/claude-sonnet-5",
+        "vendor_host": "Anthropic"
+      },
+      "claude-sonnet-5-5": {
+        "id": "anthropic/claude-sonnet-5.5",
+        "vendor_host": "Anthropic"
       },
       "deepseek/deepseek-v4-1-flash": {
         "id": "deepseek/deepseek-v4.1-flash",
@@ -1185,8 +222,430 @@
       "deepseek/deepseek-v4-pro-0813": {
         "id": "deepseek/deepseek-v4-pro-0813"
       },
+      "glm-4-5": {
+        "id": "z-ai/glm-4.5",
+        "vendor_host": "Z.AI"
+      },
+      "glm-4-5-air": {
+        "id": "z-ai/glm-4.5-air",
+        "vendor_host": "Z.AI"
+      },
+      "glm-4-5v": {
+        "id": "z-ai/glm-4.5v",
+        "vendor_host": "Z.AI"
+      },
+      "glm-4-6": {
+        "id": "z-ai/glm-4.6",
+        "vendor_host": "Z.AI"
+      },
+      "glm-4-6v": {
+        "id": "z-ai/glm-4.6v",
+        "vendor_host": "Z.AI"
+      },
+      "glm-4-7": {
+        "id": "z-ai/glm-4.7",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5": {
+        "id": "z-ai/glm-5",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-1": {
+        "id": "z-ai/glm-5.1",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-2": {
+        "id": "z-ai/glm-5.2",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-3": {
+        "id": "z-ai/glm-5.3",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-3-flash": {
+        "id": "z-ai/glm-5.3-flash",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-3-flashx": {
+        "id": "z-ai/glm-5.3-flashx",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5-turbo": {
+        "id": "z-ai/glm-5-turbo",
+        "vendor_host": "Z.AI"
+      },
+      "glm-5v-turbo": {
+        "id": "z-ai/glm-5v-turbo",
+        "vendor_host": "Z.AI"
+      },
+      "gpt-3-5-turbo": {
+        "id": "openai/gpt-3.5-turbo",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-3-5-turbo-16k": {
+        "id": "openai/gpt-3.5-turbo-16k",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-3-5-turbo-instruct": {
+        "id": "openai/gpt-3.5-turbo-instruct",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4": {
+        "id": "openai/gpt-4",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4-1": {
+        "id": "openai/gpt-4.1",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4-1-mini": {
+        "id": "openai/gpt-4.1-mini",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4-1-nano": {
+        "id": "openai/gpt-4.1-nano",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4-turbo": {
+        "id": "openai/gpt-4-turbo",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o": {
+        "id": "openai/gpt-4o",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o-2024-05-13": {
+        "id": "openai/gpt-4o-2024-05-13",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o-2024-08-06": {
+        "id": "openai/gpt-4o-2024-08-06",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o-2024-11-20": {
+        "id": "openai/gpt-4o-2024-11-20",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o-mini": {
+        "id": "openai/gpt-4o-mini",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-4o-mini-2024-07-18": {
+        "id": "openai/gpt-4o-mini-2024-07-18",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5": {
+        "id": "openai/gpt-5",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-1": {
+        "id": "openai/gpt-5.1",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5.1 under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-2": {
+        "id": "openai/gpt-5.2",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5.2 under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-2-pro": {
+        "id": "openai/gpt-5.2-pro",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-3-codex": {
+        "id": "openai/gpt-5.3-codex",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-4": {
+        "id": "openai/gpt-5.4",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-4 under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-4-mini": {
+        "id": "openai/gpt-5.4-mini",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5.4-mini under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-4-nano": {
+        "id": "openai/gpt-5.4-nano",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5.4-nano under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-4-pro": {
+        "id": "openai/gpt-5.4-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-4-pro under the tags openai, openai/flex: the bare openai namespace tag is the model's list price, while openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-5": {
+        "id": "openai/gpt-5.5",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-5 under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-5-pro": {
+        "id": "openai/gpt-5.5-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-5-pro under the tags openai, openai/flex: the bare openai namespace tag is the model's list price, while openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-luna": {
+        "id": "openai/gpt-5.6-luna",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-luna under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-luna-pro": {
+        "id": "openai/gpt-5.6-luna-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-luna-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-sol": {
+        "id": "openai/gpt-5.6-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-sol-pro": {
+        "id": "openai/gpt-5.6-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-terra": {
+        "id": "openai/gpt-5.6-terra",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-terra under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-6-terra-pro": {
+        "id": "openai/gpt-5.6-terra-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-terra-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-mini": {
+        "id": "openai/gpt-5-mini",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5-mini under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-nano": {
+        "id": "openai/gpt-5-nano",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenAI lists gpt-5-nano under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-5-pro": {
+        "id": "openai/gpt-5-pro",
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-1-sol": {
+        "id": "openai/gpt-6.1-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-1-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-1-sol-pro": {
+        "id": "openai/gpt-6.1-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-1-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-astra": {
+        "id": "openai/gpt-6-astra",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-astra under the tags openai, openai/fast, openai/flex, openai/ultrafast: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex and openai/ultrafast are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-astra-pro": {
+        "id": "openai/gpt-6-astra-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-astra-pro under the tags openai, openai/fast, openai/flex, openai/ultrafast: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex and openai/ultrafast are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-luna": {
+        "id": "openai/gpt-6-luna",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-luna under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-luna-pro": {
+        "id": "openai/gpt-6-luna-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-luna-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-sol": {
+        "id": "openai/gpt-6-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-6-sol-pro": {
+        "id": "openai/gpt-6-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
+        "vendor_host": "OpenAI"
+      },
+      "gpt-chat-latest": {
+        "id": "openai/gpt-chat-latest",
+        "vendor_host": "OpenAI"
+      },
       "inclusionai/ling-3-1-flash": {
         "id": "inclusionai/ling-3.1-flash"
+      },
+      "kimi-k2-6": {
+        "id": "moonshotai/kimi-k2.6",
+        "vendor_host": "Moonshot AI"
+      },
+      "kimi-k2-7-code": {
+        "id": "moonshotai/kimi-k2.7-code",
+        "resolve": {
+          "Moonshot AI": {
+            "tag": "moonshotai/int4",
+            "why": "Moonshot lists kimi-k2.7-code under two tags at two prices: moonshotai/int4 at the list price the first-party row already tracks and moonshotai/highspeed, a throughput tier at double. Pinned to int4: it is the list price; highspeed is a throughput tier, not the list price."
+          }
+        },
+        "vendor_host": "Moonshot AI"
+      },
+      "kimi-k3": {
+        "id": "moonshotai/kimi-k3",
+        "vendor_host": "Moonshot AI"
+      },
+      "o1": {
+        "id": "openai/o1",
+        "vendor_host": "OpenAI"
+      },
+      "o1-pro": {
+        "id": "openai/o1-pro",
+        "vendor_host": "OpenAI"
+      },
+      "o3": {
+        "id": "openai/o3",
+        "vendor_host": "OpenAI"
+      },
+      "o3-mini": {
+        "id": "openai/o3-mini",
+        "vendor_host": "OpenAI"
+      },
+      "o3-mini-high": {
+        "id": "openai/o3-mini-high",
+        "vendor_host": "OpenAI"
+      },
+      "o3-pro": {
+        "id": "openai/o3-pro",
+        "vendor_host": "OpenAI"
+      },
+      "o4-mini": {
+        "id": "openai/o4-mini",
+        "vendor_host": "OpenAI"
+      },
+      "o4-mini-high": {
+        "id": "openai/o4-mini-high",
+        "vendor_host": "OpenAI"
       },
       "stealth/space-bunny-alpha": {
         "id": "stealth/space-bunny-alpha"
@@ -1232,6 +691,12 @@
       }
     },
     "vendor": {
+      "prefixes": [
+        "anthropic",
+        "openai",
+        "moonshotai",
+        "z-ai"
+      ],
       "resolve": {
         "kimi-k2-7-code": {
           "tag": "moonshotai/int4",
@@ -1242,6 +707,212 @@
   },
   "provider_rates_fetched": "2026-10-08T08:54:50Z",
   "providers": {
+    "claude-3-5-haiku-": {
+      "Anthropic": [
+        {
+          "create_1h": 1.6,
+          "create_5m": 1.0,
+          "fresh": 0.8,
+          "from": null,
+          "output": 4.0,
+          "read": 0.08
+        }
+      ]
+    },
+    "claude-3-5-sonnet-": {
+      "Anthropic": [
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "claude-3-7-sonnet-": {
+      "Anthropic": [
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "claude-3-haiku-": {
+      "Anthropic": [
+        {
+          "create_1h": 0.5,
+          "create_5m": 0.3,
+          "fresh": 0.25,
+          "from": null,
+          "output": 1.25,
+          "read": 0.03
+        }
+      ]
+    },
+    "claude-3-opus-": {
+      "Anthropic": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 18.75,
+          "fresh": 15.0,
+          "from": null,
+          "output": 75.0,
+          "read": 1.5
+        }
+      ]
+    },
+    "claude-fable-5": {
+      "Anthropic": [
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "output": 50.0,
+          "read": 1.0
+        }
+      ]
+    },
+    "claude-fable-5-1": {
+      "Anthropic": [
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "note": "Cache reads at 0.025x base input.",
+          "output": 50.0,
+          "read": 0.25
+        }
+      ]
+    },
+    "claude-haiku-4-5": {
+      "Anthropic": [
+        {
+          "create_1h": 2.0,
+          "create_5m": 1.25,
+          "fresh": 1.0,
+          "from": null,
+          "output": 5.0,
+          "read": 0.1
+        }
+      ]
+    },
+    "claude-mythos-5": {
+      "Anthropic": [
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "output": 50.0,
+          "read": 1.0
+        }
+      ]
+    },
+    "claude-mythos-5-1": {
+      "Anthropic": [
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "note": "Cache reads at 0.025x base input.",
+          "output": 50.0,
+          "read": 0.25
+        }
+      ]
+    },
+    "claude-opus-4": {
+      "Anthropic": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 18.75,
+          "fresh": 15.0,
+          "from": null,
+          "output": 75.0,
+          "read": 1.5
+        }
+      ]
+    },
+    "claude-opus-4-1": {
+      "Anthropic": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 18.75,
+          "fresh": 15.0,
+          "from": null,
+          "output": 75.0,
+          "read": 1.5
+        }
+      ]
+    },
+    "claude-opus-4-5": {
+      "Anthropic": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "output": 25.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "claude-opus-4-6": {
+      "Anthropic": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "output": 25.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "claude-opus-4-7": {
+      "Anthropic": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "output": 25.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "claude-opus-4-8": {
+      "Anthropic": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "output": 25.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "claude-opus-5": {
+      "Anthropic": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "output": 25.0,
+          "read": 0.5
+        }
+      ]
+    },
     "claude-opus-5-5": {
       "Amazon Bedrock": [
         {
@@ -1296,6 +967,75 @@
           "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
           "read": 0.2
+        }
+      ]
+    },
+    "claude-sonnet-4": {
+      "Anthropic": [
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "claude-sonnet-4-5": {
+      "Anthropic": [
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "claude-sonnet-4-6": {
+      "Anthropic": [
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "claude-sonnet-5": {
+      "Anthropic": [
+        {
+          "create_1h": 4.0,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "output": 10.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "Anthropic": [
+        {
+          "create_1h": 4.0,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "output": 10.0,
+          "read": 0.2
+        },
+        {
+          "create_1h": 4.0,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-07T18:54:35Z",
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.1
         }
       ]
     },
@@ -14683,6 +14423,785 @@
         }
       ]
     },
+    "glm-4-5": {
+      "Z.AI": [
+        {
+          "create_1h": 0.6,
+          "create_5m": 0.6,
+          "fresh": 0.6,
+          "from": null,
+          "output": 2.2,
+          "read": 0.11
+        }
+      ]
+    },
+    "glm-4-5-air": {
+      "Z.AI": [
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": null,
+          "output": 1.1,
+          "read": 0.03
+        }
+      ]
+    },
+    "glm-4-5v": {
+      "Z.AI": [
+        {
+          "create_1h": 0.6,
+          "create_5m": 0.6,
+          "fresh": 0.6,
+          "from": null,
+          "output": 1.8,
+          "read": 0.11
+        }
+      ]
+    },
+    "glm-4-6": {
+      "Z.AI": [
+        {
+          "create_1h": 0.6,
+          "create_5m": 0.6,
+          "fresh": 0.6,
+          "from": null,
+          "output": 2.2,
+          "read": 0.11
+        }
+      ]
+    },
+    "glm-4-6v": {
+      "Z.AI": [
+        {
+          "create_1h": 0.3,
+          "create_5m": 0.3,
+          "fresh": 0.3,
+          "from": null,
+          "output": 0.9,
+          "read": 0.05
+        }
+      ]
+    },
+    "glm-4-7": {
+      "Z.AI": [
+        {
+          "create_1h": 0.6,
+          "create_5m": 0.6,
+          "fresh": 0.6,
+          "from": null,
+          "output": 2.2,
+          "read": 0.11
+        }
+      ]
+    },
+    "glm-5": {
+      "Z.AI": [
+        {
+          "create_1h": 1.0,
+          "create_5m": 1.0,
+          "fresh": 1.0,
+          "from": null,
+          "output": 3.2,
+          "read": 0.2
+        }
+      ]
+    },
+    "glm-5-1": {
+      "Z.AI": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ]
+    },
+    "glm-5-2": {
+      "Z.AI": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ]
+    },
+    "glm-5-3": {
+      "Z.AI": [
+        {
+          "create_1h": 1.4,
+          "create_5m": 1.4,
+          "fresh": 1.4,
+          "from": null,
+          "output": 4.4,
+          "read": 0.26
+        }
+      ]
+    },
+    "glm-5-3-flash": {
+      "Z.AI": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.075,
+          "from": null,
+          "note": "Launch promotion: 50% off list through 2026-09-09 24:00 UTC+8.",
+          "output": 0.25,
+          "read": 0.015
+        },
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.15,
+          "from": "2026-09-09T16:00:00Z",
+          "note": "List. Cache writes are free and reads are 0.2x input, so the Anthropic 1.25x/2x/0.1x relations do not hold.",
+          "output": 0.5,
+          "read": 0.03
+        },
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": "2026-10-07T10:42:29Z",
+          "output": 0.5,
+          "read": 0.03
+        }
+      ]
+    },
+    "glm-5-3-flashx": {
+      "Z.AI": [
+        {
+          "create_1h": 0.37,
+          "create_5m": 0.37,
+          "fresh": 0.37,
+          "from": null,
+          "output": 1.25,
+          "read": 0.09
+        }
+      ]
+    },
+    "glm-5-turbo": {
+      "Z.AI": [
+        {
+          "create_1h": 1.2,
+          "create_5m": 1.2,
+          "fresh": 1.2,
+          "from": null,
+          "output": 4.0,
+          "read": 0.24
+        }
+      ]
+    },
+    "glm-5v-turbo": {
+      "Z.AI": [
+        {
+          "create_1h": 1.2,
+          "create_5m": 1.2,
+          "fresh": 1.2,
+          "from": null,
+          "output": 4.0,
+          "read": 0.24
+        }
+      ]
+    },
+    "gpt-3-5-turbo": {
+      "OpenAI": [
+        {
+          "create_1h": 0.5,
+          "create_5m": 0.5,
+          "fresh": 0.5,
+          "from": null,
+          "output": 1.5,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-3-5-turbo-16k": {
+      "OpenAI": [
+        {
+          "create_1h": 3.0,
+          "create_5m": 3.0,
+          "fresh": 3.0,
+          "from": null,
+          "output": 4.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-3-5-turbo-instruct": {
+      "OpenAI": [
+        {
+          "create_1h": 1.5,
+          "create_5m": 1.5,
+          "fresh": 1.5,
+          "from": null,
+          "output": 2.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-4": {
+      "OpenAI": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 30.0,
+          "fresh": 30.0,
+          "from": null,
+          "output": 60.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-4-1": {
+      "OpenAI": [
+        {
+          "create_1h": 2.0,
+          "create_5m": 2.0,
+          "fresh": 2.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 8.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "gpt-4-1-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 0.4,
+          "create_5m": 0.4,
+          "fresh": 0.4,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 1.6,
+          "read": 0.1
+        }
+      ]
+    },
+    "gpt-4-1-nano": {
+      "OpenAI": [
+        {
+          "create_1h": 0.1,
+          "create_5m": 0.1,
+          "fresh": 0.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 0.4,
+          "read": 0.025
+        }
+      ]
+    },
+    "gpt-4-turbo": {
+      "OpenAI": [
+        {
+          "create_1h": 10.0,
+          "create_5m": 10.0,
+          "fresh": 10.0,
+          "from": null,
+          "output": 30.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-4o": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.5,
+          "from": null,
+          "output": 10.0,
+          "read": 1.25
+        }
+      ]
+    },
+    "gpt-4o-2024-05-13": {
+      "OpenAI": [
+        {
+          "create_1h": 5.0,
+          "create_5m": 5.0,
+          "fresh": 5.0,
+          "from": null,
+          "output": 15.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-4o-2024-08-06": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.5,
+          "from": null,
+          "output": 10.0,
+          "read": 1.25
+        }
+      ]
+    },
+    "gpt-4o-2024-11-20": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.5,
+          "from": null,
+          "output": 10.0,
+          "read": 1.25
+        }
+      ]
+    },
+    "gpt-4o-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.6,
+          "read": 0.075
+        }
+      ]
+    },
+    "gpt-4o-mini-2024-07-18": {
+      "OpenAI": [
+        {
+          "create_1h": 0.15,
+          "create_5m": 0.15,
+          "fresh": 0.15,
+          "from": null,
+          "output": 0.6,
+          "read": 0.075
+        }
+      ]
+    },
+    "gpt-5": {
+      "OpenAI": [
+        {
+          "create_1h": 1.25,
+          "create_5m": 1.25,
+          "fresh": 1.25,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.125
+        }
+      ]
+    },
+    "gpt-5-1": {
+      "OpenAI": [
+        {
+          "create_1h": 1.25,
+          "create_5m": 1.25,
+          "fresh": 1.25,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.125
+        }
+      ]
+    },
+    "gpt-5-2": {
+      "OpenAI": [
+        {
+          "create_1h": 1.75,
+          "create_5m": 1.75,
+          "fresh": 1.75,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 14.0,
+          "read": 0.175
+        }
+      ]
+    },
+    "gpt-5-2-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 21.0,
+          "create_5m": 21.0,
+          "fresh": 21.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 168.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-5-3-codex": {
+      "OpenAI": [
+        {
+          "create_1h": 1.75,
+          "create_5m": 1.75,
+          "fresh": 1.75,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 14.0,
+          "read": 0.175
+        }
+      ]
+    },
+    "gpt-5-4": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.5,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 15.0,
+          "read": 0.25
+        }
+      ]
+    },
+    "gpt-5-4-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 0.75,
+          "create_5m": 0.75,
+          "fresh": 0.75,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 4.5,
+          "read": 0.075
+        }
+      ]
+    },
+    "gpt-5-4-nano": {
+      "OpenAI": [
+        {
+          "create_1h": 0.2,
+          "create_5m": 0.2,
+          "fresh": 0.2,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 1.25,
+          "read": 0.02
+        }
+      ]
+    },
+    "gpt-5-4-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 30.0,
+          "fresh": 30.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 180.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-5-5": {
+      "OpenAI": [
+        {
+          "create_1h": 6.25,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 30.0,
+          "read": 0.5
+        },
+        {
+          "create_1h": 5.0,
+          "create_5m": 5.0,
+          "fresh": 5.0,
+          "from": "2026-10-07T10:42:29Z",
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 30.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "gpt-5-5-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 30.0,
+          "create_5m": 30.0,
+          "fresh": 30.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 180.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-5-6-luna": {
+      "OpenAI": [
+        {
+          "create_1h": 1.25,
+          "create_5m": 1.25,
+          "fresh": 1.0,
+          "from": null,
+          "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 6.0,
+          "read": 0.1
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.2,
+          "from": "2026-07-30T18:12:00Z",
+          "note": "Cut -80%. From: OpenAI's post time, 20:12 Europe/Prague.",
+          "output": 1.2,
+          "read": 0.02
+        }
+      ]
+    },
+    "gpt-5-6-luna-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.2,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 1.2,
+          "read": 0.02
+        }
+      ]
+    },
+    "gpt-5-6-sol": {
+      "OpenAI": [
+        {
+          "create_1h": 6.25,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": null,
+          "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 30.0,
+          "read": 0.5
+        },
+        {
+          "create_1h": 5.0,
+          "create_5m": 5.0,
+          "fresh": 4.0,
+          "from": "2026-08-21T19:40:00Z",
+          "note": "Cut -20% in / -33% out, promotional, announced through at least 2026-11-21. From: OpenAI's post time, 21:40 Europe/Prague.",
+          "output": 20.0,
+          "read": 0.4
+        },
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-07T10:42:29Z",
+          "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-5-6-sol-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-5-6-terra": {
+      "OpenAI": [
+        {
+          "create_1h": 3.125,
+          "create_5m": 3.125,
+          "fresh": 2.5,
+          "from": null,
+          "note": "GA 2026-07-09. Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 15.0,
+          "read": 0.25
+        },
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-07-30T18:12:00Z",
+          "note": "Cut -20%. From: OpenAI's post time, 20:12 Europe/Prague.",
+          "output": 12.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-5-6-terra-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 12.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-5-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.25,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 2.0,
+          "read": 0.025
+        }
+      ]
+    },
+    "gpt-5-nano": {
+      "OpenAI": [
+        {
+          "create_1h": 0.05,
+          "create_5m": 0.05,
+          "fresh": 0.05,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 0.4,
+          "read": 0.005
+        }
+      ]
+    },
+    "gpt-5-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 15.0,
+          "create_5m": 15.0,
+          "fresh": 15.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 120.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "gpt-6-1-sol": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "Cache writes at 1.25x uncached input whatever the TTL; reads at 0.05x - the official cached-input price halves the older gpt-6 rows' 0.1x.",
+          "output": 10.0,
+          "read": 0.1
+        }
+      ]
+    },
+    "gpt-6-1-sol-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.1
+        }
+      ]
+    },
+    "gpt-6-astra": {
+      "OpenAI": [
+        {
+          "create_1h": 12.5,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 50.0,
+          "read": 1.0
+        }
+      ]
+    },
+    "gpt-6-astra-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 12.5,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 50.0,
+          "read": 1.0
+        }
+      ]
+    },
+    "gpt-6-luna": {
+      "OpenAI": [
+        {
+          "create_1h": 0.125,
+          "create_5m": 0.125,
+          "fresh": 0.1,
+          "from": null,
+          "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 0.5,
+          "read": 0.01
+        }
+      ]
+    },
+    "gpt-6-luna-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 0.125,
+          "create_5m": 0.125,
+          "fresh": 0.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 0.5,
+          "read": 0.01
+        }
+      ]
+    },
+    "gpt-6-sol": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
+          "output": 10.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-6-sol-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 10.0,
+          "read": 0.2
+        }
+      ]
+    },
+    "gpt-chat-latest": {
+      "OpenAI": [
+        {
+          "create_1h": 5.0,
+          "create_5m": 5.0,
+          "fresh": 5.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 30.0,
+          "read": 0.5
+        }
+      ]
+    },
     "inclusionai/ling-3-1-flash": {
       "Novita": [
         {
@@ -14692,6 +15211,173 @@
           "from": null,
           "output": 0.0,
           "read": 0
+        }
+      ]
+    },
+    "kimi-k2-6": {
+      "Moonshot AI": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.95,
+          "from": null,
+          "note": "Kimi bills cache writes at a flat zero.",
+          "output": 4.0,
+          "read": 0.16
+        },
+        {
+          "create_1h": 0.95,
+          "create_5m": 0.95,
+          "fresh": 0.95,
+          "from": "2026-10-07T10:42:29Z",
+          "output": 4.0,
+          "read": 0.16
+        }
+      ]
+    },
+    "kimi-k2-7-code": {
+      "Moonshot AI": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 0.95,
+          "from": null,
+          "note": "Kimi bills cache writes at a flat zero.",
+          "output": 4.0,
+          "read": 0.19
+        },
+        {
+          "create_1h": 0.95,
+          "create_5m": 0.95,
+          "fresh": 0.95,
+          "from": "2026-10-07T10:42:29Z",
+          "output": 4.0,
+          "read": 0.19
+        }
+      ]
+    },
+    "kimi-k3": {
+      "Moonshot AI": [
+        {
+          "create_1h": 0.0,
+          "create_5m": 0.0,
+          "fresh": 3.0,
+          "from": null,
+          "note": "Kimi bills cache writes at a flat zero.",
+          "output": 15.0,
+          "read": 0.3
+        },
+        {
+          "create_1h": 3.0,
+          "create_5m": 3.0,
+          "fresh": 3.0,
+          "from": "2026-10-07T10:42:29Z",
+          "output": 15.0,
+          "read": 0.3
+        }
+      ]
+    },
+    "o1": {
+      "OpenAI": [
+        {
+          "create_1h": 15.0,
+          "create_5m": 15.0,
+          "fresh": 15.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 60.0,
+          "read": 7.5
+        }
+      ]
+    },
+    "o1-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 150.0,
+          "create_5m": 150.0,
+          "fresh": 150.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 600.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "o3": {
+      "OpenAI": [
+        {
+          "create_1h": 2.0,
+          "create_5m": 2.0,
+          "fresh": 2.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 8.0,
+          "read": 0.5
+        }
+      ]
+    },
+    "o3-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 1.1,
+          "create_5m": 1.1,
+          "fresh": 1.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 4.4,
+          "read": 0.55
+        }
+      ]
+    },
+    "o3-mini-high": {
+      "OpenAI": [
+        {
+          "create_1h": 1.1,
+          "create_5m": 1.1,
+          "fresh": 1.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 4.4,
+          "read": 0.55
+        }
+      ]
+    },
+    "o3-pro": {
+      "OpenAI": [
+        {
+          "create_1h": 20.0,
+          "create_5m": 20.0,
+          "fresh": 20.0,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 80.0,
+          "read": 0.0
+        }
+      ]
+    },
+    "o4-mini": {
+      "OpenAI": [
+        {
+          "create_1h": 1.1,
+          "create_5m": 1.1,
+          "fresh": 1.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 4.4,
+          "read": 0.275
+        }
+      ]
+    },
+    "o4-mini-high": {
+      "OpenAI": [
+        {
+          "create_1h": 1.1,
+          "create_5m": 1.1,
+          "fresh": 1.1,
+          "from": null,
+          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
+          "output": 4.4,
+          "read": 0.275
         }
       ]
     },

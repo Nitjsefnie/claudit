@@ -15,6 +15,7 @@ from backend.api_common import (
 )
 from backend.db import sql_text
 from tests import scratch_db
+from tests.refresh_fixture_builders import RATES_B as PROVIDER_FEE_RATES
 
 UTC = timezone.utc
 
@@ -444,8 +445,7 @@ def test_fee_row_buckets_scale_to_the_stored_total(monkeypatch):
     scheduled row, the buckets take their split from the token rates
     and are scaled to the stored total, so the decomposition still sums
     to what it decomposes."""
-    rates = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-             "read": 0.2, "output": 10.0}
+    rates = PROVIDER_FEE_RATES
     fee = 0.0137
     pair = ("acme/acme-9", "FeeHost")
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: rates})

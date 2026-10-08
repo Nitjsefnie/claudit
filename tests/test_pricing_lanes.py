@@ -25,7 +25,7 @@ LANE_MODELS = (
 def test_lane_model_resolves_exact_at_its_list_rate(model):
     r = pricing.resolve(model)
     assert r.kind == "exact"
-    assert r.rates is pricing.MODEL_RATES[r.key or model]
+    assert r.rates is pricing._list_rates(r.key or model)  # pylint: disable=protected-access
 
 
 def test_flat_create_prices_identically_under_any_declared_ttl(monkeypatch):

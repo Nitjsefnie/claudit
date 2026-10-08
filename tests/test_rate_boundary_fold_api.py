@@ -262,3 +262,61 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
     assert missing_entry["cost_buckets"]["fresh"] == pytest.approx(12.0)
     assert abs(sum(missing_entry["cost_buckets"].values())
                - missing_entry["cost_total"]) <= 3e-4
+
+
+# --- a tracked vendor pair: the bare id's fold gets the vendor boundaries --
+# The migrated vendor rows are provider rows keyed (bare key, vendor host),
+# and the bare first-party id prices through them with no provider at all
+# (issue #851). A pair the rollup lists must get the vendor boundaries, or
+# its re-derived Token Breakdown split drifts from the stored cost.
+
+VENDOR_MODEL = "acme/fold-vendor-302"
+VENDOR_HOST = "VendorHost"
+
+
+def _install_vendor_pair_case(monkeypatch):
+    vendor_cut = datetime(2026, 2, 1, tzinfo=UTC)
+    vendor_rates = {"before": _rates(4), "after": _rates(9)}
+    monkeypatch.setattr(pricing, "MODEL_RATES", {})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {(VENDOR_MODEL, VENDOR_HOST): vendor_rates["after"]})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {(VENDOR_MODEL, VENDOR_HOST): [
+                            (vendor_cut, vendor_rates["before"])]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "VENDOR_BARE", {VENDOR_MODEL: VENDOR_MODEL})
+    monkeypatch.setattr(pricing, "VENDOR_HOSTS", {VENDOR_MODEL: VENDOR_HOST})
+    monkeypatch.setattr(pricing, "_TIER_FALLBACKS", ())
+    monkeypatch.setattr(pricing, "DEFAULT_RATES", _rates(89))
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [vendor_cut])
+    ts = (vendor_cut - timedelta(days=1), vendor_cut)
+    records = [(VENDOR_MODEL, None, ts[0], 1_000_000),
+               (VENDOR_MODEL, None, ts[1], 1_000_000)]
+    # The rollup stores '' for a NULL-provider record (SV-PROVIDER-RATES).
+    rollup_pairs = [(VENDOR_MODEL, "", ts[0])]
+    return vendor_cut, vendor_rates, records, rollup_pairs
+
+
+def test_cache_fold_prices_a_bare_vendor_pair_at_the_vendor_boundaries(
+        api_client, monkeypatch):
+    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
+    vendor_cut, vendor_rates, records, rollup_pairs = \
+        _install_vendor_pair_case(monkeypatch)
+    assert rate_boundaries(VENDOR_MODEL, None) == [vendor_cut], \
+        "the bare pair's boundaries are the vendor row's windows"
+    _seed_records(records, rollup_pairs)
+    captured = _capture_per_model_rows(monkeypatch)
+
+    response = api_client.get("/api/cache?range=all")
+    assert response.status_code == 200
+    body = response.json()
+    assert captured["pair_bounds"][(VENDOR_MODEL, "")] == [vendor_cut]
+    groups = [row for row in captured["rows"] if row[0] == VENDOR_MODEL]
+    assert {row[2] for row in groups} == {0, 1}
+    entry = next(e for e in body["per_model"] if e["model"] == VENDOR_MODEL)
+    want = sum(vendor_rates[name]["fresh"] for name in ("before", "after"))
+    assert entry["cost_total"] == pytest.approx(want)
+    assert entry["cost_buckets"]["fresh"] == pytest.approx(want)
+    assert abs(sum(entry["cost_buckets"].values()) - entry["cost_total"]) <= 3e-4

@@ -12,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
+from tests.refresh_fixture_builders import seed_doc
+
+UTC = timezone.utc
 
 
 def test_opus_4_7_resolves_exact_with_all_five_fields():
@@ -92,23 +95,26 @@ def test_fable_5_1_does_not_misroute_to_fable_5(
 def test_unknown_fable_falls_back_to_current_generation():
     r = pricing.resolve("claude-fable-9")
     assert r.kind == "tier"
-    assert r.rates is pricing.MODEL_RATES["claude-fable-5-1"]
+    # The family rows are tracked vendor rows since the migration: the
+    # merged view's list price is the assertion's source.
+    assert r.rates is pricing._list_rates("claude-fable-5-1")  # pylint: disable=protected-access
 
 
 def test_unknown_opus_falls_back_to_current_generation():
     r = pricing.resolve("claude-opus-6")
     assert r.kind == "tier"
-    assert r.rates is pricing.MODEL_RATES["claude-opus-5-5"]
+    assert r.rates is pricing._list_rates("claude-opus-5-5")  # pylint: disable=protected-access
 
 
 def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
     """A newer row moves its family's fallback with no second edit;
     a two-part version outranks its one-part prefix (5-5 > 5)."""
-    newer = dict(pricing.MODEL_RATES["claude-opus-5-5"], fresh=3.00)
+    newer = dict(pricing._list_rates("claude-opus-5-5"), fresh=3.00)  # pylint: disable=protected-access
     monkeypatch.setitem(pricing.MODEL_RATES, "claude-opus-10", newer)
     assert pricing._latest("opus") is newer  # pylint: disable=protected-access
     monkeypatch.delitem(pricing.MODEL_RATES, "claude-opus-10")
-    assert pricing._latest("opus") is pricing.MODEL_RATES["claude-opus-5-5"]  # pylint: disable=protected-access
+    assert pricing._latest("opus") is pricing._list_rates(  # pylint: disable=protected-access
+        "claude-opus-5-5")
 
 
 def test_opus_4_8_does_not_misroute_to_legacy_opus_4(
@@ -208,50 +214,16 @@ def test_split_cache_charges_each_bucket_separately():
         rel=1e-12)
 
 
-# --- rows without a dated window price flat across time ---------------------
-# Sonnet 5's launch price was announced as introductory through
-# 2026-08-31, but it was made the standard price and the 2026-09-01 rise
-# was cancelled — there is no cutover in the row. That is a property of
-# the ROW's shape, so the behaviour is driven through a synthetic row
-# (SV-TEST-DATA) instead of pinning sonnet 5's committed values.
-
-UTC = timezone.utc
-
-_FLAT_RATES = {"fresh": 3.21, "create_5m": 4.01, "create_1h": 6.42,
-               "read": 0.32, "output": 16.1}
-
-
-def test_a_row_without_a_dated_window_prices_flat_across_time(monkeypatch):
-    rates = dict(_FLAT_RATES)
-    monkeypatch.setitem(pricing.MODEL_RATES, "acme/flat-9", rates)
-    for ts in (None, datetime(2026, 7, 21, tzinfo=UTC),
-               datetime(2026, 9, 1, tzinfo=UTC),
-               datetime(2027, 1, 1, tzinfo=UTC)):
-        assert pricing.rate_for("acme/flat-9", ts=ts) is rates
-
-
-def test_a_row_without_a_dated_window_costs_the_same_at_any_time(monkeypatch):
-    rates = dict(_FLAT_RATES)
-    monkeypatch.setitem(pricing.MODEL_RATES, "acme/flat-9", rates)
-    costs = [pricing.compute_cost(
-        "acme/flat-9", fresh=1_000_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, ts=ts,
-    ) for ts in (None, datetime(2026, 7, 21, tzinfo=UTC),
-                 datetime(2026, 9, 1, tzinfo=UTC),
-                 datetime(2027, 1, 1, tzinfo=UTC))]
-    assert costs == [rates["fresh"]] * 4
-
-
 def test_expired_windows_keep_pricing_their_own_period():
     """An expired window is NOT dead weight. Every PARSER_VERSION bump
     reparses the whole bucket, and a record from inside the window must
     come out at the price that was in force then — dropping the window
-    would silently reprice history at list on the next reparse. The
-    boundary and both sides' rates are read from the row's own loaded
-    windows, so the assertion pins the behaviour, not the promotion."""
-    windows = pricing.DATED_RATES["glm-5-3-flash"]
+    would silently reprice history at list on the next reparse. The glm
+    row is a tracked vendor row since the migration, so the boundary and
+    both sides' rates read from its provider-row windows."""
+    windows = pricing.PROVIDER_DATED_RATES[("glm-5-3-flash", "Z.AI")]
     cutover, window_rates = windows[-1]
-    listed = pricing.MODEL_RATES["glm-5-3-flash"]
+    listed = pricing.PROVIDER_RATES[("glm-5-3-flash", "Z.AI")]
     before = pricing.compute_cost(
         "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (same algorithm and order: one token uses the runtime window's fresh rate divided by one million)
         unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
@@ -305,22 +277,31 @@ def test_dated_window_does_not_leak_to_other_models(synthetic_dated_rate):
     assert synthetic_dated_rate.model not in ("claude-opus-4-8", "claude-fable-5",
                                               "claude-haiku-4-5")
     for m in ("claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5"):
-        during = pricing.rate_for(m, ts=datetime(2026, 7, 21, tzinfo=UTC))
-        after = pricing.rate_for(m, ts=datetime(2026, 9, 1, tzinfo=UTC))
-        assert during == after == pricing.rate_for(m)
+        # The expectation is computed by the same algorithm over the same
+        # tables at the same instant (SV-TEST-DATA): m prices from m's OWN
+        # row alone — the fixture's window prices its model, never these —
+        # which holds whatever the rows' appended history looks like.
+        for ts in (datetime(2026, 7, 21, tzinfo=UTC),
+                   datetime(2026, 9, 1, tzinfo=UTC), None):
+            expected = pricing._in_window(pricing._key_windows(m), ts,  # pylint: disable=protected-access
+                                          pricing._list_rates(m))  # pylint: disable=protected-access
+            assert pricing.rate_for(m, ts=ts) == expected
 
 
 def test_tier_fallback_never_inherits_a_dated_promotion(monkeypatch):
     # An unrecognised sonnet falls back to the current-generation row's
     # LIST rates, not its promotional ones, even inside the window. The
-    # promo must hang on whatever row IS the current fallback — derived
-    # here so a new Sonnet release moves the test instead of voiding it.
+    # family rows are tracked vendor rows since the migration, so the
+    # promo hangs on the vendor row the fallback prices through — found
+    # here by identity, so a new Sonnet release moves the test with it.
     fallback = pricing._latest("sonnet")  # pylint: disable=protected-access
-    key = next(k for k, v in pricing.MODEL_RATES.items() if v is fallback)
+    row = next(row for row, v in pricing.PROVIDER_RATES.items()
+               if v is fallback)
     cutover = datetime(2026, 9, 1, tzinfo=UTC)
     promo = {"fresh": 9.00, "create_5m": 11.25, "create_1h": 18.00,
              "read": 0.90, "output": 45.00}
-    monkeypatch.setattr(pricing, "DATED_RATES", {key: [(cutover, promo)]})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {row: [(cutover, promo)]})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
     r = pricing.resolve("claude-sonnet-9", ts=datetime(2026, 7, 21, tzinfo=UTC))
     assert r.kind == "tier"
@@ -340,18 +321,19 @@ def test_rate_epochs_are_exposed_sorted_for_read_time_grouping(synthetic_dated_r
 
 
 def _synthetic_provider_doc(w):
-    """A pricing.json-shaped document carrying only the synthetic row."""
+    """A pricing.json-shaped document carrying only the synthetic row
+    (plus the claude-opus-4-7 row the default estimate needs, at no
+    cutover)."""
     def entry(rates, frm):
         return {"from": frm, **{f: rates[f] for f in pricing.RATE_FIELDS}}
-    return {
-        "models": {},
-        "providers": {w.model: {w.host: [
+    return seed_doc(
+        models={"claude-opus-4-7": [entry(w.after, None)]},
+        providers={w.model: {w.host: [
             entry(w.before, w.start.isoformat()),
             entry(w.after, w.cutover.isoformat()),
         ]}},
-        "provider_rates_fetched": w.cutover.isoformat(),
-        "long_context_models": [],
-    }
+        fetched=w.cutover.isoformat(),
+    )
 
 
 def test_rate_epochs_include_provider_window_ends_and_row_starts(
@@ -512,7 +494,7 @@ def test_future_opus_uses_the_current_opus_tier_fallback():
     # future model must use the family fallback rather than an exact row.
     r = pricing.resolve("claude-opus-4-9")
     assert r.kind == "tier"
-    assert r.rates is pricing.MODEL_RATES["claude-opus-5-5"]
+    assert r.rates is pricing._list_rates("claude-opus-5-5")  # pylint: disable=protected-access
 
 
 def test_dated_snapshot_still_matches_its_generic_key(
@@ -553,8 +535,9 @@ def test_resolve_reports_exact_match():
 def test_resolve_reports_tier_fallback_for_unknown_claude_model():
     res = pricing.resolve("claude-sonnet-6")
     assert res.kind == "tier"
-    # Current-generation Sonnet rates, whatever they are today.
-    assert res.rates == pricing.MODEL_RATES["claude-sonnet-5-5"]
+    # Current-generation Sonnet rates, whatever they are today — read from
+    # the merged view, since the family rows are tracked vendor rows now.
+    assert res.rates == pricing._list_rates("claude-sonnet-5-5")  # pylint: disable=protected-access
 
 
 def test_resolve_reports_default_for_wholly_unknown_model():
@@ -683,7 +666,7 @@ def test_nonfree_openrouter_id_is_unchanged():
 def test_free_matching_does_not_touch_claude_ids():
     r = pricing.resolve("claude-opus-4-8")  # sv-test-data: allow (load-time identity: result.rates is the object stored at this loaded exact key)
     assert r.kind == "exact"
-    assert r.rates is pricing.MODEL_RATES["claude-opus-4-8"]
+    assert r.rates is pricing._list_rates("claude-opus-4-8")  # pylint: disable=protected-access
 
 
 def test_bonsai_resolves_exact_and_prices_by_its_own_row():

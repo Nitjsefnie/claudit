@@ -422,8 +422,10 @@ def test_rot_fails_when_a_live_row_site_is_removed():
 
 
 def _tree_problems(tests_dir: Path) -> list[str]:
-    """check() over a whole tree, as ``path:message`` strings."""
-    wanted_models = frozenset(pricing.MODEL_RATES)
+    """check() over a whole tree, as ``path:message`` strings. The wanted
+    models are the merged view's: models-table keys and tracked vendor
+    bare keys alike (a live rate call names either)."""
+    wanted_models = frozenset({*pricing.MODEL_RATES, *pricing.VENDOR_BARE})
     wanted_hosts = frozenset(host for _, host in pricing.PROVIDER_RATES)
     problems = []
     for path in sorted(tests_dir.rglob("*.py")):

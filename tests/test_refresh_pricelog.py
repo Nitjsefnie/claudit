@@ -320,6 +320,39 @@ def test_scheduled_endpoint_or_series_is_sampled(scheduled: str):
     assert match["Wafer"].reason
 
 
+def test_the_sampled_reason_names_band_or_schedule():
+    """The overrides' sampled reason names what classified the host: a
+    min_prompt_tokens band is not a schedule (issue #851's rewrite; the log
+    path reads overrides' presence only, and either kind samples)."""
+    rates = _rates(0.3, 0.8)
+    banded = _endpoint("Wafer", "wafer/fp8", rates)
+    banded["pricing"]["overrides"] = [
+        {"min_prompt_tokens": 200000, "prompt": _per_token(0.6),
+         "completion": _per_token(1.2)}]
+    scheduled = _endpoint("Wafer", "wafer/fp8", rates, scheduled=True)
+    mixed = _endpoint("Wafer", "wafer/fp8", rates)
+    mixed["pricing"]["overrides"] = [
+        {"utc_days": ["monday"], "prompt": _per_token(0.15)},
+        {"min_prompt_tokens": 200000, "prompt": _per_token(0.6),
+         "completion": _per_token(1.2)}]
+    mixed_band_first = _endpoint("Wafer", "wafer/fp8", rates)
+    mixed_band_first["pricing"]["overrides"] = [
+        {"min_prompt_tokens": 200000, "prompt": _per_token(0.6),
+         "completion": _per_token(1.2)},
+        {"utc_days": ["monday"], "prompt": _per_token(0.15)}]
+
+    assert _joined([banded], [_series(rates=rates)])["Wafer"].reason == (
+        "endpoint lists a long-context band")
+    assert _joined([scheduled], [_series(rates=rates)])["Wafer"].reason == (
+        "endpoint has a pricing schedule")
+    # Order-independent: a utc window is the stronger blocker whichever
+    # position it sits in.
+    assert _joined([mixed], [_series(rates=rates)])["Wafer"].reason == (
+        "endpoint has a pricing schedule")
+    assert _joined([mixed_band_first], [_series(rates=rates)])["Wafer"].reason == (
+        "endpoint has a pricing schedule")
+
+
 @pytest.mark.parametrize("pin", [
     {"select": "cheapest"},
     {"tag": "wafer/fp8", "select": "cheapest"},

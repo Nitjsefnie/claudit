@@ -62,13 +62,15 @@ def test_every_label_the_codex_parser_stores_prices_exactly(label):
 def test_every_codex_label_lives_in_the_browser_mirrored_table():
     """The dashboard calls window.rateForModel for backend Codex rows, so
     keeping Codex rates outside the mirrored table misprices that view.
-    claudit's table is a SUPERSET -- it also prices the Claude and GLM
-    lanes -- and its keys are written in its normalised (dashed) form.
+    Since issue #851 the first-party labels live in the tracked table and
+    the mirrored table is the merged view — the bare vendor forms the
+    browser's vendorBare carries beside the models table — and the keys
+    are written in the normalised (dashed) form the codex parser stores.
     """
     assert {
         "kimi-k3", "kimi-k2-7-code", "kimi-k2-6",
         "gpt-6-astra", "gpt-5-6-sol", "gpt-5-6-terra", "gpt-5-6-luna",
-    } <= set(pricing.MODEL_RATES)
+    } <= set(pricing.VENDOR_BARE)
 
 
 def test_codex_records_are_not_billed_at_kimi_rates():

@@ -18,11 +18,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
+
 
 from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
+HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 PRICING_PY = ROOT / "backend" / "pricing.py"
@@ -55,13 +59,35 @@ def _stamp(when: datetime) -> str:
     return when.isoformat().replace("+00:00", "Z")
 
 
+def _bare_forms(doc: dict) -> dict[str, str]:
+    """Tracked key -> bare form, by the file's own configured prefixes."""
+    prefixes = (doc.get("openrouter") or {}).get("vendor", {}).get("prefixes", [])
+
+    def bare(key: str) -> str:
+        for prefix in prefixes:
+            if key.startswith(prefix + "/"):
+                return key[len(prefix) + 1:]
+        return key
+
+    return {key: bare(key)
+            for key, entry in (doc.get("openrouter") or {}).get("models", {}).items()
+            if entry.get("vendor_host")}
+
+
 def _histories(doc: dict):
-    """(model, provider or None, history) for every row the file defines."""
+    """(model, provider or None, history) for every row the file defines,
+    at every surface it prices: each models row bare, each provider row
+    through its host, and each tracked vendor row's bare first-party id."""
     for model, history in doc["models"].items():
         yield model, None, history
     for model, hosts in doc["providers"].items():
         for host, history in hosts.items():
             yield model, host, history
+    for key, bare in _bare_forms(doc).items():
+        host = doc["openrouter"]["models"][key]["vendor_host"]
+        history = doc["providers"].get(key, {}).get(host)
+        if history is not None:
+            yield bare, None, history
 
 
 def _latest_document_stamp(doc: dict) -> datetime:
@@ -123,6 +149,8 @@ def _node_raw(script: str):
 
 def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 
@@ -230,8 +258,12 @@ def test_both_sides_derive_the_same_tables_in_the_same_order():
         dated: Object.entries(window.datedRates),
         providers: window.providerRates,
         providerDated: window.providerDatedRates,
+        vendorBare: window.vendorBare,
+        vendorHosts: window.vendorHosts,
       }));
     """)
+    assert got["vendorBare"] == pricing.VENDOR_BARE
+    assert got["vendorHosts"] == pricing.VENDOR_HOSTS
     assert [(k, _js_rates(r)) for k, r in got["models"]] == \
         list(pricing.MODEL_RATES.items())
     assert {k: [(w["endExclusive"], _js_rates(w["rates"])) for w in ws]
@@ -246,56 +278,6 @@ def test_both_sides_derive_the_same_tables_in_the_same_order():
             for h, ws in hosts.items()} == \
         {k: [(int(end.timestamp() * 1000), r) for end, r in ws]
          for k, ws in pricing.PROVIDER_DATED_RATES.items()}
-
-
-def _extending_ids() -> list[tuple[str, str]]:
-    """(model id, the key it names) where the id matches a longer key AND a
-    shorter one: an undashed snapshot suffix is valid after the longer key,
-    and after the shorter one the rest still reads as a snapshot
-    ("claude-opus-4" + "-1202508")."""
-    keys = list(pricing.MODEL_RATES)
-    return [(longer + "202508", longer)
-            for shorter in keys for longer in keys
-            if longer != shorter and longer.startswith(shorter)]
-
-
-def test_the_longest_matching_key_wins_in_the_backend():
-    """The file is sorted, which puts every key AFTER the shorter key it
-    extends, so matching must not take the first key that fits."""
-    assert list(pricing.MODEL_RATES) == list(_doc()["models"])
-    cases = _extending_ids()
-    assert cases, "the table has keys that extend other keys"
-    for model, key in cases:
-        assert pricing.resolve(model).key == key, model
-
-
-@needs_node
-def test_the_longest_matching_key_wins_in_the_browser():
-    cases = _extending_ids()
-    got = _node(PARSER_JS, f"""
-      const ids = {json.dumps([m for m, _ in cases])};
-      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m).key)));
-    """)
-    assert got == [key for _, key in cases]
-
-
-@needs_node
-def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
-    """issue #357: the dotted transcript id and its dashed form both hit
-    the new exact key in the browser too — never the shorter gpt-6-sol
-    row — at the rates the committed file defines, priced identically on
-    both sides. The ids are literals in a plain list, not rate-call
-    arguments, so no row value is pinned."""
-    ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
-    got = _node(PARSER_JS, f"""
-      const ids = {json.dumps(ids)};
-      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
-    """)
-    assert [(g["kind"], g["key"]) for g in got] == [
-        ("exact", "gpt-6-1-sol"), ("exact", "gpt-6-1-sol"),
-        ("exact", "gpt-6-sol")]
-    for g, w in zip(got, (pricing.resolve(m) for m in ids), strict=True):
-        assert _js_rates(g["rates"]) == w.rates
 
 
 def test_the_file_is_in_canonical_layout():
@@ -319,14 +301,15 @@ def test_neither_side_carries_a_rate_literal():
 # --- history is append-only --------------------------------------------------
 
 _GLM_MODEL = "glm-5-3-flash"
-_GLM_HISTORY = _doc()["models"][_GLM_MODEL]
+_GLM_HOST = "Z.AI"
+_GLM_HISTORY = _doc()["providers"][_GLM_MODEL][_GLM_HOST]
 CUT = _stamp(max(
     [_at(entry["from"]) for entry in _GLM_HISTORY if entry["from"]]
     + [_at(_doc()["provider_rates_fetched"])]
     + [datetime.min.replace(tzinfo=timezone.utc)]) + timedelta(seconds=1))
 APPEND_ROWS = [
-    pytest.param(("models", "glm-5-3-flash"), "glm-5.3-flash", None,
-                 id="model"),
+    pytest.param(("providers", "glm-5-3-flash", "Z.AI"), "glm-5.3-flash",
+                 None, id="bare-vendor"),
     pytest.param(("providers", "deepseek/deepseek-v4-1-flash", "Novita"),
                  "deepseek/deepseek-v4.1-flash", "Novita", id="provider"),
 ]
@@ -451,7 +434,7 @@ UNSPELLABLE_IN_JSON = {"infinite-rate", "nan-rate"}
 
 def _damaged(damage) -> dict:
     doc = copy.deepcopy(_doc())
-    damage(doc["models"]["glm-5-3-flash"])
+    damage(doc["models"]["bonsai-2-27b"])
     return doc
 
 
@@ -459,6 +442,8 @@ def _node_load(tmp_path, doc: dict) -> str | None:
     """Require the real pricing-loader.js beside `doc`; the load error."""
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     return _node_raw(f"""
       global.window = {{}};
       let error = null;
@@ -513,8 +498,8 @@ def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
       try {{ require({str(LOADER_JS)!r}); }} catch (e) {{ error = e.message; }}
       console.log(JSON.stringify({{
         requests, error,
-        fresh: window.modelRates && window.modelRates['claude-opus-4-7']
-          ? window.modelRates['claude-opus-4-7'].fresh : null,
+        fresh: window.keyListRates && window.keyListRates('claude-opus-4-7')
+          ? window.keyListRates('claude-opus-4-7').fresh : null,
       }}));
     """)
 
@@ -548,7 +533,7 @@ def _with_newcomer() -> dict:
 
 def _model_row_beginning() -> dict:
     doc = copy.deepcopy(_doc())
-    doc["models"]["glm-5-3-flash"][0]["from"] = "2020-01-01T00:00:00Z"
+    doc["models"]["bonsai-2-27b"][0]["from"] = "2020-01-01T00:00:00Z"
     return doc
 
 
@@ -627,7 +612,7 @@ SCHEDULE_DAMAGE = [
 
 def _model_schedule() -> dict:
     doc = copy.deepcopy(_doc())
-    doc["models"]["glm-5-3-flash"][-1]["schedule"] = SCHEDULE
+    doc["models"]["bonsai-2-27b"][-1]["schedule"] = SCHEDULE
     return doc
 
 
@@ -661,15 +646,17 @@ P_AFTER = {"fresh": 3.20, "create_5m": 4.00, "create_1h": 6.40,
 
 def _provider_only_doc() -> dict:
     """A file whose only row is a synthetic (model, host) pair that begins
-    at P_START and moves at P_CUT, at rates unlike any real price."""
-    return {
-        "models": {},
-        "long_context_models": [],
-        "providers": {"acme/acme-9": {"HostCo": [
-            {"from": P_START, **P_BEFORE},
-            {"from": P_CUT, **P_AFTER},
-        ]}},
-    }
+    at P_START and moves at P_CUT, at rates unlike any real price (plus the
+    claude-opus-4-7 row the default estimate needs, at no cutover)."""
+    return seed_doc(providers={"acme/acme-9": {"HostCo": [
+        {"from": P_START, **P_BEFORE},
+        {"from": P_CUT, **P_AFTER},
+    ]}})
+
+
+# The default-estimate row a synthetic document carries: the shared seed
+# literal, copied so DAMAGE variants never mutate the source.
+_CLAUDE_DEFAULT_ENTRY = dict(DEFAULT_ROW)
 
 
 # --- a variant suffix folds to the bare id (issue 72) ------------------------

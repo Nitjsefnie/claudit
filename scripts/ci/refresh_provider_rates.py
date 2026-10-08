@@ -29,7 +29,15 @@ These refuse the host or model they concern, which appends nothing:
 - a price or override kind this script does not model, or a response
   shape it does not recognise; a listed per-request fee is the exception:
   it is recorded in the row's note, never priced from token counts, so an
-  unmodelled cost is never dropped in silence;
+  unmodelled cost is never dropped in silence. The one modelled override
+  exception is the long-context band: a `min_prompt_tokens` override at
+  the Codex meter's shape (refresh_prices.meter_shape_ok) contributes no
+  window and no membership — the vendor pass owns membership — and its
+  rates never enter the row; departing the meter it is a NOTICE, that
+  host's row untouched, the run stays green (the vendor pass's
+  not-tracked rule, SV-VENDOR-RATES). A band never enters a provider
+  entry's `band` field: that field is the oscillation band, a different
+  shape;
 - a host seen for the first time while the fetch falls inside one of its
   schedule's windows, unless its schedule covers the whole week: then no
   record is priced by the entry default and it starts as the listed top-level
@@ -46,12 +54,15 @@ Every other sampled move is still written, then the script exits nonzero
 naming each refusal. A detection time not after a sampled row's newest
 entry leaves that host untouched with a notice; appending after it would
 refuse the file, and one host's damage never blocks the others. The
-The one-time, human-reviewed history rewrite
+one-time, human-reviewed history rewrite
 lives in backfill_provider_rates.py.
 
-The same run refreshes the four first-party vendor prefixes' models-table
-rows and long_context_models membership (refresh_vendor_rates,
-SV-VENDOR-RATES): one report, one PRICING_VERSION bump, one commit.
+The same run tracks the first-party vendor table (refresh_vendor_rates,
+SV-VENDOR-RATES): a catalog id under a configured
+openrouter.vendor.prefixes entry whose derived key is untracked joins
+openrouter.models as {"id", "vendor_host"} — no rates; the provider pass
+carries its (key, vendor_host) row from the next hourly run. One report,
+one PRICING_VERSION bump, one commit.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
@@ -303,6 +314,7 @@ class ListedModel:
     rows: dict[str, Listing]
     refused: dict[str, str]
     notices: list[str]
+    untracked: dict[str, str]
 
 
 def _same_rates(left: dict, right: dict) -> bool:
@@ -313,11 +325,11 @@ def _same_rates(left: dict, right: dict) -> bool:
 def _listed_model(context: RefreshContext, model: str, source: dict,
                   hosts: dict) -> ListedModel:
     payload = _fetch(context.fetch, model, source)
-    rows, refused, notices = listed_rows(
+    rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
         {host: {field: history[-1][field] for field in RATE_FIELDS}
          for host, history in hosts.items()}, context.at)
-    return ListedModel(payload, rows, refused, notices)
+    return ListedModel(payload, rows, refused, notices, untracked)
 
 
 def _delisted(source: dict, catalog: set[str] | None) -> bool:
@@ -340,12 +352,13 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
         source.get("resolve", {}), _append_logged, _same_rates, context.at)
     moves = logged.moves + _append(
         model, hosts, logged.sampled_rows, context.stamp, context.at, listed.notices)
-    notices = listed.notices + logged.notices
+    notices = listed.notices + list(listed.untracked.values()) + logged.notices
     notices += [f"non-uniform schedule: Token Breakdown split is approximate "
                 f"for {model} via {move.host}"
                 for move in moves if not _scales_alike(move.new)]
     vanished = [(model, host) for host in hosts
-                if host not in listed.rows and host not in listed.refused]
+                if host not in listed.rows and host not in listed.refused
+                and host not in listed.untracked]
     return ModelResult(moves, vanished, list(listed.refused.values()), notices, logged.sampled)
 
 
@@ -405,9 +418,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
                          fetch_models, fetch_log)
         # The vendor pass runs on the provider pass's own document, after its
         # loader validation; it validates the would-be file again itself.
-        outcome = (vendor(result.doc, fetch_models, fetch, stamp,
-                          datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
-                          .replace(tzinfo=timezone.utc))
+        outcome = (vendor(result.doc, fetch_models, fetch)
                    if vendor is not None else None)
         constants = constants_path.read_text(encoding="utf-8")
         if result.moves or (outcome is not None and outcome.moves):
