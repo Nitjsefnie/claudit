@@ -8,7 +8,8 @@ from tests.test_provider_rate_refresh import GLM, PRICING_JSON, Run, STAMP, _pay
 
 
 def _assert_document_pin_resolves_shape(
-        tmp_path, capsys, key: str, host: str, shape: str) -> None:
+        tmp_path, capsys, key: str, host: str,
+        listings: tuple[tuple[str, dict], ...]) -> None:
     pin = json.loads(PRICING_JSON.read_text(encoding="utf-8"))[
         "openrouter"]["models"][key].get("resolve", {}).get(host)
 
@@ -25,19 +26,7 @@ def _assert_document_pin_resolves_shape(
     endpoints[:] = [endpoint for endpoint in endpoints
                     if endpoint["provider_name"] != host]
 
-    if shape == "quantization":
-        selected = pin["tag"] if pin else f"{host.lower()}/fp8"
-        alternatives = [(f"{host.lower()}/fast", RATES_B)]
-    elif shape == "service tiers":
-        selected = pin["tag"] if pin else host.lower()
-        alternatives = [(f"{selected}/fast", RATES_B),
-                        (f"{selected}/flex", RATE_C)]
-    else:
-        selected = pin["tag"] if pin else f"{host.lower()}/global"
-        alternatives = [(selected.rsplit("/", 1)[0], RATES_B)]
-
-    endpoints.append(_endpoint(host, RATES_A, tag=selected))
-    for tag, rates in alternatives:
+    for tag, rates in listings:
         endpoints.append(_endpoint(host, rates, tag=tag))
 
     rc, _, err = run(capsys)
@@ -50,14 +39,17 @@ def _assert_document_pin_resolves_shape(
 
 def test_quantization_pin_resolves_a_throughput_tier(tmp_path, capsys):
     _assert_document_pin_resolves_shape(
-        tmp_path, capsys, "glm-5-2", "Alibaba", "quantization")
+        tmp_path, capsys, "glm-5-2", "Alibaba",
+        (("alibaba/fp8", RATES_A), ("alibaba/fast", RATES_B)))
 
 
 def test_bare_namespace_pin_resolves_service_tiers(tmp_path, capsys):
     _assert_document_pin_resolves_shape(
-        tmp_path, capsys, "gpt-5", "Azure", "service tiers")
+        tmp_path, capsys, "gpt-5", "Azure",
+        (("azure", RATES_A), ("azure/fast", RATES_B), ("azure/flex", RATE_C)))
 
 
 def test_global_region_pin_selects_the_account_endpoint(tmp_path, capsys):
     _assert_document_pin_resolves_shape(
-        tmp_path, capsys, "claude-haiku-4-5", "Google", "global")
+        tmp_path, capsys, "claude-haiku-4-5", "Google",
+        (("google-vertex/global", RATES_A), ("google-vertex", RATES_B)))
