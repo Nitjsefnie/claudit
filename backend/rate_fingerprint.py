@@ -43,7 +43,7 @@ _STRUCTURE_VERSION = 4
 # itself joins them at first use (hashed_modules) — a module-level
 # import would be the cycle ingest_reprice already closes the other way.
 _LOGIC_MODULES = (pricing, pricing_load, model_names, meter_tables,
-                 long_context)
+                  long_context)
 
 # The digest, computed on first use: by then both import directions
 # (rate_fingerprint <-> ingest_reprice) have settled and getsource can
