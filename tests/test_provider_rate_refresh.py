@@ -101,6 +101,11 @@ def _seeded(doc: dict) -> dict:
                                    if model not in vendor_keys}
     doc["long_context_models"] = [m for m in doc["long_context_models"]
                                   if m not in vendor_keys]
+    # The per-model meters ride their members: a meter for a dropped row
+    # would refuse the loaders (a meters key names a member).
+    doc["long_context_meters"] = {
+        key: value for key, value in doc.get("long_context_meters", {}).items()
+        if key not in vendor_keys}
     providers = {}
     for model, hosts in doc["providers"].items():
         if model.startswith(FUZZ_RESERVED_NAMESPACE):
