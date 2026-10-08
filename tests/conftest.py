@@ -200,9 +200,11 @@ def _fresh_match_key_cache():
     fps and fails conservative-but-confusing (see the parity and
     cache-gate tests)."""
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
     rate_fingerprint.clear_fingerprint_cache()
     yield
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
     rate_fingerprint.clear_fingerprint_cache()
 
 

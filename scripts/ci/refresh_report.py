@@ -110,9 +110,13 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
               f"{len(result.refusals)} refused" if result.refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     if vendor is not None and vendor.moves:
+        # Disjoint counts: an added move that also joins the meter counts
+        # under "added" alone, never twice.
         v_added = sum(1 for m in vendor.moves if m.added)
-        v_metered = sum(1 for m in vendor.moves if m.membership == "+")
-        v_unmetered = sum(1 for m in vendor.moves if m.membership == "-")
+        v_metered = sum(1 for m in vendor.moves
+                        if not m.added and m.membership == "+")
+        v_unmetered = sum(1 for m in vendor.moves
+                          if not m.added and m.membership == "-")
         segments = [f"{v_added} added" if v_added else "",
                     f"{v_metered} metered" if v_metered else "",
                     f"{v_unmetered} unmetered" if v_unmetered else ""]

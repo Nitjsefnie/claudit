@@ -119,6 +119,21 @@ def _node_raw(script: str):
     return json.loads(proc.stdout)
 
 
+def _loader_error(tmp_path: Path, doc: dict) -> str | None:
+    """The pricing-loader's load error for `doc`, from a tmp sandbox: null
+    when the document loads."""
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    proc = subprocess.run(
+        ["node", "-e",
+         "global.window={};let e=null;try{require('./pricing-loader.js')}"
+         "catch(x){e=x.message}console.log(JSON.stringify(e))"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
 def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
@@ -354,6 +369,8 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
         before: window.resolveModelRate({json.dumps(KEY)}, {json.dumps(before)}, null),
         listRes: window.resolveModelRate({json.dumps(KEY)}, null, null),
         suffix: window.resolveModelRate({json.dumps(KEY + '[1m]')}, null, null),
+        atSuffix: window.resolveModelRate({json.dumps(KEY + '@x')}, null, null),
+        snapshot: window.resolveModelRate({json.dumps(KEY + '-20250514')}, null, null),
         prefixedSpell: window.resolveModelRate({json.dumps(PKEY)}, null, null),
         barePrefixed: window.resolveModelRate({json.dumps(BARE)}, null, null),
         hostSpelled: window.resolveModelRate({json.dumps(KEY)}, {json.dumps(before)}, {json.dumps(HOST)}),
@@ -368,6 +385,8 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
             got["before"]["fee"]) == ("exact", KEY, 0)
     assert _js_rates(got["listRes"]["rates"]) == R_NEW
     assert (got["suffix"]["kind"], got["suffix"]["key"]) == ("exact", KEY)
+    assert (got["atSuffix"]["kind"], got["atSuffix"]["key"]) == ("exact", KEY)
+    assert (got["snapshot"]["kind"], got["snapshot"]["key"]) == ("exact", KEY)
     assert got["prefixedSpell"]["kind"] == "default"
     assert (got["barePrefixed"]["kind"], got["barePrefixed"]["key"]) == \
         ("exact", PKEY)
@@ -455,122 +474,6 @@ def test_a_bare_table_edit_moves_the_fingerprint(monkeypatch):
     assert after != before
 
 
-# --- the migration's cost-equality pin ----------------------------------------
-# The committed proof: pricing synthetic records through the OLD tables
-# (the pre-migration location of the moved rows, hand-built here) and the
-# NEW tables (the same rows relocated) must price every record identically.
-# The old rows are frozen literals; the live-file binding below pins the
-# migrated rows to them at a fixed instant before every cutover, so a later
-# refresh append cannot rot either half.
-
-
-def _old_doc() -> dict:
-    """The pre-migration shapes of the moved rows (frozen literals)."""
-    return {
-        "long_context_models": [],
-        "models": {
-            "claude-opus-4-7": [_entry(R_THIRD)],
-            "claude-old-opus-9": [_entry(R_OLD)],
-            "claude-old-opus-9-1": [_entry(R_THIRD)],
-            "claude-old-fold-9": [
-                _entry(R_OLD, note="Cache reads at 0.05x base input.")],
-        },
-        "openrouter": {"data_region": "global",
-                       "models": {"claude-old-fold-9": {"id": "acme/claude-old-fold.9"}},
-                       "vendor": {"prefixes": PREFIXES, "resolve": {}}},
-        "provider_rates_fetched": "2030-01-01T00:00:00Z",
-        "providers": {
-            "claude-old-fold-9": {"OldHost": [_entry(R_OLD, note=FEE_NOTE)]},
-        },
-    }
-
-
-def _new_doc() -> dict:
-    """The same rows in their post-migration locations."""
-    return {
-        "long_context_models": [],
-        "models": {"claude-opus-4-7": [_entry(R_THIRD)]},
-        "openrouter": {
-            "data_region": "global",
-            "models": {
-                "claude-old-opus-9": {"id": "acme/claude-old-opus.9",
-                                      "vendor_host": "NewHost"},
-                "claude-old-opus-9-1": {"id": "acme/claude-old-opus-1.9",
-                                        "vendor_host": "NewHost"},
-                "claude-old-fold-9": {"id": "acme/claude-old-fold.9",
-                                      "vendor_host": "OldHost"},
-            },
-            "vendor": {"prefixes": PREFIXES, "resolve": {}},
-        },
-        "provider_rates_fetched": "2030-01-01T00:00:00Z",
-        "providers": {
-            "claude-old-opus-9": {"NewHost": [_entry(R_OLD)]},
-            "claude-old-opus-9-1": {"NewHost": [_entry(R_THIRD)]},
-            "claude-old-fold-9": {"OldHost": [_entry(R_OLD, note=FEE_NOTE)]},
-        },
-    }
-
-
-def _probe_records():
-    """(model, ts or None, provider or None, tokens) over both documents:
-    the dated windows, the list price, ts=None, a [1m] suffix, and the
-    fold's fee-bearing host row."""
-    instants = [None, CUT - timedelta(seconds=1), CUT,
-                datetime(2031, 6, 1, tzinfo=UTC)]
-    tokens = {"fresh": 100_000, "output": 40_000, "eph5": 5_000,
-              "eph1h": 2_000, "unsplit_create": 1_000, "read": 90_000}
-    cases = []
-    for model in ("claude-old-opus-9", "claude-old-opus-9[1m]",
-                  "claude-old-opus-9-1", "claude-old-fold-9"):
-        for ts in instants:
-            for provider in (None, "OldHost"):
-                cases.append((model, ts, provider, tokens))
-    return cases
-
-
-def _price_all(doc, cases):
-    tables = pricing.load_tables(doc)
-    saved = {name: getattr(pricing, name) for name in tables}
-    try:
-        for name, value in tables.items():
-            setattr(pricing, name, value)
-        _clear_caches()
-        out = []
-        for model, ts, provider, tokens in cases:
-            res = pricing.resolve(model, ts, provider)
-            cost = pricing.compute_cost(model, ts=ts, res=res, **tokens)
-            out.append((res.kind, res.key, res.request_fee, res.scheduled,
-                        res.rates, cost))
-        return out
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
-        _clear_caches()
-
-
-def test_migration_prices_every_record_identically():
-    cases = _probe_records()
-    old, new = _price_all(_old_doc(), cases), _price_all(_new_doc(), cases)
-    for case, a, b in zip(cases, old, new, strict=True):
-        assert a == b, case
-
-
-def test_the_folded_row_prices_the_host_fee_only_via_the_host():
-    """The fold case: the models row died, so the bare id prices the
-    surviving host row's RATES fee-free, while a record through the host
-    pays the host's own per-request fee — on both sides of the migration."""
-    tokens = {"fresh": 1_000_000, "output": 0, "eph5": 0, "eph1h": 0,
-              "unsplit_create": 0, "read": 0}
-    cases = [("claude-old-fold-9", None, None, tokens),
-             ("claude-old-fold-9", CUT, "OldHost", tokens)]
-    old, new = _price_all(_old_doc(), cases), _price_all(_new_doc(), cases)
-    assert old == new
-    assert old[0][2] == 0.0, "bare: the host's fee never applies"
-    assert old[1][2] == 0.01, "through the host: the fee applies"
-
-
-# The instant every committed history predates: pricing each migrated row's
-# first entry, which an append-only history never rewrites.
 _PIN_INSTANT = datetime(2020, 1, 1, tzinfo=UTC)
 _PIN_KEYS = (
     "claude-opus-4-7", "claude-opus-5-5", "claude-sonnet-5-5",

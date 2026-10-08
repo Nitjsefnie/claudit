@@ -326,6 +326,16 @@ def _long_context_meters(doc: dict) -> dict[str, int]:
 _VENDOR_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
+def _bare_form(key: str, prefixes: list[str]) -> str:
+    """A tracked key's bare form: the key with its namespace prefix
+    stripped, longest prefix first; an unprefixed key is its own bare
+    form."""
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if key.startswith(f"{prefix}/"):
+            return key[len(prefix) + 1:]
+    return key
+
+
 def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:
     """The bare-id vendor tables (SV-RATE-DATA), checked: for each tracked
     entry carrying `vendor_host`, the (bare form → tracked key) match table
@@ -363,11 +373,11 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
         if not isinstance(host, str) or not host:
             raise ValueError(
                 f"pricing.json: {where}: vendor_host is not a non-empty string")
-        form = key
-        for prefix in sorted(prefixes, key=len, reverse=True):
-            if key.startswith(f"{prefix}/"):
-                form = key[len(prefix) + 1:]
-                break
+        form = _bare_form(key, prefixes)
+        if not form:
+            raise ValueError(
+                f"pricing.json: {where}: bare form is empty; a tracked key "
+                "may not be exactly its namespace prefix")
         if form in bare:
             raise ValueError(
                 f"pricing.json: {where} and openrouter.models[{bare[form]!r}] "

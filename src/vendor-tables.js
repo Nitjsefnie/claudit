@@ -7,11 +7,16 @@
 //
 // Loaded ahead of src/pricing-loader.js by index.html's script tags (it
 // installs the builder on window) and required by the loader under node;
-// the loader calls it once its own tables are built. Any failure throws
-// naming pricing.json: with no valid tables there is no honest price.
+// the loader calls it once its own tables are built, and the merged-view
+// rates accessor below reads the tables installed by that call. Any
+// failure throws naming pricing.json: with no valid tables there is no
+// honest price.
 (function () {
   const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
   const _VENDOR_NAME = /^[a-z0-9-]+$/;
+
+  // The tables the loader installs; keyListRates reads them after the call.
+  let _modelRates, _vendorBare, _vendorHosts;
 
   const buildVendorTables = (pricing, modelRates, vendorBare, vendorHosts) => {
     const openrouter = pricing.openrouter;
@@ -50,6 +55,10 @@
           break;
         }
       }
+      if (form === '') {
+        throw _pricingError(`${where}: bare form is empty; a tracked key `
+          + 'may not be exactly its namespace prefix');
+      }
       if (form in vendorBare) {
         throw _pricingError(`${where} and openrouter.models[`
           + `${JSON.stringify(vendorBare[form])}] both carry the bare `
@@ -62,13 +71,30 @@
       vendorBare[form] = key;
       vendorHosts[key] = host;
     }
+    _modelRates = modelRates;
+    _vendorBare = vendorBare;
+    _vendorHosts = vendorHosts;
+  };
+
+  // A key's list rates in the merged view: the models-table row when the
+  // key names one, else its tracked vendor row's. The tier fallbacks and
+  // the default estimate read the merged view — the claude families live
+  // in the tracked table since the vendor migration (issue #851). Mirrors
+  // pricing._list_rates.
+  const keyListRates = (key) => {
+    if (_modelRates[key] !== undefined) return _modelRates[key];
+    const tracked = _vendorBare[key];
+    return _vendorHosts[tracked] === undefined ? undefined
+      : (window.providerRates[tracked] || {})[_vendorHosts[tracked]];
   };
 
   /* eslint-disable no-undef */
   if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
-    module.exports = { buildVendorTables };   // node: the loaders' require chain
+    // node: the loaders' require chain
+    module.exports = { buildVendorTables, keyListRates };
     return;
   }
   /* eslint-enable no-undef */
   window.buildVendorTables = buildVendorTables;   // the browser's script tag
+  window.keyListRates = keyListRates;
 })();

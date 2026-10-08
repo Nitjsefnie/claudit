@@ -458,38 +458,37 @@ window.rateEpochs = [...new Set([
 ])].sort((a, b) => a - b);
 
 // The vendor tables (SV-RATE-DATA): built by src/vendor-tables.js — the
-// browser loads it ahead of this script (index.html's tag order) and node
-// requires it from here. Mirrors pricing_load._vendor_tables.
+// browser loads it ahead of this script (index.html's tag order; it also
+// installs keyListRates there) and node requires it from here. Mirrors
+// pricing_load._vendor_tables.
 /* eslint-disable no-undef */
-const _buildVendorTables =
-  typeof module !== 'undefined' && typeof module.exports !== 'undefined'
-    ? require('./vendor-tables.js').buildVendorTables
-    : window.buildVendorTables;
+const _vendorTables = (typeof module !== 'undefined'
+                       && typeof module.exports !== 'undefined')
+  ? require('./vendor-tables.js')
+  : window;
+const _buildVendorTables = _vendorTables.buildVendorTables;
 /* eslint-enable no-undef */
 window.vendorBare = {};
 window.vendorHosts = {};
 _buildVendorTables(_PRICING, window.modelRates, window.vendorBare,
                    window.vendorHosts);
+window.keyListRates = _vendorTables.keyListRates;
 
 // The default estimate needs its row the moment the first unknown id
 // resolves, so a document naming no claude-opus-4-7 row in either table
-// refuses at load — the mirror of the backend loader's own refusal.
-if (window.modelRates['claude-opus-4-7'] === undefined
-    && window.vendorBare['claude-opus-4-7'] === undefined) {
-  throw _pricingError(
-    'no claude-opus-4-7 row prices the default estimate');
+// refuses at load — the mirror of the backend loader's own refusal. A
+// tracked-but-rowless claude-opus-4-7 refuses the same way: the row the
+// bare path would read does not exist, and keyListRates would otherwise
+// throw a raw TypeError at resolve time.
+const _defaultTracked = window.vendorBare['claude-opus-4-7'];
+const _defaultRow = window.modelRates['claude-opus-4-7']
+  ?? (_defaultTracked === undefined
+      ? undefined
+      : (window.providerRates[_defaultTracked] || {})[
+           window.vendorHosts[_defaultTracked]]);
+if (_defaultRow === undefined) {
+  throw _pricingError('no claude-opus-4-7 row prices the default estimate');
 }
-
-// A key's list rates in the merged view: the models-table row when the
-// key names one, else its tracked vendor row's. The tier fallbacks and
-// the default estimate read the merged view — the claude families live
-// in the tracked table since the vendor migration (issue #851). Mirrors
-// pricing._list_rates.
-window.keyListRates = (key) => {
-  if (window.modelRates[key] !== undefined) return window.modelRates[key];
-  const tracked = window.vendorBare[key];
-  return window.providerRates[tracked][window.vendorHosts[tracked]];
-};
 
 // Every rate an OpenRouter free model carries: zero. Returned for any id
 // ending in ':free' or starting with 'stealth/' — see _isFreeModel in

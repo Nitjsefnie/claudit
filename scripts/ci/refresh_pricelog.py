@@ -352,24 +352,23 @@ def _match_series_to_endpoints(
 
 
 def _endpoint_overrides_kind(endpoint: dict) -> str | None:
-    """What one endpoint's pricing.overrides classify as: "schedule" when a
-    utc window is present, "band" when a min_prompt_tokens override is, and
-    "schedule" (the historical wording) for any other overrides presence.
-    The log's five fields carry neither, so any of them samples the host;
-    the sampled reason names which classified it."""
+    """What one endpoint's pricing.overrides classify as, independent of
+    the overrides' order: "schedule" when a utc window is present (the
+    stronger blocker, and the historical wording for anything else),
+    "band" when only min_prompt_tokens overrides are. The log's five
+    fields carry neither, so either samples the host; the sampled reason
+    names which classified it."""
     pricing = endpoint.get("pricing")
     if not isinstance(pricing, dict):
         return None
     overrides = pricing.get("overrides")
     if not isinstance(overrides, list) or not overrides:
         return None
-    for override in overrides:
-        if not isinstance(override, dict):
-            continue
-        if set(override) & {"utc_days", "utc_start", "utc_end"}:
-            return "schedule"
-        if "min_prompt_tokens" in override:
-            return "band"
+    dicts = [o for o in overrides if isinstance(o, dict)]
+    if any(set(o) & {"utc_days", "utc_start", "utc_end"} for o in dicts):
+        return "schedule"
+    if any("min_prompt_tokens" in o for o in dicts):
+        return "band"
     return "schedule"
 
 

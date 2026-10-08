@@ -148,9 +148,10 @@ def _key_windows(key: str) -> Windows | None:
 # The two GPT-5.6 repricing instants, named for the tests that price
 # around them. The gpt-5.6 rows are tracked vendor rows since the
 # migration, so their windows read through the merged dated-views
-# accessor, which keeps the models-table row when a key names one. The
-# loader refuses a document where either row is missing, so the lookup
-# is total.
+# accessor, which keeps the models-table row when a key names one. Both
+# rows carry committed histories, so the lookup is total whatever a
+# later refresh appends — and a tracked-but-rowless key would read None,
+# which the assert refuses loudly instead of mispricing through.
 _gpt56_terra_windows = _key_windows("gpt-5-6-terra")
 _gpt56_sol_windows = _key_windows("gpt-5-6-sol")
 assert _gpt56_terra_windows is not None and _gpt56_sol_windows is not None
@@ -163,12 +164,16 @@ def _latest(*families: str) -> dict:
     view (models-table keys and tracked vendor bare keys).
 
     ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-`` keys
-    do not match. Ties keep table order (max returns the first).
+    do not match. A tracked key with no provider row yet — the auto-add's
+    pickup delay, which the loaders admit — names no rates and is
+    skipped, exactly as resolve()'s bare path falls through it. Ties keep
+    table order (max returns the first).
     """
     versions = [
         (tuple(int(p) for p in m.group(2).split("-")), key)
         for key in {**MODEL_RATES, **VENDOR_BARE}
         if (m := _VERSIONED_KEY.match(key)) and m.group(1) in families
+        and (key in MODEL_RATES or _vendor_row(key) is not None)
     ]
     return _list_rates(max(versions, key=lambda v: v[0])[1])
 

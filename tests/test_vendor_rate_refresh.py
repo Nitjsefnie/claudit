@@ -524,6 +524,21 @@ def test_main_runs_the_vendor_pass(tmp_path, capsys):
     assert "vendor table: 1 added" in run.commit_msg.read_text(encoding="utf-8")
 
 
+def test_main_an_added_move_that_also_joins_the_meter_counts_once(
+        tmp_path, capsys):
+    """The subject's vendor segments are disjoint: a move that is both an
+    auto-add and a meter fold counts under "added" alone, never twice."""
+    listing = _price(1.0, 5.0, read=0.1,
+                     overrides=[_band(1.0, 5.0, read=0.1)])
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
+                  {GPT_ID: _payload(_endpoint("openai", listing))})
+    rc, _out, err = run(capsys)
+    assert rc == 0, err
+    subject = run.commit_msg.read_text(encoding="utf-8").partition("\n\n")[0]
+    assert subject.endswith("vendor table: 1 added")
+    assert "metered" not in subject
+
+
 def test_main_vendor_refusal_is_red_but_other_moves_writes(tmp_path, capsys):
     run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
                   {GPT_ID: _payload(_endpoint("openai/mxfp4", _price(1.0, 5.0)),
