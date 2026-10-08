@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -108,9 +109,14 @@ def _suite_phase(pytest_args: list[str]) -> dict:
     the CPU '-' where the platform cannot measure it."""
     child_start = _children_cpu()
     wall_start = time.perf_counter()
+    # The tree under test is deliberately not the deployed data: tests
+    # that pin the DEPLOYED document itself (a byte ceiling) would fire
+    # on the inflation that is the leg's point, so the child is told the
+    # data is perturbed and may scope its data pins to the deployed tree.
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", *pytest_args],
-        cwd=str(REPO_ROOT), check=False)
+        cwd=str(REPO_ROOT), check=False,
+        env=dict(os.environ, CLAUDIT_TEST_PERTURBED_DATA="1"))
     child_cpu = _children_cpu()
     return {
         "wall_s": _fmt(time.perf_counter() - wall_start),
