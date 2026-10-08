@@ -326,6 +326,12 @@ def _install_shape_tables(monkeypatch, prov) -> None:
     monkeypatch.setattr(pricing, "DATED_RATES", {
         "claude-sonnet-4-5": [(_SONNET_END, _WINDOW_RATES)],
     })
+    # The meter tables are the test's own (SV-TEST-DATA): exactly the
+    # meter shape model is a member, so the sonnet boundary rows keep
+    # their NULL flag under both passes whatever the live fold does.
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
+                        frozenset({"gpt-5-6-sol"}))
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
     rate_fingerprint.clear_fingerprint_cache()
 
 

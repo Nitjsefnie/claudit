@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "parser"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 RATES_JS = ROOT / "src" / "rates.js"
+LANES_JS = ROOT / "src" / "parser-lanes.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 
 PROMPT_LINES = {
@@ -58,6 +59,7 @@ def _node_prompt_results(transcripts: dict[str, str]) -> dict:
     """Parse transcripts with the real browser parser in one Node process."""
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});

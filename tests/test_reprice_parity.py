@@ -233,6 +233,13 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     # claude rows carry no meter decision (non-members), and the
     # Claude-format member row's flag comes from the parse (issue #765).
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
+    # The membership is the test's own (SV-TEST-DATA): exactly the
+    # bare meter model, so the claude fixture rows stay non-members
+    # whatever the live fold does, and no per-model threshold stands
+    # between the patch above and the codex re-derivation.
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
+                        frozenset({"gpt-6-sol"}))
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
     assert ingest.run_ingest(trigger="manual")["error"] is None
 
     with db.viz_conn() as c:
