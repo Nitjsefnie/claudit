@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.refresh_fixture_builders import seed_doc
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "perturbed_leg_bench.py"
 
@@ -46,13 +48,8 @@ bench = _load()
 def _seed_tree(tmp_path: Path) -> tuple[Path, Path]:
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
-    doc = {
-        "models": {"acme/acme-9": [{"from": None, **RATES}]},
-        "providers": {},
-        "provider_rates_fetched": "2026-06-01T00:00:00Z",
-        "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {}},
-    }
+    doc = seed_doc(models={"acme/acme-9": [{"from": None, **RATES}]},
+                   fetched="2026-06-01T00:00:00Z")
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     constants_path.write_text(
@@ -119,8 +116,9 @@ def test_two_seeds_sum_and_start_pristine(tmp_path):
     # five appended entries per row, not ten -- seed 43 did not
     # perturb seed 42's tree.
     doc = json.loads(pricing_path.read_text(encoding="utf-8"))
-    (entries,) = doc["models"].values()
+    entries = doc["models"]["acme/acme-9"]
     assert len(entries) == 6  # 1 real + 5 appended
+    assert len(doc["models"]["claude-opus-4-7"]) == 6, "every row perturbs"
     constants_text = constants_path.read_text(encoding="utf-8")
     assert 'PRICING_VERSION = "6"' in constants_text  # 5 + one bump
 

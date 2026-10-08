@@ -315,13 +315,16 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
     # cache-gate test's spelling), dict-additive so no other pair's
     # resolution reads this patch. A's move is then self-contained —
     # it dominates whatever live or perturbed rows the tables carry —
-    # and pair B stays untouched under any table content.
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        _SEED_MODEL: [(datetime(2099, 1, 1, tzinfo=UTC), _MOVED_RATES)]})
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES,
-        _SEED_MODEL: dict(_MOVED_RATES)})
+    # and pair B stays untouched under any table content. The seed key
+    # is a tracked vendor key since the migration, so its pair is
+    # (key, vendor_host) and the move lands on the provider tables.
+    seed_row = (_SEED_MODEL, pricing.VENDOR_HOSTS[_SEED_MODEL])
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        **pricing.PROVIDER_DATED_RATES,
+        seed_row: [(datetime(2099, 1, 1, tzinfo=UTC), _MOVED_RATES)]})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **pricing.PROVIDER_RATES,
+        seed_row: dict(_MOVED_RATES)})
     rate_fingerprint.clear_fingerprint_cache()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
