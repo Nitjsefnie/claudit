@@ -28,6 +28,7 @@ from backend import long_context, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 JS_FIELDS = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
@@ -120,6 +121,7 @@ def _node_raw(script: str):
 
 def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 

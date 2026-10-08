@@ -23,6 +23,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 
 # The model id a transcript carries, and the row key it resolves to (the
 # same shapes the real pricing.json and test_provider_rate_refresh.py use).
@@ -105,6 +106,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     fixture = where / "pricing.json"
     fixture.write_text(text, encoding="utf-8")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a

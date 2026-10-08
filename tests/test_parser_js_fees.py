@@ -18,6 +18,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -42,6 +43,11 @@ def _doc() -> dict:
     return {
         "models": {
             "acme/acme-9": [_entry(RATES)],
+            # The default estimate's row the loaders require (frozen
+            # synthetic rates, the sibling seed docs' shape).
+            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
+                                 "create_5m": 6.25, "create_1h": 10.0,
+                                 "read": 0.5, "output": 25.0}],
         },
         "providers": {
             "acme/acme-9": {
@@ -52,6 +58,9 @@ def _doc() -> dict:
                 ],
             },
         },
+        "openrouter": {"data_region": "global", "models": {},
+                       "vendor": {"prefixes": ["anthropic", "openai",
+                                               "moonshotai", "z-ai"]}},
         "long_context_models": [],
         "provider_rates_fetched": "2026-09-24T22:03:13Z",
     }
@@ -61,6 +70,7 @@ def _doc() -> dict:
 def _sandbox(tmp_path, monkeypatch):
     """parser.js + the synthetic pricing.json, alone in a tmp dir."""
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     (tmp_path / "pricing.json").write_text(

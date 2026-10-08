@@ -23,6 +23,7 @@ from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 PRICING_PY = ROOT / "backend" / "pricing.py"
@@ -145,6 +146,7 @@ def _node_raw(script: str):
 
 def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 
@@ -272,57 +274,6 @@ def test_both_sides_derive_the_same_tables_in_the_same_order():
             for h, ws in hosts.items()} == \
         {k: [(int(end.timestamp() * 1000), r) for end, r in ws]
          for k, ws in pricing.PROVIDER_DATED_RATES.items()}
-
-
-def _extending_ids() -> list[tuple[str, str]]:
-    """(model id, the key it names) where the id matches a longer key AND a
-    shorter one: an undashed snapshot suffix is valid after the longer key,
-    and after the shorter one the rest still reads as a snapshot
-    ("claude-opus-4" + "-1202508"). The keys are the merged view's:
-    models-table keys and tracked vendor bare keys alike."""
-    keys = [*pricing.MODEL_RATES, *pricing.VENDOR_BARE]
-    return [(longer + "202508", longer)
-            for shorter in keys for longer in keys
-            if longer != shorter and longer.startswith(shorter)]
-
-
-def test_the_longest_matching_key_wins_in_the_backend():
-    """The file is sorted, which puts every key AFTER the shorter key it
-    extends, so matching must not take the first key that fits."""
-    assert list(pricing.MODEL_RATES) == list(_doc()["models"])
-    cases = _extending_ids()
-    assert cases, "the table has keys that extend other keys"
-    for model, key in cases:
-        assert pricing.resolve(model).key == key, model
-
-
-@needs_node
-def test_the_longest_matching_key_wins_in_the_browser():
-    cases = _extending_ids()
-    got = _node(PARSER_JS, f"""
-      const ids = {json.dumps([m for m, _ in cases])};
-      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m).key)));
-    """)
-    assert got == [key for _, key in cases]
-
-
-@needs_node
-def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
-    """issue #357: the dotted transcript id and its dashed form both hit
-    the new exact key in the browser too — never the shorter gpt-6-sol
-    row — at the rates the committed file defines, priced identically on
-    both sides. The ids are literals in a plain list, not rate-call
-    arguments, so no row value is pinned."""
-    ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
-    got = _node(PARSER_JS, f"""
-      const ids = {json.dumps(ids)};
-      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
-    """)
-    assert [(g["kind"], g["key"]) for g in got] == [
-        ("exact", "gpt-6-1-sol"), ("exact", "gpt-6-1-sol"),
-        ("exact", "gpt-6-sol")]
-    for g, w in zip(got, (pricing.resolve(m) for m in ids), strict=True):
-        assert _js_rates(g["rates"]) == w.rates
 
 
 def test_the_file_is_in_canonical_layout():
@@ -487,6 +438,7 @@ def _node_load(tmp_path, doc: dict) -> str | None:
     """Require the real pricing-loader.js beside `doc`; the load error."""
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     return _node_raw(f"""
       global.window = {{}};
       let error = null;

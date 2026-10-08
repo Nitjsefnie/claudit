@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -370,6 +371,7 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(RATES_JS, where / "rates.js")
     shutil.copy(PARSER_JS, where / "parser.js")
     before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()

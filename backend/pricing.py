@@ -53,6 +53,15 @@ from datetime import datetime, timezone
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_OUTPUT_MULT, LONG_CONTEXT_THRESHOLD)
+from backend.model_names import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _PERMASLUG_DATE,
+    _SNAPSHOT_SUFFIX,
+    _VARIANT_SUFFIX,
+    _VERSIONED_KEY,
+    _is_free,
+    _normalise,
+    _variant_folded,
+)
 from backend.pricing_load import (
     DATED_RATES,
     DEFAULT_RATES,
@@ -100,8 +109,6 @@ UTC = timezone.utc
 # Every rate an OpenRouter free model carries: zero. Returned for any id
 # ending in ":free" or starting with "stealth/" (see _is_free).
 FREE_RATES = dict.fromkeys(RATE_FIELDS, 0.00)
-
-_VERSIONED_KEY = re.compile(r"^claude-([a-z]+)-(\d+(?:-\d+)*)$")
 
 
 def _vendor_row(key: str) -> tuple[str, str] | None:
@@ -176,10 +183,6 @@ _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] = (
     (re.compile(r"haiku"), _latest("haiku")),
 )
 
-# A dated snapshot suffix ("-20250514") is the same model; a short version
-# suffix ("-9") or a mode suffix ("-fast") is a DIFFERENT model.
-_SNAPSHOT_SUFFIX = re.compile(r"^-?\d{6,8}$")
-
 
 @dataclass(frozen=True)
 class Resolution:
@@ -205,37 +208,6 @@ class Resolution:
     @property
     def estimated(self) -> bool:
         return self.kind != "exact"
-
-
-def _normalise(model: str | None) -> str:
-    """Strip provider/region prefixes and normalise version separators.
-
-    ``anthropic/claude-opus-4.8`` and ``us.anthropic.claude-opus-4-8``
-    both denote the same model as ``claude-opus-4-8``.
-    """
-    m = (model or "").strip().lower()
-    if not m:
-        return ""
-    # Everything before the first "claude" is provider/region routing.
-    i = m.find("claude")
-    if i > 0:
-        m = m[i:]
-    return m.replace(".", "-")
-
-
-def _is_free(model: str | None, norm: str) -> bool:
-    """True for an OpenRouter free model: an id ending in ``:free`` or
-    starting with ``stealth/``, case-insensitively.
-
-    Checked on the raw id as well as its normalised form because
-    ``_normalise`` strips everything before ``claude`` — a
-    ``stealth/claude-…`` id loses that prefix in ``norm`` and only the
-    raw check still sees it. (The ``:free`` suffix survives every
-    normalisation step; the raw check covers it symmetrically.)
-    """
-    raw = (model or "").strip().lower()
-    return (norm.endswith(":free") or norm.startswith("stealth/")
-            or raw.endswith(":free") or raw.startswith("stealth/"))
 
 
 _MATCH_KEY_CACHE: dict[str, str | None] = {}
@@ -338,27 +310,6 @@ def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, b
 
 def _dated(key: str, ts: datetime | None) -> dict:
     return _in_window(DATED_RATES.get(key), ts, MODEL_RATES[key])
-
-
-# OpenRouter's dated permaslug ("deepseek/deepseek-v4-flash-20260731") names
-# the same model as its short slug ("deepseek/deepseek-v4-flash-0731").
-_PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
-
-# OpenRouter's variant suffix (":nitro", ":floor") names a service tier,
-# not a price: the tiered id is the bare model at the bare model's price.
-# Only ":free" changes price (zero), and resolve() prices it before any
-# provider lookup — the guard here keeps a direct caller honest too.
-_VARIANT_SUFFIX = re.compile(r":([^:]*)$")
-
-
-def _variant_folded(norm: str) -> str:
-    """`norm` without ONE trailing ":<suffix>", when that suffix is not
-    "free" (case-insensitively); `norm` itself otherwise. Mirrored by
-    parser.js's _providerModelKey."""
-    m = _VARIANT_SUFFIX.search(norm)
-    if m is None or m.group(1).lower() == "free":
-        return norm
-    return norm[: m.start()]
 
 
 def _provider_key(norm: str, provider: str,

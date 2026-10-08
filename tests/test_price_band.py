@@ -491,6 +491,8 @@ def _node_load(tmp_path: Path, text: str) -> str | None:
     (tmp_path / "pricing.json").write_text(text, encoding="utf-8")
     loader = tmp_path / "pricing-loader.js"
     shutil.copy(ROOT / "src" / "pricing-loader.js", loader)
+    shutil.copy(ROOT / "src" / "vendor-tables.js",
+                tmp_path / "vendor-tables.js")
     program = (f"global.window={{}};let e=null;try{{require({str(loader)!r})}}"
                "catch(x){e=x.message}console.log(JSON.stringify(e))")
     proc = subprocess.run(["node", "-e", program], capture_output=True, text=True,

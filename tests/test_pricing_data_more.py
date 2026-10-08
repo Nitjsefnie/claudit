@@ -22,6 +22,7 @@ from tests.test_pricing_data import (
     NEWCOMER,
     ORIGIN,
     LOADER_JS,
+    VENDOR_TABLES_JS,
     PARSER_JS,
     RATES_JS,
     P_AFTER,
@@ -172,6 +173,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     assert want in _node(tmp_path / "parser.js",
@@ -195,6 +197,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
     (tmp_path / "pricing.json").write_text(
         json.dumps(_with_newcomer()), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     before = _stamp(_at(CUT) - timedelta(seconds=1))
@@ -266,6 +269,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     tables = pricing.load_tables(doc)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
@@ -342,6 +346,7 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
               _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
@@ -367,6 +372,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
     (tmp_path / "pricing.json").write_text(
         json.dumps(_provider_only_doc()), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js",
@@ -505,3 +511,52 @@ def test_long_context_meters_must_be_a_map():
     doc["long_context_meters"] = ["gpt-5-6-sol"]
     with pytest.raises(ValueError, match="not a map"):
         pricing.load_tables(doc)
+def _extending_ids() -> list[tuple[str, str]]:
+    """(model id, the key it names) where the id matches a longer key AND a
+    shorter one: an undashed snapshot suffix is valid after the longer key,
+    and after the shorter one the rest still reads as a snapshot
+    ("claude-opus-4" + "-1202508"). The keys are the merged view's:
+    models-table keys and tracked vendor bare keys alike."""
+    keys = [*pricing.MODEL_RATES, *pricing.VENDOR_BARE]
+    return [(longer + "202508", longer)
+            for shorter in keys for longer in keys
+            if longer != shorter and longer.startswith(shorter)]
+
+
+def test_the_longest_matching_key_wins_in_the_backend():
+    """The file is sorted, which puts every key AFTER the shorter key it
+    extends, so matching must not take the first key that fits."""
+    assert list(pricing.MODEL_RATES) == list(_doc()["models"])
+    cases = _extending_ids()
+    assert cases, "the table has keys that extend other keys"
+    for model, key in cases:
+        assert pricing.resolve(model).key == key, model
+
+
+@needs_node
+def test_the_longest_matching_key_wins_in_the_browser():
+    cases = _extending_ids()
+    got = _node(PARSER_JS, f"""
+      const ids = {json.dumps([m for m, _ in cases])};
+      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m).key)));
+    """)
+    assert got == [key for _, key in cases]
+
+
+@needs_node
+def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
+    """issue #357: the dotted transcript id and its dashed form both hit
+    the new exact key in the browser too — never the shorter gpt-6-sol
+    row — at the rates the committed file defines, priced identically on
+    both sides. The ids are literals in a plain list, not rate-call
+    arguments, so no row value is pinned."""
+    ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
+    got = _node(PARSER_JS, f"""
+      const ids = {json.dumps(ids)};
+      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
+    """)
+    assert [(g["kind"], g["key"]) for g in got] == [
+        ("exact", "gpt-6-1-sol"), ("exact", "gpt-6-1-sol"),
+        ("exact", "gpt-6-sol")]
+    for g, w in zip(got, (pricing.resolve(m) for m in ids), strict=True):
+        assert _js_rates(g["rates"]) == w.rates
