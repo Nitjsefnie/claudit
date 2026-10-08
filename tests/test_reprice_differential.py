@@ -61,6 +61,12 @@ UTC = timezone.utc
 _WINDOW_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
                  "read": 0.1, "output": 5.0}
 _SONNET_END = datetime(2026, 3, 1, tzinfo=UTC)
+# The real provider rows at import (issue #851: the opus and
+# sonnet shapes price through their tracked (key, host) rows, and
+# the conftest fixture replaces the module tables with its own
+# minimal world before the shapes install — the snapshot is what
+# keeps the real pairs in it).
+_REAL_PROVIDER_ROWS = dict(pricing.PROVIDER_RATES)
 
 # ---------------------------------------------------------------------------
 # The differential (issue #351): the pre-#351 pass, frozen verbatim as
@@ -307,7 +313,11 @@ def _install_shape_tables(monkeypatch, prov) -> None:
     provider row with its dated window and two-entry schedule, the
     permaslug row its dated ids fold to, and the sonnet boundary
     window."""
+    # Dict-additive over the real rows: the tracked vendor pairs keep
+    # their real list rows (the opus/sonnet shapes price through them),
+    # and the synthetic pairs join on top.
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **_REAL_PROVIDER_ROWS,
         (prov.model, prov.host): prov.after,
         ("acme/acme-9-0731", prov.host): prov.after,
     })
@@ -323,8 +333,10 @@ def _install_shape_tables(monkeypatch, prov) -> None:
             1: [(None, None, None, _SCHED_B_RATES)],
         },
     })
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        "claude-sonnet-4-5": [(_SONNET_END, _WINDOW_RATES)],
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        ("claude-sonnet-4-5",
+         pricing.VENDOR_HOSTS["claude-sonnet-4-5"]): [
+            (_SONNET_END, _WINDOW_RATES)],
     })
     # The meter tables are the test's own (SV-TEST-DATA): exactly the
     # meter shape model is a member, so the sonnet boundary rows keep
@@ -407,10 +419,11 @@ def _move_opus_pair(monkeypatch) -> None:
     """Move pair opus AFTER seeding: its fingerprint and cost move,
     every other pair's stays (the sensitivity property the fingerprint
     tests pin)."""
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        "claude-opus-4-7": [(datetime(2027, 6, 1, tzinfo=UTC),
-                             _MOVED_WINDOW_RATES)]})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        **pricing.PROVIDER_DATED_RATES,
+        ("claude-opus-4-7",
+         pricing.VENDOR_HOSTS["claude-opus-4-7"]): [
+            (datetime(2027, 6, 1, tzinfo=UTC), _MOVED_WINDOW_RATES)]})
     rate_fingerprint.clear_fingerprint_cache()
 
 

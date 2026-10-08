@@ -130,7 +130,10 @@ def _listed_model(model: str, source: dict, old_hosts: dict, region: str | None,
                   fetch: FetchEndpoints, log: refresh_pricelog.LogRead,
                   now: datetime) -> tuple[ModelListing | None, str | None]:
     payload = hourly._fetch(fetch, model, source)  # pylint: disable=protected-access
-    rows, refused, _ = hourly.listed_rows(
+    # The fourth element is the untracked-host notices; a host they name has
+    # no row here either — `_host_reason` reports it through the log join's
+    # own sampled reason, and the row stands untouched.
+    rows, refused, _, _ = hourly.listed_rows(
         model, payload, region, source.get("resolve", {}),
         {host: _entry_rates(history[-1]) for host, history in old_hosts.items()}, now)
     matched, unavailable = _join_model_log(

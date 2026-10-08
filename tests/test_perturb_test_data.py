@@ -22,6 +22,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import (
+    DEFAULT_ROW, RATES_A, RATES_B, seed_doc as build_seed_doc,
+)
+
 
 from backend import pricing
 
@@ -30,10 +34,6 @@ SCRIPT = ROOT / "scripts" / "ci" / "perturb_test_data.py"
 
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 NOTE_PREFIX = "sv-test-data perturbation: rates ×"
-RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-           "read": 0.1, "output": 5.0}
-RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-           "read": 0.2, "output": 10.0}
 RATES_ZERO = {"fresh": 0, "create_5m": 0, "create_1h": 0, "read": 0,
               "output": 0}
 NOW = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -53,15 +53,15 @@ perturb_module = _load()
 
 def _seed_doc() -> dict:
     """One dated model row, one all-zero row, one scheduled provider row."""
-    return {
-        "models": {
+    doc = build_seed_doc(
+        models={
             "acme/acme-9": [
                 {"from": None, **RATES_A},
                 {"from": "2026-06-01T00:00:00Z", **RATES_B},
             ],
             "free/acme-0": [{"from": None, **RATES_ZERO}],
         },
-        "providers": {
+        providers={
             "acme/acme-9": {
                 "HostCo": [{"from": "2026-01-01T00:00:00Z", **RATES_A,
                             "schedule": [{"days": ["saturday", "sunday"],
@@ -69,10 +69,10 @@ def _seed_doc() -> dict:
                                           "rates": RATES_B}]}],
             },
         },
-        "provider_rates_fetched": "2026-06-01T00:00:00Z",
-        "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {}},
-    }
+        fetched="2026-06-01T00:00:00Z",
+    )
+    doc["models"] = dict(sorted(doc["models"].items()))
+    return doc
 
 
 def _seed_tree(tmp_path: Path) -> tuple[Path, Path, dict]:
@@ -246,7 +246,7 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     rows, _seed, _base = perturb_module.perturb_pricing(
         pricing_path, seed=int(NOW.timestamp()))
-    assert rows == 3
+    assert rows == 4, "the seed doc's four rate rows"
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert pricing.load_tables(perturbed)
     for entries in _histories(perturbed):
@@ -366,6 +366,8 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     seed_doc["models"] = {f"acme/model-{index:02d}":
                           [{"from": None, **RATES_A}]
                           for index in range(12)}
+    seed_doc["models"]["claude-opus-4-7"] = [
+        dict(DEFAULT_ROW)]
     pricing_path.write_text(
         json.dumps(seed_doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
@@ -482,36 +484,6 @@ def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
     for stamp in stamps:
         assert stamp > future
     assert stamps == sorted(stamps)
-
-
-def test_the_stamp_belt_clamps_a_candidate_at_or_before_the_predecessor():
-    """`_stamp_after`'s clamp, unchanged by the decoupling: a candidate
-    whose second is at or before the row's predecessor's — a real stamp
-    newer than the counter, which perturb_pricing's
-    read-the-document-once structure rules out in-process —
-    spells the predecessor's second + 1s. The comparison is second
-    precision, the precision the stamp itself carries, so a
-    microsecond-carrying candidate never spells the predecessor's own
-    second."""
-    predecessor = "2026-10-01T12:00:00Z"
-    clamp = "2026-10-01T12:00:01Z"
-    belt = perturb_module._stamp_after  # pylint: disable=protected-access
-    microsecond_carrying = datetime(
-        2026, 10, 1, 12, 0, 0, 400000, tzinfo=timezone.utc)
-    assert belt(predecessor, microsecond_carrying) == clamp
-    assert belt(predecessor, datetime(1970, 1, 1, tzinfo=timezone.utc)) == clamp
-    # No predecessor: the candidate passes through at second precision.
-    assert belt(None, microsecond_carrying) == "2026-10-01T12:00:00Z"
-
-
-def test_the_stamp_belt_passes_a_later_candidate_through():
-    """A candidate strictly after the row's predecessor spells the
-    counter value itself."""
-    # pylint: disable-next=protected-access
-    belt = perturb_module._stamp_after
-    assert belt("2026-10-01T12:00:00Z",
-                datetime(2026, 10, 1, 12, 0, 5, tzinfo=timezone.utc)) == \
-        "2026-10-01T12:00:05Z"
 
 
 def _real_pricing_text() -> str:

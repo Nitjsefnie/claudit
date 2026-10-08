@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import http.client
+import json
 import urllib.error
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -79,8 +80,6 @@ def _move_glm(run: Run) -> None:
 
 
 @pytest.mark.parametrize("damage", [
-    pytest.param(lambda p: p["overrides"][0].update({"min_prompt_tokens": 200000}),
-                 id="long-context-tier"),
     pytest.param(lambda p: p["overrides"][0].update({"utc_days": ["funday"]}),
                  id="unknown-day"),
     pytest.param(lambda p: p["overrides"][1].update({"utc_start": 2400}),
@@ -105,6 +104,53 @@ def test_what_is_not_modelled_refuses_only_its_host(tmp_path, capsys, damage):
     assert after["providers"][V41]["DeepSeek"] == before["providers"][V41]["DeepSeek"]
     assert after["providers"][V41]["Novita"][-1]["from"] == STAMP, "same model, other host"
     assert after["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
+
+
+# --- the long-context band: tolerated at the meter's shape, noticed when it departs
+
+
+def _meter_band(run: Run) -> None:
+    """Append a min_prompt_tokens override at the Codex meter's shape to
+    DeepSeek's listed overrides."""
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"].append(
+        {"min_prompt_tokens": pricing.LONG_CONTEXT_THRESHOLD,
+         "prompt": _per_token(stored["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT),
+         "completion": _per_token(stored["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT)})
+
+
+def test_a_meter_shaped_band_is_tolerated_and_never_enters_the_row(
+        tmp_path, capsys):
+    """The band is modelled on the provider path: no window, no membership
+    (the vendor pass owns it), its rates nowhere in the row, the run green."""
+    run = Run(tmp_path)
+    _meter_band(run)
+    before = run.snapshot()
+    rc, _out, err = run(capsys)
+    assert rc == 0, err
+    assert run.snapshot() == before, "the band entered the row"
+    assert "min_prompt_tokens" not in json.dumps(run.doc())
+
+
+def test_a_departing_band_is_a_notice_and_leaves_the_row_untouched(
+        tmp_path, capsys):
+    """A band departing the meter is the not-tracked analogue: a notice, the
+    host's row byte-identical, the run green — never a refusal, and never a
+    vanished row."""
+    run = Run(tmp_path)
+    before = run.doc()
+    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"].append(
+        {"min_prompt_tokens": 200000,
+         "prompt": _per_token(stored["fresh"]),
+         "completion": _per_token(stored["output"])})
+    rc, out, err = run(capsys)
+    assert rc == 0 and not err
+    assert f"{V41} via DeepSeek" in out and "departs from the meter" in out
+    assert "left untouched" in out
+    assert "vanished" not in out
+    after = run.doc()
+    assert after["providers"][V41]["DeepSeek"] == before["providers"][V41]["DeepSeek"]
 
 
 def test_a_zero_price_of_a_kind_not_modelled_is_ignored(tmp_path, capsys):

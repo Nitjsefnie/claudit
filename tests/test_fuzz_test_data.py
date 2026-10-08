@@ -18,16 +18,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import RATES_A, RATES_B, seed_doc
+
 
 from backend import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fuzz_test_data.py"
 
-RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-           "read": 0.1, "output": 5.0}
-RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-           "read": 0.2, "output": 10.0}
 RATE_FIELDS = pricing.RATE_FIELDS
 DOC_MAX_STAMP = "2026-06-01T00:00:00Z"
 
@@ -47,15 +45,15 @@ fuzz_module = _load()
 def _seed_doc() -> dict:
     """One two-entry dated model row, one null-only model row, one
     dated provider row carrying a schedule."""
-    return {
-        "models": {
+    return seed_doc(
+        models={
             "acme/acme-9": [
                 {"from": None, **RATES_A},
                 {"from": DOC_MAX_STAMP, **RATES_B},
             ],
             "free/acme-0": [{"from": None, **RATES_A}],
         },
-        "providers": {
+        providers={
             "acme/acme-9": {
                 "HostCo": [{"from": "2026-01-01T00:00:00Z", **RATES_A,
                             "schedule": [{"days": ["sunday"],
@@ -63,10 +61,8 @@ def _seed_doc() -> dict:
                                           "rates": RATES_B}]}],
             },
         },
-        "provider_rates_fetched": DOC_MAX_STAMP,
-        "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {}},
-    }
+        fetched=DOC_MAX_STAMP,
+    )
 
 
 def _seed_tree(tmp_path: Path) -> tuple[Path, Path, str]:

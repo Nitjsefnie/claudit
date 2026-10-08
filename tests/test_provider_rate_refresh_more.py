@@ -18,6 +18,8 @@ from tests.test_provider_rate_log_refresh import _series as _log_series
 from tests.test_provider_rate_refresh import (
     GLM,
     LOADER_JS,
+    VENDOR_TABLES_JS,
+    HHMM_JS,
     NOW,
     PARSER_JS,
     PRICING_JSON,
@@ -88,7 +90,7 @@ def test_baseten_selects_the_global_synthetic_endpoint_over_a_cheaper_region() -
         _endpoint("BaseTen", global_rates, tag="baseten/fp8"),
         _endpoint("BaseTen", regional_rates, tag="baseten/us"),
     ]}}
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         "deepseek/acme-v4-1", payload, None,
         {"BaseTen": {"select": "cheapest", "why": "synthetic region check"}},
         {}, NOW,
@@ -112,7 +114,7 @@ def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
         _endpoint("Modal", withdrawn_rates, tag="modal/fp8"),
         _endpoint("Modal", surviving_rates, tag="modal/nvfp4"),
     ]}}
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         GLM, payload, None,
         {"Modal": {"tag": "modal/nvfp4", "why": "synthetic survivor check"}},
         {}, NOW,
@@ -148,7 +150,7 @@ def test_a_fast_pair_takes_the_base_endpoint_automatically() -> None:
     not a price twin, so the exact {p, p/fast} pair resolves by rule — the
     base endpoint prices the row — and the run's report records it as
     rule-resolved rather than silently."""
-    selected, refused, notices = refresh.listed_rows(
+    selected, refused, notices, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None, {}, {}, NOW)
     assert refused == {}
     assert selected["Fireworks"].tag == "fireworks"
@@ -165,7 +167,7 @@ def test_the_base_is_taken_even_when_the_fast_tier_is_cheaper() -> None:
         _endpoint("Fireworks", BASE_RATES, tag="fireworks"),
         _endpoint("Fireworks", cheap_fast, tag="fireworks/fast"),
     ]}}
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         GLM, payload, None, {}, {}, NOW)
     assert refused == {}
     assert selected["Fireworks"].rates == BASE_RATES
@@ -181,7 +183,7 @@ def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
     """The rule is narrow: only the exact {p, p/fast} pair, with no resolve
     entry, resolves itself. Every other multi-price shape keeps refusing,
     whether the extra tag is a region twin or a third tier."""
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         GLM, _fast_payload(tags), None, {}, {}, NOW)
     assert selected == {}
     assert set(refused) == {"Fireworks"}
@@ -191,7 +193,7 @@ def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
 def test_an_explicit_pin_beats_the_fast_tier_rule() -> None:
     """A resolve entry keeps precedence: a pin on the fast tag tracks the
     fast endpoint, and no rule-resolved line is reported."""
-    selected, refused, notices = refresh.listed_rows(
+    selected, refused, notices, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
         {"Fireworks": {"tag": "fireworks/fast", "why": "fixture"}}, {}, NOW)
     assert refused == {}
@@ -203,7 +205,7 @@ def test_a_cheapest_pin_on_a_fast_pair_still_refuses() -> None:
     """The auto-rule never rescues an explicit resolution: a 'cheapest' pin
     on a {p, p/fast} pair keeps refusing — the tags differ, so the twins
     are not identical."""
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
         {"Fireworks": {"select": "cheapest", "why": "fixture"}}, {}, NOW)
     assert selected == {}
@@ -219,7 +221,7 @@ def test_an_untagged_endpoint_is_never_a_fast_pair_base() -> None:
     untagged["tag"] = ""
     payload = {"data": {"endpoints": [
         untagged, _endpoint("Fireworks", FAST_RATES, tag="/fast")]}}
-    selected, refused, _ = refresh.listed_rows(
+    selected, refused, _, _ = refresh.listed_rows(
         GLM, payload, None, {}, {}, NOW)
     assert selected == {}
     assert set(refused) == {"Fireworks"}
@@ -621,6 +623,8 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     js.mkdir()
     shutil.copy(run.pricing, js / "pricing.json")
     shutil.copy(LOADER_JS, js / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, js / "vendor-tables.js")
+    shutil.copy(HHMM_JS, js / "hhmm-spelling.js")
     shutil.copy(PARSER_JS, js / "parser.js")
     proc = subprocess.run(["node", "-e", f"""
       global.window = {{}};

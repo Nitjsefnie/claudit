@@ -253,17 +253,23 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
 
     blobs = _proof_blobs(bucket, lane_blobs)
 
-    # Mutate the loaded tables the fixtures price under: two exact keys
-    # and a dated window covering every fixture timestamp (end 2099).
+    # Mutate the loaded tables the fixtures price under: the claude row is
+    # still a models-table key, while the two vendor keys moved at the
+    # migration — their bare ids price through their (key, vendor_host)
+    # rows — so the mutation lands on those tables. The dated window ends
+    # 2099, covering every fixture timestamp.
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES,
         "claude-opus-4-7": _OPUS_RATES,
-        "gpt-6-astra": _ASTRA_RATES,
     })
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        "claude-sonnet-4-5": [(datetime(2099, 1, 1, tzinfo=UTC),
-                               _WINDOW_RATES)],
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **pricing.PROVIDER_RATES,
+        ("gpt-6-astra", pricing.VENDOR_HOSTS["gpt-6-astra"]): _ASTRA_RATES,
+    })
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        **pricing.PROVIDER_DATED_RATES,
+        ("claude-sonnet-4-5", pricing.VENDOR_HOSTS["claude-sonnet-4-5"]): [
+            (datetime(2099, 1, 1, tzinfo=UTC), _WINDOW_RATES)],
     })
     # The fingerprints the mirror ingest just stamped came from the
     # pre-mutation tables (rate_fingerprint memoizes per pair; the
@@ -361,12 +367,16 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
     # its bump), so the reprice pass must RECOMPUTE from the stored
     # instant instead of proving the row clean by fingerprint: a window
     # appears that ends at the cutover, and the list row moves with it.
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        _OPUS376: [(_CUTOVER_376, _CHEAP376)]})
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES,
-        _OPUS376: _E2_376})
+    # claude-opus-4-7 is a tracked vendor key since the migration: the
+    # pair its bare path reads is (key, vendor_host), so the window and
+    # the list move land there.
+    opus376_row = (_OPUS376, pricing.VENDOR_HOSTS[_OPUS376])
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        **pricing.PROVIDER_DATED_RATES,
+        opus376_row: [(_CUTOVER_376, _CHEAP376)]})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **pricing.PROVIDER_RATES,
+        opus376_row: _E2_376})
     rate_fingerprint.clear_fingerprint_cache()
 
     expected = _reparse_costs({

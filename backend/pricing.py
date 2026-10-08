@@ -48,11 +48,20 @@ table existed.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_OUTPUT_MULT, LONG_CONTEXT_THRESHOLD)
+from backend.resolution import Resolution  # noqa: F401  (re-export)  # pylint: disable=unused-import
+from backend.model_names import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _PERMASLUG_DATE,
+    _SNAPSHOT_SUFFIX,
+    _VARIANT_SUFFIX,
+    _VERSIONED_KEY,
+    _is_free,
+    _normalise,
+    _variant_folded,
+)
 from backend.pricing_load import (
     DATED_RATES,
     DEFAULT_RATES,
@@ -69,6 +78,8 @@ from backend.pricing_load import (
     RATE_FIELDS,
     LONG_CONTEXT_MODELS,
     LONG_CONTEXT_METERS,
+    VENDOR_BARE,
+    VENDOR_HOSTS,
     _DAYS,
     Windows,
     RateTables,
@@ -89,6 +100,7 @@ __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
     "MODEL_RATES", "PROVIDER_DATED_RATES", "PROVIDER_FEES",
     "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
     "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
+    "VENDOR_BARE", "VENDOR_HOSTS",
     "Windows", "RateTables", "ScheduleWindow", "load_tables",
 ]
 
@@ -98,26 +110,72 @@ UTC = timezone.utc
 # ending in ":free" or starting with "stealth/" (see _is_free).
 FREE_RATES = dict.fromkeys(RATE_FIELDS, 0.00)
 
-# The two GPT-5.6 repricing instants, named for the tests that price
-# around them.
-JUL30_CUT = DATED_RATES["gpt-5-6-terra"][0][0]
-AUG21_CUT = DATED_RATES["gpt-5-6-sol"][0][0]
 
-_VERSIONED_KEY = re.compile(r"^claude-([a-z]+)-(\d+(?:-\d+)*)$")
+def _vendor_row(key: str) -> tuple[str, str] | None:
+    """The (tracked key, vendor host) row a bare key's rates live at, or
+    None when the key names no tracked vendor row — or names one whose
+    providers row does not exist yet (a model auto-added to the tracked
+    table before its first provider row: the bare path falls through the
+    same way)."""
+    tracked = VENDOR_BARE.get(key)
+    if tracked is None:
+        return None
+    row = (tracked, VENDOR_HOSTS[tracked])
+    return row if row in PROVIDER_RATES else None
+
+
+def _list_rates(key: str) -> dict:
+    """A key's list rates in the merged view: the models-table row when
+    the key names one, else its tracked vendor row's."""
+    if key in MODEL_RATES:
+        return MODEL_RATES[key]
+    row = _vendor_row(key)
+    if row is None:
+        raise KeyError(key)
+    return PROVIDER_RATES[row]
+
+
+def _key_windows(key: str) -> Windows | None:
+    """The dated windows that move a bare key's rates in the merged
+    view: the models-table row's when the key names one, else its tracked
+    vendor row's."""
+    if key in MODEL_RATES:
+        return DATED_RATES.get(key)
+    row = _vendor_row(key)
+    return PROVIDER_DATED_RATES.get(row) if row else None
+
+
+# The two GPT-5.6 repricing instants, named for the tests that price
+# around them. The gpt-5.6 rows are tracked vendor rows since the
+# migration, so their windows read through the merged dated-views
+# accessor, which keeps the models-table row when a key names one. Both
+# rows carry committed histories, so the lookup is total whatever a
+# later refresh appends — and a tracked-but-rowless key would read None,
+# which the assert refuses loudly instead of mispricing through.
+_gpt56_terra_windows = _key_windows("gpt-5-6-terra")
+_gpt56_sol_windows = _key_windows("gpt-5-6-sol")
+assert _gpt56_terra_windows is not None and _gpt56_sol_windows is not None
+JUL30_CUT = _gpt56_terra_windows[0][0]
+AUG21_CUT = _gpt56_sol_windows[0][0]
 
 
 def _latest(*families: str) -> dict:
-    """Rates of the highest-versioned table key in `families`.
+    """Rates of the highest-versioned key of `families` in the merged
+    view (models-table keys and tracked vendor bare keys).
 
     ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-`` keys
-    do not match. Ties keep table order (max returns the first).
+    do not match. A tracked key with no provider row yet — the auto-add's
+    pickup delay, which the loaders admit — names no rates and is
+    skipped, exactly as resolve()'s bare path falls through it. Ties keep
+    table order (max returns the first).
     """
     versions = [
         (tuple(int(p) for p in m.group(2).split("-")), key)
-        for key in MODEL_RATES
+        for key in {**MODEL_RATES, **VENDOR_BARE}
         if (m := _VERSIONED_KEY.match(key)) and m.group(1) in families
+        and (key in MODEL_RATES or _vendor_row(key) is not None)
     ]
-    return MODEL_RATES[max(versions, key=lambda v: v[0])[1]]
+    return _list_rates(max(versions, key=lambda v: v[0])[1])
 
 
 # Family fallbacks for unrecognised Claude models — current-generation
@@ -130,74 +188,14 @@ _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] = (
     (re.compile(r"haiku"), _latest("haiku")),
 )
 
-# A dated snapshot suffix ("-20250514") is the same model; a short version
-# suffix ("-9") or a mode suffix ("-fast") is a DIFFERENT model.
-_SNAPSHOT_SUFFIX = re.compile(r"^-?\d{6,8}$")
-
-
-@dataclass(frozen=True)
-class Resolution:
-    """Outcome of resolving a model id to rates.
-
-    kind: "exact" | "tier" | "default". Anything other than "exact" means
-    the figure is an estimate and should be surfaced as such.
-    """
-    rates: dict
-    kind: str
-    key: str | None = None
-    # True when the rates came from a weekly schedule's window or default
-    # for this record's own time: a fold re-deriving cost at one
-    # representative time cannot reproduce them (SV-RATE-DATA).
-    scheduled: bool = False
-    # The serving host's per-request fee in force (issue #469): USD this
-    # one request costs beside its tokens, folded into compute_cost's
-    # total and stored on records.request_fee_usd. Zero when the resolved
-    # entry carries no fee note (every non-OpenRouter lane, every
-    # unmodelled listing).
-    request_fee: float = 0.0
-
-    @property
-    def estimated(self) -> bool:
-        return self.kind != "exact"
-
-
-def _normalise(model: str | None) -> str:
-    """Strip provider/region prefixes and normalise version separators.
-
-    ``anthropic/claude-opus-4.8`` and ``us.anthropic.claude-opus-4-8``
-    both denote the same model as ``claude-opus-4-8``.
-    """
-    m = (model or "").strip().lower()
-    if not m:
-        return ""
-    # Everything before the first "claude" is provider/region routing.
-    i = m.find("claude")
-    if i > 0:
-        m = m[i:]
-    return m.replace(".", "-")
-
-
-def _is_free(model: str | None, norm: str) -> bool:
-    """True for an OpenRouter free model: an id ending in ``:free`` or
-    starting with ``stealth/``, case-insensitively.
-
-    Checked on the raw id as well as its normalised form because
-    ``_normalise`` strips everything before ``claude`` — a
-    ``stealth/claude-…`` id loses that prefix in ``norm`` and only the
-    raw check still sees it. (The ``:free`` suffix survives every
-    normalisation step; the raw check covers it symmetrically.)
-    """
-    raw = (model or "").strip().lower()
-    return (norm.endswith(":free") or norm.startswith("stealth/")
-            or raw.endswith(":free") or raw.startswith("stealth/"))
-
 
 _MATCH_KEY_CACHE: dict[str, str | None] = {}
 
 
 def _match_key(norm: str) -> str | None:
-    """The LONGEST table key `norm` names, so ``claude-opus-4-1-20250805``
-    is claude-opus-4-1, never claude-opus-4 — whatever the table order.
+    """The LONGEST models-table key `norm` names, so
+    ``claude-opus-4-1-20250805`` is claude-opus-4-1, never claude-opus-4
+    — whatever the table order.
 
     Memoized per normalised id (issue #350): the reprice pass calls this
     once per stored record — over a million rows naming fewer than a
@@ -219,6 +217,34 @@ def _match_key(norm: str) -> str | None:
             best = key
     _MATCH_KEY_CACHE[norm] = best
     return best
+
+
+_VENDOR_MATCH_CACHE: dict[str, str | None] = {}
+
+
+def _vendor_match(norm: str) -> str | None:
+    """The tracked key whose vendor bare form `norm` names, by the models
+    table's own longest-match and suffix rules (empty rest, ``[``, ``@``,
+    a snapshot suffix). A transcript id spelled WITH the vendor prefix
+    (``z-ai/glm-5-3``) matches no bare form: it names the OpenRouter
+    catalog model, not the first-party id, and keeps pricing default.
+    Memoized exactly like _match_key."""
+    try:
+        return _VENDOR_MATCH_CACHE[norm]
+    except KeyError:
+        pass
+    best_form: str | None = None
+    best_key: str | None = None
+    for form, tracked in VENDOR_BARE.items():
+        if best_key and len(form) <= len(best_form or ""):
+            continue
+        if not norm.startswith(form):
+            continue
+        rest = norm[len(form):]
+        if rest == "" or rest[0] in "[@" or _SNAPSHOT_SUFFIX.match(rest):
+            best_form, best_key = form, tracked
+    _VENDOR_MATCH_CACHE[norm] = best_key
+    return best_key
 
 
 def _in_window(windows: list | None, ts: datetime | None,
@@ -263,27 +289,6 @@ def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, b
 
 def _dated(key: str, ts: datetime | None) -> dict:
     return _in_window(DATED_RATES.get(key), ts, MODEL_RATES[key])
-
-
-# OpenRouter's dated permaslug ("deepseek/deepseek-v4-flash-20260731") names
-# the same model as its short slug ("deepseek/deepseek-v4-flash-0731").
-_PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
-
-# OpenRouter's variant suffix (":nitro", ":floor") names a service tier,
-# not a price: the tiered id is the bare model at the bare model's price.
-# Only ":free" changes price (zero), and resolve() prices it before any
-# provider lookup — the guard here keeps a direct caller honest too.
-_VARIANT_SUFFIX = re.compile(r":([^:]*)$")
-
-
-def _variant_folded(norm: str) -> str:
-    """`norm` without ONE trailing ":<suffix>", when that suffix is not
-    "free" (case-insensitively); `norm` itself otherwise. Mirrored by
-    parser.js's _providerModelKey."""
-    m = _VARIANT_SUFFIX.search(norm)
-    if m is None or m.group(1).lower() == "free":
-        return norm
-    return norm[: m.start()]
 
 
 def _provider_key(norm: str, provider: str,
@@ -338,7 +343,9 @@ def resolve(model: str | None, ts: datetime | None = None,
     """Resolve a model id to rates, reporting how confident the match is.
 
     `provider` is the record's serving host. A (model, provider) row wins;
-    with no row, or no provider, the model alone decides.
+    with no row, or no provider, the model alone decides — a bare
+    first-party id through its tracked vendor row (SV-RATE-DATA), its
+    fee-free and schedule-free terms.
     """
     norm = _normalise(model)
     if _is_free(model, norm):
@@ -355,6 +362,15 @@ def resolve(model: str | None, ts: datetime | None = None,
         return Resolution(_dated(key, ts), "exact", key,
                           request_fee=_fee_at(
                               FEES, key, DATED_RATES.get(key), ts))
+    vkey = _vendor_match(norm)
+    if vkey is not None:
+        row = (vkey, VENDOR_HOSTS[vkey])
+        if row in PROVIDER_RATES:
+            start = PROVIDER_STARTS.get(row)
+            if not (start is not None and ts is not None and ts < start):
+                rates = _in_window(PROVIDER_DATED_RATES.get(row), ts,
+                                   PROVIDER_RATES[row])
+                return Resolution(rates, "exact", vkey, False, 0.0)
     for pattern, rates in _TIER_FALLBACKS:
         if pattern.search(norm):
             return Resolution(rates, "tier")
@@ -364,9 +380,10 @@ def resolve(model: str | None, ts: datetime | None = None,
 def is_long_context_model(model: str) -> bool:
     """Whether a stored model id names a long-context-metered Codex model.
 
-    Membership is pricing.json's long_context_models — dashed models-table
-    keys — and the stored id normalises the way resolve() normalises, so
-    the dotted gpt-5.6-sol matches key gpt-5-6-sol (SV-RATE-ESTIMATES).
+    Membership is pricing.json's long_context_models — dashed names of
+    models-table keys or tracked keys — and the stored id normalises the
+    way resolve() normalises, so the dotted gpt-5.6-sol matches tracked
+    key gpt-5-6-sol (SV-RATE-ESTIMATES).
     """
     return _normalise(model) in LONG_CONTEXT_MODELS
 

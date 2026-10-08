@@ -24,12 +24,16 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
-from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides, _per_token)
+from tests.refresh_fixture_builders import (_discount, _endpoint,
+                                            _overrides, _per_token,
+                                            DEFAULT_ROW)
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
+HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -79,11 +83,34 @@ refresh_prices = _load_prices()
 
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
-    rows first seen by a refresh or reserved for test-data fuzzing dropped."""
+    rows first seen by a refresh or reserved for test-data fuzzing dropped,
+    and the migrated bare vendor keys dropped: this fixture's world tracks
+    the pre-migration prefixed keys, one tracked entry per catalog id —
+    the vendor_host mechanics carry their own tests
+    (tests/test_pricing_vendor.py)."""
     doc = copy.deepcopy(doc)
+    # claude-opus-5-5 keeps its rows: the fee tests' subject (its tracked
+    # entry is marked vendor_host in the real file, but this fixture world
+    # predates the marking — the refresh mechanics never read it).
+    vendor_keys = {model for model, entry in
+                   doc["openrouter"]["models"].items()
+                   if entry.get("vendor_host") and model != "claude-opus-5-5"}
+    doc["openrouter"]["models"] = {model: entry
+                                   for model, entry in
+                                   doc["openrouter"]["models"].items()
+                                   if model not in vendor_keys}
+    doc["long_context_models"] = [m for m in doc["long_context_models"]
+                                  if m not in vendor_keys]
+    # The per-model meters ride their members: a meter for a dropped row
+    # would refuse the loaders (a meters key names a member).
+    doc["long_context_meters"] = {
+        key: value for key, value in doc.get("long_context_meters", {}).items()
+        if key not in vendor_keys}
     providers = {}
     for model, hosts in doc["providers"].items():
         if model.startswith(FUZZ_RESERVED_NAMESPACE):
+            continue
+        if model in vendor_keys:
             continue
         seeded_hosts = {
             host: history[:1] for host, history in hosts.items()
@@ -93,6 +120,11 @@ def _seeded(doc: dict) -> dict:
         if seeded_hosts:
             providers[model] = seeded_hosts
     doc["providers"] = providers
+    # The vendor rows this fixture world drops carry the claude families;
+    # give the default estimate its own seeded models row (no cutover, so
+    # no epoch moves).
+    if "claude-opus-4-7" not in doc["models"]:
+        doc["models"]["claude-opus-4-7"] = [dict(DEFAULT_ROW)]
     doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
     return doc
 
@@ -193,11 +225,21 @@ class Run:
 
 
 def test_every_provider_table_model_names_its_openrouter_id():
+    """One convention per key shape: an OpenRouter-tracking key normalises
+    to its full id (deepseek/..., z-ai/glm-5-3); a tracked VENDOR key is
+    bare and normalises to the id's slug — the same bare first-party id
+    resolve() prices through it (issue #851). Every provider-table key is
+    tracked; a tracked key may sit ahead of its provider row for one run —
+    the auto-add's pickup delay (SV-VENDOR-RATES)."""
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
-    assert set(doc["openrouter"]["models"]) == set(doc["providers"])
+    assert set(doc["providers"]) <= set(doc["openrouter"]["models"])
     for key, entry in doc["openrouter"]["models"].items():
-        assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
+        if entry.get("vendor_host"):
+            slug = entry["id"].partition("/")[2]
+            assert pricing._normalise(slug) == key  # pylint: disable=protected-access
+        else:
+            assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
 
 
 # --- nothing moved -----------------------------------------------------------
@@ -311,11 +353,26 @@ def test_a_new_provider_gets_a_row_that_begins_at_the_detection_time(
     assert "Newcomer" in out
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
-    fallback = pricing.resolve(model, cut - timedelta(seconds=1))
-    for name, value in pricing.load_tables(run.doc()).items():
-        monkeypatch.setattr(pricing, name, value)
-    assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
-    assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
+    # The pre-STAMP expectation comes from the tables the run wrote (the
+    # same algorithm over the same values at the same instant, SV-TEST-DATA)
+    # — never from the module's own tables, whose rows the perturbed tree
+    # appended history to.
+    seeded = pricing.load_tables(run.doc())
+    saved = {name: getattr(pricing, name) for name in seeded}
+    try:
+        for name, value in seeded.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+        fallback = pricing.resolve(model, cut - timedelta(seconds=1))
+        assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
+        # At STAMP the Newcomer row begins: the pair prices its own vector.
+        assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
 
 
 @needs_node
@@ -324,8 +381,23 @@ def test_a_new_provider_prices_from_the_detection_time_in_the_browser(
     run = Run(tmp_path)
     run.endpoints(GLM).append(_endpoint("Newcomer", NEWCOMER))
     assert run(capsys)[0] == 0
-    fallback = pricing.rate_for("z-ai/glm-5.3-flash",
-                                datetime.fromisoformat(STAMP) - timedelta(seconds=1))
+    model = "z-ai/glm-5.3-flash"
+    # The fallback the browser must price is the run doc's own (SV-TEST-DATA:
+    # same tables, same instant), not the module's perturbed rows.
+    seeded = pricing.load_tables(run.doc())
+    saved = {name: getattr(pricing, name) for name in seeded}
+    try:
+        for name, value in seeded.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+        fallback = pricing.rate_for(
+            model, datetime.fromisoformat(STAMP) - timedelta(seconds=1))
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
     assert _node_rates(run, tmp_path / "js", "Newcomer") == [fallback, NEWCOMER]
 
 
@@ -335,6 +407,8 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
+    shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
     shutil.copy(RATES_JS, where / "rates.js")
     shutil.copy(PARSER_JS, where / "parser.js")
     before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()

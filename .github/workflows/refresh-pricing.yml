@@ -1,10 +1,14 @@
 name: refresh-pricing
 
 # The automated half of SV-RATE-REFRESH and SV-VENDOR-RATES: re-fetch
-# OpenRouter's per-provider prices for every model src/pricing.json tracks
-# and the four first-party vendors' models-table list prices (the vendor
-# pass inside refresh_provider_rates.py), and when a price moved or a host
-# appeared, commit the appended entries straight to master.
+# OpenRouter's per-provider prices for every model src/pricing.json tracks,
+# and run the vendor pass inside refresh_provider_rates.py, which joins
+# every catalog model under an openrouter.vendor.prefixes namespace to the
+# tracked table as {"id", "vendor_host"} (no rates — the provider pass
+# carries each new entry's row from the next hourly run) and folds the
+# long-context meter membership from the first-party listing. When a price
+# moved, a host appeared or a vendor entry was added, commit straight to
+# master.
 #
 # LOG-BACKED HOSTS use OpenRouter's endpoint change times, so moves between
 # hourly runs are retained at their own times. A host without an unambiguous
@@ -36,7 +40,10 @@ name: refresh-pricing
 #   - a resolution that no longer applies (a pinned tag not listed, twins
 #     no longer identical, their price order tied or flipped);
 #   - a price or override kind the script does not model (a per-request
-#     fee, a long-context tier), or a response shape it does not recognise;
+#     fee), or a response shape it does not recognise; the long-context
+#     band is modelled: at the meter's shape it is tolerated (no window,
+#     no membership here), departing it is a notice that leaves the host's
+#     row untouched, green;
 #   - a tracked model the catalog still lists, with no endpoints (a broken
 #     fetch looks exactly like that). A model gone from the catalog is a
 #     delisting, not a refusal: skipped with a notice, its row kept, and

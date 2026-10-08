@@ -5,6 +5,7 @@ tests share: fixture payloads over the seeded view, never the network.
 """
 from __future__ import annotations
 
+import copy
 import re
 from decimal import Decimal
 
@@ -56,3 +57,46 @@ def _overrides(schedule: list) -> list:
 def _discount(entry: dict) -> float:
     m = re.fullmatch(r"(\d+(?:\.\d+)?)% off", entry.get("note", ""))
     return float(m.group(1)) / 100 if m else 0
+
+
+# The default estimate's seed row (issue #858): frozen synthetic rates at
+# no cutover — the one claude-opus-4-7 literal in the repo. The loaders
+# require it on every loadable document (SV-RATE-DATA); a site that
+# mutates the row copies it (dict(DEFAULT_ROW)) so this source stays
+# clean.
+DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
+               "create_1h": 10.0, "read": 0.5, "output": 25.0}
+
+# Shared synthetic rate vectors; these stay five-field dictionaries without
+# `from`, so callers can preserve each loader's exact row shape.
+RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
+           "read": 0.1, "output": 5.0}
+RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
+           "read": 0.2, "output": 10.0}
+RATE_C = {"fresh": 0.40, "create_5m": 0.40, "create_1h": 0.40,
+          "read": 0.030, "output": 0.900}
+
+
+def seed_doc(*, members=None, meters=None, models=None, tracked=None,
+             providers=None, resolve=None, prefixes=None,
+             fetched="2030-01-01T00:00:00Z") -> dict:
+    """The minimal loadable seed document (issue #858): every section the
+    loaders demand plus the default estimate's row. Callers add their own
+    rows through the keyword arguments — extra models-table rows, tracked
+    entries, provider rows, vendor resolve pins, the prefix list, the
+    per-model meter map, the fetch stamp — and every doc they build loads
+    for the same reason."""
+    return {
+        "long_context_models": list(members or []),
+        "long_context_meters": dict(meters or {}),
+        "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
+                   **(copy.deepcopy(models) if models else {})},
+        "openrouter": {"data_region": "global",
+                       "models": copy.deepcopy(tracked) if tracked else {},
+                       "vendor": {"resolve": resolve or {},
+                                  "prefixes": list(prefixes) if prefixes
+                                  else ["anthropic", "openai",
+                                        "moonshotai", "z-ai"]}},
+        "provider_rates_fetched": fetched,
+        "providers": copy.deepcopy(providers) if providers else {},
+    }

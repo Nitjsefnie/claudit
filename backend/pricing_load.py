@@ -16,6 +16,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypedDict
 
+from backend.meter_tables import (
+    _long_context_members,
+    _long_context_meters,
+)
+
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
 # parser.js reads the same file from /src.
@@ -43,9 +48,16 @@ class RateTables(TypedDict):
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
+    # The vendor tables (SV-RATE-DATA): the bare first-party form each
+    # vendor_host-carrying tracked entry prices, and its host. The rates
+    # themselves stay provider rows, keyed (tracked key, host).
+    VENDOR_BARE: dict[str, str]
+    VENDOR_HOSTS: dict[str, str]
+    # The default estimate's rates: the merged view's claude-opus-4-7 row.
+    DEFAULT_RATES: dict
     # The Codex long-context meter's membership (pricing.json's
-    # long_context_models): dashed keys of the models table, compared
-    # against a record's normalised model id.
+    # long_context_models): dashed names of models-table keys or tracked
+    # keys, compared against a record's normalised model id.
     LONG_CONTEXT_MODELS: frozenset[str]
     # The meter's per-model thresholds (issue #765): member key ->
     # threshold integer, overriding the meter's global default.
@@ -260,56 +272,95 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
             starts[0] if begin else None, schedules, fees)
 
 
-def _long_context_members(doc: dict) -> frozenset[str]:
-    """The long-context meter's membership, checked: distinct non-empty
-    strings, each naming a models-table key (the meter rides that table's
-    rate rows, so a key with no row is a typo the loader refuses)."""
-    if "long_context_models" not in doc:
-        raise ValueError("pricing.json: long_context_models is missing")
-    members = doc["long_context_models"]
-    if (not isinstance(members, list)
-            or not all(isinstance(k, str) and k for k in members)
-            or len(set(members)) != len(members)):
-        raise ValueError(
-            "long_context_models: not a list of distinct non-empty keys")
-    unknown = [k for k in members if k not in doc["models"]]
-    if unknown:
-        raise ValueError(
-            f"long_context_models: {unknown} name no models-table key")
-    return frozenset(members)
+# The tracked table's namespace prefixes (SV-RATE-DATA): a tracked key
+# "p/<rest>" under a configured prefix names the bare first-party id
+# "<rest>"; an unprefixed key is its own bare form.
+_VENDOR_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
-def _long_context_meters(doc: dict) -> dict[str, int]:
-    """The meter's per-model thresholds (issue #765), checked: a map of
-    member keys to exactly {"threshold": N} for a positive integral N —
-    an integral float spelling (200000.0) folds to the integer, so both
-    loaders accept the same bytes where JSON has already collapsed the
-    spelling (the browser's Number sees one value); a fractional one is
-    refused. A member absent here keeps the meter's global threshold.
-    The key must be a member — a threshold for a model that does not
-    meter is inert data the loaders refuse."""
-    meters = doc.get("long_context_meters") or {}
-    if not isinstance(meters, dict):
-        raise ValueError("long_context_meters: not a map of member keys "
-                         "to thresholds")
-    members = _long_context_members(doc)
-    for key, value in meters.items():
-        if key not in members:
+def _bare_form(key: str, prefixes: list[str]) -> str:
+    """A tracked key's bare form: the key with its namespace prefix
+    stripped, longest prefix first; an unprefixed key is its own bare
+    form."""
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if key.startswith(f"{prefix}/"):
+            return key[len(prefix) + 1:]
+    return key
+
+
+def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """The bare-id vendor tables (SV-RATE-DATA), checked: for each tracked
+    entry carrying `vendor_host`, the (bare form → tracked key) match table
+    and the (tracked key → host) host table. A tracked entry without
+    vendor_host carries no first-party pricing and takes no part. A bare
+    form two entries share, or one that is also a models-table key, is an
+    ambiguity that would silently pick one price: refuse naming both rows.
+    """
+    openrouter = doc.get("openrouter")
+    if not isinstance(openrouter, dict):
+        raise ValueError("pricing.json: openrouter is missing")
+    vendor = openrouter.get("vendor")
+    prefixes = vendor.get("prefixes") if isinstance(vendor, dict) else None
+    if (not isinstance(prefixes, list) or not prefixes
+            or not all(isinstance(p, str) and p and _VENDOR_NAME.fullmatch(p)
+                       for p in prefixes)
+            or len(set(prefixes)) != len(prefixes)):
+        raise ValueError(
+            "pricing.json: openrouter.vendor.prefixes is missing or not a "
+            "list of distinct lowercase [a-z0-9-] namespace strings")
+    tracked = openrouter.get("models")
+    if not isinstance(tracked, dict):
+        raise ValueError("pricing.json: openrouter.models is missing")
+    bare: dict[str, str] = {}
+    hosts: dict[str, str] = {}
+    for key, entry in tracked.items():
+        where = f"openrouter.models[{key!r}]"
+        if not isinstance(entry, dict):
+            raise ValueError(f"pricing.json: {where} is not a mapping")
+        if not isinstance(entry.get("id"), str) or not entry["id"]:
+            raise ValueError(f"pricing.json: {where} carries no 'id'")
+        host = entry.get("vendor_host")
+        if host is None:
+            continue
+        if not isinstance(host, str) or not host:
             raise ValueError(
-                f"long_context_meters: {key!r} names no long_context_models "
-                "member")
-        if not isinstance(value, dict) or set(value) != {"threshold"}:
+                f"pricing.json: {where}: vendor_host is not a non-empty string")
+        form = _bare_form(key, prefixes)
+        if not form:
             raise ValueError(
-                f"long_context_meters: {key!r} is not a {{threshold: "
-                "positive integer}}")
-        threshold = value["threshold"]
-        if (isinstance(threshold, bool)
-                or not isinstance(threshold, (int, float))
-                or not float(threshold).is_integer() or threshold <= 0):
+                f"pricing.json: {where}: bare form is empty; a tracked key "
+                "may not be exactly its namespace prefix")
+        if form in bare:
             raise ValueError(
-                f"long_context_meters: {key!r} is not a {{threshold: "
-                "positive integer}}")
-    return {k: int(v["threshold"]) for k, v in meters.items()}
+                f"pricing.json: {where} and openrouter.models[{bare[form]!r}] "
+                f"both carry the bare form {form!r}")
+        if form in model_rates:
+            raise ValueError(
+                f"pricing.json: {where}: bare form {form!r} is also a "
+                "models-table key; a transcript id would resolve two ways")
+        bare[form] = key
+        hosts[key] = host
+    return bare, hosts
+
+
+def _default_rates(model_rates: dict, vendor_bare: dict[str, str],
+                   vendor_hosts: dict[str, str],
+                   provider_rates: dict) -> dict:
+    """The default estimate's rates: the merged view's claude-opus-4-7
+    row — the models-table row when the key names one, else its tracked
+    vendor row's list price (the migration's new location for the claude
+    families). A document naming neither refuses: there is no honest
+    default without one, so both loaders refuse (SV-RATE-DATA)."""
+    rates = model_rates.get("claude-opus-4-7")
+    if rates is None:
+        tracked = vendor_bare.get("claude-opus-4-7")
+        if tracked is not None:
+            row = (tracked, vendor_hosts[tracked])
+            rates = provider_rates.get(row)
+    if rates is None:
+        raise ValueError(
+            "pricing.json: no claude-opus-4-7 row prices the default estimate")
+    return rates
 
 
 def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict, dict]:
@@ -350,6 +401,7 @@ def load_tables(doc: dict) -> RateTables:
             model_fees[key] = fees
     (provider_rates, provider_dated, provider_fees, provider_starts,
      provider_schedules) = _provider_tables(doc)
+    vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
@@ -369,6 +421,10 @@ def load_tables(doc: dict) -> RateTables:
             | {end for windows in provider_dated.values() for end, _ in windows}
             | set(provider_starts.values())
         ),
+        "VENDOR_BARE": vendor_bare,
+        "VENDOR_HOSTS": vendor_hosts,
+        "DEFAULT_RATES": _default_rates(model_rates, vendor_bare,
+                                        vendor_hosts, provider_rates),
         "LONG_CONTEXT_MODELS": _long_context_members(doc),
         "LONG_CONTEXT_METERS": _long_context_meters(doc),
     }
@@ -403,11 +459,18 @@ FEES = _TABLES["FEES"]
 PROVIDER_FEES = _TABLES["PROVIDER_FEES"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
-# The Codex long-context meter's membership: dashed models-table keys, the
-# shape SV-RATE-ESTIMATES' comparison needs. pricing re-exports it.
+# The Codex long-context meter's membership: dashed names of models-table
+# keys or tracked keys, the shape SV-RATE-ESTIMATES' comparison needs.
+# pricing re-exports it.
 LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
 # The meter's per-model thresholds (issue #765): a member key's
 # {"threshold": N} override of the global default. pricing re-exports it.
 LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]
+# The vendor tables (SV-RATE-DATA): the bare first-party form each
+# vendor_host-carrying tracked entry prices, and its host. pricing
+# re-exports both.
+VENDOR_BARE = _TABLES["VENDOR_BARE"]
+VENDOR_HOSTS = _TABLES["VENDOR_HOSTS"]
 
-DEFAULT_RATES = MODEL_RATES["claude-opus-4-7"]
+
+DEFAULT_RATES = _TABLES["DEFAULT_RATES"]

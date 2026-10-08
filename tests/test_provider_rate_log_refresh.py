@@ -20,7 +20,9 @@ import pytest
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
-from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
+from tests.refresh_fixture_builders import (
+    RATE_C, _endpoint as fixture_endpoint, seed_doc,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -50,8 +52,6 @@ RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
           "read": 0.01, "output": 0.8}
 RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
           "read": 0.02, "output": 0.7}
-RATE_C = {"fresh": 0.4, "create_5m": 0.4, "create_1h": 0.4,
-          "read": 0.03, "output": 0.9}
 
 
 def _point(at: str, value: float) -> dict:
@@ -72,16 +72,12 @@ def _series(states: list[tuple[str, dict]]) -> dict:
 
 
 def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
-    return {
-        "models": {MODEL: [{"from": None, **RATE_A}]},
-        "providers": {MODEL: copy.deepcopy(hosts)},
-        "provider_rates_fetched": "2026-01-01T00:00:00Z",
-        "long_context_models": [],
-        "openrouter": {
-            "data_region": "global",
-            "models": {MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
-        },
-    }
+    return seed_doc(
+        models={MODEL: [{"from": None, **RATE_A}]},
+        providers={MODEL: hosts},
+        tracked={MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
+        fetched="2026-01-01T00:00:00Z",
+    )
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:
@@ -438,6 +434,10 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
         shutil.copy(pricing_path, browser_dir / "pricing.json")
         shutil.copy(ROOT / "src" / "pricing-loader.js",
                     browser_dir / "pricing-loader.js")
+        shutil.copy(ROOT / "src" / "hhmm-spelling.js",
+                    browser_dir / "hhmm-spelling.js")
+        shutil.copy(ROOT / "src" / "vendor-tables.js",
+                    browser_dir / "vendor-tables.js")
         shutil.copy(ROOT / "src" / "rates.js", browser_dir / "rates.js")
         shutil.copy(parser_path, browser_dir / "parser.js")
         proc = subprocess.run(

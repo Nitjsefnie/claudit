@@ -53,6 +53,7 @@ def _refresh() -> None:
     """Empty both memo caches, so a mid-test table patch is visible to
     the next fingerprint call (the autouse fixture only spans tests)."""
     pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+    pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
     rate_fingerprint.clear_fingerprint_cache()
 
 
@@ -329,6 +330,7 @@ def test_every_reprice_derivation_module_is_hashed():
     module's source is inside the logic hash."""
     names = {m.__name__ for m in rate_fingerprint.hashed_modules()}
     assert names == {"backend.pricing", "backend.pricing_load",
+                     "backend.model_names", "backend.meter_tables",
                      "backend.long_context", "backend.ingest_reprice"}
 
 

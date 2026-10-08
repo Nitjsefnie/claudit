@@ -18,8 +18,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from tests.refresh_fixture_builders import RATES_B as PROVIDER_RATES, seed_doc
+
 
 from backend import pricing
+from backend.pricing_load import RateTables
 from backend.pricing_load import RATE_FIELDS, load_tables
 
 UTC = timezone.utc
@@ -47,20 +50,19 @@ def _doc(provider_entries: list[dict] | None = None,
                              "create_1h": 6.0, "read": 0.3, "output": 15.0})]
     if model_note is not None:
         model_entries[0]["note"] = model_note
-    doc = {
-        "models": {"acme/acme-9": model_entries},
-        "providers": {
-            "acme/acme-9": {"HostCo": provider_entries
-                            if provider_entries is not None
-                            else [_entry({"fresh": 2.0, "create_5m": 2.5,
-                                          "create_1h": 4.0, "read": 0.2,
-                                          "output": 10.0},
-                                         note=_fee_note(FEE))]},
-        },
-        "long_context_models": [],
-        "provider_rates_fetched": "2026-09-24T22:03:13Z",
-    }
-    return doc
+    return seed_doc(
+        models={"acme/acme-9": model_entries},
+        providers={"acme/acme-9": {"HostCo": provider_entries
+                                   if provider_entries is not None
+                                   else [_entry(PROVIDER_RATES,
+                                                note=_fee_note(FEE))]}},
+        fetched="2026-09-24T22:03:13Z",
+    )
+
+
+def _install_provider_tables(monkeypatch, tables: RateTables) -> None:
+    for name in ("PROVIDER_FEES", "PROVIDER_RATES", "PROVIDER_DATED_RATES"):
+        monkeypatch.setattr(pricing, name, tables[name])
 
 
 # --- the loader parses the note into per-entry fees -----------------------
@@ -78,8 +80,7 @@ def test_model_row_note_parses_into_model_fees() -> None:
 
 
 def test_dated_entry_fee_rides_its_own_index() -> None:
-    older = _entry({"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-                    "read": 0.2, "output": 10.0}, note=_fee_note(FEE))
+    older = _entry(PROVIDER_RATES, note=_fee_note(FEE))
     newer = {**older, "from": "2026-08-01T00:00:00Z",
              "note": "17% off; " + _fee_note(FEE2)}
     tables = load_tables(_doc([older, newer]))
@@ -88,9 +89,7 @@ def test_dated_entry_fee_rides_its_own_index() -> None:
 
 
 def test_entry_without_note_carries_no_fee() -> None:
-    tables = load_tables(_doc([_entry({"fresh": 2.0, "create_5m": 2.5,
-                                       "create_1h": 4.0, "read": 0.2,
-                                       "output": 10.0})]))
+    tables = load_tables(_doc([_entry(PROVIDER_RATES)]))
     assert not tables["PROVIDER_FEES"]
     assert not tables["FEES"]
 
@@ -99,14 +98,12 @@ def test_fee_shaped_but_malformed_note_refuses() -> None:
     bad = "web_search $0.01/request not modelled: extra words"
     with pytest.raises(ValueError, match="acme/acme-9 via HostCo"):
         load_tables(_doc(provider_entries=[
-            _entry({"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-                    "read": 0.2, "output": 10.0}, note=bad)]))
+            _entry(PROVIDER_RATES, note=bad)]))
 
 
 def test_non_fee_note_ignores_the_fee_parser() -> None:
     tables = load_tables(_doc(provider_entries=[
-        _entry({"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-                "read": 0.2, "output": 10.0}, note="12% off")]))
+        _entry(PROVIDER_RATES, note="12% off")]))
     assert not tables["PROVIDER_FEES"]
     assert not tables["FEES"]
 
@@ -115,17 +112,11 @@ def test_non_fee_note_ignores_the_fee_parser() -> None:
 
 
 def test_resolve_returns_the_entry_in_force_fee(monkeypatch) -> None:
-    older = _entry({"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-                    "read": 0.2, "output": 10.0}, note=_fee_note(FEE))
+    older = _entry(PROVIDER_RATES, note=_fee_note(FEE))
     newer = {**older, "from": "2026-08-01T00:00:00Z",
              "note": "17% off; " + _fee_note(FEE2)}
     tables = load_tables(_doc([older, newer]))
-    monkeypatch.setattr(pricing, "PROVIDER_FEES",
-                        tables["PROVIDER_FEES"])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        tables["PROVIDER_RATES"])
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        tables["PROVIDER_DATED_RATES"])
+    _install_provider_tables(monkeypatch, tables)
     before = datetime(2026, 7, 1, tzinfo=UTC)
     after = datetime(2026, 8, 2, tzinfo=UTC)
     assert pricing.request_fee("acme/acme-9", before, "HostCo") == FEE
@@ -135,10 +126,7 @@ def test_resolve_returns_the_entry_in_force_fee(monkeypatch) -> None:
 
 def test_resolve_without_ts_prices_the_list_entry_fee(monkeypatch) -> None:
     tables = load_tables(_doc())
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", tables["PROVIDER_FEES"])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", tables["PROVIDER_RATES"])
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        tables["PROVIDER_DATED_RATES"])
+    _install_provider_tables(monkeypatch, tables)
     assert pricing.request_fee("acme/acme-9", None, "HostCo") == FEE
 
 
@@ -168,10 +156,7 @@ def test_no_table_no_fee(monkeypatch) -> None:
 
 def test_compute_cost_folds_the_fee(monkeypatch) -> None:
     tables = load_tables(_doc())
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", tables["PROVIDER_FEES"])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", tables["PROVIDER_RATES"])
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        tables["PROVIDER_DATED_RATES"])
+    _install_provider_tables(monkeypatch, tables)
     # The provider row's own rates (fresh 2.0) plus the entry's fee, once.
     with_fee = pricing.compute_cost(
         "acme/acme-9", fresh=1_000_000, output=0, eph5=0, eph1h=0,
@@ -188,10 +173,7 @@ def test_compute_cost_folds_the_fee(monkeypatch) -> None:
 
 def test_compute_cost_keeps_lane_callers_fee_free(monkeypatch) -> None:
     tables = load_tables(_doc())
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", tables["PROVIDER_FEES"])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", tables["PROVIDER_RATES"])
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        tables["PROVIDER_DATED_RATES"])
+    _install_provider_tables(monkeypatch, tables)
     # The lane path resolves with no host, so it prices exactly as
     # before the fee existed.
     assert pricing.compute_cost(
@@ -207,18 +189,14 @@ def test_fee_shaped_note_with_a_non_ascii_fee_key_refuses() -> None:
           "unpriceable from token counts"
     with pytest.raises(ValueError, match="acme/acme-9 via HostCo"):
         load_tables(_doc(provider_entries=[
-            _entry({"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-                    "read": 0.2, "output": 10.0}, note=bad)]))
+            _entry(PROVIDER_RATES, note=bad)]))
 
 
 def test_compute_cost_accepts_a_precomputed_resolution(monkeypatch) -> None:
     """The parse path resolves once and passes the Resolution: pricing the
     tokens and naming the fee must not depend on who resolved."""
     tables = load_tables(_doc())
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", tables["PROVIDER_FEES"])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", tables["PROVIDER_RATES"])
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        tables["PROVIDER_DATED_RATES"])
+    _install_provider_tables(monkeypatch, tables)
     res = pricing.resolve("acme/acme-9", None, "HostCo")
     with_res = pricing.compute_cost(
         "acme/acme-9", fresh=1_000_000, output=0, eph5=0, eph1h=0,

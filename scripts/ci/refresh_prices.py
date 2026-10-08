@@ -3,12 +3,17 @@
 
 The five rates an entry carries (fresh, create_5m, create_1h, read,
 output) and the entry schedule pricing.overrides becomes, plus the run's
-error type. A price or override kind not modelled here refuses its host:
+error types. A price or override kind not modelled here refuses its host:
 a pricing key outside PRICED listed at a nonzero price (a per-request
 fee, an image price), or an override kind outside _OVERRIDE_KEYS, is a
-RefreshError, which appends nothing (SV-RATE-REFRESH). The provider
-refresh also uses this module for endpoint tag/region normalisation and
-weekly schedule coverage checks for first-seen hosts.
+RefreshError, which appends nothing (SV-RATE-REFRESH). The one modelled
+exception is the long-context band: a `min_prompt_tokens` override at the
+Codex meter's shape (meter_shape_ok) contributes no window and no
+membership here — its rates never enter a row — while a departing shape
+is Untracked (a NOTICE; the host's row untouched, the run stays green;
+SV-VENDOR-RATES states the vendor pass's side of the same rule). The
+provider refresh also uses this module for endpoint tag/region
+normalisation and weekly schedule coverage checks for first-seen hosts.
 
 Cache writes take the listed write price when it is nonzero, the input
 rate otherwise; no listed cache-read price is 0. OpenRouter lists USD per
@@ -40,6 +45,69 @@ PRICED = ("prompt", "completion", "input_cache_read", "input_cache_write",
 # nonzero price still refuses.
 RECORDED_FEES = ("web_search",)
 _OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *PRICED})
+_UTC_KEYS = frozenset({"utc_days", "utc_start", "utc_end"})
+
+# The long-context band OpenRouter lists (a `min_prompt_tokens` override):
+# tolerated when its multipliers are the meter's, a not-tracked NOTICE
+# when they depart. `min_prompt_tokens` names the band; the other three
+# are the utc fields a weekly window carries. The band's THRESHOLD is the
+# model's own (issue #765's per-model meters): the vendor pass learns it
+# into long_context_meters, and the provider pass never compares it — the
+# sub-threshold listing prices the row either way.
+MIN_PROMPT_TOKENS = "min_prompt_tokens"
+_INPUT_FIELDS = ("fresh", "create_5m", "create_1h", "read")
+
+
+def meter_shape_ok(base: dict, band_rates: dict) -> bool:
+    """Whether one band's rates are the meter's multipliers: the input
+    side at the input multiplier, output at the output multiplier. The
+    threshold is the band's own — the model's meter takes it (issue
+    #765) — so only the multipliers decide the shape. `base` and
+    `band_rates` are rates_of() shapes. Shared by the vendor pass (the
+    membership and threshold fold) and the provider pass (the band's
+    tolerance)."""
+    for f in _INPUT_FIELDS:
+        if round(band_rates[f], 10) != round(base[f] * pricing.LONG_CONTEXT_INPUT_MULT, 10):
+            return False
+    return round(band_rates["output"], 10) == round(
+        base["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT, 10)
+
+
+def band_threshold(band: dict, where: str) -> int:
+    """The band's own threshold, checked: a positive integer."""
+    value = band[MIN_PROMPT_TOKENS]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise Untracked(f"{where}: band threshold {value!r} is not a "
+                        "positive integer")
+    return value
+
+
+def metered_band(price: dict, where: str, bands: list[dict]) -> tuple[bool, int | None]:
+    """A price's `min_prompt_tokens` overrides as the (metered,
+    threshold) verdict: one band at the meter's multipliers is metered at
+    its OWN threshold — its rates never enter anything — and a departing
+    shape is Untracked (a NOTICE on both paths: the vendor pass's
+    not-tracked rule, the provider pass's untouched-host rule)."""
+    if not bands:
+        return False, None
+    if len(bands) > 1:
+        raise Untracked(f"{where}: {len(bands)} long-context bands are not modelled")
+    band = bands[0]
+    if set(band) & _UTC_KEYS:
+        raise Untracked(f"{where}: a band and utc fields on one override is not modelled")
+    unknown = set(band) - {*PRICED, MIN_PROMPT_TOKENS}
+    if unknown:
+        raise Untracked(f"{where}: band kind not modelled: {sorted(unknown)}")
+    if not (isinstance(band.get("prompt"), str)
+            and isinstance(band.get("completion"), str)):
+        raise Untracked(f"{where}: the band does not restate input and output: not modelled")
+    threshold = band_threshold(band, where)
+    if not meter_shape_ok(rates_of(price, where), rates_of(band, where)):
+        raise Untracked(
+            f"{where}: long-context band departs from the meter's "
+            f"multipliers at threshold {threshold}")
+    return True, threshold
+
 
 # An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
 # and data regions. A region is one of these codes, alone or qualified by an
@@ -68,6 +136,13 @@ def unknown_suffixes(tag: str) -> list[str]:
 
 class RefreshError(Exception):
     """A host, a model or a run a human must look at: it writes nothing."""
+
+
+class Untracked(RefreshError):
+    """A listed shape the refresh deliberately does not track: a NOTICE —
+    the model's or host's state untouched, the run stays green — never red.
+    The provider path catches it per host in refresh_selection.listed_rows;
+    the vendor pass raises it for its not-tracked shapes."""
 
 
 def _per_million(price: object, where: str) -> float:
@@ -157,14 +232,23 @@ def as_listed(rates: dict) -> dict:
 def entry_schedule(price: dict, where: str) -> list | None:
     """The entry schedule for OpenRouter's pricing.overrides: weekly UTC
     windows (utc_days, utc_start/utc_end as HHMM), each with the prices it
-    overrides; a price it does not name is the endpoint's own."""
+    overrides; a price it does not name is the endpoint's own.
+
+    A `min_prompt_tokens` override is the long-context band: at the meter's
+    shape (meter_shape_ok over the top-level rates) it is tolerated — no
+    window, nothing enters the row; a departing shape raises Untracked (the
+    host's row untouched, the run stays green). Another override kind the
+    script does not model still refuses."""
     overrides = price.get("overrides")
     if overrides is None or overrides == []:
         return None
     if not isinstance(overrides, list) or not all(isinstance(o, dict) for o in overrides):
         raise RefreshError(f"{where}: pricing.overrides is not a list of windows")
-    schedule = []
+    schedule, bands = [], []
     for override in overrides:
+        if MIN_PROMPT_TOKENS in override:
+            bands.append(override)
+            continue
         unknown = set(override) - _OVERRIDE_KEYS
         if unknown:
             raise RefreshError(f"{where}: override kind not modelled: {sorted(unknown)}")
@@ -178,6 +262,9 @@ def entry_schedule(price: dict, where: str) -> list | None:
             window["start"] = override.get("utc_start")
             window["end"] = override.get("utc_end")
         schedule.append(window)
+    metered_band(price, where, bands)
+    if not schedule:
+        return None
     try:
         pricing._schedule(schedule, where)  # pylint: disable=protected-access
     except ValueError as exc:

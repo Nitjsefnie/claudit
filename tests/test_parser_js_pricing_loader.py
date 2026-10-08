@@ -20,9 +20,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
+VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
+HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 
 # The model id a transcript carries, and the row key it resolves to (the
 # same shapes the real pricing.json and test_provider_rate_refresh.py use).
@@ -47,9 +51,8 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
     rates1 = rates1 if rates1 is not None else dict(DAY)
     doc = {
         "models": {
-            "claude-opus-4-8": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
+            "claude-opus-4-8": [dict(DEFAULT_ROW)],
+            "claude-opus-4-7": [dict(DEFAULT_ROW)],
         },
         "long_context_models": [],
         "providers": {
@@ -67,6 +70,8 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
         "openrouter": {
             "data_region": "global",
             "models": {ROW_KEY: {"id": MODEL_ID}},
+            "vendor": {"prefixes": ["anthropic", "openai",
+                                    "moonshotai", "z-ai"]},
         },
         "provider_rates_fetched": "2026-09-24T22:03:13Z",
     }
@@ -100,6 +105,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     fixture = where / "pricing.json"
     fixture.write_text(text, encoding="utf-8")
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
+    shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
     shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a
