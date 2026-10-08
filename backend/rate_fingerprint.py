@@ -32,7 +32,8 @@ import inspect
 import json
 from datetime import datetime
 
-from backend import long_context, model_names, pricing, pricing_load
+from backend import (long_context, meter_tables, model_names, pricing,
+                     pricing_load)
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
@@ -41,7 +42,8 @@ _STRUCTURE_VERSION = 4
 # The modules whose source the logic digest hashes. The reprice pass
 # itself joins them at first use (hashed_modules) — a module-level
 # import would be the cycle ingest_reprice already closes the other way.
-_LOGIC_MODULES = (pricing, pricing_load, model_names, long_context)
+_LOGIC_MODULES = (pricing, pricing_load, model_names, meter_tables,
+                 long_context)
 
 # The digest, computed on first use: by then both import directions
 # (rate_fingerprint <-> ingest_reprice) have settled and getsource can

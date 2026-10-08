@@ -48,21 +48,24 @@ _OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *PRICED})
 _UTC_KEYS = frozenset({"utc_days", "utc_start", "utc_end"})
 
 # The long-context band OpenRouter lists (a `min_prompt_tokens` override):
-# tolerated at the Codex meter's shape, a not-tracked NOTICE when it
-# departs. `min_prompt_tokens` names the band; the other three are the utc
-# fields a weekly window carries.
+# tolerated when its multipliers are the meter's, a not-tracked NOTICE
+# when they depart. `min_prompt_tokens` names the band; the other three
+# are the utc fields a weekly window carries. The band's THRESHOLD is the
+# model's own (issue #765's per-model meters): the vendor pass learns it
+# into long_context_meters, and the provider pass never compares it — the
+# sub-threshold listing prices the row either way.
 MIN_PROMPT_TOKENS = "min_prompt_tokens"
 _INPUT_FIELDS = ("fresh", "create_5m", "create_1h", "read")
 
 
-def meter_shape_ok(base: dict, band: dict, band_rates: dict) -> bool:
-    """Whether one band is the meter: the threshold constant (read off the
-    raw band), the input side at the input multiplier, output at the output
-    multiplier. `base` and `band_rates` are rates_of() shapes. Shared by the
-    vendor pass (the membership fold) and the provider pass (the band's
+def meter_shape_ok(base: dict, band_rates: dict) -> bool:
+    """Whether one band's rates are the meter's multipliers: the input
+    side at the input multiplier, output at the output multiplier. The
+    threshold is the band's own — the model's meter takes it (issue
+    #765) — so only the multipliers decide the shape. `base` and
+    `band_rates` are rates_of() shapes. Shared by the vendor pass (the
+    membership and threshold fold) and the provider pass (the band's
     tolerance)."""
-    if band[MIN_PROMPT_TOKENS] != pricing.LONG_CONTEXT_THRESHOLD:
-        return False
     for f in _INPUT_FIELDS:
         if round(band_rates[f], 10) != round(base[f] * pricing.LONG_CONTEXT_INPUT_MULT, 10):
             return False
@@ -70,14 +73,23 @@ def meter_shape_ok(base: dict, band: dict, band_rates: dict) -> bool:
         base["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT, 10)
 
 
-def metered_band(price: dict, where: str, bands: list[dict]) -> bool:
-    """A price's `min_prompt_tokens` overrides as the membership verdict:
-    True when one band sits at the meter's shape — its rates never enter
-    anything — Untracked when the shape departs the meter's (a NOTICE on
-    both paths: the vendor pass's not-tracked rule, the provider pass's
-    untouched-host rule)."""
+def band_threshold(band: dict, where: str) -> int:
+    """The band's own threshold, checked: a positive integer."""
+    value = band[MIN_PROMPT_TOKENS]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise Untracked(f"{where}: band threshold {value!r} is not a "
+                        "positive integer")
+    return value
+
+
+def metered_band(price: dict, where: str, bands: list[dict]) -> tuple[bool, int | None]:
+    """A price's `min_prompt_tokens` overrides as the (metered,
+    threshold) verdict: one band at the meter's multipliers is metered at
+    its OWN threshold — its rates never enter anything — and a departing
+    shape is Untracked (a NOTICE on both paths: the vendor pass's
+    not-tracked rule, the provider pass's untouched-host rule)."""
     if not bands:
-        return False
+        return False, None
     if len(bands) > 1:
         raise Untracked(f"{where}: {len(bands)} long-context bands are not modelled")
     band = bands[0]
@@ -89,12 +101,12 @@ def metered_band(price: dict, where: str, bands: list[dict]) -> bool:
     if not (isinstance(band.get("prompt"), str)
             and isinstance(band.get("completion"), str)):
         raise Untracked(f"{where}: the band does not restate input and output: not modelled")
-    if not meter_shape_ok(rates_of(price, where), band, rates_of(band, where)):
+    threshold = band_threshold(band, where)
+    if not meter_shape_ok(rates_of(price, where), rates_of(band, where)):
         raise Untracked(
-            f"{where}: long-context band departs from the meter "
-            f"({band.get(MIN_PROMPT_TOKENS)!r} against the meter's "
-            f"{pricing.LONG_CONTEXT_THRESHOLD})")
-    return True
+            f"{where}: long-context band departs from the meter's "
+            f"multipliers at threshold {threshold}")
+    return True, threshold
 
 
 # An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations

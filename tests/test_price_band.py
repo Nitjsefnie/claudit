@@ -487,6 +487,8 @@ def _node_load(tmp_path: Path, text: str) -> str | None:
     (tmp_path / "pricing.json").write_text(text, encoding="utf-8")
     loader = tmp_path / "pricing-loader.js"
     shutil.copy(ROOT / "src" / "pricing-loader.js", loader)
+    shutil.copy(ROOT / "src" / "hhmm-spelling.js",
+                tmp_path / "hhmm-spelling.js")
     shutil.copy(ROOT / "src" / "vendor-tables.js",
                 tmp_path / "vendor-tables.js")
     program = (f"global.window={{}};let e=null;try{{require({str(loader)!r})}}"

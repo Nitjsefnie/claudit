@@ -330,7 +330,7 @@ def test_every_reprice_derivation_module_is_hashed():
     module's source is inside the logic hash."""
     names = {m.__name__ for m in rate_fingerprint.hashed_modules()}
     assert names == {"backend.pricing", "backend.pricing_load",
-                     "backend.model_names",
+                     "backend.model_names", "backend.meter_tables",
                      "backend.long_context", "backend.ingest_reprice"}
 
 

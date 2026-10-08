@@ -68,16 +68,18 @@ DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
                "create_1h": 10.0, "read": 0.5, "output": 25.0}
 
 
-def seed_doc(*, members=None, models=None, tracked=None, providers=None,
-             resolve=None, prefixes=None,
+def seed_doc(*, members=None, meters=None, models=None, tracked=None,
+             providers=None, resolve=None, prefixes=None,
              fetched="2030-01-01T00:00:00Z") -> dict:
     """The minimal loadable seed document (issue #858): every section the
     loaders demand plus the default estimate's row. Callers add their own
     rows through the keyword arguments — extra models-table rows, tracked
     entries, provider rows, vendor resolve pins, the prefix list, the
-    fetch stamp — and every doc they build loads for the same reason."""
+    per-model meter map, the fetch stamp — and every doc they build loads
+    for the same reason."""
     return {
         "long_context_models": list(members or []),
+        "long_context_meters": dict(meters or {}),
         "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
                    **(copy.deepcopy(models) if models else {})},
         "openrouter": {"data_region": "global",

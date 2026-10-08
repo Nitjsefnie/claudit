@@ -13,6 +13,20 @@ import pytest
 
 from backend import pricing
 
+from tests.test_vendor_rate_refresh import (
+    GPT_ID,
+    GPT_KEY,
+    TRACKED,
+    _band,
+    _catalog,
+    _doc as _vrf_doc,
+    _endpoint,
+    _payload,
+    _per_token,
+    _price,
+    _run,
+)
+
 from tests.test_pricing_vendor import (
     CUT,
     HOST,
@@ -26,6 +40,7 @@ from tests.test_pricing_vendor import (
     STAMP,
     UTC,
     VENDOR_TABLES_JS,
+    HHMM_JS,
     _clear_caches,
     _doc,
     _entry,
@@ -158,6 +173,7 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
         (d / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
         shutil.copy(LOADER_JS, d / "pricing-loader.js")
         shutil.copy(VENDOR_TABLES_JS, d / "vendor-tables.js")
+        shutil.copy(HHMM_JS, d / "hhmm-spelling.js")
         shutil.copy(RATES_JS, d / "rates.js")
         shutil.copy(PARSER_JS, d / "parser.js")
         script = f"""
@@ -222,6 +238,31 @@ def _rowless_default_doc() -> dict:
     return doc
 
 
+def test_notice_leaves_a_tracked_entry_and_member_untouched():
+    """The not-tracked contract's second half: a model with a tracked entry
+    and meter membership whose source turns untracked keeps both, byte for
+    byte."""
+    banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                    overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                     write_1h=2.0)])
+    scheduled = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                       overrides=[{"utc_days": ["monday"], "utc_start": 0,
+                                   "utc_end": 100, "prompt": _per_token(1.0),
+                                   "completion": _per_token(5.0)}])
+    before, _ = _run(
+        _vrf_doc(tracked={GPT_KEY: dict(TRACKED)}),
+        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
+    assert GPT_KEY in before["long_context_models"]
+    after, out = _run(
+        before,
+        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
+    assert out.refusals == [] and len(out.notices) == 1
+    assert "not tracked" in out.notices[0]
+    assert after["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert GPT_KEY in after["long_context_models"]
+    assert out.moves == []
+
+
 def test_a_tracked_but_rowless_default_row_refuses_the_backend():
     """Discriminated from the plain missing row: claude-opus-4-7 IS a
     tracked key here, but the row its bare path would read does not exist,
@@ -246,6 +287,7 @@ def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     proc = subprocess.run(
         ["node", "-e", """

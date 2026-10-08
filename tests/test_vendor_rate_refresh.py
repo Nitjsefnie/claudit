@@ -56,11 +56,11 @@ def _per_token(rate: float) -> str:
 
 
 def _doc(*, members=None, models=None, resolve=None, tracked=None,
-         prefixes=None) -> dict:
+         meters=None, prefixes=None) -> dict:
     """The minimal seed doc (refresh_fixture_builders.seed_doc) with this
-    file's frozen fetch stamp."""
+    file's frozen fetch stamp and the per-model meter map (#765)."""
     return seed_doc(members=members, models=models, resolve=resolve,
-                    tracked=tracked, prefixes=prefixes,
+                    tracked=tracked, meters=meters, prefixes=prefixes,
                     fetched="2030-12-31T00:00:00Z")
 
 
@@ -267,12 +267,15 @@ def test_banded_model_joins_the_meter_with_its_entry():
     assert not out.refusals
     assert GPT_KEY in doc["long_context_models"]
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert doc["long_context_meters"][GPT_KEY] == {
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True,
-                                           membership="+")]
+                                           membership="+",
+                                           meter=long_context.LONG_CONTEXT_THRESHOLD)]
 
 
-def test_banded_tracked_entry_moves_membership_only():
-    _, out = _run(
+def test_banded_tracked_entry_folds_membership_and_meter():
+    doc, out = _run(
         _doc(tracked={GPT_KEY: dict(TRACKED)}),
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint(
@@ -280,16 +283,71 @@ def test_banded_tracked_entry_moves_membership_only():
                              overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                                               write_1h=2.0)])))})
     assert not out.refusals
-    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="+")]
+    assert out.moves == [vendor.VendorMove(
+        GPT_ID, GPT_KEY, membership="+",
+        meter=long_context.LONG_CONTEXT_THRESHOLD)]
+    assert doc["long_context_meters"][GPT_KEY] == {
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
 
 
 def test_band_removal_leaves_the_meter():
     doc, out = _run(
-        _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY]),
+        _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 200_000}}),
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="-")]
     assert GPT_KEY not in doc["long_context_models"]
+    assert GPT_KEY not in doc["long_context_meters"]
+
+
+def test_a_new_threshold_is_learned_from_the_band():
+    """The issue #765 case: a band at a threshold of its own (Claude's
+    200k) with the meter's multipliers is the meter — the pass folds the
+    membership and learns the threshold into long_context_meters."""
+    doc, out = _run(
+        _doc(tracked={GPT_KEY: dict(TRACKED)}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0,
+                                              threshold=200_000)])))})
+    assert not out.refusals and out.notices == []
+    assert GPT_KEY in doc["long_context_models"]
+    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 200_000}
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="+",
+                                           meter=200_000)]
+
+
+def test_the_stored_meter_moves_with_the_band():
+    """A listed band at a threshold other than the stored meter's is a
+    move the listing governs: the meter rewrites, membership stays."""
+    doc, out = _run(
+        _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 200_000}}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0,
+                                              threshold=300_000)])))})
+    assert not out.refusals and out.notices == []
+    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 300_000}
+    assert GPT_KEY in doc["long_context_models"]
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, meter=300_000)]
+
+
+def test_a_quiet_band_writes_nothing():
+    _, out = _run(
+        _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY],
+             meters={GPT_KEY: {"threshold": 272_000}}),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                              write_1h=2.0)])))})
+    assert out.moves == [] and not out.refusals and out.notices == []
 
 
 def test_non_vendor_member_stands():
@@ -314,15 +372,19 @@ def test_departing_multiplier_band_is_a_notice(kw):
     assert GPT_KEY not in doc["long_context_models"]
 
 
-def test_non_meter_threshold_is_a_notice():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, read=0.1,
-                         overrides=[_band(1.0, 5.0, read=0.1,
-                                          threshold=200000)])))})
-    assert (GPT_KEY not in doc["openrouter"]["models"]
-            and GPT_KEY not in doc["long_context_models"])
-    assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0] and "departs from the meter" in out.notices[0]
+def test_a_bad_band_threshold_is_a_notice():
+    """A band threshold that is no positive integer is not a meter shape
+    the table can carry — a notice, never red, never a fold."""
+    for bad in (0, -1, 2.0, True, "200000"):
+        doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1,
+                             overrides=[_band(1.0, 5.0, threshold=bad)])))})
+        assert GPT_KEY not in doc["openrouter"]["models"]
+        assert GPT_KEY not in doc["long_context_models"]
+        assert GPT_KEY not in doc["long_context_meters"]
+        assert out.refusals == [] and len(out.notices) == 1
+        assert ("not tracked" in out.notices[0]
+                and "positive integer" in out.notices[0])
 
 
 def test_band_without_output_is_a_notice():
@@ -575,31 +637,6 @@ def test_main_vendor_disabled_keeps_the_provider_surface(tmp_path, capsys):
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
     assert GPT_KEY not in doc["openrouter"]["models"]
     assert run.constants_path.read_text() == 'PRICING_VERSION = "100"\n'
-
-
-def test_notice_leaves_a_tracked_entry_and_member_untouched():
-    """The not-tracked contract's second half: a model with a tracked entry
-    and meter membership whose source turns untracked keeps both, byte for
-    byte."""
-    banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
-                    overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
-                                     write_1h=2.0)])
-    scheduled = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
-                       overrides=[{"utc_days": ["monday"], "utc_start": 0,
-                                   "utc_end": 100, "prompt": _per_token(1.0),
-                                   "completion": _per_token(5.0)}])
-    before, _ = _run(
-        _doc(tracked={GPT_KEY: dict(TRACKED)}),
-        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
-    assert GPT_KEY in before["long_context_models"]
-    after, out = _run(
-        before,
-        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
-    assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0]
-    assert after["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert GPT_KEY in after["long_context_models"]
-    assert out.moves == []
 
 
 def test_a_broken_endpoints_fetch_refuses_only_its_model():

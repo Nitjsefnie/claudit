@@ -94,12 +94,13 @@ PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
 @dataclass
 class VendorMove:
-    """One tracked-table move: a new entry (an auto-add) or a membership
-    fold — the pass writes no rates."""
+    """One tracked-table move: a new entry (an auto-add), a membership
+    fold, or a meter-threshold write — the pass writes no rates."""
     id: str
     key: str
     added: bool = False
     membership: str = ""  # "+" joined long_context_models, "-" left, "" untouched
+    meter: int | None = None  # the threshold written or moved, None untouched
 
 
 @dataclass
@@ -171,9 +172,10 @@ def _split_overrides(price: dict, where: str) -> tuple[list, list]:
     return bands, weekly
 
 
-def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, str]:
-    """One endpoint as (five rates, metered?, provider_name) — the rates
-    only to tell two same-namespace endpoints' prices apart, never written.
+def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, int | None, str]:
+    """One endpoint as (five rates, metered?, the band's own threshold,
+    provider_name) — the rates only to tell two same-namespace endpoints'
+    prices apart, never written.
     Refusing an unmodelled shape: the add or fold the endpoint would have
     carried does not happen; a not-tracked notice lands instead."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
@@ -208,12 +210,12 @@ def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, str]:
     if weekly:
         raise Untracked(f"{where}: a weekly schedule: not tracked until the "
                         "pass can select a default outside every window")
-    metered = metered_band(price, where, bands)
-    return rates, metered, provider
+    metered, threshold = metered_band(price, where, bands)
+    return rates, metered, threshold, provider
 
 
 def _choose(model_id: str, endpoints: list, pin: object
-            ) -> tuple[dict, bool, str] | None:
+            ) -> tuple[dict, bool, int | None, str] | None:
     """The vendor's own endpoint's listing, refusing an ambiguous one.
     None means the vendor lists no first-party endpoint (a notice, not a
     refusal)."""
@@ -286,8 +288,23 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
     return None
 
 
-def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
-               outcome: VendorOutcome) -> None:
+def _fold_meter(meters: dict, key: str, metered: bool,
+                threshold: int | None) -> int | None:
+    """Write or drop the model's meter threshold per the listing, and
+    name the written threshold for the move (None: untouched). The drop
+    keeps the loaders' rule — a meters key names a member."""
+    if metered and threshold is not None:
+        if meters.get(key) != {"threshold": threshold}:
+            meters[key] = {"threshold": threshold}
+            return threshold
+        return None
+    if not metered and key in meters:
+        del meters[key]
+    return None
+
+
+def _one_model(doc: dict, members: list, meters: dict, model_id: str,
+               fetch_endpoints, outcome: VendorOutcome) -> None:
     """One catalog id's selection, auto-add or fold; findings land in
     `outcome`. An Untracked shape notices; red stays for ambiguity, pins and
     broken fetches. A tracked key is never re-added or rewritten."""
@@ -295,19 +312,22 @@ def _one_model(doc: dict, members: list, model_id: str, fetch_endpoints,
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return
-    _rates, metered, host = selected
+    _rates, metered, threshold, host = selected
     # setdefault, never `or {}`: an empty tracked table is falsy, and a
     # fresh dict here would drop the auto-add's write on the floor.
     tracked = (doc.get("openrouter") or {}).setdefault("models", {})
     if key in tracked:
         membership = _fold_membership(members, key, metered)
-        if membership:
-            outcome.moves.append(VendorMove(model_id, key, membership=membership))
+        meter = _fold_meter(meters, key, metered, threshold)
+        if membership or meter is not None:
+            outcome.moves.append(VendorMove(model_id, key,
+                                            membership=membership, meter=meter))
         return
     tracked[key] = {"id": model_id, "vendor_host": host}
     membership = _fold_membership(members, key, metered)
+    meter = _fold_meter(meters, key, metered, threshold)
     outcome.moves.append(VendorMove(model_id, key, added=True,
-                                    membership=membership))
+                                    membership=membership, meter=meter))
 
 
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
@@ -327,8 +347,9 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
             f"({str(exc) or type(exc).__name__})")
         return outcome
     members: list = doc.setdefault("long_context_models", [])
+    meters: dict = doc.setdefault("long_context_meters", {})
     for model_id in ids:
-        _one_model(doc, members, model_id, fetch_endpoints, outcome)
+        _one_model(doc, members, meters, model_id, fetch_endpoints, outcome)
     members.sort()
     # The loaders' rules, run on what would be written: among them, a member
     # naming no models-table or tracked key, and a tracked entry without its id.

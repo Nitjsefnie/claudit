@@ -441,6 +441,8 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
         shutil.copy(pricing_path, browser_dir / "pricing.json")
         shutil.copy(ROOT / "src" / "pricing-loader.js",
                     browser_dir / "pricing-loader.js")
+        shutil.copy(ROOT / "src" / "hhmm-spelling.js",
+                    browser_dir / "hhmm-spelling.js")
         shutil.copy(ROOT / "src" / "vendor-tables.js",
                     browser_dir / "vendor-tables.js")
         shutil.copy(ROOT / "src" / "rates.js", browser_dir / "rates.js")

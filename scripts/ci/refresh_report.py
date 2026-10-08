@@ -143,6 +143,8 @@ def vendor_report(stamp: str, vendor) -> str:
     for move in vendor.moves:
         tail = (" [metered]" if move.membership == "+"
                 else " [unmetered]" if move.membership == "-" else "")
+        if move.meter is not None:
+            tail += f" [threshold {move.meter}]"
         if move.added:
             lines.append(f"  added     {move.key} ({move.id}): joins the "
                          f"tracked table{tail}")

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
 
 
 from backend import pricing
@@ -26,6 +26,7 @@ from backend import pricing
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
+HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 PRICING_PY = ROOT / "backend" / "pricing.py"
@@ -149,6 +150,7 @@ def _node_raw(script: str):
 def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 
@@ -441,6 +443,7 @@ def _node_load(tmp_path, doc: dict) -> str | None:
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     return _node_raw(f"""
       global.window = {{}};
       let error = null;
@@ -645,16 +648,10 @@ def _provider_only_doc() -> dict:
     """A file whose only row is a synthetic (model, host) pair that begins
     at P_START and moves at P_CUT, at rates unlike any real price (plus the
     claude-opus-4-7 row the default estimate needs, at no cutover)."""
-    return {
-        "models": {"claude-opus-4-7": [_CLAUDE_DEFAULT_ENTRY]},
-        "providers": {"acme/acme-9": {"HostCo": [
-            {"from": P_START, **P_BEFORE},
-            {"from": P_CUT, **P_AFTER},
-        ]}},
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-    }
+    return seed_doc(providers={"acme/acme-9": {"HostCo": [
+        {"from": P_START, **P_BEFORE},
+        {"from": P_CUT, **P_AFTER},
+    ]}})
 
 
 # The default-estimate row a synthetic document carries: the shared seed

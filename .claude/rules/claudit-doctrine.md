@@ -996,67 +996,79 @@ same rules:
 
 ## First-party vendor rates refresh from OpenRouter (SV-VENDOR-RATES)
 
-The same hourly run refreshes the four vendors' first-party list prices
-(`src/pricing.json`'s `models` table) and `long_context_models` membership,
-selected by VENDOR PREFIX over OpenRouter's catalog — every id under
-`anthropic/*`, `openai/*`, `moonshotai/*` and `z-ai/*` — at the vendor's own
-first-party endpoint (the endpoint whose tag prefix is the vendor's own
-namespace), never a third-party host. No per-model allowlist: a model the
-vendor adds under its prefix is picked up on the next run. The pass lives
-in `scripts/ci/refresh_vendor_rates.py` and runs inside
-`refresh_provider_rates.main()`: one report, one commit, refusals block
-only their own model. PRICING_VERSION bumps once, one past the file, when
-either pass moved.
+The same hourly run tracks the first-party vendor table and
+`long_context_models` membership, selected by VENDOR PREFIX over OpenRouter's
+catalog at the vendor's own first-party endpoint (the endpoint whose tag
+prefix is the vendor's own namespace), never a third-party host. The prefix
+list is config: `openrouter.vendor.prefixes` — the same list the loaders
+validate and the bare-id resolution matches through — so adding or dropping
+a vendor is a one-line pricing.json edit, no code change. The pass lives in
+`scripts/ci/refresh_vendor_rates.py` and runs inside
+`refresh_provider_rates.main()`: one report, one commit, refusals block only
+their own model. PRICING_VERSION bumps once, one past the file, when either
+pass moved.
 
-- **Variants are never rows.** A catalog id with a `:<suffix>` variant
+- **Auto-add joins the tracked set.** A catalog id under a listed prefix
+  (with no `:<suffix>` variant suffix) whose derived key is not yet tracked
+  is ADDED to `openrouter.models` as `{"id": <catalog id>, "vendor_host":
+  <providerName of the selected endpoint>}` — the entry shape the issue-851
+  migration gave every tracked vendor row. The pass writes NO RATES: the
+  provider pass carries the `(key, vendor_host)` row from the NEXT hourly
+  run, so a newly added model prices nothing for one run (the one-run
+  pickup delay is the design; the loaders admit a tracked entry ahead of
+  its provider row, and resolve()'s bare path falls through until the row
+  exists).
+- **Variants are never entries.** A catalog id with a `:<suffix>` variant
   (a `:batch` discounted tier, a `:free` tier — priced at zero by resolve()
   before any table — or any other suffix) is skipped: the bare id is the
   model.
-- **The vendor endpoint.** The BARE tag (namespace, no suffix) is the list
-  price; the vendor's other tags are its own service tiers (fast, flex) or
-  quantizations. With no bare tag, the vendor-prefix endpoints must agree
-  on one price (equal prices collapse); several prices refuse, and a
-  `{"tag": ..., "why": ...}` pin recorded in
+- **The vendor endpoint.** The BARE tag (namespace, no suffix) is the
+  first-party price; the vendor's other tags are its own service tiers
+  (fast, flex) or quantizations. With no bare tag, the vendor-prefix
+  endpoints must agree on one price (equal prices collapse); several prices
+  refuse, and a `{"tag": ..., "why": ...}` pin recorded in
   `openrouter.vendor.resolve.<derived key>` takes one. No vendor-prefix
   endpoint at all is a NOTICE + skip (the model is offered only through
-  third-party hosts; any row's own history stands).
+  third-party hosts; any tracked entry's own state stands).
 - **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
   `gpt-5-5`) — the normalisation resolve() applies to a transcript naming
   the bare first-party id. The parity is a bare-id claim: a transcript
   spelling the vendor prefix is OpenRouter provider-row traffic, priced by
   that table by design.
-- **A listed price change APPENDS**, never rewrites: a hand-curated row
-  whose vendor source has moved on gets the appended entry too (the listing
-  governs a row the refresh owns — where a vendor's real first-party tier
-  differs from OpenRouter's listing shape, the listing still wins; the
-  correction is a human commit). Rows with no vendor source (aliases, the
+- **An already-tracked entry is never re-added or rewritten.** The listing
+  of a tracked key is still fetched and selected — for the membership fold
+  — but the entry stands byte for byte and the pass appends nothing
+  anywhere. Entries with no vendor source (a models-table key such as
+  bonsai-2-27b, or a tracked entry without vendor_host — aliases, the
   delisted) stand untouched, and a quiet source writes nothing.
-- **The long-context band folds to the meter.** A `min_prompt_tokens`
-  override whose multipliers equal the meter's (`INPUT_MULT` /
-  `OUTPUT_MULT`) is the meter at the band's own threshold (issue #765):
-  it sets `long_context_models` membership and lands the threshold in
-  `long_context_meters` (a member key's `{"threshold": N}` override of
-  the global default; a member absent from the map keeps
-  `pricing.LONG_CONTEXT_THRESHOLD`), and contributes NO rates: the five
-  stored rates stay the sub-threshold listing, and compute_cost applies
-  the meter above the model's own threshold. Membership and threshold
-  follow the listing for vendor-tracked keys; non-vendor keys stand
-  untouched; a threshold move rewrites the meter. A band departing the
-  meter's multipliers is NOT TRACKED — the notice rule below.
+- **The long-context band folds to the meter at the band's own
+  threshold.** A `min_prompt_tokens` override whose multipliers equal the
+  meter's (`INPUT_MULT` / `OUTPUT_MULT`) is the meter (issue #765): it sets
+  `long_context_models` membership and lands the band's own threshold in
+  `long_context_meters` (a member key's `{"threshold": N}` override of the
+  global default; a member absent from the map keeps
+  `pricing.LONG_CONTEXT_THRESHOLD`), and contributes NO rates: the band's
+  own rates never enter anything the pass writes. Membership and threshold
+  follow the listing for vendor-tracked keys (a member requires its tracked
+  entry, which the same run adds); non-vendor keys stand untouched; a
+  threshold move rewrites the meter. A band departing the meter's
+  multipliers is NOT TRACKED — the notice rule below.
 - **An unmodelled shape is a NOTICE, never red.** The pass notices it as
-  "not tracked: <reason>" and moves on: no row is created and no existing
-  row is touched. Red is reserved for ambiguity a human must resolve
-  (multi-price without a pin, a stale or malformed recorded pin) and for
-  broken or unrecognised fetches — each clearing on a human action or a
-  retry, never standing every hour.
-- **Fees are provenance notes, never the priced fee shape.** A RECORDED_FEE
-  (web_search) at a nonzero price enters the entry note WITHOUT the
-  `/request` note shape: the models table prices first-party traffic, whose
-  requests pay no per-request fee, and the priced note shape is exactly
-  what the loaders fold in once per request. Discount notes as provider
-  rows.
-- **A weekly schedule is not tracked** (notice): a models row carries no
-  schedule (the loaders admit one on provider rows only).
+  "not tracked: <reason>" and moves on: no entry is created and no existing
+  entry or membership is touched. Red is reserved for ambiguity a human
+  must resolve (multi-price without a pin, a stale or malformed recorded
+  pin) and for broken or unrecognised fetches — each clearing on a human
+  action or a retry, never standing every hour.
+- **A fee on the listing is the provider row's provenance.** A RECORDED_FEE
+  (web_search) on a first-party listing blocks nothing: the pass writes no
+  rates, and the fee note lands on the `(key, vendor_host)` row the
+  provider pass carries, beside the rates it never enters. A fee value the
+  table could not parse stays a not-tracked notice. Discount notes as
+  provider rows.
+- **A weekly schedule is not tracked** (notice): the price the pass
+  compared is a window price at fetch time, the same reason the provider
+  pass refuses a first-seen scheduled host inside one; the model is not
+  tracked until the pass can select an actual default.
 - **The loaders run on the would-be file** before anything is written; a
   failure writes nothing.
 

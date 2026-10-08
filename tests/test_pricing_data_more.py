@@ -25,6 +25,7 @@ from tests.test_pricing_data import (
     ORIGIN,
     LOADER_JS,
     VENDOR_TABLES_JS,
+    HHMM_JS,
     PARSER_JS,
     RATES_JS,
     P_AFTER,
@@ -174,6 +175,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     assert want in _node(tmp_path / "parser.js",
@@ -198,6 +200,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
         json.dumps(_with_newcomer()), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     before = _stamp(_at(CUT) - timedelta(seconds=1))
@@ -270,6 +273,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
@@ -347,6 +351,7 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
@@ -373,6 +378,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
         json.dumps(_provider_only_doc()), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js",
@@ -511,6 +517,8 @@ def test_long_context_meters_must_be_a_map():
     doc["long_context_meters"] = ["gpt-5-6-sol"]
     with pytest.raises(ValueError, match="not a map"):
         pricing.load_tables(doc)
+
+
 def _extending_ids() -> list[tuple[str, str]]:
     """(model id, the key it names) where the id matches a longer key AND a
     shorter one: an undashed snapshot suffix is valid after the longer key,

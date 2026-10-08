@@ -48,11 +48,11 @@ table existed.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_OUTPUT_MULT, LONG_CONTEXT_THRESHOLD)
+from backend.resolution import Resolution  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.model_names import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _PERMASLUG_DATE,
     _SNAPSHOT_SUFFIX,
@@ -187,32 +187,6 @@ _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] = (
     (re.compile(r"sonnet"), _latest("sonnet")),
     (re.compile(r"haiku"), _latest("haiku")),
 )
-
-
-@dataclass(frozen=True)
-class Resolution:
-    """Outcome of resolving a model id to rates.
-
-    kind: "exact" | "tier" | "default". Anything other than "exact" means
-    the figure is an estimate and should be surfaced as such.
-    """
-    rates: dict
-    kind: str
-    key: str | None = None
-    # True when the rates came from a weekly schedule's window or default
-    # for this record's own time: a fold re-deriving cost at one
-    # representative time cannot reproduce them (SV-RATE-DATA).
-    scheduled: bool = False
-    # The serving host's per-request fee in force (issue #469): USD this
-    # one request costs beside its tokens, folded into compute_cost's
-    # total and stored on records.request_fee_usd. Zero when the resolved
-    # entry carries no fee note (every non-OpenRouter lane, every
-    # unmodelled listing).
-    request_fee: float = 0.0
-
-    @property
-    def estimated(self) -> bool:
-        return self.kind != "exact"
 
 
 _MATCH_KEY_CACHE: dict[str, str | None] = {}

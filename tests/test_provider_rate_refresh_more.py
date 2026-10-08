@@ -19,6 +19,7 @@ from tests.test_provider_rate_refresh import (
     GLM,
     LOADER_JS,
     VENDOR_TABLES_JS,
+    HHMM_JS,
     NOW,
     PARSER_JS,
     PRICING_JSON,
@@ -623,6 +624,7 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     shutil.copy(run.pricing, js / "pricing.json")
     shutil.copy(LOADER_JS, js / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, js / "vendor-tables.js")
+    shutil.copy(HHMM_JS, js / "hhmm-spelling.js")
     shutil.copy(PARSER_JS, js / "parser.js")
     proc = subprocess.run(["node", "-e", f"""
       global.window = {{}};

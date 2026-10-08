@@ -21,6 +21,7 @@ from tests.refresh_fixture_builders import seed_doc
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
+HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -56,6 +57,7 @@ def _sandbox(tmp_path, monkeypatch):
     """parser.js + the synthetic pricing.json, alone in a tmp dir."""
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     (tmp_path / "pricing.json").write_text(
