@@ -138,7 +138,7 @@ def _tier(norm: str) -> list | None:
     if pricing._match_key(norm) is not None:  # pylint: disable=protected-access
         return None
     for index, (pattern, rates) in enumerate(
-            pricing._TIER_FALLBACKS):  # pylint: disable=protected-access
+            pricing._tier_fallbacks()):  # pylint: disable=protected-access
         if pattern.search(norm):
             return [index, _rates(rates)]
     return None

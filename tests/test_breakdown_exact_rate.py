@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, pricing
-from tests import scratch_db
+from tests import gpt56_cuts, scratch_db
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -204,12 +204,12 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
     """Issue #55: txToDashData priced every turn with no timestamp, so a
-    turn inside gpt-5-6-sol's GA window (it ends at pricing.AUG21_CUT,
+    turn inside gpt-5-6-sol's GA window (it ends at AUG21_CUT,
     where the cut list price begins) costed at list instead. Each turn's
     cost_usd must equal what pricing.compute_cost stores for that turn's
     own timestamp, so the turn costs sum to the stored total."""
     model = "gpt-5-6-sol"
-    cut = pricing.AUG21_CUT
+    cut = gpt56_cuts.AUG21_CUT
     ts_in, ts_out = cut - timedelta(days=1), cut + timedelta(days=30)
     got = _node(f"""
       const usage = {{ input_tokens: 1000, output_tokens: 700,

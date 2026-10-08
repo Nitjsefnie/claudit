@@ -624,7 +624,7 @@ class TestNodeDrivenLaneParsers:
         the Inspector's per-turn cost drifts from the stored figure. The turn
         prices at the rate in force at its own timestamp (issue #55), so the
         expected figure is the metered DATED price — the blob's request
-        predates pricing.AUG21_CUT, where gpt-5.6-sol's list price begins."""
+        predates gpt-5-6-sol's list-price cut (tests/gpt56_cuts), where its list price begins."""
         expected = pricing.compute_cost(
             "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
             unsplit_create=0, read=290_000, long_context=True,
