@@ -51,9 +51,7 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
     rates1 = rates1 if rates1 is not None else dict(DAY)
     doc = {
         "models": {
-            "claude-opus-4-8": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
+            "claude-opus-4-8": [dict(DEFAULT_ROW)],
             "claude-opus-4-7": [dict(DEFAULT_ROW)],
         },
         "long_context_models": [],

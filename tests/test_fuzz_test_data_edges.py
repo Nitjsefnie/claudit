@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.refresh_fixture_builders import RATES_A, RATES_B, seed_doc
 
 
 from backend import pricing
@@ -22,10 +22,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fuzz_test_data.py"
 RESERVED_NAMESPACE = "zz-fuzz-local/"
 RATE_FIELDS = pricing.RATE_FIELDS
-RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-           "read": 0.1, "output": 5.0}
-RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-           "read": 0.2, "output": 10.0}
 FLOOR_STAMP = "2026-06-01T00:00:00Z"
 
 
@@ -56,25 +52,20 @@ fuzz_module = _load_fuzzer()
 
 
 def _seed_document() -> dict:
-    return {
-        "models": {
+    return seed_doc(
+        models={
             "acme/existing-9": [
                 {"from": None, **RATES_A},
                 {"from": FLOOR_STAMP, **RATES_B},
             ],
-            "claude-opus-4-7": [dict(DEFAULT_ROW)],
         },
-        "providers": {
+        providers={
             "acme/existing-9": {
                 "KnownHost": [{"from": FLOOR_STAMP, **RATES_B}],
             },
         },
-        "provider_rates_fetched": FLOOR_STAMP,
-        "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-    }
+        fetched=FLOOR_STAMP,
+    )
 
 
 def _all_provider_rows(doc: dict) -> set[tuple[str, str]]:

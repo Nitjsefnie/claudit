@@ -14,7 +14,7 @@ from backend import app as app_mod
 from backend import pricing
 from backend import session as session_mod
 
-from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.refresh_fixture_builders import seed_doc
 from tests.test_pricing_data import (
     CUT,
     DAMAGE,
@@ -158,17 +158,11 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     rates = {"fresh": 7.0, "create_5m": 8.0, "create_1h": 9.0,
              "read": 0.7, "output": 70.0}
     model = "acme/edge-9"
-    doc = {
-        "models": {model: [{"from": None, **rates},
-                           {"from": stamp, **rates}],
-                   "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-        "providers": {},
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-        "provider_rates_fetched": "2030-01-01T00:00:00Z",
-        "long_context_models": [],
-    }
+    doc = seed_doc(
+        models={model: [{"from": None, **rates},
+                        {"from": stamp, **rates}]},
+        fetched="2030-01-01T00:00:00Z",
+    )
     want = int(_at(stamp).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000)
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]

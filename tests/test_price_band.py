@@ -35,7 +35,7 @@ import pytest
 
 from backend import pricing
 
-from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.refresh_fixture_builders import RATE_C, seed_doc
 from tests.test_provider_rate_log_refresh import (
     HOST, MODEL, NOW, RATE_A, RATE_B, _doc, _run)
 
@@ -66,8 +66,6 @@ FIELDS = pricing.RATE_FIELDS
 # The loader half names a synthetic host, not the refresh harness's, so its
 # own messages stay readable.
 BAND_HOST = "HostCo"
-RATE_C = {"fresh": 0.40, "create_5m": 0.40, "create_1h": 0.40,
-          "read": 0.030, "output": 0.900}
 RATE_HIGH = {"fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
              "read": 0.09, "output": 2.9}
 RATE_LOW = {"fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
@@ -113,6 +111,25 @@ def _mean_of(*pairs: tuple[dict, float]) -> dict:
 def _banded_row(*levels: dict) -> list[dict]:
     """The row a collapse left for a history that began without a `from`."""
     return [{"from": None, **MEAN, "band": _band_of(*levels)}]
+
+
+def _run_collapse(tmp_path: Path, providers: dict):
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    doc = seed_doc(
+        models={MODEL: [_entry(None, RATE_A)]},
+        providers={MODEL: providers},
+        tracked={MODEL: {"id": "synthetic/model-id"}},
+        fetched=STAMP,
+    )
+    pricing_path.write_text(
+        json.dumps(doc, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    constants_path.write_text('PRICING_VERSION = "9"\n', encoding="utf-8")
+    rc = collapse.main([], pricing_path=pricing_path,
+                       constants_path=constants_path)
+    return rc, pricing_path, constants_path
 
 
 # --- 1. the shape classifier --------------------------------------------------
@@ -166,21 +183,10 @@ def test_the_collapse_rewrites_only_the_oscillating_row(tmp_path, capsys):
     the hosts it collapsed, because a mean is only a safe price while no
     record has been priced through that host — the merge runs the records
     query over exactly those names."""
-    pricing_path = tmp_path / "pricing.json"
-    constants_path = tmp_path / "constants.py"
-    doc = {"models": {MODEL: [_entry(None, RATE_A)],
-                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-           "providers": {MODEL: {"BandCo": TOGGLE_ROW, "StepCo": STEP_ROW,
-                                 "StableCo": STABLE_ROW}},
-           "provider_rates_fetched": STAMP, "long_context_models": [],
-           "openrouter": {"data_region": "global",
-                          "models": {MODEL: {"id": "synthetic/model-id"}},
-                          "vendor": {"prefixes": ["anthropic", "openai",
-                                                  "moonshotai", "z-ai"]}}}
-    pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
-                            encoding="utf-8")
-    constants_path.write_text('PRICING_VERSION = "9"\n', encoding="utf-8")
-    rc = collapse.main([], pricing_path=pricing_path, constants_path=constants_path)
+    rc, pricing_path, constants_path = _run_collapse(
+        tmp_path,
+        {"BandCo": TOGGLE_ROW, "StepCo": STEP_ROW, "StableCo": STABLE_ROW},
+    )
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err, (rc, err, out)
@@ -208,20 +214,8 @@ def test_the_collapse_band_and_mean_come_from_the_window(tmp_path, capsys):
     from the oscillation neither widens the band nor pulls the mean."""
     row = [_entry(_day(30), RATE_HIGH), _entry(_day(8), RATE_A),
            _entry(_day(4), RATE_B), _entry(_day(0), RATE_A)]
-    doc = {"models": {MODEL: [_entry(None, RATE_A)],
-                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-           "providers": {MODEL: {"BandCo": row}},
-           "provider_rates_fetched": STAMP, "long_context_models": [],
-           "openrouter": {"data_region": "global",
-                          "models": {MODEL: {"id": "synthetic/model-id"}},
-                          "vendor": {"prefixes": ["anthropic", "openai",
-                                                  "moonshotai", "z-ai"]}}}
-    pricing_path = tmp_path / "pricing.json"
-    constants_path = tmp_path / "constants.py"
-    pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
-                            encoding="utf-8")
-    constants_path.write_text('PRICING_VERSION = "9"\n', encoding="utf-8")
-    rc = collapse.main([], pricing_path=pricing_path, constants_path=constants_path)
+    rc, pricing_path, _constants_path = _run_collapse(
+        tmp_path, {"BandCo": row})
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
@@ -253,20 +247,8 @@ def test_the_collapse_refuses_a_scheduled_row_and_a_fee_note(tmp_path, capsys):
                      _entry(_day(4), RATE_B, schedule=schedule),
                      _entry(_day(2), RATE_A, schedule=schedule),
                      _entry(_day(1), RATE_B, schedule=schedule)]
-    doc = {"models": {MODEL: [_entry(None, RATE_A)],
-                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-           "providers": {MODEL: {"FeeCo": fee_row, "SchedCo": scheduled_row}},
-           "provider_rates_fetched": STAMP, "long_context_models": [],
-           "openrouter": {"data_region": "global",
-                          "models": {MODEL: {"id": "synthetic/model-id"}},
-                          "vendor": {"prefixes": ["anthropic", "openai",
-                                                  "moonshotai", "z-ai"]}}}
-    pricing_path = tmp_path / "pricing.json"
-    constants_path = tmp_path / "constants.py"
-    pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
-                            encoding="utf-8")
-    constants_path.write_text('PRICING_VERSION = "9"\n', encoding="utf-8")
-    rc = collapse.main([], pricing_path=pricing_path, constants_path=constants_path)
+    rc, pricing_path, _constants_path = _run_collapse(
+        tmp_path, {"FeeCo": fee_row, "SchedCo": scheduled_row})
     out, _ = capsys.readouterr()
 
     assert rc == 1
@@ -478,14 +460,12 @@ def test_a_genuine_step_from_a_banded_row_appends_the_price_in_force(
 # --- the band's own shape, in both loaders ------------------------------------
 
 def _banded_doc(band: object) -> dict:
-    return {"models": {MODEL: [_entry(None, MEAN)],
-                       "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-            "providers": {MODEL: {BAND_HOST: [
-                _entry("2026-05-01T00:00:00Z", MEAN, band=band)]}},
-            "provider_rates_fetched": STAMP, "long_context_models": [],
-            "openrouter": {"data_region": "global", "models": {},
-                           "vendor": {"prefixes": ["anthropic", "openai",
-                                                   "moonshotai", "z-ai"]}}}
+    return seed_doc(
+        models={MODEL: [_entry(None, MEAN)]},
+        providers={MODEL: {BAND_HOST: [
+            _entry("2026-05-01T00:00:00Z", MEAN, band=band)]}},
+        fetched=STAMP,
+    )
 
 
 def _node_load(tmp_path: Path, text: str) -> str | None:

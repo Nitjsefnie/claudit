@@ -22,7 +22,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.refresh_fixture_builders import (
+    DEFAULT_ROW, RATES_A, RATES_B, seed_doc as build_seed_doc,
+)
 
 
 from backend import pricing
@@ -32,10 +34,6 @@ SCRIPT = ROOT / "scripts" / "ci" / "perturb_test_data.py"
 
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 NOTE_PREFIX = "sv-test-data perturbation: rates ×"
-RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-           "read": 0.1, "output": 5.0}
-RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
-           "read": 0.2, "output": 10.0}
 RATES_ZERO = {"fresh": 0, "create_5m": 0, "create_1h": 0, "read": 0,
               "output": 0}
 NOW = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -55,16 +53,15 @@ perturb_module = _load()
 
 def _seed_doc() -> dict:
     """One dated model row, one all-zero row, one scheduled provider row."""
-    return {
-        "models": {
+    doc = build_seed_doc(
+        models={
             "acme/acme-9": [
                 {"from": None, **RATES_A},
                 {"from": "2026-06-01T00:00:00Z", **RATES_B},
             ],
-            "claude-opus-4-7": [dict(DEFAULT_ROW)],
             "free/acme-0": [{"from": None, **RATES_ZERO}],
         },
-        "providers": {
+        providers={
             "acme/acme-9": {
                 "HostCo": [{"from": "2026-01-01T00:00:00Z", **RATES_A,
                             "schedule": [{"days": ["saturday", "sunday"],
@@ -72,12 +69,10 @@ def _seed_doc() -> dict:
                                           "rates": RATES_B}]}],
             },
         },
-        "provider_rates_fetched": "2026-06-01T00:00:00Z",
-        "long_context_models": [],
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-    }
+        fetched="2026-06-01T00:00:00Z",
+    )
+    doc["models"] = dict(sorted(doc["models"].items()))
+    return doc
 
 
 def _seed_tree(tmp_path: Path) -> tuple[Path, Path, dict]:

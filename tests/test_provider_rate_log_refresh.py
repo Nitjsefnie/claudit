@@ -20,7 +20,9 @@ import pytest
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
-from tests.refresh_fixture_builders import _endpoint as fixture_endpoint, DEFAULT_ROW
+from tests.refresh_fixture_builders import (
+    RATE_C, _endpoint as fixture_endpoint, seed_doc,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -50,9 +52,6 @@ RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
           "read": 0.01, "output": 0.8}
 RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
           "read": 0.02, "output": 0.7}
-RATE_C = {"fresh": 0.4, "create_5m": 0.4, "create_1h": 0.4,
-          "read": 0.03, "output": 0.9}
-
 
 def _point(at: str, value: float) -> dict:
     return {"at": at, "value": value}
@@ -72,19 +71,12 @@ def _series(states: list[tuple[str, dict]]) -> dict:
 
 
 def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
-    return {
-        "models": {MODEL: [{"from": None, **RATE_A}],
-                   "claude-opus-4-7": [dict(DEFAULT_ROW)]},
-        "providers": {MODEL: copy.deepcopy(hosts)},
-        "provider_rates_fetched": "2026-01-01T00:00:00Z",
-        "long_context_models": [],
-        "openrouter": {
-            "data_region": "global",
-            "models": {MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
-            "vendor": {"prefixes": ["anthropic", "openai",
-                                    "moonshotai", "z-ai"]},
-        },
-    }
+    return seed_doc(
+        models={MODEL: [{"from": None, **RATE_A}]},
+        providers={MODEL: hosts},
+        tracked={MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
+        fetched="2026-01-01T00:00:00Z",
+    )
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:

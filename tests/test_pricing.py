@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
+from tests.refresh_fixture_builders import seed_doc
 
 UTC = timezone.utc
 
@@ -325,18 +326,14 @@ def _synthetic_provider_doc(w):
     cutover)."""
     def entry(rates, frm):
         return {"from": frm, **{f: rates[f] for f in pricing.RATE_FIELDS}}
-    return {
-        "models": {"claude-opus-4-7": [entry(w.after, None)]},
-        "providers": {w.model: {w.host: [
+    return seed_doc(
+        models={"claude-opus-4-7": [entry(w.after, None)]},
+        providers={w.model: {w.host: [
             entry(w.before, w.start.isoformat()),
             entry(w.after, w.cutover.isoformat()),
         ]}},
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-        "provider_rates_fetched": w.cutover.isoformat(),
-        "long_context_models": [],
-    }
+        fetched=w.cutover.isoformat(),
+    )
 
 
 def test_rate_epochs_include_provider_window_ends_and_row_starts(

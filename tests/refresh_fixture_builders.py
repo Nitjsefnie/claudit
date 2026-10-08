@@ -67,6 +67,15 @@ def _discount(entry: dict) -> float:
 DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
                "create_1h": 10.0, "read": 0.5, "output": 25.0}
 
+# Shared synthetic rate vectors; these stay five-field dictionaries without
+# `from`, so callers can preserve each loader's exact row shape.
+RATES_A = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
+           "read": 0.1, "output": 5.0}
+RATES_B = {"fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
+           "read": 0.2, "output": 10.0}
+RATE_C = {"fresh": 0.40, "create_5m": 0.40, "create_1h": 0.40,
+          "read": 0.030, "output": 0.900}
+
 
 def seed_doc(*, members=None, meters=None, models=None, tracked=None,
              providers=None, resolve=None, prefixes=None,
