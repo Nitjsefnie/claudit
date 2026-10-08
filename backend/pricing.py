@@ -145,9 +145,12 @@ def _key_windows(key: str) -> Windows | None:
     return PROVIDER_DATED_RATES.get(row) if row else None
 
 
-def _latest(*families: str) -> dict:
+def _latest(*families: str) -> dict | None:
     """Rates of the highest-versioned key of `families` in the merged
-    view (models-table keys and tracked vendor bare keys).
+    view (models-table keys and tracked vendor bare keys), or None when
+    no family member carries a row — a family with no rates contributes
+    no fallback instead of refusing every resolve (the bench's bounded
+    document and any patched-tables test name none of the families).
 
     ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-`` keys
     do not match. A tracked key with no provider row yet — the auto-add's
@@ -161,6 +164,8 @@ def _latest(*families: str) -> dict:
         if (m := _VERSIONED_KEY.match(key)) and m.group(1) in families
         and (key in MODEL_RATES or _vendor_row(key) is not None)
     ]
+    if not versions:
+        return None
     return _list_rates(max(versions, key=lambda v: v[0])[1])
 
 
@@ -176,13 +181,24 @@ _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] | None = None
 def _tier_fallbacks() -> tuple[tuple[re.Pattern, dict], ...]:
     global _TIER_FALLBACKS
     if _TIER_FALLBACKS is None:
-        _TIER_FALLBACKS = (
-            (re.compile(r"fable|mythos"), _latest("fable", "mythos")),
-            (re.compile(r"opus"), _latest("opus")),
-            (re.compile(r"sonnet"), _latest("sonnet")),
-            (re.compile(r"haiku"), _latest("haiku")),
-        )
+        _TIER_FALLBACKS = tuple(
+            (pattern, rates) for pattern, rates in (
+                (re.compile(r"fable|mythos"), _latest("fable", "mythos")),
+                (re.compile(r"opus"), _latest("opus")),
+                (re.compile(r"sonnet"), _latest("sonnet")),
+                (re.compile(r"haiku"), _latest("haiku")),
+            )
+            if rates is not None)
     return _TIER_FALLBACKS
+
+
+def clear_tier_fallbacks() -> None:
+    """Forget the derived tier table. Tests patch the tables between
+    calls and go through rate_fingerprint.clear_fingerprint_cache(), the
+    same contract the match-key memo honors (issues #350, #351): a tier
+    entry derived under a patch must never outlive it."""
+    global _TIER_FALLBACKS
+    _TIER_FALLBACKS = None
 
 
 _MATCH_KEY_CACHE: dict[str, str | None] = {}
