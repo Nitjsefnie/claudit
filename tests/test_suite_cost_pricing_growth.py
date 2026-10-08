@@ -142,6 +142,11 @@ def test_appended_rows_do_not_move_the_measurement(bench_copies):
 PRICING_DOC_CEILING_BYTES = 1_500_000
 
 
+@pytest.mark.skipif(
+    os.environ.get("CLAUDIT_TEST_PERTURBED_DATA") == "1",
+    reason="the perturbed tree inflates the document by design; this "
+           "ceiling pins the DEPLOYED document, which the perturbed-data "
+           "leg is not")
 def test_the_deployed_document_stays_under_its_size_ceiling():
     doc = ROOT / DOC_RELATIVE
     assert doc.stat().st_size <= PRICING_DOC_CEILING_BYTES, (
