@@ -23,7 +23,9 @@ stale excuses cannot accumulate.
 from __future__ import annotations
 
 import io
+import json
 import re
+import subprocess
 import sys
 import tokenize
 from pathlib import Path
@@ -421,12 +423,40 @@ def test_rot_fails_when_a_live_row_site_is_removed():
     assert "line 1" in problems[1] and "rot" in problems[1]
 
 
+_DEPLOYED_WANTED: tuple[frozenset[str], frozenset[str]] | None = None
+
+
+def _deployed_wanted() -> tuple[frozenset[str], frozenset[str]]:
+    """The live sets the DEPLOYED document defines, read in a subprocess.
+
+    Two reasons not to read the process's own loaded tables: the
+    suite-cost bench rebinds them to a bounded document before its
+    counted windows open (SV-CI-RATCHETS), so a wanted set read off the
+    loaded tables would shrink under the bench and rot every marker
+    pinned to a real row; and parsing the real document in-process
+    would put its parse into this suite's counted run phase. The
+    subprocess pays the parse outside every counted window.
+    """
+    global _DEPLOYED_WANTED
+    if _DEPLOYED_WANTED is None:
+        code = (
+            "import json, sys; sys.path.insert(0, %r); "
+            "from backend import pricing_load as pl; "
+            "print(json.dumps([sorted({*pl.MODEL_RATES, *pl.VENDOR_BARE}), "
+            "sorted({h for _, h in pl.PROVIDER_RATES})]))" % str(REPO_ROOT))
+        result = subprocess.run(  # pylint: disable=subprocess-run-check
+            [sys.executable, "-c", code], capture_output=True, text=True,
+            check=True, timeout=120)
+        models, hosts = json.loads(result.stdout)
+        _DEPLOYED_WANTED = (frozenset(models), frozenset(hosts))
+    return _DEPLOYED_WANTED
+
+
 def _tree_problems(tests_dir: Path) -> list[str]:
     """check() over a whole tree, as ``path:message`` strings. The wanted
     models are the merged view's: models-table keys and tracked vendor
     bare keys alike (a live rate call names either)."""
-    wanted_models = frozenset({*pricing.MODEL_RATES, *pricing.VENDOR_BARE})
-    wanted_hosts = frozenset(host for _, host in pricing.PROVIDER_RATES)
+    wanted_models, wanted_hosts = _deployed_wanted()
     problems = []
     for path in sorted(tests_dir.rglob("*.py")):
         for message in check(path.read_text(encoding="utf-8"),
@@ -475,8 +505,9 @@ def test_a_seeded_marker_without_a_site_is_rot(tmp_path):
 def test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file(tmp_path):
     # The dotted spelling: the text clause admits on the rate call's
     # name alone, and detect() normalises the literal before matching,
-    # so the plant is flagged whatever the literal's spelling.
-    model = sorted(pricing.MODEL_RATES)[0]
+    # so the plant is flagged whatever the literal's spelling. The
+    # plant names a DEPLOYED row, the same set the scanner matches.
+    model = sorted(_deployed_wanted()[0])[0]
     dotted = model.replace("-", ".")
     (tmp_path / "test_planted.py").write_text(
         "def test_prices_a_live_row():\n"
@@ -486,7 +517,7 @@ def test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file(tmp_path):
 
 
 def test_a_seeded_host_literal_is_flagged_case_exactly(tmp_path):
-    host = sorted({h for _, h in pricing.PROVIDER_RATES})[0]
+    host = sorted(_deployed_wanted()[1])[0]
     (tmp_path / "test_planted.py").write_text(
         "def test_prices_a_host():\n"
         f"    return resolve(model, '{host}')\n", encoding="utf-8")
