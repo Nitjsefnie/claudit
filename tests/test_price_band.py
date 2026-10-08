@@ -31,11 +31,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from tests.refresh_fixture_builders import DEFAULT_ROW
 
 
 from backend import pricing
 
+from tests.refresh_fixture_builders import DEFAULT_ROW
 from tests.test_provider_rate_log_refresh import (
     HOST, MODEL, NOW, RATE_A, RATE_B, _doc, _run)
 
