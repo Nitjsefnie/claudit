@@ -7,8 +7,10 @@
 // sits at its measured size entry, and an outgrown rework moves code
 // into a new module (the #652/#659 pattern). #690's marks live here:
 // every median point is a `data-hover-target` — an invisible hit circle
-// that lights at the datum when the panel's tooltip snaps to it — so
-// the interaction sweep hovers the panel's points, not just its bars.
+// that lights at the datum when the panel's tooltip snaps to it — and
+// since #834 every outlier dot is one too (it lights the same way), so
+// the interaction sweep hovers every point the panel draws, not just
+// its bars.
 // ──────────────────────────────────────────────────────────────────────
 const TH_X = window.dashboardTheme;
 // Render-time bindings into the shared modules (load order puts
@@ -96,6 +98,17 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       .filter(o => !isNaN(o.tsMs) && visibleKeys.has(o.key)),
     [outliers, visibleKeys]
   );
+  // One dot per distinct position: coincident outliers are one dot on
+  // screen (the hit circles' own rule below), and the nearest-wins
+  // lighting would leave every copy under the top one dark forever.
+  const plottedOutliers = React.useMemo(() => {
+    const seen = new Map();
+    for (const o of visibleOutliers) {
+      const k = `${o.tsMs}|${o.latency_s}`;
+      if (!seen.has(k)) seen.set(k, o);
+    }
+    return [...seen.values()];
+  }, [visibleOutliers]);
 
   // Dedup model list for the model select.
   const modelOpts = React.useMemo(() => {
@@ -160,12 +173,17 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     if (mx < padL || mx > w - padR || my < padT || my > padT + plotH) {
       setTip(null); return;
     }
-    // Try outlier dots first (small targets, but exact times).
-    let bestO = null, bestOD = 1e9;
-    for (const o of visibleOutliers) {
+    // Try outlier dots first (small targets, but exact times). The scan
+    // runs over the PLOTTED dots — what is drawn is what answers — and
+    // the winning dot's index rides the tip (#834): the marked dot
+    // lights when it is the datum the tooltip snapped to, the visible
+    // response the interaction sweep reads on the dot itself.
+    let bestO = null, bestOD = 1e9, bestOI = -1;
+    for (let i = 0; i < plottedOutliers.length; i++) {
+      const o = plottedOutliers[i];
       const px = xScale(o.tsMs), py = yScale(o.latency_s);
       const d = Math.hypot(px - mx, py - my);
-      if (d < bestOD) { bestOD = d; bestO = o; }
+      if (d < bestOD) { bestOD = d; bestO = o; bestOI = i; }
     }
     if (bestO && bestOD < 8) {
       // file_key shape: <project>/<session_id>/<filename>.jsonl —
@@ -174,7 +192,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       const fk = String(bestO.file_key || '');
       const fileShort = fk.split('/').slice(-2).join('/');
       setTip({
-        x: mx, y: my, cx: xScale(bestO.tsMs),
+        x: mx, y: my, cx: xScale(bestO.tsMs), oi: bestOI,
         title: 'outlier · ' + bestO.key,
         accent: (window.modelColors && window.modelColors[bestO.key]) || '#888',
         lines: [
@@ -328,11 +346,17 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
               stroke={c} strokeWidth="1.8" fill="none" />;
           })}
 
-          {/* Outlier dots (top/bottom 1%) */}
-          {visibleOutliers.map((o, i) => {
+          {/* Outlier dots (top/bottom 1%) — marked hover targets like
+              the median hit circles (#834): the sweep hovers every point
+              the panel draws, and the dot under the pointer lights
+              (stroke + fill) when the tip snaps to it. */}
+          {plottedOutliers.map((o, i) => {
             const c = (window.modelColors && window.modelColors[o.key]) || '#888';
-            return <circle key={'o'+i} cx={xScale(o.tsMs)} cy={yScale(o.latency_s)}
-              r="2.5" fill={c} fillOpacity="0.6" stroke="none" />;
+            const lit = tip && tip.oi === i;
+            return <circle key={'o'+i} data-hover-target=""
+              cx={xScale(o.tsMs)} cy={yScale(o.latency_s)}
+              r="2.5" fill={c} fillOpacity={lit ? 0.9 : 0.6}
+              stroke={lit ? '#fff' : 'none'} />;
           })}
 
           {/* Hit circles, one per DISTINCT median position (#690):

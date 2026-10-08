@@ -28,6 +28,13 @@
 // renders nothing at all, the way every cost surface is gated on there
 // being cost in view. Zeros here would say "we never measured this" in
 // the visual language of "we measured nothing wrong".
+//
+// Since #834 the journey rows answer hover: the row under the pointer
+// highlights and the shared tooltip names the journey's measured parts.
+// The readout stays a readout — the tooltip reads the same series rows
+// the table renders, never a re-derived value — and the panel carries
+// no static declaration any more: a static declaration on a panel that
+// renders data fails the sweep.
 
 const { useState, useEffect } = React;
 
@@ -64,6 +71,7 @@ const PERF_HEAD = Object.assign({}, PERF_CELL, {
 
 function WebMetricsPanel({ range, nonce }) {
   const [body, setBody] = useState(null);
+  const [tip, setTip] = useState(null);
 
   useEffect(() => {
     // `range` only. A `project=` was appended here and silently ignored —
@@ -146,11 +154,38 @@ function WebMetricsPanel({ range, nonce }) {
 
   const header = ['journey', 'samples', 'p50 total', 'p75 total',
                   'p50 fetch', 'p75 fetch', 'p50 client', 'p75 client'];
+
+  // #834: the journey rows answer hover. The row under the pointer
+  // highlights (background-color, a channel the sweep reads) and the
+  // shared tooltip names the journey's measured parts — the same rows
+  // rowFor reads for the table, never a re-derived value. Pointing
+  // anywhere else on the panel clears it.
+  const onMove = e => {
+    const tr = e.target.closest('tr[data-journey]');
+    if (!tr) { setTip(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const metric = tr.getAttribute('data-journey');
+    const journey = journeys.find(j => j.metric === metric);
+    const lines = ['total', 'fetch', 'client'].map(part => {
+      const row = rowFor(metric, part);
+      return [part, row
+        ? `${row.n.toLocaleString()} · p50 ${perfMs(row.p50)} / `
+          + `p75 ${perfMs(row.p75)}`
+        : '—'];
+    });
+    setTip({
+      x: e.clientX - rect.left, y: e.clientY - rect.top,
+      title: journey ? journey.label : metric,
+      lines,
+    });
+  };
   return (
-    <div data-panel="Page performance" data-static-panel="" style={{
-      background: 'var(--bg-card)', border: '1px solid var(--border)',
-      borderRadius: 4, padding: '10px 14px 14px',
-    }}>
+    <div style={{
+      position: 'relative', background: 'var(--bg-card)',
+      border: '1px solid var(--border)', borderRadius: 4,
+      padding: '10px 14px 14px',
+    }} onMouseMove={onMove} onMouseLeave={() => setTip(null)}>
+      <div data-panel="Page performance">
       <div data-role="title" style={{
         display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap',
         marginBottom: 8, fontFamily: 'var(--mono)', fontSize: 11,
@@ -195,7 +230,11 @@ function WebMetricsPanel({ range, nonce }) {
             const fetchRow = rowFor(j.metric, 'fetch');
             const clientRow = rowFor(j.metric, 'client');
             return (
-              <tr key={j.metric}>
+              <tr key={j.metric} data-hover-target="" data-journey={j.metric}
+                style={{
+                  background: tip && tip.title === j.label
+                    ? 'rgba(255,255,255,0.06)' : undefined,
+                }}>
                 <th scope="row" style={{ ...PERF_HEAD, color: 'var(--fg)' }}>{j.label}</th>
                 <td style={PERF_CELL}>{total ? total.n.toLocaleString() : '—'}</td>
                 <td style={PERF_CELL}>{perfPair(total, v => perfMs(v))}</td>
@@ -248,6 +287,8 @@ function WebMetricsPanel({ range, nonce }) {
           </div>
         ))}
       </div>
+      </div>
+      {tip && <window.DashTooltip tip={tip} />}
     </div>
   );
 }
