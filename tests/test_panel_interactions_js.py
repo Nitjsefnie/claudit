@@ -541,17 +541,126 @@ def test_the_ledger_never_carries_an_other_region_catch_all():
     assert out == [], out
 
 
-def test_the_static_panels_declare_their_exemption():
-    """The two panels with no interactive surface by design — the
-    heatmap's gradient legend and the Page performance stat panel —
-    declare `data-static-panel`, the only path the sweep's no-targets
-    check exempts. A third declaration belongs only on a genuinely
-    static panel; the sweep fails a static panel that renders marks."""
-    for fname in ("activity-heatmap-panel.jsx", "perf-panel.jsx"):
-        src = (ROOT / "src" / fname).read_text(encoding="utf-8")
-        assert 'data-static-panel=""' in src, (
-            f"{fname} no longer declares data-static-panel — the sweep "
-            "would fail it as a data panel with no hover target")
+def test_the_page_performance_panel_answers_hover():
+    """#834: a static declaration on a panel that renders data fails the
+    sweep. 'Page performance' answers hover now — journey rows are marked
+    targets with a visible response through the shared tooltip."""
+    src = (ROOT / "src" / "perf-panel.jsx").read_text(encoding="utf-8")
+    assert "data-static-panel" not in src, (
+        "perf-panel.jsx still declares data-static-panel — #834 fails a "
+        "static declaration on a panel that renders data")
+    assert 'data-hover-target="" data-journey=' in src, (
+        "the Page performance panel's journey rows lost their hover "
+        "marks (one marked row site renders all three)")
+    assert "DashTooltip" in src, (
+        "the journey rows' hover response is not the shared tooltip "
+        "primitive")
+    heat = (ROOT / "src" / "activity-heatmap-panel.jsx").read_text(
+        encoding="utf-8")
+    assert 'data-static-panel=""' in heat, (
+        "the heatmap legend lost its data-static-panel declaration — the "
+        "sweep would fail the one genuinely data-less panel")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_static_declarations_are_listed_by_the_guard():
+    """#834: nothing limited which panels may declare data-static-panel.
+    The guard keeps the reviewed static list; a declaration off the list
+    is the 'unlisted-static' finding, a cap-bitten or unreachable mark
+    the 'unhovered-targets' one."""
+    out = _node("""
+      console.log(JSON.stringify({
+        listed: mod.STATIC_PANELS,
+        kinds: mod.KINDS,
+      }));
+    """)
+    assert out["listed"] == ["Activity Heatmap — legend"], out
+    assert "unlisted-static" in out["kinds"], out
+    assert "unhovered-targets" in out["kinds"], out
+    src = MODULE.read_text(encoding="utf-8")
+    assert "STATIC_PANELS.includes" in src
+    assert "STALE STATIC" in src, (
+        "the static list lost its liveness check — a stale listed name "
+        "must fail the run like a stale ledger entry")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_unhovered_targets_never_pass_silently():
+    """#834: sampling, off-viewport drops and static exemptions must not
+    let an unhovered mark pass. The default sweep is unbounded (the cap
+    defaults to 0); a biting cap and an unreachable target are both the
+    unhovered-targets finding; the old FOLDED pass is gone."""
+    src = MODULE.read_text(encoding="utf-8")
+    assert "process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0'" in src, (
+        "the target cap no longer defaults to unlimited")
+    assert src.count("unhovered-targets") >= 2, (
+        "a cap that bites and an unreachable target must both record "
+        "the unhovered-targets finding")
+    assert ("dropped — both hover points must sit inside the viewport"
+            not in src), (
+        "the sweep still drops off-viewport targets instead of failing")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_reply_latency_outlier_dots_are_swept():
+    """#834: the Reply Latency outlier dots answer hover but carried no
+    mark, so the sweep never hovered them. The dots are marked, light on
+    the tip's datum, and the fixture carries outliers whose models match
+    the bands' — the rendered sweep hovers them at every run."""
+    src = (ROOT / "src" / "reply-latency-panel.jsx").read_text(
+        encoding="utf-8")
+    dots = src[src.index("plottedOutliers.map"):src.index("Hit circles")]
+    assert "data-hover-target" in dots, (
+        "the outlier dots lost their hover marks")
+    assert "tip.oi === i" in src, (
+        "the outlier dots no longer light on the tip's datum")
+    assert "One dot per distinct position" in src, (
+        "the plotted dots lost the coincidence dedup — stacked copies "
+        "leave every dot under the top one dark")
+    fixture = json.loads(
+        (ROOT / "fixtures" / "layout" / "reply_latency.json")
+        .read_text(encoding="utf-8"))
+    assert fixture["outliers"], (
+        "the layout fixture renders no outlier dots — the marked dots "
+        "would never be hovered by the rendered leg")
+    models = {b["model"] for b in fixture["bands"]}
+    for o in fixture["outliers"]:
+        assert o["model"] in models, (
+            f"outlier model {o['model']!r} matches no band model; the "
+            "panel filters outliers to visible models")
+        for field in ("ts", "latency_s", "file_key", "line"):
+            assert field in o
+
+
+def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
+    """#835: the seed set panels[pi].nTargets = 0 node-side, so the
+    seeded run went red even when MARK's own count stopped noticing a
+    stripped panel. The seed strips, then re-runs MARK — the same count
+    an unseeded run reads."""
+    src = MODULE.read_text(encoding="utf-8")
+    assert "panels[pi].nTargets = 0" not in src, (
+        "the no-targets seed still forces the node-side count to zero "
+        "instead of re-counting the stripped page")
+    seeded = src[src.index("if (SEED === 'no-targets')"):
+                 src.index("if (!panels.length)")]
+    assert "evaluate(MARK)" in seeded, (
+        "the no-targets seed does not re-run the in-page mark pass "
+        "after the strip")
+
+
+def test_the_seeded_runs_run_one_width_and_uncapped():
+    """#843: the seeded-violation proof re-drove the FULL sweep three
+    times over — half the leg's wall time. The runner drives the three
+    seeds concurrently, each at ONE width (the seeds prove the
+    classifiers, not the sweep's reach), and without a target cap."""
+    runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
+        .read_text(encoding="utf-8")
+    assert "PANEL_LAYOUT_WIDTHS" in runner, (
+        "the seeds runner no longer pins each seeded run to one width")
+    assert "PANEL_INTERACTIONS_MAX_TARGETS" not in runner, (
+        "the seeds runner still caps the sweep's targets")
+    assert "spawnSync" not in runner, (
+        "the seeds runner drives the seeds sequentially again")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
