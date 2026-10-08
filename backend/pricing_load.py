@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,14 +25,6 @@ from backend.meter_tables import (
 # resolution logic only. The file sits under src/ because the browser's
 # parser.js reads the same file from /src.
 PRICING_JSON = Path(__file__).resolve().parent.parent / "src" / "pricing.json"
-
-# The suite-cost bench's seam (SV-CI-RATCHETS, issue #840): when set, the
-# loader reads THIS path instead — the bench points it at the bounded
-# scripts/ci/suite_pricing_doc.json, so the gate's measured workload does
-# not scale with the deployed document's size. Unset, every consumer reads
-# src/pricing.json.
-_DOC = os.environ.get("CLAUDIT_PRICING_DOC")
-_DOC_PATH = Path(_DOC) if _DOC else PRICING_JSON
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 
 Windows = list[tuple[datetime, dict]]
@@ -439,7 +430,7 @@ def load_tables(doc: dict) -> RateTables:
     }
 
 
-_TABLES = load_tables(json.loads(_DOC_PATH.read_text(encoding="utf-8")))
+_TABLES = load_tables(json.loads(PRICING_JSON.read_text(encoding="utf-8")))
 MODEL_RATES = _TABLES["MODEL_RATES"]
 # Dated overrides per exact key: (end_exclusive_utc, rates), oldest first.
 # Applied only when a timestamp is supplied and only on an EXACT key match —
