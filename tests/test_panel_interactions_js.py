@@ -607,9 +607,9 @@ def test_the_reply_latency_outlier_dots_are_swept():
         "the outlier dots no longer light on the tip's datum")
     plotted = src[src.index("const plottedOutliers"):
                   src.index("}, [visibleOutliers]")]
-    assert "seen.has(" in plotted, (
-        "the plotted-dots memo no longer dedups by position — stacked "
-        "copies leave every dot under the top one dark")
+    assert ("seen.has(" in plotted
+            and "return [...seen.values()]" in plotted), (
+        "the plotted-dots memo must compute AND return the deduped values")
     fixture = json.loads(
         (ROOT / "fixtures" / "layout" / "reply_latency.json")
         .read_text(encoding="utf-8"))
