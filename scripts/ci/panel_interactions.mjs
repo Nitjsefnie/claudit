@@ -226,6 +226,10 @@ export function variantsFrom(base) {
 // HTML-table rows' treatment (#834's Page performance rows). A new
 // panel that highlights by another channel must add it here — and to
 // the restated lists in MARK and READ below — or the guard fails it.
+// Residual for row marks: elementFromPoint at a hovered table row
+// returns the row's CELL (the mark lives on the row), so a row whose
+// highlight dies degrades to OVERLAPPED prints, never a hover-style
+// failure — the row's enforced response is its tooltip (hover-tooltip).
 const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
   'stroke-width', 'stroke-dasharray', 'background-color'];
 
@@ -248,9 +252,9 @@ if (SEED && !SEEDS.includes(SEED)) {
 }
 
 // The no-targets seed strips every mark from ONE rendered non-static
-// panel, the way a forgotten mark would leave it: MARK has already
-// counted, so the panel's count is zeroed from the node side to match
-// the page the sweep then reads. Returns the panel index it stripped.
+// panel, the way a forgotten mark would leave it; the sweep then re-runs
+// MARK on the stripped page, so the finding fires through the count the
+// page itself reports (#835). Returns the number of marks it stripped.
 const STRIP = panelIdx => {
   const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
   if (!svg) return -1;
