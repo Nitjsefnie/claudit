@@ -542,32 +542,27 @@ def test_the_ledger_never_carries_an_other_region_catch_all():
 
 
 def test_the_page_performance_panel_answers_hover():
-    """#834: a static declaration on a panel that renders data fails the
-    sweep. 'Page performance' answers hover now — journey rows are marked
-    targets with a visible response through the shared tooltip."""
+    """#834: a static declaration on a data panel fails; 'Page
+    performance' answers hover now — marked rows, shared tooltip."""
     src = (ROOT / "src" / "perf-panel.jsx").read_text(encoding="utf-8")
     assert "data-static-panel" not in src, (
         "perf-panel.jsx still declares data-static-panel — #834 fails a "
         "static declaration on a panel that renders data")
     assert 'data-hover-target="" data-journey=' in src, (
-        "the Page performance panel's journey rows lost their hover "
-        "marks (one marked row site renders all three)")
+        "the journey rows lost their hover marks")
     assert "DashTooltip" in src, (
-        "the journey rows' hover response is not the shared tooltip "
-        "primitive")
+        "the rows' hover response is not the shared tooltip")
     heat = (ROOT / "src" / "activity-heatmap-panel.jsx").read_text(
         encoding="utf-8")
     assert 'data-static-panel=""' in heat, (
-        "the heatmap legend lost its data-static-panel declaration — the "
-        "sweep would fail the one genuinely data-less panel")
+        "the heatmap legend lost its static declaration")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_static_declarations_are_listed_by_the_guard():
-    """#834: nothing limited which panels may declare data-static-panel.
-    The guard keeps the reviewed static list; a declaration off the list
-    is the 'unlisted-static' finding, a cap-bitten or unreachable mark
-    the 'unhovered-targets' one."""
+    """#834: nothing limited which panels may declare data-static-panel;
+    the reviewed static list makes an off-list declaration the
+    'unlisted-static' finding, a cap-bitten mark the 'unhovered' one."""
     out = _node("""
       console.log(JSON.stringify({
         listed: mod.STATIC_PANELS,
@@ -586,25 +581,23 @@ def test_static_declarations_are_listed_by_the_guard():
 
 def test_unhovered_targets_never_pass_silently():
     """#834: sampling, off-viewport drops and static exemptions must not
-    let an unhovered mark pass. The default sweep is unbounded (the cap
-    defaults to 0); a biting cap and an unreachable target are both the
-    unhovered-targets finding; the old FOLDED pass is gone."""
+    let an unhovered mark pass. The sweep defaults to unbounded; a biting
+    cap and an unreachable target are both the unhovered-targets finding;
+    the old FOLDED pass is gone."""
     src = MODULE.read_text(encoding="utf-8")
     assert "process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0'" in src, (
         "the target cap no longer defaults to unlimited")
     assert src.count("unhovered-targets") >= 2, (
-        "a cap that bites and an unreachable target must both record "
-        "the unhovered-targets finding")
+        "a biting cap and an unreachable target must both record")
     assert ("dropped — both hover points must sit inside the viewport"
             not in src), (
         "the sweep still drops off-viewport targets instead of failing")
 
 
 def test_the_reply_latency_outlier_dots_are_swept():
-    """#834: the Reply Latency outlier dots answer hover but carried no
-    mark, so the sweep never hovered them. The dots are marked, light on
-    the tip's datum, and the fixture carries outliers whose models match
-    the bands' — the rendered sweep hovers them at every run."""
+    """#834: the outlier dots answer hover but carried no mark, so the
+    sweep never hovered them; now marked, lit on the tip's datum, and
+    the fixture carries outliers matching the bands' models."""
     src = (ROOT / "src" / "reply-latency-panel.jsx").read_text(
         encoding="utf-8")
     dots = src[src.index("plottedOutliers.map"):src.index("Hit circles")]
@@ -615,8 +608,7 @@ def test_the_reply_latency_outlier_dots_are_swept():
     plotted = src[src.index("const plottedOutliers"):
                   src.index("}, [visibleOutliers]")]
     assert "seen.has(" in plotted, (
-        "the plotted-dots memo no longer dedups by position — the "
-        "coincidence dedup is the rendered sweep's green, and stacked "
+        "the plotted-dots memo no longer dedups by position — stacked "
         "copies leave every dot under the top one dark")
     fixture = json.loads(
         (ROOT / "fixtures" / "layout" / "reply_latency.json")
@@ -627,21 +619,18 @@ def test_the_reply_latency_outlier_dots_are_swept():
     models = {b["model"] for b in fixture["bands"]}
     for o in fixture["outliers"]:
         assert o["model"] in models, (
-            f"outlier model {o['model']!r} matches no band model; the "
-            "panel filters outliers to visible models")
+            f"outlier model {o['model']!r} matches no band model")
         for field in ("ts", "latency_s", "file_key", "line"):
             assert field in o
 
 
 def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
-    """#835: the seed set panels[pi].nTargets = 0 node-side, so the
-    seeded run went red even when MARK's own count stopped noticing a
-    stripped panel. The seed strips, then re-runs MARK — the same count
-    an unseeded run reads."""
+    """#835: the seed zeroed the node-side count, red even when MARK's
+    own count stopped noticing a stripped panel; the seed now strips and
+    re-runs MARK — the count an unseeded run reads."""
     src = MODULE.read_text(encoding="utf-8")
     assert "panels[pi].nTargets = 0" not in src, (
-        "the no-targets seed still forces the node-side count to zero "
-        "instead of re-counting the stripped page")
+        "the seed still forces the node-side count to zero")
     seeded = src[src.index("if (SEED === 'no-targets')"):
                  src.index("if (!panels.length)")]
     assert "evaluate(MARK)" in seeded, (
@@ -649,10 +638,21 @@ def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
         "after the strip")
 
 
+def test_the_three_style_channel_lists_agree():
+    """#864: the channels live in STYLE_PROPS, restated inside MARK and
+    READ (in-page functions carry no closure) — one-list edits fail."""
+    src = MODULE.read_text(encoding="utf-8")
+    lists = [re.findall(r"'([a-z-]+)'", src[i:src.index('];', i)])
+             for i in (src.index("const STYLE_PROPS"),
+                       src.index("const MARK"), src.index("const READ"))]
+    assert lists[0] == lists[1] == lists[2], lists
+    assert "background-color" in lists[0]
+
+
 def test_the_seeded_runs_run_one_width_and_uncapped():
-    """#843: the seeded proof re-drove the FULL sweep three times over —
-    half the leg's wall. The runner drives the seeds concurrently, each
-    at ONE width (they prove classifiers, not reach), uncapped."""
+    """#843: the seeded proof re-drove the full sweep three times over —
+    half the leg's wall; the runner now drives the seeds concurrently at
+    one width each, uncapped."""
     runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
         .read_text(encoding="utf-8")
     assert "PANEL_LAYOUT_WIDTHS" in runner, (
