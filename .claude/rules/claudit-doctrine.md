@@ -751,7 +751,11 @@ same rules:
 - A moved price is an APPENDED entry, never an edit or deletion. A
   log-backed row dates it at OpenRouter's recorded change point; a
   sampled row at detection time. A first-seen sampled host gets a row
-  beginning then; a first-seen log-backed host gets its whole log. A
+  beginning then; a first-seen log-backed host gets its log from the
+  last state in force at `HISTORY_FLOOR` (`refresh_provider_rates.py`,
+  the account's first OpenRouter-lane record): states the account's
+  OpenRouter-lane records predate price nothing the meters hold, and
+  the state in force at the floor prices the floor onward. A
   host no longer listed keeps its row untouched and is reported.
 - Normalisation: USD per token becomes USD per million. The listed
   price already has any promotional discount applied; the discount goes
