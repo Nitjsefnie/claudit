@@ -351,9 +351,26 @@ def _match_series_to_endpoints(
     return matched, None
 
 
-def _has_endpoint_schedule(endpoint: dict) -> bool:
+def _endpoint_overrides_kind(endpoint: dict) -> str | None:
+    """What one endpoint's pricing.overrides classify as: "schedule" when a
+    utc window is present, "band" when a min_prompt_tokens override is, and
+    "schedule" (the historical wording) for any other overrides presence.
+    The log's five fields carry neither, so any of them samples the host;
+    the sampled reason names which classified it."""
     pricing = endpoint.get("pricing")
-    return isinstance(pricing, dict) and bool(pricing.get("overrides"))
+    if not isinstance(pricing, dict):
+        return None
+    overrides = pricing.get("overrides")
+    if not isinstance(overrides, list) or not overrides:
+        return None
+    for override in overrides:
+        if not isinstance(override, dict):
+            continue
+        if set(override) & {"utc_days", "utc_start", "utc_end"}:
+            return "schedule"
+        if "min_prompt_tokens" in override:
+            return "band"
+    return "schedule"
 
 
 def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
@@ -370,8 +387,10 @@ def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set
         reason = "tag prefix is shared by another host"
     elif any(lists_a_fee(endpoint.get("pricing")) for endpoint in endpoints):
         reason = "endpoint lists a per-request fee the price log cannot carry"
-    elif any(_has_endpoint_schedule(endpoint) for endpoint in endpoints):
-        reason = "endpoint has a pricing schedule"
+    elif any(kinds := [_endpoint_overrides_kind(endpoint)
+                       for endpoint in endpoints]):
+        reason = ("endpoint has a pricing schedule" if "schedule" in kinds
+                  else "endpoint lists a long-context band")
     else:
         selected, reason = _selection_indices(host, endpoints, region, resolutions)
     if reason is None:

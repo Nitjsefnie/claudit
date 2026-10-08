@@ -16,6 +16,7 @@ _SAMPLE_REASONS = {
     "host endpoints use more than one tag prefix": "multiple provider tags",
     "tag prefix is shared by another host": "provider tag shared",
     "endpoint has a pricing schedule": "endpoint schedule",
+    "endpoint lists a long-context band": "long-context band",
     "series has a schedule": "log series schedule",
     "series count does not match endpoint count": "log series count mismatch",
     "series current rates do not identify exactly one endpoint":
