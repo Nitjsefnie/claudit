@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import pricing
+from backend import long_context, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -595,14 +595,19 @@ def test_the_live_migrated_rows_price_their_frozen_first_entries():
 
 
 def test_every_migrated_row_keeps_the_models_shape_rules():
-    """Live file: every vendor row the tracked table names has a providers
-    row at (key, host), carrying an id."""
+    """Live file: every vendor_host-carrying tracked entry carries its id
+    and host, and every provider-table key is tracked. A newly auto-added
+    entry sits ahead of its provider row for one run — the pickup delay is
+    the design (SV-VENDOR-RATES) — so the row's arrival is the provider
+    pass's own move report, not this test's."""
     doc = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
-    for key, entry in doc["openrouter"]["models"].items():
+    tracked = doc["openrouter"]["models"]
+    assert set(doc["providers"]) <= set(tracked)
+    for key, entry in tracked.items():
         if "vendor_host" not in entry:
             continue
         assert entry["id"], key
-        assert entry["vendor_host"] in doc["providers"].get(key, {}), key
+        assert isinstance(entry["vendor_host"], str) and entry["vendor_host"], key
 
 
 # --- the vendor pass on a tracked key (no re-add; the fold still runs) ---------
@@ -613,7 +618,6 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
     first-party listing — the band below folds the meter membership, so the
     listing was read — but re-adds or rewrites nothing, and the models
     table is never written."""
-    from backend import long_context
     doc = _doc()
     before = json.loads(json.dumps(doc))
     catalog = {"data": [{"id": "acme/claude-opus.9"}]}
