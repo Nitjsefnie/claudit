@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.refresh_fixture_builders import seed_doc
+
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
@@ -40,30 +42,13 @@ def _fee_note(amount: float) -> str:
 
 
 def _doc() -> dict:
-    return {
-        "models": {
-            "acme/acme-9": [_entry(RATES)],
-            # The default estimate's row the loaders require (frozen
-            # synthetic rates, the sibling seed docs' shape).
-            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
-        },
-        "providers": {
-            "acme/acme-9": {
-                "HostCo": [
-                    _entry(RATES, note=_fee_note(FEE)),
-                    {**_entry(RATES), "from": CUTOVER,
-                     "note": "17% off; " + _fee_note(FEE2)},
-                ],
-            },
-        },
-        "openrouter": {"data_region": "global", "models": {},
-                       "vendor": {"prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
-        "long_context_models": [],
-        "provider_rates_fetched": "2026-09-24T22:03:13Z",
-    }
+    """The minimal seed doc plus the fee fixture's own rows."""
+    return seed_doc(
+        models={"acme/acme-9": [_entry(RATES)]},
+        providers={"acme/acme-9": {"HostCo": [
+            _entry(RATES, note=_fee_note(FEE)),
+            {**_entry(RATES), "from": CUTOVER,
+             "note": "17% off; " + _fee_note(FEE2)}]}})
 
 
 @pytest.fixture(name="sandbox")

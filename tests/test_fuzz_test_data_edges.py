@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 from backend import pricing
 
@@ -60,9 +62,7 @@ def _seed_document() -> dict:
                 {"from": None, **RATES_A},
                 {"from": FLOOR_STAMP, **RATES_B},
             ],
-            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
+            "claude-opus-4-7": [dict(DEFAULT_ROW)],
         },
         "providers": {
             "acme/existing-9": {

@@ -7,12 +7,14 @@ import shutil
 from datetime import datetime, timedelta
 
 import pytest
+
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
 from backend import pricing
 from backend import session as session_mod
 
+from tests.refresh_fixture_builders import DEFAULT_ROW
 from tests.test_pricing_data import (
     CUT,
     DAMAGE,
@@ -158,9 +160,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     doc = {
         "models": {model: [{"from": None, **rates},
                            {"from": stamp, **rates}],
-                   "claude-opus-4-7": [{"from": None, "fresh": 5.0,
-                                        "create_5m": 6.25, "create_1h": 10.0,
-                                        "read": 0.5, "output": 25.0}]},
+                   "claude-opus-4-7": [dict(DEFAULT_ROW)]},
         "providers": {},
         "openrouter": {"data_region": "global", "models": {},
                        "vendor": {"prefixes": ["anthropic", "openai",

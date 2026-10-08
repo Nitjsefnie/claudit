@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 from backend import pricing
 
@@ -59,9 +61,7 @@ def _seed_doc() -> dict:
                 {"from": None, **RATES_A},
                 {"from": "2026-06-01T00:00:00Z", **RATES_B},
             ],
-            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
+            "claude-opus-4-7": [dict(DEFAULT_ROW)],
             "free/acme-0": [{"from": None, **RATES_ZERO}],
         },
         "providers": {
@@ -372,8 +372,7 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
                           [{"from": None, **RATES_A}]
                           for index in range(12)}
     seed_doc["models"]["claude-opus-4-7"] = [
-        {"from": None, "fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
-         "read": 0.5, "output": 25.0}]
+        dict(DEFAULT_ROW)]
     pricing_path.write_text(
         json.dumps(seed_doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")

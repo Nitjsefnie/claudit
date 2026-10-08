@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 from backend import pricing
 
@@ -655,10 +657,9 @@ def _provider_only_doc() -> dict:
     }
 
 
-# The default-estimate row a synthetic document carries: frozen list rates
-# at no cutover, so it adds no epoch and asserts nothing about prices.
-_CLAUDE_DEFAULT_ENTRY = {"from": None, "fresh": 5.0, "create_5m": 6.25,
-                         "create_1h": 10.0, "read": 0.5, "output": 25.0}
+# The default-estimate row a synthetic document carries: the shared seed
+# literal, copied so DAMAGE variants never mutate the source.
+_CLAUDE_DEFAULT_ENTRY = dict(DEFAULT_ROW)
 
 
 # --- a variant suffix folds to the bare id (issue 72) ------------------------

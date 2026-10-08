@@ -24,7 +24,9 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
-from tests.refresh_fixture_builders import (_discount, _endpoint, _overrides, _per_token)
+from tests.refresh_fixture_builders import (_discount, _endpoint,
+                                            _overrides, _per_token,
+                                            DEFAULT_ROW)
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
@@ -116,9 +118,7 @@ def _seeded(doc: dict) -> dict:
     # give the default estimate its own seeded models row (no cutover, so
     # no epoch moves).
     if "claude-opus-4-7" not in doc["models"]:
-        doc["models"]["claude-opus-4-7"] = [
-            {"from": None, "fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
-             "read": 0.5, "output": 25.0}]
+        doc["models"]["claude-opus-4-7"] = [dict(DEFAULT_ROW)]
     doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
     return doc
 

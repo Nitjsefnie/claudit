@@ -32,6 +32,16 @@ const _latestKey = (families) => {
                      ...Object.keys(window.vendorBare)]) {
     const m = _VERSIONED_KEY.exec(key);
     if (!m || !families.includes(m[1])) continue;
+    // A tracked key with no provider row yet — the auto-add's pickup
+    // delay, which the loaders admit — names no rates and is skipped,
+    // exactly as the vendor branch falls through it (mirrors the
+    // rowless skip in pricing._latest).
+    if (!Object.prototype.hasOwnProperty.call(window.modelRates, key)) {
+      const host = window.vendorHosts[key];
+      const hosts = window.providerRates[key] || {};
+      if (host === undefined
+          || !Object.prototype.hasOwnProperty.call(hosts, host)) continue;
+    }
     const version = m[2].split('-').map(Number);
     let cmp = 0;
     for (let i = 0; i < Math.max(version.length, bestVersion ? bestVersion.length : 0) && !cmp; i++) {

@@ -20,7 +20,7 @@ import pytest
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
-from tests.refresh_fixture_builders import _endpoint as fixture_endpoint
+from tests.refresh_fixture_builders import _endpoint as fixture_endpoint, DEFAULT_ROW
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -71,16 +71,10 @@ def _series(states: list[tuple[str, dict]]) -> dict:
             "providerSlug": "wafer", **fields}
 
 
-# The default-estimate row every loadable document carries (frozen
-# synthetic rates at no cutover).
-_DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
-                "create_1h": 10.0, "read": 0.5, "output": 25.0}
-
-
 def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
     return {
         "models": {MODEL: [{"from": None, **RATE_A}],
-                   "claude-opus-4-7": [_DEFAULT_ROW]},
+                   "claude-opus-4-7": [dict(DEFAULT_ROW)]},
         "providers": {MODEL: copy.deepcopy(hosts)},
         "provider_rates_fetched": "2026-01-01T00:00:00Z",
         "long_context_models": [],

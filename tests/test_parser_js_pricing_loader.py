@@ -20,6 +20,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -51,9 +53,7 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
             "claude-opus-4-8": [{"from": None, "fresh": 5.0,
                                  "create_5m": 6.25, "create_1h": 10.0,
                                  "read": 0.5, "output": 25.0}],
-            "claude-opus-4-7": [{"from": None, "fresh": 5.0,
-                                 "create_5m": 6.25, "create_1h": 10.0,
-                                 "read": 0.5, "output": 25.0}],
+            "claude-opus-4-7": [dict(DEFAULT_ROW)],
         },
         "long_context_models": [],
         "providers": {

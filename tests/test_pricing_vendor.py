@@ -23,6 +23,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 from backend import long_context, pricing
 
@@ -42,8 +44,9 @@ R_OLD = {"fresh": 3.0, "create_5m": 3.75, "create_1h": 6.0,
          "read": 0.3, "output": 15.0}
 R_NEW = {"fresh": 4.0, "create_5m": 5.0, "create_1h": 8.0,
          "read": 0.4, "output": 20.0}
-R_THIRD = {"fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
-           "read": 0.5, "output": 25.0}
+# The shared default-row literal's vector (issue #858): the five
+# rate fields only — the row wrappers add "from" themselves.
+R_THIRD = {f: DEFAULT_ROW[f] for f in RATE_FIELDS}
 CUT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 STAMP = CUT.isoformat().replace("+00:00", "Z")
 KEY = "claude-opus-9"          # bare tracked key: its own bare form

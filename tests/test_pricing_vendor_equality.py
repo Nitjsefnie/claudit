@@ -233,6 +233,43 @@ def test_a_tracked_but_rowless_default_row_refuses_the_backend():
 
 
 @needs_node
+def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
+    """The browser twin of the rowless skip: a tracked claude-family key
+    with no provider row yet never wins the fallback race — the tier
+    prices from the newest key that HAS rates, never undefined, and the
+    rowless bare id falls through to the same tier."""
+    doc = _doc(models={})
+    doc["providers"] = {}
+    doc["openrouter"]["models"]["claude-opus-9"] = {
+        "id": "acme/claude-opus.9", "vendor_host": HOST}
+    doc["models"]["claude-opus-4-7"] = [_entry(R_THIRD)]
+    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
+    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
+    shutil.copy(RATES_JS, tmp_path / "rates.js")
+    proc = subprocess.run(
+        ["node", "-e", """
+          global.window = {};
+          require('./pricing-loader.js');
+          require('./rates.js');
+          const JF = {fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
+                      read: 'read', out: 'output'};
+          const map = (r) => Object.fromEntries(
+            Object.entries(JF).map(([a, b]) => [b, r.rates[a]]));
+          const tier = window.resolveModelRate('claude-opus-99');
+          const bare = window.resolveModelRate('claude-opus-9');
+          console.log(JSON.stringify(
+            {tier: {kind: tier.kind, rates: map(tier)},
+             bare: {kind: bare.kind, rates: map(bare)}}));
+        """],
+        cwd=tmp_path, capture_output=True, text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["tier"] == {"kind": "tier", "rates": dict(R_THIRD)}
+    assert got["bare"] == {"kind": "tier", "rates": dict(R_THIRD)}
+
+
+@needs_node
 def test_a_tracked_but_rowless_default_row_refuses_the_browser(tmp_path):
     """The browser twin, the same refusal substance: the loader refuses at
     load with the same message — never a raw TypeError at resolve time."""

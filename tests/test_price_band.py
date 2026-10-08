@@ -31,6 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.refresh_fixture_builders import DEFAULT_ROW
+
 
 from backend import pricing
 
@@ -167,7 +169,7 @@ def test_the_collapse_rewrites_only_the_oscillating_row(tmp_path, capsys):
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
     doc = {"models": {MODEL: [_entry(None, RATE_A)],
-                      "claude-opus-4-7": [_DEFAULT_ROW]},
+                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
            "providers": {MODEL: {"BandCo": TOGGLE_ROW, "StepCo": STEP_ROW,
                                  "StableCo": STABLE_ROW}},
            "provider_rates_fetched": STAMP, "long_context_models": [],
@@ -471,19 +473,13 @@ def test_a_genuine_step_from_a_banded_row_appends_the_price_in_force(
 
 def _banded_doc(band: object) -> dict:
     return {"models": {MODEL: [_entry(None, MEAN)],
-                       "claude-opus-4-7": [_DEFAULT_ROW]},
+                       "claude-opus-4-7": [dict(DEFAULT_ROW)]},
             "providers": {MODEL: {BAND_HOST: [
                 _entry("2026-05-01T00:00:00Z", MEAN, band=band)]}},
             "provider_rates_fetched": STAMP, "long_context_models": [],
             "openrouter": {"data_region": "global", "models": {},
                            "vendor": {"prefixes": ["anthropic", "openai",
                                                    "moonshotai", "z-ai"]}}}
-
-
-# The default-estimate row every loadable document carries (frozen
-# synthetic rates at no cutover).
-_DEFAULT_ROW = {"from": None, "fresh": 5.0, "create_5m": 6.25,
-                "create_1h": 10.0, "read": 0.5, "output": 25.0}
 
 
 def _node_load(tmp_path: Path, text: str) -> str | None:

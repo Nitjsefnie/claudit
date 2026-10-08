@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from backend import long_context, pricing, pricing_load
+from tests.refresh_fixture_builders import seed_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -54,27 +55,13 @@ def _per_token(rate: float) -> str:
     return format(Decimal(repr(rate)).scaleb(-6).normalize(), "f")
 
 
-# The claude-opus-4-7 row every loadable document carries for the default
-# estimate (frozen synthetic rates at no cutover).
-DEFAULT_ROW = {"from": None, **dict(zip(
-    RATE_FIELDS, (5.0, 6.25, 10.0, 0.5, 25.0)))}
-
-
 def _doc(*, members=None, models=None, resolve=None, tracked=None,
          prefixes=None) -> dict:
-    doc = {
-        "long_context_models": list(members or []),
-        "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
-                   **(copy.deepcopy(models) if models else {})},
-        "openrouter": {"data_region": "global",
-                       "models": copy.deepcopy(tracked) if tracked else {},
-                       "vendor": {"resolve": resolve or {},
-                                  "prefixes": prefixes or ["anthropic", "openai",
-                                                           "moonshotai", "z-ai"]}},
-        "provider_rates_fetched": "2030-12-31T00:00:00Z",
-        "providers": {},
-    }
-    return doc
+    """The minimal seed doc (refresh_fixture_builders.seed_doc) with this
+    file's frozen fetch stamp."""
+    return seed_doc(members=members, models=models, resolve=resolve,
+                    tracked=tracked, prefixes=prefixes,
+                    fetched="2030-12-31T00:00:00Z")
 
 
 def _price(fresh, output, read=None, write=None, write_1h=None, **extra) -> dict:
