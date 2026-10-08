@@ -3,7 +3,9 @@
 
 Fetches every tracked model's endpoints and listed-pricing log. A host with
 one provable endpoint history appends each logged rate change at OpenRouter's
-change time; its first row carries the whole log. Hosts without an unambiguous
+change time; a first row imports its log from the history floor
+(HISTORY_FLOOR) onward, since earlier states price no record the meters hold.
+Hosts without an unambiguous
 log join are sampled at detection time and use the existing alternation rule.
 No existing entry is rewritten by the hourly refresh. A run that appends
 bumps PRICING_VERSION (a reprice, never a reparse) by one from whatever
@@ -73,6 +75,7 @@ import http.client
 import json
 import sys
 import urllib.error
+from bisect import bisect_right
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Callable
@@ -207,6 +210,28 @@ def _new_log_states(model: str, host: str, entries: list[dict],
     return additions
 
 
+# The history floor (SV-RATE-REFRESH): the account's OpenRouter-lane
+# records begin here (ormeter's openrouter bucket's oldest record,
+# 2026-09-23T21:13:54Z, verified 2026-10-08), and provider rows price only
+# such records. Log states dated before the floor price nothing the meters
+# hold, so a first-seen row's import starts at the last state in force AT
+# the floor and the dropped levels are never imported.
+HISTORY_FLOOR = datetime(2026, 9, 23, tzinfo=timezone.utc)
+
+
+def _floored_log(model: str, host: str, entries: list[dict]) -> list[dict]:
+    """A first-seen log-backed host's importable states: everything from
+    the last state in force at the history floor onward. The kept
+    pre-floor state carries the level the floor's records priced through
+    (a record in its window without it would fall back to the model
+    row), and states strictly before it price no record any meter holds.
+    States dated after the floor are all kept, whatever their age."""
+    ats = [_price_instant(entry["from"], f"{model} via {host}")
+           for entry in entries]
+    kept = bisect_right(ats, HISTORY_FLOOR)
+    return entries if kept == 0 else entries[kept - 1:]
+
+
 def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    entries: list[dict], at: datetime) -> Move | None:
     """Append every new log state after the stored row without rewriting it,
@@ -224,6 +249,7 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     price_band.formation returns, dated at the detection instant."""
     history = hosts.get(host)
     if history is None:
+        entries = _floored_log(model, host, entries)
         history = hosts[host] = copy.deepcopy(entries)
         move = Move(model, host, None, listing, len(entries), "log")
     else:

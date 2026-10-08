@@ -308,6 +308,29 @@ def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
     assert saved["providers"][MODEL][HOST] == [_entry(at, rates) for at, rates in states]
 
 
+def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
+    """SV-RATE-REFRESH's history floor: states dated before the floor
+    price no record the meters hold — the account's OpenRouter-lane
+    records begin at the floor — so a first-seen log-backed host imports
+    its log from the last state in force AT the floor, and the dropped
+    levels price nothing (issue #872: the #859 whole-log import grew the
+    deployed document 3.4x)."""
+    states = [("2026-01-01T00:00:00Z", RATE_A),
+              ("2026-09-01T12:00:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_A)]
+
+    rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    assert saved["providers"][MODEL][HOST] == [
+        # The state in force at the floor begins the row, so records at
+        # and after the floor price through it; the superseded level
+        # before it is not imported.
+        _entry("2026-09-01T12:00:00Z", RATE_B),
+        _entry("2031-01-01T00:10:00Z", RATE_A)]
+
+
 def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path, capsys):
     states = [("2030-12-31T23:00:00Z", RATE_A),
               ("2031-01-01T00:10:00Z", RATE_B)]
