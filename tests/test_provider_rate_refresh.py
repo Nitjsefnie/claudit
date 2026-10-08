@@ -221,10 +221,12 @@ def test_every_provider_table_model_names_its_openrouter_id():
     """One convention per key shape: an OpenRouter-tracking key normalises
     to its full id (deepseek/..., z-ai/glm-5-3); a tracked VENDOR key is
     bare and normalises to the id's slug — the same bare first-party id
-    resolve() prices through it (issue #851)."""
+    resolve() prices through it (issue #851). Every provider-table key is
+    tracked; a tracked key may sit ahead of its provider row for one run —
+    the auto-add's pickup delay (SV-VENDOR-RATES)."""
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
-    assert set(doc["openrouter"]["models"]) == set(doc["providers"])
+    assert set(doc["providers"]) <= set(doc["openrouter"]["models"])
     for key, entry in doc["openrouter"]["models"].items():
         if entry.get("vendor_host"):
             slug = entry["id"].partition("/")[2]

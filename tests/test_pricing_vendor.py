@@ -605,24 +605,34 @@ def test_every_migrated_row_keeps_the_models_shape_rules():
         assert entry["vendor_host"] in doc["providers"].get(key, {}), key
 
 
-# --- the vendor pass skips tracked vendor keys (Task B interim) ----------------
+# --- the vendor pass on a tracked key (no re-add; the fold still runs) ---------
 
 
-def test_the_vendor_pass_skips_a_tracked_vendor_key():
-    """The migrated keys are the tracked table's business now: the vendor
-    pass must not re-add them to the models table (the loaders would
-    refuse the collision, blocking every hourly run)."""
+def test_the_vendor_pass_never_re_adds_a_tracked_key():
+    """The tracked table's business: the pass selects a tracked key's
+    first-party listing — the band below folds the meter membership, so the
+    listing was read — but re-adds or rewrites nothing, and the models
+    table is never written."""
+    from backend import long_context
     doc = _doc()
+    before = json.loads(json.dumps(doc))
     catalog = {"data": [{"id": "acme/claude-opus.9"}]}
     payload = {"data": {"endpoints": [
         {"provider_name": HOST, "tag": "acme", "quantization": "fp8",
          "status": 0, "context_length": 131072,
-         "pricing": {"prompt": "0.000003", "completion": "0.000015"}}]}}
+         "pricing": {"prompt": "0.000003", "completion": "0.000015",
+                     "overrides": [{"min_prompt_tokens":
+                                    long_context.LONG_CONTEXT_THRESHOLD,
+                                    "prompt": "0.000006",
+                                    "completion": "0.0000225"}]}}]}}
     outcome = _load_vendor().vendor_pass(
-        doc, lambda: catalog, lambda _mid: payload, STAMP,
-        datetime(2031, 1, 1, tzinfo=UTC))
+        doc, lambda: catalog, lambda _mid: payload)
     assert outcome.refusals == []
-    assert KEY not in doc["models"], "the tracked key was re-added"
+    assert outcome.moves, "the tracked key's listing was not selected"
+    assert doc["long_context_models"] == [KEY]
+    assert doc["models"] == before["models"], "the models table was written"
+    assert (doc["openrouter"]["models"][KEY]
+            == before["openrouter"]["models"][KEY]), "the entry was rewritten"
 
 
 # --- the family fallback and default on the REAL file -------------------------

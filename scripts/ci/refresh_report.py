@@ -109,13 +109,13 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
               f"{len(result.refusals)} refused" if result.refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     if vendor is not None and vendor.moves:
-        v_changed = sum(1 for m in vendor.moves if m.entries and m.old is not None)
-        v_new = sum(1 for m in vendor.moves if m.entries and m.old is None)
-        v_metered = len(vendor.moves) - v_changed - v_new
-        segments = [f"{v_new} new" if v_new else "",
-                    f"{v_changed} changed" if v_changed else "",
-                    f"{v_metered} metered" if v_metered else ""]
-        subject += "; vendor list rates: " + ", ".join(s for s in segments if s)
+        v_added = sum(1 for m in vendor.moves if m.added)
+        v_metered = sum(1 for m in vendor.moves if m.membership == "+")
+        v_unmetered = sum(1 for m in vendor.moves if m.membership == "-")
+        segments = [f"{v_added} added" if v_added else "",
+                    f"{v_metered} metered" if v_metered else "",
+                    f"{v_unmetered} unmetered" if v_unmetered else ""]
+        subject += "; vendor table: " + ", ".join(s for s in segments if s)
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
 
@@ -132,35 +132,20 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
 
 def vendor_report(stamp: str, vendor) -> str:
     """Render the vendor pass's section of the hourly report."""
-    lines = [f"Vendor list rates, detected {stamp}"]
+    lines = [f"Vendor tracked table, detected {stamp}"]
     if not (vendor.moves or vendor.refusals or vendor.notices):
-        lines.append("no first-party rate moved")
+        lines.append("no first-party vendor moved")
     for move in vendor.moves:
         tail = (" [metered]" if move.membership == "+"
                 else " [unmetered]" if move.membership == "-" else "")
-        tail += f" [threshold {move.meter}]" if move.meter is not None else ""
-        if move.entries and move.old is None:
-            rates = ", ".join(f"{f} {move.new[f]!r}" for f in _RATE_FIELDS)
-            lines.append(f"  new       {move.key} ({move.id}): {rates}{tail}")
-        elif move.entries:
-            moved = ", ".join(f"{f} {move.old[f]!r} -> {move.new[f]!r}"
-                              for f in _RATE_FIELDS if move.old[f] != move.new[f])
-            lines.append(f"  changed   {move.key} ({move.id}): {moved}{tail}")
-        elif move.membership or move.meter is not None:
-            if move.membership == "+":
-                line = (f"  metered  {move.key} ({move.id}): long-context "
-                        "meter on")
-                if move.meter is not None:
-                    line += f" at threshold {move.meter}"
-                lines.append(line)
-            elif move.membership == "-":
-                lines.append(f"  unmetered  {move.key} ({move.id}): "
-                             "long-context meter off")
-            else:
-                lines.append(f"  meter  {move.key} ({move.id}): long-context "
-                             f"threshold {move.meter}")
-        if move.entries and move.new.get("note"):
-            lines.append(f"            note: {move.new['note']}")
+        if move.added:
+            lines.append(f"  added     {move.key} ({move.id}): joins the "
+                         f"tracked table{tail}")
+        else:
+            on = move.membership == "+"
+            lines.append(f"  {'metered' if on else 'unmetered'}  {move.key} "
+                         f"({move.id}): long-context meter "
+                         f"{'on' if on else 'off'}")
     if vendor.refusals:
         lines += ["refused, rows left untouched:",
                   *(f"  {reason}" for reason in vendor.refusals)]

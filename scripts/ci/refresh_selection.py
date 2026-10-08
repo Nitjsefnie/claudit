@@ -30,9 +30,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # pylint: disable=wrong-import-position
-from refresh_prices import (PRICED, RECORDED_FEES, RefreshError, as_listed,  # noqa: E402
-                            covers_week, entry_schedule, fee_notes, in_a_window,
-                            is_zero, rates_of, tag_region, unknown_suffixes)
+from refresh_prices import (PRICED, RECORDED_FEES, RefreshError, Untracked,  # noqa: E402
+                            as_listed, covers_week, entry_schedule, fee_notes,
+                            in_a_window, is_zero, rates_of, tag_region,
+                            unknown_suffixes)
 
 # What tells two of one host's endpoints apart when the price does not.
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
@@ -109,9 +110,12 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
                 stored: dict[str, dict], at: datetime
-                ) -> tuple[dict[str, Listing], dict[str, str], list[str]]:
-    """Each host's one listing for `model`, each refused host's reason, and
-    notices for a human that refuse nothing.
+                ) -> tuple[dict[str, Listing], dict[str, str], list[str],
+                           dict[str, str]]:
+    """Each host's one listing for `model`, each refused host's reason, the
+    notices for a human that refuse nothing, and each untracked host's
+    notice (a listed shape the refresh deliberately leaves untracked — its
+    row untouched, the run stays green).
 
     Endpoints are grouped by host before any is read, so a malformed one
     refuses its own host only. A host's endpoints outside the data `region`
@@ -123,20 +127,23 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     and the default a scheduled host fetched inside a window keeps; `at`
     is the fetch instant.
     """
-    rows, refused, notices = {}, {}, []
+    rows, refused, notices, untracked = {}, {}, [], {}
     for host, endpoints in _by_host(model, payload).items():
         try:
             chosen, host_notices = _host_row(f"{model} via {host}", endpoints, region,
                                              resolutions.get(host), stored.get(host), at)
+        except Untracked as exc:
+            untracked[host] = f"{exc}; the host was left untouched"
+            continue
         except RefreshError as exc:
             refused[host] = str(exc)
             continue
-        notices += host_notices
         if chosen is not None:
             rows[host] = chosen
-    if not rows and not refused:
+        notices += host_notices
+    if not rows and not refused and not untracked:
         raise RefreshError(f"{model}: no endpoint in the data region")
-    return rows, refused, notices
+    return rows, refused, notices, untracked
 
 
 def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]:

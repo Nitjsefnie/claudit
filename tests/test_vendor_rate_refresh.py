@@ -1,6 +1,14 @@
 """SV-VENDOR-RATES: scripts/ci/refresh_vendor_rates.py, driven by synthetic
 catalog and endpoint payloads — never the network, never the live rows
-(SV-TEST-DATA): every model id, price and host here is synthetic."""
+(SV-TEST-DATA): every model id, price and host here is synthetic.
+
+The vendor pass owns the tracked table's vendor membership: a catalog id
+under a configured prefix whose derived key is not yet tracked is ADDED to
+openrouter.models as {"id", "vendor_host"} — no rates; the provider pass
+carries the row from the next hourly run — and every listed vendor id's
+first-party listing folds its long-context meter membership. The pass
+writes no rates anywhere.
+"""
 from __future__ import annotations
 
 import copy
@@ -26,6 +34,7 @@ GLM_ID = "z-ai/glm-test-1"
 GLM_KEY = "glm-test-1"
 RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0, "read": 0.1,
          "output": 5.0}
+TRACKED = {"id": GPT_ID, "vendor_host": "Vendor"}
 
 
 def _load(name: str):
@@ -51,7 +60,8 @@ DEFAULT_ROW = {"from": None, **dict(zip(
     RATE_FIELDS, (5.0, 6.25, 10.0, 0.5, 25.0)))}
 
 
-def _doc(*, members=None, models=None, resolve=None, tracked=None) -> dict:
+def _doc(*, members=None, models=None, resolve=None, tracked=None,
+         prefixes=None) -> dict:
     doc = {
         "long_context_models": list(members or []),
         "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
@@ -59,8 +69,8 @@ def _doc(*, members=None, models=None, resolve=None, tracked=None) -> dict:
         "openrouter": {"data_region": "global",
                        "models": copy.deepcopy(tracked) if tracked else {},
                        "vendor": {"resolve": resolve or {},
-                                  "prefixes": ["anthropic", "openai",
-                                               "moonshotai", "z-ai"]}},
+                                  "prefixes": prefixes or ["anthropic", "openai",
+                                                           "moonshotai", "z-ai"]}},
         "provider_rates_fetched": "2030-12-31T00:00:00Z",
         "providers": {},
     }
@@ -113,36 +123,34 @@ def _band(fresh: float, output: float, read=None, write=None, write_1h=None, *,
     return band
 
 
-def _run(doc: dict, catalog: dict, endpoints: dict, *, stamp: str = STAMP):
+def _run(doc: dict, catalog: dict, endpoints: dict):
     """One pass against synthetic fetchers; returns (mutated doc, outcome)."""
     doc = copy.deepcopy(doc)
     outcome = vendor.vendor_pass(doc, lambda: catalog,
-                                 lambda mid: endpoints[mid], stamp, NOW)
+                                 lambda mid: endpoints[mid])
     return doc, outcome
 
 
-# --- selection ---------------------------------------------------------------
+# --- the auto-add path --------------------------------------------------------
 
 
-def test_new_model_gets_a_row():
+def test_a_new_model_joins_the_tracked_set():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(
         _endpoint("openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)))})
     assert not out.refusals and not out.notices
-    entry = doc["models"][GPT_KEY][0]
-    assert entry["from"] is None
-    assert {f: entry[f] for f in RATE_FIELDS} == {
-        "fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0, "read": 0.1,
-        "output": 5.0}
-    assert len(out.moves) == 1 and out.moves[0].old is None
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert GPT_KEY not in doc["models"], "the vendor pass writes no rates"
+    assert doc["providers"] == {}
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True)]
 
 
-def test_bare_tag_beats_service_tiers():
+def test_the_bare_tag_selects_its_own_endpoint_s_host():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(
-        _endpoint("openai", _price(1.0, 5.0)),
-        _endpoint("openai/fast", _price(2.5, 12.5)),
-        _endpoint("openai/flex", _price(0.5, 2.5)))})
+        _endpoint("openai", _price(1.0, 5.0), host="OpenAI"),
+        _endpoint("openai/fast", _price(2.5, 12.5), host="OpenAI Fast"),
+        _endpoint("openai/flex", _price(0.5, 2.5), host="OpenAI Flex"))})
     assert not out.refusals
-    assert doc["models"][GPT_KEY][0]["fresh"] == 1.0
+    assert doc["openrouter"]["models"][GPT_KEY]["vendor_host"] == "OpenAI"
 
 
 def test_equal_price_suffixed_endpoints_collapse():
@@ -150,7 +158,8 @@ def test_equal_price_suffixed_endpoints_collapse():
         _endpoint("z-ai/fp8", _price(0.2, 1.0, read=0.02)),
         _endpoint("z-ai/fp4", _price(0.2, 1.0, read=0.02)))})
     assert not out.refusals
-    assert doc["models"][GLM_KEY][0]["fresh"] == 0.2
+    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
+                                                    "vendor_host": "Vendor"}
 
 
 def test_third_party_hosts_alone_are_a_notice():
@@ -158,7 +167,7 @@ def test_third_party_hosts_alone_are_a_notice():
         _endpoint("azure", _price(1.0, 5.0), host="Azure"))})
     assert out.moves == [] and not out.refusals
     assert "no first-party endpoint" in out.notices[0]
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
 
 
 def test_ambiguous_vendor_prices_refuse():
@@ -167,7 +176,7 @@ def test_ambiguous_vendor_prices_refuse():
         _endpoint("openai/int4", _price(2.0, 9.0)))})
     assert not out.moves and len(out.refusals) == 1
     assert "openrouter.vendor.resolve" in out.refusals[0]
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
 
 
 def test_resolve_pin_picks_one_price():
@@ -175,10 +184,13 @@ def test_resolve_pin_picks_one_price():
         _doc(resolve={GPT_KEY: {"tag": "openai/int4",
                                 "why": "the int4 tier is the list price"}}),
         _catalog(GPT_ID),
-        {GPT_ID: _payload(_endpoint("openai/mxfp4", _price(1.0, 5.0)),
-                          _endpoint("openai/int4", _price(2.0, 9.0)))})
+        {GPT_ID: _payload(_endpoint("openai/mxfp4", _price(1.0, 5.0),
+                                    host="OpenAI Mxfp4"),
+                          _endpoint("openai/int4", _price(2.0, 9.0),
+                                    host="OpenAI"))})
     assert not out.refusals
-    assert doc["models"][GPT_KEY][0]["fresh"] == 2.0
+    assert doc["openrouter"]["models"][GPT_KEY] == {"id": GPT_ID,
+                                                    "vendor_host": "OpenAI"}
 
 
 def test_stale_pin_refuses():
@@ -195,106 +207,108 @@ def test_malformed_pin_refuses():
     assert len(out.refusals) == 1 and "pin" in out.refusals[0]
 
 
-# --- variants ----------------------------------------------------------------
+# --- variants and the configured prefixes -------------------------------------
 
 
-def test_batch_variant_is_never_a_row():
+def test_a_variant_id_is_never_added():
     batch_id = GPT_ID + ":batch"
     doc, out = _run(_doc(), _catalog(GPT_ID, batch_id),
                     {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     assert not out.refusals
-    assert GPT_KEY in doc["models"]
-    assert "gpt-test-9-9:batch" not in doc["models"]
+    assert doc["openrouter"]["models"] == {GPT_KEY: TRACKED}
     assert [m.id for m in out.moves] == [GPT_ID]
 
 
-# --- append rule -------------------------------------------------------------
+def test_the_prefix_list_is_config():
+    """Adding or dropping a vendor is a one-line pricing.json edit: a catalog
+    id under an unlisted prefix is never visited, fetched or added."""
+    doc, out = _run(_doc(prefixes=["openai"]), _catalog(GLM_ID),
+                    {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
+    assert out.moves == [] and not out.refusals and not out.notices
+    assert doc["openrouter"]["models"] == {}
 
 
-def _stored(rates: dict, **entry) -> list[dict]:
-    return [{**{"from": None, **rates}, **entry}]
+# --- a tracked entry is never re-added or rewritten ---------------------------
 
 
-def test_price_change_appends_and_never_rewrites():
-    old = _stored(RATES)
-    doc, out = _run(_doc(models={GPT_KEY: old}), _catalog(GPT_ID),
+def test_a_tracked_entry_is_never_re_added():
+    doc, out = _run(_doc(tracked={GPT_KEY: dict(TRACKED)}),
+                    _catalog(GPT_ID),
                     {GPT_ID: _payload(_endpoint(
-                        "openai", _price(1.0, 6.0, read=0.1, write=1.25, write_1h=2.0)))})
-    history = doc["models"][GPT_KEY]
-    assert len(history) == 2
-    assert history[0] == old[0], "the stored entry was rewritten"
-    assert history[1]["from"] == STAMP and history[1]["output"] == 6.0
-    assert out.moves[0].old["output"] == 5.0
+                        "openai", _price(1.0, 5.0, read=0.1, write=1.25,
+                                         write_1h=2.0)))})
+    assert not out.refusals and out.moves == []
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
 
 
-def test_quiet_run_moves_nothing():
-    listing = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)
-    _, out = _run(
-        _doc(models={GPT_KEY: _stored(
-            dict(zip(RATE_FIELDS, (1.0, 1.25, 2.0, 0.1, 5.0))))}),
-        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", listing))})
-    assert out.moves == [] and not out.refusals
+def test_a_delisted_tracked_id_is_untouched():
+    """A tracked key whose catalog id vanished is not visited: the entry and
+    its membership stand while the listed untracked id still joins."""
+    doc, out = _run(_doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY]),
+                    _catalog(GLM_ID),
+                    {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert GPT_KEY in doc["long_context_models"]
+    assert [m.id for m in out.moves] == [GLM_ID]
 
 
-def test_hand_row_appended_when_the_listing_moves_on():
+def test_entries_with_no_vendor_source_stand_byte_identical():
+    """Issue #818's rule on the new code: a models-table row with no vendor
+    source (bonsai-2-27b live) and a tracked non-vendor entry stand byte for
+    byte while the pass adds a vendor entry elsewhere."""
+    bonsai = [{"from": None, **dict(zip(RATE_FIELDS, (1.0, 1.25, 2.0, 0.1, 5.0)))}]
+    deepseek = {"id": "deepseek/deepseek-v9-9", "resolve": {}}
     doc, _out = _run(
-        _doc(models={GLM_KEY: _stored(
-            {"fresh": 0.15, "create_5m": 0.0, "create_1h": 0.0, "read": 0.03,
-             "output": 0.5})}),
-        _catalog(GLM_ID), {GLM_ID: _payload(_endpoint("z-ai", _price(0.15, 0.5, read=0.03)))})
-    history = doc["models"][GLM_KEY]
-    assert len(history) == 2
-    assert history[1]["create_5m"] == 0.15
-
-
-def test_append_after_the_detection_instant_is_a_notice():
-    history = [*_stored(RATES), {**RATES, "from": STAMP}]
-    _, out = _run(
-        _doc(models={GPT_KEY: history}),
+        _doc(models={"bonsai-2-27b": bonsai},
+             tracked={"deepseek/deepseek-v9-9": deepseek}),
         _catalog(GPT_ID),
-        {GPT_ID: _payload(_endpoint("openai", _price(1.0, 6.0)))}, stamp=STAMP)
-    assert out.moves == [] and not out.refusals
-    assert "not before the detection instant" in out.notices[0]
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)))})
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert doc["models"]["bonsai-2-27b"] == bonsai, "the models row was touched"
+    assert (doc["openrouter"]["models"]["deepseek/deepseek-v9-9"]
+            == deepseek), "the non-vendor tracked entry was touched"
 
 
-# --- the long-context band ---------------------------------------------------
+# --- the membership fold -------------------------------------------------------
 
 
-def test_banded_model_joins_the_meter_with_its_row():
+def test_banded_model_joins_the_meter_with_its_entry():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1)])))})
+        "openai", _price(1.0, 5.0, read=0.1,
+                         overrides=[_band(1.0, 5.0, read=0.1)])))})
     assert not out.refusals
     assert GPT_KEY in doc["long_context_models"]
-    entry = doc["models"][GPT_KEY][0]
-    assert entry["fresh"] == 1.0, "the band's own rates entered the row"
-    assert out.moves[0].membership == "+"
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True,
+                                           membership="+")]
 
 
-def test_banded_model_with_a_current_row_moves_membership_only():
+def test_banded_tracked_entry_moves_membership_only():
     _, out = _run(
-        _doc(models={GPT_KEY: _stored(RATES)}),
+        _doc(tracked={GPT_KEY: dict(TRACKED)}),
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint(
             "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
                              overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                                               write_1h=2.0)])))})
     assert not out.refusals
-    assert len(out.moves) == 1 and out.moves[0].entries == 0
-    assert out.moves[0].membership == "+"
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="+")]
 
 
 def test_band_removal_leaves_the_meter():
     doc, out = _run(
-        _doc(models={GPT_KEY: _stored(RATES)}, members=[GPT_KEY]),
-        _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
-    assert out.moves[0].membership == "-"
+        _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY]),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="-")]
     assert GPT_KEY not in doc["long_context_models"]
 
 
 def test_non_vendor_member_stands():
     doc, _out = _run(
         _doc(members=["bonsai-test-1"],
-             models={"bonsai-test-1": _stored(RATES)}),
+             models={"bonsai-test-1": [{"from": None, **RATES}]}),
         _catalog(GLM_ID),
         {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
     assert "bonsai-test-1" in doc["long_context_models"]
@@ -303,21 +317,23 @@ def test_non_vendor_member_stands():
 @pytest.mark.parametrize("kw", [{"input_mult": 3.0}, {"output_mult": 1.25}])
 def test_departing_multiplier_band_is_a_notice(kw):
     """Each multiplier clause of the meter-shape check kills on its own: a
-    band departing on the input side or on output is a notice — no row, no
+    band departing on the input side or on output is a notice — no entry, no
     membership."""
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0, **kw)])))})
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0]
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
     assert GPT_KEY not in doc["long_context_models"]
 
 
 def test_non_meter_threshold_is_a_notice():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1,
-                                                              threshold=200000)])))})
-    assert GPT_KEY not in doc["models"] and GPT_KEY not in doc["long_context_models"]
+        "openai", _price(1.0, 5.0, read=0.1,
+                         overrides=[_band(1.0, 5.0, read=0.1,
+                                          threshold=200000)])))})
+    assert (GPT_KEY not in doc["openrouter"]["models"]
+            and GPT_KEY not in doc["long_context_models"])
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0] and "departs from the meter" in out.notices[0]
 
@@ -348,7 +364,7 @@ def test_band_with_utc_fields_are_a_notice():
     assert "not tracked" in out.notices[0] and "not modelled" in out.notices[0]
 
 
-# --- unmodelled shapes are notices, never red -------------------------------
+# --- unmodelled shapes are notices, never red ---------------------------------
 
 
 def test_weekly_schedule_is_a_notice():
@@ -358,8 +374,8 @@ def test_weekly_schedule_is_a_notice():
                                              "prompt": _per_token(0.1),
                                              "completion": _per_token(0.5)}])))})
     assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0] and "carries no schedule" in out.notices[0]
-    assert GLM_KEY not in doc["models"]
+    assert "not tracked" in out.notices[0] and "weekly schedule" in out.notices[0]
+    assert GLM_KEY not in doc["openrouter"]["models"]
 
 
 def test_unmodelled_pricing_key_is_a_notice_and_zero_passes():
@@ -367,21 +383,20 @@ def test_unmodelled_pricing_key_is_a_notice_and_zero_passes():
         "openai", _price(1.0, 5.0, image_output="0.00004")))})
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0] and "image_output" in out.notices[0]
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, image_output="0")))})
     assert not out.refusals
 
 
-def test_fee_becomes_a_provenance_note_never_a_priced_fee():
-    doc, _out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+def test_a_recorded_fee_changes_nothing_here():
+    """A RECORDED fee is the provider row's provenance, not the tracked
+    entry's: the pass auto-adds silently, and the fee note lands on the
+    (key, host) row the provider pass writes."""
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, web_search="0.01")))})
-    note = doc["models"][GPT_KEY][0]["note"]
-    assert note == ("web_search $0.01 per tool call on the listing: not a "
-                    "per-request cost")
-    assert "/request" not in note
-    tables = pricing_load.load_tables(doc)
-    assert not tables["FEES"].get(GPT_KEY)
+    assert not out.refusals and not out.notices
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
 
 
 def test_bad_fee_value_is_a_notice():
@@ -389,16 +404,27 @@ def test_bad_fee_value_is_a_notice():
         "openai", _price(1.0, 5.0, web_search="free")))})
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0] and "web_search" in out.notices[0]
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
 
 
-def test_discount_note():
-    doc, _out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
+def test_a_discounted_listing_still_auto_adds():
+    doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
         "z-ai", _price(0.2, 1.0, discount=0.25)))})
-    assert doc["models"][GLM_KEY][0]["note"] == "25% off"
+    assert not out.refusals and not out.notices
+    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
+                                                    "vendor_host": "Vendor"}
 
 
-# --- report input guards -----------------------------------------------------
+def test_an_endpoint_without_a_provider_name_refuses():
+    """The auto-add names the host from the selected endpoint's
+    provider_name: a payload without one is an unrecognised shape."""
+    endpoint = _endpoint("openai", _price(1.0, 5.0))
+    del endpoint["provider_name"]
+    _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(endpoint)})
+    assert len(out.refusals) == 1 and "no provider" in out.refusals[0]
+
+
+# --- report input guards -------------------------------------------------------
 
 
 def test_unreadable_catalog_skips_the_pass():
@@ -414,18 +440,43 @@ def test_broken_endpoints_payload_refuses():
 
 def test_the_would_be_file_is_loader_checked():
     doc = _doc()
-    doc["providers"] = {"openai/gpt-test-9.9": {"Host": [_stored(RATES)[0]]}}
+    doc["providers"] = {"openai/gpt-test-9.9": {"Host": [
+        {"from": None, **RATES}]}}
     doc["providers"]["openai/gpt-test-9.9"]["Host"][0]["fresh"] = -1
     with pytest.raises(vendor.RefreshError, match="would not load"):
-        vendor.vendor_pass(doc, _catalog, lambda mid: {}, STAMP, NOW)
+        vendor.vendor_pass(doc, _catalog, lambda mid: {})
+
+
+def test_every_vendor_resolve_pin_names_a_row_and_a_why():
+    """A pin's subject is a tracked key the pass selects on (post-migration
+    there is no models-table row to pin); a pin naming neither is dead data
+    a refresh cannot reach."""
+    doc = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    pins = doc["openrouter"].get("vendor", {}).get("resolve", {})
+    for key, pin in pins.items():
+        assert key in doc["models"] \
+            or key in doc["openrouter"]["models"], key
+        assert isinstance(pin.get("tag"), str), key
+        assert isinstance(pin.get("why"), str) and pin["why"], key
+
+
+def test_derived_key_matches_resolver_normalisation():
+    """The central identity claim, spanned: the key the refresh derives
+    from a catalog id is the key resolve() matches for a transcript naming
+    the bare first-party model."""
+    for vendor_prefix, slug in (("openai", "gpt-test-9.9"),
+                                ("z-ai", "GLM-Test-1.5"),
+                                ("moonshotai", "kimi-test-2"),
+                                ("anthropic", "Claude-Test-4.5")):
+        assert vendor.derive_key(f"{vendor_prefix}/{slug}") == (
+            pricing._normalise(slug))  # pylint: disable=protected-access
 
 
 # --- integration through refresh_provider_rates.main ------------------------
 
 
 def _main_doc(models: dict, members: list) -> dict:
-    doc = _doc(models=models if models else None, members=members)
-    return doc
+    return _doc(models=models if models else None, members=members)
 
 
 class MainRun:
@@ -459,27 +510,28 @@ class MainRun:
 
 
 def test_main_runs_the_vendor_pass(tmp_path, capsys):
-    listing = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
-                     overrides=[_band(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)])
     run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(_endpoint("openai", listing))})
+                  {GPT_ID: _payload(_endpoint(
+                      "openai", _price(1.0, 5.0, read=0.1, write=1.25,
+                                       write_1h=2.0)))})
     rc, out, err = run(capsys)
     assert rc == 0, err
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert GPT_KEY in doc["models"] and GPT_KEY in doc["long_context_models"]
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    assert GPT_KEY not in doc["models"], "the vendor pass writes no rates"
     assert run.constants_path.read_text() == 'PRICING_VERSION = "101"\n'
-    assert "Vendor list rates" in out
-    assert "vendor list rates: 1 new" in run.commit_msg.read_text(encoding="utf-8")
+    assert "Vendor tracked table" in out
+    assert "vendor table: 1 added" in run.commit_msg.read_text(encoding="utf-8")
 
 
-def test_main_vendor_refusal_is_red_but_writes_the_moves(tmp_path, capsys):
+def test_main_vendor_refusal_is_red_but_other_moves_writes(tmp_path, capsys):
     run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
                   {GPT_ID: _payload(_endpoint("openai/mxfp4", _price(1.0, 5.0)),
                                     _endpoint("openai/int4", _price(2.0, 9.0)))})
     rc, _out, err = run(capsys)
     assert rc == 1 and "2 prices" in err
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
 
 
 def test_main_untracked_shape_stays_green(tmp_path, capsys):
@@ -490,14 +542,20 @@ def test_main_untracked_shape_stays_green(tmp_path, capsys):
     assert rc == 0, err
     assert "not tracked" in out
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
 
 
 def test_main_quiet_vendor_run_writes_nothing(tmp_path, capsys):
-    listing = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)
-    models = {GPT_KEY: _stored(RATES)}
-    run = MainRun(tmp_path, _main_doc(models, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(_endpoint("openai", listing))})
+    """A run where nothing moved — the tracked entry and its provider row
+    both reproduce the listing — is byte-identical, unbumped, messageless."""
+    doc = _doc(tracked={GPT_KEY: dict(TRACKED)})
+    doc["providers"][GPT_KEY] = {"Vendor": [
+        {"from": None, "fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
+         "read": 0.1, "output": 5.0}]}
+    run = MainRun(tmp_path, doc, _catalog(GPT_ID),
+                  {GPT_ID: _payload(_endpoint(
+                      "openai", _price(1.0, 5.0, read=0.1, write=1.25,
+                                       write_1h=2.0)))})
     before = run.pricing_path.read_bytes()
     rc, _out, err = run(capsys)
     assert rc == 0, err
@@ -511,41 +569,16 @@ def test_main_vendor_disabled_keeps_the_provider_surface(tmp_path, capsys):
                   {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     rc, out, err = run(capsys, run_vendor=False)
     assert rc == 0, err
-    assert "Vendor list rates" not in out
+    assert "Vendor tracked table" not in out
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert GPT_KEY not in doc["models"]
+    assert GPT_KEY not in doc["openrouter"]["models"]
     assert run.constants_path.read_text() == 'PRICING_VERSION = "100"\n'
 
 
-def test_every_vendor_resolve_pin_names_a_row_and_a_why():
-    """A pin's subject is a models-table key or — since the vendor
-    migration — a tracked key the vendor pass skips on; a pin naming
-    neither is dead data a refresh cannot reach."""
-    doc = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
-    pins = doc["openrouter"].get("vendor", {}).get("resolve", {})
-    for key, pin in pins.items():
-        assert key in doc["models"] \
-            or key in doc["openrouter"]["models"], key
-        assert isinstance(pin.get("tag"), str), key
-        assert isinstance(pin.get("why"), str) and pin["why"], key
-
-
-def test_derived_key_matches_resolver_normalisation():
-    """The central identity claim, spanned: the key the refresh derives
-    from a catalog id is the key resolve() matches for a transcript naming
-    the bare first-party model."""
-    for vendor_prefix, slug in (("openai", "gpt-test-9.9"),
-                                ("z-ai", "GLM-Test-1.5"),
-                                ("moonshotai", "kimi-test-2"),
-                                ("anthropic", "Claude-Test-4.5")):
-        assert vendor.derive_key(f"{vendor_prefix}/{slug}") == (
-            pricing._normalise(slug))  # pylint: disable=protected-access
-
-
-def test_notice_leaves_an_existing_row_and_member_untouched():
-    """The not-tracked contract's second half: a model with a stored row
-    and meter membership whose source turns untracked keeps both, byte
-    for byte."""
+def test_notice_leaves_a_tracked_entry_and_member_untouched():
+    """The not-tracked contract's second half: a model with a tracked entry
+    and meter membership whose source turns untracked keeps both, byte for
+    byte."""
     banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
                     overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                                      write_1h=2.0)])
@@ -554,15 +587,15 @@ def test_notice_leaves_an_existing_row_and_member_untouched():
                                    "utc_end": 100, "prompt": _per_token(1.0),
                                    "completion": _per_token(5.0)}])
     before, _ = _run(
-        _doc(members=[], models={}),
+        _doc(tracked={GPT_KEY: dict(TRACKED)}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
-    assert GPT_KEY in before["models"] and GPT_KEY in before["long_context_models"]
+    assert GPT_KEY in before["long_context_models"]
     after, out = _run(
         before,
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
     assert out.refusals == [] and len(out.notices) == 1
     assert "not tracked" in out.notices[0]
-    assert after["models"][GPT_KEY] == before["models"][GPT_KEY]
+    assert after["openrouter"]["models"][GPT_KEY] == TRACKED
     assert GPT_KEY in after["long_context_models"]
     assert out.moves == []
 
@@ -570,15 +603,40 @@ def test_notice_leaves_an_existing_row_and_member_untouched():
 def test_a_broken_endpoints_fetch_refuses_only_its_model():
     """Any fetch error — a URL error, a KeyError from a wrong fixture, any
     non-RefreshError — refuses that one model; the other models still
-    move."""
+    join."""
     def fetch(mid):
         if mid == GPT_ID:
             raise KeyError(mid)
         return _payload(_endpoint("z-ai", _price(0.2, 1.0)))
 
     doc = _doc()
-    outcome = vendor.vendor_pass(doc, lambda: _catalog(GPT_ID, GLM_ID),
-                                 fetch, STAMP, NOW)
+    outcome = vendor.vendor_pass(doc, lambda: _catalog(GPT_ID, GLM_ID), fetch)
     assert len(outcome.refusals) == 1 and GPT_ID in outcome.refusals[0]
     assert "fetching its endpoints failed" in outcome.refusals[0]
-    assert GLM_KEY in doc["models"]
+    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
+                                                    "vendor_host": "Vendor"}
+
+
+# --- loaders see the pass's own output ----------------------------------------
+
+
+def test_a_pass_added_document_loads():
+    """The auto-add's entry shape and the fold it may carry satisfy the
+    loaders on a synthetic document, tracked entry ahead of its provider
+    row — the one-run pickup delay's shape."""
+    doc, _out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+        "openai", _price(1.0, 5.0, read=0.1,
+                         overrides=[_band(1.0, 5.0, read=0.1)])))})
+    tables = pricing_load.load_tables(doc)
+    assert tables["VENDOR_HOSTS"][GPT_KEY] == "Vendor"
+    assert GPT_KEY in tables["LONG_CONTEXT_MODELS"]
+
+
+def test_a_membership_only_pass_loads():
+    doc, _out = _run(_doc(tracked={GPT_KEY: dict(TRACKED)}),
+                     _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
+                         "openai", _price(1.0, 5.0, read=0.1,
+                                          overrides=[_band(1.0, 5.0,
+                                                           read=0.1)])))})
+    assert pricing_load.load_tables(doc)["LONG_CONTEXT_MODELS"] == frozenset(
+        {GPT_KEY})
