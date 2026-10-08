@@ -646,11 +646,9 @@ naming neither is refused.
 `backend/pricing.py` and `src/rates.js` hold logic only and both read
 it — the backend at import through `backend/pricing_load.py`, which
 `pricing.py` re-exports, the browser synchronously before first use
-(node reads it beside the module). The backend honours
-`CLAUDIT_PRICING_DOC`: set, the loader reads that path instead of
-`src/pricing.json` — the suite-cost bench's seam (SV-CI-RATCHETS), so
-the gate's measured workload stays independent of the deployed
-document's size; unset, every consumer reads `src/pricing.json`. The browser fetches the URL in the
+(node reads it beside the module). Nothing the deployed app reads may
+redirect which document the backend loads; the suite-cost bench's
+bounded document is injected on the bench side only (SV-CI-RATCHETS). The browser fetches the URL in the
 pricing-loader tag's `data-pricing` attribute in `public/index.html`,
 cache-busted like every `/src` asset; the file sits in `src/` because
 that is what the app serves. No rate literal belongs in either source
@@ -1322,8 +1320,10 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   across-state bound) — and the gap sits ABOVE the measured value because the number is a
   cost ceiling, not a quality floor. The measured workload loads the
   bounded `scripts/ci/suite_pricing_doc.json`, not the deployed
-  document: the bench sets `CLAUDIT_PRICING_DOC` (SV-RATE-DATA's seam),
-  so a data-only refresh cannot move the gate;
+  document: the bench rebinds the loaded tables to it before any
+  counted window opens (bench-side injection; the deployed app gains no
+  override — `backend/` reads no environment and always loads
+  `src/pricing.json`), so a data-only refresh cannot move the gate;
   `tests/test_suite_cost_pricing_growth.py` fails when the measured
   phases move with rows appended to the deployed document (issue
   #840). Seeded via the loader's writer

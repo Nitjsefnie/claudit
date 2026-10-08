@@ -5,7 +5,8 @@ The incident (#872): a data-only pricing refresh grew ``src/pricing.json``
 3.4x and the gate's residual phase grew with it, breaching its ceiling —
 the counted workload's conftest-time ``backend.pricing`` import parses the
 whole document. The fix routes the bench's counted workload through a
-bounded document (``CLAUDIT_PRICING_DOC``, scripts/ci/suite_pricing_doc.json),
+bounded document — the bench loads ``scripts/ci/suite_pricing_doc.json``
+and rebinds the pricing tables before any counted window opens —
 so this check runs the bench over a copy of the real suite machinery twice
 — the deployed document, and the same document with synthetic rows
 appended — and requires the phase counts to be EXACTLY equal.

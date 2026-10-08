@@ -315,17 +315,39 @@ def _parser():
     return parser
 
 
+def _load_bounded_document() -> None:
+    """Load the pricing tables from the bounded bench document.
+
+    The counted run's conftest imports ``backend.pricing``, whose
+    import-time parse of ``src/pricing.json`` scaled with the document
+    (issue #872: a data-only refresh breached the residual ceiling). The
+    bench loads the committed bounded ``suite_pricing_doc.json`` HERE —
+    in the counted child, before any counted window opens — and rebinds
+    every loaded table on both pricing modules, so the measured workload
+    parses the bounded document and never the deployed one. Nothing the
+    deployed app reads changes: ``backend/`` gains no override and reads
+    no environment (a deploy could otherwise reprice through it); the
+    injection lives on the bench side only, and the bench parses the
+    deployed document once outside every counted window to import the
+    modules it rebinds.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import json
+    # pylint: disable-next=import-outside-toplevel
+    from backend import pricing, pricing_load
+    doc_path = Path(__file__).resolve().parent / 'suite_pricing_doc.json'
+    tables = pricing_load.load_tables(
+        json.loads(doc_path.read_text(encoding='utf-8')))
+    for name, value in tables.items():
+        setattr(pricing_load, name, value)
+        if hasattr(pricing, name):
+            setattr(pricing, name, value)
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         if args.write is not None:
-            # The gate's measured workload loads the bounded bench
-            # document, not the deployed pricing.json (issue #840): a
-            # data-only refresh must not move the suite-cost gate. Set
-            # before the warm-up pass, whose subprocess inherits it, and
-            # inherited again by the re-exec'd counting child.
-            os.environ['CLAUDIT_PRICING_DOC'] = str(
-                Path(__file__).resolve().parent / 'suite_pricing_doc.json')
             # The counted run must not depend on the caches the checkout
             # arrived with, and the parent is the only process outside
             # every counted window: compile the tree here, then hand the
@@ -335,6 +357,7 @@ def main(argv=None):
                     read_fixture(args.fixture, args.repo_root),
                     args.repo_root)
             _reexec_with_deterministic_hash_seed(sys.argv[1:])
+            _load_bounded_document()
             fixture = read_fixture(args.fixture, args.repo_root)
             measurement = measure(fixture, args.repo_root)
             suite_report.write_measurement(args.write, measurement)
