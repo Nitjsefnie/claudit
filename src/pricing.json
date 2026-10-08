@@ -125,6 +125,12 @@
       },
       "claude-haiku-4-5": {
         "id": "anthropic/claude-haiku-4.5",
+        "resolve": {
+          "Google": {
+            "tag": "google-vertex/global",
+            "why": "Google lists claude-haiku-4.5 under google-vertex/global, the data region configured for this account. Pinned to google-vertex/global because the account is billed by the global endpoint; regional endpoints do not apply."
+          }
+        },
         "vendor_host": "Anthropic"
       },
       "claude-mythos-5": {
@@ -179,10 +185,22 @@
       },
       "claude-sonnet-4-5": {
         "id": "anthropic/claude-sonnet-4.5",
+        "resolve": {
+          "Google": {
+            "tag": "google-vertex/global",
+            "why": "Google lists claude-sonnet-4.5 under google-vertex/global, the data region configured for this account. Pinned to google-vertex/global because the account is billed by the global endpoint; regional endpoints do not apply."
+          }
+        },
         "vendor_host": "Anthropic"
       },
       "claude-sonnet-4-6": {
         "id": "anthropic/claude-sonnet-4.6",
+        "resolve": {
+          "Google": {
+            "tag": "google-vertex/global",
+            "why": "Google lists claude-sonnet-4.6 under google-vertex/global, the data region configured for this account. Pinned to google-vertex/global because the account is billed by the global endpoint; regional endpoints do not apply."
+          }
+        },
         "vendor_host": "Anthropic"
       },
       "claude-sonnet-5": {
@@ -256,14 +274,56 @@
       },
       "glm-5-2": {
         "id": "z-ai/glm-5.2",
+        "resolve": {
+          "Alibaba": {
+            "tag": "alibaba/fp8",
+            "why": "Alibaba lists glm-5.2 under alibaba/fp8 beside a throughput tier, with no bare alibaba endpoint. Pinned to alibaba/fp8: fp8 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          },
+          "Baidu": {
+            "tag": "baidu/fp8",
+            "why": "Baidu lists glm-5.2 under baidu/fp8 beside a throughput tier, with no bare baidu endpoint. Pinned to baidu/fp8: fp8 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          },
+          "BaseTen": {
+            "tag": "baseten/fp8",
+            "why": "BaseTen lists glm-5.2 under baseten/fp8 beside a throughput tier, with no bare baseten endpoint. Pinned to baseten/fp8: fp8 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          },
+          "Decart": {
+            "tag": "decart/mxfp4",
+            "why": "Decart lists glm-5.2 under decart/mxfp4 beside a throughput tier, with no bare decart endpoint. Pinned to decart/mxfp4: mxfp4 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          }
+        },
         "vendor_host": "Z.AI"
       },
       "glm-5-3": {
         "id": "z-ai/glm-5.3",
+        "resolve": {
+          "Alibaba": {
+            "tag": "alibaba",
+            "why": "Alibaba lists glm-5.3 under two tags: the base alibaba endpoint at the model's list price and a dearer alibaba/fast throughput tier. Pinned to alibaba: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          },
+          "BaseTen": {
+            "tag": "baseten/fp4",
+            "why": "BaseTen lists glm-5.3 under baseten/fp4 at the model's list price beside a dearer baseten/fast throughput tier. Pinned to baseten/fp4: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          },
+          "Mistral": {
+            "tag": "mistral/zdr",
+            "why": "Mistral lists glm-5.3 under mistral/zdr and mistral/nvfp4, and nvfp4 itself lists at two prices. Pinned to the single mistral/zdr endpoint at the model's list price: a tag pin must name one tag, and nvfp4 alone would leave the host ambiguous."
+          },
+          "Reka": {
+            "tag": "reka",
+            "why": "Reka lists glm-5.3 under two tags: the base reka endpoint the row has always tracked (its history is this endpoint's own log series, currently 0.17/3.0 with 0.169 cache read) and a reka/fast tier (1M context, 35% off) that is dearer on input but cheaper on output and cache read. Pinned to reka: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "Z.AI"
       },
       "glm-5-3-flash": {
         "id": "z-ai/glm-5.3-flash",
+        "resolve": {
+          "Parasail": {
+            "tag": "parasail/fp4",
+            "why": "Parasail lists glm-5.3-flash under two fp4 endpoints at two prices: parasail/fp4 at the model's list price (fresh 0.15, output 0.5, cache read 0.03 per million) and a dearer parasail/fast throughput tier (1.25x on every rate). No bare parasail tag exists, so the fast-tier rule cannot take a base. Pinned to parasail/fp4: fast is a distinct tier, not a price twin, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "Z.AI"
       },
       "glm-5-3-flashx": {
@@ -296,14 +356,32 @@
       },
       "gpt-4-1": {
         "id": "openai/gpt-4.1",
+        "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-4.1 under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-4-1-mini": {
         "id": "openai/gpt-4.1-mini",
+        "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-4.1-mini under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-4-1-nano": {
         "id": "openai/gpt-4.1-nano",
+        "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-4.1-nano under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-4-turbo": {
@@ -328,6 +406,12 @@
       },
       "gpt-4o-mini": {
         "id": "openai/gpt-4o-mini",
+        "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-4o-mini under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-4o-mini-2024-07-18": {
@@ -336,11 +420,21 @@
       },
       "gpt-5": {
         "id": "openai/gpt-5",
+        "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-5 under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-1": {
         "id": "openai/gpt-5.1",
         "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-5.1 under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          },
           "OpenAI": {
             "tag": "openai",
             "why": "OpenAI lists gpt-5.1 under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
@@ -489,6 +583,10 @@
       "gpt-5-mini": {
         "id": "openai/gpt-5-mini",
         "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-5-mini under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          },
           "OpenAI": {
             "tag": "openai",
             "why": "OpenAI lists gpt-5-mini under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
@@ -499,6 +597,10 @@
       "gpt-5-nano": {
         "id": "openai/gpt-5-nano",
         "resolve": {
+          "Azure": {
+            "tag": "azure",
+            "why": "Azure lists gpt-5-nano under the bare azure namespace beside service tiers. Pinned to azure: the bare namespace endpoint is the model's list price; the service tiers are distinct offerings."
+          },
           "OpenAI": {
             "tag": "openai",
             "why": "OpenAI lists gpt-5-nano under three tags at three prices: the base openai endpoint at the model's list price and the openai/fast and openai/flex service tiers at their own. Pinned to openai: the bare namespace tag is the list price; fast and flex are distinct tiers, not the list price, so 'cheapest' cannot apply."
@@ -613,6 +715,12 @@
       },
       "kimi-k3": {
         "id": "moonshotai/kimi-k3",
+        "resolve": {
+          "InferenceNet": {
+            "tag": "inference-net/fp4",
+            "why": "InferenceNet lists kimi-k3 under inference-net/fp4 beside a throughput tier, with no bare inference-net endpoint. Pinned to inference-net/fp4: fp4 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          }
+        },
         "vendor_host": "Moonshot AI"
       },
       "o1": {
