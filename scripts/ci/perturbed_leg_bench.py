@@ -116,7 +116,7 @@ def _suite_phase(pytest_args: list[str]) -> dict:
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", *pytest_args],
         cwd=str(REPO_ROOT), check=False,
-        env=dict(os.environ, CLAUDIT_TEST_PERTURBED_DATA="1"))
+        env=dict(os.environ, CLAUDIT_PERTURBED_DATA="1"))
     child_cpu = _children_cpu()
     return {
         "wall_s": _fmt(time.perf_counter() - wall_start),

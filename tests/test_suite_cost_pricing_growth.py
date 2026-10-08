@@ -143,7 +143,7 @@ PRICING_DOC_CEILING_BYTES = 1_500_000
 
 
 @pytest.mark.skipif(
-    os.environ.get("CLAUDIT_TEST_PERTURBED_DATA") == "1",
+    os.environ.get("CLAUDIT_PERTURBED_DATA") == "1",
     reason="the perturbed tree inflates the document by design; this "
            "ceiling pins the DEPLOYED document, which the perturbed-data "
            "leg is not")
