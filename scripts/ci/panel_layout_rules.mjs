@@ -947,15 +947,22 @@ async function seedPinchedHiddenChips(page) {
   });
 }
 
-// Seed for the pager-present limb (#821): remove the count span — a
-// deleted node survives the refit re-render (React's diff never
-// touches it), so the probe after the journey still reads it missing.
+// Seed for the pager-present limb (#821): remove the count span and
+// keep it removed — the seed runs at the seat width, where every chip
+// fits and no pager renders at all, so an observer re-removes the
+// count wherever the refit re-renders it, and the pinched journey's
+// pager is born missing.
 async function seedPinchedPagerMissing(page) {
   return page.evaluate((sel) => {
-    const count = document.querySelector(sel + ' .pp-count');
-    if (!count) return null;
-    count.remove();
-    return { removed: '.pp-count' };
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const drop = () => {
+      for (const c of strip.querySelectorAll('.pp-count')) c.remove();
+    };
+    drop();
+    new MutationObserver(drop).observe(strip,
+      { childList: true, subtree: true });
+    return { removed: '.pp-count, held across refits' };
   }, PICKER_SEL);
 }
 
@@ -1077,6 +1084,18 @@ const journeyPinched = async (ctx) => {
   await ctx.page.waitForTimeout(500);
 };
 
+// A pinched run measures at 220px, and the viewport is SHARED runner
+// state: every pinched run restores the rule's own width on the way
+// out, or every later rule measures the wrong width under its own
+// name (delta-review blocker on 456b467e).
+const pinchedRun = (run) => async (ctx) => {
+  try {
+    return await run(ctx);
+  } finally {
+    await journeyBack(ctx);
+  }
+};
+
 const NEXT_SEL = '.pp-nav[title="Next page"]';
 
 const PREV_SEL = '.pp-nav[title="Previous page"]';
@@ -1111,6 +1130,12 @@ const backToFirst = async (page) => {
   }
 };
 
+// The unseeded loop runs every rule on ONE shared page per width:
+// a rule that changes runner state (viewport size, the picker's page)
+// restores it on the way out — the shift rules page back to first,
+// the pinched rules restore the width, and nothing relies on rule
+// ORDER to be safe (the old keep-LAST comment did; order-dependent
+// safety is what the #808 split broke).
 export const RULES = [
   {
     id: 'vertical-gap',
@@ -1445,7 +1470,7 @@ export const RULES = [
     description: 'at a width no chip fits, the one-chip page floor'
       + ' renders a chip on every page: no page is empty (#821)',
     seed: seedPinchedHiddenChips,
-    run: async (ctx) => {
+    run: pinchedRun(async (ctx) => {
       await journeyPinched(ctx);
       const out = [];
       const probe = () => ctx.page.evaluate((sel) => {
@@ -1483,14 +1508,14 @@ export const RULES = [
         await ctx.page.waitForTimeout(250);
       }
       return out;
-    },
+    }),
   },
   {
     id: 'project-picker-pinched-pager-present',
     description: 'the pinched picker still shows its pager: the count'
       + ' span renders a page/total reading (#821)',
     seed: seedPinchedPagerMissing,
-    run: async (ctx) => {
+    run: pinchedRun(async (ctx) => {
       await journeyPinched(ctx);
       const text = await ctx.page.evaluate((sel) => {
         const strip = document.querySelector(sel);
@@ -1504,14 +1529,14 @@ export const RULES = [
           gap: 0 }];
       }
       return [];
-    },
+    }),
   },
   {
     id: 'project-picker-pinched-pager-sane',
     description: 'the pager count stays two integers through a page'
       + ' turn: a raw-perPage pager renders NaN (#821)',
     seed: seedPinchedPagerNaN,
-    run: async (ctx) => {
+    run: pinchedRun(async (ctx) => {
       await journeyPinched(ctx);
       const read = () => ctx.page.evaluate((sel) => {
         const strip = document.querySelector(sel);
@@ -1541,14 +1566,14 @@ export const RULES = [
         }
       }
       return out;
-    },
+    }),
   },
   {
     id: 'project-picker-pinched-complete',
     description: 'the pinched pages together show every project: the'
       + ' last page renders the last project (#821)',
     seed: seedPinchedAbsentLast,
-    run: async (ctx) => {
+    run: pinchedRun(async (ctx) => {
       await journeyPinched(ctx);
       const expected = await ctx.page.evaluate((sel) => {
         const chips = document.querySelectorAll(
@@ -1582,7 +1607,7 @@ export const RULES = [
           gap: 0 }];
       }
       return [];
-    },
+    }),
   },
   {
     id: 'panel-label-fits',
