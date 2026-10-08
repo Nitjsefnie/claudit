@@ -10,10 +10,16 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend import parse
+from backend import parse, pricing
 
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
+
+# A synthetic model and row for the TTL-split tests (SV-TEST-DATA):
+# priced only through the monkeypatched table, never a live row.
+SPLIT_MODEL = "test-split-model"
+SPLIT_RATES = {"fresh": 3.00, "create_5m": 3.75, "create_1h": 6.00,
+               "read": 0.30, "output": 15.00}
 
 
 def _read(name):
@@ -49,28 +55,39 @@ def test_streaming_within_file_max_merges_per_request_id():
     assert out["records"][0]["fresh_tokens"] == 100
 
 
-def test_unsplit_cache_charged_at_1h_rate():
+def test_unsplit_cache_charged_at_1h_rate(monkeypatch):
+    # The TTL split is what this pins, not the meter (SV-TEST-DATA): the
+    # fixture names a synthetic model priced from a synthetic row, so
+    # neither a live rate move nor a live membership fold moves the
+    # expectation.
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
     out = parse.parse_file(
         "k/sess-5/sess-5.jsonl", _read("unsplit_cache.jsonl")
     )
     r = out["records"][0]
-    # cache_creation_tokens=1M, eph5=0, eph1h=0 → unsplit=1M → cost via 1h rate
-    # Sonnet-4-5 1h rate is $6.00/MTok → expect $6.00
+    # cache_creation_tokens=1M, eph5=0, eph1h=0 → unsplit=1M → 1h bucket
     assert r["cache_creation_tokens"] == 1_000_000
     assert r["eph5_tokens"] == 0
     assert r["eph1h_tokens"] == 0
-    assert r["cost_usd"] == pytest.approx(6.00, rel=1e-9)
+    assert r["cost_usd"] == pytest.approx(
+        1_000_000 / 1e6 * SPLIT_RATES["create_1h"], rel=1e-9)
 
 
-def test_ttl_split_charges_each_bucket():
+def test_ttl_split_charges_each_bucket(monkeypatch):
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
     out = parse.parse_file(
         "k/sess-6/sess-6.jsonl", _read("ttl_split.jsonl")
     )
     r = out["records"][0]
-    # eph5=1M @ $3.75 + eph1h=1M @ $6.00 = $9.75
+    # eph5=1M at the 5m rate + eph1h=1M at the 1h rate, each bucket
+    # charged at its own table (SV-COST-SPLIT).
     assert r["eph5_tokens"] == 1_000_000
     assert r["eph1h_tokens"] == 1_000_000
-    assert r["cost_usd"] == pytest.approx(9.75, rel=1e-9)
+    assert r["cost_usd"] == pytest.approx(
+        1_000_000 / 1e6 * SPLIT_RATES["create_5m"]
+        + 1_000_000 / 1e6 * SPLIT_RATES["create_1h"], rel=1e-9)
 
 
 def test_ctx_turns_match_canonical_shape():

@@ -504,6 +504,13 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
 
     monkeypatch.setattr(rate_fingerprint, "pair_fingerprint", _moved)
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
+    # The meter tables are the test's own (SV-TEST-DATA): membership
+    # is exactly this model's normalised key, and no per-model
+    # threshold stands between the global patch and the derivation,
+    # whatever the live fold does.
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
+                        frozenset({"gpt-5-6-sol"}))
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
     monkeypatch.setattr(
         constants, "PRICING_VERSION", str(int(constants.PRICING_VERSION) + 1))
 

@@ -457,6 +457,11 @@ def test_long_context_meters_default_to_empty_and_load_flat():
     flat key -> int table the lookups read (issue #765)."""
     doc = _doc()
     doc["long_context_models"] = ["gpt-5-6-sol"]
+    # The live file's meter map rides along in _doc(); the "default"
+    # case is a document without the key at all (a refresh fold may
+    # have populated it), so drop it here rather than assert against
+    # the live map (SV-TEST-DATA).
+    doc.pop("long_context_meters", None)
     assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
     doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200_000}}
     assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
