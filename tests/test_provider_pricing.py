@@ -222,10 +222,6 @@ def test_the_same_model_with_no_provider_prices_exactly_as_before():
 
 
 def test_the_zai_subscription_glm_is_not_repriced():
-    # The z.ai official lane records glm-5.3-flash with no provider: its
-    # own row's list price at the record's time — never an OpenRouter
-    # host's rate. The promotion's boundary comes from the row's loaded
-    # window, so the assertion moves with the file.
     listed = pricing.PROVIDER_RATES[("glm-5-3-flash", "Z.AI")]
     windows = pricing.PROVIDER_DATED_RATES[("glm-5-3-flash", "Z.AI")]
     cutover, promo = windows[0]
@@ -235,18 +231,22 @@ def test_the_zai_subscription_glm_is_not_repriced():
     assert _cost("glm-5.3-flash", ts=cutover - timedelta(seconds=1),
                  **tokens) == pytest.approx(
         promo["fresh"] + promo["output"] + promo["read"], rel=1e-12)
-    # An OpenRouter host's GLM row never reaches the bare model id.
-    assert _cost("glm-5.3-flash", "Novita", **tokens) == \
+    # Unknown hosts use the model's Z.AI row; OpenRouter host rates do not reach it.
+    assert ("glm-5-3-flash", "NoSuchHost") not in pricing.PROVIDER_RATES
+    assert _cost("glm-5.3-flash", "NoSuchHost", **tokens) == \
         _cost("glm-5.3-flash", **tokens)
 
 
-def test_an_unknown_provider_falls_back_to_the_model_rate():
+def test_an_unknown_provider_falls_back_to_the_model_rate(
+        synthetic_provider_dated_rate):
     for model in ("glm-5.3-flash", V41, "claude-opus-4-8"):
         want = pricing.resolve(model)
         got = pricing.resolve(model, provider="NoSuchHost")
         assert (got.rates, got.kind) == (want.rates, want.kind)
-    # Spelling is the transcript's, matched exactly.
-    assert pricing.resolve(V41, provider="novita").kind == "default"
+    case = synthetic_provider_dated_rate
+    lowercase = case.host.lower()
+    assert pricing.resolve(case.model, provider=case.host).kind == "exact"
+    assert pricing.resolve(case.model, provider=lowercase).kind == "default"
 
 
 def test_stealth_stays_free_with_or_without_a_provider():
