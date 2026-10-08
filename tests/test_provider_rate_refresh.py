@@ -353,11 +353,26 @@ def test_a_new_provider_gets_a_row_that_begins_at_the_detection_time(
     assert "Newcomer" in out
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
-    fallback = pricing.resolve(model, cut - timedelta(seconds=1))
-    for name, value in pricing.load_tables(run.doc()).items():
-        monkeypatch.setattr(pricing, name, value)
-    assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
-    assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
+    # The pre-STAMP expectation comes from the tables the run wrote (the
+    # same algorithm over the same values at the same instant, SV-TEST-DATA)
+    # — never from the module's own tables, whose rows the perturbed tree
+    # appended history to.
+    seeded = pricing.load_tables(run.doc())
+    saved = {name: getattr(pricing, name) for name in seeded}
+    try:
+        for name, value in seeded.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+        fallback = pricing.resolve(model, cut - timedelta(seconds=1))
+        assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
+        # At STAMP the Newcomer row begins: the pair prices its own vector.
+        assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
 
 
 @needs_node
@@ -366,8 +381,23 @@ def test_a_new_provider_prices_from_the_detection_time_in_the_browser(
     run = Run(tmp_path)
     run.endpoints(GLM).append(_endpoint("Newcomer", NEWCOMER))
     assert run(capsys)[0] == 0
-    fallback = pricing.rate_for("z-ai/glm-5.3-flash",
-                                datetime.fromisoformat(STAMP) - timedelta(seconds=1))
+    model = "z-ai/glm-5.3-flash"
+    # The fallback the browser must price is the run doc's own (SV-TEST-DATA:
+    # same tables, same instant), not the module's perturbed rows.
+    seeded = pricing.load_tables(run.doc())
+    saved = {name: getattr(pricing, name) for name in seeded}
+    try:
+        for name, value in seeded.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+        fallback = pricing.rate_for(
+            model, datetime.fromisoformat(STAMP) - timedelta(seconds=1))
+    finally:
+        for name, value in saved.items():
+            setattr(pricing, name, value)
+        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
+        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
     assert _node_rates(run, tmp_path / "js", "Newcomer") == [fallback, NEWCOMER]
 
 

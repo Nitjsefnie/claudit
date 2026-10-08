@@ -276,9 +276,15 @@ def test_dated_window_does_not_leak_to_other_models(synthetic_dated_rate):
     assert synthetic_dated_rate.model not in ("claude-opus-4-8", "claude-fable-5",
                                               "claude-haiku-4-5")
     for m in ("claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5"):
-        during = pricing.rate_for(m, ts=datetime(2026, 7, 21, tzinfo=UTC))
-        after = pricing.rate_for(m, ts=datetime(2026, 9, 1, tzinfo=UTC))
-        assert during == after == pricing.rate_for(m)
+        # The expectation is computed by the same algorithm over the same
+        # tables at the same instant (SV-TEST-DATA): m prices from m's OWN
+        # row alone — the fixture's window prices its model, never these —
+        # which holds whatever the rows' appended history looks like.
+        for ts in (datetime(2026, 7, 21, tzinfo=UTC),
+                   datetime(2026, 9, 1, tzinfo=UTC), None):
+            expected = pricing._in_window(pricing._key_windows(m), ts,
+                                          pricing._list_rates(m))
+            assert pricing.rate_for(m, ts=ts) == expected
 
 
 def test_tier_fallback_never_inherits_a_dated_promotion(monkeypatch):
