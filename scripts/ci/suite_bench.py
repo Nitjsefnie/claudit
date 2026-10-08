@@ -319,6 +319,13 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         if args.write is not None:
+            # The gate's measured workload loads the bounded bench
+            # document, not the deployed pricing.json (issue #840): a
+            # data-only refresh must not move the suite-cost gate. Set
+            # before the warm-up pass, whose subprocess inherits it, and
+            # inherited again by the re-exec'd counting child.
+            os.environ['CLAUDIT_PRICING_DOC'] = str(
+                Path(__file__).resolve().parent / 'suite_pricing_doc.json')
             # The counted run must not depend on the caches the checkout
             # arrived with, and the parent is the only process outside
             # every counted window: compile the tree here, then hand the

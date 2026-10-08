@@ -145,20 +145,6 @@ def _key_windows(key: str) -> Windows | None:
     return PROVIDER_DATED_RATES.get(row) if row else None
 
 
-# The two GPT-5.6 repricing instants, named for the tests that price
-# around them. The gpt-5.6 rows are tracked vendor rows since the
-# migration, so their windows read through the merged dated-views
-# accessor, which keeps the models-table row when a key names one. Both
-# rows carry committed histories, so the lookup is total whatever a
-# later refresh appends — and a tracked-but-rowless key would read None,
-# which the assert refuses loudly instead of mispricing through.
-_gpt56_terra_windows = _key_windows("gpt-5-6-terra")
-_gpt56_sol_windows = _key_windows("gpt-5-6-sol")
-assert _gpt56_terra_windows is not None and _gpt56_sol_windows is not None
-JUL30_CUT = _gpt56_terra_windows[0][0]
-AUG21_CUT = _gpt56_sol_windows[0][0]
-
-
 def _latest(*families: str) -> dict:
     """Rates of the highest-versioned key of `families` in the merged
     view (models-table keys and tracked vendor bare keys).
@@ -181,12 +167,22 @@ def _latest(*families: str) -> dict:
 # Family fallbacks for unrecognised Claude models — current-generation
 # rates for the tier, at LIST price (never a dated promotion). Derived
 # from the table, so adding a newer model moves its family's fallback.
-_TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] = (
-    (re.compile(r"fable|mythos"), _latest("fable", "mythos")),
-    (re.compile(r"opus"), _latest("opus")),
-    (re.compile(r"sonnet"), _latest("sonnet")),
-    (re.compile(r"haiku"), _latest("haiku")),
-)
+# Derived on first use (issue #840): the bench's bounded document need not
+# carry every family's row, and a family with no row at all must not
+# refuse the IMPORT for a fallback no unrecognised id has hit yet.
+_TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] | None = None
+
+
+def _tier_fallbacks() -> tuple[tuple[re.Pattern, dict], ...]:
+    global _TIER_FALLBACKS
+    if _TIER_FALLBACKS is None:
+        _TIER_FALLBACKS = (
+            (re.compile(r"fable|mythos"), _latest("fable", "mythos")),
+            (re.compile(r"opus"), _latest("opus")),
+            (re.compile(r"sonnet"), _latest("sonnet")),
+            (re.compile(r"haiku"), _latest("haiku")),
+        )
+    return _TIER_FALLBACKS
 
 
 _MATCH_KEY_CACHE: dict[str, str | None] = {}
@@ -371,7 +367,7 @@ def resolve(model: str | None, ts: datetime | None = None,
                 rates = _in_window(PROVIDER_DATED_RATES.get(row), ts,
                                    PROVIDER_RATES[row])
                 return Resolution(rates, "exact", vkey, False, 0.0)
-    for pattern, rates in _TIER_FALLBACKS:
+    for pattern, rates in _tier_fallbacks():
         if pattern.search(norm):
             return Resolution(rates, "tier")
     return Resolution(DEFAULT_RATES, "default")
