@@ -29,13 +29,21 @@ UTC = timezone.utc
 
 class TestNodeHarnessesLoadLanes:
     """A node harness that drives parser.js or rates.js over the LIVE
-    pricing.json must require parser-lanes.js first: rates.js's
-    longContextFlagFor (the parser's meter decision) calls
-    window.longContextThresholdFor, which parser-lanes.js defines. The
-    browser always loads it (public/index.html, script order); a harness
-    without the require threw on the first live membership fold (issue
-    #860). Harnesses running a synthetic document with empty membership
-    are exempt — longContextFlagFor returns before the call."""
+    pricing.json must require parser-lanes.js: rates.js's
+    longContextFlagFor calls window.longContextThresholdFor, which
+    parser-lanes.js defines, and the call is reached only once
+    long_context_models is non-empty, so the absence stayed invisible
+    until the first live fold (issue #860). The browser always loads
+    the module (public/index.html, script order); this pins the
+    harnesses to the browser's own dependency, at any require order.
+
+    The scan's grammar: a body is the text after a `global.window` line
+    up to the next triple quote; one requiring parser.js or rates.js
+    via the interpolated constants (str(PARSER_JS)!r /
+    str(RATES_JS)!r) without a str(LANES_JS)!r require is an
+    offender. Unseen: a harness shaped otherwise (no marker, tmp-dir
+    or renamed-constant requires); a renamed lanes constant reads as
+    a false offender."""
 
     @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
     def test_harnesses_driving_the_real_parser_load_lanes(self):
@@ -368,7 +376,7 @@ class TestNodeDrivenBrowserMirror:
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
+          require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           console.log(JSON.stringify(window.rateEpochs));
@@ -607,7 +615,7 @@ class TestNodeDrivenBrowserProviderParsing:
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
+          require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           const fixtures = {json.dumps(texts)};
@@ -653,7 +661,7 @@ class TestNodeDrivenBrowserProviderParsing:
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
+          require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           window.datedRates['claude-opus-4-7'] = [
