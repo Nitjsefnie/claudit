@@ -26,6 +26,7 @@ tests/test_parser_js_user_prompt.py
 tests/test_per_turn_stats_js.py
 tests/test_perf_js.py
 tests/test_picker_fit_js.py
+tests/test_picker_label_rules_js.py
 tests/test_placeholder_model_refusal.py
 tests/test_price_band.py
 tests/test_pricing_data.py

@@ -1087,8 +1087,22 @@ const journeyPinched = async (ctx) => {
 // A pinched run measures at 220px, and the viewport is SHARED runner
 // state: every pinched run restores the rule's own width on the way
 // out, or every later rule measures the wrong width under its own
-// name (delta-review blocker on 456b467e).
+// name (delta-review blocker on 456b467e). The narrow journeys are
+// the same hazard one family over — journeyNarrow's 0.6x width would
+// leak into every later rule the same way (whole-branch review on
+// 748be3af) — so every narrow-journey rule wraps in narrowRun too.
+// A rule whose body measures at the restored width on its own (the
+// shift rules' round-trip limbs) keeps those inline steps; the
+// wrapper only guarantees the EXIT state.
 const pinchedRun = (run) => async (ctx) => {
+  try {
+    return await run(ctx);
+  } finally {
+    await journeyBack(ctx);
+  }
+};
+
+const narrowRun = (run) => async (ctx) => {
   try {
     return await run(ctx);
   } finally {
@@ -1221,7 +1235,7 @@ export const RULES = [
       + ' a page turn may not push rendered content past the strip'
       + ' (#808)',
     seed: seedPickerOverflowAfterPaging,
-    run: async (ctx) => {
+    run: narrowRun(async (ctx) => {
       await journeyNarrow(ctx);
       const clickOut = await clickNextGuarded(ctx.page, ctx.width);
       if (clickOut.length) return clickOut;
@@ -1241,7 +1255,7 @@ export const RULES = [
       }
       await backToFirst(ctx.page);
       return [];
-    },
+    }),
   },
   {
     id: 'project-picker-scrollbar',
@@ -1339,7 +1353,7 @@ export const RULES = [
       + ' height while paging — the height limb, proven by its own'
       + ' seed (#774, #808)',
     seed: seedPickerPagingShift,
-    run: async (ctx) => {
+    run: narrowRun(async (ctx) => {
       await journeyNarrow(ctx);
       const seated = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
@@ -1367,7 +1381,7 @@ export const RULES = [
       }
       await backToFirst(ctx.page);
       return out;
-    },
+    }),
   },
   {
     id: 'project-picker-no-shift-paging-seat',
@@ -1375,7 +1389,7 @@ export const RULES = [
       + ' pager turns a page — the seat limb, proven by its own seed'
       + ' (#774, #808)',
     seed: seedPickerPagingSeat,
-    run: async (ctx) => {
+    run: narrowRun(async (ctx) => {
       await journeyNarrow(ctx);
       const seated = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
@@ -1395,7 +1409,7 @@ export const RULES = [
       }
       await backToFirst(ctx.page);
       return out;
-    },
+    }),
   },
   {
     id: 'project-picker-no-shift-paging-position',
@@ -1403,7 +1417,7 @@ export const RULES = [
       + ' page: a move that drags everything below it by the same'
       + ' amount is still a move (#808)',
     seed: seedPickerPagingPosition,
-    run: async (ctx) => {
+    run: narrowRun(async (ctx) => {
       await journeyNarrow(ctx);
       const seated = await ctx.page.evaluate(
         PICKER_GEOMETRY_PROBE, PICKER_SEL);
@@ -1423,7 +1437,7 @@ export const RULES = [
       }
       await backToFirst(ctx.page);
       return out;
-    },
+    }),
   },
   {
     id: 'project-picker-underfill',
