@@ -183,7 +183,7 @@ def test_the_collapse_rewrites_only_the_oscillating_row(tmp_path, capsys):
     rc = collapse.main([], pricing_path=pricing_path, constants_path=constants_path)
     out, err = capsys.readouterr()
 
-    assert rc == 0 and not err
+    assert rc == 0 and not err, (rc, err, out)
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     (entry,) = saved["providers"][MODEL]["BandCo"]
     assert entry["from"] == _day(8), "the row keeps its own start"
@@ -208,11 +208,14 @@ def test_the_collapse_band_and_mean_come_from_the_window(tmp_path, capsys):
     from the oscillation neither widens the band nor pulls the mean."""
     row = [_entry(_day(30), RATE_HIGH), _entry(_day(8), RATE_A),
            _entry(_day(4), RATE_B), _entry(_day(0), RATE_A)]
-    doc = {"models": {MODEL: [_entry(None, RATE_A)]},
+    doc = {"models": {MODEL: [_entry(None, RATE_A)],
+                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
            "providers": {MODEL: {"BandCo": row}},
            "provider_rates_fetched": STAMP, "long_context_models": [],
            "openrouter": {"data_region": "global",
-                          "models": {MODEL: {"id": "synthetic/model-id"}}}}
+                          "models": {MODEL: {"id": "synthetic/model-id"}},
+                          "vendor": {"prefixes": ["anthropic", "openai",
+                                                  "moonshotai", "z-ai"]}}}
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
     pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
@@ -250,11 +253,14 @@ def test_the_collapse_refuses_a_scheduled_row_and_a_fee_note(tmp_path, capsys):
                      _entry(_day(4), RATE_B, schedule=schedule),
                      _entry(_day(2), RATE_A, schedule=schedule),
                      _entry(_day(1), RATE_B, schedule=schedule)]
-    doc = {"models": {MODEL: [_entry(None, RATE_A)]},
+    doc = {"models": {MODEL: [_entry(None, RATE_A)],
+                      "claude-opus-4-7": [dict(DEFAULT_ROW)]},
            "providers": {MODEL: {"FeeCo": fee_row, "SchedCo": scheduled_row}},
            "provider_rates_fetched": STAMP, "long_context_models": [],
            "openrouter": {"data_region": "global",
-                          "models": {MODEL: {"id": "synthetic/model-id"}}}}
+                          "models": {MODEL: {"id": "synthetic/model-id"}},
+                          "vendor": {"prefixes": ["anthropic", "openai",
+                                                  "moonshotai", "z-ai"]}}}
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
     pricing_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
