@@ -584,7 +584,6 @@ def test_static_declarations_are_listed_by_the_guard():
         "must fail the run like a stale ledger entry")
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_unhovered_targets_never_pass_silently():
     """#834: sampling, off-viewport drops and static exemptions must not
     let an unhovered mark pass. The default sweep is unbounded (the cap
@@ -601,7 +600,6 @@ def test_unhovered_targets_never_pass_silently():
         "the sweep still drops off-viewport targets instead of failing")
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_reply_latency_outlier_dots_are_swept():
     """#834: the Reply Latency outlier dots answer hover but carried no
     mark, so the sweep never hovered them. The dots are marked, light on
