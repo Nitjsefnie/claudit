@@ -368,6 +368,12 @@
       },
       "gpt-5-4": {
         "id": "openai/gpt-5.4",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-4 under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-4-mini": {
@@ -392,38 +398,92 @@
       },
       "gpt-5-4-pro": {
         "id": "openai/gpt-5.4-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-4-pro under the tags openai, openai/flex: the bare openai namespace tag is the model's list price, while openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-5": {
         "id": "openai/gpt-5.5",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-5 under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-5-pro": {
         "id": "openai/gpt-5.5-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-5-pro under the tags openai, openai/flex: the bare openai namespace tag is the model's list price, while openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-luna": {
         "id": "openai/gpt-5.6-luna",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-luna under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-luna-pro": {
         "id": "openai/gpt-5.6-luna-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-luna-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-sol": {
         "id": "openai/gpt-5.6-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-sol-pro": {
         "id": "openai/gpt-5.6-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-terra": {
         "id": "openai/gpt-5.6-terra",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-terra under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-6-terra-pro": {
         "id": "openai/gpt-5.6-terra-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-5-6-terra-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-5-mini": {
@@ -452,34 +512,82 @@
       },
       "gpt-6-1-sol": {
         "id": "openai/gpt-6.1-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-1-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-1-sol-pro": {
         "id": "openai/gpt-6.1-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-1-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-astra": {
         "id": "openai/gpt-6-astra",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-astra under the tags openai, openai/fast, openai/flex, openai/ultrafast: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex and openai/ultrafast are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-astra-pro": {
         "id": "openai/gpt-6-astra-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-astra-pro under the tags openai, openai/fast, openai/flex, openai/ultrafast: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex and openai/ultrafast are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-luna": {
         "id": "openai/gpt-6-luna",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-luna under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-luna-pro": {
         "id": "openai/gpt-6-luna-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-luna-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-sol": {
         "id": "openai/gpt-6-sol",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-sol under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-6-sol-pro": {
         "id": "openai/gpt-6-sol-pro",
+        "resolve": {
+          "OpenAI": {
+            "tag": "openai",
+            "why": "OpenRouter lists gpt-6-sol-pro under the tags openai, openai/fast, openai/flex: the bare openai namespace tag is the model's list price, while openai/fast and openai/flex are OpenAI's own service tiers at their own prices. Pinned to openai: the tiers are distinct offerings, not price twins, so 'cheapest' cannot apply."
+          }
+        },
         "vendor_host": "OpenAI"
       },
       "gpt-chat-latest": {
