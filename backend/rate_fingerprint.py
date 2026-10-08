@@ -78,7 +78,11 @@ _FP_CACHE: dict[tuple[str, str | None], str] = {}
 
 
 def clear_fingerprint_cache() -> None:
-    """Empty the per-pair memo (tests patch the rate tables)."""
+    """Empty every memo derived from the loaded tables, including the
+    tier fallbacks' (pricing.clear_tier_fallbacks): tests patch the
+    tables between calls, and a memo computed under a patch must never
+    outlive it."""
+    pricing.clear_tier_fallbacks()
     _FP_CACHE.clear()
 
 
