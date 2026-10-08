@@ -23,7 +23,35 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 RATES_JS = ROOT / "src" / "rates.js"
+LANES_JS = ROOT / "src" / "parser-lanes.js"
 UTC = timezone.utc
+
+
+class TestNodeHarnessesLoadLanes:
+    """A node harness that drives parser.js or rates.js over the LIVE
+    pricing.json must require parser-lanes.js first: rates.js's
+    longContextFlagFor (the parser's meter decision) calls
+    window.longContextThresholdFor, which parser-lanes.js defines. The
+    browser always loads it (public/index.html, script order); a harness
+    without the require threw on the first live membership fold (issue
+    #860). Harnesses running a synthetic document with empty membership
+    are exempt — longContextFlagFor returns before the call."""
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+    def test_harnesses_driving_the_real_parser_load_lanes(self):
+        offenders = []
+        for path in sorted((ROOT / "tests").glob("test_*.py")):
+            text = path.read_text()
+            for chunk in text.split("global.window")[1:]:
+                body = chunk.split('"""')[0]
+                needs = ("str(PARSER_JS)!r" in body
+                         or "str(RATES_JS)!r" in body)
+                lanes = "str(LANES_JS)!r" in body
+                if needs and not lanes:
+                    offenders.append(path.name)
+        assert not offenders, (
+            "node harnesses driving the live parser/rates without loading "
+            f"parser-lanes.js first: {offenders}")
 
 
 # (model id, ISO timestamp or None)
@@ -77,6 +105,7 @@ _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
 def _node_rates():
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
@@ -102,6 +131,7 @@ def _node_cost(output_tokens: int) -> float:
     review's own figure."""
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
@@ -125,6 +155,7 @@ def _node_usage_records(text: str) -> list[dict]:
     """The browser's assistant_usage events for one Claude transcript."""
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
@@ -174,6 +205,7 @@ def _node_dedup_survivor(*files):
     script = f"""
       global.window = {{}};
       require({str(RECORD_DEDUP_JS)!r});
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
@@ -239,6 +271,7 @@ PROVIDER_CASES = [
 def _node_json(body: str):
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
@@ -334,7 +367,8 @@ class TestNodeDrivenBrowserMirror:
     def test_parser_js_exposes_the_same_rate_epochs(self):
         script = f"""
           global.window = {{}};
-          require({str(LOADER_JS)!r});
+          require({str(LANES_JS)!r});
+      require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           console.log(JSON.stringify(window.rateEpochs));
@@ -572,7 +606,8 @@ class TestNodeDrivenBrowserProviderParsing:
             encoding="utf-8") for name in names}
         script = f"""
           global.window = {{}};
-          require({str(LOADER_JS)!r});
+          require({str(LANES_JS)!r});
+      require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           const fixtures = {json.dumps(texts)};
@@ -617,7 +652,8 @@ class TestNodeDrivenBrowserProviderParsing:
         unstamped string would read 22:30Z."""
         script = f"""
           global.window = {{}};
-          require({str(LOADER_JS)!r});
+          require({str(LANES_JS)!r});
+      require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           window.datedRates['claude-opus-4-7'] = [

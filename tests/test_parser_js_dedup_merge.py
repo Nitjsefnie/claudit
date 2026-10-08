@@ -12,8 +12,8 @@ import subprocess
 import pytest
 
 from tests.test_parser_js_mirror import (
-    LOADER_JS, PARSER_JS, RATES_JS, RECORD_DEDUP_JS, _claude_line,
-    _node_dedup_survivor,
+    LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, RECORD_DEDUP_JS,
+    _claude_line, _node_dedup_survivor,
 )
 
 
@@ -38,6 +38,7 @@ def _node_usage_identity(text: str) -> list[dict]:
     model), with no merge bookkeeping left on the entry."""
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(RECORD_DEDUP_JS)!r});
@@ -156,6 +157,7 @@ def _node_tool_dedup(main, sidecar):
     to lose to."""
     script = f"""
       global.window = {{}};
+      require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(RECORD_DEDUP_JS)!r});
