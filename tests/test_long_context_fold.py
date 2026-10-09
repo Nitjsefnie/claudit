@@ -174,7 +174,8 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
     current_fingerprint = rate_fingerprint.pair_fingerprint(model, None)
     assert current_fingerprint != old_fingerprint, (
         "a meter-factor change must prevent the fingerprint clean-restamp")
-    monkeypatch.setattr(constants, "PRICING_VERSION", "999")
+    future_version = str(int(constants.PRICING_VERSION) + 100)
+    monkeypatch.setattr(constants, "PRICING_VERSION", future_version)
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 1)
     stop_checks = iter((False, True))
     with pytest.raises(ingest_reprice.IngestAborted):
