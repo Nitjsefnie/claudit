@@ -20,9 +20,11 @@ tests/test_parser_js_dedup_merge.py
 tests/test_parser_js_fees.py
 tests/test_parser_js_fork.py
 tests/test_parser_js_lanes.py
+tests/test_parser_js_meter_factors.py
 tests/test_parser_js_mirror.py
 tests/test_parser_js_pricing_loader.py
 tests/test_parser_js_user_prompt.py
+tests/test_parser_js_web_search.py
 tests/test_per_turn_stats_js.py
 tests/test_perf_js.py
 tests/test_picker_fit_js.py
