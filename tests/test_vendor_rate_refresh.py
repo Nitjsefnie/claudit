@@ -2,110 +2,16 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
 import json
-import sys
-from datetime import datetime, timezone
-from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
 from backend import long_context, pricing, pricing_load
-from tests.refresh_fixture_builders import seed_doc
-
-ROOT = Path(__file__).resolve().parents[1]
-UTC = timezone.utc
-NOW = datetime(2031, 1, 1, tzinfo=UTC)
-STAMP = "2031-01-01T00:00:00Z"
-RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
-GPT_ID = "openai/gpt-test-9.9"
-GPT_KEY = "gpt-test-9-9"
-GLM_ID = "z-ai/glm-test-1"
-GLM_KEY = "glm-test-1"
-RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0, "read": 0.1,
-         "output": 5.0}
-TRACKED = {"id": GPT_ID, "vendor_host": "Vendor"}
-
-
-def _load(name: str):
-    path = ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-vendor = _load("refresh_vendor_rates")
-
-
-def _per_token(rate: float) -> str:
-    return format(Decimal(repr(rate)).scaleb(-6).normalize(), "f")
-
-
-def _doc(*, members=None, models=None, resolve=None, tracked=None,
-         meters=None, prefixes=None) -> dict:
-    return seed_doc(members=members, models=models, resolve=resolve,
-                    tracked=tracked, meters=meters, prefixes=prefixes,
-                    fetched="2030-12-31T00:00:00Z")
-
-
-def _price(fresh, output, read=None, write=None, write_1h=None, **extra) -> dict:
-    price = {"prompt": _per_token(fresh), "completion": _per_token(output)}
-    if read is not None:
-        price["input_cache_read"] = _per_token(read)
-    if write is not None:
-        price["input_cache_write"] = _per_token(write)
-    if write_1h is not None:
-        price["input_cache_write_1h"] = _per_token(write_1h)
-    price.update(extra)
-    return price
-
-
-def _endpoint(tag: str, price: dict, host: str = "Vendor") -> dict:
-    return {"provider_name": host, "tag": tag, "quantization": "fp8",
-            "status": 0, "context_length": 131072, "pricing": price}
-
-
-def _payload(*endpoints: dict) -> dict:
-    return {"data": {"endpoints": list(endpoints)}}
-
-
-def _catalog(*ids: str) -> dict:
-    return {"data": [{"id": i} for i in ids]}
-
-
-def _band(fresh: float, output: float, read=None, write=None, write_1h=None, *,
-          threshold=None, input_mult=None, output_mult=None) -> dict:
-    tin = long_context.LONG_CONTEXT_INPUT_MULT if input_mult is None else input_mult
-    tout = (long_context.LONG_CONTEXT_OUTPUT_MULT if output_mult is None
-            else output_mult)
-    band = {"min_prompt_tokens": (long_context.LONG_CONTEXT_THRESHOLD
-                                  if threshold is None else threshold),
-            "prompt": _per_token(fresh * tin),
-            "completion": _per_token(output * tout)}
-    if read is not None:
-        band["input_cache_read"] = _per_token(read * tin)
-    if write is not None:
-        band["input_cache_write"] = _per_token(write * tin)
-    if write_1h is not None:
-        band["input_cache_write_1h"] = _per_token(write_1h * tin)
-    return band
-
-
-def _move_meter(threshold: int, input_mult: float = long_context.LONG_CONTEXT_INPUT_MULT,
-                output_mult: float = long_context.LONG_CONTEXT_OUTPUT_MULT) -> dict:
-    return {"threshold": threshold, "input_mult": input_mult,
-            "output_mult": output_mult}
-
-
-def _run(doc: dict, catalog: dict, endpoints: dict):
-    doc = copy.deepcopy(doc)
-    outcome = vendor.vendor_pass(doc, lambda: catalog,
-                                 lambda mid: endpoints[mid])
-    return doc, outcome
+from tests.vendor_rate_refresh_helpers import (
+    GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT, STAMP,
+    TRACKED, _band, _catalog, _doc, _endpoint, _load, _move_meter, _payload,
+    _per_token, _price, _run, vendor,
+)
 
 
 def test_a_new_model_joins_the_tracked_set():
@@ -188,6 +94,58 @@ def test_a_variant_id_is_never_added():
     assert not out.refusals
     assert doc["openrouter"]["models"] == {GPT_KEY: TRACKED}
     assert [m.id for m in out.moves] == [GPT_ID]
+
+
+def test_only_exact_text_output_models_reach_vendor_selection() -> None:
+    image_id = "openai/gpt-image-test"
+    audio_id = "openai/gpt-audio-test"
+    missing_architecture_id = "openai/gpt-missing-architecture-test"
+    missing_output_id = "openai/gpt-missing-output-test"
+    text_id = "openai/gpt-text-test"
+    image_key = "gpt-image-test"
+    text_key = "gpt-text-test"
+    existing = {"id": image_id, "vendor_host": "Existing OpenAI"}
+    doc = _doc(tracked={image_key: existing}, members=[image_key],
+               meters={image_key: {"threshold": 200_000}})
+    tracked_before = copy.deepcopy(doc["openrouter"]["models"])
+    catalog = {"data": [
+        {"id": image_id, "architecture": {
+            "output_modalities": ["image", "text"]}},
+        {"id": audio_id, "architecture": {
+            "output_modalities": ["text", "audio"]}},
+        {"id": missing_architecture_id},
+        {"id": missing_output_id, "architecture": {
+            "input_modalities": ["text"]}},
+        {"id": text_id, "architecture": {
+            "output_modalities": ["text"]}},
+    ]}
+    payloads = {
+        image_id: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, image_output="0.00004"))),
+        audio_id: _payload(_endpoint(
+            "openai", _price(1.0, 5.0, audio_output="0.00004"))),
+        missing_architecture_id: _payload(
+            _endpoint("openai", _price(1.0, 5.0))),
+        missing_output_id: _payload(_endpoint("openai", _price(1.0, 5.0))),
+        text_id: _payload(_endpoint("openai", _price(1.0, 5.0))),
+    }
+    selected: list[str] = []
+
+    def fetch_endpoints(model_id: str) -> dict:
+        selected.append(model_id)
+        return payloads[model_id]
+
+    out = vendor.vendor_pass(doc, lambda: catalog, fetch_endpoints)
+
+    assert selected == [text_id]
+    assert not out.notices and not out.refusals
+    assert out.moves == [vendor.VendorMove(text_id, text_key, added=True)]
+    assert doc["openrouter"]["models"] == {
+        **tracked_before,
+        text_key: {"id": text_id, "vendor_host": "Vendor"},
+    }
+    assert doc["long_context_models"] == [image_key]
+    assert doc["long_context_meters"] == {image_key: {"threshold": 200_000}}
 
 
 def test_the_prefix_list_is_config():

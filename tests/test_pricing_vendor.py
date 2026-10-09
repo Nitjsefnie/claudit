@@ -641,7 +641,8 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
     table is never written."""
     doc = _doc()
     before = json.loads(json.dumps(doc))
-    catalog = {"data": [{"id": "acme/claude-opus.9"}]}
+    catalog = {"data": [{"id": "acme/claude-opus.9", "architecture": {
+        "output_modalities": ["text"]}}]}
     payload = {"data": {"endpoints": [
         {"provider_name": HOST, "tag": "acme", "quantization": "fp8",
          "status": 0, "context_length": 131072,

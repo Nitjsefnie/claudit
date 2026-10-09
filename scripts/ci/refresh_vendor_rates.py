@@ -5,9 +5,10 @@ Runs inside refresh_provider_rates.main(), in the same hourly run: one
 report, one PRICING_VERSION bump when anything moved, one commit. The
 tracked set is configured, not enumerated: `openrouter.vendor.prefixes`
 lists the vendor namespaces (the same list the loaders validate and the
-bare-id path resolves through), and every catalog id under a listed prefix
-joins `openrouter.models` — a model the vendor adds under its prefix is
-picked up on the next run, no code change.
+bare-id path resolves through), and catalog ids under a listed prefix join
+`openrouter.models` only when `architecture.output_modalities` is exactly
+`["text"]`. Entries without that declaration, and entries with any other
+output modality, are dropped silently before selection and auto-add.
 
 A catalog id under a listed prefix whose derived key is not yet tracked is
 ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
@@ -120,9 +121,11 @@ def derive_key(catalog_id: str) -> str:
 
 
 def catalog_ids(catalog: object, doc: dict) -> list[str]:
-    """The catalog's vendor-prefixed, non-variant ids, sorted. The prefix
-    list is config — ``openrouter.vendor.prefixes`` — which the loaders
-    validate; a malformed one here refuses the would-be file."""
+    """The sorted vendor-prefixed ids that declare exactly text output.
+
+    The prefix list is config — ``openrouter.vendor.prefixes`` — which the
+    loaders validate; a malformed one here refuses the would-be file.
+    """
     prefixes = ((doc.get("openrouter") or {}).get("vendor") or {}).get("prefixes")
     if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
         raise RefreshError(
@@ -133,7 +136,9 @@ def catalog_ids(catalog: object, doc: dict) -> list[str]:
     return sorted(item["id"] for item in data
                   if (isinstance(item, dict) and isinstance(item.get("id"), str)
                       and ":" not in item["id"]
-                      and item["id"].partition("/")[0] in prefixes))
+                      and item["id"].partition("/")[0] in prefixes
+                      and isinstance(item.get("architecture"), dict)
+                      and item["architecture"].get("output_modalities") == ["text"]))
 
 
 def _extract_endpoints(model_id: str, payload: object) -> list:
@@ -336,7 +341,8 @@ def _one_model(doc: dict, members: list, meters: dict, model_id: str,
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     """One vendor pass over `doc` (mutated in place: tracked entries and
     long_context_models and long_context_meters), returning the moves and
-    what a human must read. An Untracked first-party shape refuses the run.
+    what a human must read. Only entries declaring exactly text output reach
+    selection and auto-add. An Untracked first-party shape refuses the run.
     The catalog-unreadable and no-first-party-endpoint findings remain
     notices."""
     outcome = VendorOutcome()
