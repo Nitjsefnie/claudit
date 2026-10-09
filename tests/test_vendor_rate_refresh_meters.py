@@ -6,10 +6,11 @@ import json
 import pytest
 
 from tests.test_vendor_rate_refresh import (
-    GPT_ID, GPT_KEY, RATE_FIELDS, RATES, STAMP, TRACKED, MainRun,
+    GPT_ID, GPT_KEY, RATE_FIELDS, RATES, TRACKED, MainRun,
     _band, _catalog, _doc, _endpoint, _load, _main_doc, _meter_for,
     _move_meter, _per_token, _run, _payload, _price, vendor,
 )
+from tests.vendor_rate_refresh_helpers import STAMP
 
 
 @pytest.mark.parametrize(("field", "label", "base_rate", "band_rate"), [
