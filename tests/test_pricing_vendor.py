@@ -33,6 +33,7 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 RATES_JS = ROOT / "src" / "rates.js"
+PARSER_USAGE_JS = ROOT / "src" / "parser-usage.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 JS_FIELDS = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
              "read": "read", "out": "output"}
@@ -160,6 +161,7 @@ def _copy_browser(tmp_path):
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 
 

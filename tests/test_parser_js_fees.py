@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
+PARSER_USAGE_JS = ROOT / "src" / "parser-usage.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -50,6 +51,7 @@ def _sandbox(tmp_path, monkeypatch):
         (LOADER_JS, "pricing-loader.js"),
         (VENDOR_TABLES_JS, "vendor-tables.js"),
         (HHMM_JS, "hhmm-spelling.js"),
+        (PARSER_USAGE_JS, "parser-usage.js"),
         (PARSER_JS, "parser.js"),
         (RATES_JS, "rates.js"),
     ):

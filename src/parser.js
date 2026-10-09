@@ -9,6 +9,12 @@
 // sniffs the format and delegates. One rate table only — src/pricing.json,
 // loaded by src/pricing-loader.js, which runs before this script.
 
+// The browser loads parser-usage.js before this file. Node tests that require
+// parser.js directly load the sibling helper here, matching that script order.
+if (!window.parserUsage && typeof module === 'object' && module.exports) {
+  require('./parser-usage.js');
+}
+
 // A user text that OPENS with an XML tag is harness-injected data, not a
 // prompt (issue #213) — deny-by-default, so an unknown future harness tag
 // is excluded without a parser change; only wrappers around human text
@@ -60,57 +66,6 @@ window.parseTranscript = function parseTranscript(text, opts) {
   // Cross-file dedup (src/record-dedup.js): seen map + per-line stamps.
   const seenUuids = (opts && opts.seenUuids) || null;
   const dedupStamps = new Map();
-
-  function mergeUsageMax(existing, incoming) {
-    // Recursive max merge: numeric fields take max, nested dicts merge
-    // key-by-key, non-numeric fields keep `existing` if present else
-    // copy from `incoming`. Mirrors backend/parse.py's _merge_usage_max.
-    if (existing == null) return incoming;
-    if (incoming == null) return existing;
-    if (typeof existing === 'number' && typeof incoming === 'number') {
-      return Math.max(existing, incoming);
-    }
-    if (typeof existing === 'object' && typeof incoming === 'object'
-        && !Array.isArray(existing) && !Array.isArray(incoming)) {
-      const out = { ...existing };
-      for (const k of Object.keys(incoming)) {
-        out[k] = (k in out) ? mergeUsageMax(out[k], incoming[k]) : incoming[k];
-      }
-      return out;
-    }
-    return existing; // type mismatch — keep existing
-  }
-
-  function searchRequests(usage) {
-    const iterations = Array.isArray(usage.iterations)
-      ? usage.iterations.filter((item) => item && typeof item === 'object'
-        && !Array.isArray(item)) : [];
-    let nestedServerUsage = false;
-    let total = 0;
-    let found = false;
-    for (const source of iterations) {
-      const server = source.server_tool_use;
-      if (!server || typeof server !== 'object' || Array.isArray(server)) {
-        continue;
-      }
-      for (const [key, value] of Object.entries(server)) {
-        if (!Number.isInteger(value) && typeof value !== 'boolean') continue;
-        nestedServerUsage = true;
-        if (key === 'web_search_requests') {
-          total += typeof value === 'boolean' ? Number(value) : value;
-          found = true;
-        }
-      }
-    }
-    if (iterations.length && nestedServerUsage) {
-      return found && total >= 0 ? total : null;
-    }
-    const server = usage.server_tool_use;
-    const count = server && typeof server === 'object'
-      ? server.web_search_requests : null;
-    if (Number.isInteger(count) && count >= 0) return count;
-    return found ? total : null;
-  }
 
   // Sniff a tool_result / user_message body for off-disk references:
   // - <task-notification>…<output-file>…</output-file>…</task-notification>
@@ -296,7 +251,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
     if (role === 'user') {
       pushUserContent(content, obj.toolUseResult, i + 1, ts);
     } else if (role === 'assistant') {
-      const usage = m.usage;
+      const usage = window.parserUsage.flattenUsage(m.usage);
       // Skip synthetic stubs — Claude Code emits these after `/exit` and
       // for interrupted partial responses with all-zero usage and no
       // requestId. They clobber the `last_usage` walk in any per-turn
@@ -319,14 +274,15 @@ window.parseTranscript = function parseTranscript(text, opts) {
           // The meter decision (issue #765), recomputed after a streaming
           // merge below — mirrors parse._project_record.
           long_context: window.longContextFlagFor(m.model, usage),
-          web_search_requests: searchRequests(usage),
+          web_search_requests: window.parserUsage.searchRequests(usage),
           usage: { ...usage },
         };
         if (mergeKey && seenReq.has(mergeKey)) {
           // Recursive max merge — handles streaming where output_tokens is
           // reported incrementally, plus nested cache_creation dict.
           const existing = seenReq.get(mergeKey);
-          existing.usage = mergeUsageMax(existing.usage, usage);
+          existing.usage = window.parserUsage.mergeUsageMax(
+            existing.usage, usage);
           if (ev.web_search_requests !== null) {
             existing.web_search_requests = Math.max(
               existing.web_search_requests || 0, ev.web_search_requests);
