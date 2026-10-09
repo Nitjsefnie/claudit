@@ -49,7 +49,11 @@ jobs:
         # `postgres` superuser has it. Pinned by digest: the
         # ratchet-push workflow publishes from this image's
         # measurements, so the image must be the reviewed one.
-        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        # Pulled from AWS's public mirror of the Docker Official Image, same
+        # digest: Docker Hub refuses anonymous runner pulls under its rate
+        # limit ("toomanyrequests", issue #885). Every workflow uses this
+        # mirror; the fallback is mirror.gcr.io/library/postgres@<digest>.
+        image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
