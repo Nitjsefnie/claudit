@@ -79,8 +79,9 @@ def test_vendor_search_rate_is_loaded_for_the_bare_model(monkeypatch):
     doc = seed_doc(
         tracked={key: {"id": "anthropic/acme-9",
                        "vendor_host": host}},
-        providers={key: {host: [_entry(RATES_B,
-                                      web_search=SEARCH_RATE)]}},
+        providers={key: {host: [_entry(
+            RATES_B,
+            web_search=SEARCH_RATE)]}},
     )
     tables = load_tables(doc)
     _install(monkeypatch, tables)

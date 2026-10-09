@@ -104,9 +104,16 @@ def _seeded(doc: dict) -> dict:
     # The grouped meter field carries membership and threshold together.
     # Drop vendor members and remove groups that no longer have a member.
     doc["long_context_meters"] = [
-        {**group, "models": [model for model in group["models"]
-                            if (model if isinstance(model, str)
-                                else next(iter(model))) not in vendor_keys]}
+        {
+            **group,
+            "models": [
+                model for model in group["models"]
+                if (
+                    model if isinstance(model, str)
+                    else next(iter(model))
+                ) not in vendor_keys
+            ],
+        }
         for group in doc["long_context_meters"]
         if any((model if isinstance(model, str) else next(iter(model)))
                not in vendor_keys for model in group["models"])]

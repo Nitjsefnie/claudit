@@ -189,8 +189,11 @@ def report(stamp: str, result: Result, tracked: dict) -> str:
         lines += ["", "refused, rows left untouched:",
                   *(f"  {reason}" for reason in result.refusals)]
     if result.notices:
-        lines += ["", "notices:", *(f"  {notice}"
-                                      for notice in _notice_lines(result.notices))]
+        lines += [
+            "",
+            "notices:",
+            *(f"  {notice}" for notice in _notice_lines(result.notices)),
+        ]
     return "\n".join(lines)
 
 
@@ -260,6 +263,8 @@ def vendor_report(stamp: str, vendor) -> str:
         lines += ["refused, rows left untouched:",
                   *(f"  {reason}" for reason in vendor.refusals)]
     if vendor.notices:
-        lines += ["notices:", *(f"  {notice}"
-                                 for notice in _notice_lines(vendor.notices))]
+        lines += [
+            "notices:",
+            *(f"  {notice}" for notice in _notice_lines(vendor.notices)),
+        ]
     return "\n".join(lines)

@@ -68,6 +68,8 @@ FIELDS = pricing.RATE_FIELDS
 
 def _saved_doc(path: Path) -> dict:
     return expand_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
+
+
 # The loader half names a synthetic host, not the refresh harness's, so its
 # own messages stay readable.
 BAND_HOST = "HostCo"

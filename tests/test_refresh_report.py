@@ -12,8 +12,8 @@ from tests.refresh_fixture_builders import RATES_A, _endpoint
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-import refresh_report
-import refresh_selection
+import refresh_report  # noqa: E402
+import refresh_selection  # noqa: E402
 
 
 def _result(*, vanished=(), sampled=None, notices=()):

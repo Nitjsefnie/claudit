@@ -259,7 +259,8 @@ def _fold_vendor_prefix(norm: str) -> str:
     """Fold a tracked namespace prefix only when its remainder is a bare form."""
     for prefix in sorted(VENDOR_PREFIXES, key=len, reverse=True):
         bare = norm.removeprefix(f"{prefix}/")
-        if bare != norm and _vendor_match(bare) is not None: return bare
+        if bare != norm and _vendor_match(bare) is not None:
+            return bare
     return norm
 
 

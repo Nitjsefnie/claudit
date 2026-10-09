@@ -36,6 +36,7 @@ backfill = _load()
 def _saved_doc(path: Path) -> dict:
     return expand_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
 
+
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
 SLUG = "synthetic/canonical-model"
