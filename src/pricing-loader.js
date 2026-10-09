@@ -318,48 +318,69 @@ if (_defaultRow === undefined) {
 window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
 window.scheduleRatesAt = _scheduledRates;
 
-// The long-context meter's membership and per-model entries (issue
-// #878): pricing.json's long_context_models and long_context_meters,
-// validated like backend/pricing_load.py — a rule-breaking file throws
-// naming the key. window.longContextModels is the dashed-key membership
-// list; window.longContextMeters maps a member to its complete meter entry.
-const _lcMembers = _PRICING.long_context_models;
-if (_lcMembers === undefined) {
-  throw _pricingError('long_context_models is missing');
-}
-if (!Array.isArray(_lcMembers)
-    || !_lcMembers.every((k) => typeof k === 'string' && k)
-    || new Set(_lcMembers).size !== _lcMembers.length) {
-  throw _pricingError('long_context_models: not a list of distinct non-empty keys');
-}
-for (const k of _lcMembers)
-  // A member names a models-table key or a tracked key — the merged
-  // view's two tables, the same rule the backend loader enforces
-  // (issue #851: the first-party members are tracked keys now).
-  if (!(k in window.modelRates) && !(k in window.vendorBare))
-    throw _pricingError(`long_context_models: ${k} names no models-table or tracked key`);
-window.longContextModels = _lcMembers;
+// The grouped long-context meter (issue #883) carries both membership and
+// threshold. Fold it to the complete per-model entries used by rates.js;
+// mirrors backend/meter_tables.py.
+if (Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_models'))
+  throw _pricingError('long_context_models is removed; use long_context_meters');
+if (!Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_meters'))
+  throw _pricingError('long_context_meters is missing');
+const _lcGroups = _PRICING.long_context_meters;
+if (!Array.isArray(_lcGroups))
+  throw _pricingError('long_context_meters: not a list of groups');
+
 window.longContextMeters = {};
-const _rawLcMeters = _PRICING.long_context_meters;
-const _lcMeters = (Array.isArray(_rawLcMeters) && !_rawLcMeters.length)
-  ? {} : (_rawLcMeters || {});
-if (typeof _lcMeters !== 'object' || Array.isArray(_lcMeters))
-  throw _pricingError('long_context_meters: not a map of member keys to meter entries');
-for (const [k, v] of Object.entries(_lcMeters || {})) {
-  if (!window.longContextModels.includes(k))
-    throw _pricingError(`long_context_meters: ${k} names no long_context_models member`);
-  if (!v || typeof v !== 'object' || Array.isArray(v)
-      || !Object.prototype.hasOwnProperty.call(v, 'threshold')
-      || Object.keys(v).some((field) =>
-        !['threshold', 'input_mult', 'output_mult'].includes(field))
-      || !Number.isInteger(v.threshold)
-      || v.threshold <= 0)
-    throw _pricingError(`long_context_meters: ${k} is not a meter entry with a positive integer threshold`);
-  for (const field of ['input_mult', 'output_mult']) {
-    if (Object.prototype.hasOwnProperty.call(v, field)
-        && (typeof v[field] !== 'number' || !Number.isFinite(v[field])
-            || v[field] <= 0))
-      throw _pricingError(`long_context_meters: ${k} has invalid ${field}; expected a positive finite number`);
+const _lcThresholds = new Set();
+for (const [i, group] of _lcGroups.entries()) {
+  const at = `long_context_meters[${i}]`;
+  if (group === null || typeof group !== 'object' || Array.isArray(group))
+    throw _pricingError(`${at}: group is not an object`);
+  const unknown = Object.keys(group).filter((field) =>
+    !['threshold', 'models'].includes(field));
+  if (unknown.length) throw _pricingError(`${at}: unknown field ${unknown[0]}`);
+  if (!Number.isInteger(group.threshold) || group.threshold <= 0)
+    throw _pricingError(`${at}: no positive integer threshold`);
+  if (_lcThresholds.has(group.threshold))
+    throw _pricingError(`long_context_meters: duplicate threshold ${group.threshold}`);
+  _lcThresholds.add(group.threshold);
+  if (!Array.isArray(group.models) || !group.models.length)
+    throw _pricingError(`${at}: models is empty or not a list`);
+
+  for (const entry of group.models) {
+    let key;
+    let factors;
+    if (typeof entry === 'string') {
+      key = entry;
+      factors = {};
+    } else if (entry !== null && typeof entry === 'object'
+               && !Array.isArray(entry) && Object.keys(entry).length === 1) {
+      [key, factors] = Object.entries(entry)[0];
+      if (!factors || typeof factors !== 'object' || Array.isArray(factors))
+        throw _pricingError(`long_context_meters: ${key} multipliers are not an object`);
+      const unknownFactors = Object.keys(factors).filter((field) =>
+        !['input_mult', 'output_mult'].includes(field));
+      if (unknownFactors.length)
+        throw _pricingError(`long_context_meters: ${key} unknown field ${unknownFactors[0]}`);
+    } else {
+      throw _pricingError(`${at}: each model is a key or a one-key multiplier object`);
+    }
+    if (!key)
+      throw _pricingError(`${at}: models entries need non-empty model keys`);
+    if (Object.prototype.hasOwnProperty.call(window.longContextMeters, key))
+      throw _pricingError(`long_context_meters: ${key} appears more than once`);
+    if (!Object.prototype.hasOwnProperty.call(window.modelRates, key)
+        && !Object.prototype.hasOwnProperty.call(window.vendorBare, key))
+      throw _pricingError(`long_context_meters: ${key} names no models-table or tracked key`);
+
+    const meter = { threshold: group.threshold };
+    for (const field of ['input_mult', 'output_mult']) {
+      if (!Object.prototype.hasOwnProperty.call(factors, field)) continue;
+      if (typeof factors[field] !== 'number' || !Number.isFinite(factors[field])
+          || factors[field] <= 0)
+        throw _pricingError(`long_context_meters: ${key} has invalid ${field}; expected a positive finite number`);
+      meter[field] = factors[field];
+    }
+    window.longContextMeters[key] = meter;
   }
-  window.longContextMeters[k] = v;
 }
+window.longContextModels = Object.keys(window.longContextMeters);

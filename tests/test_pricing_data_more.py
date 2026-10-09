@@ -455,89 +455,69 @@ def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
     assert _js_rates(got["rates"]) == P_AFTER
 
 
-def test_an_unknown_long_context_member_is_refused_naming_it():
-    """pricing.json's long_context_models are dashed names of models-table
-    keys or tracked keys; a name that is neither is a typo'd data edit the
-    loader refuses (SV-RATE-DATA: both loaders refuse a rule-breaking
-    file)."""
+def _grouped_meter_doc(groups):
     doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol", "gpt-9-ghost"]
-    with pytest.raises(ValueError, match="gpt-9-ghost"):
-        pricing.load_tables(doc)
+    doc.pop("long_context_models", None)
+    doc["long_context_meters"] = groups
+    return doc
 
 
-def test_long_context_models_stay_distinct_and_string_typed():
-    doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol", "gpt-5-6-sol"]
-    with pytest.raises(ValueError, match="distinct"):
-        pricing.load_tables(doc)
-    doc["long_context_models"] = [42]
-    with pytest.raises(ValueError, match="long_context_models"):
-        pricing.load_tables(doc)
-
-
-def test_long_context_meters_default_to_empty_and_load_whole_entries():
-    """Absent the key the meter map is empty; present, the loader keeps
-    each member's threshold and optional factors together (issue #878)."""
-    doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol"]
-    # The live file's meter map rides along in _doc(); the "default"
-    # case is a document without the key at all (a refresh fold may
-    # have populated it), so drop it here rather than assert against
-    # the live map (SV-TEST-DATA).
-    doc.pop("long_context_meters", None)
-    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
-    for empty in (None, False, 0, "", []):
-        doc["long_context_meters"] = empty
-        assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
-    doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200_000}}
-    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
-        "gpt-5-6-sol": {"threshold": 200_000}}
-    # An integral float spelling folds to the integer, so both loaders
-    # accept the same bytes (JSON has already collapsed the spelling).
-    doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200000.0}}
-    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
-        "gpt-5-6-sol": {"threshold": 200_000}}
-    doc["long_context_meters"] = {
-        "gpt-5-6-sol": {"threshold": 100_000.0,
-                         "input_mult": 5.0, "output_mult": 5}}
-    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
+def test_grouped_long_context_meters_fold_to_whole_entries():
+    groups = [
+        {"threshold": 200_000,
+         "models": ["claude-sonnet-4-5", "gpt-5-4"]},
+        {"threshold": 100_000,
+         "models": [{"gpt-5-6-sol": {"input_mult": 5.0,
+                                      "output_mult": 5}}]},
+    ]
+    tables = pricing.load_tables(_grouped_meter_doc(groups))
+    assert tables["LONG_CONTEXT_METERS"] == {
+        "claude-sonnet-4-5": {"threshold": 200_000},
+        "gpt-5-4": {"threshold": 200_000},
         "gpt-5-6-sol": {"threshold": 100_000,
-                         "input_mult": 5.0, "output_mult": 5}}
+                        "input_mult": 5.0, "output_mult": 5},
+    }
+    assert tables["LONG_CONTEXT_MODELS"] == frozenset({
+        "claude-sonnet-4-5", "gpt-5-4", "gpt-5-6-sol"})
 
 
-def test_a_long_context_meter_names_a_member():
+def test_grouped_long_context_field_is_required_and_old_field_is_refused():
     doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol"]
-    doc["long_context_meters"] = {"claude-sonnet-4-5": {"threshold": 200_000}}
-    with pytest.raises(ValueError, match="names no long_context_models"):
+    doc.pop("long_context_models", None)
+    doc.pop("long_context_meters", None)
+    with pytest.raises(ValueError, match="long_context_meters.*missing"):
+        pricing.load_tables(doc)
+
+    doc = _grouped_meter_doc([])
+    doc["long_context_models"] = []
+    with pytest.raises(ValueError, match="long_context_models.*removed"):
         pricing.load_tables(doc)
 
 
-def test_a_long_context_meter_value_requires_a_threshold_and_valid_factors():
-    doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol"]
-    for bad in (None, 200_000, {"threshold": 0}, {"threshold": -1},
-                {"threshold": True}, {"threshold": "200000"},
-                {"threshold": 2.5}, {"threshold": 200_000, "mult": 2.0},
-                {}, {"input_mult": 5.0},
-                {"threshold": 200_000, "input_mult": 0},
-                {"threshold": 200_000, "output_mult": -1},
-                {"threshold": 200_000, "input_mult": float("inf")},
-                {"threshold": 200_000, "output_mult": float("nan")},
-                {"threshold": 200_000, "output_mult": True},
-                {"threshold": 200_000, "input_mult": "5"}):
-        doc["long_context_meters"] = {"gpt-5-6-sol": bad}
-        with pytest.raises(ValueError, match="long_context_meters"):
-            pricing.load_tables(doc)
-
-
-def test_long_context_meters_must_be_a_map():
-    doc = _doc()
-    doc["long_context_models"] = ["gpt-5-6-sol"]
-    doc["long_context_meters"] = ["gpt-5-6-sol"]
-    with pytest.raises(ValueError, match="not a map"):
-        pricing.load_tables(doc)
+@pytest.mark.parametrize(("groups", "reason"), [
+    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
+      {"threshold": 200_000, "models": ["gpt-5-4"]}], "duplicate threshold"),
+    ([{"threshold": 200_000, "models": []}], "models is empty"),
+    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
+      {"threshold": 100_000, "models": ["gpt-5-6-sol"]}], "more than once"),
+    ([{"threshold": 200_000, "models": ["gpt-9-ghost"]}], "gpt-9-ghost"),
+    ([{"models": ["gpt-5-6-sol"]}], "positive integer threshold"),
+    ([{"threshold": 0, "models": ["gpt-5-6-sol"]}], "positive integer threshold"),
+    ([{"threshold": 200_000, "models": [
+        {"gpt-5-6-sol": {"input_mult": 0}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {"gpt-5-6-sol": {"input_mult": float("inf")}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {"gpt-5-6-sol": {"mult": 2.0}}]}], "unknown field"),
+    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"], "extra": True}],
+     "unknown field"),
+    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
+      {"threshold": 100_000, "models": ["gpt-5-6-sol"]}], "more than once"),
+    ({"gpt-5-6-sol": {"threshold": 200_000}}, "list of groups"),
+])
+def test_grouped_long_context_meter_rules_are_refused(groups, reason):
+    with pytest.raises(ValueError, match=reason):
+        pricing.load_tables(_grouped_meter_doc(groups))
 
 
 def _extending_ids() -> list[tuple[str, str]]:

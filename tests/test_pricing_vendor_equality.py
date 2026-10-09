@@ -64,7 +64,7 @@ def _old_doc() -> dict:
     claude-old-window-9 carries a real dated window: the equality claim
     covers pricing ACROSS a cutover, not only windowless list prices."""
     return {
-        "long_context_models": [],
+        "long_context_meters": [],
         "models": {
             "claude-opus-4-7": [_entry(R_THIRD)],
             "claude-old-opus-9": [_entry(R_OLD)],
@@ -86,7 +86,7 @@ def _old_doc() -> dict:
 def _new_doc() -> dict:
     """The same rows in their post-migration locations."""
     return {
-        "long_context_models": [],
+        "long_context_meters": [],
         "models": {"claude-opus-4-7": [_entry(R_THIRD)]},
         "openrouter": {
             "data_region": "global",
@@ -249,14 +249,14 @@ def test_refusal_leaves_a_tracked_entry_and_member_untouched():
     before, _ = _run(
         _vrf_doc(tracked={GPT_KEY: dict(TRACKED)}),
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", banded))})
-    assert GPT_KEY in before["long_context_models"]
+    assert GPT_KEY in pricing.load_tables(before)["LONG_CONTEXT_MODELS"]
     after, out = _run(
         before,
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
     assert len(out.refusals) == 1 and not out.notices
     assert "weekly schedule" in out.refusals[0]
     assert after["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert GPT_KEY in after["long_context_models"]
+    assert GPT_KEY in pricing.load_tables(after)["LONG_CONTEXT_MODELS"]
     assert out.moves == []
 
 
@@ -324,7 +324,7 @@ def test_a_rowless_tracked_family_key_is_skipped_by_the_tier_fallback(
     through — instead of raising the KeyError that would make
     `import backend.pricing` fail and strand the hourly bot's commit."""
     doc = {
-        "long_context_models": [],
+        "long_context_meters": [],
         "models": {"claude-opus-4-7": [_entry(R_THIRD)]},
         "openrouter": {"data_region": "global",
                        "models": {"claude-opus-9": {"id": "acme/claude-opus.9",

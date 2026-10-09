@@ -198,8 +198,8 @@ def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
 
 def test_a_gpt_5_5_codex_record_bills_the_long_context_meter():
     """OpenAI bills gpt-5.5 above 272k input at the meter's own shape (2x
-    the input side, 1.5x output), so the dashed key joins
-    long_context_models: membership decides at reprice (the flag is
+    the input side, 1.5x output), so the dashed key appears in
+    long_context_meters: membership decides at reprice (the flag is
     recomputed from stored tokens), while a fresh parse bills the meter on
     the threshold alone. Both are pinned."""
     ts = _to_dt("2026-08-24T12:00:00.000Z")

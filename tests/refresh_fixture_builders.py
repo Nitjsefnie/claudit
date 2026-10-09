@@ -9,6 +9,8 @@ import copy
 import re
 from decimal import Decimal
 
+from backend.long_context import LONG_CONTEXT_THRESHOLD
+
 
 def _per_token(rate: float) -> str:
     """OpenRouter's spelling: USD per token, as a decimal string."""
@@ -84,14 +86,33 @@ def seed_doc(*, members=None, meters=None, models=None, tracked=None,
              providers=None, resolve=None, prefixes=None,
              fetched="2030-01-01T00:00:00Z") -> dict:
     """The minimal loadable seed document (issue #858): every section the
-    loaders demand plus the default estimate's row. Callers add their own
-    rows through the keyword arguments — extra models-table rows, tracked
-    entries, provider rows, vendor resolve pins, the prefix list, the
-    per-model meter map, the fetch stamp — and every doc they build loads
-    for the same reason."""
+    loaders demand plus the default estimate's row. ``members`` and
+    ``meters`` are test conveniences that fold into the one grouped
+    ``long_context_meters`` field. Callers add their own rows through the
+    keyword arguments — extra models-table rows, tracked entries, provider
+    rows, vendor resolve pins, the prefix list, and the fetch stamp — and
+    every doc they build loads for the same reason."""
+    meter_entries = {}
+    for key in members or []:
+        meter_entries[key] = dict((meters or {}).get(key) or {
+            "threshold": LONG_CONTEXT_THRESHOLD})
+    for key, entry in (meters or {}).items():
+        meter_entries.setdefault(key, dict(entry))
+    by_threshold = {}
+    for key, entry in meter_entries.items():
+        threshold = entry.get("threshold", LONG_CONTEXT_THRESHOLD)
+        factors = {field: entry[field] for field in ("input_mult", "output_mult")
+                   if field in entry}
+        model = {key: factors} if factors else key
+        by_threshold.setdefault(threshold, []).append(model)
+    grouped_meters = [
+        {"threshold": threshold,
+         "models": sorted(models, key=lambda model: (
+             next(iter(model)) if isinstance(model, dict) else model))}
+        for threshold, models in sorted(by_threshold.items())
+    ]
     return {
-        "long_context_models": list(members or []),
-        "long_context_meters": dict(meters or {}),
+        "long_context_meters": grouped_meters,
         "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
                    **(copy.deepcopy(models) if models else {})},
         "openrouter": {"data_region": "global",
