@@ -93,7 +93,7 @@ function txToDashData(tx) {
       const out = us.output_tokens || 0;
       const cc  = us.cache_creation_input_tokens || 0;
       const cr  = us.cache_read_input_tokens || 0;
-      if ((inp + cc + cr) === 0) continue; // refusal/interrupt
+      if ((inp + cc + cr) === 0 && (u.web_search_requests || 0) === 0) continue; // refusal/interrupt
       const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
       const res = window.resolveModelRate(u.model, t, u.provider);
@@ -103,14 +103,14 @@ function txToDashData(tx) {
       // carry the flag and the inspector must match stored cost.
       const [lcIn, lcOut] = u.long_context
         ? window.longContextFactorsFor(u.model) : [1.0, 1.0];
-      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000 + (res.fee || 0);
+      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000 + (u.web_search_requests || 0) * (r.search || 0);
       events.push({
         ts: t,
         session_id: sid,
         turn_index: turnIdx++,
         model: shortM(u.model),
         model_id: u.model,
-        provider: u.provider || null,
+        provider: u.provider || null, web_search_requests: u.web_search_requests || null,
         input_tokens: inp,
         output_tokens: out,
         cache_create: cc,
@@ -695,13 +695,13 @@ function TokenBreakdownPanel({ events }) {
   const filtered = useMemo(
     () => (activeModel ? events.filter(e => e.model === activeModel) : events),
     [events, activeModel]);
-  const { rows, tokenTotal, costTotal } = useMemo(
+  const { rows, costRows, tokenTotal, costTotal } = useMemo(
     () => window.computeTokenBreakdown(filtered), [filtered]);
   // A free lane (bonsai-2-27b at $0) gives every row cost 0, and
   // computeTokenBreakdown floors costTotal at 1 to keep the division
   // finite — so the bars would all read "$0 (0.0%)" rather than say
   // nothing. Drop the bar instead; the token bar above is unaffected.
-  const hasCost = rows.some(r => r.cost > 0);
+  const hasCost = costRows.some(r => r.cost > 0);
 
   // One bordered card (matching the sibling "Cost by Model" card) so the
   // shared model filter visibly belongs to the whole Token Breakdown panel
@@ -739,7 +739,7 @@ function TokenBreakdownPanel({ events }) {
       {hasCost && (
       <window.HBar embedded listPanel
         title="Token Breakdown — by cost"
-        rows={[...rows].map(r => ({ ...r, value: r.cost })).sort((a, b) => b.value - a.value)}
+        rows={[...costRows].map(r => ({ ...r, value: r.cost })).sort((a, b) => b.value - a.value)}
         fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costTotal * 100).toFixed(1)}%)`} />
       )}
     </div>

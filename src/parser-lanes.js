@@ -72,7 +72,8 @@ function laneInt(v) {
 // One billing record, in the Claude parser's meta shape. `uuid` mirrors
 // the backend's records.uuid (used only for optional cross-file dedup —
 // the Inspector loads one file at a time).
-function laneUsageMeta(line, tsIso, uuid, model, fresh, create, read, output, longContext) {
+function laneUsageMeta(line, tsIso, uuid, model, fresh, create, read, output,
+                       longContext, webSearchRequests = null) {
   return {
     line,
     type: 'assistant_usage',
@@ -88,6 +89,7 @@ function laneUsageMeta(line, tsIso, uuid, model, fresh, create, read, output, lo
       output_tokens: output,
     },
     long_context: !!longContext,
+    web_search_requests: webSearchRequests,
   };
 }
 

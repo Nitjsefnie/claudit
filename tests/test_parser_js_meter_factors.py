@@ -39,7 +39,6 @@ def test_one_sided_meter_factor_matches_backend_and_browser(monkeypatch):
       window.modelRates[{json.dumps(model_key)}] = {{
         fresh: 7.0, c5: 8.75, c1h: 14.0, read: 0.7, out: 35.0 }};
       delete window.datedRates[{json.dumps(model_key)}];
-      delete window.modelFees[{json.dumps(model_key)}];
       window.longContextModels = [{json.dumps(model_key)}];
       window.longContextMeters = {{{json.dumps(model_key)}: {json.dumps(meter)}}};
       require({str(RATES_JS)!r});

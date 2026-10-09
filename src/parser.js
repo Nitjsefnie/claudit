@@ -81,6 +81,37 @@ window.parseTranscript = function parseTranscript(text, opts) {
     return existing; // type mismatch — keep existing
   }
 
+  function searchRequests(usage) {
+    const iterations = Array.isArray(usage.iterations)
+      ? usage.iterations.filter((item) => item && typeof item === 'object'
+        && !Array.isArray(item)) : [];
+    let nestedServerUsage = false;
+    let total = 0;
+    let found = false;
+    for (const source of iterations) {
+      const server = source.server_tool_use;
+      if (!server || typeof server !== 'object' || Array.isArray(server)) {
+        continue;
+      }
+      for (const [key, value] of Object.entries(server)) {
+        if (!Number.isInteger(value) && typeof value !== 'boolean') continue;
+        nestedServerUsage = true;
+        if (key === 'web_search_requests') {
+          total += typeof value === 'boolean' ? Number(value) : value;
+          found = true;
+        }
+      }
+    }
+    if (iterations.length && nestedServerUsage) {
+      return found && total >= 0 ? total : null;
+    }
+    const server = usage.server_tool_use;
+    const count = server && typeof server === 'object'
+      ? server.web_search_requests : null;
+    if (Number.isInteger(count) && count >= 0) return count;
+    return found ? total : null;
+  }
+
   // Sniff a tool_result / user_message body for off-disk references:
   // - <task-notification>…<output-file>…</output-file>…</task-notification>
   //   pointing at a sibling agent-<id>.jsonl (subagent transcript)
@@ -288,6 +319,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
           // The meter decision (issue #765), recomputed after a streaming
           // merge below — mirrors parse._project_record.
           long_context: window.longContextFlagFor(m.model, usage),
+          web_search_requests: searchRequests(usage),
           usage: { ...usage },
         };
         if (mergeKey && seenReq.has(mergeKey)) {
@@ -295,6 +327,10 @@ window.parseTranscript = function parseTranscript(text, opts) {
           // reported incrementally, plus nested cache_creation dict.
           const existing = seenReq.get(mergeKey);
           existing.usage = mergeUsageMax(existing.usage, usage);
+          if (ev.web_search_requests !== null) {
+            existing.web_search_requests = Math.max(
+              existing.web_search_requests || 0, ev.web_search_requests);
+          }
           if (existing.provider == null) existing.provider = ev.provider;
           existing.long_context = window.longContextFlagFor(existing.model, existing.usage);
         } else {
@@ -369,6 +405,7 @@ window.computeSessionStats = function (events, meta) {
     toolCounts: {},
     models: new Set(),
     fresh: 0, create: 0, read: 0, output: 0, eph5: 0, eph1h: 0,
+    webSearchRequests: 0,
     turns: 0,
     cost: 0,
   };
@@ -456,14 +493,17 @@ window.computeSessionStats = function (events, meta) {
     stats.eph5 += eph5; stats.eph1h += eph1h;
 
     const r = rate(m.model || '', m.ts, m.provider);
+    const searches = Number.isInteger(m.web_search_requests)
+      && m.web_search_requests >= 0 ? m.web_search_requests : 0;
+    stats.webSearchRequests += searches;
     const unsplit = Math.max(0, cc - eph5 - eph1h);
     // The model's long-context factors apply to the whole record; lanes
     // set m.long_context at parse time and the inspector must match the DB.
     const [lcIn, lcOut] = m.long_context
       ? window.longContextFactorsFor(m.model || '') : [1.0, 1.0];
     // pricing.compute_cost's operation order, term for term — same
-    // multiplies, same per-term division — plus the serving host's
-    // per-request fee (issue #469), folded once per record exactly as
+    // multiplies, same per-term division — plus the explicit web-search
+    // rate times this record's request count, exactly as
     // the backend folds it, and rounded per record like the stored
     // cost_usd column: Python's round(x, 6), half-even on the exact
     // expansion (round6HalfEven above). Each record's cost here IS the
@@ -474,7 +514,7 @@ window.computeSessionStats = function (events, meta) {
       + (eph1h + unsplit) * r.rates.c1h * lcIn / 1_000_000
       + cr * r.rates.read * lcIn / 1_000_000
       + o * r.rates.out * lcOut / 1_000_000
-      + (r.fee || 0)
+      + searches * (r.rates.search || 0)
     );
   }
 

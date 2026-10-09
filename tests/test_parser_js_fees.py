@@ -1,12 +1,4 @@
-"""The browser half of the per-request fee (issue #469).
-
-src/parser.js reads the same pricing.json (SV-RATE-DATA) and prices each
-record exactly as backend/pricing.py does, fees included — or the
-Inspector's per-record costs and the stored cost_usd disagree. Driven
-through node like test_parser_js_mirror.py: a copy of parser.js beside a
-stand-alone synthetic pricing.json in a tmp dir — never the repo's real
-file (SV-TEST-DATA: the live fee rows move under the refresh).
-"""
+"""Browser pricing charges an explicit web-search rate per search."""
 from __future__ import annotations
 
 import json
@@ -16,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.refresh_fixture_builders import RATES_B as RATES, seed_doc
+from tests.refresh_fixture_builders import RATES_B, seed_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -26,38 +18,42 @@ PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 
-FEE = 0.0137
-FEE2 = 0.045
+# Synthetic per-search rates, deliberately unlike the deployed listing.
+SEARCH_RATE = 0.0137
+SEARCH_RATE_2 = 0.045
 CUTOVER = "2026-08-01T00:00:00Z"
+OLD_FEE_NOTE = ("web_search $0.0137/request not modelled: per-request, "
+                "unpriceable from token counts")
 
 
 def _entry(rates: dict, **extra) -> dict:
-    return {"from": None, **{f: rates[f] for f in RATE_FIELDS}, **extra}
+    return {"from": None, **{field: rates[field] for field in RATE_FIELDS},
+            **extra}
 
 
-def _fee_note(amount: float) -> str:
-    return (f"web_search ${amount}/request not modelled: per-request, "
-            "unpriceable from token counts")
-
-
-def _doc() -> dict:
-    """The minimal seed doc plus the fee fixture's own rows."""
+def _doc(*, note: str | None = None) -> dict:
+    first = _entry(RATES_B, web_search=SEARCH_RATE)
+    second = {**_entry(RATES_B, web_search=SEARCH_RATE_2),
+              "from": CUTOVER}
+    if note is not None:
+        first = _entry(RATES_B, note=note)
+        second = {**_entry(RATES_B, note=note), "from": CUTOVER}
     return seed_doc(
-        models={"acme/acme-9": [_entry(RATES)]},
-        providers={"acme/acme-9": {"HostCo": [
-            _entry(RATES, note=_fee_note(FEE)),
-            {**_entry(RATES), "from": CUTOVER,
-             "note": "17% off; " + _fee_note(FEE2)}]}})
+        models={"acme/acme-9": [_entry(RATES_B)]},
+        providers={"acme/acme-9": {"HostCo": [first, second]}},
+    )
 
 
 @pytest.fixture(name="sandbox")
 def _sandbox(tmp_path, monkeypatch):
-    """parser.js + the synthetic pricing.json, alone in a tmp dir."""
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
+    for source, name in (
+        (LOADER_JS, "pricing-loader.js"),
+        (VENDOR_TABLES_JS, "vendor-tables.js"),
+        (HHMM_JS, "hhmm-spelling.js"),
+        (PARSER_JS, "parser.js"),
+        (RATES_JS, "rates.js"),
+    ):
+        shutil.copy(source, tmp_path / name)
     (tmp_path / "pricing.json").write_text(
         json.dumps(_doc(), indent=2, sort_keys=True), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -73,55 +69,66 @@ def _node(sandbox, script: str) -> dict:
     """
     proc = subprocess.run(
         ["node", "-e", bootstrap + script],
-        capture_output=True, text=True, timeout=60,
-        # Return code checked by hand on the next line.
-        check=False,
+        capture_output=True, text=True, timeout=60, check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_exposes_the_parsed_fees(sandbox):
-    got = _node(sandbox, """
-      console.log(JSON.stringify({
-        modelFees: window.modelFees,
-        providerFees: window.providerFees,
-      }));
+def test_browser_resolves_search_rate_at_the_records_timestamp(sandbox):
+    got = _node(sandbox, f"""
+      const rate = (ts) => window.resolveModelRate(
+        'acme/acme-9', ts, 'HostCo').rates.search;
+      console.log(JSON.stringify({{
+        before: rate('2026-07-01T00:00:00Z'),
+        after: rate('2026-08-02T00:00:00Z'),
+        list: rate(null),
+      }}));
     """)
-    assert got["modelFees"] == {}
-    assert got["providerFees"] == {
-        "acme/acme-9": {"HostCo": {"0": FEE, "1": FEE2}},
-    }
+    assert got == {"before": SEARCH_RATE, "after": SEARCH_RATE_2,
+                   "list": SEARCH_RATE_2}
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_resolves_the_entry_in_force_fee(sandbox):
+def test_browser_cost_charges_each_search_and_reports_the_count(sandbox):
     got = _node(sandbox, """
-      const r = (m, ts, p) => window.resolveModelRate(m, ts, p).fee;
-      console.log(JSON.stringify({
-        before: r('acme/acme-9', '2026-07-01T00:00:00Z', 'HostCo'),
-        after: r('acme/acme-9', '2026-08-02T00:00:00Z', 'HostCo'),
-        list: r('acme/acme-9', null, 'HostCo'),
-        bare: r('acme/acme-9', null, null),
-      }));
+      const usage = {
+        type: 'assistant_usage', line: 1,
+        ts: '2026-08-02T00:00:00Z', model: 'acme/acme-9',
+        provider: 'HostCo', web_search_requests: 3,
+        usage: { input_tokens: 1000000, output_tokens: 0,
+                 cache_creation_input_tokens: 0,
+                 cache_read_input_tokens: 0 },
+      };
+      const stats = window.computeSessionStats([], [usage]);
+      console.log(JSON.stringify({ cost: stats.cost,
+                                   searches: stats.webSearchRequests }));
     """)
-    assert got == {"before": FEE, "after": FEE2, "list": FEE2, "bare": 0.0}
+    assert got == {"cost": pytest.approx(2.0 + 3 * SEARCH_RATE_2),
+                   "searches": 3}
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_compute_session_stats_folds_the_fee(sandbox):
-    # One record on the fee row, 1M fresh tokens at 2.0/M plus the fee
-    # in force at the record's own ts; the rounded shape mirrors the
-    # stored cost_usd column's round(x, 6).
+def test_old_fee_shaped_note_is_not_a_rate_or_per_record_charge(sandbox):
+    (sandbox / "pricing.json").write_text(
+        json.dumps(_doc(note=OLD_FEE_NOTE), indent=2, sort_keys=True),
+        encoding="utf-8")
     got = _node(sandbox, """
-      const m = { type: 'assistant_usage', line: 1,
-                   ts: '2026-07-01T12:00:00Z', model: 'acme/acme-9',
-                   provider: 'HostCo',
-                   usage: { input_tokens: 1000000,
-                             cache_creation_input_tokens: 0,
-                             cache_read_input_tokens: 0,
-                             output_tokens: 0 } };
-      console.log(JSON.stringify(window.computeSessionStats([], [m]).cost));
+      const resolved = window.resolveModelRate(
+        'acme/acme-9', '2026-07-01T00:00:00Z', 'HostCo');
+      const usage = {
+        type: 'assistant_usage', line: 1,
+        ts: '2026-07-01T00:00:00Z', model: 'acme/acme-9',
+        provider: 'HostCo', web_search_requests: null,
+        usage: { input_tokens: 1000000, output_tokens: 0,
+                 cache_creation_input_tokens: 0,
+                 cache_read_input_tokens: 0 },
+      };
+      console.log(JSON.stringify({
+        searchRate: resolved.rates.search ?? 0,
+        hasFee: Object.prototype.hasOwnProperty.call(resolved, 'fee'),
+        cost: window.computeSessionStats([], [usage]).cost,
+      }));
     """)
-    assert got == pytest.approx(2.0 + FEE)
+    assert got == {"searchRate": 0, "hasFee": False, "cost": 2.0}

@@ -127,6 +127,8 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
                SUM(output_tokens)          AS output,
                SUM(eph5_tokens)            AS eph5,
                SUM(eph1h_tokens)           AS eph1h,
+               COALESCE(SUM(web_search_requests), 0)
+                                            AS web_search_requests,
                SUM(cost_usd)               AS cost_total,
                long_context_input_mult,
                long_context_output_mult
