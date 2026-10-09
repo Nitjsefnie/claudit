@@ -115,46 +115,74 @@ def _move_text(move: Move) -> str:
     windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
     search = _search_change(move)
     if move.source == "search":
-        old_search = move.old.get("web_search", 0.0) if move.old else 0.0
-        log_count = max(0, move.entries_appended - 1)
-        history = (f"; retained {log_count} token-history entries"
-                   if log_count else "")
-        verb = "changed" if move.old is not None else "new"
-        return (f"  {verb:<9} {move.host}: web_search {old_search!r} → "
-                f"{new.rates.get('web_search', 0.0)!r}, sampled at detection"
-                f"{history}{off}")
+        return _search_move_text(move, off)
     if move.source == "band":
-        verb = "changed" if move.old is not None else "new"
-        old = f"{old_rates['fresh']!r} → " if old_rates is not None else ""
-        fresh = move.entry_fresh if move.entry_fresh is not None \
-            else new.rates["fresh"]
-        search_text = f"; {search}" if search else ""
-        return (f"  {verb:<9} {move.host}: {move.entries_appended} entries "
-                f"with a band, newest prices fresh {old}{fresh!r}"
-                f"{search_text}{off}")
+        return _band_move_text(move, new, old_rates, search, off)
     if move.source == "log" and (move.entries_appended > 1 or search):
-        count = move.entries_appended
-        unit = "entry" if count == 1 else "entries"
-        if move.old is None:
-            token_text = f"newest fresh {new.rates['fresh']!r}"
-        elif search:
-            changed = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
-                       for field in _RATE_FIELDS
-                       if old_rates[field] != new.rates[field]]
-            token_text = ", ".join(changed) if changed else "token rates unchanged"
-        else:
-            token_text = (f"newest fresh {old_rates['fresh']!r} → "
-                          f"{new.rates['fresh']!r}")
-        search_text = f"; {search}" if search else ""
-        verb = "new" if move.old is None else "changed"
-        return (f"  {verb:<9} {move.host}: {count} log {unit}, "
-                f"{token_text}{search_text}{off}")
+        return _logged_move_text(move, new, old_rates, search, off)
     if move.old is None:
-        rates = ", ".join(f"{field} {new.rates[field]!r}" for field in _RATE_FIELDS)
-        search = new.rates.get("web_search", 0.0)
-        if search:
-            rates += f", web_search {search!r}"
-        return f"  new       {move.host}: {rates}{windows}{off}"
+        return _new_move_text(move, new, windows, off)
+    return _changed_move_text(move, new, old_rates, off)
+
+
+def _search_move_text(move: Move, off: str) -> str:
+    """Format an independently sampled search-rate move."""
+    old_search = move.old.get("web_search", 0.0) if move.old else 0.0
+    log_count = max(0, move.entries_appended - 1)
+    history = (f"; retained {log_count} token-history entries"
+               if log_count else "")
+    verb = "changed" if move.old is not None else "new"
+    return (f"  {verb:<9} {move.host}: web_search {old_search!r} → "
+            f"{move.new.rates.get('web_search', 0.0)!r}, sampled at detection"
+            f"{history}{off}")
+
+
+def _band_move_text(move: Move, new, old_rates: dict | None,
+                    search: str | None, off: str) -> str:
+    """Format a history move that carries an oscillation band."""
+    verb = "changed" if move.old is not None else "new"
+    old = f"{old_rates['fresh']!r} → " if old_rates is not None else ""
+    fresh = move.entry_fresh if move.entry_fresh is not None \
+        else new.rates["fresh"]
+    search_text = f"; {search}" if search else ""
+    return (f"  {verb:<9} {move.host}: {move.entries_appended} entries "
+            f"with a band, newest prices fresh {old}{fresh!r}"
+            f"{search_text}{off}")
+
+
+def _logged_move_text(move: Move, new, old_rates: dict | None,
+                      search: str | None, off: str) -> str:
+    """Format a log-backed move with multiple history entries or search."""
+    count = move.entries_appended
+    unit = "entry" if count == 1 else "entries"
+    if move.old is None:
+        token_text = f"newest fresh {new.rates['fresh']!r}"
+    elif search:
+        changed = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
+                   for field in _RATE_FIELDS
+                   if old_rates[field] != new.rates[field]]
+        token_text = ", ".join(changed) if changed else "token rates unchanged"
+    else:
+        token_text = (f"newest fresh {old_rates['fresh']!r} → "
+                      f"{new.rates['fresh']!r}")
+    search_text = f"; {search}" if search else ""
+    verb = "new" if move.old is None else "changed"
+    return (f"  {verb:<9} {move.host}: {count} log {unit}, "
+            f"{token_text}{search_text}{off}")
+
+
+def _new_move_text(move: Move, new, windows: str, off: str) -> str:
+    """Format a newly tracked listing."""
+    rates = ", ".join(f"{field} {new.rates[field]!r}" for field in _RATE_FIELDS)
+    search = new.rates.get("web_search", 0.0)
+    if search:
+        rates += f", web_search {search!r}"
+    return f"  new       {move.host}: {rates}{windows}{off}"
+
+
+def _changed_move_text(move: Move, new, old_rates: dict | None,
+                       off: str) -> str:
+    """Format changes to an existing endpoint's stored listing."""
     moved = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
              for field in _RATE_FIELDS if old_rates[field] != new.rates[field]]
     if move.old.get("web_search", 0.0) != new.rates.get("web_search", 0.0):

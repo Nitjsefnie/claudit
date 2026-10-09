@@ -299,11 +299,11 @@ def _fold_meter(groups: list, key: str, meter: dict | None) -> bool:
 
     threshold = meter["threshold"]
     factors = {}
-    for field, default in (
+    for multiplier_field, default in (
             ("input_mult", pricing.LONG_CONTEXT_INPUT_MULT),
             ("output_mult", pricing.LONG_CONTEXT_OUTPUT_MULT)):
-        if meter[field] != default:
-            factors[field] = meter[field]
+        if meter[multiplier_field] != default:
+            factors[multiplier_field] = meter[multiplier_field]
     entry = {key: factors} if factors else key
     if old is not None:
         old_group, old_index, old_entry = old
