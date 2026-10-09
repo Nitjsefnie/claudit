@@ -26,9 +26,9 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
 from backend.turn_flags import TurnWindow
 from backend.bash_churn import BashCommand, replace_churn
 from backend import bash_churn_errors, bash_reads
+from backend.ctx_turns import _build_ctx_turns
 from backend.prompt_gate import _is_prompt_text
-from backend.parse_common import (_build_ctx_turns, _dispatch_prompt_shape,
-                                  _to_dt, iter_lines)
+from backend.parse_common import _dispatch_prompt_shape, _to_dt, iter_lines
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list

@@ -35,11 +35,9 @@ def effective_schedule(schedule: list | None) -> list | None:
 
 
 def _walk_histories(doc: dict):
-    for history in doc.get("models", {}).values():
-        yield history
+    yield from doc.get("models", {}).values()
     for hosts in doc.get("providers", {}).values():
-        for history in hosts.values():
-            yield history
+        yield from hosts.values()
 
 
 def expand_pricing_doc(doc: dict) -> dict:

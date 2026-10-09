@@ -94,9 +94,8 @@ def _empty_model_entry(model: str) -> dict:
     }
 
 
-def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
-                        cr: int, output: int, eph5: int, eph1h: int,
-                        unsplit: int, long_context: bool = False,
+def _accumulate_buckets(entry: dict, rates: dict, tokens: dict,
+                        long_context: bool = False,
                         factors: tuple[float, float] | None = None) -> None:
     """Price one row's tokens into the entry's per-epoch cost buckets.
 
@@ -105,6 +104,13 @@ def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
     fallback remains independent of today's model meter.
     """
     b = entry["_buckets"]
+    fresh = tokens["fresh"]
+    cc = tokens["cache_create"]
+    cr = tokens["cache_read"]
+    output = tokens["output"]
+    eph5 = tokens["eph5"]
+    eph1h = tokens["eph1h"]
+    unsplit = max(0, cc - eph5 - eph1h)
     in_mult, out_mult = factors if long_context and factors is not None else (
         (pricing.LONG_CONTEXT_INPUT_MULT, pricing.LONG_CONTEXT_OUTPUT_MULT)
         if long_context else (1.0, 1.0))
@@ -135,23 +141,38 @@ def _accumulate_model_row(
     cost when its rows came from several hosts.
     """
     model, provider, tokens, res = _model_row_pricing(row, pair_bounds)
+    entry = _model_entry(acc, model, provider, by_provider)
+    entry["estimated_rate"] = entry["estimated_rate"] or res.estimated
+    entry["turns"] += int(row[4] or 0)
+    for field, value in tokens.items():
+        entry[field] += value
+    search_requests, stored, long_context, factors = _row_bucket_details(row)
+    entry["cost_total"] += stored
+    _accumulate_row_buckets(
+        entry, res, tokens, long_context, stored, search_requests,
+        scaled=res.scheduled, factors=factors)
+
+
+def _model_entry(acc: dict, model: str, provider: str | None,
+                 by_provider: bool) -> dict:
+    """Return the fold entry for one model row, creating it when needed."""
     key = (model, provider) if by_provider else model
     if key not in acc:
         acc[key] = _empty_model_entry(model)
         if by_provider:
             acc[key]["provider"] = provider
-    entry = acc[key]
-    entry["estimated_rate"] = entry["estimated_rate"] or res.estimated
-    entry["turns"] += int(row[4] or 0)
-    for field, value in tokens.items():
-        entry[field] += value
+    return acc[key]
+
+
+def _row_bucket_details(
+        row) -> tuple[int, float, bool, tuple[float, float] | None]:
+    """Read the stored cost and optional search and meter columns."""
     # The API query includes the nullable search-count sum between token
     # totals and stored cost. Accept the prior in-memory test tuple shape.
     has_search_count = len(row) >= 15
     search_requests = int(row[11] or 0) if has_search_count else 0
     stored_index = 12 if has_search_count else 11
     stored = float(row[stored_index] or 0)
-    entry["cost_total"] += stored
     long_context = bool(row[3])
     factors = None
     if long_context:
@@ -164,9 +185,7 @@ def _accumulate_model_row(
             float(output_mult) if output_mult is not None
             else pricing.LONG_CONTEXT_OUTPUT_MULT,
         )
-    _accumulate_row_buckets(
-        entry, res, tokens, bool(row[3]), stored, search_requests,
-        scaled=res.scheduled, factors=factors)
+    return search_requests, stored, long_context, factors
 
 
 def _model_row_pricing(
@@ -200,11 +219,7 @@ def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
     search_cost = search_requests * res.rates.get("web_search", 0.0)
     target = {"_buckets": dict.fromkeys(entry["_buckets"], 0.0)} \
         if (res.scheduled or scaled or search_requests) else entry
-    _accumulate_buckets(
-        target, res.rates, tokens["fresh"], tokens["cache_create"],
-        tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
-        max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
-        long_context, factors)
+    _accumulate_buckets(target, res.rates, tokens, long_context, factors)
     if target is not entry:
         derived = sum(value for key, value in target["_buckets"].items()
                       if key != "web_search")
