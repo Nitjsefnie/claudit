@@ -121,7 +121,7 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
     )
 
 
-def test_cache_fold_places_search_only_cost_in_each_rate_epoch(
+def test_cache_fold_uses_stored_total_for_zero_token_search_rows(
         codex_app, monkeypatch):
     model, host = "gpt-5.6-sol", "SearchHost"
     cutover = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -162,6 +162,56 @@ def test_cache_fold_places_search_only_cost_in_each_rate_epoch(
     assert model_row["cost_total"] == pytest.approx(0.1624)
     assert model_row["cost_buckets"]["web_search"] == pytest.approx(0.1624)
     assert sum(model_row["cost_buckets"].values()) == pytest.approx(0.1624)
+
+
+def test_cache_fold_places_token_and_search_cost_in_each_rate_epoch(
+        codex_app, monkeypatch):
+    """The real SQL epoch grouping must price both nonzero token and search
+    components at their own dated rates."""
+    # sv-test-data: synthetic fresh/search rates and independently calculated totals.
+    model, host = "gpt-5.6-sol", "SearchHost"
+    cutover = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    old_search, new_search = 0.0137, 0.045
+    token_rates = {"fresh": 2.0, "create_5m": 0.0, "create_1h": 0.0,
+                   "read": 0.0, "output": 0.0}
+    before = {**token_rates, "web_search": old_search}
+    after = {**token_rates, "web_search": new_search}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("gpt-5-6-sol", host): after})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        ("gpt-5-6-sol", host): [(cutover, before)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
+
+    with db.viz_conn() as c:
+        file_key = c.execute(
+            "SELECT file_key FROM records LIMIT 1").fetchone()[0]
+        c.execute("DELETE FROM records WHERE file_key = %s", (file_key,))
+        c.execute("UPDATE usage_rollup SET provider = %s WHERE model = %s",
+                  (host, model))
+        for line_num, ts, fresh, searches, cost in (
+                (1, cutover - timedelta(seconds=1), 1_000_000, 2, 2.0274),
+                (2, cutover, 2_000_000, 3, 4.135)):
+            c.execute(
+                "INSERT INTO records (file_key, line_num, ts, model, "
+                "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
+                "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, "
+                "web_search_requests, provider, pricing_version) "
+                "VALUES (%s, %s, %s, %s, %s, 0, 0, 0, 0, 0, %s, %s, %s, %s)",
+                (file_key, line_num, ts, model, fresh, cost, searches,
+                 host, constants.PRICING_VERSION),
+            )
+        c.commit()
+
+    body = codex_app.get("/api/cache?range=3650d").json()
+    model_row = next(row for row in body["per_model"] if row["model"] == model)
+    expected_search = 2 * old_search + 3 * new_search
+    assert model_row["cost_total"] == pytest.approx(6.1624)
+    assert model_row["cost_buckets"]["web_search"] == pytest.approx(
+        expected_search)
+    assert model_row["cost_buckets"]["fresh"] == pytest.approx(6.0)
+    assert sum(model_row["cost_buckets"].values()) == pytest.approx(6.1624)
 
 
 def test_mixed_stored_factor_pairs_decompose_stored_total(

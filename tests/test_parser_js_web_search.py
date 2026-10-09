@@ -29,6 +29,21 @@ def test_browser_search_counts_match_each_lane_backend_record(name):
         record["web_search_requests"] for record in backend]
 
 
+@pytest.mark.parametrize("name", [
+    "kimi_code_min.jsonl",
+    "kimi_legacy_min.jsonl",
+])
+def test_each_kimi_wire_has_an_explicit_null_search_count(name):
+    backend = _backend_records(name)
+    browser = _browser_records(name)
+
+    assert backend
+    assert [record["web_search_requests"] for record in backend] == [
+        None] * len(backend)
+    assert [record["web_search_requests"] for record in browser] == [
+        None] * len(browser)
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_claude_server_search_count_matches_backend():
     blob = CLAUDE_FIXTURE.read_bytes()
