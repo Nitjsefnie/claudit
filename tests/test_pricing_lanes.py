@@ -53,7 +53,8 @@ def test_long_context_doubles_input_side_and_raises_output_by_half(
     kw: dict[str, Any] = {"fresh": 1, "output": 1, "eph5": 0,
                           "eph1h": 1, "unsplit_create": 0, "read": 1}
     base = pricing.compute_cost(model, **kw)
-    long = pricing.compute_cost(model, long_context=True, **kw)
+    long = pricing.compute_cost(
+        model, adjustments=pricing.CostAdjustments(long_context=True), **kw)
     scale = 1_000_000
     assert base == pytest.approx(
         (rates["fresh"] + rates["output"] + rates["create_1h"]
@@ -77,7 +78,8 @@ def test_long_context_multiplier_applies_to_5m_cache_writes(
     kw: dict[str, Any] = {"fresh": 0, "output": 0, "eph5": 1,
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
     base = pricing.compute_cost(model, **kw)
-    long = pricing.compute_cost(model, long_context=True, **kw)
+    long = pricing.compute_cost(
+        model, adjustments=pricing.CostAdjustments(long_context=True), **kw)
     assert base == pytest.approx(create_5m / 1_000_000, rel=1e-12)
     assert long == pytest.approx(2 * create_5m / 1_000_000, rel=1e-12)
 
@@ -92,7 +94,7 @@ def test_long_context_defaults_off_for_every_existing_caller(
     kw: dict[str, Any] = {"fresh": 1, "output": 0, "eph5": 0,
                           "eph1h": 0, "unsplit_create": 0, "read": 0}
     assert pricing.compute_cost(model, **kw) == pricing.compute_cost(
-        model, long_context=False, **kw)
+        model, adjustments=pricing.CostAdjustments(long_context=False), **kw)
 
 
 @pytest.mark.parametrize("model,before,rates", [

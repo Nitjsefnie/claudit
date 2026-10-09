@@ -48,7 +48,8 @@ def _cost(*, requests: int | None, res=None) -> float:
     return pricing.compute_cost(
         "acme/acme-9", fresh=1_000_000, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=None,
-        web_search_requests=requests, res=res,
+        adjustments=pricing.CostAdjustments(web_search_requests=requests),
+        res=res,
     )
 
 
@@ -90,7 +91,8 @@ def test_vendor_search_rate_is_loaded_for_the_bare_model(monkeypatch):
     assert res.rates["web_search"] == SEARCH_RATE
     assert pricing.compute_cost(
         "acme-9", fresh=0, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, web_search_requests=2, res=res,
+        unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(web_search_requests=2), res=res,
     ) == pytest.approx(2 * SEARCH_RATE)
 
 

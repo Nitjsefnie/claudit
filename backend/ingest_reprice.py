@@ -250,8 +250,10 @@ def _record_updates(row: _StaleRow) -> dict:
         eph1h=row.eph1h_tokens,
         unsplit_create=unsplit_create,
         read=row.cache_read_tokens,
-        long_context=bool(long_context),
-        web_search_requests=row.web_search_requests,
+        adjustments=pricing.CostAdjustments(
+            long_context=bool(long_context),
+            web_search_requests=row.web_search_requests,
+        ),
         res=res,
     )
     input_mult, output_mult = (pricing.long_context_factors(row.model)

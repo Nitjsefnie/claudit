@@ -182,6 +182,27 @@ def test_compute_cost_prices_fresh_at_the_fresh_rate():
     assert cost == pytest.approx(fresh / 1_000_000, rel=1e-12)
 
 
+def test_compute_cost_applies_grouped_adjustments(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    model = "acme/adjustments-9"
+    rates = dict.fromkeys(pricing.RATE_FIELDS, 0.0)
+    rates.update(fresh=1.0, output=2.0, web_search=0.25)
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
+        model: {"input_mult": 2.0, "output_mult": 3.0},
+    })
+
+    cost = pricing.compute_cost(
+        model, fresh=1_000_000, output=1_000_000, eph5=0, eph1h=0,
+        unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(
+            long_context=True, web_search_requests=2),
+    )
+
+    assert cost == pytest.approx(8.5)
+
+
 def test_unsplit_cache_charges_at_1h_rate(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """A cache write with no declared TTL is priced as the 1h tier.

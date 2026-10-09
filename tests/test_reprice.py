@@ -200,7 +200,7 @@ def _seeded_cost() -> float:
     as they stand right now."""
     return round(pricing.compute_cost(
         _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        long_context=False), 6)
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)
 
 
 # A synthetic search price, deliberately unlike a deployed listing.
@@ -241,7 +241,7 @@ def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
     cost, old_fee, searches = row
     expected = round(pricing.compute_cost(
         _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        web_search_requests=3,
+        adjustments=pricing.CostAdjustments(web_search_requests=3),
         res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
     assert float(cost) == expected
     assert old_fee is None
@@ -273,7 +273,8 @@ def test_reprice_restamps_when_search_cost_already_matches(fresh_db,
                                                            monkeypatch):
     _search_tables(monkeypatch)
     search_cost = round(pricing.compute_cost(
-        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS, web_search_requests=3,
+        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(web_search_requests=3),
         res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
     with db.viz_conn() as c:
         _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=search_cost,
@@ -473,7 +474,8 @@ def test_reprice_prices_a_provider_row(fresh_db,
     for line_num, cost, _version in rows:
         ts = before_ts if line_num == 1 else after_ts
         assert float(cost) == round(pricing.compute_cost(
-            prov.model, **_SEED_INPUTS, ts=ts, long_context=False,
+            prov.model, **_SEED_INPUTS, ts=ts,
+            adjustments=pricing.CostAdjustments(long_context=False),
             res=pricing.resolve(prov.model, ts, prov.host)), 6), \
             f"line {line_num} repriced by host"
 
@@ -506,7 +508,8 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
             c, "SELECT cost_usd, pricing_version FROM records "
                "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
     assert float(cost) == round(pricing.compute_cost(
-        prov.model, **_SEED_INPUTS, ts=ts, long_context=False,
+        prov.model, **_SEED_INPUTS, ts=ts,
+        adjustments=pricing.CostAdjustments(long_context=False),
         res=pricing.resolve(prov.model, ts, prov.host)), 6)
 
 
@@ -521,10 +524,12 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
     flat above the same threshold."""
     metered = round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=True)), 6)
     flat = round(pricing.compute_cost(
         _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
                         long_context=False)
@@ -556,7 +561,8 @@ def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch)
     monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset())
     flat = round(pricing.compute_cost(
         "unknown", fresh=280_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=True)), 6)
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="unknown", fresh_tokens=280_000,
                         long_context=True)
@@ -582,7 +588,8 @@ def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
     the band decision and the metered cost."""
     metered = round(pricing.compute_cost(
         "gpt-6-sol", fresh=300_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=True)), 6)
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=300_000)
         c.commit()
@@ -609,7 +616,8 @@ def test_reprice_unbills_a_lapsed_members_stored_true(fresh_db):
     what a reparse stores for every format."""
     flat = round(pricing.compute_cost(
         "claude-opus-4-7", fresh=250_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=False), 6)
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=250_000,
                         long_context=True)
@@ -653,7 +661,8 @@ def test_reprice_derives_a_provider_rows_flag_too(fresh_db):
     assert flag is True
     assert float(cost) == round(pricing.compute_cost(
         "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS, long_context=True,
+        unsplit_create=0, read=0, ts=_SEED_TS,
+        adjustments=pricing.CostAdjustments(long_context=True),
         res=pricing.resolve("gpt-5.6-sol", _SEED_TS, "OpenRouter")), 6)  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
     assert version == constants.PRICING_VERSION
 

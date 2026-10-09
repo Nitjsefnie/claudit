@@ -385,7 +385,7 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
     assert list(expected.values()) == [round(pricing.compute_cost(
         _OPUS376, fresh=10, output=1, eph5=0, eph1h=0, unsplit_create=0,
         read=0, ts=datetime(2026, 9, 10, 0, 30, tzinfo=UTC),
-        long_context=False), 6)]
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)]
 
     before = _stored_costs()
     next_version = str(int(constants.PRICING_VERSION) + 1)
