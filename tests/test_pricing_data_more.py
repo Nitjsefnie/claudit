@@ -19,6 +19,7 @@ from tests.test_pricing_data import (
     CUT,
     DAMAGE,
     EDGE_STAMPS,
+    _GLM_MODEL_ID,
     LATER,
     MOVED,
     NEWCOMER,
@@ -178,13 +179,13 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
 
 def test_a_provider_row_that_begins_at_a_time_prices_from_then_on(monkeypatch):
     before = _at(CUT) - timedelta(seconds=1)
-    fallback = pricing.resolve("z-ai/glm-5.3-flash", before)
+    fallback = pricing.resolve(_GLM_MODEL_ID, before)
     for name, value in pricing.load_tables(_with_newcomer()).items():
         monkeypatch.setattr(pricing, name, value)
     assert _at(CUT) in pricing.RATE_EPOCHS
-    assert pricing.resolve("z-ai/glm-5.3-flash", before, "Newcomer") == fallback
-    assert pricing.rate_for("z-ai/glm-5.3-flash", _at(CUT), "Newcomer") == NEWCOMER
-    assert pricing.rate_for("z-ai/glm-5.3-flash", None, "Newcomer") == NEWCOMER
+    assert pricing.resolve(_GLM_MODEL_ID, before, "Newcomer") == fallback
+    assert pricing.rate_for(_GLM_MODEL_ID, _at(CUT), "Newcomer") == NEWCOMER
+    assert pricing.rate_for(_GLM_MODEL_ID, None, "Newcomer") == NEWCOMER
 
 
 @needs_node
@@ -199,7 +200,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     before = _stamp(_at(CUT) - timedelta(seconds=1))
     got = _node(tmp_path / "parser.js", f"""
-      const m = 'z-ai/glm-5.3-flash';
+      const m = {json.dumps(_GLM_MODEL_ID)};
       console.log(JSON.stringify({{
         before: window.resolveModelRate(m, {json.dumps(before)}, 'Newcomer'),
         fallback: window.resolveModelRate(m, {json.dumps(before)}),
@@ -290,7 +291,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
 
 @pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
 def test_a_malformed_schedule_is_refused(schedule):
-    with pytest.raises(ValueError, match=r"z-ai/glm-5-3-flash via Novita\[\d+\]"):
+    with pytest.raises(ValueError, match=r"glm-5-3-flash via Novita\[\d+\]"):
         pricing.load_tables(_with_schedule(schedule))
 
 
@@ -298,7 +299,7 @@ def test_a_malformed_schedule_is_refused(schedule):
 @pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
 def test_a_malformed_schedule_is_refused_in_the_browser(tmp_path, schedule):
     error = _node_load(tmp_path, _with_schedule(schedule))
-    assert error and ("z-ai/glm-5-3-flash via Novita[" in error or "spells a schedule" in error), error
+    assert error and ("glm-5-3-flash via Novita[" in error or "spells a schedule" in error), error
 
 
 def test_a_model_row_cannot_carry_a_schedule():
@@ -313,7 +314,7 @@ def test_a_model_row_cannot_carry_a_schedule_in_the_browser(tmp_path):
 
 
 def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
-    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    model, host = _GLM_MODEL_ID, "Newcomer"
     before = _at(CUT) - timedelta(seconds=1)
     fallback = pricing.resolve(model, before)
     for name, value in pricing.load_tables(_newcomer_then_moved()).items():
@@ -327,7 +328,7 @@ def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
 
 
 def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch):
-    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    model, host = _GLM_MODEL_ID, "Newcomer"
     for name, value in pricing.load_tables(_newcomer_then_moved()).items():
         monkeypatch.setattr(pricing, name, value)
     start = _at(CUT).replace(tzinfo=None)
@@ -339,7 +340,7 @@ def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch)
 @needs_node
 def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
     doc = _newcomer_then_moved()
-    model, host = "z-ai/glm-5.3-flash", "Newcomer"
+    model, host = _GLM_MODEL_ID, "Newcomer"
     stamps = [_stamp(_at(CUT) - timedelta(seconds=1)), CUT,
               _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")

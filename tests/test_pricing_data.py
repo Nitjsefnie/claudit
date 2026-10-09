@@ -186,8 +186,8 @@ def _moved() -> dict:
     """The file after a busy hour: a new host, its later move, and a move
     on a seeded row."""
     doc = _with_newcomer()
-    novita = doc["providers"]["z-ai/glm-5-3-flash"]["Novita"]
-    newcomer = doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"]
+    novita = doc["providers"][_GLM_MODEL]["Novita"]
+    newcomer = doc["providers"][_GLM_MODEL]["Newcomer"]
     newcomer_start = _latest_document_stamp(doc) + timedelta(seconds=1)
     newcomer[0]["from"] = _stamp(newcomer_start)
     cut = _stamp(newcomer_start + timedelta(seconds=1))
@@ -259,10 +259,14 @@ def test_both_sides_derive_the_same_tables_in_the_same_order():
         providers: window.providerRates,
         providerDated: window.providerDatedRates,
         vendorBare: window.vendorBare,
+        vendorPrefixes: window.vendorPrefixes,
+        vendorBareForms: window.vendorBareForms,
         vendorHosts: window.vendorHosts,
       }));
     """)
     assert got["vendorBare"] == pricing.VENDOR_BARE
+    assert got["vendorPrefixes"] == pricing.VENDOR_PREFIXES
+    assert got["vendorBareForms"] == list(pricing.VENDOR_BARE)
     assert got["vendorHosts"] == pricing.VENDOR_HOSTS
     assert [(k, _js_rates(r)) for k, r in got["models"]] == \
         list(pricing.MODEL_RATES.items())
@@ -288,6 +292,14 @@ def test_the_file_is_in_canonical_layout():
     assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
 
 
+def test_tracked_vendor_model_keys_use_bare_forms_only():
+    doc = _doc()
+    prefixes = doc["openrouter"]["vendor"]["prefixes"]
+    prefixed = [key for key in doc["openrouter"]["models"]
+                if any(key.startswith(f"{prefix}/") for prefix in prefixes)]
+    assert prefixed == []
+
+
 def test_neither_side_carries_a_rate_literal():
     """A second copy of a rate is what the file replaced. The cache-write
     field is unique to rate rows, so a literal one is a copied row."""
@@ -302,6 +314,7 @@ def test_neither_side_carries_a_rate_literal():
 
 _GLM_MODEL = "glm-5-3-flash"
 _GLM_HOST = "Z.AI"
+_GLM_MODEL_ID = _doc()["openrouter"]["models"][_GLM_MODEL]["id"]
 _GLM_HISTORY = _doc()["providers"][_GLM_MODEL][_GLM_HOST]
 CUT = _stamp(max(
     [_at(entry["from"]) for entry in _GLM_HISTORY if entry["from"]]
@@ -526,7 +539,7 @@ NEWCOMER = {"create_1h": 0.2, "create_5m": 0.2, "fresh": 0.2,
 
 def _with_newcomer() -> dict:
     doc = copy.deepcopy(_doc())
-    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"] = [
+    doc["providers"][_GLM_MODEL]["Newcomer"] = [
         {"from": CUT, **NEWCOMER}]
     return doc
 
@@ -559,13 +572,13 @@ SCHEDULE = [
     {"days": WEEKDAYS, "start": 0, "end": 100, "rates": R_NIGHT},
     {"start": 2200, "end": 200, "rates": R_WRAP},
 ]
-SCHEDULED = ("z-ai/glm-5-3-flash", "Novita")
+SCHEDULED = (_GLM_MODEL, "Novita")
 
 
 def _with_schedule(schedule=None) -> dict:
     doc = copy.deepcopy(_doc())
     model, host = SCHEDULED
-    source = doc["providers"]["z-ai/glm-5-3-flash"]["Novita"][-1]
+    source = doc["providers"][model][host][-1]
     rates = {f: source[f] for f in RATE_FIELDS}
     doc["providers"][model] = {host: [{
         "from": None, **rates,
@@ -624,7 +637,7 @@ MOVED = {"create_1h": 0.4, "create_5m": 0.4, "fresh": 0.4, "output": 1.8, "read"
 
 def _newcomer_then_moved() -> dict:
     doc = _with_newcomer()
-    doc["providers"]["z-ai/glm-5-3-flash"]["Newcomer"].append({"from": LATER, **MOVED})
+    doc["providers"][_GLM_MODEL]["Newcomer"].append({"from": LATER, **MOVED})
     return doc
 
 
