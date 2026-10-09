@@ -29,7 +29,8 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # file's ALTERs sit on top of.
 SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_request_fee.sql",
-                _HERE / "schema_replay.sql")
+                _HERE / "schema_replay.sql",
+                _HERE / "schema_web_search.sql")
 
 
 def read_schema() -> str:

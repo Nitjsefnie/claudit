@@ -152,6 +152,7 @@ def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
           cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
           provider: str | None = None,
           request_fee_usd: float | None = None,
+          web_search_requests: int | None = None,
           rate_fingerprint: str | None = None) -> None:  # pylint: disable=redefined-outer-name
     """One record row under seeded project+file parents, with a fixed
     token tally (_SEED_TOKENS) a test prices through compute_cost.
@@ -166,11 +167,11 @@ def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
     c.execute(
         "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
         "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd, provider, "
-        "pricing_version, rate_fingerprint) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd, "
+        "web_search_requests, provider, pricing_version, rate_fingerprint) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (file_key, line_num, ts, model, *_SEED_TOKENS,
-         cost_usd, request_fee_usd, provider,
+         cost_usd, request_fee_usd, web_search_requests, provider,
          pricing_version, rate_fingerprint),
     )
 
@@ -202,91 +203,81 @@ def _seeded_cost() -> float:
         long_context=False), 6)
 
 
-# The fee-carrying pair the fee tests seed against, and the synthetic
-# rates/fee it resolves under (SV-TEST-DATA: unlike any real price).
-_FEE_HOST = "FeeHost"
-_FEE_RATES = {"fresh": 1.5, "create_5m": 1.875, "create_1h": 3.0,
-              "read": 0.15, "output": 7.5}
-_FEE = 0.0137
+# A synthetic search price, deliberately unlike a deployed listing.
+_SEARCH_HOST = "SearchHost"
+_SEARCH_RATES = {"fresh": 1.5, "create_5m": 1.875, "create_1h": 3.0,
+                 "read": 0.15, "output": 7.5}
+_SEARCH_RATE = 0.0137
 
 
-def _fee_tables(monkeypatch, *, fee: float | None = _FEE) -> None:
-    """Patch the (model, FeeHost) row in: synthetic list rates, no dated
-    windows (so the fee index is 0 at every timestamp), and the fee."""
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES,
-                         (_SEED_MODEL, _FEE_HOST): dict(_FEE_RATES)})
+def _search_tables(monkeypatch) -> None:
+    """Install synthetic provider rates, including a per-search price."""
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        **pricing.PROVIDER_RATES,
+        (_SEED_MODEL, _SEARCH_HOST):
+            {**_SEARCH_RATES, "web_search": _SEARCH_RATE},
+    })
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
-    monkeypatch.setattr(pricing, "PROVIDER_FEES",
-                        {(_SEED_MODEL, _FEE_HOST): {0: fee}} if fee else {})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
 
 
-def _seeded_provider_cost() -> float:
-    """The seeded tally priced on the FeeHost row — the fee folded in,
-    exactly as compute_cost stores it."""
-    return round(pricing.compute_cost(
-        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        long_context=False,
-        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _FEE_HOST)), 6)
-
-
-def test_reprice_folds_the_per_request_fee(fresh_db, monkeypatch):
-    """A stale row of a fee-carrying pair reprices to its tokens-only
-    price plus one fee, and stores the fee on request_fee_usd; a row
-    naming no host keeps the column NULL."""
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
-              provider=_FEE_HOST)
-        _seed(c, _FILE_KEY, 2, pricing_version=None,
-              cost_usd=0.5)
-        c.commit()
-    _fee_tables(monkeypatch)
-    assert ingest_reprice.reprice_stale() == 2
-    with db.viz_conn() as c:
-        fee_row = c.execute(
-            "SELECT cost_usd, request_fee_usd FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
-        bare_row = c.execute(
-            "SELECT cost_usd, request_fee_usd FROM records "
-            "WHERE file_key = %s AND line_num = 2", (_FILE_KEY,)).fetchone()
-    assert fee_row is not None and bare_row is not None
-    assert float(fee_row[0]) == _seeded_provider_cost()
-    assert float(fee_row[1]) == _FEE
-    assert float(bare_row[0]) == _seeded_cost()
-    assert bare_row[1] is None
-
-
-def test_reprice_clears_the_fee_column_when_the_fee_moves_away(
+def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
         fresh_db, monkeypatch):
-    """A row priced under an earlier fee keeps following the CURRENT
-    table: the fee gone from the pair's rows, the reprice stores NULL
-    and prices tokens-only again."""
     with db.viz_conn() as c:
         _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
-              provider=_FEE_HOST, request_fee_usd=0.99)
+              provider="SearchHost", request_fee_usd=0.99,
+              web_search_requests=3)
         c.commit()
-    _fee_tables(monkeypatch, fee=None)
+    _search_tables(monkeypatch)
+
+    assert ingest_reprice.reprice_stale() == 1
+    with db.viz_conn() as c:
+        row = c.execute(
+            "SELECT cost_usd, request_fee_usd, web_search_requests "
+            "FROM records WHERE file_key = %s AND line_num = 1",
+            (_FILE_KEY,)).fetchone()
+    assert row is not None
+    cost, old_fee, searches = row
+    expected = round(pricing.compute_cost(
+        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
+        web_search_requests=3,
+        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
+    assert float(cost) == expected
+    assert old_fee is None
+    assert searches == 3
+
+
+def test_reprice_null_search_count_does_not_charge_search_or_keep_old_fee(
+        fresh_db, monkeypatch):
+    with db.viz_conn() as c:
+        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
+              provider=_SEARCH_HOST, request_fee_usd=0.99)
+        c.commit()
+    _search_tables(monkeypatch)
     assert ingest_reprice.reprice_stale() == 1
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT cost_usd, request_fee_usd FROM records "
             "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
     assert row is not None
-    cost, fee = row
-    assert float(cost) == _seeded_provider_cost()
-    assert fee is None
+    cost, old_fee = row
+    expected = round(pricing.compute_cost(
+        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
+        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
+    assert float(cost) == expected
+    assert old_fee is None
 
 
-def test_reprice_restamps_when_cost_and_fee_already_match(fresh_db,
-                                                          monkeypatch):
-    """A row whose stored cost and fee already equal the recomputed
-    state takes the restamp path: version advances, nothing changed,
-    the stored fee survives."""
-    _fee_tables(monkeypatch)
+def test_reprice_restamps_when_search_cost_already_matches(fresh_db,
+                                                           monkeypatch):
+    _search_tables(monkeypatch)
+    search_cost = round(pricing.compute_cost(
+        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS, web_search_requests=3,
+        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version=None,
-              cost_usd=_seeded_provider_cost(),
-              provider=_FEE_HOST, request_fee_usd=_FEE)
+        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=search_cost,
+              provider=_SEARCH_HOST, web_search_requests=3)
         c.commit()
     assert ingest_reprice.reprice_stale() == 0
     with db.viz_conn() as c:
@@ -294,9 +285,9 @@ def test_reprice_restamps_when_cost_and_fee_already_match(fresh_db,
             "SELECT pricing_version, request_fee_usd FROM records "
             "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
     assert row is not None
-    version, fee = row
+    version, old_fee = row
     assert version == constants.PRICING_VERSION
-    assert float(fee) == _FEE
+    assert old_fee is None
 
 
 def _rows(c) -> list:

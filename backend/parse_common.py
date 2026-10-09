@@ -287,7 +287,8 @@ def _append_usage_record(st: _ParseState, line_num: int,
                          ts: datetime | None, uuid: str | None,
                          model: str | None, toks: tuple[int, int, int, int],
                          *, reasoning: int = 0,
-                         long_context: bool = False) -> None:
+                         long_context: bool = False,
+                         web_search_requests: int | None = None) -> None:
     """Build one billing record from its token counts and append it.
 
     `toks` is the BILLED PARTITION of the request — (fresh, create, read,
@@ -326,6 +327,7 @@ def _append_usage_record(st: _ParseState, line_num: int,
         # record falls back to current list price, which is the only
         # answer available for one.
         ts=ts,
+        web_search_requests=web_search_requests,
     )
     st.records.append({
         "file_key": st.file_key,
@@ -341,6 +343,7 @@ def _append_usage_record(st: _ParseState, line_num: int,
         # Persisted on records so a re-derived cost breakdown can apply
         # the meter exactly as compute_cost did (SV-DATED-RATES).
         "long_context": long_context,
+        "web_search_requests": web_search_requests,
         "cost_usd": round(cost, 6),
         "text_chars": st.text_chars_since_turn,
         "reply_latency_s": latency,

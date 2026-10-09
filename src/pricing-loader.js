@@ -9,12 +9,8 @@
 // which the backend cache-busts like every /src asset), else the file
 // beside this script, and revalidates either way.
 //
-// Exposes the derived tables (modelRates, datedRates, modelFees,
-// providerRates, providerDatedRates, providerStarts, providerSchedules,
-// providerFees, rateEpochs, FREE_RATES) and scheduleRatesAt, the weekly
-// schedule-window lookup the resolver in src/rates.js uses. Fees (issue
-// #469) ride the same tables, parsed from the entry notes exactly as the
-// backend loader parses them.
+// Exposes the derived token and web-search rate tables, dated boundaries,
+// provider schedules, and the weekly schedule lookup used by src/rates.js.
 
 // Read synchronously, so window.rateForModel works the moment this script
 // has run — the app prices during render with no hook to await a load.
@@ -75,8 +71,12 @@ function _readPricing() {
 
 const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
 const _FIELD_NAMES = Object.values(_RATE_FIELDS).sort().join();
-const _ratesOf = (entry) => Object.fromEntries(
-  Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]]));
+const _ratesOf = (entry, mayHaveSearch = false) => ({
+  ...Object.fromEntries(
+    Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]])),
+  ...(mayHaveSearch && Object.prototype.hasOwnProperty.call(entry, 'web_search')
+    ? { search: entry.web_search } : {}),
+});
 // The one timestamp spelling both loaders accept, every field in range.
 // Mirrors pricing._INSTANT. The instant is computed here, never by
 // Date.parse, which rolls 24:00 and 02-30 over where Python refuses them.
@@ -181,11 +181,13 @@ function _checkHistory(entries, where, mayBegin) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   const schedules = {};
-  const fees = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${i}]`;
     const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'band'].includes(k));
-    if (fields.sort().join() !== _FIELD_NAMES || !('from' in entry)) {
+    const hasSearchRate = fields.includes('web_search');
+    const tokenFields = fields.filter((k) => k !== 'web_search').sort().join();
+    if (tokenFields !== _FIELD_NAMES || !('from' in entry)
+        || (hasSearchRate && !mayBegin)) {
       throw _pricingError(`${at}: fields ${Object.keys(entry).sort()}`);
     }
     if ('schedule' in entry) {
@@ -197,12 +199,11 @@ function _checkHistory(entries, where, mayBegin) {
       _checkBand(entry.band, at);
     }
     const bad = Object.values(_RATE_FIELDS).filter((f) => !_isRate(entry[f]));
+    if (hasSearchRate && !_isRate(entry.web_search)) bad.push('web_search');
     if (bad.length) throw _pricingError(`${at}: ${bad} not a finite non-negative number`);
     if ('note' in entry && typeof entry.note !== 'string') {
       throw _pricingError(`${at}: 'note' is not a string`);
     }
-    const fee = _feeOfNote(entry.note || '', at);
-    if (fee) fees[i] = fee;
     if (entry.from === null) {
       if (i > 0) throw _pricingError(`${at}: only the first entry has no 'from'`);
       return;
@@ -219,29 +220,7 @@ function _checkHistory(entries, where, mayBegin) {
     }
     previous = start;
   });
-  return { schedules, fees };
-}
-
-// A RECORDED_FEE note's per-request fee (issue #469), summed: the refresh
-// writes `<fee> $<amount>/request not modelled: per-request, unpriceable
-// from token counts` parts into the entry note, joined with "; " beside a
-// discount note. A part containing "/request" is fee-shaped and must match
-// in full — a fee-shaped part the browser cannot price refuses the file,
-// exactly as the backend loader does; anything else parses no fee.
-const _FEE_NOTE = /^\w+ \$(\d+(?:\.\d+)?)\/request not modelled: per-request, unpriceable from token counts$/;
-
-function _feeOfNote(note, at) {
-  if (!note) return 0;
-  let total = 0;
-  for (const part of note.split('; ')) {
-    if (!part.includes('/request')) continue;
-    const m = part.match(_FEE_NOTE);
-    if (!m) {
-      throw _pricingError(`${at}: note part ${JSON.stringify(part)} names a per-request fee but is not the documented shape`);
-    }
-    total += Number(m[1]);
-  }
-  return total;
+  return { schedules };
 }
 
 // A row's append-only history, oldest first: the newest entry is the list
@@ -249,13 +228,13 @@ function _feeOfNote(note, at) {
 // A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
 function _history(entries, where, mayBegin = false) {
-  const { schedules, fees } = _checkHistory(entries, where, mayBegin);
+  const { schedules } = _checkHistory(entries, where, mayBegin);
   return {
     schedules,
-    fees,
-    list: _ratesOf(entries[entries.length - 1]),
+    list: _ratesOf(entries[entries.length - 1], mayBegin),
     windows: entries.slice(0, -1).map((entry, i) => (
-      { endExclusive: _instantMs(entries[i + 1].from), rates: _ratesOf(entry) })),
+      { endExclusive: _instantMs(entries[i + 1].from),
+        rates: _ratesOf(entry, mayBegin) })),
     start: entries[0].from === null ? null : _instantMs(entries[0].from),
   };
 }
@@ -263,12 +242,10 @@ function _history(entries, where, mayBegin = false) {
 const _PRICING = _readPricing();
 window.modelRates = {};
 window.datedRates = {};
-window.modelFees = {};
 for (const [key, entries] of Object.entries(_PRICING.models)) {
-  const { list, windows, fees } = _history(entries, key);
+  const { list, windows } = _history(entries, key);
   window.modelRates[key] = list;
   if (windows.length) window.datedRates[key] = windows;
-  if (Object.keys(fees).length) window.modelFees[key] = fees;
 }
 // Keyed by normalised model id then provider (the transcript's
 // message.provider spelling).
@@ -276,15 +253,11 @@ window.providerRates = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
 window.providerSchedules = {};
-window.providerFees = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows, start, schedules, fees } = _history(entries, `${model} via ${host}`, true);
+    const { list, windows, start, schedules } = _history(entries, `${model} via ${host}`, true);
     if (Object.keys(schedules).length) {
       (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
-    }
-    if (Object.keys(fees).length) {
-      (window.providerFees[model] = window.providerFees[model] || {})[host] = fees;
     }
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {

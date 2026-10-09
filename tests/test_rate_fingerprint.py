@@ -76,8 +76,6 @@ def _rate_tables_fixture(monkeypatch):
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
     monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
-    monkeypatch.setattr(pricing, "FEES", {})
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", {})
     monkeypatch.setattr(pricing, "DEFAULT_RATES", dict(_R3))
     # The tier table derives lazily under the cache-clearing contract:
     # empty the derived state FIRST, then seed the memo with these rows,
@@ -187,19 +185,14 @@ def _mutations():
                             frozenset({"gpt-9-metered-check"}))
         return "weird-thing-9", None
 
-    def provider_fee(monkeypatch):
-        # A fee-bearing entry note is a rate input resolve() consults
-        # (issue #469): adding or moving the fee must move the pair's
-        # fingerprint, so the reprice pass recomputes instead of
-        # restamping.
-        monkeypatch.setattr(pricing, "PROVIDER_FEES",
-                            {_PROVIDER_PAIR: {0: 0.0137}})
+    def provider_search_rate(monkeypatch):
+        # The listing's per-search rate is an input resolve() consults:
+        # moving it must force a recompute rather than a clean restamp.
+        monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+            **pricing.PROVIDER_RATES,
+            _PROVIDER_PAIR: {**_R1, "web_search": 0.0137},
+        })
         return _PROVIDER_MODEL, _PROVIDER_HOST
-
-    def model_fee(monkeypatch):
-        monkeypatch.setattr(pricing, "FEES",
-                            {_AFFECTED_MODEL: {0: 0.045}})
-        return _AFFECTED_MODEL, None
 
     return [
         ("dated window", dated_window),
@@ -208,8 +201,7 @@ def _mutations():
         ("provider list", provider_list),
         ("provider schedule", provider_schedule),
         ("provider start", provider_start),
-        ("provider fee", provider_fee),
-        ("model fee", model_fee),
+        ("provider web search", provider_search_rate),
         ("longer key steals", longer_key_steals),
         ("newer family key", newer_family_key_moves_tier),
         ("default rates", default_rates),
@@ -233,13 +225,27 @@ _PROBES: dict[str, tuple[str, str | None]] = {
     "provider list": (_PROVIDER_MODEL, _PROVIDER_HOST),
     "provider schedule": (_PROVIDER_MODEL, _PROVIDER_HOST),
     "provider start": (_PROVIDER_MODEL, _PROVIDER_HOST),
-    "provider fee": (_PROVIDER_MODEL, _PROVIDER_HOST),
-    "model fee": (_AFFECTED_MODEL, None),
+    "provider web search": (_PROVIDER_MODEL, _PROVIDER_HOST),
     "longer key steals": (f"{_AFFECTED_MODEL}-20260101", None),
     "newer family key": ("claude-sonnet-99", None),
     "default rates": ("weird-thing-9", None),
     "meter membership": ("weird-thing-9", None),
 }
+
+
+def test_search_rate_is_part_of_the_pair_fingerprint(rate_tables, monkeypatch):
+    pair = _PROVIDER_PAIR
+    first_rates = {**_R1, "web_search": 0.0137}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {pair: first_rates})
+    _refresh()
+    before = rate_fingerprint.pair_fingerprint(*pair)
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        pair: {**first_rates, "web_search": 0.045},
+    })
+    _refresh()
+
+    assert rate_fingerprint.pair_fingerprint(*pair) != before
 
 
 @pytest.mark.parametrize("name,patch", _mutations(), ids=[n for n, _ in _mutations()])
@@ -328,15 +334,15 @@ def test_memo_and_cache_clear(rate_tables, monkeypatch):
 # PRICING_VERSION bump) can never reprice nothing.
 # --------------------------------------------------------------------------
 
-def test_every_reprice_derivation_module_is_hashed():
-    """The digest covers the pricing modules AND the reprice pass
-    itself: _record_updates is part of the derivation (the long-context
-    re-derivation rule and the unsplit arithmetic live there), so its
-    module's source is inside the logic hash."""
+def test_parser_and_reprice_derivation_modules_are_hashed():
+    """The digest covers the parser's search-count semantics and the
+    reprice pass that applies those stored counts to current rates."""
     names = {m.__name__ for m in rate_fingerprint.hashed_modules()}
     assert names == {"backend.pricing", "backend.pricing_load",
                      "backend.model_names", "backend.meter_tables",
-                     "backend.long_context", "backend.ingest_reprice"}
+                     "backend.long_context", "backend.parse",
+                     "backend.parse_common", "backend.parse_codex",
+                     "backend.ingest_reprice"}
 
 
 def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
@@ -363,6 +369,25 @@ def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
     importlib.reload(rate_fingerprint)
     assert after != before, (
         "editing the reprice pass's source must move the fingerprint")
+
+
+def test_claude_search_count_source_edit_moves_the_fingerprint(monkeypatch):
+    model = "fp-search-model"
+    before = rate_fingerprint.pair_fingerprint(model, None)
+    real_getsource = inspect.getsource
+
+    def _mutated(module):
+        text = real_getsource(module)
+        if module.__name__ == "backend.parse":
+            text += "\n# simulated server_tool_use count rule change\n"
+        return text
+
+    monkeypatch.setattr(inspect, "getsource", _mutated)
+    importlib.reload(rate_fingerprint)
+    after = rate_fingerprint.pair_fingerprint(model, None)
+    monkeypatch.undo()
+    importlib.reload(rate_fingerprint)
+    assert after != before
 
 
 _FAMILY_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,

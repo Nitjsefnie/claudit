@@ -47,7 +47,6 @@ from tests.test_pricing_vendor import (
     _install,
     _loader_error,
     needs_node,
-    FEE_NOTE,
 )
 
 # --- the migration's cost-equality pin ----------------------------------------
@@ -78,7 +77,7 @@ def _old_doc() -> dict:
                        "vendor": {"prefixes": PREFIXES, "resolve": {}}},
         "provider_rates_fetched": "2030-01-01T00:00:00Z",
         "providers": {
-            "claude-old-fold-9": {"OldHost": [_entry(R_OLD, note=FEE_NOTE)]},
+            "claude-old-fold-9": {"OldHost": [_entry(R_OLD)]},
         },
     }
 
@@ -108,7 +107,7 @@ def _new_doc() -> dict:
             "claude-old-opus-9-1": {"NewHost": [_entry(R_THIRD)]},
             "claude-old-window-9": {"NewHost": [_entry(R_OLD),
                                                 _entry(R_NEW, STAMP)]},
-            "claude-old-fold-9": {"OldHost": [_entry(R_OLD, note=FEE_NOTE)]},
+            "claude-old-fold-9": {"OldHost": [_entry(R_OLD)]},
         },
     }
 
@@ -116,7 +115,7 @@ def _new_doc() -> dict:
 def _probe_records():
     """(model, ts or None, provider or None, tokens) over both documents:
     the dated windows — before, at and after the cutover — the list price,
-    ts=None, a [1m] suffix, and the fold's fee-bearing host row."""
+    ts=None, a [1m] suffix, and the fold's host row."""
     instants = [None, CUT - timedelta(seconds=1), CUT,
                 datetime(2031, 6, 1, tzinfo=UTC)]
     tokens = {"fresh": 100_000, "output": 40_000, "eph5": 5_000,
@@ -142,7 +141,7 @@ def _price_all(doc, cases):
         for model, ts, provider, tokens in cases:
             res = pricing.resolve(model, ts, provider)
             cost = pricing.compute_cost(model, ts=ts, res=res, **tokens)
-            out.append((res.kind, res.key, res.request_fee, res.scheduled,
+            out.append((res.kind, res.key, res.scheduled,
                         res.rates, cost))
         return out
     finally:
@@ -162,7 +161,7 @@ def test_migration_prices_every_record_identically():
 def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
     """The committed browser half of the equality pin: the same hand-built
     old and migrated documents through window.resolveModelRate and
-    computeSessionStats under node — kind, key, fee, rates and cost equal
+    computeSessionStats under node — kind, key, rates and cost equal
     for every probe record, dated windows included."""
     cases = _probe_records()
     tokens = cases[0][3]
@@ -194,7 +193,7 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
                                     cache_read_input_tokens: 0,
                                     output_tokens: 0 }} }};
             if (provider !== null) msg.provider = provider;
-            return {{ kind: r.kind, key: r.key, fee: r.fee,
+            return {{ kind: r.kind, key: r.key,
                      rates: Object.fromEntries(Object.entries(JF)
                        .map(([a, b]) => [b, r.rates[a]])),
                      cost: window.computeSessionStats([], [msg]).cost }};
@@ -209,18 +208,16 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
         assert a == b, case
 
 
-def test_the_folded_row_prices_the_host_fee_only_via_the_host():
-    """The fold case: the models row died, so the bare id prices the
-    surviving host row's RATES fee-free, while a record through the host
-    pays the host's own per-request fee — on both sides of the migration."""
+def test_the_folded_provider_row_keeps_token_prices_equal():
+    """The fold case: the models row died, so both the bare id and its
+    serving host resolve to the same provider token prices."""
     tokens = {"fresh": 1_000_000, "output": 0, "eph5": 0, "eph1h": 0,
               "unsplit_create": 0, "read": 0}
     cases = [("claude-old-fold-9", None, None, tokens),
              ("claude-old-fold-9", CUT, "OldHost", tokens)]
     old, new = _price_all(_old_doc(), cases), _price_all(_new_doc(), cases)
     assert old == new
-    assert old[0][2] == 0.0, "bare: the host's fee never applies"
-    assert old[1][2] == 0.01, "through the host: the fee applies"
+    assert old[0][-1] == old[1][-1]
 
 
 # The instant every committed history predates: pricing each migrated row's

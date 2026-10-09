@@ -71,6 +71,44 @@ def test_a_rollout_file_is_parsed_as_codex_not_as_a_kimi_wire():
     }
 
 
+def test_codex_search_call_item_is_counted_once_per_reply():
+    out = _parse("rollout_web_search.jsonl")
+    assert len(out["records"]) == 1
+    assert out["records"][0]["web_search_requests"] == 1
+
+
+def test_codex_reply_without_search_call_stays_null():
+    out = _parse("rollout_model_switch.jsonl")
+    assert out["records"][0]["web_search_requests"] is None
+
+
+def test_codex_web_search_end_without_response_item_stays_null():
+    usage = {
+        "input_tokens": 100, "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0, "output_tokens": 20,
+        "reasoning_output_tokens": 0, "total_tokens": 120,
+    }
+    lines = [
+        {"timestamp": "2026-06-14T12:00:00Z", "type": "session_meta",
+         "payload": {"id": "00000000-0000-4000-8000-0000000000f2",
+                     "session_id": "00000000-0000-4000-8000-0000000000f2"}},
+        {"timestamp": "2026-06-14T12:00:01Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-sol"}},
+        {"timestamp": "2026-06-14T12:00:02Z", "type": "event_msg",
+         "payload": {"type": "web_search_end", "call_id": "ws_synth_1",
+                     "query": "synthetic query", "action": "search"}},
+        {"timestamp": "2026-06-14T12:00:03Z", "type": "event_msg",
+         "payload": {"type": "token_count", "info": {
+             "total_token_usage": usage, "last_token_usage": usage}}},
+    ]
+    blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+
+    out = parse.parse_file("codex/web_search_end_only.jsonl", blob)
+
+    assert len(out["records"]) == 1
+    assert out["records"][0]["web_search_requests"] is None
+
+
 def test_detection_still_routes_kimi_code_wires_to_the_kimi_parser():
     """The Codex rung is additive: it must not capture the other formats."""
     out = parse.parse_file(
@@ -615,7 +653,7 @@ RECORD_KEYS = {
     "output_tokens", "thinking_tokens", "long_context", "cost_usd",
     "text_chars", "reply_latency_s", "ctx_input", "stop_reason", "effort",
     "cli_version", "turn_flags", "turn_tool_results", "eph5_tokens",
-    "eph1h_tokens", "is_replay",
+    "eph1h_tokens", "web_search_requests", "is_replay",
 }
 TOOL_USE_KEYS = {
     "file_key", "line_num", "idx", "ts", "tool_name", "model", "tool_use_id",

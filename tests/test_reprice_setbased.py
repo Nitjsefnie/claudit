@@ -106,7 +106,7 @@ def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
             "cache_creation_tokens, cache_read_tokens, output_tokens, "
             "eph5_tokens, eph1h_tokens, ts, long_context, provider, "
             "cost_usd, pricing_version, rate_fingerprint, "
-            "request_fee_usd FROM records "
+            "request_fee_usd, web_search_requests FROM records "
             "WHERE file_key = %s ORDER BY line_num", (_FILE_KEY,)).fetchall()
     assert len(raw) == 3
     for tup in raw:

@@ -93,7 +93,7 @@ _SELECT_SQL = """
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
            ts, long_context, provider, cost_usd, pricing_version,
            rate_fingerprint, request_fee_usd, long_context_input_mult,
-           long_context_output_mult
+           long_context_output_mult, web_search_requests
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -121,13 +121,13 @@ _SQL_RESTAMP = """
 _SQL_REPRICE = """
     UPDATE records r
        SET cost_usd = d.cost, long_context = d.flag,
-           request_fee_usd = d.fee,
+           request_fee_usd = NULL,
            long_context_input_mult = d.input_mult,
            long_context_output_mult = d.output_mult,
            pricing_version = %s, rate_fingerprint = d.f
       FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[],
-                  %s::float8[], %s::float8[], %s::float8[], %s::text[])
-           AS d(k, n, cost, flag, fee, input_mult, output_mult, f)
+                  %s::float8[], %s::float8[], %s::text[])
+           AS d(k, n, cost, flag, input_mult, output_mult, f)
      WHERE r.file_key = d.k
        AND r.line_num = d.n
 """
@@ -191,6 +191,7 @@ class _StaleRow(NamedTuple):
     request_fee_usd: Decimal | None
     long_context_input_mult: float | None = None
     long_context_output_mult: float | None = None
+    web_search_requests: int | None = None
 
 
 def _stored_pricing_version_is_newer(stored: str | None,
@@ -217,7 +218,7 @@ def _record_updates(row: _StaleRow) -> dict:
     Members recompute their threshold flag. Non-members keep NULL/FALSE;
     a stored TRUE is checked against the global threshold to unbill lapsed
     members (issue #833). The provider does not affect flag derivation.
-    One resolution supplies token rates and request fee. A flagged row also
+    One resolution supplies token and web-search rates. A flagged row also
     stores its effective meter pair, preserving provenance across batches.
     """
     unsplit_create = max(
@@ -250,6 +251,7 @@ def _record_updates(row: _StaleRow) -> dict:
         unsplit_create=unsplit_create,
         read=row.cache_read_tokens,
         long_context=bool(long_context),
+        web_search_requests=row.web_search_requests,
         res=res,
     )
     input_mult, output_mult = (pricing.long_context_factors(row.model)
@@ -259,11 +261,9 @@ def _record_updates(row: _StaleRow) -> dict:
         "long_context": long_context,
         "long_context_input_mult": input_mult,
         "long_context_output_mult": output_mult,
-        # The serving host's per-request fee in force (issue #469): the
-        # fee rides inside compute_cost's total; stored beside it so
-        # provenance survives, NULL when none — the same shape a reparse
-        # of the row's bytes would store.
-        "request_fee_usd": res.request_fee or None,
+        # Retire the legacy note-derived fee column without dropping it;
+        # new prices come from web_search_requests times the row's rate.
+        "request_fee_usd": None,
         "pricing_version": constants.PRICING_VERSION,
     }
 
@@ -284,9 +284,8 @@ def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
             == updates["long_context_input_mult"]
             and row.long_context_output_mult
             == updates["long_context_output_mult"]
-            and (float(row.request_fee_usd)
-                 if row.request_fee_usd is not None else None)
-            == updates["request_fee_usd"])
+            and (row.request_fee_usd is None)
+            == (updates["request_fee_usd"] is None))
 
 
 def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
@@ -404,8 +403,7 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                 rows = [_StaleRow(*raw) for raw in raw_rows]
                 restamp_keys: list[tuple[str, int, str]] = []
                 moved: list[tuple[str, int, float, bool | None,
-                                  float | None, float | None, float | None,
-                                  str]] = []
+                                  float | None, float | None, str]] = []
                 for row in rows:
                     if _stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
@@ -421,7 +419,6 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                         moved.append((row.file_key, row.line_num,
                                       updates["cost_usd"],
                                       updates["long_context"],
-                                      updates["request_fee_usd"],
                                       updates["long_context_input_mult"],
                                       updates["long_context_output_mult"],
                                       row_fp))
@@ -448,8 +445,7 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                                [r[3] for r in moved],
                                [r[4] for r in moved],
                                [r[5] for r in moved],
-                               [r[6] for r in moved],
-                               [r[7] for r in moved]))
+                               [r[6] for r in moved]))
                 if ph is not None:
                     marks["moved"] = (marks.get("moved", 0.0)
                                       + time.perf_counter() - t0)
