@@ -65,10 +65,8 @@ from backend.model_names import (  # noqa: F401  (re-export)  # pylint: disable=
 from backend.pricing_load import (
     DATED_RATES,
     DEFAULT_RATES,
-    FEES,
     MODEL_RATES,
     PROVIDER_DATED_RATES,
-    PROVIDER_FEES,
     PROVIDER_RATES,
     PROVIDER_RATES_FETCHED,
     PROVIDER_SCHEDULES,
@@ -96,9 +94,9 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
 )
 
 __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
-    "DATED_RATES", "DEFAULT_RATES", "FEES", "LONG_CONTEXT_MODELS",
+    "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS",
     "LONG_CONTEXT_METERS",
-    "MODEL_RATES", "PROVIDER_DATED_RATES", "PROVIDER_FEES",
+    "MODEL_RATES", "PROVIDER_DATED_RATES",
     "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
     "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
     "VENDOR_BARE", "VENDOR_PREFIXES", "VENDOR_HOSTS",
@@ -300,7 +298,7 @@ def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, b
     schedule = PROVIDER_SCHEDULES.get(pkey, {}).get(entry)
     if schedule is None:
         return rates, False
-    return _scheduled(schedule, ts) or rates, True
+    return {**rates, **(_scheduled(schedule, ts) or {})}, True
 
 
 def _dated(key: str, ts: datetime | None) -> dict:
@@ -335,33 +333,14 @@ def _provider_key(norm: str, provider: str,
     return None
 
 
-def _fee_at(fees: dict, key, windows: Windows | None, ts: datetime | None
-            ) -> float:
-    """The per-request fee of the history entry in force at `ts` — the
-    newest entry (the list price) when `ts` is None, the entry the
-    window walk selects otherwise. Keyed by entry index exactly like
-    PROVIDER_SCHEDULES: windows[i] is entry i, the tail entry is index
-    len(windows)."""
-    if key is None:
-        return 0.0
-    row = fees.get(key)
-    if not row:
-        return 0.0
-    if ts is None:
-        return row.get(len(windows or []), 0.0)
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=UTC)
-    return row.get(sum(1 for end, _ in windows or [] if end <= ts), 0.0)
-
-
 def resolve(model: str | None, ts: datetime | None = None,
             provider: str | None = None) -> Resolution:
     """Resolve a model id to rates, reporting how confident the match is.
 
     `provider` is the record's serving host. A (model, provider) row wins;
     with no row, or no provider, the model alone decides — a bare
-    first-party id through its tracked vendor row (SV-RATE-DATA), its
-    fee-free and schedule-free terms.
+    first-party id through its tracked vendor row (SV-RATE-DATA), at that
+    row's web-search rate and without a provider-specific schedule.
     """
     norm = _normalise(model)
     if _is_free(model, norm):
@@ -370,15 +349,10 @@ def resolve(model: str | None, ts: datetime | None = None,
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
         rates, scheduled = _provider_rates(pkey, ts)
-        return Resolution(rates, "exact", pkey[0], scheduled,
-                          request_fee=_fee_at(
-                              PROVIDER_FEES, pkey,
-                              PROVIDER_DATED_RATES.get(pkey), ts))
+        return Resolution(rates, "exact", pkey[0], scheduled)
     key = _match_key(norm)
     if key is not None:
-        return Resolution(_dated(key, ts), "exact", key,
-                          request_fee=_fee_at(
-                              FEES, key, DATED_RATES.get(key), ts))
+        return Resolution(_dated(key, ts), "exact", key)
     vkey = _vendor_match(norm)
     if vkey is not None:
         row = (vkey, VENDOR_HOSTS[vkey])
@@ -387,7 +361,7 @@ def resolve(model: str | None, ts: datetime | None = None,
             if not (start is not None and ts is not None and ts < start):
                 rates = _in_window(PROVIDER_DATED_RATES.get(row), ts,
                                    PROVIDER_RATES[row])
-                return Resolution(rates, "exact", vkey, False, 0.0)
+                return Resolution(rates, "exact", vkey, False)
     for pattern, rates in _tier_fallbacks():
         if pattern.search(norm):
             return Resolution(rates, "tier")
@@ -441,15 +415,6 @@ def rate_for(model: str | None, ts: datetime | None = None,
     return resolve(model, ts, provider).rates
 
 
-def request_fee(model: str, ts: datetime | None = None,
-                provider: str | None = None) -> float:
-    """The per-request fee in force for one request (issue #469), resolved
-    exactly like rates: a (model, provider) row's entry note decides, the
-    model row when no provider row applies. Zero when neither carries a
-    fee. Omitting ts yields the list entry's fee."""
-    return resolve(model, ts, provider).request_fee
-
-
 def compute_cost(
     model: str | None,
     *,
@@ -461,6 +426,7 @@ def compute_cost(
     read: int,
     ts: datetime | None = None,
     long_context: bool = False,
+    web_search_requests: int | None = None,
     res: "Resolution | None" = None,
 ) -> float:
     """USD cost for one request's token tally.
@@ -477,9 +443,9 @@ def compute_cost(
     the whole request. Codex records above threshold set it per record
     (issue #194); Kimi has no such tier.
 
-    A per-request fee from the resolved note is added once per call
-    (issue #469) and recorded in request_fee_usd. Hot paths pass `res` to
-    resolve once; it carries the rates, provider fee, and dated window.
+    Web-search calls are billed at the record's explicit per-search rate
+    (issue #879). Hot paths pass `res` to resolve once; it carries the
+    rates and dated window.
     """
     if res is None:
         res = resolve(model, ts)
@@ -492,5 +458,5 @@ def compute_cost(
         + (eph1h + unsplit_create) * r["create_1h"] * in_mult / 1_000_000
         + read * r["read"] * in_mult / 1_000_000
         + output * r["output"] * out_mult / 1_000_000
-        + res.request_fee
+        + (web_search_requests or 0) * r.get("web_search", 0.0)
     )

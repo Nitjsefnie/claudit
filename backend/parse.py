@@ -658,6 +658,11 @@ def _project_record(file_key: str, ev: dict) -> dict:
     create = int(u.get("cache_creation_input_tokens", 0) or 0)
     read = int(u.get("cache_read_input_tokens", 0) or 0)
     output = int(u.get("output_tokens", 0) or 0)
+    server_tool_use = as_dict(u.get("server_tool_use"))
+    search_count = server_tool_use.get("web_search_requests")
+    web_search_requests = (
+        search_count if isinstance(search_count, int)
+        and not isinstance(search_count, bool) and search_count >= 0 else None)
     eph = as_dict(u.get("cache_creation") or {})
     eph5 = int(eph.get("ephemeral_5m_input_tokens", 0) or 0)
     eph1h = int(eph.get("ephemeral_1h_input_tokens", 0) or 0)
@@ -676,6 +681,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
         # Dated rates apply to when the tokens were spent, not to
         # when this file happens to be parsed.
         long_context=bool(long_context),
+        web_search_requests=web_search_requests,
         res=res,
     )
     return {
@@ -703,8 +709,7 @@ def _project_record(file_key: str, ev: dict) -> dict:
         "eph1h_tokens": eph1h,
         "cost_usd": round(cost, 6),
         "long_context": long_context,
-        # The fee compute_cost folded (issue #469); NULL when none.
-        "request_fee_usd": res.request_fee or None,
+        "web_search_requests": web_search_requests,
         "ctx_input": usage_ctx_input(u),
     }
 

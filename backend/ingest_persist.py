@@ -258,9 +258,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # readers COALESCE long_context to FALSE.
             # Its effective multiplier pair is persisted with the cost so
             # read-time bucket folds can split interrupted reprice eras.
-            # request_fee_usd likewise: only a Claude-format record naming
-            # a serving host whose resolved entry carries a fee carries
-            # the key (issue #469). pricing_version is NOT a record field:
+            # web_search_requests is present only when the transcript
+            # carries a per-record count; lanes without a count store NULL.
+            # pricing_version is NOT a record field:
             # it is stamped here, at persist time, from
             # constants.PRICING_VERSION, so every reparse re-stamps the
             # version its freshly computed cost_usd was priced under
@@ -269,9 +269,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # under (issue #351), so a later reprice pass can
             # recognise rows whose pair's rates have not moved.
             for rec in parsed["records"]:
-                rec.update({k: rec.get(k)
-                            for k in ("long_context", "provider",
-                                      "request_fee_usd", "is_replay")})
+                rec.update({k: rec.get(k) for k in (
+                    "long_context", "provider", "web_search_requests",
+                    "is_replay")})
                 factors = (pricing.long_context_factors(rec["model"])
                            if rec.get("long_context") else (None, None))
                 rec["long_context_input_mult"], rec["long_context_output_mult"] = factors
@@ -291,7 +291,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   eph5_tokens,
                   eph1h_tokens,
                   cost_usd,
-                  request_fee_usd,
+                  web_search_requests,
                   text_chars,
                   reply_latency_s,
                   stop_reason,
@@ -321,7 +321,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(eph5_tokens)s,
                   %(eph1h_tokens)s,
                   %(cost_usd)s,
-                  %(request_fee_usd)s,
+                  %(web_search_requests)s,
                   %(text_chars)s,
                   %(reply_latency_s)s,
                   %(stop_reason)s,

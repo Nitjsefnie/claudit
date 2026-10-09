@@ -44,6 +44,18 @@ def test_single_turn_emits_one_record_one_turn():
     assert t["delta"] == 100   # first turn delta == input
 
 
+def test_claude_server_search_count_belongs_to_the_usage_record():
+    out = parse.parse_file(
+        "k/sess-search/sess-search.jsonl", _read("web_search.jsonl"))
+    assert [record["web_search_requests"] for record in out["records"]] == [2, 4]
+
+
+def test_claude_record_without_server_search_count_stays_null():
+    out = parse.parse_file(
+        "k/sess-1/sess-1.jsonl", _read("single_turn.jsonl"))
+    assert out["records"][0]["web_search_requests"] is None
+
+
 def test_streaming_within_file_max_merges_per_request_id():
     """Two records same requestId, output_tokens=50 then 200.
     Phase 1 keeps ONE record with max-merged usage."""

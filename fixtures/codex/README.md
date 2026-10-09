@@ -5,7 +5,7 @@ of anyone's session: the prompts, replies, reasoning summaries, commands,
 paths, diffs and ids are all invented, and the timestamps are a round
 sequence starting at `2026-06-14T12:00:00Z`. They describe one toy
 project at `/workspace/toy-project` — a `greeter` module and its tests —
-carried across all eight files so they read as one corpus.
+carried across the fixture set so they read as one corpus.
 
 What is *not* invented is the grammar. Record `type` values
 (`session_meta`, `turn_context`, `event_msg`, `response_item`,
@@ -30,6 +30,7 @@ plausible.
 | `rollout_shell_churn.jsonl` | 8 | three exec programs whose shell payloads are the churn: a `cat > ... <<'EOF'` heredoc in a `cmd` string, a `tools.monitor({command:["bash","-lc",...]})` argv array, and a plain pytest run that must count zero. No `patch_apply_end` anywhere, so it isolates text-derived churn from the journalled kind |
 | `rollout_patch_subagent.jsonl` | 12 | a `patch_apply_end` with **no** `apply_patch` tool call anywhere in the file — a subagent's edit, which the parent rollout journals without the call that made it |
 | `rollout_item_completed.jsonl` | 15 | the post-2026-08-18 spelling: two `item_completed` `FileChange` items — one linked to an `apply_patch` call by turn, one `status: "failed"` and one unlinked — carrying all three change types (`update` with a `unified_diff`, `add` and `delete` with `content`), plus two `AgentMessage` items in place of `agent_message`. No `patch_apply_end` and no `event_msg/agent_message`, because no real file mixes the spellings |
+| `rollout_web_search.jsonl` | 4 | one `response_item` `web_search_call` with an `id`, `status`, and `action: {type: "search", query: ...}`, followed by the reply's `token_count`; one response item is one billable search call |
 
 ## Invariants an edit must preserve
 
@@ -60,7 +61,7 @@ being able to catch a wrong parser, which is what these rules are for.
    that reads only `turn_context`).
 6. **The two spellings must stay unmixed.** `rollout_item_completed.jsonl`
    carries no `patch_apply_end` and no `event_msg/agent_message`, and the
-   other six carry no `item_completed`. Adding one to the other side would
+   other fixtures carry no `item_completed`. Adding one to the other side would
    assert a file shape Codex has never emitted, and would hide a parser
    that double-counts a patch it sees twice.
 7. **Requests within a thread must land on distinct cumulative totals**,
@@ -73,6 +74,10 @@ being able to catch a wrong parser, which is what these rules are for.
    moved ahead of the replay would give the prefix a model and silently
    retire the fixture from testing the unattributed replay the canonical
    winner has to beat.
+9. **Web search is counted from response items, not end events.** A
+   `web_search_call` response item is one billable call; the legacy
+   `web_search_end` event alone is telemetry and does not create a billed
+   record.
 
 ## What they deliberately do NOT cover
 

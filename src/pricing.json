@@ -856,9 +856,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -877,9 +877,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -888,9 +888,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -899,9 +899,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -912,9 +912,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 0.25
+          "read": 0.25,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -934,9 +934,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 0.25
+          "read": 0.25,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -945,9 +945,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 0.25
+          "read": 0.25,
+          "web_search": 0.01
         }
       ]
     },
@@ -958,9 +958,9 @@
           "create_5m": 1.25,
           "fresh": 1.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 5.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -979,9 +979,9 @@
           "create_5m": 1.25,
           "fresh": 1.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 5.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -990,9 +990,9 @@
           "create_5m": 1.25,
           "fresh": 1.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 5.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ]
     },
@@ -1040,9 +1040,9 @@
           "create_5m": 18.75,
           "fresh": 15.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 75.0,
-          "read": 1.5
+          "read": 1.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1063,9 +1063,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1084,9 +1084,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1095,9 +1095,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1106,9 +1106,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -1119,9 +1119,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1140,9 +1140,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1151,9 +1151,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1162,9 +1162,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -1175,9 +1175,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1196,9 +1196,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1207,9 +1207,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1218,9 +1218,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -1231,9 +1231,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1252,9 +1252,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1263,9 +1263,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1274,9 +1274,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -1287,9 +1287,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1308,9 +1308,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1319,9 +1319,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1330,9 +1330,9 @@
           "create_5m": 6.25,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 25.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -1343,9 +1343,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": null,
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1354,9 +1354,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": null,
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1365,9 +1365,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": null,
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1376,9 +1376,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": null,
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1387,9 +1387,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": null,
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -1400,9 +1400,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1423,9 +1423,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1444,9 +1444,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1455,9 +1455,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1466,9 +1466,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ]
     },
@@ -1479,9 +1479,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1500,9 +1500,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1511,9 +1511,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1522,9 +1522,9 @@
           "create_5m": 3.75,
           "fresh": 3.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.3
+          "read": 0.3,
+          "web_search": 0.01
         }
       ]
     },
@@ -1535,9 +1535,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1556,9 +1556,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1567,9 +1567,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1578,9 +1578,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -1591,9 +1591,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Anthropic": [
@@ -1610,9 +1610,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-07T18:54:35Z",
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1621,9 +1621,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Claude Platform on AWS": [
@@ -1632,9 +1632,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Google": [
@@ -1643,9 +1643,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ]
     },
@@ -29068,9 +29068,9 @@
           "create_5m": 2.0,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 8.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29079,9 +29079,9 @@
           "create_5m": 2.0,
           "fresh": 2.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 8.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -29092,9 +29092,9 @@
           "create_5m": 0.4,
           "fresh": 0.4,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 1.6,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29103,9 +29103,9 @@
           "create_5m": 0.4,
           "fresh": 0.4,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 1.6,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ]
     },
@@ -29116,9 +29116,9 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 0.4,
-          "read": 0.03
+          "read": 0.03,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29127,9 +29127,9 @@
           "create_5m": 0.1,
           "fresh": 0.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 0.4,
-          "read": 0.025
+          "read": 0.025,
+          "web_search": 0.01
         }
       ]
     },
@@ -29264,9 +29264,9 @@
           "create_5m": 1.25,
           "fresh": 1.25,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.125
+          "read": 0.125,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29275,9 +29275,9 @@
           "create_5m": 1.25,
           "fresh": 1.25,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 10.0,
-          "read": 0.125
+          "read": 0.125,
+          "web_search": 0.01
         }
       ]
     },
@@ -29288,9 +29288,9 @@
           "create_5m": 1.25,
           "fresh": 1.25,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.13
+          "read": 0.13,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29299,9 +29299,9 @@
           "create_5m": 1.25,
           "fresh": 1.25,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 10.0,
-          "read": 0.125
+          "read": 0.125,
+          "web_search": 0.01
         }
       ]
     },
@@ -29312,9 +29312,9 @@
           "create_5m": 1.75,
           "fresh": 1.75,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 14.0,
-          "read": 0.175
+          "read": 0.175,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29323,9 +29323,9 @@
           "create_5m": 1.75,
           "fresh": 1.75,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 14.0,
-          "read": 0.175
+          "read": 0.175,
+          "web_search": 0.01
         }
       ]
     },
@@ -29336,9 +29336,9 @@
           "create_5m": 21.0,
           "fresh": 21.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 168.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -29349,9 +29349,9 @@
           "create_5m": 1.75,
           "fresh": 1.75,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 14.0,
-          "read": 0.175
+          "read": 0.175,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29360,9 +29360,9 @@
           "create_5m": 1.75,
           "fresh": 1.75,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 14.0,
-          "read": 0.175
+          "read": 0.175,
+          "web_search": 0.01
         }
       ]
     },
@@ -29373,9 +29373,9 @@
           "create_5m": 2.5,
           "fresh": 2.5,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 15.0,
-          "read": 0.25
+          "read": 0.25,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29384,9 +29384,9 @@
           "create_5m": 2.5,
           "fresh": 2.5,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 15.0,
-          "read": 0.25
+          "read": 0.25,
+          "web_search": 0.01
         }
       ]
     },
@@ -29397,9 +29397,9 @@
           "create_5m": 0.75,
           "fresh": 0.75,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 4.5,
-          "read": 0.075
+          "read": 0.075,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29408,9 +29408,9 @@
           "create_5m": 0.75,
           "fresh": 0.75,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 4.5,
-          "read": 0.075
+          "read": 0.075,
+          "web_search": 0.01
         }
       ]
     },
@@ -29421,9 +29421,9 @@
           "create_5m": 0.2,
           "fresh": 0.2,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 1.25,
-          "read": 0.02
+          "read": 0.02,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29432,9 +29432,9 @@
           "create_5m": 0.2,
           "fresh": 0.2,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 1.25,
-          "read": 0.02
+          "read": 0.02,
+          "web_search": 0.01
         }
       ]
     },
@@ -29445,9 +29445,9 @@
           "create_5m": 30.0,
           "fresh": 30.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 180.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29456,9 +29456,9 @@
           "create_5m": 30.0,
           "fresh": 30.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 180.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -29469,9 +29469,9 @@
           "create_5m": 5.0,
           "fresh": 5.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 30.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29489,9 +29489,9 @@
           "create_5m": 5.0,
           "fresh": 5.0,
           "from": "2026-10-07T10:42:29Z",
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 30.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -29502,9 +29502,9 @@
           "create_5m": 30.0,
           "fresh": 30.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 180.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -29515,9 +29515,9 @@
           "create_5m": 0.25,
           "fresh": 0.2,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 1.2,
-          "read": 0.02
+          "read": 0.02,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29548,9 +29548,9 @@
           "create_5m": 0.25,
           "fresh": 0.2,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 1.2,
-          "read": 0.02
+          "read": 0.02,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29559,9 +29559,9 @@
           "create_5m": 0.25,
           "fresh": 0.2,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 1.2,
-          "read": 0.02
+          "read": 0.02,
+          "web_search": 0.01
         }
       ]
     },
@@ -29572,9 +29572,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.4
+          "read": 0.4,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29601,9 +29601,10 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-07T10:42:29Z",
-          "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
+          "note": "50% off",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -29614,9 +29615,9 @@
           "create_5m": 5.0,
           "fresh": 4.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 20.0,
-          "read": 0.4
+          "read": 0.4,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29625,9 +29626,10 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": null,
-          "note": "50% off; web_search $0.01 per tool call on the listing: not a per-request cost",
+          "note": "50% off",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -29638,9 +29640,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 12.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29671,9 +29673,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 12.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29682,9 +29684,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 12.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -29695,9 +29697,9 @@
           "create_5m": 0.25,
           "fresh": 0.25,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 2.0,
-          "read": 0.03
+          "read": 0.03,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29706,9 +29708,9 @@
           "create_5m": 0.25,
           "fresh": 0.25,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 2.0,
-          "read": 0.025
+          "read": 0.025,
+          "web_search": 0.01
         }
       ]
     },
@@ -29719,9 +29721,9 @@
           "create_5m": 0.05,
           "fresh": 0.05,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 0.4,
-          "read": 0.01
+          "read": 0.01,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29730,9 +29732,9 @@
           "create_5m": 0.05,
           "fresh": 0.05,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 0.4,
-          "read": 0.005
+          "read": 0.005,
+          "web_search": 0.01
         }
       ]
     },
@@ -29743,9 +29745,9 @@
           "create_5m": 15.0,
           "fresh": 15.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 120.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -29756,9 +29758,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29780,9 +29782,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29791,9 +29793,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 10.0,
-          "read": 0.1
+          "read": 0.1,
+          "web_search": 0.01
         }
       ]
     },
@@ -29804,9 +29806,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29828,9 +29830,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29839,9 +29841,9 @@
           "create_5m": 12.5,
           "fresh": 10.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 50.0,
-          "read": 1.0
+          "read": 1.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -29852,9 +29854,9 @@
           "create_5m": 0.125,
           "fresh": 0.1,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 0.5,
-          "read": 0.01
+          "read": 0.01,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29876,9 +29878,9 @@
           "create_5m": 0.125,
           "fresh": 0.1,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 0.5,
-          "read": 0.01
+          "read": 0.01,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29887,9 +29889,9 @@
           "create_5m": 0.125,
           "fresh": 0.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 0.5,
-          "read": 0.01
+          "read": 0.01,
+          "web_search": 0.01
         }
       ]
     },
@@ -29900,9 +29902,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29924,9 +29926,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": "2026-10-08T16:29:51Z",
-          "note": "web_search $0.01/request not modelled: per-request, unpriceable from token counts",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "OpenAI": [
@@ -29935,9 +29937,9 @@
           "create_5m": 2.5,
           "fresh": 2.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 10.0,
-          "read": 0.2
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -29948,9 +29950,9 @@
           "create_5m": 5.0,
           "fresh": 5.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 30.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -36116,9 +36118,9 @@
           "create_5m": 15.0,
           "fresh": 15.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 60.0,
-          "read": 7.5
+          "read": 7.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -36129,9 +36131,9 @@
           "create_5m": 150.0,
           "fresh": 150.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 600.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -36142,9 +36144,9 @@
           "create_5m": 2.0,
           "fresh": 2.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 8.0,
-          "read": 0.5
+          "read": 0.5,
+          "web_search": 0.01
         }
       ]
     },
@@ -36155,9 +36157,9 @@
           "create_5m": 1.1,
           "fresh": 1.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 4.4,
-          "read": 0.55
+          "read": 0.55,
+          "web_search": 0.01
         }
       ]
     },
@@ -36168,9 +36170,9 @@
           "create_5m": 1.1,
           "fresh": 1.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 4.4,
-          "read": 0.55
+          "read": 0.55,
+          "web_search": 0.01
         }
       ]
     },
@@ -36181,9 +36183,9 @@
           "create_5m": 20.0,
           "fresh": 20.0,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 80.0,
-          "read": 0.0
+          "read": 0.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -36194,9 +36196,9 @@
           "create_5m": 1.1,
           "fresh": 1.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 4.4,
-          "read": 0.275
+          "read": 0.275,
+          "web_search": 0.01
         }
       ]
     },
@@ -36207,9 +36209,9 @@
           "create_5m": 1.1,
           "fresh": 1.1,
           "from": null,
-          "note": "web_search $0.01 per tool call on the listing: not a per-request cost",
           "output": 4.4,
-          "read": 0.275
+          "read": 0.275,
+          "web_search": 0.01
         }
       ]
     },
