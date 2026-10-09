@@ -127,7 +127,7 @@ def perturb_pricing(path: Path,
             counter += timedelta(seconds=1)
     serialized = serialize_pricing_doc(doc)
     pricing.load_tables(json.loads(serialized))
-    path.write_text(serialized, encoding="utf-8")
+    path.write_text(serialized, encoding="utf-8", newline="\n")
     return len(all_rows), seed, base.astimezone(timezone.utc).strftime(
         STAMP_FORMAT)
 
@@ -285,7 +285,7 @@ def bump_constants(path: Path) -> None:
             raise ValueError(f"{path}: expected exactly one {name} line, "
                              f"found {len(found)}")
         text = pattern.sub(rf'\1 = "{int(found[0][1]) + 1}"', text)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def main(argv: list[str] | None = None) -> int:
