@@ -35,7 +35,6 @@ LANE_FIXTURES = [
     *sorted(FIX_PARSER.glob("kimi_*.jsonl")),
 ]
 
-# The awkward blobs from tests/test_parse_lanes.py, verbatim.
 TRICKY_BLOBS = [
     b'{"sessionId":"x","type":"system","message":"hi"}\n',
     (b'{"type":"llm.error","time":1784213155000,'
@@ -419,8 +418,7 @@ class TestNodeDrivenLaneParsers:
         assert got == [True]
 
     def test_per_model_meter_factors_match_backend_and_inspector(self, monkeypatch):
-        """Synthetic per-model factors price the browser session and Token
-        Breakdown exactly as the backend stores the record (issue #878)."""
+        """Synthetic per-model factors match backend and Inspector costs."""
         model_key = "gpt-5-6-sol"
         rates = {
             "fresh": 7.0, "create_5m": 8.75, "create_1h": 14.0,
@@ -444,8 +442,8 @@ class TestNodeDrivenLaneParsers:
         assert backend["long_context"] is True
 
         script = f"""
-          global.window = {{dashboardCol: {{inputTokens: '#1', outputTokens: '#2',
-            cacheCreateTokens: '#3', cacheReadTokens: '#4'}}}};
+          global.window = {{shortModelName: m => m, dashboardCol: {{inputTokens: '#1',
+            outputTokens: '#2', cacheCreateTokens: '#3', cacheReadTokens: '#4'}}}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r});
@@ -458,8 +456,10 @@ class TestNodeDrivenLaneParsers:
           require({str(RATES_JS)!r});
           require({str(PARSER_JS)!r});
           require({str(TOKEN_BREAKDOWN_JS)!r});
+          require({str(CTX_INPUT_JS)!r});
           const text = {json.dumps(_long_context_blob(None).decode())};
-          const {{ events, meta }} = window.parseTranscript(text);
+          const tx = window.parseTranscript(text);
+          const {{ events, meta }} = tx;
           const record = meta.find(m => m.type === 'assistant_usage');
           const usage = record.usage;
           const inspector = window.computeTokenBreakdown([{{
@@ -471,10 +471,16 @@ class TestNodeDrivenLaneParsers:
             ephemeral_5m: 0, ephemeral_1h: 0,
             long_context: record.long_context,
           }}]);
+          const source = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
+          const start = source.indexOf('function txToDashData');
+          const end = source.indexOf('\\nfunction App(', start);
+          eval(source.slice(start, end));
+          const dashboard = txToDashData(tx);
           console.log(JSON.stringify({{
             factors: window.longContextFactorsFor(record.model),
             session: window.computeSessionStats(events, meta).cost,
             inspector: inspector.costTotal,
+            appInspector: dashboard.events.reduce((sum, event) => sum + event.cost_usd, 0),
           }}));
         """
         proc = subprocess.run(["node", "-e", script], capture_output=True,
@@ -484,6 +490,7 @@ class TestNodeDrivenLaneParsers:
         assert got["factors"] == [5.0, 5.0]
         assert got["session"] == pytest.approx(backend["cost_usd"], abs=1e-9)
         assert got["inspector"] == pytest.approx(backend["cost_usd"], abs=1e-9)
+        assert got["appInspector"] == pytest.approx(backend["cost_usd"], abs=1e-9)
 
     @pytest.mark.parametrize(
         "label",
@@ -552,7 +559,6 @@ class TestNodeDrivenLaneParsers:
         assert got["tool_calls_shaped"], "tool_call fields"
         assert got["tool_results_shaped"], "tool_result fields"
         assert got["usages_shaped"], "assistant_usage fields"
-        # SessionHeader reads every one of these off stats.
         assert {"turns", "userMsgs", "toolCalls", "errorResults",
                 "parallelBatches", "firstTs", "lastTs", "output",
                 "hitRate", "cost"} <= set(got["stats"])
