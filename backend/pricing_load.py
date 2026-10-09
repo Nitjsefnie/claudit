@@ -148,12 +148,12 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
 def check_band(band: object, at: str) -> dict:
     """An entry's oscillating price range, checked (SV-RATE-DATA).
 
-    A band maps each rate field it constrains to a ``[min, max]`` pair of
-    finite non-negative numbers with ``min <= max``; a field it does not name
-    is unconstrained. The five rate fields beside it stay the priced rates —
-    the loader reads a band only to refuse a rule-breaking one. Mirrored by
-    parser.js's _checkBand, and shared with scripts/ci/price_band.py so the
-    refresh and this loader spell one shape.
+    A band maps named rate fields to finite non-negative ``[min, max]`` pairs
+    with ``min <= max``. When ``fresh`` is present, omitted ``create_5m`` and
+    ``create_1h`` pairs default to its pair; other unnamed fields are
+    unconstrained. Checked bands are returned with the provider rate tables.
+    Mirrored by parser.js's _checkBand, and shared with
+    scripts/ci/price_band.py so the refresh and this loader spell one shape.
     """
     if not isinstance(band, dict):
         raise ValueError(f"{at}: band is not a mapping of rate fields to [min, max]")
