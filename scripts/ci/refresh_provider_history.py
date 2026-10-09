@@ -9,8 +9,8 @@ from decimal import Decimal
 
 import price_band
 import refresh_alternation
-from backend import pricing
 from refresh_selection import Listing
+from backend import pricing
 
 RATE_FIELDS = pricing.RATE_FIELDS
 
@@ -147,6 +147,7 @@ def _floored_log(model: str, host: str, entries: list[dict]) -> list[dict]:
     return entries if kept == 0 else entries[kept - 1:]
 
 
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements
 def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    entries: list[dict], at: datetime,
                    deferred_notices: list[str] | None = None) -> Move | None:
@@ -289,4 +290,3 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     if move is None:
         move = Move(model, host, original, listing, 1, "search")
     return move
-

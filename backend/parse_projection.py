@@ -7,7 +7,7 @@ from backend.json_shape import as_dict
 from backend.parse_common import _to_dt
 
 
-def _project_record(file_key: str, ev: dict) -> dict:
+def _project_record(file_key: str, ev: dict) -> dict:  # pylint: disable=too-many-locals
     """One walked event → its records-table row (token columns + cost)."""
     u = ev["usage"]
     fresh = int(u.get("input_tokens", 0) or 0)
