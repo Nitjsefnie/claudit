@@ -53,7 +53,8 @@ MIN_PROMPT_TOKENS = "min_prompt_tokens"
 
 
 def meter_shape_ok(base: dict, band_rates: dict,
-                   where: str = "long-context band") -> tuple[float, float]:
+                   where: str = "long-context band",
+                   band: dict | None = None) -> tuple[float, float]:
     """Return the band's input/output price ratios, rounded to ten
     decimal places. The input ratio is derived from fresh input and then
     applies to fresh, both write TTLs, and cache reads alike. A band
@@ -69,6 +70,30 @@ def meter_shape_ok(base: dict, band_rates: dict,
         input_mult = round(band_rates["fresh"] / base["fresh"], 10)
     if not math.isfinite(input_mult) or input_mult <= 0:
         raise Untracked(f"{where}: input multiplier is not positive and finite")
+
+    # The meter applies one input factor to fresh tokens, cache writes, and
+    # cache reads. Preserve every cache price explicitly listed by the band
+    # only when that same factor represents it at the comparison precision.
+    cache_fields = (
+        ("input_cache_read", "read", "read"),
+        ("input_cache_write", "create_5m", "5m write"),
+        ("input_cache_write_1h", "create_1h", "1h write"),
+    )
+    if band is not None:
+        for key, field, label in cache_fields:
+            if key not in band:
+                continue
+            base_rate = base[field]
+            band_rate = band_rates[field]
+            expected = round(base_rate * input_mult, 10)
+            if round(band_rate, 10) == expected:
+                continue
+            implied = (f"x{round(band_rate / base_rate, 10):g}"
+                       if base_rate else "undefined (zero base rate)")
+            raise Untracked(
+                f"{where}: cache {label} is not representable by one input "
+                f"factor: base {base_rate:g}, band {band_rate:g}, implied "
+                f"factor {implied} (meter factor x{input_mult:g})")
 
     if base["output"] == 0:
         if band_rates["output"] != 0:
@@ -93,7 +118,7 @@ def band_threshold(band: dict, where: str) -> int:
 
 def metered_band(price: dict, where: str,
                  bands: list[dict]) -> dict | None:
-    """Fold one coherent `min_prompt_tokens` band to its meter entry."""
+    """Fold one representable `min_prompt_tokens` band to its meter entry."""
     if not bands:
         return None
     if len(bands) > 1:
@@ -109,7 +134,7 @@ def metered_band(price: dict, where: str,
         raise Untracked(f"{where}: the band does not restate input and output: not modelled")
     threshold = band_threshold(band, where)
     input_mult, output_mult = meter_shape_ok(
-        rates_of(price, where), rates_of(band, where), where)
+        rates_of(price, where), rates_of(band, where), where, band)
     return {"threshold": threshold, "input_mult": input_mult,
             "output_mult": output_mult}
 
@@ -235,15 +260,14 @@ def as_listed(rates: dict) -> dict:
     return price
 
 
-def entry_schedule(price: dict, where: str, model: str) -> list | None:
+def entry_schedule(price: dict, where: str) -> list | None:
     """The entry schedule for OpenRouter's pricing.overrides: weekly UTC
     windows (utc_days, utc_start/utc_end as HHMM), each with the prices it
     overrides; a price it does not name is the endpoint's own.
 
-    A `min_prompt_tokens` override is the long-context band: its coherent
-    factor pair must match the model's stored meter and contributes no
-    window or rates to the row. The vendor fold learns factors from its own
-    first-party listing; provider rows follow after that meter is loaded."""
+    A `min_prompt_tokens` override is the long-context band: it contributes
+    no window or rates to this provider row. The vendor fold independently
+    learns its threshold and factors from the first-party listing."""
     overrides = price.get("overrides")
     if overrides is None or overrides == []:
         return None
@@ -267,15 +291,7 @@ def entry_schedule(price: dict, where: str, model: str) -> list | None:
             window["start"] = override.get("utc_start")
             window["end"] = override.get("utc_end")
         schedule.append(window)
-    meter = metered_band(price, where, bands)
-    if meter is not None:
-        expected = tuple(round(factor, 10)
-                         for factor in pricing.long_context_factors(model))
-        listed = (meter["input_mult"], meter["output_mult"])
-        if listed != expected:
-            raise Untracked(
-                f"{where}: long-context band departs from the meter's "
-                f"multipliers at threshold {meter['threshold']}")
+    metered_band(price, where, bands)
     if not schedule:
         return None
     try:

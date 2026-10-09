@@ -173,15 +173,13 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      (cwd_rebuild). Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
--- 2026-09-22: the long-context meter, per record; issue #765: per-model
--- thresholds and optional per-model factors in pricing.json's
--- long_context_meters. Requests above their model threshold bill at that
--- model's input/output factors (global defaults otherwise).
--- (pricing.LONG_CONTEXT_*_MULT), whatever plan served it (issue #194), so
--- a per-component cost re-derived from the flat tokens disagrees with the
--- stored cost_usd unless the fold knows the flag.
--- NULL on rows that are no meter decision (non-members); readers COALESCE.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN;
+-- 2026-09-22: the long-context decision and pricing pair (issues #765, #878).
+-- Members above their own threshold bill at model factors or global defaults;
+-- metered rows store the pair used by cost. NULL flag/pair means no decision,
+-- while legacy metered rows used global defaults.
+ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN,
+  ADD COLUMN IF NOT EXISTS long_context_input_mult DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS long_context_output_mult DOUBLE PRECISION;
 -- 2026-09-25: the host that served the request, OpenRouter's
 -- message.provider ("Novita", "Morph", "Stealth"). Priced by
 -- pricing.PROVIDER_RATES; NULL on every other lane, which prices by model
