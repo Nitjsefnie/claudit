@@ -16,10 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypedDict
 
-from backend.meter_tables import (
-    _long_context_members,
-    _long_context_meters,
-)
+from backend.meter_tables import _long_context_meters
 
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
@@ -54,9 +51,7 @@ class RateTables(TypedDict):
     VENDOR_HOSTS: dict[str, str]
     # The default estimate's rates: the merged view's claude-opus-4-7 row.
     DEFAULT_RATES: dict
-    # The Codex long-context meter's membership (pricing.json's
-    # long_context_models): dashed names of models-table keys or tracked
-    # keys, compared against a record's normalised model id.
+    # Derived membership: every key in LONG_CONTEXT_METERS is a member.
     LONG_CONTEXT_MODELS: frozenset[str]
     # The meter's per-model entries (issue #878): member key -> threshold
     # and optional input/output factors, overriding global defaults.
@@ -367,6 +362,7 @@ def load_tables(doc: dict) -> RateTables:
      provider_schedules) = _provider_tables(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
     vendor_prefixes = list(doc["openrouter"]["vendor"]["prefixes"])
+    long_context_meters = _long_context_meters(doc)
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
@@ -389,8 +385,8 @@ def load_tables(doc: dict) -> RateTables:
         "VENDOR_HOSTS": vendor_hosts,
         "DEFAULT_RATES": _default_rates(model_rates, vendor_bare,
                                         vendor_hosts, provider_rates),
-        "LONG_CONTEXT_MODELS": _long_context_members(doc),
-        "LONG_CONTEXT_METERS": _long_context_meters(doc),
+        "LONG_CONTEXT_MODELS": frozenset(long_context_meters),
+        "LONG_CONTEXT_METERS": long_context_meters,
     }
 
 

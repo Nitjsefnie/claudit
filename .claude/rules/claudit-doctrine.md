@@ -39,8 +39,8 @@ fails on drift; the lane browser test fails when
 `window.LONG_CONTEXT_THRESHOLD` / `LONG_CONTEXT_INPUT_MULT` /
 `LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`, or
 when the loader's `window.longContextModels` / `window.longContextMeters`
-stop matching the file's `long_context_models` / `long_context_meters`
-(the per-model membership and complete meter entries, issue #878), or
+stop matching the grouped `long_context_meters` field after folding
+(membership is its key set, issue #883), or
 when `window.longContextFactorsFor(model)` stops matching
 `pricing.long_context_factors(model)`.
 
@@ -662,9 +662,18 @@ bare forms are a validated namespace: one bare form per tracked vendor
 entry, and never one that is also a models-table key — a transcript id
 would otherwise resolve two ways, so the loaders refuse the file naming
 both rows.
-`long_context_models` members are dashed names of models-table keys OR
-tracked keys, whichever table's row the id prices through; a member
-naming neither is refused.
+The grouped `long_context_meters` field is the sole long-context membership
+and threshold source. Each group has exactly `threshold` and `models`:
+`threshold` is a positive integer unique across groups, and `models` is a
+non-empty list. A model key appears at most once across the field, names a
+models-table key or tracked key, and is either a bare string (global
+multipliers) or a one-key object mapping the key to an object with optional
+`input_mult` / `output_mult`. Unknown fields, malformed entries, invalid
+thresholds or multipliers, duplicate thresholds, empty groups, repeated
+keys, and keys naming neither table are refused. The removed
+`long_context_models` field is refused if present. The loaders fold groups
+to the in-memory `key -> {threshold, input_mult?, output_mult?}` map;
+membership is exactly its key set, so every member has a threshold.
 `backend/pricing.py` and `src/rates.js` hold logic only and both read
 it — the backend at import through `backend/pricing_load.py`, which
 `pricing.py` re-exports, the browser synchronously before first use
@@ -676,16 +685,21 @@ cache-busted like every `/src` asset; the file sits in `src/` because
 that is what the app serves. No rate literal belongs in either source
 file.
 
-Beside the tables sits `long_context_meters`: a map of
-`long_context_models` member keys to `{"threshold": N,
-"input_mult"?: M, "output_mult"?: M}`. The threshold is a positive
-integer; each optional multiplier is a finite positive number. These
-override `pricing.LONG_CONTEXT_THRESHOLD`,
-`LONG_CONTEXT_INPUT_MULT`, and `LONG_CONTEXT_OUTPUT_MULT` independently.
-A member absent from the map keeps all three global defaults, a key naming
-no member is refused, and the complete meter entries ride the reprice
-pass's rate_fingerprint. Both loaders validate and fold them (the browser
-to `window.longContextMeters`).
+Beside the tables sits one grouped `long_context_meters` list. Each group
+has a positive integer `threshold` (unique across groups) and a non-empty
+`models` list. Each model entry is either its dashed string key, which uses
+global multipliers, or a one-key object mapping that key to an object with
+optional `input_mult` / `output_mult`. The key must name a models-table or
+tracked key, and it may appear only once across all groups. Unknown fields,
+bad group/model shapes, duplicate thresholds, empty groups, repeated keys,
+and invalid thresholds or multipliers are refused; the old
+`long_context_models` field is refused if present. Optional multipliers must
+be finite positive numbers and override `pricing.LONG_CONTEXT_INPUT_MULT`
+and `LONG_CONTEXT_OUTPUT_MULT` independently; each member's explicit
+threshold overrides `pricing.LONG_CONTEXT_THRESHOLD`. Both loaders fold the
+list to `key -> {threshold, input_mult?, output_mult?}` and membership is
+exactly the map's keys. The complete entries ride the reprice pass's
+rate_fingerprint; the browser exposes them as `window.longContextMeters`.
 
 Each row's history is append-only, oldest first. Every entry carries
 five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
@@ -1049,8 +1063,8 @@ same rules:
 
 ## First-party vendor rates refresh from OpenRouter (SV-VENDOR-RATES)
 
-The same hourly run tracks the first-party vendor table and
-`long_context_models` membership, selected by VENDOR PREFIX over OpenRouter's
+The same hourly run tracks the first-party vendor table and the grouped
+`long_context_meters` field, selected by VENDOR PREFIX over OpenRouter's
 catalog at the vendor's own first-party endpoint (the endpoint whose tag
 prefix is the vendor's own namespace), never a third-party host. The prefix
 list is config: `openrouter.vendor.prefixes` — the same list the loaders
@@ -1110,12 +1124,15 @@ pass moved.
   its base price, band price, and implied factor. A representable band
   contributes NO rates:
   the band's own rates never enter anything the pass writes. Its threshold
-  and factors land in `long_context_meters`; factors equal to the global
-  defaults are omitted. Membership, threshold, and factors follow the
-  listing for vendor-tracked keys (a member requires its tracked entry,
-  which the same run adds); non-vendor keys stand untouched. A threshold
-  or factor move rewrites the meter, and a band that disappears removes
-  membership and its meter entry.
+  and factors land in the threshold group's `long_context_meters.models`
+  list; a key is a bare string when both factors equal the global defaults,
+  otherwise it is a one-key multiplier object. Membership, threshold, and
+  factors follow the listing for vendor-tracked keys (a member requires its
+  tracked entry, which the same run adds); non-vendor keys stand untouched.
+  A threshold move moves the key between groups, creating the destination
+  group and deleting the source group if it becomes empty. A factor move
+  updates the model entry, and a band that disappears removes the key and
+  deletes any group it empties.
 - **An unmodelled vendor shape refuses the run.** The vendor pass refuses
   a first-party listing it cannot represent, leaving that model untouched.
   This includes weekly schedules, unknown override kinds or nonzero pricing

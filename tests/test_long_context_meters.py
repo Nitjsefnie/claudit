@@ -1,8 +1,8 @@
 """Per-model long-context meter thresholds and factors (issue #878).
 
-long_context_meters maps a member key to {"threshold": N} with optional
-input/output factors; a member without an entry keeps the global defaults.
-A Claude-format record of a member above its model's own threshold bills
+long_context_meters groups model keys by threshold; optional per-model
+input/output factors override the global defaults. Every member therefore
+has an explicit threshold. A Claude-format record above its model's threshold bills
 the band and carries the flag; every other Claude-format row keeps the
 NULL marker (issue #249's reprice-equals-reparse law forces the decision
 into the parse path). The Codex lane and the reprice re-derivation read the

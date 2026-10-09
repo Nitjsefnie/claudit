@@ -94,7 +94,7 @@ def _doc(*, vendor_host=True, prefixed=True, schedules=False, web_search=False,
     else:
         providers = {KEY: {HOST: acme_history}}
     return {
-        "long_context_models": [],
+        "long_context_meters": [],
         "models": dict(models if models is not None
                        else {"claude-opus-4-7": [_entry(R_THIRD)]}),
         "openrouter": {"data_region": "global", "models": tracked,
@@ -320,7 +320,7 @@ def test_a_bare_form_collision_refuses_in_the_browser(tmp_path):
 
 def test_a_long_context_member_may_name_a_tracked_key():
     doc = _doc()
-    doc["long_context_models"] = [KEY]
+    doc["long_context_meters"] = [{"threshold": 200_000, "models": [KEY]}]
     assert KEY in pricing.load_tables(doc)["LONG_CONTEXT_MODELS"]
 
 
@@ -657,7 +657,7 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
         doc, lambda: catalog, lambda _mid: payload)
     assert outcome.refusals == []
     assert outcome.moves, "the tracked key's listing was not selected"
-    assert doc["long_context_models"] == [KEY]
+    assert KEY in pricing.load_tables(doc)["LONG_CONTEXT_MODELS"]
     assert doc["models"] == before["models"], "the models table was written"
     assert (doc["openrouter"]["models"][KEY]
             == before["openrouter"]["models"][KEY]), "the entry was rewritten"

@@ -99,6 +99,23 @@ def _move_meter(threshold: int, input_mult: float = long_context.LONG_CONTEXT_IN
             "output_mult": output_mult}
 
 
+def _meter_map(doc: dict) -> dict[str, dict]:
+    """Fold the grouped JSON field to the loader's in-memory map shape."""
+    folded = {}
+    for group in doc["long_context_meters"]:
+        for model in group["models"]:
+            if isinstance(model, str):
+                key, factors = model, {}
+            else:
+                key, factors = next(iter(model.items()))
+            folded[key] = {"threshold": group["threshold"], **factors}
+    return folded
+
+
+def _meter_for(doc: dict, key: str) -> dict | None:
+    return _meter_map(doc).get(key)
+
+
 def _run(doc: dict, catalog: dict, endpoints: dict):
     doc = copy.deepcopy(doc)
     outcome = vendor.vendor_pass(doc, lambda: catalog,

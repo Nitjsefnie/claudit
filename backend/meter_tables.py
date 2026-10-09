@@ -1,62 +1,40 @@
-"""The long-context meter's membership and per-model threshold tables
-(issue #765), checked. Split from backend/pricing_load.py — whose module
-size is a ratcheted ceiling — the same checked-table shape the rest of
-that loader carries; pricing_load imports the two builders back and
-pricing re-exports their values. Pure functions over the document; no
-rate table is read here."""
+"""The grouped long-context meter table, checked.
+
+``long_context_meters`` groups model keys by threshold and carries optional
+per-model factors. The loader folds it to the complete per-model entries
+used by pricing and repricing; the JSON does not keep a second membership
+list.
+"""
 from __future__ import annotations
 
 import math
 
 
-def _long_context_members(doc: dict) -> frozenset[str]:
-    """The long-context meter's membership, checked: distinct non-empty
-    strings, each naming a models-table key OR a tracked key (the meter
-    rides whichever table's rate rows the id prices through, so a name
-    with no row in either is a typo the loader refuses)."""
-    if "long_context_models" not in doc:
-        raise ValueError("pricing.json: long_context_models is missing")
-    members = doc["long_context_models"]
-    if (not isinstance(members, list)
-            or not all(isinstance(k, str) and k for k in members)
-            or len(set(members)) != len(members)):
-        raise ValueError(
-            "long_context_models: not a list of distinct non-empty keys")
-    tracked = (doc.get("openrouter") or {}).get("models") or {}
-    unknown = [k for k in members
-               if k not in doc["models"] and k not in tracked]
-    if unknown:
-        raise ValueError(
-            f"long_context_models: {unknown} name no models-table or tracked key")
-    return frozenset(members)
-
-
 def _long_context_meters(doc: dict) -> dict[str, dict]:
-    """The meter's per-model entries, checked: a map of member keys to
-    {threshold, input_mult?, output_mult?}. The threshold is a positive
-    integer; an integral float spelling folds to an int so both loaders
-    accept the same JSON number. Multipliers, when present, are finite
-    positive numbers. A member absent here keeps the global defaults.
-    The key must be a member — a meter for a model that does not meter is
-    inert data the loaders refuse."""
-    meters = doc.get("long_context_meters") or {}
-    if not isinstance(meters, dict):
-        raise ValueError("long_context_meters: not a map of member keys "
-                         "to meter entries")
-    members = _long_context_members(doc)
+    """Validate grouped meter data and fold it to key -> whole meter entry."""
+    if "long_context_models" in doc:
+        raise ValueError(
+            "pricing.json: long_context_models is removed; use long_context_meters")
+    if "long_context_meters" not in doc:
+        raise ValueError("pricing.json: long_context_meters is missing")
+    groups = doc["long_context_meters"]
+    if not isinstance(groups, list):
+        raise ValueError("long_context_meters: not a list of groups")
+
+    models = doc["models"]
+    tracked = (doc.get("openrouter") or {}).get("models") or {}
     folded: dict[str, dict] = {}
-    for key, value in meters.items():
-        if key not in members:
-            raise ValueError(
-                f"long_context_meters: {key!r} names no long_context_models "
-                "member")
-        if (not isinstance(value, dict) or "threshold" not in value
-                or set(value) - {"threshold", "input_mult", "output_mult"}):
-            raise ValueError(
-                f"long_context_meters: {key!r} is not a meter entry with "
-                "a positive integer threshold and optional positive "
-                "finite multipliers")
-        threshold = value["threshold"]
+    thresholds: set[int] = set()
+    for index, group in enumerate(groups):
+        where = f"long_context_meters[{index}]"
+        if not isinstance(group, dict):
+            raise ValueError(f"{where}: group is not an object")
+        unknown = set(group) - {"threshold", "models"}
+        if unknown:
+            raise ValueError(f"{where}: unknown field {sorted(unknown)[0]!r}")
+        if "threshold" not in group:
+            raise ValueError(f"{where}: no positive integer threshold")
+        threshold = group["threshold"]
         try:
             integral = (not isinstance(threshold, bool)
                         and isinstance(threshold, (int, float))
@@ -66,23 +44,59 @@ def _long_context_meters(doc: dict) -> dict[str, dict]:
         except (OverflowError, ValueError):
             integral = False
         if not integral:
+            raise ValueError(f"{where}: no positive integer threshold")
+        threshold = int(threshold)
+        if threshold in thresholds:
             raise ValueError(
-                f"long_context_meters: {key!r} has no positive integer "
-                "threshold")
-        entry = {**value, "threshold": int(threshold)}
-        for field in ("input_mult", "output_mult"):
-            if field not in entry:
-                continue
-            multiplier = entry[field]
-            try:
-                finite = (isinstance(multiplier, (int, float))
-                          and not isinstance(multiplier, bool)
-                          and math.isfinite(float(multiplier)))
-            except (OverflowError, ValueError):
-                finite = False
-            if not finite or multiplier <= 0:
+                f"long_context_meters: duplicate threshold {threshold}")
+        thresholds.add(threshold)
+
+        entries = group.get("models")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"{where}: models is empty or not a list")
+        for entry in entries:
+            if isinstance(entry, str):
+                key, factors = entry, {}
+            elif isinstance(entry, dict) and len(entry) == 1:
+                key, factors = next(iter(entry.items()))
+                if not isinstance(key, str) or not key:
+                    raise ValueError(
+                        f"{where}: models entries need non-empty model keys")
+                if not isinstance(factors, dict):
+                    raise ValueError(
+                        f"long_context_meters: {key!r} multipliers are not an object")
+                unknown = set(factors) - {"input_mult", "output_mult"}
+                if unknown:
+                    raise ValueError(
+                        f"long_context_meters: {key!r} unknown field "
+                        f"{sorted(unknown)[0]!r}")
+            else:
                 raise ValueError(
-                    f"long_context_meters: {key!r} has invalid {field}; "
-                    "expected a positive finite number")
-        folded[key] = entry
+                    f"{where}: each model is a key or a one-key multiplier object")
+            if not key:
+                raise ValueError(f"{where}: models entries need non-empty model keys")
+            if key in folded:
+                raise ValueError(
+                    f"long_context_meters: {key!r} appears more than once")
+            if key not in models and key not in tracked:
+                raise ValueError(
+                    f"long_context_meters: {key!r} names no models-table or tracked key")
+
+            meter = {"threshold": threshold}
+            for field in ("input_mult", "output_mult"):
+                if field not in factors:
+                    continue
+                multiplier = factors[field]
+                try:
+                    finite = (isinstance(multiplier, (int, float))
+                              and not isinstance(multiplier, bool)
+                              and math.isfinite(float(multiplier)))
+                except (OverflowError, ValueError):
+                    finite = False
+                if not finite or multiplier <= 0:
+                    raise ValueError(
+                        f"long_context_meters: {key!r} has invalid {field}; "
+                        "expected a positive finite number")
+                meter[field] = multiplier
+            folded[key] = meter
     return folded

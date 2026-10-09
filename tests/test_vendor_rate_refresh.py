@@ -9,8 +9,8 @@ import pytest
 from backend import long_context, pricing, pricing_load
 from tests.vendor_rate_refresh_helpers import (
     GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT, STAMP,
-    TRACKED, _band, _catalog, _doc, _endpoint, _load, _move_meter, _payload,
-    _per_token, _price, _run, vendor,
+    TRACKED, _band, _catalog, _doc, _endpoint, _load, _meter_for, _meter_map,
+    _move_meter, _payload, _per_token, _price, _run, vendor,
 )
 
 
@@ -144,8 +144,8 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
         **tracked_before,
         text_key: {"id": text_id, "vendor_host": "Vendor"},
     }
-    assert doc["long_context_models"] == [image_key]
-    assert doc["long_context_meters"] == {image_key: {"threshold": 200_000}}
+    assert doc["long_context_meters"] == [
+        {"threshold": 200_000, "models": [image_key]}]
 
 
 def test_the_prefix_list_is_config():
@@ -172,7 +172,7 @@ def test_a_delisted_tracked_id_is_untouched():
                     _catalog(GLM_ID),
                     {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert GPT_KEY in doc["long_context_models"]
+    assert GPT_KEY in _meter_map(doc)
     assert [m.id for m in out.moves] == [GLM_ID]
 
 
@@ -197,10 +197,11 @@ def test_banded_model_joins_the_meter_with_its_entry():
         "openai", _price(1.0, 5.0, read=0.1,
                          overrides=[_band(1.0, 5.0, read=0.1)])))})
     assert not out.refusals
-    assert GPT_KEY in doc["long_context_models"]
+    assert GPT_KEY in _meter_map(doc)
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert doc["long_context_meters"][GPT_KEY] == {
-        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
+    assert doc["long_context_meters"] == [{
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD,
+        "models": [GPT_KEY]}]
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True,
                                            membership="+",
                                            meter=_move_meter(
@@ -219,8 +220,9 @@ def test_banded_tracked_entry_folds_membership_and_meter():
     assert out.moves == [vendor.VendorMove(
         GPT_ID, GPT_KEY, membership="+",
         meter=_move_meter(long_context.LONG_CONTEXT_THRESHOLD))]
-    assert doc["long_context_meters"][GPT_KEY] == {
-        "threshold": long_context.LONG_CONTEXT_THRESHOLD}
+    assert doc["long_context_meters"] == [{
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD,
+        "models": [GPT_KEY]}]
 
 
 def test_band_removal_leaves_the_meter():
@@ -230,8 +232,8 @@ def test_band_removal_leaves_the_meter():
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="-")]
-    assert GPT_KEY not in doc["long_context_models"]
-    assert GPT_KEY not in doc["long_context_meters"]
+    assert _meter_map(doc) == {}
+    assert doc["long_context_meters"] == []
 
 
 def test_a_new_threshold_is_learned_from_the_band():
@@ -245,8 +247,8 @@ def test_a_new_threshold_is_learned_from_the_band():
                                               write_1h=2.0,
                                               threshold=200_000)])))})
     assert not out.refusals and out.notices == []
-    assert GPT_KEY in doc["long_context_models"]
-    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 200_000}
+    assert doc["long_context_meters"] == [
+        {"threshold": 200_000, "models": [GPT_KEY]}]
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="+",
                                            meter=_move_meter(200_000))]
 
@@ -263,8 +265,8 @@ def test_the_stored_meter_moves_with_the_band():
                                               write_1h=2.0,
                                               threshold=300_000)])))})
     assert not out.refusals and out.notices == []
-    assert doc["long_context_meters"][GPT_KEY] == {"threshold": 300_000}
-    assert GPT_KEY in doc["long_context_models"]
+    assert doc["long_context_meters"] == [
+        {"threshold": 300_000, "models": [GPT_KEY]}]
     assert out.moves == [vendor.VendorMove(
         GPT_ID, GPT_KEY, meter=_move_meter(300_000))]
 
@@ -287,7 +289,7 @@ def test_non_vendor_member_stands():
              models={"bonsai-test-1": [{"from": None, **RATES}]}),
         _catalog(GLM_ID),
         {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
-    assert "bonsai-test-1" in doc["long_context_models"]
+    assert "bonsai-test-1" in _meter_map(doc)
 
 
 @pytest.mark.parametrize("kw", [{"input_mult": 3.0}, {"output_mult": 1.25}])
@@ -296,9 +298,17 @@ def test_departing_global_multiplier_is_learned_per_model(kw):
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, overrides=[_band(1.0, 5.0, **kw)])))})
     assert not out.refusals and not out.notices
-    assert doc["long_context_models"] == [GPT_KEY]
+    expected_factors = {
+        field: value for field, value in kw.items()
+        if value != (long_context.LONG_CONTEXT_INPUT_MULT
+                     if field == "input_mult"
+                     else long_context.LONG_CONTEXT_OUTPUT_MULT)}
+    expected_model = {GPT_KEY: expected_factors} if expected_factors else GPT_KEY
+    assert doc["long_context_meters"] == [{
+        "threshold": long_context.LONG_CONTEXT_THRESHOLD,
+        "models": [expected_model]}]
     assert GPT_KEY in doc["openrouter"]["models"]
-    entry = doc["long_context_meters"][GPT_KEY]
+    entry = _meter_for(doc, GPT_KEY)
     assert entry["threshold"] == long_context.LONG_CONTEXT_THRESHOLD
     if "input_mult" in kw:
         assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD,
@@ -322,9 +332,9 @@ def test_haiku_shaped_custom_meter_folds_in_one_run():
                     {GPT_ID: _payload(_endpoint("openai", listing))})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert doc["long_context_models"] == [GPT_KEY]
-    assert doc["long_context_meters"][GPT_KEY] == {
-        "threshold": 100_000, "input_mult": 5.0, "output_mult": 5.0}
+    assert doc["long_context_meters"] == [{
+        "threshold": 100_000,
+        "models": [{GPT_KEY: {"input_mult": 5.0, "output_mult": 5.0}}]}]
     assert out.moves == [vendor.VendorMove(
         GPT_ID, GPT_KEY, added=True, membership="+",
         meter=_move_meter(100_000, input_mult=5.0, output_mult=5.0))]
@@ -343,8 +353,9 @@ def test_a_changed_band_factor_rewrites_the_stored_meter():
                                               input_mult=5.0,
                                               output_mult=5.0)])))})
     assert not out.refusals and out.notices == []
-    assert doc["long_context_meters"][GPT_KEY] == {
-        "threshold": 100_000, "input_mult": 5.0, "output_mult": 5.0}
+    assert doc["long_context_meters"] == [{
+        "threshold": 100_000,
+        "models": [{GPT_KEY: {"input_mult": 5.0, "output_mult": 5.0}}]}]
     assert out.moves == [vendor.VendorMove(
         GPT_ID, GPT_KEY,
         meter=_move_meter(100_000, input_mult=5.0, output_mult=5.0))]
@@ -357,8 +368,8 @@ def test_a_bad_band_threshold_refuses():
             "openai", _price(1.0, 5.0, read=0.1,
                              overrides=[_band(1.0, 5.0, threshold=bad)])))})
         assert GPT_KEY not in doc["openrouter"]["models"]
-        assert GPT_KEY not in doc["long_context_models"]
-        assert GPT_KEY not in doc["long_context_meters"]
+        assert _meter_map(doc) == {}
+        assert doc["long_context_meters"] == []
         assert len(out.refusals) == 1 and not out.notices
         assert "positive integer" in out.refusals[0]
 
@@ -575,8 +586,9 @@ def test_main_vendor_report_carries_custom_meter_factors(tmp_path, capsys):
     assert rc == 0, err
     assert "[threshold 100000, input x5, output x5]" in out
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert doc["long_context_meters"][GPT_KEY] == {
-        "threshold": 100_000, "input_mult": 5.0, "output_mult": 5.0}
+    assert doc["long_context_meters"] == [{
+        "threshold": 100_000,
+        "models": [{GPT_KEY: {"input_mult": 5.0, "output_mult": 5.0}}]}]
 
 
 def test_main_vendor_refusal_is_red_but_other_moves_writes(tmp_path, capsys):

@@ -19,7 +19,7 @@ NEXT hourly run, so a newly added model prices nothing for one run — the
 one-run pickup delay is the design, and resolve()'s bare path falls
 through until the row exists. An already-tracked key is never re-added or
 rewritten: its tracked table entry stands byte for byte. Its listing still
-controls meter membership and the per-model threshold/factors.
+controls the grouped meter membership, threshold, and per-model factors.
 
 The vendor's own endpoint is selected refusing rather than guessing:
 
@@ -51,14 +51,16 @@ pins, and broken or unrecognised fetches also refuse:
 - a long-context band with multiple bands, a threshold that is not positive,
   missing input/output prices, an unsupported band kind, or UTC fields.
   A min_prompt_tokens band yields its factors from the listing, folds its
-  threshold/factors into long_context_meters, and contributes no rates.
+  threshold/factors into the matching long_context_meters group, and
+  contributes no rates.
 
-Membership and meter data are listing-governed for vendor-tracked keys: a
-banded model's key joins long_context_models and its threshold/factors are
-stored together (a member requires its tracked entry, which the same run
-adds); an unbanded vendor-tracked key leaves membership and its meter, and
-every non-vendor key stands untouched. These changes move the version: the
-reprice pass re-derives records.long_context from membership, and a meter
+The grouped long-context field is listing-governed for vendor-tracked keys:
+a banded model's key is added to its threshold group with any non-global
+factors (a member requires its tracked entry, which the same run adds); an
+unbanded vendor-tracked key is removed from its group, and every non-vendor
+key stands untouched. A threshold move changes groups, creating the new one
+and deleting the old one if it becomes empty. These changes move the version:
+the reprice pass re-derives records.long_context from membership, and a meter
 entry moves the rate fingerprint the reprice consults — so a quiet run (no
 add, no fold) still writes nothing.
 
@@ -95,7 +97,7 @@ class VendorMove:
     id: str
     key: str
     added: bool = False
-    membership: str = ""  # "+" joined long_context_models, "-" left, "" untouched
+    membership: str = ""  # "+" joined a group, "-" left, "" untouched
     meter: dict | None = None  # full effective meter when the move changes it
 
 
@@ -239,18 +241,6 @@ def _choose(model_id: str, endpoints: list, pin: object
     return listings[0]
 
 
-def _fold_membership(members: list, key: str, metered: bool) -> str:
-    """Fold `key` in or out of long_context_models per the listing, and
-    name the fold for the move."""
-    if metered and key not in members:
-        members.append(key)
-        return "+"
-    if not metered and key in members:
-        members.remove(key)
-        return "-"
-    return ""
-
-
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             outcome: VendorOutcome):
     """The chosen listing, or None when the pass moves on: the findings
@@ -277,27 +267,66 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
     return None
 
 
-def _fold_meter(meters: dict, key: str, meter: dict | None) -> bool:
-    """Write or drop the listing's threshold/factors; return whether it
-    changed. Global factors stay omitted from pricing.json."""
-    if meter is not None:
-        stored = {"threshold": meter["threshold"]}
-        for field, default in (
-                ("input_mult", pricing.LONG_CONTEXT_INPUT_MULT),
-                ("output_mult", pricing.LONG_CONTEXT_OUTPUT_MULT)):
-            if meter[field] != default:
-                stored[field] = meter[field]
-        if meters.get(key) == stored:
+def _meter_model_key(entry: str | dict) -> str:
+    """The model key in a grouped meter's string or multiplier shape."""
+    return entry if isinstance(entry, str) else next(iter(entry))
+
+
+def _meter_location(groups: list, key: str):
+    """The group and member entry that currently carry `key`, if any."""
+    for group in groups:
+        for index, entry in enumerate(group["models"]):
+            if _meter_model_key(entry) == key:
+                return group, index, entry
+    return None
+
+
+def _fold_meter(groups: list, key: str, meter: dict | None) -> bool:
+    """Add, move, or drop a model in the threshold groups.
+
+    Global factors stay omitted from pricing.json; a group whose last model
+    leaves is removed.
+    """
+    old = _meter_location(groups, key)
+    if meter is None:
+        if old is None:
             return False
-        meters[key] = stored
+        group, index, _entry = old
+        del group["models"][index]
+        if not group["models"]:
+            groups.remove(group)
         return True
-    if key in meters:
-        del meters[key]
-        return True
-    return False
+
+    threshold = meter["threshold"]
+    factors = {}
+    for field, default in (
+            ("input_mult", pricing.LONG_CONTEXT_INPUT_MULT),
+            ("output_mult", pricing.LONG_CONTEXT_OUTPUT_MULT)):
+        if meter[field] != default:
+            factors[field] = meter[field]
+    entry = {key: factors} if factors else key
+    if old is not None:
+        old_group, old_index, old_entry = old
+        if old_group["threshold"] == threshold:
+            if old_entry == entry:
+                return False
+            old_group["models"][old_index] = entry
+            return True
+        del old_group["models"][old_index]
+        if not old_group["models"]:
+            groups.remove(old_group)
+
+    group = next((item for item in groups
+                  if item["threshold"] == threshold), None)
+    if group is None:
+        group = {"threshold": threshold, "models": []}
+        groups.append(group)
+    group["models"].append(entry)
+    group["models"].sort(key=_meter_model_key)
+    return True
 
 
-def _one_model(doc: dict, members: list, meters: dict, model_id: str,
+def _one_model(doc: dict, groups: list, model_id: str,
                fetch_endpoints, outcome: VendorOutcome) -> None:
     """One catalog id's selection, auto-add or fold; findings land in
     outcome. An unmodelled listing refuses the run. A tracked key is never
@@ -311,24 +340,27 @@ def _one_model(doc: dict, members: list, meters: dict, model_id: str,
     # setdefault, never `or {}`: an empty tracked table is falsy, and a
     # fresh dict here would drop the auto-add's write on the floor.
     tracked = (doc.get("openrouter") or {}).setdefault("models", {})
+    was_metered = _meter_location(groups, key) is not None
     if key in tracked:
-        membership = _fold_membership(members, key, metered)
-        meter_changed = _fold_meter(meters, key, meter)
+        meter_changed = _fold_meter(groups, key, meter)
+        membership = ("+" if metered and not was_metered else
+                      "-" if not metered and was_metered else "")
         if membership or meter_changed:
             outcome.moves.append(VendorMove(model_id, key,
                                             membership=membership, meter=meter))
         return
     tracked[key] = {"id": model_id, "vendor_host": host}
-    membership = _fold_membership(members, key, metered)
-    _fold_meter(meters, key, meter)
+    membership = ("+" if metered and not was_metered else
+                  "-" if not metered and was_metered else "")
+    _fold_meter(groups, key, meter)
     outcome.moves.append(VendorMove(model_id, key, added=True,
                                     membership=membership, meter=meter))
 
 
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     """One vendor pass over `doc` (mutated in place: tracked entries and
-    long_context_models and long_context_meters), returning the moves and
-    what a human must read. Only entries declaring exactly text output reach
+    grouped long_context_meters), returning the moves and what a human must
+    read. Only entries declaring exactly text output reach
     selection and auto-add. An Untracked first-party shape refuses the run.
     The catalog-unreadable and no-first-party-endpoint findings remain
     notices."""
@@ -340,13 +372,14 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
             f"vendor pass skipped: the catalog is unreadable "
             f"({str(exc) or type(exc).__name__})")
         return outcome
-    members: list = doc.setdefault("long_context_models", [])
-    meters: dict = doc.setdefault("long_context_meters", {})
+    meters: list = doc.setdefault("long_context_meters", [])
     for model_id in ids:
-        _one_model(doc, members, meters, model_id, fetch_endpoints, outcome)
-    members.sort()
-    # The loaders' rules, run on what would be written: among them, a member
-    # naming no models-table or tracked key, and a tracked entry without its id.
+        _one_model(doc, meters, model_id, fetch_endpoints, outcome)
+    meters.sort(key=lambda group: group["threshold"])
+    for group in meters:
+        group["models"].sort(key=_meter_model_key)
+    # The loaders' rules run on what would be written, including the model
+    # rows and grouped meter entries.
     try:
         pricing.load_tables(doc)
     except ValueError as exc:
