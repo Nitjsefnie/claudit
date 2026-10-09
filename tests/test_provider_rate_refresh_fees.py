@@ -210,6 +210,11 @@ def _days_before_detection(days: int) -> str:
     return (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _render_move(move) -> str:
+    result = refresh.Result({}, [move], [], [], [], {})
+    return refresh.report(STAMP, result, {move.model: {"id": move.model}})
+
+
 def test_simultaneous_token_and_search_move_keeps_loadable_history():
     """A token point at detection and the sampled search change share one
     dated entry so pricing_load's strict timestamp order remains valid."""
@@ -241,7 +246,7 @@ def test_band_formation_and_search_move_share_detection_timestamp():
         for days, rates in zip((6, 5, 4, 3), states)
     ]
 
-    refresh._append_logged(
+    move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_A, "web_search": 0.0137}),
         entries, NOW)
@@ -252,6 +257,90 @@ def test_band_formation_and_search_move_share_detection_timestamp():
     assert len(at_detection) == 1
     assert "band" in at_detection[0]
     assert at_detection[0]["web_search"] == 0.0137
+    move_report = _render_move(move)
+    assert "with a band" in move_report
+    assert "web_search 0.002 → 0.0137, sampled at detection" in move_report
+
+
+def test_search_only_epoch_cannot_turn_a_token_step_into_a_band():
+    token_a = {**RATES_A, "output": 4.0}
+    token_b = {**token_a, "output": 5.0}
+    search_stamp = _days_before_detection(2)
+    token_stamp = _days_before_detection(1)
+    baseline = {"from": None, **token_a, "web_search": 0.002}
+    with_search = {"SearchHost": [
+        copy.deepcopy(baseline),
+        {"from": search_stamp, **token_a, "web_search": 0.0137},
+    ]}
+    without_search = {"SearchHost": [copy.deepcopy(baseline)]}
+    listing = _direct_listing({**token_b, "web_search": 0.0137})
+    entries = [{"from": token_stamp, **token_b}]
+
+    for hosts in (with_search, without_search):
+        refresh._append_logged("acme/search-9", hosts, "SearchHost",
+                               listing, entries, NOW)
+
+    searched_history = with_search["SearchHost"]
+    plain_history = without_search["SearchHost"]
+    searched_rates, *_ = _history(
+        searched_history, "acme/search-9 via SearchHost", may_begin=True)
+    plain_rates, *_ = _history(
+        plain_history, "acme/search-9 via SearchHost", may_begin=True)
+    assert not any("band" in entry for entry in searched_history)
+    assert not any("band" in entry for entry in plain_history)
+    assert searched_rates["output"] == plain_rates["output"] == 5.0
+    assert searched_history[1]["from"] == search_stamp
+    assert searched_history[1]["web_search"] == 0.0137
+
+
+def test_search_only_repeated_level_does_not_reform_a_band():
+    token_a = {**RATES_A, "output": 4.0}
+    token_b = {**token_a, "output": 5.0}
+    token_c = {**token_a, "output": 6.0}
+    band = {field: [min(token_a[field], token_b[field]),
+                    max(token_a[field], token_b[field])]
+            for field in RATE_FIELDS}
+    hosts = {"SearchHost": [
+        {"from": None, **token_a, "web_search": 0.002},
+        {"from": _days_before_detection(3), **token_a,
+         "web_search": 0.0137},
+        {"from": _days_before_detection(2), **token_b,
+         "web_search": 0.0137, "band": band},
+    ]}
+    entries = [{"from": _days_before_detection(1), **token_c}]
+
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**token_c, "web_search": 0.0137}), entries, NOW)
+
+    history = hosts["SearchHost"]
+    rates, *_ = _history(history, "acme/search-9 via SearchHost",
+                         may_begin=True)
+    assert move is not None and move.source == "log"
+    assert "band" not in history[-1]
+    assert rates["output"] == 6.0
+    assert history[1]["from"] == _days_before_detection(3)
+    assert history[1]["web_search"] == 0.0137
+
+
+def test_mixed_log_search_move_report_identifies_both_changes():
+    token_a = {**RATES_B, "output": 4.0}
+    token_b = {**token_a, "output": 5.0}
+    hosts = {"SearchHost": [{
+        "from": None, **token_a, "web_search": 0.002,
+    }]}
+
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**token_b, "web_search": 0.0137}),
+        [{"from": _days_before_detection(1), **token_b}], NOW)
+    rendered = _render_move(move)
+
+    assert move.entries_appended == 1
+    assert "1 log entry" in rendered
+    assert "output 4.0 → 5.0" in rendered
+    assert "web_search 0.002 → 0.0137, sampled at detection" in rendered
+    assert "2 log entries" not in rendered
 
 
 def test_search_only_move_preserves_token_band():
