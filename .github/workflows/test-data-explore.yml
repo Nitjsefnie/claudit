@@ -131,6 +131,8 @@ jobs:
           echo "postgres never became ready"; exit 1
 
       - name: Perturb and test, per wall-clock seed
+        env:
+          CLAUDIT_PERTURBED_DATA: "1"
         # Three seeds per run, drawn straight off the clock. Every seed
         # runs even after one fails; each failing seed is appended to
         # the run summary by name, and the step goes red at the end so
