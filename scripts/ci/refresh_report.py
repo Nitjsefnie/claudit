@@ -34,7 +34,7 @@ _SAMPLE_REASONS = {
 }
 
 
-def _sampled_host(host: str, reason: str) -> str:
+def _sampled_reason(reason: str) -> str:
     if reason.startswith("listed-pricing log unavailable for "):
         reason = "log unavailable"
     elif reason.startswith("endpoint selection found "):
@@ -42,7 +42,59 @@ def _sampled_host(host: str, reason: str) -> str:
         reason = "no endpoint selected" if count == "0" else f"{count} endpoints selected"
     else:
         reason = _SAMPLE_REASONS.get(reason, reason)
-    return f"{host} ({reason})"
+    return reason
+
+
+def _sampled_host(host: str, reason: str) -> str:
+    return f"{host} ({_sampled_reason(reason)})"
+
+
+def _sampled_text(sampled: dict[str, str]) -> str:
+    """Group sampled hosts that share the same display reason."""
+    groups: dict[str, list[str]] = {}
+    for host, reason in sorted(sampled.items()):
+        groups.setdefault(_sampled_reason(reason), []).append(host)
+    return "; ".join(_sampled_host(", ".join(hosts), reason)
+                     for reason, hosts in groups.items())
+
+
+_UNKNOWN_TAG_NOTICE = "names neither a known region nor a quantization"
+_DELISTED_NOTICE = "delisted from OpenRouter's catalog; row kept, not fetched"
+
+
+def _notice_parts(notice: str):
+    subject, separator, message = notice.partition(": ")
+    if not separator:
+        return None
+    if message.startswith(_DELISTED_NOTICE):
+        return message, subject
+    if (message.startswith("tag ") and
+            message.endswith(_UNKNOWN_TAG_NOTICE)):
+        return message, subject
+    if message == "the vendor lists no first-party endpoint; skipped":
+        return message, subject
+    return None
+
+
+def _notice_lines(notices: list[str]) -> list[str]:
+    """Group catalog notices by their shared message, retaining subjects."""
+    lines: list[str | None] = []
+    groups: dict[str, tuple[int, list[str]]] = {}
+    for notice in notices:
+        parts = _notice_parts(notice)
+        if parts is None:
+            if notice not in lines:
+                lines.append(notice)
+            continue
+        message, subject = parts
+        if message not in groups:
+            groups[message] = len(lines), []
+            lines.append(None)
+        groups[message][1].append(subject)
+    for message, (index, subjects) in groups.items():
+        subjects_text = ", ".join(sorted(set(subjects)))
+        lines[index] = f"{message}: {subjects_text}"
+    return [line for line in lines if line is not None]
 
 
 def _move_text(move: Move) -> str:
@@ -84,19 +136,20 @@ def report(stamp: str, result: Result, tracked: dict) -> str:
         lines.append("no rate moved")
     for model, source in tracked.items():
         section = [_move_text(move) for move in result.moves if move.model == model]
-        section += [f"  vanished  {host} (row kept)"
-                    for name, host in result.vanished if name == model]
+        vanished = sorted({host for name, host in result.vanished if name == model})
+        if vanished:
+            section.append(f"  vanished  {', '.join(vanished)} (rows kept)")
         sampled = sorted(result.sampled.get(model, {}).items())
         if sampled:
-            descriptions = [_sampled_host(host, reason) for host, reason in sampled]
-            section.append(f"  sampled   {', '.join(descriptions)}")
+            section.append(f"  sampled   {_sampled_text(dict(sampled))}")
         if section:
             lines += ["", f"{model} ({source['id']})", *section]
     if result.refusals:
         lines += ["", "refused, rows left untouched:",
                   *(f"  {reason}" for reason in result.refusals)]
     if result.notices:
-        lines += ["", "notices:", *(f"  {notice}" for notice in result.notices)]
+        lines += ["", "notices:", *(f"  {notice}"
+                                      for notice in _notice_lines(result.notices))]
     return "\n".join(lines)
 
 
@@ -166,5 +219,6 @@ def vendor_report(stamp: str, vendor) -> str:
         lines += ["refused, rows left untouched:",
                   *(f"  {reason}" for reason in vendor.refusals)]
     if vendor.notices:
-        lines += ["notices:", *(f"  {notice}" for notice in vendor.notices)]
+        lines += ["notices:", *(f"  {notice}"
+                                 for notice in _notice_lines(vendor.notices))]
     return "\n".join(lines)

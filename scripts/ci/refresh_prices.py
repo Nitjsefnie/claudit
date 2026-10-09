@@ -141,14 +141,17 @@ def metered_band(price: dict, where: str,
 
 # An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
 # and data regions. A region is one of these codes, alone or qualified by an
-# area and a number (us, us-east, us-east-1), in any case.
-REGIONS = ("us", "eu", "europe", "uk", "ca", "au", "ap", "jp", "sg", "in", "br",
-           "de", "fr", "nl", "kr", "cn", "hk", "tw", "me", "sa", "za", "asia",
-           "apac", "emea", "latam")
-REGION_RE = re.compile(rf"(?:{'|'.join(REGIONS)})(?:-[a-z]+(?:-[0-9]+)?)?",
-                       re.IGNORECASE)
+# area and number (us, us-east, us-east5, us-east-1), in any case.
 QUANTIZATIONS = frozenset({"fp4", "fp6", "fp8", "fp16", "fp32", "bf16", "nvfp4",
                            "mxfp4", "int4", "int8", "awq", "gptq"})
+REGIONS = ("global", "us", "eu", "europe", "uk", "ca", "au", "ap", "jp", "sg",
+           "in", "br", "de", "fr", "nl", "kr", "cn", "hk", "tw", "me", "sa",
+           "za", "asia", "apac", "emea", "latam")
+_QUANTIZATION_RE = "|".join(re.escape(tag) for tag in
+                              sorted(QUANTIZATIONS, key=len, reverse=True))
+REGION_RE = re.compile(
+    rf"(?:{'|'.join(REGIONS)})(?:-(?!(?:{_QUANTIZATION_RE})$)"
+    r"[a-z]+(?:[0-9]+|-[0-9]+)?)?", re.IGNORECASE)
 
 
 def tag_region(tag: str) -> str | None:

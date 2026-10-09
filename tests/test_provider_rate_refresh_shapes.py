@@ -138,32 +138,33 @@ def test_quantization_endpoint_wins_over_a_cheaper_service_tier():
 
 def test_data_region_filter_reports_its_single_surviving_endpoint():
     selected, refused, notices, _ = _select_synthetic_host(
-        "Fixture", [("fixture/global", RATES_A), ("fixture/europe", RATES_B)])
+        "Fixture", [("fixture", RATES_A), ("fixture/europe", RATES_B)])
 
     assert refused == {}
-    assert selected["Fixture"].tag == "fixture/global"
+    assert selected["Fixture"].tag == "fixture"
     assert selected["Fixture"].rates == RATES_A
     assert any("rule-resolved" in note and "data region" in note
                for note in notices)
 
 
-def test_explicit_global_tag_beats_a_bare_tag_in_the_global_region():
+def test_global_suffix_is_excluded_for_a_global_account():
     selected, refused, notices, _ = _select_synthetic_host(
         "Fixture", [("fixture/global", RATES_A), ("fixture", RATES_B)])
 
     assert refused == {}
-    assert selected["Fixture"].tag == "fixture/global"
+    assert selected["Fixture"].tag == "fixture"
     assert any("rule-resolved" in note and "data region" in note
                for note in notices)
 
 
-def test_identical_global_and_bare_price_tags_are_reported_interchangeable():
+def test_identical_prices_keep_the_bare_tag_when_global_suffix_is_filtered():
     selected, refused, notices, _ = _select_synthetic_host(
         "Fixture", [("fixture/global", RATES_A), ("fixture", RATES_A)])
 
     assert refused == {}
-    assert selected["Fixture"].tag == "fixture/global"
-    assert any("interchangeable" in note for note in notices)
+    assert selected["Fixture"].tag == "fixture"
+    assert any("rule-resolved" in note and "data region" in note
+               for note in notices)
 
 
 @pytest.mark.parametrize(("alternative_tag", "regional"), [
@@ -304,9 +305,9 @@ def _synthetic_pin_shape(pin: dict, host: str) -> tuple[list[tuple], str, str, b
     raise AssertionError(f"no synthetic shape builder for {host}: {pin!r}")
 
 
-def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
-    """Issue #877: every committed pin is exercised without passing the pin
-    to the selector, proving the listing shape resolves to its recorded row.
+def test_every_committed_resolve_pin_matches_its_selection_shape():
+    """Issue #877: every committed pin selects its recorded row; a global
+    suffix is an explicit pin because the global data region filters it out.
     """
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     region = None if doc["openrouter"]["data_region"] == "global" \
@@ -319,8 +320,11 @@ def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
 
     for model, model_id, host, pin in pins:
         listings, rule, pinned_tag, interchangeable = _synthetic_pin_shape(pin, host)
+        needs_region_pin = (region is None and pinned_tag is not None
+                            and refresh_prices.tag_region(pinned_tag) is not None)
         selected, refused, notices, _ = _select_synthetic_host(
-            host, listings, region=region)
+            host, listings, region=region,
+            resolutions={host: pin} if needs_region_pin else None)
         assert refused == {}, f"{model} via {host}: {refused}"
         assert host in selected, f"{model} via {host}: no endpoint was selected"
         chosen = selected[host]
@@ -328,9 +332,10 @@ def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
         if not interchangeable:
             assert chosen.tag == pinned_tag, (
                 f"{model_id} via {host}: expected {pinned_tag}, got {chosen.tag}")
-        assert any("rule-resolved" in note and rule in note for note in notices), (
-            f"{model_id} via {host}: expected rule {rule!r} in {notices!r}")
-        if interchangeable:
+        if not needs_region_pin:
+            assert any("rule-resolved" in note and rule in note for note in notices), (
+                f"{model_id} via {host}: expected rule {rule!r} in {notices!r}")
+        if interchangeable and not needs_region_pin:
             assert any("interchangeable" in note for note in notices), (
                 f"{model_id} via {host}: equal-price tags were not reported as interchangeable")
         counts[rule] = counts.get(rule, 0) + 1
