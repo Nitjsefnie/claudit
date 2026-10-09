@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 from backend import pricing
 from backend.agent_types import canonical_agent_type
-from backend.ctx_turns import _build_ctx_turns, _ctx_turns_from_turns
+from backend.ctx_turns import _ctx_turns_from_turns
 from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
 
 
