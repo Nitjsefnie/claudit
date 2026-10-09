@@ -105,7 +105,6 @@ CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
 RATE_FIELDS = pricing.RATE_FIELDS
 
 
-
 def _scales_alike(listing: Listing) -> bool:
     """Whether every window is the default times one factor per window,
     which keeps the read-time fold's Token Breakdown split exact

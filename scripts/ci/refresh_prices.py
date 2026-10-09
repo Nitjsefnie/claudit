@@ -141,8 +141,8 @@ QUANTIZATIONS = frozenset({"fp4", "fp6", "fp8", "fp16", "fp32", "bf16", "nvfp4",
 REGIONS = ("global", "us", "eu", "europe", "uk", "ca", "au", "ap", "jp", "sg",
            "in", "br", "de", "fr", "nl", "kr", "cn", "hk", "tw", "me", "sa",
            "za", "asia", "apac", "emea", "latam")
-_QUANTIZATION_RE = "|".join(re.escape(tag) for tag in
-                              sorted(QUANTIZATIONS, key=len, reverse=True))
+_QUANTIZATION_RE = "|".join(
+    re.escape(tag) for tag in sorted(QUANTIZATIONS, key=len, reverse=True))
 REGION_RE = re.compile(
     rf"(?:{'|'.join(REGIONS)})(?:-(?!(?:{_QUANTIZATION_RE})$)"
     r"[a-z]+(?:[0-9]+|-[0-9]+)?)?", re.IGNORECASE)

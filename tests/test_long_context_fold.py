@@ -260,9 +260,17 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
         )
         c.commit()
 
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        model: {"threshold": 100_000, "input_mult": 6.0,
-               "output_mult": 5.0}})
+    monkeypatch.setattr(
+        pricing,
+        "LONG_CONTEXT_METERS",
+        {
+            model: {
+                "threshold": 100_000,
+                "input_mult": 6.0,
+                "output_mult": 5.0,
+            }
+        },
+    )
     rate_fingerprint.clear_fingerprint_cache()
     current_fingerprint = rate_fingerprint.pair_fingerprint(model, None)
     assert current_fingerprint != old_fingerprint, (
