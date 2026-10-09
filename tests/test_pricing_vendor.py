@@ -161,7 +161,6 @@ def _copy_browser(tmp_path):
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
 
 
