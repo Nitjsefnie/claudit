@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Normalise an OpenRouter endpoint's listed price to the refresh's shapes.
 
-The five rates an entry carries (fresh, create_5m, create_1h, read,
-output) and the entry schedule pricing.overrides becomes, plus the run's
-error types. A price or override kind not modelled here refuses its host:
-a pricing key outside PRICED listed at a nonzero price (a per-request
-fee, an image price), or an override kind outside _OVERRIDE_KEYS, is a
-RefreshError, which appends nothing (SV-RATE-REFRESH). A coherent
+The five token rates an entry carries (fresh, create_5m, create_1h, read,
+output), its optional USD-per-search rate, and the entry schedule from
+pricing.overrides become provider history, plus the run's error types. A
+price or override kind not modelled here refuses its host: a pricing key
+outside PRICED (an image price), or an override kind outside
+_OVERRIDE_KEYS, is a RefreshError, which appends nothing (SV-RATE-REFRESH). A coherent
 `min_prompt_tokens` band yields its own per-model meter factors and
 threshold; its rates never enter a provider row. The provider refresh
 also uses this module for endpoint tag/region normalisation and weekly
@@ -31,18 +31,12 @@ sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 from backend import pricing  # noqa: E402
 
-# The prices this script models. Any other pricing key listed at a nonzero
-# price (a per-request fee, an image price) refuses its host, unless it is
-# one of the RECORDED_FEES.
-PRICED = ("prompt", "completion", "input_cache_read", "input_cache_write",
-          "input_cache_write_1h")
-# Per-request fees the token-rate table cannot express: the call costs
-# something no token count can price. They do not refuse, because a fee
-# that is RECORDED is not silently dropped — it is written into the row's
-# note beside the rates it never enters. Every other unmodelled key at a
-# nonzero price still refuses.
-RECORDED_FEES = ("web_search",)
-_OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *PRICED})
+# Token prices and the per-search price this script models. Any other
+# pricing key at a nonzero price refuses its host.
+TOKEN_PRICED = ("prompt", "completion", "input_cache_read",
+                "input_cache_write", "input_cache_write_1h")
+PRICED = (*TOKEN_PRICED, "web_search")
+_OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *TOKEN_PRICED})
 _UTC_KEYS = frozenset({"utc_days", "utc_start", "utc_end"})
 
 # The long-context band OpenRouter lists (a `min_prompt_tokens` override).
@@ -126,7 +120,7 @@ def metered_band(price: dict, where: str,
     band = bands[0]
     if set(band) & _UTC_KEYS:
         raise Untracked(f"{where}: a band and utc fields on one override is not modelled")
-    unknown = set(band) - {*PRICED, MIN_PROMPT_TOKENS}
+    unknown = set(band) - {*TOKEN_PRICED, MIN_PROMPT_TOKENS}
     if unknown:
         raise Untracked(f"{where}: band kind not modelled: {sorted(unknown)}")
     if not (isinstance(band.get("prompt"), str)
@@ -198,42 +192,30 @@ def is_zero(value: object) -> bool:
         return False
 
 
-def fee_notes(price: dict, where: str) -> list[str]:
-    """One note per RECORDED_FEE the listing prices: the fee, its unit and
-    the reason the table cannot carry it. A fee is recorded, never refused,
-    so an unmodelled cost is visible in the row instead of dropped. A fee at
-    zero, or one the listing does not price, notes nothing; one that is not a
-    nonnegative decimal string refuses the host, as any unmodelled key does."""
-    notes = []
-    for key in RECORDED_FEES:
-        value = price.get(key)
-        if value is None or is_zero(value):
-            continue
-        try:
-            amount = Decimal(value) if isinstance(value, str) else None
-        except InvalidOperation:
+def _per_search(value: object, where: str) -> float:
+    """OpenRouter lists web_search in USD per search, not per token."""
+    if value is None:
+        return 0.0
+    try:
+        if isinstance(value, str):
+            amount = Decimal(value)
+        elif (isinstance(value, (int, float))
+              and not isinstance(value, bool)):
+            amount = Decimal(str(value))
+        else:
             amount = None
-        if amount is None or not amount.is_finite() or amount < 0:
-            raise RefreshError(
-                f"{where}: fee {key} {value!r} is not a nonnegative decimal string")
-        notes.append(f"{key} ${format(amount.normalize(), 'f')}/request not modelled: "
-                     "per-request, unpriceable from token counts")
-    return notes
-
-
-def lists_a_fee(price: object) -> bool:
-    """Whether one listing prices a per-request fee. The log's five fields
-    carry no such cost and only the sampled append writes the fee note, so
-    a fee-carrying host must be sampled: a log-backed row would hold no
-    record of a cost the account really pays. The price itself is
-    validated by fee_notes on the path that reads it first."""
-    if not isinstance(price, dict):
-        return False
-    return any(key in price and not is_zero(price[key]) for key in RECORDED_FEES)
+    except InvalidOperation:
+        amount = None
+    if amount is None or not amount.is_finite() or amount < 0:
+        raise RefreshError(
+            f"{where}: web_search {value!r} is not a nonnegative decimal string")
+    return float(amount)
 
 
 def rates_of(price: dict, where: str) -> dict:
-    """The five rates of one price. Cache writes take the listed write
+    """The token rates and optional per-search rate of one listing.
+
+    Cache writes take the listed write
     price when it is nonzero, the input rate otherwise; no listed cache-read
     price is 0. The 1h write takes the listed 1h price when there is one,
     else the 5m tier: a listing that splits them states both."""
@@ -245,8 +227,20 @@ def rates_of(price: dict, where: str) -> dict:
     create = write or fresh
     write_1h = (_per_million(price["input_cache_write_1h"], where)
                 if "input_cache_write_1h" in price else 0.0)
-    return {"fresh": fresh, "create_5m": create, "create_1h": write_1h or create,
-            "read": read, "output": output}
+    rates = {"fresh": fresh, "create_5m": create,
+             "create_1h": write_1h or create,
+             "read": read, "output": output}
+    search = _per_search(price.get("web_search"), where)
+    if search:
+        rates["web_search"] = search
+    return rates
+
+
+def token_rates_of(price: dict, where: str) -> dict:
+    """The five token rates carried by OpenRouter's price log."""
+    rates = rates_of(price, where)
+    return {field: rates[field] for field in (
+        "fresh", "create_5m", "create_1h", "read", "output")}
 
 
 def as_listed(rates: dict) -> dict:
@@ -284,9 +278,9 @@ def entry_schedule(price: dict, where: str) -> list | None:
         unknown = set(override) - _OVERRIDE_KEYS
         if unknown:
             raise RefreshError(f"{where}: override kind not modelled: {sorted(unknown)}")
-        window: dict = {"rates": rates_of({**{k: price[k] for k in PRICED if k in price},
-                                           **{k: override[k] for k in PRICED if k in override}},
-                                          where)}
+        window_price = {**{k: price[k] for k in TOKEN_PRICED if k in price},
+                        **{k: override[k] for k in TOKEN_PRICED if k in override}}
+        window: dict = {"rates": token_rates_of(window_price, where)}
         if override.get("utc_days") is not None:
             window["days"] = override["utc_days"]
         if (override.get("utc_start") is not None

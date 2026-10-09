@@ -31,9 +31,8 @@ These refuse the host or model they concern, which appends nothing:
   each resolve themselves and are reported as rule-resolved;
 - a resolution that no longer applies;
 - a price or override kind this script does not model, or a response
-  shape it does not recognise; a listed per-request fee is the exception:
-  it is recorded in the row's note, never priced from token counts, so an
-  unmodelled cost is never dropped in silence. The one modelled override
+  shape it does not recognise. Web-search rates are sampled separately
+  from the token price log and stored as a per-search rate. The one modelled override
   exception is the long-context band: a coherent `min_prompt_tokens`
   override yields its input/output factors, which must match the model's
   currently stored meter for this provider row; the band contributes no
@@ -122,14 +121,10 @@ class Move:
 
 def _entry(stamp: str, listing: Listing) -> dict:
     entry = {"from": stamp, **listing.rates}
-    # A recorded per-request fee rides in the note beside the discount: it
-    # is a real cost the table cannot carry, and the row says so rather than
-    # pricing a call that in fact cost more.
-    notes = list(listing.fees)
+    if entry.get("web_search") == 0:
+        entry.pop("web_search")
     if listing.discount:
-        notes.insert(0, _discount_note(listing.discount))
-    if notes:
-        entry["note"] = "; ".join(notes)
+        entry["note"] = _discount_note(listing.discount)
     if listing.schedule:
         entry["schedule"] = listing.schedule
     return entry
@@ -156,7 +151,9 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
             moves.append(Move(model, host, None, listing))
             continue
         newest = history[-1]
-        if ({f: newest[f] for f in RATE_FIELDS} == listing.rates
+        if (all(newest[f] == listing.rates[f] for f in RATE_FIELDS)
+                and newest.get("web_search", 0.0)
+                == listing.rates.get("web_search", 0.0)
                 and newest.get("schedule") == listing.schedule):
             continue
         newest_from = newest.get("from")
@@ -210,6 +207,11 @@ def _new_log_states(model: str, host: str, entries: list[dict],
     return additions
 
 
+def _search_rate_is_stable(entries: list[dict]) -> bool:
+    """Whether a token-history band can preserve its separate search rate."""
+    return len({entry.get("web_search", 0.0) for entry in entries}) <= 1
+
+
 # The history floor (SV-RATE-REFRESH): the account's OpenRouter-lane
 # records begin here (ormeter's openrouter bucket's oldest record,
 # 2026-09-23T21:13:54Z, verified 2026-10-08), and provider rows price only
@@ -248,32 +250,60 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     oscillating gets its new states plus the ONE band entry
     price_band.formation returns, dated at the detection instant."""
     history = hosts.get(host)
+    original = history[-1] if history else None
+    old_search = original.get("web_search", 0.0) if original else 0.0
+    move = None
     if history is None:
-        entries = _floored_log(model, host, entries)
-        history = hosts[host] = copy.deepcopy(entries)
-        move = Move(model, host, None, listing, len(entries), "log")
+        additions = _floored_log(model, host, entries)
+        history = hosts[host] = copy.deepcopy(additions)
+        move = Move(model, host, None, listing, len(additions), "log")
     else:
-        newest = history[-1]
-        additions = _new_log_states(model, host, entries, newest)
-        if not additions:
-            return None
-        if price_band.entry_band(newest) is not None:
-            reformed = price_band.reform(history, newest, additions, at,
-                                         price_band.WINDOW_DAYS)
-            if reformed is None:
-                return None
-            history.append(reformed)
-            if "band" in reformed:
-                return Move(model, host, newest, listing, 1, "band",
-                            reformed["fresh"])
-            return Move(model, host, newest, listing, 1, "log")
-        history.extend(additions)
-        move = Move(model, host, newest, listing, len(additions), "log")
-    formed = price_band.formation(history, at, price_band.WINDOW_DAYS)
-    if formed is not None:
-        history.append(formed)
-        move = Move(model, host, move.old, listing, move.entries_appended + 1,
-                    "band", formed["fresh"])
+        additions = _new_log_states(model, host, entries, original)
+        if additions:
+            # The price log has no web-search field. Carry the last sampled
+            # search rate across token-only log entries, preserving the
+            # rate's own detection-time epoch.
+            if old_search:
+                for entry in additions:
+                    entry["web_search"] = old_search
+            search_stable = _search_rate_is_stable(history + additions)
+            if (price_band.entry_band(original) is not None
+                    and search_stable):
+                reformed = price_band.reform(history, original, additions, at,
+                                             price_band.WINDOW_DAYS)
+                if reformed is not None:
+                    if old_search:
+                        reformed["web_search"] = old_search
+                    history.append(reformed)
+                    source = "band" if "band" in reformed else "log"
+                    move = Move(model, host, original, listing, 1, source,
+                                reformed.get("fresh") if source == "band" else None)
+            else:
+                history.extend(additions)
+                move = Move(model, host, original, listing, len(additions), "log")
+    if (move is not None and move.source != "band"
+            and _search_rate_is_stable(history)):
+        formed = price_band.formation(history, at, price_band.WINDOW_DAYS)
+        if formed is not None:
+            if old_search:
+                formed["web_search"] = old_search
+            history.append(formed)
+            move = Move(model, host, original, listing,
+                        move.entries_appended + 1, "band", formed["fresh"])
+
+    new_search = listing.rates.get("web_search", 0.0)
+    if new_search != old_search:
+        # The token history is log-backed. This final entry samples only
+        # the listing's web-search rate at detection, with token rates
+        # copied from the immediately preceding entry.
+        stamp = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        search_entry = _entry(stamp, listing)
+        previous = history[-1]
+        for field in RATE_FIELDS:
+            search_entry[field] = previous[field]
+        history.append(search_entry)
+        move = Move(model, host, original, listing,
+                    (move.entries_appended if move else 0) + 1, "search")
     return move
 
 

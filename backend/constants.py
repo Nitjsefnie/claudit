@@ -99,12 +99,11 @@ PARSER_VERSION = "105"
 # The rate-data semantics version, stored per record: the ONLY switch
 # that forces a REPRICE, and a reprice never refetches R2 — the reprice
 # pass (issue #193) recomputes each stale row's cost_usd AND long_context
-# (issue #194) AND its meter factor pair (issue #878) AND request_fee_usd
-# (issue #469: the per-request fee the
-# serving host's entry note records, folded into cost_usd) from its own
-# stored columns, so a stored-flag rule change is a trigger with no rate
-# change at all. PARSER_VERSION bumps only for parser-semantics changes
-# from now on.
+# (issue #194) AND its meter factor pair (issue #878) AND web-search cost
+# from stored web_search_requests at the row's dated rate (issue #879).
+# It clears the retired request_fee_usd column to NULL. A stored-flag rule
+# change is a trigger with no rate change at all. PARSER_VERSION bumps
+# only for parser-semantics changes from now on.
 PRICING_VERSION = "303"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics

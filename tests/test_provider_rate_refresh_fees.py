@@ -1,12 +1,5 @@
-"""SV-RATE-REFRESH, the two price kinds the table could not read until
-anthropic/claude-opus-5.5 was tracked: a listed 1h cache-write price, which
-is `create_1h`, and a listed per-request fee, which no token count can
-price and is therefore recorded in the row's note instead of refusing the
-host.
-
-Every other unmodelled key at a nonzero price still refuses: the carve-out
-is the recorded fee, not leniency, and that is what keeps an unmodelled
-cost from being dropped in silence.
+"""SV-RATE-REFRESH treats web search as a per-search rate, separately
+from the five token prices carried by OpenRouter's price log.
 
 Driven the same way as test_provider_rate_refresh.py, whose fixture
 builders these share: fixture payloads over the seeded view, never the
@@ -21,10 +14,10 @@ from tests.test_provider_rate_refresh import (
     GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
 
-# The fee as OpenRouter lists it: USD per request, not per token.
-WEB_SEARCH = "0.01"
-FEE_NOTE = ("web_search $0.01/request not modelled: per-request, "
-            "unpriceable from token counts")
+# USD per search, deliberately distinct from per-token rate fields.
+# Synthetic per-search rate, deliberately unlike the deployed listing.
+WEB_SEARCH = "0.0137"
+STAMP = "2031-01-01T00:00:00Z"
 
 # anthropic/claude-opus-5.5: every endpoint lists the 1h cache write at 8
 # per million beside the 5m tier's 5, and charges $0.01 a web search.
@@ -49,42 +42,61 @@ def _move(run: Run, model: str, host: str) -> dict:
     return {field: moved[field] for field in RATE_FIELDS}
 
 
-def _fee(run: Run, model: str, host: str, value: str = WEB_SEARCH) -> None:
+def _search_rate(run: Run, model: str, host: str,
+                 value: str = WEB_SEARCH) -> None:
     run.endpoint(model, host)["pricing"]["web_search"] = value
 
 
-# --- a per-request fee is recorded, never priced and never dropped -----------
+# --- web search is a separate rate -----------------------------------------
 
 
-def test_a_listed_per_request_fee_is_recorded_in_the_note_not_refused(tmp_path, capsys):
+def test_a_listed_search_price_is_an_explicit_rate(tmp_path, capsys):
     run = Run(tmp_path)
-    _fee(run, GLM, "OpenInference")
+    _search_rate(run, GLM, "OpenInference")
     moved = _move(run, GLM, "OpenInference")
     rc, _, err = run(capsys)
     assert rc == 0, err
     entry = run.doc()["providers"][GLM]["OpenInference"][-1]
-    assert entry["note"] == FEE_NOTE
-    # The fee enters no rate: the row prices the tokens it can see, and its
-    # note says a real cost sits outside them.
+    assert entry["web_search"] == 0.0137
+    assert "note" not in entry
     assert {f: entry[f] for f in moved} == moved
 
 
-def test_a_recorded_fee_rides_beside_a_discount_in_one_note(tmp_path, capsys):
+def test_search_price_and_discount_keep_only_the_discount_note(tmp_path, capsys):
     run = Run(tmp_path)
-    _fee(run, GLM, "OpenInference")
+    _search_rate(run, GLM, "OpenInference")
     run.endpoint(GLM, "OpenInference")["pricing"]["discount"] = 0.5
     _move(run, GLM, "OpenInference")
     assert run(capsys)[0] == 0
-    assert run.doc()["providers"][GLM]["OpenInference"][-1]["note"] == (
-        f"50% off; {FEE_NOTE}")
+    entry = run.doc()["providers"][GLM]["OpenInference"][-1]
+    assert entry["note"] == "50% off"
+    assert entry["web_search"] == 0.0137
 
 
-def test_a_free_fee_notes_nothing(tmp_path, capsys):
+def test_absent_search_price_defaults_to_zero():
+    assert "web_search" in refresh_prices.PRICED
+    assert not hasattr(refresh_prices, "RECORDED_FEES")
+    rates = refresh_prices.rates_of(
+        {"prompt": "0.000004", "completion": "0.00002"}, "host")
+    assert rates.get("web_search", 0) == 0
+
+
+def test_numeric_search_price_is_usd_per_search():
+    rates = refresh_prices.rates_of({
+        "prompt": "0.000004", "completion": "0.00002",
+        "web_search": 0.0137,
+    }, "host")
+    assert rates["web_search"] == 0.0137
+
+
+def test_zero_search_price_is_not_written_as_a_note(tmp_path, capsys):
     run = Run(tmp_path)
-    _fee(run, GLM, "OpenInference", "0")
+    _search_rate(run, GLM, "OpenInference", "0")
     _move(run, GLM, "OpenInference")
     assert run(capsys)[0] == 0
-    assert "note" not in run.doc()["providers"][GLM]["OpenInference"][-1]
+    entry = run.doc()["providers"][GLM]["OpenInference"][-1]
+    assert "note" not in entry
+    assert entry.get("web_search", 0) == 0
 
 
 def test_another_unmodelled_price_at_a_nonzero_price_still_refuses(tmp_path, capsys):
@@ -100,25 +112,32 @@ def test_another_unmodelled_price_at_a_nonzero_price_still_refuses(tmp_path, cap
     assert run.doc()["providers"][GLM]["OpenInference"] == before
 
 
-def test_a_fee_that_is_not_a_number_refuses_its_host(tmp_path, capsys):
+def test_a_search_rate_that_is_not_a_number_refuses_its_host(tmp_path, capsys):
     run = Run(tmp_path)
-    _fee(run, GLM, "OpenInference", "free")
+    _search_rate(run, GLM, "OpenInference", "free")
     before = run.doc()["providers"][GLM]["OpenInference"]
     rc, _, err = run(capsys)
-    assert rc != 0 and "fee web_search 'free'" in err
+    assert rc != 0 and "web_search" in err
     assert run.doc()["providers"][GLM]["OpenInference"] == before
 
 
-def test_a_fee_host_is_sampled_even_when_the_log_could_back_it(tmp_path, capsys):
-    """The other append path, end to end. A fee-carrying host the log can
-    identify is still sampled, so the entry the run writes carries the
-    note — log-backed appends carry OpenRouter's own history, which has no
-    field for the fee and would leave the cost unrecorded."""
+def test_search_move_keeps_logged_token_history_and_samples_only_search(
+        tmp_path, capsys):
     run = Run(tmp_path)
-    _fee(run, GLM, "OpenInference")
+    old_search_rate = "0.002"
+
+    def set_old_rate(doc):
+        entry = doc["providers"][GLM]["OpenInference"][0]
+        entry.pop("note", None)
+        entry["web_search"] = float(old_search_rate)
+
+    run.edit(set_old_rate)
+    _search_rate(run, GLM, "OpenInference")
     _move(run, GLM, "OpenInference")
     listed = run.endpoint(GLM, "OpenInference")["pricing"]
     rates = refresh_prices.rates_of(listed, "OpenInference")
+    token_rates = {field: rates[field] for field in RATE_FIELDS}
+    log_stamp = "2026-10-01T00:00:00Z"
     rc = refresh.main(
         ["--commit-msg", str(run.commit_msg)],
         fetch=lambda model_id: copy.deepcopy(run.payloads[model_id]),
@@ -126,13 +145,56 @@ def test_a_fee_host_is_sampled_even_when_the_log_could_back_it(tmp_path, capsys)
             {"id": source["id"], "canonical_slug": source["id"]}
             for source in run.doc()["openrouter"]["models"].values()]},
         fetch_log=lambda _slug: {"data": {"series": [
-            _series(slug="openinference", host="OpenInference", rates=rates)]}},
+            _series(slug="openinference", host="OpenInference",
+                    rates=token_rates, at=log_stamp)]}},
         now=NOW, pricing_path=run.pricing, constants_path=run.constants,
         vendor=None)
     out, err = capsys.readouterr()
     assert rc == 0, err
-    assert "per-request fee the price log cannot carry" in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1]["note"] == FEE_NOTE
+    history = run.doc()["providers"][GLM]["OpenInference"]
+    logged, sampled_search = history[-2:]
+    assert logged["from"] == log_stamp
+    assert logged["web_search"] == float(old_search_rate)
+    assert sampled_search["from"] == STAMP
+    assert sampled_search["web_search"] == 0.0137
+    assert {field: sampled_search[field] for field in RATE_FIELDS} == {
+        field: logged[field] for field in RATE_FIELDS}
+
+
+def test_search_only_move_on_log_backed_host_appends_unchanged_token_rates(
+        tmp_path, capsys):
+    run = Run(tmp_path)
+    old_search_rate = 0.002
+
+    def set_old_rate(doc):
+        entry = doc["providers"][GLM]["OpenInference"][0]
+        entry.pop("note", None)
+        entry["web_search"] = old_search_rate
+
+    run.edit(set_old_rate)
+    previous = run.doc()["providers"][GLM]["OpenInference"][-1]
+    _search_rate(run, GLM, "OpenInference")
+    token_rates = {field: previous[field] for field in RATE_FIELDS}
+    log_stamp = "2026-10-01T00:00:00Z"
+    rc = refresh.main(
+        ["--commit-msg", str(run.commit_msg)],
+        fetch=lambda model_id: copy.deepcopy(run.payloads[model_id]),
+        fetch_models=lambda: {"data": [
+            {"id": source["id"], "canonical_slug": source["id"]}
+            for source in run.doc()["openrouter"]["models"].values()]},
+        fetch_log=lambda _slug: {"data": {"series": [
+            _series(slug="openinference", host="OpenInference",
+                    rates=token_rates, at=log_stamp)]}},
+        now=NOW, pricing_path=run.pricing, constants_path=run.constants,
+        vendor=None)
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+
+    entry = run.doc()["providers"][GLM]["OpenInference"][-1]
+    assert entry["from"] == STAMP
+    assert entry["web_search"] == 0.0137
+    assert {field: entry[field] for field in RATE_FIELDS} == token_rates
+    assert "web_search 0.002 → 0.0137, sampled at detection" in out
 
 
 # --- a listed 1h cache write is the create_1h rate --------------------------
@@ -168,7 +230,9 @@ def test_a_1h_tier_round_trips_through_the_listing_inverse():
     listed = refresh_prices.as_listed(CLAUDE_RATES)
     assert listed["input_cache_write"] == "0.000005"
     assert listed["input_cache_write_1h"] == "0.000008"
-    assert refresh_prices.rates_of(listed, "h") == CLAUDE_RATES
+    round_trip = refresh_prices.rates_of(listed, "h")
+    assert {field: round_trip[field] for field in RATE_FIELDS} == CLAUDE_RATES
+    assert round_trip.get("web_search", 0) == 0
 
 
 # --- a different-region tag drops under the global filter --------------------

@@ -211,17 +211,19 @@ def collapse(history: list[dict], at: datetime, days: float) -> list[dict]:
     widens the band nor pulls the mean. A note survives only when every
     WINDOW entry shares one (the mean prices them, not the rest): the mean
     is not any one listed price, so a discount note describing one of them
-    would be false. A scheduled row, or a row recording a per-request fee
-    anywhere in it, is refused rather than collapsed, because neither a
-    window price nor a recorded cost survives a mean that drops entries.
+    would be false. A scheduled row or a row whose web-search rate varies
+    across its history is refused rather than collapsed: the band only
+    represents the five token rates, so dropping search-rate epochs would
+    change billed search cost.
     """
     if any("schedule" in entry for entry in history):
         raise ValueError("a scheduled row cannot be collapsed to a mean: a "
                          "window's price is not the level a mean prices")
-    if any("/request" in entry.get("note", "") for entry in history):
-        raise ValueError("a row recording a per-request fee cannot be "
-                         "collapsed to a mean: the mean is not a listed price "
-                         "the fee applies to")
+    search_rates = {entry.get("web_search", 0.0) for entry in history}
+    if len(search_rates) > 1:
+        raise ValueError("a row with changing web_search rates cannot be "
+                         "collapsed to a token band: the search-rate epochs "
+                         "must remain dated")
     levels = _window_levels(history, at, days)
     band = {field: [min(entry[field] for entry in levels),
                     max(entry[field] for entry in levels)]
@@ -229,6 +231,9 @@ def collapse(history: list[dict], at: datetime, days: float) -> list[dict]:
     collapsed = {"from": history[0]["from"],
                  **time_weighted(levels, at, at - timedelta(days=days)),
                  "band": band}
+    search_rate = next(iter(search_rates))
+    if search_rate:
+        collapsed["web_search"] = search_rate
     notes = {entry.get("note", "") for entry in levels}
     if len(notes) == 1 and (note := notes.pop()):
         collapsed["note"] = note

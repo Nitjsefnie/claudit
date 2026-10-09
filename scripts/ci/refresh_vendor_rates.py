@@ -44,10 +44,8 @@ notices remain a catalog the pass cannot read and a model with no
 first-party endpoint. Ambiguous prices without a pin, stale or malformed
 pins, and broken or unrecognised fetches also refuse:
 
-- a pricing key outside PRICED at a nonzero price, unless it is a
-  RECORDED_FEE (web_search); a fee is the provider row's provenance, not
-  the tracked entry's — the pass writes nothing for it here — while a fee
-  value the table could not parse refuses;
+- a pricing key outside PRICED at a nonzero price, or a web_search value
+  that is not a finite non-negative USD-per-search decimal string;
 - a WEEKLY schedule: the price the pass compared is a window price at
   fetch time, and the pass cannot select an actual default;
 - a long-context band with multiple bands, a threshold that is not positive,
@@ -73,7 +71,6 @@ import json
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -81,7 +78,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
-                            PRICED, RECORDED_FEES, RefreshError, Untracked,
+                            PRICED, TOKEN_PRICED, RefreshError, Untracked,
                             is_zero, metered_band, rates_of)
 from refresh_report import vendor_report  # noqa: E402
 import refresh_pricelog  # noqa: E402
@@ -168,7 +165,8 @@ def _split_overrides(price: dict, where: str) -> tuple[list, list]:
                                 "override is not modelled")
             bands.append(override)
             continue
-        unknown = set(override) - {"utc_days", "utc_start", "utc_end", *PRICED}
+        unknown = set(override) - {
+            "utc_days", "utc_start", "utc_end", *TOKEN_PRICED}
         if unknown:
             raise Untracked(f"{where}: override kind not modelled: {sorted(unknown)}")
         weekly.append(override)
@@ -189,24 +187,13 @@ def _listing(model_id: str, endpoint: object
     where = f"{model_id} via {endpoint['tag']!r}"
     price = endpoint["pricing"]
     for key, value in price.items():
-        if (key not in (*PRICED, *RECORDED_FEES, "discount", "overrides")
+        if (key not in (*PRICED, "discount", "overrides")
                 and not is_zero(value)):
             raise Untracked(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
             or not 0 <= discount < 1):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
-    for key in RECORDED_FEES:
-        value = price.get(key)
-        if value is None or is_zero(value):
-            continue
-        try:
-            amount = Decimal(value) if isinstance(value, str) else None
-        except InvalidOperation:
-            amount = None
-        if amount is None or not amount.is_finite() or amount < 0:
-            raise Untracked(f"{where}: fee {key} {value!r} is not a nonnegative "
-                            "decimal string")
     rates = rates_of(price, where)
     bands, weekly = _split_overrides(price, where)
     if weekly:

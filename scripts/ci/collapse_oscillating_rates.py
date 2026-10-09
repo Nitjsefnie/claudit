@@ -23,7 +23,7 @@ exactly those names before merging
 
 which must return no rows. As at backfill_provider_rates.py, the file is
 validated through the loaders' own rules before either file is written,
-and a row the collapse refuses (a schedule or a recorded per-request fee)
+and a row the collapse refuses (a schedule or changing web-search rate)
 is reported and leaves the run red rather than silently rewritten.
 
     python3 scripts/ci/collapse_oscillating_rates.py [--days N] [--as-of T]

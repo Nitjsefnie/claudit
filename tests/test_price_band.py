@@ -234,28 +234,44 @@ def test_the_collapse_band_and_mean_come_from_the_window(tmp_path, capsys):
         MODEL, "BandCo"] == window_mean
 
 
-def test_the_collapse_refuses_a_scheduled_row_and_a_fee_note(tmp_path, capsys):
-    """A scheduled row and a per-request fee anywhere in the row are kept
-    exactly as they are, and the run names them and stays red."""
-    fee = ("web_search $0.001/request not modelled: per-request, "
-           "unpriceable from token counts")
-    fee_row = [_entry(None, RATE_A, note=fee),
-               _entry(_day(4), RATE_B), _entry(_day(2), RATE_A),
-               _entry(_day(1), RATE_B)]
+def test_the_collapse_refuses_a_scheduled_row_and_changing_search_rate(
+        tmp_path, capsys):
+    """A schedule or changing web-search rate cannot be discarded by
+    collapsing token prices to a band."""
+    search_row = [
+        _entry(None, RATE_A, web_search=0.001),
+        _entry(_day(4), RATE_B, web_search=0.002),
+        _entry(_day(2), RATE_A, web_search=0.001),
+        _entry(_day(1), RATE_B, web_search=0.002),
+    ]
     schedule = [{"days": ["monday"], "rates": RATE_B}]
     scheduled_row = [_entry(None, RATE_A, schedule=schedule),
                      _entry(_day(4), RATE_B, schedule=schedule),
                      _entry(_day(2), RATE_A, schedule=schedule),
                      _entry(_day(1), RATE_B, schedule=schedule)]
     rc, pricing_path, _constants_path = _run_collapse(
-        tmp_path, {"FeeCo": fee_row, "SchedCo": scheduled_row})
+        tmp_path, {"SearchCo": search_row, "SchedCo": scheduled_row})
     out, _ = capsys.readouterr()
 
     assert rc == 1
     assert out.count(" kept ") == 2
+    assert "web_search" in out
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
-    assert saved["providers"][MODEL]["FeeCo"] == fee_row
+    assert saved["providers"][MODEL]["SearchCo"] == search_row
     assert saved["providers"][MODEL]["SchedCo"] == scheduled_row
+
+
+def test_collapse_preserves_a_constant_search_rate():
+    history = [
+        _entry(None, RATE_A, web_search=0.0137),
+        _entry(_day(4), RATE_B, web_search=0.0137),
+        _entry(_day(2), RATE_A, web_search=0.0137),
+        _entry(_day(1), RATE_B, web_search=0.0137),
+    ]
+
+    collapsed = price_band.collapse(history, AT, 7)
+
+    assert collapsed[0]["web_search"] == 0.0137
 
 
 # --- 2 & 3. the hourly rule on a banded log row --------------------------------
