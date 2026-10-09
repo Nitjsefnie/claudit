@@ -27,13 +27,12 @@ data then fails as a test failure on this tree, never as a broken
 refresh. The CI leg calls this script before pytest; the guard test
 tests/test_no_pinned_version_literals.py is the other half.
 
-The pricing document is rewritten in the exact layout
-json.dumps(doc, indent=2, sort_keys=True) writes (SV-RATE-DATA's
-canonical layout), and the perturbed document is validated through the
-same loader the backend uses — pricing.load_tables refuses a broken
-file before anything is written. Schedules, the openrouter section and
-provider_rates_fetched are untouched; a second run appends a further
-five entries per row and moves the constants again.
+The pricing document is rewritten through the shared compact serializer
+(SV-RATE-DATA's canonical layout), and the serialized document is
+validated through the same loader the backend uses — pricing.load_tables
+refuses a broken file before anything is written. Schedules, the
+openrouter section and provider_rates_fetched are untouched; a second
+run appends a further five entries per row and moves the constants again.
 
     python3 scripts/ci/perturb_test_data.py [--seed N] [--pricing PATH]
         [--constants PATH]
@@ -53,6 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 from backend import pricing  # noqa: E402
+from backend.pricing_document import effective_rates, serialize_pricing_doc  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -125,9 +125,9 @@ def perturb_pricing(path: Path,
             })
             previous_from = entry_from
             counter += timedelta(seconds=1)
-    pricing.load_tables(doc)
-    path.write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    serialized = serialize_pricing_doc(doc)
+    pricing.load_tables(json.loads(serialized))
+    path.write_text(serialized, encoding="utf-8")
     return len(all_rows), seed, base.astimezone(timezone.utc).strftime(
         STAMP_FORMAT)
 
@@ -174,15 +174,16 @@ def _appended_specs(seed: int, row_key: str,
     deterministic in its inputs, so the same (document, seed)
     reproduces the run byte for byte.
     """
+    previous_rates = effective_rates(newest)
     whole_row = [
         (f"{NOTE_PREFIX}{factor_text}{NOTE_SUFFIX}",
-         {field: _scaled(newest[field], float(factor_text))
+         {field: _scaled(previous_rates[field], float(factor_text))
           for field in pricing.RATE_FIELDS})
         for factor_text in (*FIXED_FACTORS, _irregular_factor(seed, row_key))
     ]
     per_field = (
         PER_FIELD_NOTE,
-        {field: _scaled(newest[field],
+        {field: _scaled(previous_rates[field],
                         float(_field_factor(seed, row_key, field)))
          for field in pricing.RATE_FIELDS},
     )
@@ -190,7 +191,7 @@ def _appended_specs(seed: int, row_key: str,
     single_field = (
         f"{SINGLE_FIELD_NOTE_PREFIX}{moved}{SINGLE_FIELD_NOTE_SUFFIX}",
         {**per_field[1],
-         moved: _scaled(newest[moved],
+         moved: _scaled(previous_rates[moved],
                         float(_single_field_factor(seed, row_key, moved)))},
     )
     return [*whole_row, per_field, single_field]
