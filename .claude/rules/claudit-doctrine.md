@@ -636,11 +636,13 @@ per-request fee and time-of-day windows are the host's own terms for
 requests THROUGH it, and a bare id names no host. A transcript id
 spelled with a tracked vendor prefix whose remainder is a tracked bare
 form folds to that form and resolves through the bare rows. A normalized
-prefixed id whose remainder is not tracked stays unchanged and uses default
-pricing. The bare forms are a
-validated namespace: one bare form per tracked vendor entry, and never
-one that is also a models-table key — a transcript id would otherwise
-resolve two ways, so the loaders refuse the file naming both rows.
+prefixed id whose remainder is not a tracked bare form stays unchanged and
+follows the existing fallback: a Claude-family match gets its tier rate;
+otherwise it gets the default, and no prefixed vendor row is selected. The
+bare forms are a validated namespace: one bare form per tracked vendor
+entry, and never one that is also a models-table key — a transcript id
+would otherwise resolve two ways, so the loaders refuse the file naming
+both rows.
 `long_context_models` members are dashed names of models-table keys OR
 tracked keys, whichever table's row the id prices through; a member
 naming neither is refused.
@@ -1054,7 +1056,8 @@ pass moved.
   the bare first-party id. A transcript id with a tracked vendor prefix
   whose remainder is a tracked bare form folds to that bare form and
   resolves through its provider row; an untracked normalized remainder
-  stays unchanged and uses default pricing.
+  stays unchanged and follows the existing fallback (Claude-family tier
+  when matched, otherwise default), never a prefixed vendor row.
 - **An already-tracked entry is never re-added or rewritten.** The listing
   of a tracked key is still fetched and selected — for the membership fold
   — but the entry stands byte for byte and the pass appends nothing

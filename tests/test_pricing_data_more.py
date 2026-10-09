@@ -332,7 +332,10 @@ def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch)
     for name, value in pricing.load_tables(_newcomer_then_moved()).items():
         monkeypatch.setattr(pricing, name, value)
     start = _at(CUT).replace(tzinfo=None)
-    assert pricing.resolve(model, start - timedelta(seconds=1), host).key != model.replace(".", "-")
+    before_start = start - timedelta(seconds=1)
+    provider_result = pricing.resolve(model, before_start, host)
+    bare_result = pricing.resolve(model, before_start)
+    assert provider_result == bare_result, "a first-seen host row is inactive before its start"
     assert pricing.rate_for(model, start, host) == NEWCOMER
     assert pricing.rate_for(model, _at(LATER).replace(tzinfo=None), host) == MOVED
 
