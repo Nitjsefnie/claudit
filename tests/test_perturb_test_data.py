@@ -28,15 +28,24 @@ from tests.refresh_fixture_builders import (
 
 
 from backend import pricing
+from backend.pricing_document import serialize_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "perturb_test_data.py"
 
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
+_CACHE_WRITE_FIELDS = {"create_5m", "create_1h"}
 NOTE_PREFIX = "sv-test-data perturbation: rates ×"
 RATES_ZERO = {"fresh": 0, "create_5m": 0, "create_1h": 0, "read": 0,
               "output": 0}
 NOW = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _effective_rates(entry: dict) -> dict:
+    """Expand omitted cache-write rates to the entry's fresh rate."""
+    return {field: entry.get(field, entry["fresh"])
+            if field in _CACHE_WRITE_FIELDS else entry[field]
+            for field in RATE_FIELDS}
 
 
 def _load():
@@ -135,10 +144,11 @@ def _moved_field_of(entry: dict) -> str:
 
 def test_every_row_gains_exactly_five_entries(tmp_path):
     doc, perturbed, _text, _path = _run(tmp_path)
-    for key, entries in doc["models"].items():
+    compact = json.loads(serialize_pricing_doc(doc))
+    for key, entries in compact["models"].items():
         assert len(perturbed["models"][key]) == len(entries) + 5
         assert perturbed["models"][key][:-5] == entries
-    for model, hosts in doc["providers"].items():
+    for model, hosts in compact["providers"].items():
         for host, entries in hosts.items():
             got = perturbed["providers"][model][host]
             assert len(got) == len(entries) + 5
@@ -149,8 +159,8 @@ def test_every_new_entry_comes_after_its_predecessor(tmp_path):
     _doc, perturbed, _text, _path = _run(tmp_path)
     for entries in _histories(perturbed):
         for before, after in zip(entries, entries[1:]):
-            previous = before["from"]
-            stamp = after["from"]
+            previous = before.get("from")
+            stamp = after.get("from")
             assert isinstance(stamp, str)
             parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
             assert parsed.tzinfo is not None
@@ -201,14 +211,16 @@ def test_the_new_rates_differ_and_scale_the_previous_newest(tmp_path):
         base = original[-1]
         appended = entries[len(original):]
         for entry in appended:
+            rates = _effective_rates(entry)
             for field in RATE_FIELDS:
-                assert entry[field] != base[field]
-                assert math.isfinite(entry[field]) and entry[field] >= 0
+                assert rates[field] != base[field]
+                assert math.isfinite(rates[field]) and rates[field] >= 0
         for entry in appended[:3]:
             factor = float(_note_factor(entry))
+            rates = _effective_rates(entry)
             for field in RATE_FIELDS:
                 expected = base[field] * factor if base[field] else 1.0
-                assert entry[field] == expected
+                assert rates[field] == expected
 
 
 def test_the_note_names_the_factor_that_was_applied(tmp_path):
@@ -224,9 +236,10 @@ def test_the_note_names_the_factor_that_was_applied(tmp_path):
                 f"{NOTE_PREFIX}{text} (a zero rate becomes one)")
             checked += 1
             factor = float(text)
+            rates = _effective_rates(entry)
             for field in RATE_FIELDS:
                 expected = base[field] * factor if base[field] else 1.0
-                assert entry[field] == expected
+                assert rates[field] == expected
     assert checked == len(_histories(perturbed)) * 3
 
 
@@ -250,7 +263,7 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert pricing.load_tables(perturbed)
     for entries in _histories(perturbed):
-        instants = [None if entry["from"] is None else
+        instants = [None if entry.get("from") is None else
                     datetime.fromisoformat(
                         entry["from"].replace("Z", "+00:00"))
                     for entry in entries]
@@ -276,13 +289,14 @@ def test_every_row_gains_a_per_field_entry(tmp_path):
         entry = entries[len(original) + 3]
         assert entry["note"] == "sv-test-data perturbation: independent per-field factors"
         factors = []
+        rates = _effective_rates(entry)
         for field in RATE_FIELDS:
             text = perturb_module._field_factor(  # pylint: disable=protected-access
                 int(NOW.timestamp()), key, field)
             assert 0.61 <= float(text) < 1.47 and float(text) != 1.0 \
                 and len(text.partition(".")[2]) == 6
             factors.append(float(text))
-            assert entry[field] == (
+            assert rates[field] == (
                 base[field] * float(text) if base[field] else 1.0)
         assert len(set(factors)) == len(RATE_FIELDS)
 
@@ -305,11 +319,12 @@ def test_every_row_gains_a_single_field_entry(tmp_path):
         factor = float(perturb_module._single_field_factor(  # pylint: disable=protected-access
             int(NOW.timestamp()), key, moved))
         assert 0.61 <= factor < 1.47 and factor != 1.0
-        assert entry[moved] == (
+        assert _effective_rates(entry)[moved] == (
             base[moved] * factor if base[moved] else 1.0)
         for other in RATE_FIELDS:
             if other != moved:
-                assert entry[other] == per_field[other]
+                assert (_effective_rates(entry)[other]
+                        == _effective_rates(per_field)[other])
 
 
 def test_the_single_field_choice_follows_the_seed(tmp_path):
@@ -346,7 +361,8 @@ def test_the_same_seed_is_byte_identical_on_the_same_document(tmp_path):
 def test_zeros_become_one_under_every_factor(tmp_path):
     _doc, perturbed, _text, _path = _run(tmp_path)
     for entry in perturbed["models"]["free/acme-0"][-5:]:
-        assert all(entry[field] == 1 for field in RATE_FIELDS)
+        assert all(_effective_rates(entry)[field] == 1
+                   for field in RATE_FIELDS)
 
 
 def test_appended_stamps_step_one_second_apart_per_row(tmp_path):

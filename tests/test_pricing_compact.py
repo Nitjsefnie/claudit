@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from scripts.ci import perturb_test_data
 
 from backend import pricing, rate_fingerprint
 from backend.pricing_load import load_tables
@@ -242,6 +243,27 @@ def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
     assert result.returncode != 0
     assert "claude-opus-4-8" in result.stderr
     assert path.read_bytes() == original
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_perturber_writes_compact_entries_accepted_by_both_loaders(tmp_path):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps(_sparse_doc(_synthetic_doc()), indent=2,
+                               sort_keys=True) + "\n", encoding="utf-8")
+
+    perturb_test_data.perturb_pricing(path, seed=42)
+
+    perturbed = json.loads(path.read_text(encoding="utf-8"))
+    entries = perturbed["providers"][ROW_KEY][HOST]
+    doubled = entries[-5]
+    assert doubled["fresh"] == 6.0
+    assert doubled["create_5m"] == 7.0
+    assert "create_1h" not in doubled
+    python_rates = load_tables(perturbed)["PROVIDER_RATES"][ROW_KEY, HOST]
+    browser_rates = _js_tables(tmp_path, perturbed)["providers"][ROW_KEY][HOST]
+    latest = entries[-1]
+    assert browser_rates["fresh"] == python_rates["fresh"] == latest["fresh"]
+    assert browser_rates["c1h"] == python_rates["create_1h"]
 
 
 def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys):
