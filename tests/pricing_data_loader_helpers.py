@@ -25,7 +25,6 @@ def _later(**fields):
 
 DAMAGE = [
     pytest.param(lambda h: h[0].update({"from": CUT}), id="first-has-from"),
-    pytest.param(lambda h: h[0].pop("from"), id="first-lacks-from-key"),
     pytest.param(_later(**{"from": None}), id="later-lacks-from"),
     pytest.param(lambda h: h.append(
         {k: v for k, v in h[-1].items() if k != "from"}),

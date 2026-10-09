@@ -120,6 +120,16 @@ def _entries(item: dict) -> list[dict]:
     return entries
 
 
+def test_generated_history_omits_cache_tiers_equal_to_fresh():
+    (entry,) = _entries(_series())
+
+    assert entry["fresh"] == 0.3
+    assert entry.get("create_5m", entry["fresh"]) == entry["fresh"]
+    assert entry.get("create_1h", entry["fresh"]) == entry["fresh"]
+    assert "create_5m" not in entry
+    assert "create_1h" not in entry
+
+
 def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
     item = _series()
     item["input"] = [
@@ -153,8 +163,10 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
     assert len(entries) == 3
     assert [entry["from"] for entry in entries] == [
         "2026-09-01T00:00:00Z", "2026-09-01T00:00:01Z", "2026-09-01T00:00:03Z"]
-    assert {key: entries[0][key] for key in ("fresh", "create_5m", "create_1h",
-                                             "read", "output")} == _rates(0.1, 0.6)
+    assert {key: entries[0].get(key, entries[0]["fresh"])
+            for key in ("fresh", "create_5m", "create_1h", "read", "output")} \
+        == _rates(0.1, 0.6)
+    assert "create_5m" not in entries[0] and "create_1h" not in entries[0]
     assert entries[0]["note"] == "10% off"
     assert entries[1]["note"] == "25% off"
     assert entries[2]["note"] == "50% off"
