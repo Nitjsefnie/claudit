@@ -95,7 +95,8 @@ from refresh_report import (arguments as _arguments,  # noqa: E402
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
 import refresh_vendor_rates  # noqa: E402
-from refresh_provider_history import (Move, _append, _append_logged)  # noqa: E402
+from refresh_provider_history import Move, _append  # noqa: E402
+from refresh_provider_history_logged import _append_logged  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import (  # noqa: E402
     effective_rates, expand_pricing_doc, serialize_pricing_doc)
