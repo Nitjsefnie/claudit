@@ -108,6 +108,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
     shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
+    shutil.copy(ROOT / "src" / "parser-usage.js", where / "parser-usage.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a
     # plain parse: a reviver that rewrote values (the old _hhmmSpelling)
