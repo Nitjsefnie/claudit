@@ -60,9 +60,9 @@ class RateTables(TypedDict):
     # long_context_models): dashed names of models-table keys or tracked
     # keys, compared against a record's normalised model id.
     LONG_CONTEXT_MODELS: frozenset[str]
-    # The meter's per-model thresholds (issue #765): member key ->
-    # threshold integer, overriding the meter's global default.
-    LONG_CONTEXT_METERS: dict[str, int]
+    # The meter's per-model entries (issue #878): member key -> threshold
+    # and optional input/output factors, overriding global defaults.
+    LONG_CONTEXT_METERS: dict[str, dict]
 
 
 # The one timestamp spelling both loaders accept: whole seconds and an
@@ -466,8 +466,9 @@ RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # keys or tracked keys, the shape SV-RATE-ESTIMATES' comparison needs.
 # pricing re-exports it.
 LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
-# The meter's per-model thresholds (issue #765): a member key's
-# {"threshold": N} override of the global default. pricing re-exports it.
+# The meter's per-model entries (issue #878): a member key's threshold
+# and optional factors, each overriding its global default. pricing
+# re-exports them.
 LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]
 # The vendor tables (SV-RATE-DATA): bare first-party forms, the configured
 # namespaces used to fold transcript ids, and the row host. pricing

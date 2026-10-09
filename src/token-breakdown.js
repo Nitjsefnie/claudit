@@ -22,11 +22,11 @@ window.computeTokenBreakdown = function computeTokenBreakdown(events) {
       // An event without its raw id is priced by the name it still carries (a Claude short name resolves to its family tier — an estimate); one without either lands on the default row.
       const res = window.resolveModelRate(e.model_id || e.model, e.ts, e.provider);
       const r = res.rates;
-      // The Codex long-context meter, exactly as pricing.compute_cost
-      // stores it (2x the whole input side, 1.5x output): a long-context
-      // row's buckets must sum to its stored cost_total (SV-DATED-RATES).
-      const lcIn = e.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
-      const lcOut = e.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
+      // Apply the model's factors so the Inspector's bucket split sums to
+      // the stored long-context cost (SV-DATED-RATES).
+      const [lcIn, lcOut] = e.long_context
+        ? window.longContextFactorsFor(e.model_id || e.model)
+        : [1.0, 1.0];
       const unsplit = Math.max(0, (e.cache_create || 0) - (e.ephemeral_5m || 0) - (e.ephemeral_1h || 0));
       c.input     += (e.input_tokens   || 0) * r.fresh * lcIn;
       c.output    += (e.output_tokens  || 0) * r.out * lcOut;
@@ -62,4 +62,3 @@ window.computeTokenBreakdown = function computeTokenBreakdown(events) {
 
   return { rows, tokenTotal: tokenTotal || 1, costTotal: costTotal || 1 };
 };
-

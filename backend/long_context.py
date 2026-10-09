@@ -10,13 +10,10 @@ module imports no other backend module.
 """
 from __future__ import annotations
 
-# A Codex request whose prompt exceeds this size bills the WHOLE request at
-# the long-context meter: 2x input, 1.5x output. Ported from codexmeter.
-# Applied per record by the caller, which is the only place that knows the
-# request's prompt size. The rule is uniform across the family — the same
-# threshold and multipliers for every GPT-5.6 and GPT-6 model
-# (https://developers.openai.com/api/docs/pricing, checked 2026-09-26) —
-# so these stay global constants rather than per-model data in pricing.json.
+# The default Codex meter: a request above this prompt size bills the WHOLE
+# request at 2x input and 1.5x output. Applied per record by the caller,
+# which is the only place that knows the request's prompt size. A model's
+# threshold and optional factors can override these defaults in pricing.json.
 LONG_CONTEXT_THRESHOLD = 272_000
 LONG_CONTEXT_INPUT_MULT = 2.0
 LONG_CONTEXT_OUTPUT_MULT = 1.5

@@ -314,6 +314,37 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
         abs=1e-6)
 
 
+def test_per_model_meter_factors_keep_buckets_reconciled(monkeypatch):
+    """The fold applies the model's synthetic 5x meter to both token sides;
+    global factors would make these buckets diverge from the stored total."""
+    model = "synthetic-meter-878"
+    rates = {
+        "fresh": 7.0, "create_5m": 8.75, "create_1h": 14.0,
+        "read": 0.7, "output": 35.0,
+    }
+    meter = {"threshold": 100_000, "input_mult": 5.0,
+             "output_mult": 5.0}
+    monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
+    monkeypatch.setattr(pricing, "DATED_RATES", {})
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {model: meter})
+    fresh, eph5, eph1h, unsplit, read, output = 1_000, 50, 100, 50, 300, 40
+    stored = (
+        fresh * rates["fresh"] * 5.0
+        + eph5 * rates["create_5m"] * 5.0
+        + (eph1h + unsplit) * rates["create_1h"] * 5.0
+        + read * rates["read"] * 5.0
+        + output * rates["output"] * 5.0
+    ) / 1_000_000
+
+    folded = fold_per_model([
+        _row(model, 0, fresh=fresh, cc=eph5 + eph1h + unsplit, cr=read,
+             output=output, eph5=eph5, eph1h=eph1h, cost=stored,
+             long_context=True),
+    ], pair_bounds={})[0]
+    assert folded["cost_total"] == pytest.approx(round(stored, 4))
+    assert abs(sum(folded["cost_buckets"].values()) - folded["cost_total"]) <= 3e-4
+
+
 def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
         synthetic_dated_rate):
     """The flag splits the AGGREGATE row, never the model entry: both

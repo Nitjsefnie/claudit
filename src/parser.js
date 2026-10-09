@@ -457,13 +457,10 @@ window.computeSessionStats = function (events, meta) {
 
     const r = rate(m.model || '', m.ts, m.provider);
     const unsplit = Math.max(0, cc - eph5 - eph1h);
-    // Codex long-context meter (mirrors pricing.compute_cost's
-    // long_context rule): a record whose prompt exceeded
-    // window.LONG_CONTEXT_THRESHOLD bills the WHOLE record at 2x input
-    // side and 1.5x output. Lanes set m.long_context at parse time;
-    // Claude records never carry it, so the multipliers stay 1.
-    const lcIn = m.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
-    const lcOut = m.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
+    // The model's long-context factors apply to the whole record; lanes
+    // set m.long_context at parse time and the inspector must match the DB.
+    const [lcIn, lcOut] = m.long_context
+      ? window.longContextFactorsFor(m.model || '') : [1.0, 1.0];
     // pricing.compute_cost's operation order, term for term — same
     // multiplies, same per-term division — plus the serving host's
     // per-request fee (issue #469), folded once per record exactly as

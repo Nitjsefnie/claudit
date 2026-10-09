@@ -6,6 +6,8 @@ pricing re-exports their values. Pure functions over the document; no
 rate table is read here."""
 from __future__ import annotations
 
+import math
+
 
 def _long_context_members(doc: dict) -> frozenset[str]:
     """The long-context meter's membership, checked: distinct non-empty
@@ -29,34 +31,58 @@ def _long_context_members(doc: dict) -> frozenset[str]:
     return frozenset(members)
 
 
-def _long_context_meters(doc: dict) -> dict[str, int]:
-    """The meter's per-model thresholds (issue #765), checked: a map of
-    member keys to exactly {"threshold": N} for a positive integral N —
-    an integral float spelling (200000.0) folds to the integer, so both
-    loaders accept the same bytes where JSON has already collapsed the
-    spelling (the browser's Number sees one value); a fractional one is
-    refused. A member absent here keeps the meter's global threshold.
-    The key must be a member — a threshold for a model that does not
-    meter is inert data the loaders refuse."""
+def _long_context_meters(doc: dict) -> dict[str, dict]:
+    """The meter's per-model entries, checked: a map of member keys to
+    {threshold, input_mult?, output_mult?}. The threshold is a positive
+    integer; an integral float spelling folds to an int so both loaders
+    accept the same JSON number. Multipliers, when present, are finite
+    positive numbers. A member absent here keeps the global defaults.
+    The key must be a member — a meter for a model that does not meter is
+    inert data the loaders refuse."""
     meters = doc.get("long_context_meters") or {}
     if not isinstance(meters, dict):
         raise ValueError("long_context_meters: not a map of member keys "
-                         "to thresholds")
+                         "to meter entries")
     members = _long_context_members(doc)
+    folded: dict[str, dict] = {}
     for key, value in meters.items():
         if key not in members:
             raise ValueError(
                 f"long_context_meters: {key!r} names no long_context_models "
                 "member")
-        if not isinstance(value, dict) or set(value) != {"threshold"}:
+        if (not isinstance(value, dict) or "threshold" not in value
+                or set(value) - {"threshold", "input_mult", "output_mult"}):
             raise ValueError(
-                f"long_context_meters: {key!r} is not a {{threshold: "
-                "positive integer}}")
+                f"long_context_meters: {key!r} is not a meter entry with "
+                "a positive integer threshold and optional positive "
+                "finite multipliers")
         threshold = value["threshold"]
-        if (isinstance(threshold, bool)
-                or not isinstance(threshold, (int, float))
-                or not float(threshold).is_integer() or threshold <= 0):
+        try:
+            integral = (not isinstance(threshold, bool)
+                        and isinstance(threshold, (int, float))
+                        and math.isfinite(float(threshold))
+                        and float(threshold).is_integer()
+                        and threshold > 0)
+        except (OverflowError, ValueError):
+            integral = False
+        if not integral:
             raise ValueError(
-                f"long_context_meters: {key!r} is not a {{threshold: "
-                "positive integer}}")
-    return {k: int(v["threshold"]) for k, v in meters.items()}
+                f"long_context_meters: {key!r} has no positive integer "
+                "threshold")
+        entry = {**value, "threshold": int(threshold)}
+        for field in ("input_mult", "output_mult"):
+            if field not in entry:
+                continue
+            multiplier = entry[field]
+            try:
+                finite = (isinstance(multiplier, (int, float))
+                          and not isinstance(multiplier, bool)
+                          and math.isfinite(float(multiplier)))
+            except (OverflowError, ValueError):
+                finite = False
+            if not finite or multiplier <= 0:
+                raise ValueError(
+                    f"long_context_meters: {key!r} has invalid {field}; "
+                    "expected a positive finite number")
+        folded[key] = entry
+    return folded

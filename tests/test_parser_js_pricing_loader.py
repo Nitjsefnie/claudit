@@ -267,6 +267,12 @@ def test_a_start_inside_a_window_rates_object_is_not_an_offense(tmp_path):
     {"claude-opus-4-8": {"threshold": True}},
     {"claude-opus-4-8": {"threshold": 2.5}},
     {"claude-opus-4-8": 200_000},
+    {"claude-opus-4-8": {"input_mult": 5.0}},
+    {"claude-opus-4-8": {"threshold": 200_000, "input_mult": 0}},
+    {"claude-opus-4-8": {"threshold": 200_000, "output_mult": -1}},
+    {"claude-opus-4-8": {"threshold": 200_000, "input_mult": "5"}},
+    {"claude-opus-4-8": {"threshold": 200_000, "output_mult": True}},
+    {"claude-opus-4-8": {"threshold": 200_000, "mult": 5.0}},
 ])
 def test_the_browser_load_refuses_a_rule_breaking_meters_map(tmp_path, meters):
     """The browser half refuses what pricing_load refuses: a meter naming
@@ -280,10 +286,34 @@ def test_the_browser_load_refuses_a_rule_breaking_meters_map(tmp_path, meters):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("meters", [None, False, 0, "", []])
+def test_the_browser_load_defaults_falsey_meters_to_empty(tmp_path, meters):
+    doc = _doc()
+    doc["long_context_models"] = ["claude-opus-4-8"]
+    doc["long_context_meters"] = meters
+    out = _run(tmp_path, json.dumps(doc, indent=2, sort_keys=True))
+    assert out["error"] is None, out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_browser_load_refuses_a_non_finite_meter_factor(tmp_path):
+    doc = _doc()
+    doc["long_context_models"] = ["claude-opus-4-8"]
+    doc["long_context_meters"] = {
+        "claude-opus-4-8": {"threshold": 200_000, "input_mult": 5.0}}
+    text = json.dumps(doc, indent=2, sort_keys=True).replace(
+        '"input_mult": 5.0', '"input_mult": 1e309')
+    out = _run(tmp_path, text)
+    assert out["error"], out
+    assert "pricing.json" in out["error"] and "long_context_meters" in out["error"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_browser_load_folds_a_valid_meters_map(tmp_path):
     doc = _doc()
     doc["long_context_models"] = ["claude-opus-4-8"]
-    doc["long_context_meters"] = {"claude-opus-4-8": {"threshold": 200_000}}
+    meter = {"threshold": 100_000, "input_mult": 5.0, "output_mult": 5.0}
+    doc["long_context_meters"] = {"claude-opus-4-8": meter}
     out = _run(tmp_path, json.dumps(doc, indent=2, sort_keys=True))
     assert out["error"] is None, out
     script = (
@@ -293,14 +323,13 @@ def test_the_browser_load_folds_a_valid_meters_map(tmp_path):
     proc = subprocess.run(["node", "-e", script], capture_output=True,
                           text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == {"claude-opus-4-8": 200_000}
+    assert json.loads(proc.stdout) == {"claude-opus-4-8": meter}
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_loader_tables_match_the_file():
-    """The loader's membership and per-model thresholds are the real
-    file's, folded the way pricing_load folds them (issue #765): the
-    models list straight through, the meters to key -> threshold int."""
+    """The loader's membership and whole per-model meter entries mirror
+    the pricing file (issue #878)."""
     raw = json.loads((ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
     script = (
         "global.window = {};\n"
@@ -312,6 +341,4 @@ def test_the_loader_tables_match_the_file():
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
     assert got["models"] == raw["long_context_models"]
-    assert got["meters"] == {
-        k: v["threshold"]
-        for k, v in (raw.get("long_context_meters") or {}).items()}
+    assert got["meters"] == raw.get("long_context_meters") or {}

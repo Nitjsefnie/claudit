@@ -345,13 +345,11 @@ if (_defaultRow === undefined) {
 window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
 window.scheduleRatesAt = _scheduledRates;
 
-// The long-context meter's membership and per-model thresholds (issue
-// #765): pricing.json's long_context_models and long_context_meters,
+// The long-context meter's membership and per-model entries (issue
+// #878): pricing.json's long_context_models and long_context_meters,
 // validated like backend/pricing_load.py — a rule-breaking file throws
 // naming the key. window.longContextModels is the dashed-key membership
-// list; window.longContextMeters maps a member to its threshold integer,
-// the override of the global default (window.LONG_CONTEXT_THRESHOLD,
-// parser-lanes.js) window.longContextThresholdFor reads.
+// list; window.longContextMeters maps a member to its complete meter entry.
 const _lcMembers = _PRICING.long_context_models;
 if (_lcMembers === undefined) {
   throw _pricingError('long_context_models is missing');
@@ -369,15 +367,26 @@ for (const k of _lcMembers)
     throw _pricingError(`long_context_models: ${k} names no models-table or tracked key`);
 window.longContextModels = _lcMembers;
 window.longContextMeters = {};
-const _lcMeters = _PRICING.long_context_meters;
-if (_lcMeters != null && (typeof _lcMeters !== 'object' || Array.isArray(_lcMeters)))
-  throw _pricingError('long_context_meters: not a map of member keys to thresholds');
+const _rawLcMeters = _PRICING.long_context_meters;
+const _lcMeters = (Array.isArray(_rawLcMeters) && !_rawLcMeters.length)
+  ? {} : (_rawLcMeters || {});
+if (typeof _lcMeters !== 'object' || Array.isArray(_lcMeters))
+  throw _pricingError('long_context_meters: not a map of member keys to meter entries');
 for (const [k, v] of Object.entries(_lcMeters || {})) {
   if (!window.longContextModels.includes(k))
     throw _pricingError(`long_context_meters: ${k} names no long_context_models member`);
   if (!v || typeof v !== 'object' || Array.isArray(v)
-      || Object.keys(v).length !== 1 || !Number.isInteger(v.threshold)
+      || !Object.prototype.hasOwnProperty.call(v, 'threshold')
+      || Object.keys(v).some((field) =>
+        !['threshold', 'input_mult', 'output_mult'].includes(field))
+      || !Number.isInteger(v.threshold)
       || v.threshold <= 0)
-    throw _pricingError(`long_context_meters: ${k} is not a {threshold: positive integer}`);
-  window.longContextMeters[k] = v.threshold;
+    throw _pricingError(`long_context_meters: ${k} is not a meter entry with a positive integer threshold`);
+  for (const field of ['input_mult', 'output_mult']) {
+    if (Object.prototype.hasOwnProperty.call(v, field)
+        && (typeof v[field] !== 'number' || !Number.isFinite(v[field])
+            || v[field] <= 0))
+      throw _pricingError(`long_context_meters: ${k} has invalid ${field}; expected a positive finite number`);
+  }
+  window.longContextMeters[k] = v;
 }

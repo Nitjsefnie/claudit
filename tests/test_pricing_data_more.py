@@ -468,10 +468,9 @@ def test_long_context_models_stay_distinct_and_string_typed():
         pricing.load_tables(doc)
 
 
-def test_long_context_meters_default_to_empty_and_load_flat():
-    """Absent the key the meter map is empty (a member keeps the global
-    threshold); present, the loader folds each {"threshold": N} to the
-    flat key -> int table the lookups read (issue #765)."""
+def test_long_context_meters_default_to_empty_and_load_whole_entries():
+    """Absent the key the meter map is empty; present, the loader keeps
+    each member's threshold and optional factors together (issue #878)."""
     doc = _doc()
     doc["long_context_models"] = ["gpt-5-6-sol"]
     # The live file's meter map rides along in _doc(); the "default"
@@ -480,14 +479,23 @@ def test_long_context_meters_default_to_empty_and_load_flat():
     # the live map (SV-TEST-DATA).
     doc.pop("long_context_meters", None)
     assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
+    for empty in (None, False, 0, "", []):
+        doc["long_context_meters"] = empty
+        assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {}
     doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200_000}}
     assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
-        "gpt-5-6-sol": 200_000}
+        "gpt-5-6-sol": {"threshold": 200_000}}
     # An integral float spelling folds to the integer, so both loaders
     # accept the same bytes (JSON has already collapsed the spelling).
     doc["long_context_meters"] = {"gpt-5-6-sol": {"threshold": 200000.0}}
     assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
-        "gpt-5-6-sol": 200_000}
+        "gpt-5-6-sol": {"threshold": 200_000}}
+    doc["long_context_meters"] = {
+        "gpt-5-6-sol": {"threshold": 100_000.0,
+                         "input_mult": 5.0, "output_mult": 5}}
+    assert pricing.load_tables(doc)["LONG_CONTEXT_METERS"] == {
+        "gpt-5-6-sol": {"threshold": 100_000,
+                         "input_mult": 5.0, "output_mult": 5}}
 
 
 def test_a_long_context_meter_names_a_member():
@@ -498,12 +506,19 @@ def test_a_long_context_meter_names_a_member():
         pricing.load_tables(doc)
 
 
-def test_a_long_context_meter_value_is_a_threshold_map():
+def test_a_long_context_meter_value_requires_a_threshold_and_valid_factors():
     doc = _doc()
     doc["long_context_models"] = ["gpt-5-6-sol"]
     for bad in (None, 200_000, {"threshold": 0}, {"threshold": -1},
                 {"threshold": True}, {"threshold": "200000"},
-                {"threshold": 2.5}, {"threshold": 200_000, "mult": 2.0}, {}):
+                {"threshold": 2.5}, {"threshold": 200_000, "mult": 2.0},
+                {}, {"input_mult": 5.0},
+                {"threshold": 200_000, "input_mult": 0},
+                {"threshold": 200_000, "output_mult": -1},
+                {"threshold": 200_000, "input_mult": float("inf")},
+                {"threshold": 200_000, "output_mult": float("nan")},
+                {"threshold": 200_000, "output_mult": True},
+                {"threshold": 200_000, "input_mult": "5"}):
         doc["long_context_meters"] = {"gpt-5-6-sol": bad}
         with pytest.raises(ValueError, match="long_context_meters"):
             pricing.load_tables(doc)

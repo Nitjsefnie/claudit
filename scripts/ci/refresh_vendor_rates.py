@@ -17,8 +17,8 @@ NO RATES: the provider pass carries the (key, vendor_host) row from the
 NEXT hourly run, so a newly added model prices nothing for one run — the
 one-run pickup delay is the design, and resolve()'s bare path falls
 through until the row exists. An already-tracked key is never re-added or
-rewritten: its listing is still fetched and selected, for the membership
-fold below, and the entry stands byte for byte.
+rewritten: its tracked table entry stands byte for byte. Its listing still
+controls meter membership and the per-model threshold/factors.
 
 The vendor's own endpoint is selected refusing rather than guessing:
 
@@ -35,35 +35,33 @@ The vendor's own endpoint is selected refusing rather than guessing:
   only through third-party hosts; there is no first-party selection to
   make, and any tracked entry's own state stands untouched.
 
-An unmodelled listed shape is a NOTICE — "not tracked: <reason>": no entry
-is created, no existing entry is touched, and no membership folds. Red is
-reserved for ambiguity a human must resolve (multi-price without a pin, a
-stale or malformed pin), and for broken or unrecognised fetches — each
-clearing on a human action or a retry:
+An unmodelled listed shape is a refusal: no entry is created, no existing
+entry is touched, and no membership folds. The vendor pass refuses
+first-party data the meter cannot represent because an operator can act on
+that listing and it would otherwise stay unpriced every hour. The two
+notices remain a catalog the pass cannot read and a model with no
+first-party endpoint. Ambiguous prices without a pin, stale or malformed
+pins, and broken or unrecognised fetches also refuse:
 
 - a pricing key outside PRICED at a nonzero price, unless it is a
   RECORDED_FEE (web_search); a fee is the provider row's provenance, not
   the tracked entry's — the pass writes nothing for it here — while a fee
-  value the table could not parse stays a not-tracked notice;
+  value the table could not parse refuses;
 - a WEEKLY schedule: the price the pass compared is a window price at
-  fetch time, the same reason the provider pass refuses a first-seen
-  scheduled host inside one; the model is not tracked until the pass can
-  select an actual default;
-- a long-context band (a min_prompt_tokens override) whose threshold or
-  multipliers depart from the meter — pricing.LONG_CONTEXT_THRESHOLD, the
-  input side at LONG_CONTEXT_INPUT_MULT, output at LONG_CONTEXT_OUTPUT_MULT.
-  The table models exactly one band shape, the Codex meter's, by folding
-  the key into long_context_models; the band's own rates never enter
-  anything the pass writes. A departing shape is not tracked: the 200k-band
-  Claude models are the live case.
+  fetch time, and the pass cannot select an actual default;
+- a long-context band with multiple bands, a threshold that is not positive,
+  missing input/output prices, an unsupported band kind, or UTC fields.
+  A min_prompt_tokens band yields its factors from the listing, folds its
+  threshold/factors into long_context_meters, and contributes no rates.
 
-Membership is data the listing governs, for vendor-tracked keys: a banded
-model's key joins long_context_models (a member requires its tracked entry,
-which the same run adds), an unbanded vendor-tracked key leaves it, and
-every non-vendor key stands untouched. Membership-only changes move the
-version: the reprice pass re-derives records.long_context from the
-membership, and a new entry moves the rate fingerprint the reprice
-consults — so a quiet run (no add, no fold) still writes nothing.
+Membership and meter data are listing-governed for vendor-tracked keys: a
+banded model's key joins long_context_models and its threshold/factors are
+stored together (a member requires its tracked entry, which the same run
+adds); an unbanded vendor-tracked key leaves membership and its meter, and
+every non-vendor key stands untouched. These changes move the version: the
+reprice pass re-derives records.long_context from membership, and a meter
+entry moves the rate fingerprint the reprice consults — so a quiet run (no
+add, no fold) still writes nothing.
 
     python3 scripts/ci/refresh_vendor_rates.py [--dry-run]
 """
@@ -95,12 +93,12 @@ PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 @dataclass
 class VendorMove:
     """One tracked-table move: a new entry (an auto-add), a membership
-    fold, or a meter-threshold write — the pass writes no rates."""
+    fold, or a meter write — the pass writes no rates."""
     id: str
     key: str
     added: bool = False
     membership: str = ""  # "+" joined long_context_models, "-" left, "" untouched
-    meter: int | None = None  # the threshold written or moved, None untouched
+    meter: dict | None = None  # full effective meter when the move changes it
 
 
 @dataclass
@@ -151,7 +149,7 @@ def _extract_endpoints(model_id: str, payload: object) -> list:
 
 def _split_overrides(price: dict, where: str) -> tuple[list, list]:
     """A price's overrides as (band overrides, weekly windows). An unknown
-    kind, or a band mixed with utc fields, is untracked."""
+    kind, or a band mixed with utc fields, refuses the vendor listing."""
     overrides = price.get("overrides")
     if overrides in (None, []):
         return [], []
@@ -172,12 +170,11 @@ def _split_overrides(price: dict, where: str) -> tuple[list, list]:
     return bands, weekly
 
 
-def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, int | None, str]:
-    """One endpoint as (five rates, metered?, the band's own threshold,
-    provider_name) — the rates only to tell two same-namespace endpoints'
-    prices apart, never written.
-    Refusing an unmodelled shape: the add or fold the endpoint would have
-    carried does not happen; a not-tracked notice lands instead."""
+def _listing(model_id: str, endpoint: object
+             ) -> tuple[dict, dict | None, str]:
+    """One endpoint as (five rates, meter entry or None, provider_name).
+    The rates only distinguish two same-namespace endpoints; they are
+    never written. An unmodelled shape refuses the add or fold."""
     if not (isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{model_id}: unrecognised endpoint shape")
@@ -208,14 +205,14 @@ def _listing(model_id: str, endpoint: object) -> tuple[dict, bool, int | None, s
     rates = rates_of(price, where)
     bands, weekly = _split_overrides(price, where)
     if weekly:
-        raise Untracked(f"{where}: a weekly schedule: not tracked until the "
-                        "pass can select a default outside every window")
-    metered, threshold = metered_band(price, where, bands)
-    return rates, metered, threshold, provider
+        raise Untracked(f"{where}: a weekly schedule: the pass cannot select "
+                        "a default outside every window")
+    meter = metered_band(price, where, bands)
+    return rates, meter, provider
 
 
 def _choose(model_id: str, endpoints: list, pin: object
-            ) -> tuple[dict, bool, int | None, str] | None:
+            ) -> tuple[dict, dict | None, str] | None:
     """The vendor's own endpoint's listing, refusing an ambiguous one.
     None means the vendor lists no first-party endpoint (a notice, not a
     refusal)."""
@@ -265,7 +262,7 @@ def _fold_membership(members: list, key: str, metered: bool) -> str:
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             outcome: VendorOutcome):
     """The chosen listing, or None when the pass moves on: the findings
-    (no first-party endpoint, not-tracked, refusal) land in `outcome`."""
+    (no first-party endpoint or refusal) land in outcome."""
     try:
         payload = fetch_endpoints(model_id)
     except Exception as exc:  # a broken fetch refuses, as any broken fetch does
@@ -282,62 +279,66 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
                 f"{model_id}: the vendor lists no first-party endpoint; skipped")
         return selected
     except Untracked as exc:
-        outcome.notices.append(f"{model_id}: not tracked: {exc}")
+        outcome.refusals.append(str(exc))
     except RefreshError as exc:
         outcome.refusals.append(str(exc))
     return None
 
 
-def _fold_meter(meters: dict, key: str, metered: bool,
-                threshold: int | None) -> int | None:
-    """Write or drop the model's meter threshold per the listing, and
-    name the written threshold for the move (None: untouched). The drop
-    keeps the loaders' rule — a meters key names a member."""
-    if metered and threshold is not None:
-        if meters.get(key) != {"threshold": threshold}:
-            meters[key] = {"threshold": threshold}
-            return threshold
-        return None
-    if not metered and key in meters:
+def _fold_meter(meters: dict, key: str, meter: dict | None) -> bool:
+    """Write or drop the listing's threshold/factors; return whether it
+    changed. Global factors stay omitted from pricing.json."""
+    if meter is not None:
+        stored = {"threshold": meter["threshold"]}
+        for field, default in (
+                ("input_mult", pricing.LONG_CONTEXT_INPUT_MULT),
+                ("output_mult", pricing.LONG_CONTEXT_OUTPUT_MULT)):
+            if meter[field] != default:
+                stored[field] = meter[field]
+        if meters.get(key) == stored:
+            return False
+        meters[key] = stored
+        return True
+    if key in meters:
         del meters[key]
-    return None
+        return True
+    return False
 
 
 def _one_model(doc: dict, members: list, meters: dict, model_id: str,
                fetch_endpoints, outcome: VendorOutcome) -> None:
     """One catalog id's selection, auto-add or fold; findings land in
-    `outcome`. An Untracked shape notices; red stays for ambiguity, pins and
-    broken fetches. A tracked key is never re-added or rewritten."""
+    outcome. An unmodelled listing refuses the run. A tracked key is never
+    re-added or rewritten."""
     key = derive_key(model_id)
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return
-    _rates, metered, threshold, host = selected
+    _rates, meter, host = selected
+    metered = meter is not None
     # setdefault, never `or {}`: an empty tracked table is falsy, and a
     # fresh dict here would drop the auto-add's write on the floor.
     tracked = (doc.get("openrouter") or {}).setdefault("models", {})
     if key in tracked:
         membership = _fold_membership(members, key, metered)
-        meter = _fold_meter(meters, key, metered, threshold)
-        if membership or meter is not None:
+        meter_changed = _fold_meter(meters, key, meter)
+        if membership or meter_changed:
             outcome.moves.append(VendorMove(model_id, key,
                                             membership=membership, meter=meter))
         return
     tracked[key] = {"id": model_id, "vendor_host": host}
     membership = _fold_membership(members, key, metered)
-    meter = _fold_meter(meters, key, metered, threshold)
+    _fold_meter(meters, key, meter)
     outcome.moves.append(VendorMove(model_id, key, added=True,
                                     membership=membership, meter=meter))
 
 
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     """One vendor pass over `doc` (mutated in place: tracked entries and
-    long_context_models), returning the moves and what a human must read.
-    An unmodelled shape is a NOTICE — "not tracked: <reason>": no entry is
-    created and no existing entry is touched. Red is reserved for ambiguity
-    a human must resolve (multi-price without a pin, a stale or malformed
-    pin), and for broken or unrecognised fetches — each clearing on a human
-    action or a retry."""
+    long_context_models and long_context_meters), returning the moves and
+    what a human must read. An Untracked first-party shape refuses the run.
+    The catalog-unreadable and no-first-party-endpoint findings remain
+    notices."""
     outcome = VendorOutcome()
     try:
         ids = catalog_ids(fetch_models(), doc)
