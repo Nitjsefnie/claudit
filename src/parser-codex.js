@@ -119,6 +119,7 @@ function parseLaneCodex(blob, opts) {
   }
   const st = {
     prevUsage: null,      // previous cumulative snapshot, for differencing
+    webSearchRequests: 0, // response_item/web_search_call since last usage row
     // Model in force: opened as the file's first declared model (the
     // replayed fork prefix's attribution, issue #653), then the latest
     // declaration wins.
@@ -165,6 +166,9 @@ function parseLaneCodex(blob, opts) {
       }
     } else if (rtype === 'response_item') {
       const ptype = payload.type || '';
+      if (ptype === 'web_search_call') {
+        st.webSearchRequests++;
+      }
       if (ptype === 'custom_tool_call' || ptype === 'function_call') {
         let name;
         let toolInput;
@@ -277,7 +281,8 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
   const delta = {};
   for (const k of LANE_CODEX_USAGE_KEYS) delta[k] = cumulative[k] - st.prevUsage[k];
   st.prevUsage = cumulative;
-  if (LANE_CODEX_USAGE_KEYS.every(k => delta[k] <= 0)) return; // Trap 2
+  if (LANE_CODEX_USAGE_KEYS.every(k => delta[k] <= 0)
+      && st.webSearchRequests === 0) return; // Trap 2
 
   // Trap 3: cached and cache-write inputs are SUBSETS of input_tokens.
   const totalIn = Math.max(0, delta.input_tokens);
@@ -297,9 +302,11 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
     laneCodexModel(st.model),
     fresh, create, read, output,
     totalIn > window.longContextThresholdFor(st.model),
+    st.webSearchRequests || null,
   );
   record.thinking_tokens = reasoning;
   meta.push(record);
+  st.webSearchRequests = 0;
 }
 
 // Book a rate-limit hit, if this token_count reports one (backend

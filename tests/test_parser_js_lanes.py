@@ -69,6 +69,7 @@ def _browser_lane_output() -> dict:
               create: m.usage.cache_creation_input_tokens || 0,
               read: m.usage.cache_read_input_tokens || 0,
               output: m.usage.output_tokens || 0,
+              web_search_requests: m.web_search_requests ?? null,
               // One record through the real cost path — no formula
               // duplicated in this test.
               cost: window.computeSessionStats([], [m]).cost,
@@ -450,7 +451,6 @@ class TestNodeDrivenLaneParsers:
           window.modelRates[{json.dumps(model_key)}] = {{
             fresh: 7.0, c5: 8.75, c1h: 14.0, read: 0.7, out: 35.0 }};
           delete window.datedRates[{json.dumps(model_key)}];
-          delete window.modelFees[{json.dumps(model_key)}];
           window.longContextModels = [{json.dumps(model_key)}];
           window.longContextMeters = {{{json.dumps(model_key)}: {json.dumps(meter)}}};
           require({str(RATES_JS)!r});
