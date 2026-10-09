@@ -10,9 +10,11 @@ price; a multi-price shape no rule fits. The hourly append machinery lives
 in refresh_provider_rates.py.
 
     A resolution: {"tag": ...} takes that tag's endpoints, whatever their
-    region; {"select": "cheapest"} takes the cheaper of endpoints identical
-    in tag, quantization and limits, comparing cache read, then input, then
-    output; the two combine, the tag narrowing first. "ignore": [fields]
+    region; if that tag leaves multiple prices with the same quantization,
+    the same-quantization rule takes the cheapest within the tag.
+    {"select": "cheapest"} takes the cheaper of endpoints identical in tag,
+    quantization and limits, comparing cache read, then input, then output;
+    the two combine, the tag narrowing first. "ignore": [fields]
     refines a 'cheapest': the named identity fields are a recorded human
     decision that the endpoints are one offering listed with a listing
     artifact, so 'cheapest' compares the rest. With no resolution at all the
@@ -216,6 +218,16 @@ def _finish_host_price(
         return _cheapest(where, prices, stored, override.get("ignore") or [])
     if notice:
         return chosen, notice
+    if len(prices) > 1 and override.get("tag") is not None:
+        twins = same_quantization(where, groups, stored)
+        if twins is not None:
+            chosen, notice = twins
+            if notice:
+                notice = notice.replace(
+                    "rule-resolved (same quantization)",
+                    "rule-resolved (same quantization, within the pinned tag "
+                    f"{override['tag']!r})", 1)
+            return chosen, notice
     if len(prices) > 1 and pin is None:
         automatic = _automatic_price_rule(where, groups, stored)
         if automatic is not None:
