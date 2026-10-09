@@ -15,12 +15,12 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import refresh_report  # noqa: E402
 import refresh_prices  # noqa: E402
 import refresh_selection  # noqa: E402
+from refresh_provider_rates import Result  # noqa: E402
 from tests.refresh_fixture_builders import RATES_A, _endpoint  # noqa: E402
 
 
 def _result(*, vanished=(), sampled=None, notices=()):
-    return SimpleNamespace(moves=[], vanished=list(vanished), refusals=[],
-                           notices=list(notices), sampled=sampled or {})
+    return Result({}, [], list(vanished), [], list(notices), sampled or {})
 
 
 def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():

@@ -178,6 +178,7 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
         history = hosts[host] = copy.deepcopy(additions)
         move = Move(model, host, None, listing, len(additions), "log")
     else:
+        assert original is not None
         additions = _new_log_states(model, host, entries, original)
         if additions:
             # The price log has no web-search field. Carry the last sampled
