@@ -120,7 +120,9 @@ def classify(history: list[dict], at: datetime, days: float) -> dict:
     returned within three levels; BAND moved through four or more. The
     baseline is the level in force before the window — the last entry dated
     before it, or the row's leading undated entry (issue #836) — so the
-    first in-window entry counts as a change.
+    first in-window entry counts as a change. Adjacent entries with equal
+    token rates and schedules count as one level; search-only epochs remain
+    in stored history without becoming token-price returns.
     """
     if days <= 0:
         raise ValueError(f"the classification window is {days} days; it must be positive")
@@ -128,7 +130,13 @@ def classify(history: list[dict], at: datetime, days: float) -> dict:
     dated = [entry for entry in history if entry.get("from") is not None]
     inside = [entry for entry in dated if _instant(entry["from"]) >= since]
     before = [entry for entry in dated if _instant(entry["from"]) < since]
-    levels = [_level(entry) for entry in _baseline(history, before) + inside]
+    levels = []
+    for entry in _baseline(history, before) + inside:
+        level = _level(entry)
+        if not levels or level != levels[-1]:
+            # Search-only epochs remain dated in history, but an adjacent
+            # duplicate token/schedule level is not a token-price return.
+            levels.append(level)
     changes = max(0, len(levels) - 1)
     seen = set(levels[:1])
     returns = 0

@@ -379,8 +379,6 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
             _set_search_rate(entry, new_search)
     if move is None:
         move = Move(model, host, original, listing, 1, "search")
-    else:
-        move.entries_appended += 1
     return move
 
 

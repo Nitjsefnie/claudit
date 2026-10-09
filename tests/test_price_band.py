@@ -169,6 +169,21 @@ def test_the_classifier_counts_an_undated_baseline_like_a_dated_one():
     assert price_band.classify(dated, NOW, 7.0)["shape"] == "TOGGLE"
 
 
+def test_adjacent_equal_token_rates_with_different_schedules_are_levels():
+    first_schedule = [{"days": ["monday"], "rates": RATE_A}]
+    second_schedule = [{"days": ["tuesday"], "rates": RATE_A}]
+    history = [
+        _entry(None, RATE_A, schedule=first_schedule),
+        _entry(_day(2), RATE_A, schedule=second_schedule),
+        _entry(_day(1), RATE_B, schedule=second_schedule),
+    ]
+
+    classified = price_band.classify(history, AT, DAYS)
+
+    assert classified == {"shape": "STEP", "changes": 2,
+                          "distinct": 3, "returns": 0}
+
+
 # --- 4 & 5. the one-time collapse, and the rows it must not touch -------------
 
 # Four days at A then four at B: a return, and a mean of exactly MEAN.
