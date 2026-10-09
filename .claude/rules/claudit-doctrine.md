@@ -1002,15 +1002,17 @@ same rules:
   - `{"tag": ...}` takes that tag's endpoint, whatever its region.
   - `{"select": "cheapest"}` takes the cheaper of endpoints identical in
     tag, quantization and limits, comparing cache read, then input,
-    then output. Different-region suffixes are filtered before
-    selection; a configured-region endpoint and a bare alias follow the
-    data-region rule above. The order survives price moves and breaks
-    only when it flips; twins have no identity but price, so a flip is
-    seen when the twin still at the row's price is no longer cheaper,
-    and is refused. A tracked twin crossing the other between runs is
-    indistinguishable from a genuine move and shows as a rise (unless the
-    other fell simultaneously), so every rise of a `cheapest` row is
-    appended and reported as a "possible twin switch".
+    then output. Different-region suffixes remain filtered for this
+    resolution; the automatic preference for a configured-region endpoint
+    over a bare alias applies only without an explicit resolution. A tag
+    resolution above selects its exact tag and bypasses the region filter,
+    whatever its region. The order survives price moves and breaks only
+    when it flips; twins have no identity but price, so a flip is seen when
+    the twin still at the row's price is no longer cheaper, and is refused.
+    A tracked twin crossing the other between runs is indistinguishable
+    from a genuine move and shows as a rise (unless the other fell
+    simultaneously), so every rise of a `cheapest` row is appended and
+    reported as a "possible twin switch".
   - The two combine, the tag narrowing first, whatever the region. The
     choice may record `"ignore": [fields]`: non-tag identity fields
     (quantization, context_length, max_completion_tokens,
