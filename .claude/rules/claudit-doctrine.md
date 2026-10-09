@@ -19,6 +19,10 @@ This rule is the parse spec. `backend/parse.py` and the in-browser
 - Context turns: backend `_build_ctx_turns` / browser `computeTurnStats`
   use line order, keep pre-prompt turns, take last usage, and drop zero /
   implausible context.
+- Web-search requests: Claude reads
+  `usage.server_tool_use.web_search_requests` per merged reply; Codex counts
+  each `response_item/web_search_call` once and ignores its companion
+  `web_search_end`; both Kimi wires store NULL because they carry no count.
 - Rate resolution (normalisation, key matching, window selection) over
   `src/pricing.json` (SV-RATE-DATA).
 
@@ -67,9 +71,14 @@ hold.
 Every cost computed from `usage` MUST split `cache_creation` into
 `ephemeral_5m` (1.25× base input) and `ephemeral_1h` (2× base input).
 Tokens with no `ephemeral_*` split are charged at the **1h rate**.
+The web-search component is additive: `web_search_requests` times the
+record's dated `web_search` rate. It never changes the token TTL split;
+the read-time fold exposes it in a separate `web_search` cost bucket.
 Every site that prices or decomposes cost follows this —
 `pricing.compute_cost`, the `/api/cache` fold
-(`api_common._accumulate_buckets`), both browser sites in `src/app.jsx`
+(`api_common._accumulate_buckets`), the browser parser in `src/parser.js`,
+the dashboard projection in `src/app.jsx`, and the Inspector breakdown in
+`src/token-breakdown.js`
 — or a breakdown stops summing to its stored total.
 
 Single-rate `cache_create` cost is BANNED. A rate change that reprices
@@ -216,7 +225,8 @@ across buckets; without a marker it keeps its hash. Both routes meet in
 `--`) is lowercased, since Windows paths are case-insensitive; a POSIX
 slug (starts with `-`) is never folded.
 
-The schema is per-file, not per-session (see `backend/schema.sql`):
+The schema is per-file, not per-session; ordered schema files are applied
+through `backend/schema_files.py`, starting with `backend/schema.sql`:
 
 - `files(file_key PK, project_id, session_id, is_main, r2_etag,
   r2_size_bytes, r2_last_modified, parsed_at, parser_version,
@@ -225,6 +235,7 @@ The schema is per-file, not per-session (see `backend/schema.sql`):
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd,
+  web_search_requests,
   text_chars, reply_latency_s, stop_reason, effort, thinking_tokens,
   cli_version, turn_flags, turn_tool_results, long_context,
   long_context_input_mult, long_context_output_mult, provider,
@@ -639,9 +650,9 @@ entry `openrouter.models[key]` carries `id` and — when the key prices a
 first-party vendor model — `vendor_host`: the host whose provider row
 `providers[key][vendor_host]` holds that model's history, which the
 vendor's BARE first-party id resolves through. A bare id prices from
-that row's dated windows, fee-free and schedule-free — a host's
-per-request fee and time-of-day windows are the host's own terms for
-requests THROUGH it, and a bare id names no host. A transcript id
+that row's dated windows, including its web-search rate, and without its
+provider-specific schedule. The host's schedule applies only to requests
+THROUGH it. A transcript id
 spelled with a tracked vendor prefix whose remainder is a tracked bare
 form folds to that form and resolves through the bare rows. A normalized
 prefixed id whose remainder is not a tracked bare form stays unchanged and
@@ -677,7 +688,7 @@ pass's rate_fingerprint. Both loaders validate and fold them (the browser
 to `window.longContextMeters`).
 
 Each row's history is append-only, oldest first. Every entry carries
-five finite non-negative rates (`fresh`, `create_5m`, `create_1h`,
+five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
 `read`, `output`), an optional string `note`, an optional `schedule`, and
 — on a provider entry only — an optional `band`: a subset of the five
 rate fields mapped to a `[min, max]` pair of finite non-negative
@@ -705,6 +716,18 @@ columns with no reparse. Both loaders refuse a rule-breaking file,
 naming the row; the browser throws an error naming `pricing.json` on
 any load failure.
 
+A correction that moves a web-search price out of a legacy note and into
+`web_search` is a human SV-RATE-DATA edit: keep any discount note, remove
+the web-search sentence, and bump `PRICING_VERSION` in the same commit.
+
+A provider history entry may also carry `web_search`, a finite
+non-negative USD-per-search rate. Absent or zero means no search billing.
+The field is independent of token schedules and price-log points; a
+search-rate move is sampled from the listing at detection time and appended
+as a normal dated entry whose token rates equal its predecessor. The
+resulting instant is a `resolve()` epoch. Old `web_search` note text is
+ordinary note text and never contributes a `request_fee`.
+
 A provider entry may carry a weekly UTC `schedule`: a list of windows
 `{days?, start?, end?, rates}`.
 
@@ -725,25 +748,17 @@ the epoch's representative time, scaled to stored `cost_usd`. The total
 is always exact; the split is exact when every window scales all five
 rates alike, as the live schedules do.
 
-A provider entry's `note` may carry a per-request fee the refresh
-records instead of refusing (`RECORDED_FEES`, SV-RATE-REFRESH): one
-part per fee, `<fee> $<amount>/request not modelled: per-request,
-unpriceable from token counts`, joined with `"; "` beside a discount
-note. Both loaders parse the note into a per-entry fee and refuse a
-fee-shaped part that does not match the shape in full (a real cost is
-never dropped in silence — issue #469); a part with no `/request` in
-it (a discount) parses no fee. The fee in force resolves exactly like
-rates — the entry at the record's own `ts`, the newest entry when `ts`
-is absent — and `pricing.compute_cost` folds it in ONCE per call, so
-`cost_usd` is what the session cost; `records.request_fee_usd` (psql
-only, like `error_text` — no endpoint, panel or rollup) stores it
-beside the cost for provenance. `rate_fingerprint` covers the fees,
-so a note edit reprices the pair. The read-time fold cannot re-derive
-a fee from tokens: a fee row's buckets take their split from the
-token rates and are scaled to the stored total, like a scheduled
-row's (the total stays exact; the split is exact for the tokens).
-Lanes name no serving host, so a lane record's fee is NULL and its
-price is unchanged.
+`note` is human annotation such as a discount; neither loader interprets
+web-search note text as a price. `web_search` is the PRICED USD-per-search
+field and resolves from the record's own `ts`, through the same history
+and epoch machinery as token rates. `pricing.compute_cost` adds
+`web_search_requests * web_search` to token cost. The legacy
+`records.request_fee_usd` column remains additive and nullable, but ingest
+does not write it and repricing sets it to NULL. `rate_fingerprint`
+covers the per-search rate. The `/api/cache` fold groups by its epochs and
+adds a separate `web_search` bucket, so the token TTL split stays intact
+and the bucket sum reconciles with stored `cost_usd`. A lane without a
+transcript search count stores NULL and bills no search.
 
 The file keeps the `json.dumps(doc, indent=2, sort_keys=True)` layout,
 so any writer reproduces it and a one-rate change is a one-line diff.
@@ -777,7 +792,9 @@ same rules:
   zero, the 5m tier is it too, so a listing that does not split them
   changes nothing. A host whose listing splits them is sampled, never
   log-backed: the log's five fields carry no 1h tier, so no series can
-  be joined to it. Endpoints of one host at one price are one row.
+  be joined to it. `web_search` is already USD per search; it remains a
+  separate rate sampled from the listing at detection, independently of
+  token log change times. Endpoints of one host at one price are one row.
 - The account is billed only by endpoints in its data region,
   `openrouter.data_region`: `global` or a lowercase region code.
   - An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`. A
@@ -835,8 +852,14 @@ same rules:
     series carries a schedule (`pricing.overrides` or a series
     `schedule`); the host has no `cheapest` resolution; and the
     data-region filter or tag pin selects exactly ONE endpoint. The
-    row's history is that endpoint's series. Anything else is
+    row's token history is that endpoint's series. `web_search` is not
+    in the log and does not block this join. Anything else is
     ambiguous, and the host is sampled, never guessed.
+  - **Separate web-search sampling.** Every log-backed token entry carries
+    forward the previous `web_search` rate. If the listing's search rate
+    moved, append an entry at detection time with the predecessor's token
+    rates and the newly sampled search rate. A search-only move creates a
+    resolve epoch without changing token prices.
   - **Change points to entries.** A series' state at an instant is each
     field's newest value at or before it, and exists once `input` and
     `output` both have a point. Each instant at which the five rates
@@ -934,17 +957,13 @@ same rules:
   The entry is APPENDED, so an undated banded entry keeps its
   `from: None` and the row keeps covering every record: only a row whose
   FIRST entry names an instant stops existing before it.
-- **Unmodelled pricing refuses the host, unless it is a RECORDED fee:**
-  an override kind the script does not model, or any other pricing key at
-  a nonzero price. The one exception
-  is `web_search`, a per-request fee no token count can price: it
-  enters no rate, and is written into the row's `note` with its unit
-  beside any discount note, so the row says what it cannot price
-  instead of pricing a call that in fact cost more. Two endpoints
-  differing only in the fee refuse rather than collapse into one row. A
-  fee-carrying host is SAMPLED on both paths: the log's five fields
-  carry no per-request cost, so a log-backed row would hold no record
-  of it.
+- **Unmodelled pricing refuses the host:** an override kind the script
+  does not model, or any other pricing key at a nonzero price. `web_search`
+  is a PRICED rate, validated as finite non-negative USD per search and
+  stored in the provider entry, not in its note. Two endpoints differing
+  only in that rate remain different listings. Its absence from the token
+  price log leaves token history log-backed while search changes are
+  sampled at detection.
 - A run that appends bumps `PRICING_VERSION` to one past the value in
   `backend/constants.py` — never a literal — in the same commit
   (records at or after a new `from` ingested before the deploy were
@@ -1100,18 +1119,17 @@ pass moved.
 - **An unmodelled vendor shape refuses the run.** The vendor pass refuses
   a first-party listing it cannot represent, leaving that model untouched.
   This includes weekly schedules, unknown override kinds or nonzero pricing
-  keys, unparseable fees, multiple bands, bands that do not restate input
+  keys, invalid web-search rates, multiple bands, bands that do not restate input
   and output, invalid thresholds, cache components that one input factor
   cannot represent, and bands mixed with UTC fields. The two
   notices remain a catalog the pass cannot read and a model with no
   first-party endpoint. Multi-price ambiguity without a pin, a stale or
   malformed pin, and broken or unrecognised fetches also refuse.
-- **A fee on the listing is the provider row's provenance.** A RECORDED_FEE
-  (web_search) on a first-party listing blocks nothing: the pass writes no
-  rates, and the fee note lands on the `(key, vendor_host)` row the
-  provider pass carries, beside the rates it never enters. A fee value the
-  table could not parse refuses the vendor pass. Discount notes as provider
-  rows.
+- **A web-search price is a provider rate.** A first-party listing's
+  `web_search` value participates in endpoint selection and is validated
+  as USD per search. The vendor pass keeps the selected `vendor_host` in
+  `openrouter.models`; the provider pass writes the search rate to that
+  `(key, vendor_host)` history. Discount notes stay on provider entries.
 - **A weekly schedule refuses the vendor pass:** the price the pass
   compared is a window price at fetch time, the same reason the provider
   pass refuses a first-seen scheduled host inside one; the model is not
@@ -1124,11 +1142,12 @@ pass moved.
 `backend/ingest_reprice.py` recomputes rate-derived STORED state for
 records whose `pricing_version` differs from `constants.PRICING_VERSION`
 (NULL is stale), from stored columns only — the same
-`pricing.compute_cost` the parser runs, over each row's own tokens and
-`ts` — so a rate change never refetches R2. Each long-context row stores
-the input/output factor pair beside its cost; the cost, flag, fee, and
-factor pair move together in one batch write. Rows update in batched
-transactions. Each batch recomputes its rows, writes rows whose cost or
+`pricing.compute_cost` the parser runs, over each row's own tokens,
+`web_search_requests`, and `ts` — so a rate change never refetches R2.
+Each long-context row stores the input/output factor pair beside its cost.
+The cost, flag, request-fee cleanup, and factor pair move together in one
+batch write. Rows update in batched transactions. Each batch recomputes
+its rows, writes rows whose cost or
 flag moved in one set-based UPDATE, and re-stamps the rest with the
 current version in one set-based UPDATE — a restamp advances the
 staleness marker only, so the pass's count, and every gate that reads
@@ -1141,15 +1160,16 @@ rows never reprice. If it changes any row (a cost or a flag moved — a
 restamp changes none), the run takes a full derived rebuild, since
 repricing can move rollups outside the dirty files. No endpoint, panel
 or rollup reads `pricing_version`. The recomputed state is `cost_usd`
-(the per-request fee folded in, SV-RATE-DATA), the long-context flag
+(token cost plus `web_search_requests * web_search`, SV-RATE-DATA), the
+legacy `request_fee_usd` column set to NULL, and the long-context flag
 (`records.long_context` — membership-keyed since issue #765: a MEMBER
 row re-derives whatever its stored flag, so a refresh fold move
 converting the pre-fold NULL rows lands exactly what a reparse stores;
 a NON-MEMBER row keeps its stored flag — except a stored TRUE, which
 only the Codex path's threshold test can have written, re-derived so a
-lapsed member's TRUE unbills (issue #833)), and the fee column
-(`records.request_fee_usd`), re-derived from the same columns under the
-same switch. The completion marker follows SV-SCHEMA-AUTOAPPLY.
+lapsed member's TRUE unbills (issue #833)). The search count is reused
+from the stored record column. The completion marker follows
+SV-SCHEMA-AUTOAPPLY.
 
 Pair-qualified staleness: before the keyset loop, the pass classifies
 the stale `(model, provider)` pairs with one DISTINCT scan and
