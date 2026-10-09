@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
+
 from tests.refresh_fixture_builders import RATE_C, RATES_A, RATES_B, _endpoint
 from tests.test_provider_rate_refresh import (
     GLM,
@@ -164,6 +166,30 @@ def test_identical_global_and_bare_price_tags_are_reported_interchangeable():
     assert any("interchangeable" in note for note in notices)
 
 
+@pytest.mark.parametrize(("alternative_tag", "regional"), [
+    pytest.param("fixture/fp8", False, id="quantization-alternative"),
+    pytest.param("fixture/unknown", True, id="unrecognised-region-alternative"),
+])
+def test_global_preference_resolves_only_regional_alternatives(alternative_tag, regional):
+    global_rates = {"fresh": 1.0, "create_5m": 1.0, "create_1h": 1.0,
+                    "read": 0.3, "output": 2.0}
+    alternative_rates = {**global_rates, "read": 0.1}
+    selected, refused, notices, _ = _select_synthetic_host(
+        "Fixture", [("fixture/global", global_rates),
+                    (alternative_tag, alternative_rates)])
+
+    if regional:
+        assert refused == {}
+        assert selected["Fixture"].tag == "fixture/global"
+        assert selected["Fixture"].rates == global_rates
+        assert any("rule-resolved (data region)" in note for note in notices)
+    else:
+        assert selected == {}
+        assert set(refused) == {"Fixture"}
+        assert "resolve it in openrouter.models" in refused["Fixture"]
+        assert not any("rule-resolved (data region)" in note for note in notices)
+
+
 def test_same_quantization_uses_cache_read_then_input_then_output_order():
     cheap_by_read = {**RATES_A, "fresh": 100.0, "read": 0.1, "output": 500.0}
     cheap_by_input = {**RATES_A, "fresh": 0.01, "read": 0.2, "output": 0.01}
@@ -174,6 +200,28 @@ def test_same_quantization_uses_cache_read_then_input_then_output_order():
     assert selected["Fixture"].rates == cheap_by_read
     assert any("rule-resolved" in note and "same quantization" in note
                for note in notices)
+
+
+def test_same_quantization_uses_input_after_equal_cache_read():
+    cheaper_input = {**RATES_A, "read": 0.1, "fresh": 0.2, "output": 3.0}
+    cheaper_output = {**RATES_A, "read": 0.1, "fresh": 0.3, "output": 1.0}
+    selected, refused, _, _ = _select_synthetic_host(
+        "Fixture", [("fixture/fp8", cheaper_input),
+                    ("fixture/fp8", cheaper_output)])
+
+    assert refused == {}
+    assert selected["Fixture"].rates == cheaper_input
+
+
+def test_same_quantization_uses_output_after_equal_cache_read_and_input():
+    cheaper_output = {**RATES_A, "read": 0.1, "fresh": 1.0, "output": 2.0}
+    dearer_output = {**RATES_A, "read": 0.1, "fresh": 1.0, "output": 3.0}
+    selected, refused, _, _ = _select_synthetic_host(
+        "Fixture", [("fixture/fp8", cheaper_output),
+                    ("fixture/fp8", dearer_output)])
+
+    assert refused == {}
+    assert selected["Fixture"].rates == cheaper_output
 
 
 def test_rule_resolved_same_quantization_keeps_the_possible_twin_switch_notice():
