@@ -270,9 +270,10 @@ def _selection_indices(host: str, endpoints: list[dict], region: str | None,
             return [], "tag resolution is not a string"
         selected = [i for i, endpoint in enumerate(endpoints) if endpoint.get("tag") == tag]
     else:
+        configured_region = "global" if region is None else region
         selected = [i for i, endpoint in enumerate(endpoints)
                     if isinstance(endpoint.get("tag"), str)
-                    and tag_region(endpoint["tag"]) == region]
+                    and tag_region(endpoint["tag"]) in {None, configured_region}]
     if len(selected) != 1:
         return [], f"endpoint selection found {len(selected)} endpoints"
     return selected, None

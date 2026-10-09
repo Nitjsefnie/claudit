@@ -618,7 +618,7 @@ def test_an_unreadable_catalog_keeps_the_empty_endpoints_refusal(
 
 # --- the data region -----------------------------------------------------------
 # The account's keys reach only the global data region, so an endpoint
-# whose tag names a region is not one it can be billed by.
+# whose tag names a different region is not one it can be billed by.
 
 
 @pytest.mark.parametrize("tag, region", [
