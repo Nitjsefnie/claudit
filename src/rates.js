@@ -94,10 +94,8 @@ function _matchRateKey(norm) {
 
 // The tracked key whose vendor bare form norm names, by the models
 // table's own longest-match and suffix rules (empty rest, '[', '@', a
-// snapshot suffix). An id spelled WITH the vendor prefix
-// ('z-ai/glm-5-3') matches no bare form: it names the OpenRouter catalog
-// model, not the first-party id, and keeps pricing default. Mirrors
-// pricing._vendor_match.
+// snapshot suffix). resolveModelRate folds a tracked namespace prefix
+// before reaching this bare-form lookup. Mirrors pricing._vendor_match.
 function _matchVendorKey(norm) {
   let best = null;
   for (const form of Object.keys(window.vendorBare)) {
@@ -108,6 +106,16 @@ function _matchVendorKey(norm) {
     }
   }
   return best === null ? null : window.vendorBare[best];
+}
+
+function _foldVendorPrefix(norm) {
+  for (const prefix of [...window.vendorPrefixes].sort((a, b) => b.length - a.length)) {
+    const namespace = `${prefix}/`;
+    if (!norm.startsWith(namespace)) continue;
+    const bare = norm.slice(namespace.length);
+    if (_matchVendorKey(bare) !== null) return bare;
+  }
+  return norm;
 }
 
 function _toMillis(ts) {
@@ -170,10 +178,11 @@ function _feeAt(fees, windows, t) {
 // the serving host's per-request fee in force (issue #469), folded into
 // each record's cost beside the tokens.
 window.resolveModelRate = function resolveModelRate(model, ts, provider) {
-  const norm = _normaliseModel(model);
+  let norm = _normaliseModel(model);
   if (_isFreeModel(model, norm)) {
     return { rates: window.FREE_RATES, kind: 'exact', key: norm, fee: 0 };
   }
+  norm = _foldVendorPrefix(norm);
   const pkey = provider ? _providerModelKey(norm, provider, ts) : null;
   if (pkey) {
     const windows = (window.providerDatedRates[pkey] || {})[provider];

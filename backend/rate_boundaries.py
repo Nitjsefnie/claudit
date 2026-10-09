@@ -27,6 +27,7 @@ def rate_boundaries(model: str, provider: str | None) -> list[datetime]:
     norm = pricing._normalise(model)  # pylint: disable=protected-access
     if pricing._is_free(model, norm):  # pylint: disable=protected-access
         return []
+    norm = pricing._fold_vendor_prefix(norm)  # pylint: disable=protected-access
 
     provider_key = (pricing._provider_key(  # pylint: disable=protected-access
         norm, provider, None) if provider else None)

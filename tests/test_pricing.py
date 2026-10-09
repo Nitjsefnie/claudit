@@ -653,14 +653,14 @@ def test_free_match_survives_spelling_variants():
     assert (r.kind, r.rates) == ("exact", pricing.FREE_RATES)
 
 
-def test_nonfree_openrouter_id_is_unchanged():
-    """A paid OpenRouter id keeps today's resolution: DEFAULT fallback,
-    because only text before 'claude' is stripped, not an openai/ prefix."""
-    r = pricing.resolve("openai/gpt-6-sol")
-    assert r.kind == "default"
-    assert r.rates == pricing.DEFAULT_RATES
-    # the unprefixed id still resolves exact against the table
-    assert pricing.resolve("gpt-6-sol").kind == "exact"  # sv-test-data: allow (structure-only: gpt-6-sol is an existing exact model key)
+def test_nonfree_openrouter_id_folds_to_its_tracked_bare_form():
+    bare = "gpt-6-sol"
+    model = f"openai/{bare}"
+    tracked = pricing.VENDOR_BARE[bare]
+    host = pricing.VENDOR_HOSTS[tracked]
+    r = pricing.resolve(model)
+    assert (r.kind, r.key) == ("exact", tracked)
+    assert r.rates == pricing.PROVIDER_RATES[(tracked, host)]
 
 
 def test_free_matching_does_not_touch_claude_ids():

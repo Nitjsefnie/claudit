@@ -79,6 +79,7 @@ from backend.pricing_load import (
     LONG_CONTEXT_MODELS,
     LONG_CONTEXT_METERS,
     VENDOR_BARE,
+    VENDOR_PREFIXES,
     VENDOR_HOSTS,
     _DAYS,
     Windows,
@@ -100,7 +101,7 @@ __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
     "MODEL_RATES", "PROVIDER_DATED_RATES", "PROVIDER_FEES",
     "PROVIDER_RATES", "PROVIDER_RATES_FETCHED", "PROVIDER_SCHEDULES",
     "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
-    "VENDOR_BARE", "VENDOR_HOSTS",
+    "VENDOR_BARE", "VENDOR_PREFIXES", "VENDOR_HOSTS",
     "Windows", "RateTables", "ScheduleWindow", "load_tables",
 ]
 
@@ -235,12 +236,7 @@ _VENDOR_MATCH_CACHE: dict[str, str | None] = {}
 
 
 def _vendor_match(norm: str) -> str | None:
-    """The tracked key whose vendor bare form `norm` names, by the models
-    table's own longest-match and suffix rules (empty rest, ``[``, ``@``,
-    a snapshot suffix). A transcript id spelled WITH the vendor prefix
-    (``z-ai/glm-5-3``) matches no bare form: it names the OpenRouter
-    catalog model, not the first-party id, and keeps pricing default.
-    Memoized exactly like _match_key."""
+    """The tracked key named by a bare form, using the models table's suffix rules."""
     try:
         return _VENDOR_MATCH_CACHE[norm]
     except KeyError:
@@ -257,6 +253,14 @@ def _vendor_match(norm: str) -> str | None:
             best_form, best_key = form, tracked
     _VENDOR_MATCH_CACHE[norm] = best_key
     return best_key
+
+
+def _fold_vendor_prefix(norm: str) -> str:
+    """Fold a tracked namespace prefix only when its remainder is a bare form."""
+    for prefix in sorted(VENDOR_PREFIXES, key=len, reverse=True):
+        bare = norm.removeprefix(f"{prefix}/")
+        if bare != norm and _vendor_match(bare) is not None: return bare
+    return norm
 
 
 def _in_window(windows: list | None, ts: datetime | None,
@@ -362,6 +366,7 @@ def resolve(model: str | None, ts: datetime | None = None,
     norm = _normalise(model)
     if _is_free(model, norm):
         return Resolution(FREE_RATES, "exact", norm)
+    norm = _fold_vendor_prefix(norm)
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
         rates, scheduled = _provider_rates(pkey, ts)
