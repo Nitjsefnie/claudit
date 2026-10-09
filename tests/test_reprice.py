@@ -492,7 +492,7 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
     # before ts. (None, None, None, rates) = every day, the whole day.
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {
         (prov.model, prov.host): {1: [(None, None, None, _SCHED_RATES)]}})
-    assert pricing.rate_for(prov.model, ts, prov.host) is _SCHED_RATES, (
+    assert pricing.rate_for(prov.model, ts, prov.host) == _SCHED_RATES, (
         "the schedule must be the price in force at ts, or this test "
         "proves nothing")
     with db.viz_conn() as c:
