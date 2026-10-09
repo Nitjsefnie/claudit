@@ -277,6 +277,24 @@ def _service_images() -> list[tuple[str, str]]:
     return found
 
 
+POSTGRES_MIRROR = "public.ecr.aws/docker/library/postgres:"
+
+
+def test_every_postgres_service_pulls_from_the_public_ecr_mirror() -> None:
+    """Docker Hub refuses anonymous runner pulls under its rate limit
+    (issue #885), so every workflow's Postgres comes from AWS's mirror of
+    the Docker Official Image. All five sites are counted, so a refactor
+    that stopped finding them cannot pass this vacuously."""
+    postgres = [(where, image) for where, image in _service_images()
+                if "postgres" in image]
+    assert len(postgres) == 5, postgres
+    off_mirror = [(where, image) for where, image in postgres
+                  if not image.startswith(POSTGRES_MIRROR)]
+    assert not off_mirror, (
+        "pull Postgres from " + POSTGRES_MIRROR + " (issue #885): "
+        + repr(off_mirror))
+
+
 def test_every_workflow_container_image_is_digest_pinned() -> None:
     """No workflow names a container image by a moving tag (issue #559).
 
