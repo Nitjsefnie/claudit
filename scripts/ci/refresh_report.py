@@ -97,10 +97,20 @@ def _notice_lines(notices: list[str]) -> list[str]:
     return [line for line in lines if line is not None]
 
 
+def _search_change(move: Move) -> str | None:
+    """A separately sampled search-rate change on a token move."""
+    old = move.old.get("web_search", 0.0) if move.old else 0.0
+    new = move.new.rates.get("web_search", 0.0)
+    if old == new:
+        return None
+    return f"web_search {old!r} → {new!r}, sampled at detection"
+
+
 def _move_text(move: Move) -> str:
     new = move.new
     off = f" ({_discount_note(new.discount)})" if new.discount else ""
     windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
+    search = _search_change(move)
     if move.source == "search":
         old_search = move.old.get("web_search", 0.0) if move.old else 0.0
         log_count = max(0, move.entries_appended - 1)
@@ -115,14 +125,27 @@ def _move_text(move: Move) -> str:
         old = f"{move.old['fresh']!r} → " if move.old is not None else ""
         fresh = move.entry_fresh if move.entry_fresh is not None \
             else new.rates["fresh"]
+        search_text = f"; {search}" if search else ""
         return (f"  {verb:<9} {move.host}: {move.entries_appended} entries "
-                f"with a band, newest prices fresh {old}{fresh!r}{off}")
-    if move.source == "log" and move.entries_appended > 1:
+                f"with a band, newest prices fresh {old}{fresh!r}"
+                f"{search_text}{off}")
+    if move.source == "log" and (move.entries_appended > 1 or search):
+        count = move.entries_appended
+        unit = "entry" if count == 1 else "entries"
         if move.old is None:
-            return (f"  new       {move.host}: {move.entries_appended} log entries, "
-                    f"newest fresh {new.rates['fresh']!r}{off}")
-        return (f"  changed   {move.host}: {move.entries_appended} log entries, "
-                f"newest fresh {move.old['fresh']!r} → {new.rates['fresh']!r}{off}")
+            token_text = f"newest fresh {new.rates['fresh']!r}"
+        elif search:
+            changed = [f"{field} {move.old[field]!r} → {new.rates[field]!r}"
+                       for field in _RATE_FIELDS
+                       if move.old[field] != new.rates[field]]
+            token_text = ", ".join(changed) if changed else "token rates unchanged"
+        else:
+            token_text = (f"newest fresh {move.old['fresh']!r} → "
+                          f"{new.rates['fresh']!r}")
+        search_text = f"; {search}" if search else ""
+        verb = "new" if move.old is None else "changed"
+        return (f"  {verb:<9} {move.host}: {count} log {unit}, "
+                f"{token_text}{search_text}{off}")
     if move.old is None:
         rates = ", ".join(f"{field} {new.rates[field]!r}" for field in _RATE_FIELDS)
         search = new.rates.get("web_search", 0.0)
