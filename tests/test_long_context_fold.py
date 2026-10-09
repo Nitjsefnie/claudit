@@ -12,7 +12,7 @@ from).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -119,6 +119,49 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
         2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000,
         abs=1e-4,
     )
+
+
+def test_cache_fold_places_search_only_cost_in_each_rate_epoch(
+        codex_app, monkeypatch):
+    model, host = "gpt-5.6-sol", "SearchHost"
+    cutover = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    tokens = {"fresh": 0.0, "create_5m": 0.0, "create_1h": 0.0,
+              "read": 0.0, "output": 0.0}
+    before = {**tokens, "web_search": 0.0137}
+    after = {**tokens, "web_search": 0.045}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("gpt-5-6-sol", host): after})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
+        ("gpt-5-6-sol", host): [(cutover, before)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
+
+    with db.viz_conn() as c:
+        file_key = c.execute(
+            "SELECT file_key FROM records LIMIT 1").fetchone()[0]
+        c.execute("DELETE FROM records WHERE file_key = %s", (file_key,))
+        c.execute("UPDATE usage_rollup SET provider = %s WHERE model = %s",
+                  (host, model))
+        for line_num, ts, searches, rate in (
+                (1, cutover - timedelta(seconds=1), 2, 0.0137),
+                (2, cutover, 3, 0.045)):
+            c.execute(
+                "INSERT INTO records (file_key, line_num, ts, model, "
+                "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
+                "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, "
+                "web_search_requests, provider, pricing_version) "
+                "VALUES (%s, %s, %s, %s, 0, 0, 0, 0, 0, 0, %s, %s, %s, %s)",
+                (file_key, line_num, ts, model, round(searches * rate, 6),
+                 searches, host, constants.PRICING_VERSION),
+            )
+        c.commit()
+
+    body = codex_app.get("/api/cache?range=3650d").json()
+    model_row = next(row for row in body["per_model"] if row["model"] == model)
+    assert model_row["cost_total"] == pytest.approx(0.1624)
+    assert model_row["cost_buckets"]["web_search"] == pytest.approx(0.1624)
+    assert sum(model_row["cost_buckets"].values()) == pytest.approx(0.1624)
 
 
 def test_mixed_stored_factor_pairs_decompose_stored_total(

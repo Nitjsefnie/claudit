@@ -1,7 +1,7 @@
 // The Token Breakdown decomposition (SV-COST-SPLIT): a pure fold over
 // dashboard events, priced per record exactly as pricing.compute_cost
-// stores it — long-context meter and per-request fees included (issue
-// #469) — so the panel's bars always sum to the stored totals they
+// stores it — long-context meter and per-search cost included (issue
+// #879) — so the panel's bars always sum to the stored totals they
 // decompose. Mirrors backend/api_common.py's fold. Plain JS on window,
 // loaded before app.jsx.
 window.computeTokenBreakdown = function computeTokenBreakdown(events) {
@@ -15,7 +15,8 @@ window.computeTokenBreakdown = function computeTokenBreakdown(events) {
   const ccUnsplit = Math.max(0, t.cc - t.eph5 - t.eph1h);
 
   const c = { input: 0, output: 0, eph5: 0, eph1h: 0, ccUnsplit: 0, cr: 0 };
-  let feeTotal = 0;
+  let searchRequests = 0;
+  let searchCost = 0;
   let tokenCost = 0;
   if (window.rateForModel) {
     for (const e of events) {
@@ -34,20 +35,14 @@ window.computeTokenBreakdown = function computeTokenBreakdown(events) {
       c.eph1h     += (e.ephemeral_1h   || 0) * r.c1h * lcIn;
       c.ccUnsplit += unsplit                  * r.c1h * lcIn; // unsplit at 1h rate
       c.cr        += (e.cache_read     || 0) * r.read * lcIn;
-      // The serving host's per-request fee rides inside the stored
-      // cost_usd these buckets decompose (issue #469), once per request.
-      feeTotal += (res.fee || 0) * (e.requests || 1);
+      const searches = e.web_search_requests || 0;
+      searchRequests += searches;
+      searchCost += searches * (r.search || 0);
     }
     for (const k of Object.keys(c)) c[k] = c[k] / 1_000_000;
     tokenCost = c.input + c.output + c.eph5 + c.eph1h + c.ccUnsplit + c.cr;
-    // The fees are scaled into the buckets exactly as the backend fold
-    // scales a fee row's, so the decomposition sums to what it decomposes.
-    if (feeTotal > 0 && tokenCost > 0) {
-      const scale = (tokenCost + feeTotal) / tokenCost;
-      for (const k of Object.keys(c)) c[k] *= scale;
-    }
   }
-  const costTotal = tokenCost + feeTotal;
+  const costTotal = tokenCost + searchCost;
 
   const rows = [
     { label: 'Input',             value: t.input,  cost: c.input,     color: window.dashboardCol.inputTokens },
@@ -60,5 +55,15 @@ window.computeTokenBreakdown = function computeTokenBreakdown(events) {
     { label: 'Cache Read',        value: t.cr,     cost: c.cr,        color: window.dashboardCol.cacheReadTokens },
   ].filter(r => r.value > 0).sort((a, b) => b.cost - a.cost);
 
-  return { rows, tokenTotal: tokenTotal || 1, costTotal: costTotal || 1 };
+  const costRows = [...rows];
+  if (searchRequests > 0) {
+    costRows.push({
+      label: 'Web Search', value: searchRequests, cost: searchCost,
+      color: window.dashboardCol.costUSD,
+    });
+  }
+  costRows.sort((a, b) => b.cost - a.cost);
+
+  return { rows, costRows, tokenTotal: tokenTotal || 1,
+           costTotal: costTotal || 1, searchRequests };
 };

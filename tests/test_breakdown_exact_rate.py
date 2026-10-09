@@ -365,31 +365,31 @@ def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_breakdown_buckets_absorb_the_per_request_fee():
-    """A fee row's stored cost_usd carries the serving host's per-request
-    fees (issue #469), which no token bucket re-derives: the breakdown
-    scales its buckets to the stored total exactly as the backend fold
-    does, so the bars' sum still decomposes the card's total."""
+def test_breakdown_keeps_search_cost_separate_from_token_buckets():
+    """Web-search cost is additive, so it has its own cost bar and does
+    not alter the TTL split of the token cost."""
     body = """
-      // A stub resolver: 1M fresh at 2.0/M and a 0.0137/request fee, so
+      // A stub resolver: 1M fresh at 2.0/M and a 0.0137/search rate, so
       // the expectation is arithmetic, never a live rate (SV-TEST-DATA).
       window.resolveModelRate = () => ({
-        rates: { fresh: 2.0, c5: 0, c1h: 0, read: 0, out: 0 }, fee: 0.0137,
+        rates: { fresh: 2.0, c5: 0, c1h: 0, read: 0, out: 0, search: 0.0137 },
       });
       const bd = window.computeTokenBreakdown([{
         input_tokens: 1000000, output_tokens: 0, cache_create: 0,
         cache_read: 0, ephemeral_5m: 0, ephemeral_1h: 0, requests: 3,
+        web_search_requests: 3,
         model: 'x', model_id: 'x', ts: 0, provider: 'FeeHost',
         cost_usd: 2.0 + 3 * 0.0137,
       }]);
       console.log(JSON.stringify({
         costTotal: bd.costTotal,
         input: bd.rows.find(r => r.label === 'Input').cost,
-        sum: bd.rows.reduce((s, r) => s + r.cost, 0),
+        searches: bd.costRows.find(r => r.label === 'Web Search').cost,
+        sum: bd.costRows.reduce((s, r) => s + r.cost, 0),
       }));
     """
     got = _node(body)
     assert got["costTotal"] == pytest.approx(2.0 + 3 * 0.0137)
-    # The scaled bucket carries the fees; the rows sum to the total.
-    assert got["input"] == pytest.approx(2.0 + 3 * 0.0137)
+    assert got["input"] == pytest.approx(2.0)
+    assert got["searches"] == pytest.approx(3 * 0.0137)
     assert got["sum"] == pytest.approx(2.0 + 3 * 0.0137)

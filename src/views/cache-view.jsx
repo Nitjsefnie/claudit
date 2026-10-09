@@ -145,13 +145,14 @@ function formatCell(r, c) {
 }
 
 function CostBuckets({ buckets, total, turns }) {
-  const order = ['read', 'create_1h', 'create_5m', 'output', 'fresh'];
+  const order = ['read', 'create_1h', 'create_5m', 'output', 'fresh', 'web_search'];
   const labels = {
     read: 'Cache read',
     create_1h: 'Cache create 1h',
     create_5m: 'Cache create 5m',
     output: 'Output',
     fresh: 'Fresh input',
+    web_search: 'Web Search',
   };
   return (
     <table className="cost-buckets">

@@ -197,6 +197,27 @@ def test_rate_boundaries_partition_every_synthetic_resolution(
     assert rate_boundaries(*table["tier"]) == []
 
 
+def test_search_only_provider_move_is_a_rate_boundary(monkeypatch):
+    from backend.rate_boundaries import rate_boundaries
+
+    model, host = "acme/search-only-9", "SearchHost"
+    pair = (model, host)
+    cutover = datetime(2031, 1, 1, tzinfo=UTC)
+    token_rates = _rates(2.0)
+    before = {**token_rates, "web_search": 0.0137}
+    after = {**token_rates, "web_search": 0.045}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: after})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {pair: [(cutover, before)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+
+    assert rate_boundaries(model, host) == [cutover]
+    assert pricing.resolve(model, cutover - timedelta(microseconds=1),
+                           host).rates["web_search"] == 0.0137
+    assert pricing.resolve(model, cutover, host).rates["web_search"] == 0.045
+
+
 def test_fold_prices_each_row_at_its_own_pair_representative(
         monkeypatch, synthetic_dated_rate):
     table = _install_rate_table(monkeypatch, synthetic_dated_rate)

@@ -284,7 +284,7 @@ def test_token_breakdown_drops_its_cost_bar_when_the_range_is_free():
     src = _strip_line_comments(APP.read_text(encoding="utf-8"))
     idx = src.index('title="Token Breakdown — by cost"')
     assert "hasCost && (" in src[max(0, idx - 200):idx]
-    assert "const hasCost = rows.some(r => r.cost > 0);" in src
+    assert "const hasCost = costRows.some(r => r.cost > 0);" in src
     tokens_idx = src.index('title="Token Breakdown — by tokens"')
     assert "hasCost" not in src[max(0, tokens_idx - 200):tokens_idx]
 

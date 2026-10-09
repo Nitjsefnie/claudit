@@ -15,7 +15,7 @@ from backend.api_common import (
 )
 from backend.db import sql_text
 from tests import scratch_db
-from tests.refresh_fixture_builders import RATES_B as PROVIDER_FEE_RATES
+from tests.refresh_fixture_builders import RATES_B
 
 UTC = timezone.utc
 
@@ -471,25 +471,39 @@ def test_a_schedule_adds_no_rate_epoch(monkeypatch):
     assert pricing.RATE_EPOCHS == before
 
 
-def test_fee_row_buckets_scale_to_the_stored_total(monkeypatch):
-    """A fee row's stored total carries the serving host's per-request
-    fees (issue #469), which no token bucket re-derives: like a
-    scheduled row, the buckets take their split from the token rates
-    and are scaled to the stored total, so the decomposition still sums
-    to what it decomposes."""
-    rates = PROVIDER_FEE_RATES
-    fee = 0.0137
-    pair = ("acme/acme-9", "FeeHost")
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: rates})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {})
-    monkeypatch.setattr(pricing, "PROVIDER_FEES", {pair: {0: fee}})
-    monkeypatch.setattr(pricing, "RATE_EPOCHS", [])
-    stored = 2.0 + 3 * fee  # three records' tokens plus three fees
-    rows = [(*_row("acme/acme-9", -1, fresh=1_000_000, cost=stored)[:1],
-             pair[1], *_row("acme/acme-9", -1, fresh=1_000_000,
-                            cost=stored)[2:])]
-    out = fold_per_model(rows, pair_bounds={})
-    assert len(out) == 1
-    m = out[0]
-    assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
+def test_search_only_costs_land_in_their_rate_epoch_bucket(monkeypatch):
+    """A web-search-only epoch carries no token cost to scale, so its
+    separate search bucket must receive the requests at that epoch's rate."""
+    model, host = "acme/search-9", "SearchHost"
+    pair = (model, host)
+    cutover = datetime(2030, 1, 1, tzinfo=UTC)
+    older = {**RATES_B, "web_search": 0.0137}
+    newer = {**RATES_B, "web_search": 0.045}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: newer})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {pair: [(cutover, older)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
+    before = pricing.compute_cost(
+        model, fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=0,
+        read=0, web_search_requests=2,
+        res=pricing.resolve(model, cutover - timedelta(seconds=1), host),
+    )
+    after = pricing.compute_cost(
+        model, fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=0,
+        read=0, web_search_requests=3,
+        res=pricing.resolve(model, cutover, host),
+    )
+    rows = [
+        (model, host, 0, False, 1, 0, 0, 0, 0, 0, 0, 2, before, None, None),
+        (model, host, 1, False, 1, 0, 0, 0, 0, 0, 0, 3, after, None, None),
+    ]
+
+    folded = fold_per_model_provider(
+        rows, pair_bounds={pair: [cutover]})[0]
+    assert folded["cost_total"] == pytest.approx(round(before + after, 4))
+    assert folded["cost_buckets"]["web_search"] == pytest.approx(
+        round(before + after, 4))
+    assert sum(folded["cost_buckets"].values()) == pytest.approx(
+        folded["cost_total"])

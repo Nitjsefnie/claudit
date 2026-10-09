@@ -89,7 +89,7 @@ def _empty_model_entry(model: str) -> dict:
         "estimated_rate": False,
         "_buckets": {
             "fresh": 0.0, "create_5m": 0.0, "create_1h": 0.0,
-            "read": 0.0, "output": 0.0,
+            "read": 0.0, "output": 0.0, "web_search": 0.0,
         },
     }
 
@@ -126,8 +126,9 @@ def _accumulate_model_row(
         acc: dict, row, by_provider: bool,
         pair_bounds: Mapping[tuple[str, str], list[datetime]]) -> None:
     """Fold one (model, provider, rate_epoch, long_context, turns, fresh,
-    cache_create, cache_read, output, eph5, eph1h, cost_total, input_mult,
-    output_mult) row.
+    cache_create, cache_read, output, eph5, eph1h, web_search_requests,
+    cost_total, input_mult, output_mult) row. A prior test tuple without
+    the search-count column remains accepted.
 
     Each row is priced by its own provider whichever way the entries are
     keyed, so a per-model entry's buckets still reconcile with its stored
@@ -144,22 +145,28 @@ def _accumulate_model_row(
     entry["turns"] += int(row[4] or 0)
     for field, value in tokens.items():
         entry[field] += value
-    stored = float(row[11] or 0)
+    # The API query includes the nullable search-count sum between token
+    # totals and stored cost. Accept the prior in-memory test tuple shape.
+    has_search_count = len(row) >= 15
+    search_requests = int(row[11] or 0) if has_search_count else 0
+    stored_index = 12 if has_search_count else 11
+    stored = float(row[stored_index] or 0)
     entry["cost_total"] += stored
     long_context = bool(row[3])
     factors = None
     if long_context:
-        input_mult = row[12] if len(row) > 12 else None
-        output_mult = row[13] if len(row) > 13 else None
+        input_index = 13 if has_search_count else 12
+        input_mult = row[input_index] if len(row) > input_index else None
+        output_mult = row[input_index + 1] if len(row) > input_index + 1 else None
         factors = (
             float(input_mult) if input_mult is not None
             else pricing.LONG_CONTEXT_INPUT_MULT,
             float(output_mult) if output_mult is not None
             else pricing.LONG_CONTEXT_OUTPUT_MULT,
         )
-    _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored,
-                            scaled=res.scheduled or bool(res.request_fee),
-                            factors=factors)
+    _accumulate_row_buckets(
+        entry, res, tokens, bool(row[3]), stored, search_requests,
+        scaled=res.scheduled, factors=factors)
 
 
 def _model_row_pricing(
@@ -180,29 +187,38 @@ def _model_row_pricing(
 
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
                             long_context: bool, stored: float,
+                            search_requests: int = 0,
                             scaled: bool = False,
                             factors: tuple[float, float] | None = None) -> None:
     """Price one fold row's tokens into the entry's buckets.
 
-    A scheduled row's records were priced by their own time of day, which
-    one representative time cannot reproduce: its buckets take their split
-    from these rates and are scaled to its stored total (SV-RATE-DATA). A
-    fee row's total carries the serving host's per-request fees (issue
-    #469), which no token bucket re-derives: the same scaling applies, so
-    the decomposition still sums to what it decomposes.
+    A scheduled row's token costs were priced by their own time of day,
+    which one representative time cannot reproduce: token buckets use that
+    schedule's rates and scale to the stored token total (SV-RATE-DATA).
+    The web-search component uses its separately resolved rate and count.
     """
+    search_cost = search_requests * res.rates.get("web_search", 0.0)
     target = {"_buckets": dict.fromkeys(entry["_buckets"], 0.0)} \
-        if (res.scheduled or scaled) else entry
+        if (res.scheduled or scaled or search_requests) else entry
     _accumulate_buckets(
         target, res.rates, tokens["fresh"], tokens["cache_create"],
         tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
         max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
         long_context, factors)
     if target is not entry:
-        derived = sum(target["_buckets"].values())
-        scale = stored / derived if derived else 1.0
+        derived = sum(value for key, value in target["_buckets"].items()
+                      if key != "web_search")
+        if (search_requests and derived == 0
+                and res.rates.get("web_search", 0.0) > 0):
+            # With no derivable token cost the stored total is wholly the
+            # rounded search component, so retain the exact row total.
+            search_cost = stored
+        token_cost = stored - search_cost
+        scale = token_cost / derived if derived else 1.0
         for field, value in target["_buckets"].items():
-            entry["_buckets"][field] += value * scale
+            if field != "web_search":
+                entry["_buckets"][field] += value * scale
+    entry["_buckets"]["web_search"] += search_cost
 
 
 def _fold(rows, by_provider: bool,
