@@ -304,6 +304,27 @@ def _synthetic_pin_shape(pin: dict, host: str) -> tuple[list[tuple], str, str, b
     raise AssertionError(f"no synthetic shape builder for {host}: {pin!r}")
 
 
+def _assert_resolve_pin_shape(model: str, model_id: str, host: str,
+                              pin: dict, region: str | None) -> str:
+    """Prove one committed pin's synthetic listing keeps its resolved shape."""
+    listings, rule, pinned_tag, interchangeable = _synthetic_pin_shape(pin, host)
+    selected, refused, notices, _ = _select_synthetic_host(
+        host, listings, region=region)
+    assert refused == {}, f"{model} via {host}: {refused}"
+    assert host in selected, f"{model} via {host}: no endpoint was selected"
+    chosen = selected[host]
+    assert chosen.rates == RATES_A, f"{model_id} via {host}: wrong price vector"
+    if not interchangeable:
+        assert chosen.tag == pinned_tag, (
+            f"{model_id} via {host}: expected {pinned_tag}, got {chosen.tag}")
+    assert any("rule-resolved" in note and rule in note for note in notices), (
+        f"{model_id} via {host}: expected rule {rule!r} in {notices!r}")
+    if interchangeable:
+        assert any("interchangeable" in note for note in notices), (
+            f"{model_id} via {host}: equal-price tags were not reported as interchangeable")
+    return rule
+
+
 def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
     """Issue #877: each committed pin's listing shape resolves without
     passing the pin to the selector, and selects its recorded price vector.
@@ -318,21 +339,7 @@ def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
     assert pins, "the pricing document has no resolve entries to prove"
 
     for model, model_id, host, pin in pins:
-        listings, rule, pinned_tag, interchangeable = _synthetic_pin_shape(pin, host)
-        selected, refused, notices, _ = _select_synthetic_host(
-            host, listings, region=region)
-        assert refused == {}, f"{model} via {host}: {refused}"
-        assert host in selected, f"{model} via {host}: no endpoint was selected"
-        chosen = selected[host]
-        assert chosen.rates == RATES_A, f"{model_id} via {host}: wrong price vector"
-        if not interchangeable:
-            assert chosen.tag == pinned_tag, (
-                f"{model_id} via {host}: expected {pinned_tag}, got {chosen.tag}")
-        assert any("rule-resolved" in note and rule in note for note in notices), (
-            f"{model_id} via {host}: expected rule {rule!r} in {notices!r}")
-        if interchangeable:
-            assert any("interchangeable" in note for note in notices), (
-                f"{model_id} via {host}: equal-price tags were not reported as interchangeable")
+        rule = _assert_resolve_pin_shape(model, model_id, host, pin, region)
         counts[rule] = counts.get(rule, 0) + 1
 
     assert {"bare namespace", "unique quantization", "data region",

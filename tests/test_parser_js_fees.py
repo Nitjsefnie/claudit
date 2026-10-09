@@ -79,14 +79,14 @@ def _node(sandbox, script: str) -> dict:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_resolves_search_rate_at_the_records_timestamp(sandbox):
-    got = _node(sandbox, f"""
+    got = _node(sandbox, """
       const rate = (ts) => window.resolveModelRate(
         'acme/acme-9', ts, 'HostCo').rates.search;
-      console.log(JSON.stringify({{
+      console.log(JSON.stringify({
         before: rate('2026-07-01T00:00:00Z'),
         after: rate('2026-08-02T00:00:00Z'),
         list: rate(null),
-      }}));
+      }));
     """)
     assert got == {"before": SEARCH_RATE, "after": SEARCH_RATE_2,
                    "list": SEARCH_RATE_2}
