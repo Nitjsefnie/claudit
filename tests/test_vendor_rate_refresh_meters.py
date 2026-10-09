@@ -8,7 +8,7 @@ import pytest
 from tests.test_vendor_rate_refresh import (
     GPT_ID, GPT_KEY, RATE_FIELDS, RATES, STAMP, TRACKED, MainRun,
     _band, _catalog, _doc, _endpoint, _load, _main_doc, _meter_for,
-    _per_token, _run, _payload, _price, vendor,
+    _move_meter, _per_token, _run, _payload, _price, vendor,
 )
 
 
@@ -91,3 +91,43 @@ def test_existing_meter_rewrite_report_keeps_meter_on():
     assert "[threshold 100000, input x5, output x5]" in report
     assert "long-context meter on" in report
     assert "long-context meter off" not in report
+
+
+def test_threshold_move_preserves_source_and_destination_siblings():
+    source_sibling = "gpt-sibling-9"
+    destination_sibling = "gpt-destination-9"
+    doc, out = _run(
+        _doc(
+            tracked={
+                GPT_KEY: dict(TRACKED),
+                source_sibling: {"id": "openai/sibling-9"},
+                destination_sibling: {"id": "openai/destination-9"},
+            },
+            members=[GPT_KEY, source_sibling, destination_sibling],
+            meters={
+                GPT_KEY: {"threshold": 200_000},
+                source_sibling: {"threshold": 200_000, "input_mult": 3.0},
+                destination_sibling: {"threshold": 300_000,
+                                      "output_mult": 2.5},
+            }),
+        _catalog(GPT_ID),
+        {GPT_ID: _payload(_endpoint(
+            "openai", _price(
+                1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                overrides=[_band(
+                    1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
+                    threshold=300_000, input_mult=5.0, output_mult=3.0)])))})
+
+    assert not out.refusals and not out.notices
+    assert doc["long_context_meters"] == [
+        {"threshold": 200_000,
+         "models": [{source_sibling: {"input_mult": 3.0}}]},
+        {"threshold": 300_000,
+         "models": [
+             {destination_sibling: {"output_mult": 2.5}},
+             {GPT_KEY: {"input_mult": 5.0, "output_mult": 3.0}},
+         ]},
+    ]
+    assert out.moves == [vendor.VendorMove(
+        GPT_ID, GPT_KEY,
+        meter=_move_meter(300_000, input_mult=5.0, output_mult=3.0))]
