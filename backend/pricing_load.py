@@ -52,6 +52,7 @@ class RateTables(TypedDict):
     # vendor_host-carrying tracked entry prices, and its host. The rates
     # themselves stay provider rows, keyed (tracked key, host).
     VENDOR_BARE: dict[str, str]
+    VENDOR_PREFIXES: list[str]
     VENDOR_HOSTS: dict[str, str]
     # The default estimate's rates: the merged view's claude-opus-4-7 row.
     DEFAULT_RATES: dict
@@ -402,6 +403,7 @@ def load_tables(doc: dict) -> RateTables:
     (provider_rates, provider_dated, provider_fees, provider_starts,
      provider_schedules) = _provider_tables(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
+    vendor_prefixes = list(doc["openrouter"]["vendor"]["prefixes"])
     return {
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
@@ -422,6 +424,7 @@ def load_tables(doc: dict) -> RateTables:
             | set(provider_starts.values())
         ),
         "VENDOR_BARE": vendor_bare,
+        "VENDOR_PREFIXES": vendor_prefixes,
         "VENDOR_HOSTS": vendor_hosts,
         "DEFAULT_RATES": _default_rates(model_rates, vendor_bare,
                                         vendor_hosts, provider_rates),
@@ -466,10 +469,11 @@ LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
 # The meter's per-model thresholds (issue #765): a member key's
 # {"threshold": N} override of the global default. pricing re-exports it.
 LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]
-# The vendor tables (SV-RATE-DATA): the bare first-party form each
-# vendor_host-carrying tracked entry prices, and its host. pricing
-# re-exports both.
+# The vendor tables (SV-RATE-DATA): bare first-party forms, the configured
+# namespaces used to fold transcript ids, and the row host. pricing
+# re-exports these loader outputs.
 VENDOR_BARE = _TABLES["VENDOR_BARE"]
+VENDOR_PREFIXES = _TABLES["VENDOR_PREFIXES"]
 VENDOR_HOSTS = _TABLES["VENDOR_HOSTS"]
 
 

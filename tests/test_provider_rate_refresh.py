@@ -41,7 +41,7 @@ FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 UTC = timezone.utc
 NOW = datetime(2031, 1, 1, tzinfo=UTC)
 STAMP = "2031-01-01T00:00:00Z"
-GLM = "z-ai/glm-5-3-flash"
+GLM = "glm-5-3-flash"
 V41 = "deepseek/deepseek-v4-1-flash"
 NEWCOMER = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
             "read": 0.05, "output": 0.9}
@@ -84,17 +84,17 @@ refresh_prices = _load_prices()
 def _seeded(doc: dict) -> dict:
     """The file with every provider row cut back to its seeded entry, and
     rows first seen by a refresh or reserved for test-data fuzzing dropped,
-    and the migrated bare vendor keys dropped: this fixture's world tracks
-    the pre-migration prefixed keys, one tracked entry per catalog id —
-    the vendor_host mechanics carry their own tests
-    (tests/test_pricing_vendor.py)."""
+    and other migrated bare vendor keys dropped: this fixture keeps GLM's
+    bare key as its provider-refresh subject, while vendor_host mechanics
+    carry their own tests (tests/test_pricing_vendor.py)."""
     doc = copy.deepcopy(doc)
     # claude-opus-5-5 keeps its rows: the fee tests' subject (its tracked
     # entry is marked vendor_host in the real file, but this fixture world
     # predates the marking — the refresh mechanics never read it).
     vendor_keys = {model for model, entry in
                    doc["openrouter"]["models"].items()
-                   if entry.get("vendor_host") and model != "claude-opus-5-5"}
+                   if entry.get("vendor_host")
+                   and model not in {"claude-opus-5-5", GLM}}
     doc["openrouter"]["models"] = {model: entry
                                    for model, entry in
                                    doc["openrouter"]["models"].items()
@@ -114,14 +114,18 @@ def _seeded(doc: dict) -> dict:
             continue
         seeded_hosts = {
             host: history[:1] for host, history in hosts.items()
-            if (history[0]["from"] is None
-                and not host.startswith(FUZZ_RESERVED_NAMESPACE))
+            if ((history[0]["from"] is None or model == GLM)
+                and not host.startswith(FUZZ_RESERVED_NAMESPACE)
+                and not (model == GLM
+                         and host == doc["openrouter"]["models"][GLM].get(
+                             "vendor_host")))
         }
         if seeded_hosts:
             providers[model] = seeded_hosts
     doc["providers"] = providers
     # The vendor rows this fixture world drops carry the claude families;
-    # give the default estimate its own seeded models row (no cutover, so
+    # the canonical Z.AI host is omitted for this provider-only run too.
+    # Give the default estimate its own seeded models row (no cutover, so
     # no epoch moves).
     if "claude-opus-4-7" not in doc["models"]:
         doc["models"]["claude-opus-4-7"] = [dict(DEFAULT_ROW)]
@@ -226,11 +230,11 @@ class Run:
 
 def test_every_provider_table_model_names_its_openrouter_id():
     """One convention per key shape: an OpenRouter-tracking key normalises
-    to its full id (deepseek/..., z-ai/glm-5-3); a tracked VENDOR key is
-    bare and normalises to the id's slug — the same bare first-party id
-    resolve() prices through it (issue #851). Every provider-table key is
-    tracked; a tracked key may sit ahead of its provider row for one run —
-    the auto-add's pickup delay (SV-VENDOR-RATES)."""
+    to its full id (deepseek/...); a tracked VENDOR key is bare and
+    normalises to the id's slug (including GLM's catalog id) — the same
+    bare first-party id resolve() prices through it (issue #851). Every
+    provider-table key is tracked; a tracked key may sit ahead of its
+    provider row for one run — the auto-add's pickup delay (SV-VENDOR-RATES)."""
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
     assert set(doc["providers"]) <= set(doc["openrouter"]["models"])

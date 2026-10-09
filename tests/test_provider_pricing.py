@@ -159,10 +159,13 @@ def test_modal_resolution_returns_its_loaded_provider_row():
     The synthetic refresh test exercises the withdrawn fp8 and surviving
     nvfp4 tags directly.
     """
-    model = "z-ai/glm-5-3-flash"
+    document = json.loads(
+        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    model_key = "glm-5-3-flash"
+    model_id = document["openrouter"]["models"][model_key]["id"]
     host = next(host for row_model, host in pricing.PROVIDER_RATES
-                if row_model == model and host.casefold() == "modal")
-    _assert_provider_resolution_returns_loaded_row(model, model, host)
+                if row_model == model_key and host.casefold() == "modal")
+    _assert_provider_resolution_returns_loaded_row(model_id, model_key, host)
 
 
 def test_provider_resolution_assertions_survive_later_dated_appends(
@@ -173,7 +176,8 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
     base_model = V41.replace(".", "-")
     base_host = next(host for host in document["providers"][base_model]
                      if host.casefold() == "baseten")
-    modal_model = "z-ai/glm-5-3-flash"
+    modal_model = "glm-5-3-flash"
+    modal_id = document["openrouter"]["models"][modal_model]["id"]
     modal_host = next(
         host for host in document["providers"][modal_model]
         if host.casefold() == "modal")
@@ -198,7 +202,7 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
     _assert_provider_resolution_returns_loaded_row(
         V41, base_model, base_host)
     _assert_provider_resolution_returns_loaded_row(
-        modal_model, modal_model, modal_host)
+        modal_id, modal_model, modal_host)
 
 
 # --- NULL provider: exactly today's pricing ---------------------------------

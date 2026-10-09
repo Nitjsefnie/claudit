@@ -317,6 +317,8 @@ window.vendorBare = {};
 window.vendorHosts = {};
 _buildVendorTables(_PRICING, window.modelRates, window.vendorBare,
                    window.vendorHosts);
+window.vendorPrefixes = [..._PRICING.openrouter.vendor.prefixes];
+window.vendorBareForms = Object.keys(window.vendorBare);
 window.keyListRates = _vendorTables.keyListRates;
 
 // The default estimate needs its row the moment the first unknown id

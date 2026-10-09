@@ -4,9 +4,9 @@
 carrying `vendor_host` points at the (tracked key, host) provider row whose
 history prices the vendor's bare first-party id. resolve() matches the BARE
 form (the models table's own suffix rules), pricing exactly as the old
-models-table rows did — the migration's cost-equality contract — while a
-transcript id spelled with the vendor prefix (`z-ai/glm-5-3`) keeps pricing
-default, as it did before the tracked table carried vendor rows.
+models-table rows did — the migration's cost-equality contract. A transcript
+id with a tracked vendor prefix folds to its tracked bare form before the
+provider and vendor rows are resolved.
 
 SV-TEST-DATA: synthetic rows throughout; the one live-file test binds at a
 fixed instant before every committed cutover, the shape SV-RATE-DATA allows.
@@ -54,6 +54,8 @@ KEY = "claude-opus-9"          # bare tracked key: its own bare form
 PKEY = "acme/glm-acme-9"       # prefixed tracked key: bare form glm-acme-9
 BARE = "glm-acme-9"
 HOST = "AcmeHost"
+ROUTER_HOST = "RouterHost"
+PREFIXED_BARE = f"acme/{BARE}"
 FEE_NOTE = ("web_search $0.01/request not modelled: per-request, "
             "unpriceable from token counts")
 PREFIXES = ["anthropic", "openai", "moonshotai", "z-ai"]
@@ -101,6 +103,18 @@ def _doc(*, vendor_host=True, prefixed=True, schedules=False, fees=False,
         "provider_rates_fetched": "2030-01-01T00:00:00Z",
         "providers": providers,
     }
+
+
+def _bare_id_doc():
+    """A synthetic document whose GLM-shaped vendor model is tracked bare."""
+    doc = _doc(prefixed=False)
+    doc["openrouter"]["models"][BARE] = {
+        "id": "acme/glm-acme.9", "vendor_host": HOST}
+    doc["providers"][BARE] = {
+        HOST: [_entry(R_OLD), _entry(R_NEW, STAMP)],
+        ROUTER_HOST: [_entry(R_OLD)],
+    }
+    return doc
 
 
 def _clear_caches() -> None:
@@ -173,6 +187,13 @@ def test_the_loader_builds_the_vendor_tables(monkeypatch):
     assert doc  # the doc was loaded (shape-valid)
 
 
+def test_a_bare_only_vendor_shape_loads_and_exports_fold_data():
+    tables = pricing.load_tables(_bare_id_doc())
+    assert tables["VENDOR_PREFIXES"] == ["acme"]
+    assert tables["VENDOR_BARE"] == {KEY: KEY, BARE: BARE}
+    assert tables["VENDOR_HOSTS"] == {KEY: HOST, BARE: HOST}
+
+
 @needs_node
 def test_the_browser_builds_the_same_vendor_tables(tmp_path):
     (tmp_path / "pricing.json").write_text(json.dumps(_doc()), encoding="utf-8")
@@ -185,6 +206,40 @@ def test_the_browser_builds_the_same_vendor_tables(tmp_path):
     """)
     assert got["bare"] == {KEY: KEY, BARE: PKEY}
     assert got["hosts"] == {KEY: HOST, PKEY: HOST}
+
+
+@needs_node
+def test_the_browser_loads_bare_only_vendor_data_and_exposes_fold_data(tmp_path):
+    (tmp_path / "pricing.json").write_text(
+        json.dumps(_bare_id_doc()), encoding="utf-8")
+    _copy_browser(tmp_path)
+    got = _node_raw(f"""
+      global.window = {{}};
+      require({str(tmp_path / 'pricing-loader.js')!r});
+      console.log(JSON.stringify({{
+        prefixes: window.vendorPrefixes,
+        bareForms: window.vendorBareForms,
+        bare: window.vendorBare,
+      }}));
+    """)
+    assert got == {
+        "prefixes": ["acme"],
+        "bareForms": [KEY, BARE],
+        "bare": {KEY: KEY, BARE: BARE},
+    }
+
+
+@needs_node
+def test_both_vendor_spellings_are_refused_by_both_loaders(tmp_path):
+    doc = _bare_id_doc()
+    doc["openrouter"]["models"][PKEY] = {
+        "id": "acme/glm-acme.9", "vendor_host": ROUTER_HOST}
+    doc["providers"][PKEY] = {ROUTER_HOST: [_entry(R_THIRD)]}
+
+    with pytest.raises(ValueError, match="both carry the bare form"):
+        pricing.load_tables(doc)
+    error = _loader_error(tmp_path, doc)
+    assert error and "both carry the bare form" in error
 
 
 def test_missing_prefixes_refuse_naming_the_key():
@@ -295,14 +350,26 @@ def test_the_prefixed_tracked_key_serves_its_bare_form(monkeypatch):
     assert r.rates == R_THIRD
 
 
-def test_a_prefix_spelled_id_keeps_pricing_default(monkeypatch):
-    """A transcript id spelled with the vendor prefix names no bare id: it
-    keeps the default estimate it priced before the tracked table carried
-    vendor rows (strict cost equality)."""
+def test_a_prefixed_tracked_id_without_provider_uses_the_bare_vendor_row(
+        monkeypatch):
     _install(monkeypatch, _doc())
     r = pricing.resolve(PKEY)
-    assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
-    assert pricing.resolve(f"acme/{BARE}").kind == "default"
+    assert (r.kind, r.key, r.rates) == ("exact", PKEY, R_THIRD)
+    assert pricing.resolve("acme/untracked-9").kind == "default"
+
+
+def test_a_prefixed_tracked_id_with_host_uses_the_bare_provider_row(
+        monkeypatch):
+    _install(monkeypatch, _bare_id_doc())
+    r = pricing.resolve(PREFIXED_BARE, provider=ROUTER_HOST)
+    assert (r.kind, r.key, r.rates) == ("exact", BARE, R_OLD)
+
+
+def test_a_prefixed_tracked_id_without_a_host_row_uses_vendor_rates(
+        monkeypatch):
+    _install(monkeypatch, _bare_id_doc())
+    r = pricing.resolve(PREFIXED_BARE, provider="MissingHost")
+    assert (r.kind, r.key, r.rates) == ("exact", BARE, R_NEW)
 
 
 def test_a_vendor_row_before_its_start_falls_through(monkeypatch):
@@ -393,7 +460,9 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
     assert (got["suffix"]["kind"], got["suffix"]["key"]) == ("exact", KEY)
     assert (got["atSuffix"]["kind"], got["atSuffix"]["key"]) == ("exact", KEY)
     assert (got["snapshot"]["kind"], got["snapshot"]["key"]) == ("exact", KEY)
-    assert got["prefixedSpell"]["kind"] == "default"
+    assert (got["prefixedSpell"]["kind"], got["prefixedSpell"]["key"]) == \
+        ("exact", PKEY)
+    assert _js_rates(got["prefixedSpell"]["rates"]) == R_THIRD
     assert (got["barePrefixed"]["kind"], got["barePrefixed"]["key"]) == \
         ("exact", PKEY)
     got_host = got["hostSpelled"]
@@ -406,6 +475,31 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
     assert got["bareSaturday"]["fee"] == 0
 
 
+@needs_node
+def test_the_browser_prefixed_id_uses_the_bare_provider_and_vendor_rows(
+        tmp_path):
+    (tmp_path / "pricing.json").write_text(
+        json.dumps(_bare_id_doc()), encoding="utf-8")
+    _copy_browser(tmp_path)
+    got = _node_raw(f"""
+      global.window = {{}};
+      require({str(tmp_path / 'pricing-loader.js')!r});
+      require({str(tmp_path / 'rates.js')!r});
+      const fold = {json.dumps(PREFIXED_BARE)};
+      console.log(JSON.stringify({{
+        host: window.resolveModelRate(fold, null, {json.dumps(ROUTER_HOST)}),
+        vendor: window.resolveModelRate(fold, null, 'MissingHost'),
+        untracked: window.resolveModelRate('acme/untracked-9', null, null),
+      }}));
+    """)
+    assert (got["host"]["kind"], got["host"]["key"]) == ("exact", BARE)
+    assert _js_rates(got["host"]["rates"]) == R_OLD
+    assert (got["vendor"]["kind"], got["vendor"]["key"]) == \
+        ("exact", BARE)
+    assert _js_rates(got["vendor"]["rates"]) == R_NEW
+    assert got["untracked"]["kind"] == "default"
+
+
 # --- rate_boundaries: the vendor branch ---------------------------------------
 
 
@@ -414,6 +508,12 @@ def test_vendor_boundaries_for_a_bare_pair(monkeypatch):
     from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
     assert rate_boundaries(KEY, None) == [CUT]
     assert rate_boundaries(KEY, "") == [CUT], "an empty provider is bare"
+
+
+def test_vendor_boundaries_for_a_prefixed_bare_form(monkeypatch):
+    _install(monkeypatch, _bare_id_doc())
+    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
+    assert rate_boundaries(PREFIXED_BARE, None) == [CUT]
 
 
 def test_vendor_boundaries_honor_a_start(monkeypatch):
