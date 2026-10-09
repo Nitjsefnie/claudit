@@ -634,9 +634,10 @@ vendor's BARE first-party id resolves through. A bare id prices from
 that row's dated windows, fee-free and schedule-free — a host's
 per-request fee and time-of-day windows are the host's own terms for
 requests THROUGH it, and a bare id names no host. A transcript id
-spelled WITH the vendor prefix (`z-ai/glm-5-3`) names the OpenRouter
-catalog model, not the bare first-party id, and prices default, as it
-did before the tracked table carried vendor rows. The bare forms are a
+spelled with a tracked vendor prefix whose remainder is a tracked bare
+form folds to that form and resolves through the bare rows. A normalized
+prefixed id whose remainder is not tracked stays unchanged and uses default
+pricing. The bare forms are a
 validated namespace: one bare form per tracked vendor entry, and never
 one that is also a models-table key — a transcript id would otherwise
 resolve two ways, so the loaders refuse the file naming both rows.
@@ -1050,9 +1051,10 @@ pass moved.
   third-party hosts; any tracked entry's own state stands).
 - **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
   `gpt-5-5`) — the normalisation resolve() applies to a transcript naming
-  the bare first-party id. The parity is a bare-id claim: a transcript
-  spelling the vendor prefix is OpenRouter provider-row traffic, priced by
-  that table by design.
+  the bare first-party id. A transcript id with a tracked vendor prefix
+  whose remainder is a tracked bare form folds to that bare form and
+  resolves through its provider row; an untracked normalized remainder
+  stays unchanged and uses default pricing.
 - **An already-tracked entry is never re-added or rewritten.** The listing
   of a tracked key is still fetched and selected — for the membership fold
   — but the entry stands byte for byte and the pass appends nothing
