@@ -398,7 +398,7 @@ def test_report_lists_each_sampled_host_with_a_short_reason():
 
     out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
 
-    assert ("  sampled   BaseTen (cheapest resolution), "
+    assert ("  sampled   BaseTen (cheapest resolution); "
             "Wafer (2 endpoints at one current price)") in out
     assert "notices:" not in out
 
@@ -414,7 +414,7 @@ def test_the_new_divergence_classes_get_their_short_report_forms():
 
     out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
 
-    assert ("  sampled   Baidu (no matching log state), "
+    assert ("  sampled   Baidu (no matching log state); "
             "Wafer (listing lags log)") in out
 
 

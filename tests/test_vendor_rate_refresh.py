@@ -423,15 +423,21 @@ def test_unmodelled_pricing_key_refuses_and_zero_passes():
     assert not out.refusals
 
 
-def test_a_recorded_fee_changes_nothing_here():
-    """A recorded fee belongs to the provider row, not the tracked entry."""
+def test_search_price_is_parsed_but_stored_on_the_provider_row():
+    """The vendor pass recognizes the listing rate while the provider
+    refresh owns its dated history; the tracked catalog row stays metadata."""
+    endpoint = _endpoint("openai", _price(1.0, 5.0, web_search="0.0137"))
+    rates, meter, host = vendor._listing(GPT_ID, endpoint)
+    assert rates["web_search"] == 0.0137
+    assert meter is None and host == "Vendor"
+
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, web_search="0.01")))})
+        "openai", _price(1.0, 5.0, web_search="0.045")))})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
 
 
-def test_bad_fee_value_refuses():
+def test_bad_search_rate_refuses():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
         "openai", _price(1.0, 5.0, web_search="free")))})
     assert len(out.refusals) == 1 and not out.notices
