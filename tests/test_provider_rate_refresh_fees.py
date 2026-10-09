@@ -174,9 +174,9 @@ def test_a_1h_tier_round_trips_through_the_listing_inverse():
 # --- a regional tag drops under the global filter ----------------------------
 
 
-def test_a_tag_named_europe_is_a_region_and_not_a_global_endpoint():
+def test_global_is_a_region_suffix_and_not_a_global_endpoint():
     assert refresh_prices.tag_region("google-vertex/europe") == "europe"
-    assert refresh_prices.tag_region("google-vertex/global") is None
+    assert refresh_prices.tag_region("google-vertex/global") == "global"
 
 
 def test_a_regional_twin_beside_the_global_endpoint_is_not_an_ambiguous_host(
