@@ -265,3 +265,23 @@ def test_every_loader_checkout_covers_the_reseed_walk() -> None:
             assert "--depth" not in step["run"], (
                 "ratchet-push.yml:push: a bounded fetch would cut the temp "
                 "repo's re-seed walk short (issue #582)")
+
+
+def test_explorer_perturb_step_marks_data_as_perturbed() -> None:
+    """The explorer's pytest process must skip the source-size ceiling."""
+    path = REPO_ROOT / ".github" / "workflows" / "test-data-explore.yml"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    job = (doc.get("jobs") or {}).get("perturbed-suite-explore") or {}
+    steps = job.get("steps") or []
+    matches = [
+        step for step in steps
+        if "perturb_test_data.py" in (step.get("run") or "")
+    ]
+    assert len(matches) == 1, (
+        "expected exactly one explorer step to run the test-data perturber")
+    step = matches[0]
+    assert "pytest tests/" in (step.get("run") or ""), (
+        "the explorer perturber step must also run the perturbed pytest suite")
+    assert (step.get("env") or {}).get("CLAUDIT_PERTURBED_DATA") == "1", (
+        "the explorer's perturbed pytest suite must set the signal that skips "
+        "the deployed pricing document's source-size ceiling")
