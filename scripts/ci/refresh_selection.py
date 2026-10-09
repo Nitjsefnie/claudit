@@ -202,6 +202,14 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
     else:
         selected = select_region(where, listed, region, pin)
         listed, chosen, notice = selected.listings, selected.chosen, selected.notice
+    return _finish_host_price(where, listed, override, pin, stored, chosen, notice)
+
+
+def _finish_host_price(
+        where: str, listed: list[Listing], override: dict, pin: object,
+        stored: dict | None, chosen: Listing | None,
+        notice: str | None) -> tuple[Listing | None, str | None]:
+    """Resolve remaining prices after explicit tag and maintained region policy."""
     groups = price_groups(listed)
     prices = [group[0] for group in groups]
     if len(prices) > 1 and override.get("select") == "cheapest":
@@ -209,19 +217,26 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
     if notice:
         return chosen, notice
     if len(prices) > 1 and pin is None:
-        for rule in (bare_namespace, unique_quantization):
-            resolved = rule(where, groups)
-            if resolved is not None:
-                return resolved
-        twins = same_quantization(where, groups, stored)
-        if twins is not None:
-            return twins
+        automatic = _automatic_price_rule(where, groups, stored)
+        if automatic is not None:
+            return automatic
     if len(prices) > 1:
         tags = ", ".join(sorted({e.tag or "(untagged)" for e in listed}))
         raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
                            f"{len(prices)} different prices; resolve it in "
                            "openrouter.models.<model>.resolve")
     return (prices[0] if prices else None), None
+
+
+def _automatic_price_rule(
+        where: str, groups: list[list[Listing]], stored: dict | None
+        ) -> tuple[Listing, str | None] | None:
+    """Apply the target's mechanical rules in their maintained order."""
+    for rule in (bare_namespace, unique_quantization):
+        resolved = rule(where, groups)
+        if resolved is not None:
+            return resolved
+    return same_quantization(where, groups, stored)
 
 
 def _pinned_listings(where: str, listed: list[Listing], tag: str) -> list[Listing]:

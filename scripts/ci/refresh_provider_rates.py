@@ -232,10 +232,23 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
     source_doc = expand_pricing_doc(doc)
     tracked, region = _sources(source_doc)
     logs, catalog = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
-    result = Result(source_doc, [], [], [], [], {})
     context = RefreshContext(
-        result.doc, fetch, region, stamp,
+        source_doc, fetch, region, stamp,
         datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
+    result = _refresh_models(context, tracked, logs, catalog)
+    # The loaders' own rules, run on what would be written: among them, a
+    # detection time not after a row's newest entry.
+    try:
+        pricing.load_tables(result.doc)
+    except ValueError as exc:
+        raise RefreshError(f"the refreshed file would not load: {exc}") from exc
+    return result
+
+
+def _refresh_models(context: RefreshContext, tracked: dict,
+                    logs: dict, catalog: set[str] | None) -> Result:
+    """Collect each tracked model's changes, refusals, and notices."""
+    result = Result(context.doc, [], [], [], [], {})
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
         # names everything a human must look at. A model the catalog no
@@ -253,13 +266,7 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
         result.notices += outcome.notices
         result.sampled[model] = outcome.sampled
     if result.moves:
-        result.doc["provider_rates_fetched"] = stamp
-    # The loaders' own rules, run on what would be written: among them, a
-    # detection time not after a row's newest entry.
-    try:
-        pricing.load_tables(result.doc)
-    except ValueError as exc:
-        raise RefreshError(f"the refreshed file would not load: {exc}") from exc
+        result.doc["provider_rates_fetched"] = context.stamp
     return result
 
 
