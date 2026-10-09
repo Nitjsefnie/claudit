@@ -239,6 +239,75 @@ def test_rule_resolved_same_quantization_keeps_the_possible_twin_switch_notice()
     assert any("possible twin switch" in note for note in notices)
 
 
+def test_tag_pin_resolves_same_quantization_prices_within_the_pinned_tag():
+    """A quantization tag pin narrows away the fast tier before twin ordering.
+
+    The maintained catalog no longer needs the Alibaba stopgap pin, so the
+    pin is synthetic while the price, tag and twin-switch assertions remain.
+    """
+    pin = {"tag": "alibaba/fp8", "why": "synthetic quantization pin"}
+    assert pin["tag"] == "alibaba/fp8"
+    assert set(pin) == {"tag", "why"}
+
+    cheap = {**RATES_A, "fresh": 2.0, "read": 0.15, "output": 10.0}
+    dear = {**RATES_A, "fresh": 3.0, "read": 0.3, "output": 15.0}
+    endpoints = []
+    for tag, rates in (("alibaba/fp8", cheap),
+                       ("alibaba/fp8", dear),
+                       ("alibaba/fast", RATES_B)):
+        endpoint = fixture_endpoint("Alibaba", rates, tag=tag)
+        endpoint.update({"quantization": "fp8", "context_length": 1_000_000,
+                         "max_completion_tokens": 131_072,
+                         "max_prompt_tokens": 1_048_576})
+        endpoints.append(endpoint)
+
+    selected, refused, notices, _ = refresh.listed_rows(
+        "glm-5-2", {"data": {"endpoints": endpoints}}, None,
+        {"Alibaba": pin}, {"Alibaba": RATES_A}, NOW)
+
+    assert refused == {}
+    assert selected["Alibaba"].tag == "alibaba/fp8"
+    assert selected["Alibaba"].rates == cheap
+    assert any(
+        "rule-resolved (same quantization, within the pinned tag "
+        "'alibaba/fp8')" in note and "took the cheapest fp8 endpoint" in note
+        for note in notices)
+    assert any("possible twin switch" in note for note in notices)
+
+
+def test_single_endpoint_quantization_tag_pin_keeps_precedence():
+    fp4 = {**RATES_A, "read": 0.2}
+    fast = {**RATES_A, "read": 0.1}
+    endpoints = []
+    for tag, rates, quantization in (("alibaba/fp4", fp4, "fp4"),
+                                     ("alibaba/fast", fast, "fp8")):
+        endpoint = fixture_endpoint("Alibaba", rates, tag=tag)
+        endpoint["quantization"] = quantization
+        endpoints.append(endpoint)
+
+    selected, refused, notices, _ = refresh.listed_rows(
+        "glm-5-2", {"data": {"endpoints": endpoints}}, None,
+        {"Alibaba": {"tag": "alibaba/fp4", "why": "fixture"}}, {}, NOW)
+
+    assert refused == {}
+    assert selected["Alibaba"].tag == "alibaba/fp4"
+    assert selected["Alibaba"].rates == fp4
+    assert not any("rule-resolved" in note for note in notices)
+
+
+def test_ambiguous_non_quantization_tag_pin_still_refuses():
+    endpoints = [fixture_endpoint("Alibaba", rates, tag="alibaba")
+                 for rates in (RATES_A, RATES_B)]
+
+    selected, refused, _, _ = refresh.listed_rows(
+        "glm-5-2", {"data": {"endpoints": endpoints}}, None,
+        {"Alibaba": {"tag": "alibaba", "why": "fixture"}}, {}, NOW)
+
+    assert selected == {}
+    assert set(refused) == {"Alibaba"}
+    assert "resolve it in openrouter.models.<model>.resolve" in refused["Alibaba"]
+
+
 def test_an_explicit_pin_keeps_precedence_over_bare_and_region_rules():
     selected, refused, notices, _ = _select_synthetic_host(
         "Fixture", [("fixture", RATES_A), ("fixture/fast", RATES_B)],
