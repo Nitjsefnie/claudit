@@ -341,4 +341,4 @@ def test_the_loader_tables_match_the_file():
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
     assert got["models"] == raw["long_context_models"]
-    assert got["meters"] == raw.get("long_context_meters") or {}
+    assert got["meters"] == (raw.get("long_context_meters") or {})

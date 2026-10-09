@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from typing import Any
 
-from backend import constants, db, key_layout, parse, r2, rate_fingerprint
+from backend import constants, db, key_layout, parse, pricing, r2, rate_fingerprint
 
 
 def _strip_nul(value: Any) -> Any:
@@ -256,6 +256,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             # Claude-format meter member's (parse._project_record); any
             # other record lacks the decision and stores NULL, and
             # readers COALESCE long_context to FALSE.
+            # Its effective multiplier pair is persisted with the cost so
+            # read-time bucket folds can split interrupted reprice eras.
             # request_fee_usd likewise: only a Claude-format record naming
             # a serving host whose resolved entry carries a fee carries
             # the key (issue #469). pricing_version is NOT a record field:
@@ -270,6 +272,9 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 rec.update({k: rec.get(k)
                             for k in ("long_context", "provider",
                                       "request_fee_usd", "is_replay")})
+                factors = (pricing.long_context_factors(rec["model"])
+                           if rec.get("long_context") else (None, None))
+                rec["long_context_input_mult"], rec["long_context_output_mult"] = factors
             cur.executemany(
                 """
                 INSERT INTO records (
@@ -296,6 +301,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   turn_flags,
                   turn_tool_results,
                   long_context,
+                  long_context_input_mult,
+                  long_context_output_mult,
                   provider,
                   is_replay,
                   pricing_version,
@@ -324,6 +331,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(turn_flags)s,
                   %(turn_tool_results)s,
                   %(long_context)s,
+                  %(long_context_input_mult)s,
+                  %(long_context_output_mult)s,
                   %(provider)s,
                   %(is_replay)s,
                   %(pricing_version)s,

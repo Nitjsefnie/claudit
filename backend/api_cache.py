@@ -127,9 +127,12 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
                SUM(output_tokens)          AS output,
                SUM(eph5_tokens)            AS eph5,
                SUM(eph1h_tokens)           AS eph1h,
-               SUM(cost_usd)               AS cost_total
+               SUM(cost_usd)               AS cost_total,
+               long_context_input_mult,
+               long_context_output_mult
         {per_model_source}
-        GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE)
+        GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE),
+                 long_context_input_mult, long_context_output_mult
         ORDER BY cost_total DESC
         """,
         [pair_inputs.models, pair_inputs.providers,

@@ -21,11 +21,12 @@ UTC = timezone.utc
 
 
 def _row(model, epoch, fresh=0, cc=0, cr=0, output=0, eph5=0, eph1h=0,
-         cost=0.0, long_context=False):
+         cost=0.0, long_context=False, input_mult=None, output_mult=None):
     # (model, provider, rate_epoch, long_context, turns, fresh,
-    #  cache_create, cache_read, output, eph5, eph1h, cost_total)
+    #  cache_create, cache_read, output, eph5, eph1h, cost_total,
+    #  long_context_input_mult, long_context_output_mult)
     return (model, None, epoch, long_context, 1, fresh, cc, cr, output,
-            eph5, eph1h, cost)
+            eph5, eph1h, cost, input_mult, output_mult)
 
 
 def test_buckets_sum_to_total_within_a_single_epoch():
@@ -339,7 +340,7 @@ def test_per_model_meter_factors_keep_buckets_reconciled(monkeypatch):
     folded = fold_per_model([
         _row(model, 0, fresh=fresh, cc=eph5 + eph1h + unsplit, cr=read,
              output=output, eph5=eph5, eph1h=eph1h, cost=stored,
-             long_context=True),
+             long_context=True, input_mult=5.0, output_mult=5.0),
     ], pair_bounds={})[0]
     assert folded["cost_total"] == pytest.approx(round(stored, 4))
     assert abs(sum(folded["cost_buckets"].values()) - folded["cost_total"]) <= 3e-4

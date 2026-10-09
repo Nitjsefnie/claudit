@@ -226,7 +226,8 @@ The schema is per-file, not per-session (see `backend/schema.sql`):
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd,
   text_chars, reply_latency_s, stop_reason, effort, thinking_tokens,
-  cli_version, turn_flags, turn_tool_results, long_context, provider,
+  cli_version, turn_flags, turn_tool_results, long_context,
+  long_context_input_mult, long_context_output_mult, provider,
   pricing_version, rate_fingerprint)`
   PK `(file_key, line_num)` — one row per usage-bearing line after
   per-file Phase 1 max-merge on `request_id`.
@@ -606,8 +607,13 @@ record by ITS OWN rate epochs — the instants where
 `pricing.resolve(model, ts, provider)` can change for its (model,
 provider), listed by `rate_boundaries` — AND by `COALESCE(long_context,
 FALSE)` (the Codex meter multiplies the whole input side by 2 and output
-by 1.5; a fold ignoring it drifts from `SUM(cost_usd)`). Totals always
-come from stored `cost_usd`; never recompute them at read time. The
+by 1.5; a fold ignoring it drifts from `SUM(cost_usd)`) AND by the
+stored long-context input/output factor pair. Reprice batches commit
+independently, so records can carry different pairs during an interrupted
+reprice; `records.long_context_input_mult` and
+`records.long_context_output_mult` preserve the pair that priced each
+record. A NULL pair on a metered row is a legacy row priced at the global
+defaults. Totals always come from stored `cost_usd`; never recompute them at read time. The
 bare first-party id of a tracked vendor row resolves through that row
 (SV-RATE-DATA), so its epochs are the vendor row's: dated-window ends
 plus the row's start when it has one.
@@ -1070,7 +1076,12 @@ pass moved.
   delisted) stand untouched, and a quiet source writes nothing.
 - **The long-context band folds to the meter at the band's own threshold
   and multipliers.** A `min_prompt_tokens` override yields its input/output
-  factors from the band's prices (issue #878) and contributes NO rates:
+  factors from the band's fresh input and output prices (issue #878). Every
+  cache read or cache write price explicitly listed in that band must also
+  equal its base component multiplied by the inferred input factor, rounded
+  to ten decimal places; an inconsistent component refuses the listing with
+  its base price, band price, and implied factor. A representable band
+  contributes NO rates:
   the band's own rates never enter anything the pass writes. Its threshold
   and factors land in `long_context_meters`; factors equal to the global
   defaults are omitted. Membership, threshold, and factors follow the
@@ -1082,7 +1093,8 @@ pass moved.
   a first-party listing it cannot represent, leaving that model untouched.
   This includes weekly schedules, unknown override kinds or nonzero pricing
   keys, unparseable fees, multiple bands, bands that do not restate input
-  and output, invalid thresholds, and bands mixed with UTC fields. The two
+  and output, invalid thresholds, cache components that one input factor
+  cannot represent, and bands mixed with UTC fields. The two
   notices remain a catalog the pass cannot read and a model with no
   first-party endpoint. Multi-price ambiguity without a pin, a stale or
   malformed pin, and broken or unrecognised fetches also refuse.
@@ -1105,7 +1117,9 @@ pass moved.
 records whose `pricing_version` differs from `constants.PRICING_VERSION`
 (NULL is stale), from stored columns only — the same
 `pricing.compute_cost` the parser runs, over each row's own tokens and
-`ts` — so a rate change never refetches R2. Rows update in batched
+`ts` — so a rate change never refetches R2. Each long-context row stores
+the input/output factor pair beside its cost; the cost, flag, fee, and
+factor pair move together in one batch write. Rows update in batched
 transactions. Each batch recomputes its rows, writes rows whose cost or
 flag moved in one set-based UPDATE, and re-stamps the rest with the
 current version in one set-based UPDATE — a restamp advances the
@@ -1140,7 +1154,9 @@ plus the pricing modules' source (`backend/rate_fingerprint.py`), so an
 edited entry, a correction, a schedule change or a logic change all
 move it while an untouched pair's stands still; the recomputation for
 matching rows is the identity by construction and reads zero rows into
-Python. The SQL restamp set is exactly `{1-9-digit plain-digit
+Python. A meter multiplier change moves the fingerprint, so those rows
+take the reprice path and an interrupted run can leave mixed factor pairs
+without collapsing their read-time buckets. The SQL restamp set is exactly `{1-9-digit plain-digit
 versions <= V}`, a subset of the keyset path's (Python's `int()`
 parses spellings the SQL cast refuses), and the guard still protects
 newer-version rows on both paths. NULL fp is the conservative stale

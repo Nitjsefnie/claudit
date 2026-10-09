@@ -132,24 +132,19 @@ def test_a_meter_shaped_band_is_tolerated_and_never_enters_the_row(
     assert "min_prompt_tokens" not in json.dumps(run.doc())
 
 
-def test_a_departing_band_is_a_notice_and_leaves_the_row_untouched(
-        tmp_path, capsys):
-    """A band departing the meter is the not-tracked analogue: a notice, the
-    host's row byte-identical, the run green — never a refusal, and never a
-    vanished row."""
+def test_a_coherent_band_does_not_gate_a_provider_listing(tmp_path, capsys):
+    """A coherent band with other factors is tolerated by provider main."""
     run = Run(tmp_path)
     before = run.doc()
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
+    stored = before["providers"][V41]["DeepSeek"][-1]
     _deepseek(run)["pricing"]["overrides"].append(
-        {"min_prompt_tokens": 200000,
-         "prompt": _per_token(stored["fresh"]),
-         "completion": _per_token(stored["output"])})
+        {"min_prompt_tokens": 200_000,
+         "prompt": _per_token(stored["fresh"] * 3.0),
+         "completion": _per_token(stored["output"] * 3.0)})
     rc, out, err = run(capsys)
-    assert rc == 0 and not err
-    assert f"{V41} via DeepSeek" in out and "departs from the meter" in out
-    assert "left untouched" in out
-    assert "vanished" not in out
+    assert rc == 0, err
     after = run.doc()
+    assert "departs from the meter" not in out
     assert after["providers"][V41]["DeepSeek"] == before["providers"][V41]["DeepSeek"]
 
 

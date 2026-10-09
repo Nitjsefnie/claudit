@@ -424,8 +424,8 @@ class TestNodeDrivenLaneParsers:
             "fresh": 7.0, "create_5m": 8.75, "create_1h": 14.0,
             "read": 0.7, "output": 35.0,
         }
-        meter = {"threshold": 100_000, "input_mult": 5.0,
-                 "output_mult": 5.0}
+        meter = {"threshold": 100_000, "input_mult": 6.0,
+                 "output_mult": 3.0}
         monkeypatch.setattr(pricing, "MODEL_RATES",
                             {**pricing.MODEL_RATES, model_key: rates})
         monkeypatch.setattr(
@@ -487,7 +487,7 @@ class TestNodeDrivenLaneParsers:
                               text=True, timeout=60, check=False)
         assert proc.returncode == 0, proc.stderr
         got = json.loads(proc.stdout)
-        assert got["factors"] == [5.0, 5.0]
+        assert got["factors"] == [6.0, 3.0]
         assert got["session"] == pytest.approx(backend["cost_usd"], abs=1e-9)
         assert got["inspector"] == pytest.approx(backend["cost_usd"], abs=1e-9)
         assert got["appInspector"] == pytest.approx(backend["cost_usd"], abs=1e-9)

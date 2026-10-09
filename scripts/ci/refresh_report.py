@@ -141,8 +141,10 @@ def vendor_report(stamp: str, vendor) -> str:
     if not (vendor.moves or vendor.refusals or vendor.notices):
         lines.append("no first-party vendor moved")
     for move in vendor.moves:
-        tail = (" [metered]" if move.membership == "+"
-                else " [unmetered]" if move.membership == "-" else "")
+        meter_on = move.meter is not None or move.membership == "+"
+        meter_off = move.membership == "-" and move.meter is None
+        tail = (" [metered]" if meter_on
+                else " [unmetered]" if meter_off else "")
         if move.meter is not None:
             meter = move.meter
             tail += (f" [threshold {meter['threshold']}, "
@@ -152,10 +154,14 @@ def vendor_report(stamp: str, vendor) -> str:
             lines.append(f"  added     {move.key} ({move.id}): joins the "
                          f"tracked table{tail}")
         else:
-            on = move.membership == "+"
-            lines.append(f"  {'metered' if on else 'unmetered'}  {move.key} "
-                         f"({move.id}): long-context meter "
-                         f"{'on' if on else 'off'}")
+            if meter_on:
+                state, label = "on", "metered"
+            elif meter_off:
+                state, label = "off", "unmetered"
+            else:
+                state, label = "unchanged", "updated"
+            lines.append(f"  {label:9} {move.key} ({move.id}): "
+                         f"long-context meter {state}{tail}")
     if vendor.refusals:
         lines += ["refused, rows left untouched:",
                   *(f"  {reason}" for reason in vendor.refusals)]

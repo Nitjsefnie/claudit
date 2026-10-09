@@ -97,16 +97,17 @@ def _empty_model_entry(model: str) -> dict:
 def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
                         cr: int, output: int, eph5: int, eph1h: int,
                         unsplit: int, long_context: bool = False,
-                        model: str | None = None) -> None:
+                        factors: tuple[float, float] | None = None) -> None:
     """Price one row's tokens into the entry's per-epoch cost buckets.
 
-    long_context applies the model's factors exactly as
-    pricing.compute_cost stores them, so a row billed on that meter keeps
-    its buckets summing to the stored cost_total.
+    `factors` is the pair recorded beside the row's stored cost. Legacy
+    long-context rows with no pair used the global defaults, so their
+    fallback remains independent of today's model meter.
     """
     b = entry["_buckets"]
-    in_mult, out_mult = (pricing.long_context_factors(model)
-                         if long_context else (1.0, 1.0))
+    in_mult, out_mult = factors if long_context and factors is not None else (
+        (pricing.LONG_CONTEXT_INPUT_MULT, pricing.LONG_CONTEXT_OUTPUT_MULT)
+        if long_context else (1.0, 1.0))
     b["fresh"] += fresh * rates["fresh"] * in_mult / 1_000_000
     b["create_5m"] += eph5 * rates["create_5m"] * in_mult / 1_000_000
     # An undeclared TTL is priced as 1h, exactly as pricing.compute_cost
@@ -125,7 +126,8 @@ def _accumulate_model_row(
         acc: dict, row, by_provider: bool,
         pair_bounds: Mapping[tuple[str, str], list[datetime]]) -> None:
     """Fold one (model, provider, rate_epoch, long_context, turns, fresh,
-    cache_create, cache_read, output, eph5, eph1h, cost_total) row.
+    cache_create, cache_read, output, eph5, eph1h, cost_total, input_mult,
+    output_mult) row.
 
     Each row is priced by its own provider whichever way the entries are
     keyed, so a per-model entry's buckets still reconcile with its stored
@@ -144,11 +146,20 @@ def _accumulate_model_row(
         entry[field] += value
     stored = float(row[11] or 0)
     entry["cost_total"] += stored
-    # The SQL group includes model; its per-model factor pair is constant
-    # within this row and stays separate from every other meter pair.
+    long_context = bool(row[3])
+    factors = None
+    if long_context:
+        input_mult = row[12] if len(row) > 12 else None
+        output_mult = row[13] if len(row) > 13 else None
+        factors = (
+            float(input_mult) if input_mult is not None
+            else pricing.LONG_CONTEXT_INPUT_MULT,
+            float(output_mult) if output_mult is not None
+            else pricing.LONG_CONTEXT_OUTPUT_MULT,
+        )
     _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored,
                             scaled=res.scheduled or bool(res.request_fee),
-                            model=model)
+                            factors=factors)
 
 
 def _model_row_pricing(
@@ -170,7 +181,7 @@ def _model_row_pricing(
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
                             long_context: bool, stored: float,
                             scaled: bool = False,
-                            model: str | None = None) -> None:
+                            factors: tuple[float, float] | None = None) -> None:
     """Price one fold row's tokens into the entry's buckets.
 
     A scheduled row's records were priced by their own time of day, which
@@ -186,7 +197,7 @@ def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
         target, res.rates, tokens["fresh"], tokens["cache_create"],
         tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
         max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
-        long_context, model)
+        long_context, factors)
     if target is not entry:
         derived = sum(target["_buckets"].values())
         scale = stored / derived if derived else 1.0
