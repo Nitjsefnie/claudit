@@ -154,7 +154,7 @@ def test_search_move_keeps_logged_token_history_and_samples_only_search(
                     rates=token_rates, at=log_stamp)]}},
         now=NOW, pricing_path=run.pricing, constants_path=run.constants,
         vendor=None)
-    out, err = capsys.readouterr()
+    _, err = capsys.readouterr()
     assert rc == 0, err
     history = run.doc()["providers"][GLM]["OpenInference"]
     logged, sampled_search = history[-2:]
@@ -223,6 +223,7 @@ def test_simultaneous_token_and_search_move_keeps_loadable_history():
         "from": None, **RATES_B, "web_search": 0.002,
     }]}
 
+    # pylint: disable=protected-access
     refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**token_rates, "web_search": 0.0137}),
@@ -246,6 +247,7 @@ def test_band_formation_and_search_move_share_detection_timestamp():
         for days, rates in zip((6, 5, 4, 3), states)
     ]
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_A, "web_search": 0.0137}),
@@ -277,6 +279,7 @@ def test_search_only_epoch_cannot_turn_a_token_step_into_a_band():
     entries = [{"from": token_stamp, **token_b}]
 
     for hosts in (with_search, without_search):
+        # pylint: disable=protected-access
         refresh._append_logged("acme/search-9", hosts, "SearchHost",
                                listing, entries, NOW)
 
@@ -309,6 +312,7 @@ def test_search_only_repeated_level_does_not_reform_a_band():
     ]}
     entries = [{"from": _days_before_detection(1), **token_c}]
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**token_c, "web_search": 0.0137}), entries, NOW)
@@ -330,6 +334,7 @@ def test_mixed_log_search_move_report_identifies_both_changes():
         "from": None, **token_a, "web_search": 0.002,
     }]}
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**token_b, "web_search": 0.0137}),
@@ -350,6 +355,7 @@ def test_search_only_move_preserves_token_band():
         "from": None, **RATES_B, "web_search": 0.002, "band": band,
     }]}
 
+    # pylint: disable=protected-access
     refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_B, "web_search": 0.0137}), [], NOW)
@@ -368,6 +374,7 @@ def test_search_change_defers_when_detection_epoch_is_already_committed():
     listing = _direct_listing({**RATES_B, "web_search": 0.0137})
     notices = []
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost", listing, [], NOW,
         deferred_notices=notices)
@@ -379,6 +386,7 @@ def test_search_change_defers_when_detection_epoch_is_already_committed():
     assert "next append" in notices[0]
 
     later = NOW + timedelta(hours=1)
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost", listing, [], later,
         deferred_notices=notices)
@@ -399,6 +407,7 @@ def test_search_change_lands_on_the_next_token_append_after_conflict():
     later_stamp = later.strftime("%Y-%m-%dT%H:%M:%SZ")
     notices = []
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_A, "web_search": 0.0137}),
@@ -458,6 +467,7 @@ def test_prior_search_epochs_do_not_disable_band_reform():
     ]}
     entries = [{"from": _days_before_detection(5), **RATES_A}]
 
+    # pylint: disable=protected-access
     move = refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)
@@ -478,6 +488,7 @@ def test_prior_search_epochs_do_not_disable_band_formation():
         for days, rates in zip((6, 5, 4, 3), states)
     ]
 
+    # pylint: disable=protected-access
     refresh._append_logged(
         "acme/search-9", hosts, "SearchHost",
         _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)

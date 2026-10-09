@@ -7,13 +7,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.refresh_fixture_builders import RATES_A, _endpoint
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
+# pylint: disable=wrong-import-position
 import refresh_report  # noqa: E402
+import refresh_prices  # noqa: E402
 import refresh_selection  # noqa: E402
+from tests.refresh_fixture_builders import RATES_A, _endpoint  # noqa: E402
 
 
 def _result(*, vanished=(), sampled=None, notices=()):
@@ -99,8 +101,6 @@ def test_vendor_report_groups_missing_first_party_endpoint_notices():
     ("unknown", None),
 ])
 def test_region_suffixes_include_global_and_area_number_forms(suffix, expected):
-    import refresh_prices
-
     tag = f"provider/{suffix}"
     region = None if suffix in {"global", "unknown"} else suffix
     selected, refused, notices, _ = refresh_selection.listed_rows(
@@ -109,7 +109,7 @@ def test_region_suffixes_include_global_and_area_number_forms(suffix, expected):
         region, {}, {}, datetime(2031, 1, 1, tzinfo=timezone.utc))
 
     assert refresh_prices.tag_region(tag) == expected
-    assert refused == {}
+    assert isinstance(refused, dict) and not refused
     assert set(selected) == {"Fixture"}
     if expected is None:
         assert refresh_prices.unknown_suffixes(tag) == [suffix]

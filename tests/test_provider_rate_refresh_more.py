@@ -28,15 +28,15 @@ from tests.test_provider_rate_refresh import (
     STAMP,
     UTC,
     V41,
-    _baseten_twins,
     _endpoint,
     _move_openinference,
-    _novita_region_twin,
-    _pin_novita,
     _refused,
     _two_global_novitas,
     needs_node,
     _load,
+)
+from tests.test_provider_rate_refresh_pins import (
+    _baseten_twins, _novita_region_twin, _pin_novita,
 )
 
 refresh = _load()

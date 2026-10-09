@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
 from backend import long_context, pricing, pricing_load
 from tests.vendor_rate_refresh_helpers import (
-    GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT, STAMP,
+    GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT,
     TRACKED, _band, _catalog, _doc, _endpoint, _load, _meter_for, _meter_map,
     _move_meter, _payload, _per_token, _price, _run, vendor,
 )
@@ -232,7 +233,8 @@ def test_band_removal_leaves_the_meter():
         _catalog(GPT_ID),
         {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, read=0.1)))})
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="-")]
-    assert _meter_map(doc) == {}
+    meters = _meter_map(doc)
+    assert isinstance(meters, dict) and not meters
     assert doc["long_context_meters"] == []
 
 
@@ -368,7 +370,8 @@ def test_a_bad_band_threshold_refuses():
             "openai", _price(1.0, 5.0, read=0.1,
                              overrides=[_band(1.0, 5.0, threshold=bad)])))})
         assert GPT_KEY not in doc["openrouter"]["models"]
-        assert _meter_map(doc) == {}
+        meters = _meter_map(doc)
+        assert isinstance(meters, dict) and not meters
         assert doc["long_context_meters"] == []
         assert len(out.refusals) == 1 and not out.notices
         assert "positive integer" in out.refusals[0]
@@ -438,6 +441,7 @@ def test_search_price_is_parsed_but_stored_on_the_provider_row():
     """The vendor pass recognizes the listing rate while the provider
     refresh owns its dated history; the tracked catalog row stays metadata."""
     endpoint = _endpoint("openai", _price(1.0, 5.0, web_search="0.0137"))
+    # pylint: disable=protected-access
     rates, meter, host = vendor._listing(GPT_ID, endpoint)
     assert rates["web_search"] == 0.0137
     assert meter is None and host == "Vendor"
@@ -605,7 +609,7 @@ def test_main_untracked_shape_refuses_and_turns_run_red(tmp_path, capsys):
     run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
                   {GPT_ID: _payload(_endpoint(
                       "openai", _price(1.0, 5.0, image_output="0.00004")))})
-    rc, out, err = run(capsys)
+    rc, _, err = run(capsys)
     assert rc == 1
     assert "image_output" in err
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))

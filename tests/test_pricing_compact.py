@@ -121,7 +121,8 @@ def test_python_loader_folds_sparse_rates_bands_and_leading_from():
         "fresh": 3.0, "create_5m": 3.5, "create_1h": 3.0,
         "read": 0.3, "output": 7.0, "web_search": 0.015,
     }
-    assert sparse_tables["PROVIDER_STARTS"] == {}
+    provider_starts = sparse_tables["PROVIDER_STARTS"]
+    assert isinstance(provider_starts, dict) and not provider_starts
     end, window_rates = sparse_tables["PROVIDER_DATED_RATES"][ROW_KEY, HOST][0]
     assert end.isoformat() == "2027-01-01T00:00:00+00:00"
     assert window_rates == {

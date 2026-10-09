@@ -20,8 +20,9 @@ import pytest
 from backend import pricing
 from tests.refresh_fixture_builders import _per_token
 from tests.test_provider_rate_refresh import (
-    GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, _baseten_twins, _endpoint,
-    _overrides, _refused, refresh)
+    GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, _endpoint, _overrides,
+    _refused, refresh)
+from tests.test_provider_rate_refresh_pins import _baseten_twins
 
 # --- weekly schedules (pricing.overrides) ------------------------------------
 # DeepSeek and Alibaba list time-of-day prices; the seeded rows carry them

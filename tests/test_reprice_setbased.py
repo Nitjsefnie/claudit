@@ -25,6 +25,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from test_reprice import _FILE_KEY, _seed, _seeded_cost, _rows
+from tests.reprice_fixture_builders import SeedRecord
 
 from backend import (
     constants,
@@ -41,9 +42,9 @@ def test_reprice_reports_only_rows_whose_data_changed(fresh_db):
     actually moved, and the restamped row carries the same cost with the
     current version."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0",
-              cost_usd=_seeded_cost())
-        _seed(c, _FILE_KEY, 2, pricing_version="0")
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
+        _seed(c, _FILE_KEY, 2, SeedRecord(pricing_version="0"))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
@@ -65,10 +66,10 @@ def test_reprice_restamp_only_run_reports_zero(fresh_db, caplog):
     must not promote a full rebuild, invalidate the cache or broadcast
     for a run that changed no user-visible data."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0",
-              cost_usd=_seeded_cost())
-        _seed(c, _FILE_KEY, 2, pricing_version="0",
-              cost_usd=_seeded_cost())
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
+        _seed(c, _FILE_KEY, 2,
+              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
         c.commit()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
@@ -92,10 +93,10 @@ def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
     the result is byte-identical to the old pass's."""
     newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0",
-              cost_usd=_seeded_cost())
-        _seed(c, _FILE_KEY, 2, pricing_version="0")
-        _seed(c, _FILE_KEY, 3, pricing_version=newer)
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
+        _seed(c, _FILE_KEY, 2, SeedRecord(pricing_version="0"))
+        _seed(c, _FILE_KEY, 3, SeedRecord(pricing_version=newer))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
@@ -129,8 +130,9 @@ def test_reprice_split_survives_the_keyset_and_shutdown(fresh_db,
     with db.viz_conn() as c:
         for line_num in range(1, 8):
             correct = line_num in (1, 4)
-            _seed(c, _FILE_KEY, line_num, pricing_version="0",
-                  cost_usd=_seeded_cost() if correct else 0.5)
+            _seed(c, _FILE_KEY, line_num, SeedRecord(
+                pricing_version="0",
+                cost_usd=_seeded_cost() if correct else 0.5))
         c.commit()
 
     checks = iter([False, False, False, True])
@@ -203,8 +205,9 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
         # five stale rows: two already correct (restamp), three moved
         for line_num in range(1, 6):
             correct = line_num in (1, 2)
-            _seed(c, _FILE_KEY, line_num, pricing_version="0",
-                  cost_usd=_seeded_cost() if correct else 0.5)
+            _seed(c, _FILE_KEY, line_num, SeedRecord(
+                pricing_version="0",
+                cost_usd=_seeded_cost() if correct else 0.5))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 3
@@ -229,9 +232,9 @@ def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
     (its set-based restamp)."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0",
-              cost_usd=_seeded_cost())
-        _seed(c, _FILE_KEY, 2, pricing_version="0")
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
+        _seed(c, _FILE_KEY, 2, SeedRecord(pricing_version="0"))
         c.commit()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
@@ -257,7 +260,7 @@ def test_reprice_pass_emits_no_timing_when_off(fresh_db, caplog):
     """With CLAUDIT_TIMING unset the pass is instrumentation-free: no
     TIMING line reaches the log."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0")
+        _seed(c, _FILE_KEY, 1, SeedRecord(pricing_version="0"))
         c.commit()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):

@@ -82,16 +82,8 @@ RATE_C = {"fresh": 0.40, "create_5m": 0.40, "create_1h": 0.40,
           "read": 0.030, "output": 0.900}
 
 
-def seed_doc(*, members=None, meters=None, models=None, tracked=None,
-             providers=None, resolve=None, prefixes=None,
-             fetched="2030-01-01T00:00:00Z") -> dict:
-    """The minimal loadable seed document (issue #858): every section the
-    loaders demand plus the default estimate's row. ``members`` and
-    ``meters`` are test conveniences that fold into the one grouped
-    ``long_context_meters`` field. Callers add their own rows through the
-    keyword arguments — extra models-table rows, tracked entries, provider
-    rows, vendor resolve pins, the prefix list, and the fetch stamp — and
-    every doc they build loads for the same reason."""
+def _group_meters(members, meters) -> list[dict]:
+    """Fold test member and meter overrides into threshold groups."""
     meter_entries = {}
     for key in members or []:
         meter_entries[key] = dict((meters or {}).get(key) or {
@@ -105,12 +97,25 @@ def seed_doc(*, members=None, meters=None, models=None, tracked=None,
                    if field in entry}
         model = {key: factors} if factors else key
         by_threshold.setdefault(threshold, []).append(model)
-    grouped_meters = [
+    return [
         {"threshold": threshold,
          "models": sorted(models, key=lambda model: (
              next(iter(model)) if isinstance(model, dict) else model))}
         for threshold, models in sorted(by_threshold.items())
     ]
+
+
+def seed_doc(*, members=None, meters=None, models=None, tracked=None,
+             providers=None, resolve=None, prefixes=None,
+             fetched="2030-01-01T00:00:00Z") -> dict:
+    """The minimal loadable seed document (issue #858): every section the
+    loaders demand plus the default estimate's row. ``members`` and
+    ``meters`` are test conveniences that fold into the one grouped
+    ``long_context_meters`` field. Callers add their own rows through the
+    keyword arguments — extra models-table rows, tracked entries, provider
+    rows, vendor resolve pins, the prefix list, and the fetch stamp — and
+    every doc they build loads for the same reason."""
+    grouped_meters = _group_meters(members, meters)
     return {
         "long_context_meters": grouped_meters,
         "models": {"claude-opus-4-7": [dict(DEFAULT_ROW)],
