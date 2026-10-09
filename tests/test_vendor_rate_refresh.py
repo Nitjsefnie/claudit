@@ -311,6 +311,7 @@ def test_departing_global_multiplier_is_learned_per_model(kw):
         "models": [expected_model]}]
     assert GPT_KEY in doc["openrouter"]["models"]
     entry = _meter_for(doc, GPT_KEY)
+    assert entry is not None
     assert entry["threshold"] == long_context.LONG_CONTEXT_THRESHOLD
     if "input_mult" in kw:
         assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD,
