@@ -670,9 +670,9 @@ def _pin_novita(tag: str):
 
 
 # --- choosing the cheaper of identical twins ----------------------------------
-# BaseTen lists deepseek-v4.1-flash twice with nothing but the price to tell
-# the two apart; the file resolves it by price ORDER, which survives a price
-# moving and breaks only when the order flips.
+# BaseTen lists deepseek-v4.1-flash twice under fp8 at different prices. The
+# endpoints differ by a one-token completion-limit listing artifact; either
+# the recorded ignore or the same-quantization rule lets price order choose.
 
 
 def _baseten_twins(run: Run) -> list[dict]:
