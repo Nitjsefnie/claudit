@@ -993,11 +993,9 @@ same rules:
   only to its own row's grouping (SV-DATED-RATES).
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
-  - a host with two in-region endpoints at different prices (e.g.
-    quantization variants) and no resolution, named by tag — the
-    mechanical shapes the four automatic rules (below) resolve are
-    excepted: one of them takes the endpoint the account reaches and the
-    report records it as rule-resolved;
+  - a host with multiple in-region prices that remain ambiguous after
+    any explicit resolution, unpinned automatic rule, or eligible
+    same-quantization rule within a tag-only pin;
   - a stale resolution: a pinned tag not listed, or `cheapest` twins
     that differ beyond price, tie in price order, or have flipped
     order;
@@ -1028,9 +1026,14 @@ same rules:
   are taken to be one offering priced per region, so the rule compares
   prices and not the identity fields a recorded `cheapest` pin compares
   (that pin's `ignore` exists for a listing artifact, which is why the
-  hosts whose twins differ in a limit keep their pin). Each rule
-  fires only where no resolve entry exists for the host, and the run's
-  report records every one that fires as rule-resolved. A multi-price
+  hosts whose twins differ in a limit keep their pin). The rules normally
+  fire where no resolve entry exists. After a tag-only pin narrows to
+  multiple prices of one known quantization, rule 4 instead takes the
+  cheapest within that tag, naming the pin and rule in its report. Single
+  endpoint pins and other explicit resolutions keep precedence; every
+  other ambiguous tag-only pin refuses. Twin-switch rises are reported,
+  and ties or flips refuse. The report records every automatic choice as
+  rule-resolved. A multi-price
   shape none of them fits still refuses, as does a shape whose tags name
   two quantizations, two prices under one tag, or a region spelling with
   no global endpoint to prefer. The rules live in
@@ -1039,7 +1042,12 @@ same rules:
   needs its base pinned to stay log-backed.
 - The fix is a human decision recorded in
   `openrouter.models.<model>.resolve.<host>`, with a `why`:
-  - `{"tag": ...}` takes that tag's endpoint, whatever its region.
+  - `{"tag": ...}` narrows to that exact tag, whatever its region. If it
+    leaves one endpoint, the pin keeps precedence. If it leaves multiple
+    price groups sharing one known quantization suffix, rule 4 takes the
+    cheapest within that tag and reports `rule-resolved`, naming the pin
+    and rule; possible twin-switch rises are reported, and ties or flips
+    still refuse. Every other ambiguous tag-only pin refuses.
   - `{"select": "cheapest"}` takes the cheaper of endpoints identical in
     tag, quantization and limits, comparing cache read, then input,
     then output. Different-region suffixes remain filtered for this
