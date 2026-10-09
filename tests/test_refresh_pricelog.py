@@ -266,6 +266,17 @@ def test_region_filter_selects_one_of_two_distinct_endpoint_histories():
     assert match["Wafer"].entries[0]["fresh"] == 0.3
 
 
+def test_global_region_filter_keeps_the_configured_global_suffix():
+    global_rates, eu_rates = _rates(0.3, 0.8), _rates(0.4, 0.9)
+    match = _joined(
+        [_endpoint("Wafer", "wafer/global", global_rates),
+         _endpoint("Wafer", "wafer/eu", eu_rates)],
+        [_series(rates=global_rates), _series(rates=eu_rates)])
+
+    assert match["Wafer"].entries is not None
+    assert match["Wafer"].entries[0]["fresh"] == 0.3
+
+
 def test_a_host_listing_a_recorded_fee_is_sampled_not_log_backed():
     """The fee note is written by the sampled append path only. A host that
     listed a per-request fee and was log-backed anyway would carry no note

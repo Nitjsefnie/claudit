@@ -781,17 +781,18 @@ same rules:
 - The account is billed only by endpoints in its data region,
   `openrouter.data_region`: `global` or a lowercase region code.
   - An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`. A
-    suffix is a region when it is a known region code (`us`, `eu`,
-    `uk`, `ca`, `ap`, `asia` and the others the script lists), alone or
-    as `<region>-<area>[-<n>]`, in any case (`us-east-1`). A suffix
-    that is neither a region nor a known quantization (`fp4`, `fp8`,
-    `nvfp4`, `bf16`, …) is logged in the run's notices and refuses
-    nothing.
-  - `global` takes the endpoints with no region suffix — every suffix
-    that names no region, so `azure/global` and `google-vertex/global`
-    are listed and `google-vertex/europe` is not. `global` is
-    deliberately NOT a region code: adding it would drop the very
-    endpoints that carry it.
+    suffix is a region when it is a known region code (`global`, `us`,
+    `eu`, `uk`, `ca`, `ap`, `asia` and the others the script lists),
+    alone or qualified as `<region>-<area>`, `<region>-<area><digits>`,
+    or `<region>-<area>-<digits>`, in any case (`us-east5`,
+    `europe-west4`, `us-east-1`). A suffix that is neither a region nor
+    a known quantization (`fp4`, `fp8`, `nvfp4`, `bf16`, …) is logged in
+    the run's notices and refuses nothing.
+  - The filter admits endpoints with no recognized region suffix and
+    endpoints whose suffix names the configured region. Thus `global`
+    admits `azure/global` and `google-vertex/global`, as well as a bare
+    endpoint, and filters `google-vertex/europe`; `us` admits `/us` and
+    bare endpoints and filters `/europe`.
   - A host whose endpoints all lie outside the region is not listed for
     the account, so it is reported as vanished.
 - Endpoints are grouped by host first, so a malformed endpoint refuses
@@ -1001,15 +1002,15 @@ same rules:
   - `{"tag": ...}` takes that tag's endpoint, whatever its region.
   - `{"select": "cheapest"}` takes the cheaper of endpoints identical in
     tag, quantization and limits, comparing cache read, then input,
-    then output. Region-premium twins are dearer, so under `global` the
-    cheaper twin is the one the account reaches. The order survives
-    price moves and breaks only when it flips; twins have no identity
-    but price, so a flip is seen when the twin still at the row's price
-    is no longer cheaper, and is refused. A tracked twin crossing the
-    other between runs is indistinguishable from a genuine move and
-    shows as a rise (unless the other fell simultaneously), so every
-    rise of a `cheapest` row is appended and reported as a "possible
-    twin switch".
+    then output. Different-region suffixes are filtered before
+    selection; a configured-region endpoint and a bare alias follow the
+    data-region rule above. The order survives price moves and breaks
+    only when it flips; twins have no identity but price, so a flip is
+    seen when the twin still at the row's price is no longer cheaper,
+    and is refused. A tracked twin crossing the other between runs is
+    indistinguishable from a genuine move and shows as a rise (unless the
+    other fell simultaneously), so every rise of a `cheapest` row is
+    appended and reported as a "possible twin switch".
   - The two combine, the tag narrowing first, whatever the region. The
     choice may record `"ignore": [fields]`: non-tag identity fields
     (quantization, context_length, max_completion_tokens,

@@ -171,10 +171,10 @@ def test_a_1h_tier_round_trips_through_the_listing_inverse():
     assert refresh_prices.rates_of(listed, "h") == CLAUDE_RATES
 
 
-# --- a regional tag drops under the global filter ----------------------------
+# --- a different-region tag drops under the global filter --------------------
 
 
-def test_global_is_a_region_suffix_and_not_a_global_endpoint():
+def test_global_suffix_is_recognized_as_the_configured_region():
     assert refresh_prices.tag_region("google-vertex/europe") == "europe"
     assert refresh_prices.tag_region("google-vertex/global") == "global"
 

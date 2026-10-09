@@ -121,14 +121,14 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     row untouched, the run stays green).
 
     Endpoints are grouped by host before any is read, so a malformed one
-    refuses its own host only. A host's endpoints outside the data `region`
-    (None: global, untagged by region) are not ones the account is billed
-    by, unless the file pins that host to a tag. Endpoints at one price are
-    one row; several prices left over need a resolution in the file, or
-    that host is refused rather than guessed. `stored` is each host's
-    current rates, which is how a price-order resolution sees its order,
-    and the default a scheduled host fetched inside a window keeps; `at`
-    is the fetch instant.
+    refuses its own host only. The data-region filter admits endpoints with
+    no recognized region suffix and endpoints naming the configured region
+    (`None` represents `global`); other regions are filtered unless the file
+    pins that host to a tag. Endpoints at one price are one row; several
+    prices left over need a resolution in the file, or that host is refused
+    rather than guessed. `stored` is each host's current rates, which is how
+    a price-order resolution sees its order, and the default a scheduled
+    host fetched inside a window keeps; `at` is the fetch instant.
     """
     rows, refused, notices, untracked = {}, {}, [], {}
     for host, endpoints in _by_host(model, payload).items():
