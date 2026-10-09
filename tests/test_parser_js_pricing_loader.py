@@ -29,10 +29,9 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 
-# The model id a transcript carries, and the row key it resolves to (the
-# same shapes the real pricing.json and test_provider_rate_refresh.py use).
-MODEL_ID = "z-ai/glm-5.3-flash"
-ROW_KEY = "z-ai/glm-5-3-flash"
+# Synthetic tracked vendor id and provider-history key.
+MODEL_ID = "anthropic/synthetic-9"
+ROW_KEY = "anthropic/synthetic-9"
 HOST = "OpenInference"
 
 DAY = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3, "read": 0.03,
@@ -175,7 +174,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
       }};
       }}
       const vendorSearch = window.rateForModel
-        ? (window.rateForModel('glm-5-3-flash', null, null).search ?? 0)
+        ? (window.rateForModel({json.dumps(ROW_KEY.split('/', 1)[1])},
+                               null, null).search ?? 0)
         : null;
       console.log(JSON.stringify({{error, untouched, rates, vendorSearch}}));
     """
@@ -225,7 +225,7 @@ def test_provider_and_vendor_search_rates_load_in_python_and_both_js_paths(
     doc["openrouter"]["models"][ROW_KEY]["vendor_host"] = HOST
     tables = load_tables(doc)
     assert tables["PROVIDER_RATES"][(ROW_KEY, HOST)]["web_search"] == 0.0137
-    assert tables["VENDOR_BARE"]["glm-5-3-flash"] == ROW_KEY
+    assert tables["VENDOR_BARE"][ROW_KEY.split("/", 1)[1]] == ROW_KEY
 
     for browser in (False, True):
         out = _run(tmp_path, _render(doc), browser=browser)

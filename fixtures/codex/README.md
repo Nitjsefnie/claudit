@@ -30,7 +30,7 @@ plausible.
 | `rollout_shell_churn.jsonl` | 8 | three exec programs whose shell payloads are the churn: a `cat > ... <<'EOF'` heredoc in a `cmd` string, a `tools.monitor({command:["bash","-lc",...]})` argv array, and a plain pytest run that must count zero. No `patch_apply_end` anywhere, so it isolates text-derived churn from the journalled kind |
 | `rollout_patch_subagent.jsonl` | 12 | a `patch_apply_end` with **no** `apply_patch` tool call anywhere in the file — a subagent's edit, which the parent rollout journals without the call that made it |
 | `rollout_item_completed.jsonl` | 15 | the post-2026-08-18 spelling: two `item_completed` `FileChange` items — one linked to an `apply_patch` call by turn, one `status: "failed"` and one unlinked — carrying all three change types (`update` with a `unified_diff`, `add` and `delete` with `content`), plus two `AgentMessage` items in place of `agent_message`. No `patch_apply_end` and no `event_msg/agent_message`, because no real file mixes the spellings |
-| `rollout_web_search.jsonl` | 4 | one `response_item` `web_search_call` with an `id`, `status`, and `action: {type: "search", query: ...}`, followed by the reply's `token_count`; one response item is one billable search call |
+| `rollout_web_search.jsonl` | 5 | one `response_item` `web_search_call` with an `id`, `status`, and `action: {type: "search", query: ...}`, followed by two cumulative `token_count` replies; the count is 1 on the first reply and NULL on the second, proving it resets |
 
 ## Invariants an edit must preserve
 
