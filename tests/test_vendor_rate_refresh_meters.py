@@ -7,8 +7,8 @@ import pytest
 
 from tests.test_vendor_rate_refresh import (
     GPT_ID, GPT_KEY, RATE_FIELDS, RATES, STAMP, TRACKED, MainRun,
-    _band, _catalog, _doc, _endpoint, _load, _main_doc, _per_token, _run,
-    _payload, _price, vendor,
+    _band, _catalog, _doc, _endpoint, _load, _main_doc, _meter_for,
+    _per_token, _run, _payload, _price, vendor,
 )
 
 
@@ -33,8 +33,7 @@ def test_band_with_inconsistent_cache_ratio_is_not_silently_folded(
     assert f"base {base_rate:g}" in reason and f"band {band_rate:g}" in reason
     assert "implied factor x7" in reason
     assert "meter factor x5" in reason
-    assert GPT_KEY not in doc["long_context_models"]
-    assert GPT_KEY not in doc["long_context_meters"]
+    assert _meter_for(doc, GPT_KEY) is None
 
 
 def test_main_unrepresentable_cache_band_refuses_the_refresh(
@@ -77,8 +76,9 @@ def test_main_reprices_provider_row_when_its_band_factors_change(
     assert {field: history[-1][field] for field in RATE_FIELDS} == {
         "fresh": 2.0, "create_5m": 2.5, "create_1h": 4.0,
         "read": 0.2, "output": 10.0}
-    assert updated["long_context_meters"][GPT_KEY] == {
-        "threshold": 100_000, "input_mult": 6.0, "output_mult": 3.0}
+    assert updated["long_context_meters"] == [{
+        "threshold": 100_000,
+        "models": [{GPT_KEY: {"input_mult": 6.0, "output_mult": 3.0}}]}]
 
 
 def test_existing_meter_rewrite_report_keeps_meter_on():

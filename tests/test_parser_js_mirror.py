@@ -31,8 +31,8 @@ class TestNodeHarnessesLoadLanes:
     """A node harness that drives parser.js or rates.js over the LIVE
     pricing.json must require parser-lanes.js: rates.js's
     longContextFlagFor calls window.longContextThresholdFor, which
-    parser-lanes.js defines, and the call is reached only once
-    long_context_models is non-empty, so the absence stayed invisible
+    parser-lanes.js defines, and the call is reached only once the grouped
+    long_context_meters field includes a member, so the absence stayed invisible
     until the first live fold (issue #860). The browser always loads
     the module (public/index.html, script order); this pins the
     harnesses to the browser's own dependency, at any require order.

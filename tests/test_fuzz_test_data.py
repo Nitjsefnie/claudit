@@ -268,7 +268,7 @@ def test_a_document_with_no_rate_rows_is_refused(monkeypatch, tmp_path):
     empty = json.dumps({
         "models": {}, "providers": {},
         "provider_rates_fetched": DOC_MAX_STAMP,
-        "long_context_models": [],
+        "long_context_meters": [],
     })
     monkeypatch.setattr(fuzz_module, "restore_baseline",
                         _fake_restore(empty, pricing_path))

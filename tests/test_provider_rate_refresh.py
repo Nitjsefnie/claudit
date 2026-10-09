@@ -100,13 +100,15 @@ def _seeded(doc: dict) -> dict:
                                    for model, entry in
                                    doc["openrouter"]["models"].items()
                                    if model not in vendor_keys}
-    doc["long_context_models"] = [m for m in doc["long_context_models"]
-                                  if m not in vendor_keys]
-    # The per-model meters ride their members: a meter for a dropped row
-    # would refuse the loaders (a meters key names a member).
-    doc["long_context_meters"] = {
-        key: value for key, value in doc.get("long_context_meters", {}).items()
-        if key not in vendor_keys}
+    # The grouped meter field carries membership and threshold together.
+    # Drop vendor members and remove groups that no longer have a member.
+    doc["long_context_meters"] = [
+        {**group, "models": [model for model in group["models"]
+                            if (model if isinstance(model, str)
+                                else next(iter(model))) not in vendor_keys]}
+        for group in doc["long_context_meters"]
+        if any((model if isinstance(model, str) else next(iter(model)))
+               not in vendor_keys for model in group["models"])]
     providers = {}
     for model, hosts in doc["providers"].items():
         if model.startswith(FUZZ_RESERVED_NAMESPACE):
