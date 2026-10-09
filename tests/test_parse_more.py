@@ -566,7 +566,7 @@ def test_search_requests_fold_into_parse_cost_without_a_fee_column(monkeypatch):
                               "output": 300}
     assert search_rec["cost_usd"] == round(pricing.compute_cost(
         search_rec["model"], ts=search_rec["ts"], **tokens,
-        web_search_requests=3,
+        adjustments=pricing.CostAdjustments(web_search_requests=3),
         res=pricing.resolve(search_rec["model"],
                             search_rec["ts"], "SearchHost")), 6)
     assert bare["cost_usd"] == pytest.approx(round(

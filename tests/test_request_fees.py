@@ -32,5 +32,7 @@ def test_legacy_fee_note_is_not_a_rate_or_cost(monkeypatch):
     assert resolved.rates.get("web_search", 0) == 0
     assert pricing.compute_cost(
         "acme/acme-9", fresh=0, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, web_search_requests=3, res=resolved,
+        unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(web_search_requests=3),
+        res=resolved,
     ) == pytest.approx(0)

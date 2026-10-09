@@ -48,6 +48,7 @@ table existed.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
@@ -418,6 +419,13 @@ def rate_for(model: str | None, ts: datetime | None = None,
     return resolve(model, ts, provider).rates
 
 
+@dataclass(frozen=True)
+class CostAdjustments:
+    """Optional whole-request cost adjustments beyond the token tally."""
+    long_context: bool = False
+    web_search_requests: int | None = None
+
+
 def compute_cost(
     model: str | None,
     *,
@@ -428,9 +436,8 @@ def compute_cost(
     unsplit_create: int,
     read: int,
     ts: datetime | None = None,
-    long_context: bool = False,
-    web_search_requests: int | None = None,
     res: "Resolution | None" = None,
+    adjustments: CostAdjustments = CostAdjustments(),
 ) -> float:
     """USD cost for one request's token tally.
 
@@ -442,8 +449,8 @@ def compute_cost(
     98.7% of their cache at 1h, and 5m is the subagent exception (96% of
     all 5m writes). See SV-COST-SPLIT.
 
-    long_context applies model factors (defaulting to global factors) to
-    the whole request. Codex records above threshold set it per record
+    `adjustments` applies the optional whole-request multiplier and search
+    fee. Codex records above threshold set long_context per record
     (issue #194); Kimi has no such tier.
 
     Web-search calls are billed at the record's explicit per-search rate
@@ -454,12 +461,12 @@ def compute_cost(
         res = resolve(model, ts)
     r = res.rates
     in_mult, out_mult = (long_context_factors(model)
-                         if long_context else (1.0, 1.0))
+                         if adjustments.long_context else (1.0, 1.0))
     return (
         fresh * r["fresh"] * in_mult / 1_000_000
         + eph5 * r["create_5m"] * in_mult / 1_000_000
         + (eph1h + unsplit_create) * r["create_1h"] * in_mult / 1_000_000
         + read * r["read"] * in_mult / 1_000_000
         + output * r["output"] * out_mult / 1_000_000
-        + (web_search_requests or 0) * r.get("web_search", 0.0)
+        + (adjustments.web_search_requests or 0) * r.get("web_search", 0.0)
     )

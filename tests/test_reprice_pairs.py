@@ -200,7 +200,8 @@ def test_clean_bump_restamps_set_based_without_reading_rows(
                 c, model, line, 10_000,
                 fp=rate_fingerprint.pair_fingerprint(model, provider),
                 cost=round(pricing.compute_cost(
-                    model, **_SEED_INPUTS, ts=_SEED_TS, long_context=False,
+                    model, **_SEED_INPUTS, ts=_SEED_TS,
+                    adjustments=pricing.CostAdjustments(long_context=False),
                     res=pricing.resolve(model, _SEED_TS, provider)), 6),
                 provider=provider)
             line += 10_000
@@ -303,7 +304,7 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
     cost_a = _seeded_cost()
     cost_b = round(pricing.compute_cost(
         _B_PAIR_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        long_context=False), 6)
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)
     with db.viz_conn() as c:
         _seed_block(c, _SEED_MODEL, 1, 5, fp=fp_a, cost=cost_a)
         _seed_block(c, _B_PAIR_MODEL, 11, 5, fp=fp_b, cost=cost_b)
@@ -342,7 +343,7 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
         if line_num <= 5:
             assert float(row_cost) == round(pricing.compute_cost(
                 _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-                long_context=False), 6), (
+                adjustments=pricing.CostAdjustments(long_context=False)), 6), (
                 "pair A repriced under the window")
         else:
             assert float(row_cost) == cost_b, "pair B's cost is untouched"
@@ -481,7 +482,7 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
     not clean-restamped."""
     cost = round(pricing.compute_cost(
         _METER_377, **_SEED_INPUTS, ts=_SEED_TS,
-        long_context=False), 6)
+        adjustments=pricing.CostAdjustments(long_context=False)), 6)
     # flag FALSE explicitly: the meter re-derivation keeps a NULL flag
     # whatever the rule does (issue #249), so a NULL-seeded row would
     # prove nothing.
@@ -578,7 +579,8 @@ def _seed_skip_fixture(c, *, with_escapee: bool) -> None:
             c, model, line, 10_000,
             fp=rate_fingerprint.pair_fingerprint(model, provider),
             cost=round(pricing.compute_cost(
-                model, **_SEED_INPUTS, ts=_SEED_TS, long_context=False,
+                model, **_SEED_INPUTS, ts=_SEED_TS,
+                adjustments=pricing.CostAdjustments(long_context=False),
                 res=pricing.resolve(model, _SEED_TS, provider)), 6),
             provider=provider)
         line += 10_000

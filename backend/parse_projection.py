@@ -36,8 +36,10 @@ def _project_record(file_key: str, ev: dict) -> dict:  # pylint: disable=too-man
         unsplit_create=max(0, create - eph5 - eph1h), read=read,
         # Dated rates apply to when the tokens were spent, not to
         # when this file happens to be parsed.
-        long_context=bool(long_context),
-        web_search_requests=web_search_requests,
+        adjustments=pricing.CostAdjustments(
+            long_context=bool(long_context),
+            web_search_requests=web_search_requests,
+        ),
         res=res,
     )
     return {

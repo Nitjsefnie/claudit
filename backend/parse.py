@@ -15,7 +15,7 @@ from datetime import datetime
 
 from orjson import JSONDecodeError, loads
 
-from backend import pricing, parse_lanes
+from backend import parse_lanes
 from backend.agent_types import canonical_agent_type
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
