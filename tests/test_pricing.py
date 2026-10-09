@@ -185,8 +185,8 @@ def test_compute_cost_prices_fresh_at_the_fresh_rate():
 def test_compute_cost_applies_grouped_adjustments(
         monkeypatch: pytest.MonkeyPatch) -> None:
     model = "acme/adjustments-9"
-    rates = dict.fromkeys(pricing.RATE_FIELDS, 0.0)
-    rates.update(fresh=1.0, output=2.0, web_search=0.25)
+    rates: dict[str, float] = dict.fromkeys(pricing.RATE_FIELDS, 0.0)
+    rates.update({"fresh": 1.0, "output": 2.0, "web_search": 0.25})
     monkeypatch.setattr(pricing, "MODEL_RATES", {model: rates})
     monkeypatch.setattr(pricing, "DATED_RATES", {})
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
