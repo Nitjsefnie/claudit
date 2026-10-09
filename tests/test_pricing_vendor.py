@@ -55,6 +55,7 @@ PKEY = "acme/glm-acme-9"       # prefixed tracked key: bare form glm-acme-9
 BARE = "glm-acme-9"
 HOST = "AcmeHost"
 ROUTER_HOST = "RouterHost"
+DATED_ROUTER_HOST = "DatedRouterHost"
 PREFIXED_BARE = f"acme/{BARE}"
 FEE_NOTE = ("web_search $0.01/request not modelled: per-request, "
             "unpriceable from token counts")
@@ -113,6 +114,7 @@ def _bare_id_doc():
     doc["providers"][BARE] = {
         HOST: [_entry(R_OLD), _entry(R_NEW, STAMP)],
         ROUTER_HOST: [_entry(R_OLD)],
+        DATED_ROUTER_HOST: [_entry(R_OLD), _entry(R_NEW, STAMP)],
     }
     return doc
 
@@ -514,6 +516,14 @@ def test_vendor_boundaries_for_a_prefixed_bare_form(monkeypatch):
     _install(monkeypatch, _bare_id_doc())
     from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
     assert rate_boundaries(PREFIXED_BARE, None) == [CUT]
+
+
+def test_vendor_boundaries_for_a_prefixed_provider_pair(monkeypatch):
+    _install(monkeypatch, _bare_id_doc())
+    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
+    prefixed = rate_boundaries(PREFIXED_BARE, DATED_ROUTER_HOST)
+    assert prefixed == [CUT]
+    assert prefixed == rate_boundaries(BARE, DATED_ROUTER_HOST)
 
 
 def test_vendor_boundaries_honor_a_start(monkeypatch):
