@@ -238,10 +238,8 @@ def _rowless_default_doc() -> dict:
     return doc
 
 
-def test_notice_leaves_a_tracked_entry_and_member_untouched():
-    """The not-tracked contract's second half: a model with a tracked entry
-    and meter membership whose source turns untracked keeps both, byte for
-    byte."""
+def test_refusal_leaves_a_tracked_entry_and_member_untouched():
+    """A weekly schedule refuses while keeping the model's state intact."""
     banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
                     overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                                      write_1h=2.0)])
@@ -256,8 +254,8 @@ def test_notice_leaves_a_tracked_entry_and_member_untouched():
     after, out = _run(
         before,
         _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", scheduled))})
-    assert out.refusals == [] and len(out.notices) == 1
-    assert "not tracked" in out.notices[0]
+    assert len(out.refusals) == 1 and not out.notices
+    assert "weekly schedule" in out.refusals[0]
     assert after["openrouter"]["models"][GPT_KEY] == TRACKED
     assert GPT_KEY in after["long_context_models"]
     assert out.moves == []

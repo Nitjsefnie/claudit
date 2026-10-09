@@ -96,17 +96,17 @@ def _empty_model_entry(model: str) -> dict:
 
 def _accumulate_buckets(entry: dict, rates: dict, fresh: int, cc: int,
                         cr: int, output: int, eph5: int, eph1h: int,
-                        unsplit: int, long_context: bool = False) -> None:
+                        unsplit: int, long_context: bool = False,
+                        model: str | None = None) -> None:
     """Price one row's tokens into the entry's per-epoch cost buckets.
 
-    long_context applies the Codex long-context meter exactly as
-    pricing.compute_cost stores it (2x the whole input side, 1.5x
-    output), so a row billed on that meter keeps its buckets summing to
-    the stored cost_total.
+    long_context applies the model's factors exactly as
+    pricing.compute_cost stores them, so a row billed on that meter keeps
+    its buckets summing to the stored cost_total.
     """
     b = entry["_buckets"]
-    in_mult = (pricing.LONG_CONTEXT_INPUT_MULT if long_context else 1.0)
-    out_mult = (pricing.LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0)
+    in_mult, out_mult = (pricing.long_context_factors(model)
+                         if long_context else (1.0, 1.0))
     b["fresh"] += fresh * rates["fresh"] * in_mult / 1_000_000
     b["create_5m"] += eph5 * rates["create_5m"] * in_mult / 1_000_000
     # An undeclared TTL is priced as 1h, exactly as pricing.compute_cost
@@ -144,8 +144,11 @@ def _accumulate_model_row(
         entry[field] += value
     stored = float(row[11] or 0)
     entry["cost_total"] += stored
+    # The SQL group includes model; its per-model factor pair is constant
+    # within this row and stays separate from every other meter pair.
     _accumulate_row_buckets(entry, res, tokens, bool(row[3]), stored,
-                            scaled=res.scheduled or bool(res.request_fee))
+                            scaled=res.scheduled or bool(res.request_fee),
+                            model=model)
 
 
 def _model_row_pricing(
@@ -166,7 +169,8 @@ def _model_row_pricing(
 
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
                             long_context: bool, stored: float,
-                            scaled: bool = False) -> None:
+                            scaled: bool = False,
+                            model: str | None = None) -> None:
     """Price one fold row's tokens into the entry's buckets.
 
     A scheduled row's records were priced by their own time of day, which
@@ -182,7 +186,7 @@ def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,
         target, res.rates, tokens["fresh"], tokens["cache_create"],
         tokens["cache_read"], tokens["output"], tokens["eph5"], tokens["eph1h"],
         max(0, tokens["cache_create"] - tokens["eph5"] - tokens["eph1h"]),
-        long_context)
+        long_context, model)
     if target is not entry:
         derived = sum(target["_buckets"].values())
         scale = stored / derived if derived else 1.0

@@ -1,12 +1,12 @@
-"""Per-model long-context thresholds (issue #765).
+"""Per-model long-context meter thresholds and factors (issue #878).
 
-long_context_meters maps a member key to {"threshold": N}; a member
-without an entry keeps the global 272k. A Claude-format record of a
-member above its model's own threshold bills the band and carries the
-flag; every other Claude-format row keeps the NULL marker (issue
-#249's reprice-equals-reparse law forces the decision into the parse
-path). The Codex lane and the reprice re-derivation read the same
-threshold.
+long_context_meters maps a member key to {"threshold": N} with optional
+input/output factors; a member without an entry keeps the global defaults.
+A Claude-format record of a member above its model's own threshold bills
+the band and carries the flag; every other Claude-format row keeps the
+NULL marker (issue #249's reprice-equals-reparse law forces the decision
+into the parse path). The Codex lane and the reprice re-derivation read the
+same threshold.
 """
 from __future__ import annotations
 
@@ -31,9 +31,12 @@ RATES = {"fresh": 3.0, "create_5m": 3.75, "create_1h": 6.0, "read": 0.3,
          "output": 15.0}
 
 MEMBERS = frozenset({"gpt-5-6-sol", MEMBER})
-# The LOADED table's shape: the loader folds the file's
-# {"threshold": N} values to the flat key -> int map the lookups read.
-METERS = {MEMBER: THRESHOLD}
+# The LOADED table keeps the complete per-model meter entry. The rates
+# and factors are synthetic so no assertion can be mistaken for a live
+# pricing fact (SV-TEST-DATA).
+METERS = {
+    MEMBER: {"threshold": THRESHOLD, "input_mult": 5.0, "output_mult": 5.0},
+}
 
 
 def _install_tables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,6 +71,28 @@ def test_meter_flag_decides_per_model(monkeypatch):
     assert pricing.meter_flag(MEMBER, 1_000) is False
     # A non-member keeps the NULL marker whatever its tally.
     assert pricing.meter_flag("claude-opus-4-7", 10_000_000) is None
+
+
+def test_compute_cost_uses_the_models_meter_factors(monkeypatch):
+    _install_tables(monkeypatch)
+    assert pricing.long_context_factors(MEMBER) == (5.0, 5.0)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
+        **METERS, "gpt-5-6-sol": {"threshold": 200_000}})
+    assert pricing.long_context_factors("gpt-5.6-sol") == (
+        pricing.LONG_CONTEXT_INPUT_MULT, pricing.LONG_CONTEXT_OUTPUT_MULT)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", METERS)
+
+    got = pricing.compute_cost(
+        MEMBER, fresh=100_000, output=2_000, eph5=20_000, eph1h=30_000,
+        unsplit_create=40_000, read=10_000, long_context=True)
+    expected = (
+        100_000 * RATES["fresh"] * 5.0
+        + 20_000 * RATES["create_5m"] * 5.0
+        + 70_000 * RATES["create_1h"] * 5.0
+        + 10_000 * RATES["read"] * 5.0
+        + 2_000 * RATES["output"] * 5.0
+    ) / 1_000_000
+    assert got == pytest.approx(expected)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +168,7 @@ def test_the_codex_lane_decides_on_the_model_threshold(monkeypatch):
     assert out["records"][0]["long_context"] is False
     # The model's own meter pulls the band down to 200k.
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
-                        {**METERS, "gpt-5-6-sol": 200_000})
+                        {**METERS, "gpt-5-6-sol": {"threshold": 200_000}})
     out = parse.parse_file("codex/t2.jsonl", blob)
     assert out["records"][0]["long_context"] is True
 
@@ -169,6 +194,9 @@ def test_reprice_derives_the_flag_from_the_model_threshold(monkeypatch):
     # would store — not kept flat.
     learned = _record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, None))
     assert learned["long_context"] is True
+    assert learned["cost_usd"] == pytest.approx(
+        (205_000 * RATES["fresh"] * 5.0
+         + 100 * RATES["output"] * 5.0) / 1_000_000)
     above = _record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, False))
     assert above["long_context"] is True
     below = _record_updates(_stale_row(MEMBER, 5_000, False))
@@ -213,10 +241,14 @@ def test_reprice_unbills_a_lapsed_members_stored_true(monkeypatch):
 
 def test_the_fingerprint_covers_the_meters(monkeypatch):
     monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", MEMBERS)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
+        MEMBER: {"threshold": THRESHOLD, "input_mult": 5.0,
+                 "output_mult": 5.0}})
     rate_fingerprint.clear_fingerprint_cache()
     before = rate_fingerprint.pair_fingerprint(MEMBER, None)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", METERS)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
+        MEMBER: {"threshold": THRESHOLD, "input_mult": 6.0,
+                 "output_mult": 5.0}})
     rate_fingerprint.clear_fingerprint_cache()
     assert rate_fingerprint.pair_fingerprint(MEMBER, None) != before
 

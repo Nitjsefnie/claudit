@@ -36,7 +36,9 @@ fails on drift; the lane browser test fails when
 `LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`, or
 when the loader's `window.longContextModels` / `window.longContextMeters`
 stop matching the file's `long_context_models` / `long_context_meters`
-(the per-model thresholds, issue #765).
+(the per-model membership and complete meter entries, issue #878), or
+when `window.longContextFactorsFor(model)` stops matching
+`pricing.long_context_factors(model)`.
 
 Resolve a discrepancy against this spec and the fixtures: fix the side
 that departs. If the spec itself is wrong, change it here, in both
@@ -658,13 +660,15 @@ that is what the app serves. No rate literal belongs in either source
 file.
 
 Beside the tables sits `long_context_meters`: a map of
-`long_context_models` member keys to exactly `{"threshold": N}` for a
-positive integer N — the model's own long-context threshold (issue
-#765), an override of `pricing.LONG_CONTEXT_THRESHOLD`; a member absent
-from the map keeps the global default, a key naming no member is
-refused, and the meter thresholds ride the reprice pass's
-rate_fingerprint. Both loaders validate and fold it (the browser to
-`window.longContextMeters`).
+`long_context_models` member keys to `{"threshold": N,
+"input_mult"?: M, "output_mult"?: M}`. The threshold is a positive
+integer; each optional multiplier is a finite positive number. These
+override `pricing.LONG_CONTEXT_THRESHOLD`,
+`LONG_CONTEXT_INPUT_MULT`, and `LONG_CONTEXT_OUTPUT_MULT` independently.
+A member absent from the map keeps all three global defaults, a key naming
+no member is refused, and the complete meter entries ride the reprice
+pass's rate_fingerprint. Both loaders validate and fold them (the browser
+to `window.longContextMeters`).
 
 Each row's history is append-only, oldest first. Every entry carries
 five finite non-negative rates (`fresh`, `create_5m`, `create_1h`,
@@ -924,8 +928,8 @@ same rules:
   `from: None` and the row keeps covering every record: only a row whose
   FIRST entry names an instant stops existing before it.
 - **Unmodelled pricing refuses the host, unless it is a RECORDED fee:**
-  an override kind the script does not model (e.g. a `min_prompt_tokens`
-  tier), or any other pricing key at a nonzero price. The one exception
+  an override kind the script does not model, or any other pricing key at
+  a nonzero price. The one exception
   is `web_search`, a per-request fee no token count can price: it
   enters no rate, and is written into the row's `note` with its unit
   beside any discount note, so the row says what it cannot price
@@ -1058,37 +1062,37 @@ pass moved.
   resolves through its provider row; an untracked normalized remainder
   stays unchanged and follows the existing fallback (Claude-family tier
   when matched, otherwise default), never a prefixed vendor row.
-- **An already-tracked entry is never re-added or rewritten.** The listing
-  of a tracked key is still fetched and selected — for the membership fold
-  — but the entry stands byte for byte and the pass appends nothing
-  anywhere. Entries with no vendor source (a models-table key such as
+- **An already-tracked table entry is never re-added or rewritten.** The
+  listing of a tracked key is still fetched and selected for its meter
+  membership and factor fold, but the tracked table entry stands byte for
+  byte. Entries with no vendor source (a models-table key such as
   bonsai-2-27b, or a tracked entry without vendor_host — aliases, the
   delisted) stand untouched, and a quiet source writes nothing.
-- **The long-context band folds to the meter at the band's own
-  threshold.** A `min_prompt_tokens` override whose multipliers equal the
-  meter's (`INPUT_MULT` / `OUTPUT_MULT`) is the meter (issue #765): it sets
-  `long_context_models` membership and lands the band's own threshold in
-  `long_context_meters` (a member key's `{"threshold": N}` override of the
-  global default; a member absent from the map keeps
-  `pricing.LONG_CONTEXT_THRESHOLD`), and contributes NO rates: the band's
-  own rates never enter anything the pass writes. Membership and threshold
-  follow the listing for vendor-tracked keys (a member requires its tracked
-  entry, which the same run adds); non-vendor keys stand untouched; a
-  threshold move rewrites the meter. A band departing the meter's
-  multipliers is NOT TRACKED — the notice rule below.
-- **An unmodelled shape is a NOTICE, never red.** The pass notices it as
-  "not tracked: <reason>" and moves on: no entry is created and no existing
-  entry or membership is touched. Red is reserved for ambiguity a human
-  must resolve (multi-price without a pin, a stale or malformed recorded
-  pin) and for broken or unrecognised fetches — each clearing on a human
-  action or a retry, never standing every hour.
+- **The long-context band folds to the meter at the band's own threshold
+  and multipliers.** A `min_prompt_tokens` override yields its input/output
+  factors from the band's prices (issue #878) and contributes NO rates:
+  the band's own rates never enter anything the pass writes. Its threshold
+  and factors land in `long_context_meters`; factors equal to the global
+  defaults are omitted. Membership, threshold, and factors follow the
+  listing for vendor-tracked keys (a member requires its tracked entry,
+  which the same run adds); non-vendor keys stand untouched. A threshold
+  or factor move rewrites the meter, and a band that disappears removes
+  membership and its meter entry.
+- **An unmodelled vendor shape refuses the run.** The vendor pass refuses
+  a first-party listing it cannot represent, leaving that model untouched.
+  This includes weekly schedules, unknown override kinds or nonzero pricing
+  keys, unparseable fees, multiple bands, bands that do not restate input
+  and output, invalid thresholds, and bands mixed with UTC fields. The two
+  notices remain a catalog the pass cannot read and a model with no
+  first-party endpoint. Multi-price ambiguity without a pin, a stale or
+  malformed pin, and broken or unrecognised fetches also refuse.
 - **A fee on the listing is the provider row's provenance.** A RECORDED_FEE
   (web_search) on a first-party listing blocks nothing: the pass writes no
   rates, and the fee note lands on the `(key, vendor_host)` row the
   provider pass carries, beside the rates it never enters. A fee value the
-  table could not parse stays a not-tracked notice. Discount notes as
-  provider rows.
-- **A weekly schedule is not tracked** (notice): the price the pass
+  table could not parse refuses the vendor pass. Discount notes as provider
+  rows.
+- **A weekly schedule refuses the vendor pass:** the price the pass
   compared is a window price at fetch time, the same reason the provider
   pass refuses a first-seen scheduled host inside one; the model is not
   tracked until the pass can select an actual default.

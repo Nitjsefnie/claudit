@@ -174,9 +174,9 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
 -- 2026-09-22: the long-context meter, per record; issue #765: per-model
--- thresholds (pricing.json's long_context_meters), and Claude-format rows
--- of a meter member carry the flag. A request above ITS model's threshold
--- bills the WHOLE request at 2x input side / 1.5x output
+-- thresholds and optional per-model factors in pricing.json's
+-- long_context_meters. Requests above their model threshold bill at that
+-- model's input/output factors (global defaults otherwise).
 -- (pricing.LONG_CONTEXT_*_MULT), whatever plan served it (issue #194), so
 -- a per-component cost re-derived from the flat tokens disagrees with the
 -- stored cost_usd unless the fold knows the flag.

@@ -1,17 +1,5 @@
-"""The browser parses every transcript format the backend does.
-
-Task 2 taught backend.parse.parse_file to sniff Codex and Kimi wires; the
-Inspector still parsed only Claude transcripts in the browser. This drives
-the REAL src/parser-lanes.js + src/parser.js pair through node — the same
-way test_parser_js_mirror.py drives parser.js — and asserts the browser's
-per-record token totals equal backend.parse.parse_file's, so the
-Inspector's numbers are the stored numbers.
-
-Sniff parity is asserted the same way: the browser's format sniff must
-agree with parse.sniff_format on every lane fixture AND on the awkward
-blobs test_parse_lanes.py pins (a Claude line with a string "message",
-a kimi-code llm.error line whose "message" is a string, and the
-unidentified catch-all).
+"""Run browser lane parsing through Node and compare records/costs with
+the backend, including per-model long-context meters.
 """
 from __future__ import annotations
 
@@ -37,15 +25,11 @@ FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
 
-# Every Task 2 lane fixture: the three the sniff tests use plus the
-# ported fixtures the backend Codex/Kimi parsers are tested against.
+# Lane fixtures used by backend parser tests.
 LANE_FIXTURES = [
     FIX_PARSER / "codex_min.jsonl",
     FIX_PARSER / "codex_user_xml.jsonl",
-    # rollout_fork_prefix.jsonl is deliberately excluded: it declares no
-    # model at all, so the backend refuses it (issue #653) and there is
-    # nothing for the parity sweep to agree on — its browser pin is
-    # test_a_browser_parse_never_labels_a_model_unknown below.
+    # The unattributed rollout has a separate browser null-model pin.
     *[p for p in sorted(FIX_CODEX.glob("*.jsonl"))
       if p.name != "rollout_fork_prefix.jsonl"],
     *sorted(FIX_PARSER.glob("kimi_*.jsonl")),
@@ -99,9 +83,7 @@ def _browser_lane_output() -> dict:
       }}
       console.log(JSON.stringify(out));
     """
-    # The script goes over STDIN, not -e: it embeds every lane fixture's
-    # text, and Windows refuses a CreateProcess command line over 32k
-    # characters (WinError 206) where POSIX ARG_MAX never notices.
+    # STDIN avoids Windows' CreateProcess 32k command-line limit.
     proc = subprocess.run(
         ["node"], input=script, capture_output=True, text=True, timeout=120,
         check=False,  # Return code checked by hand on the next line.
@@ -124,11 +106,7 @@ def _backend_records(name: str) -> list[dict]:
 
 
 def _long_context_blob(plan_type: str | None) -> bytes:
-    """One Codex request at 300k prompt tokens — over the 272k threshold.
-
-    Built inline: fixtures/parser files must stay under 1 KB, and no
-    committed fixture carries a request this large.
-    """
+    """One inline 300k Codex request; large fixtures stay out of parser/."""
     usage = {
         "input_tokens": 300_000, "cached_input_tokens": 290_000,
         "cache_write_input_tokens": 0, "output_tokens": 2_000,
@@ -143,8 +121,7 @@ def _long_context_blob(plan_type: str | None) -> bytes:
          "payload": {"type": "token_count",
                      "info": {"total_token_usage": usage,
                               "last_token_usage": usage},
-                     # plan_type rides the payload's rate_limits (backend
-                     # reads payload.rate_limits.plan_type).
+                     # Backend reads plan_type from payload.rate_limits.
                      **({"rate_limits": {"plan_type": plan_type}}
                         if plan_type else {})}},
     ]
@@ -177,8 +154,7 @@ def _node_long_context(plan_type: str | None) -> dict:
 
 
 def _node_long_context_shape(blob: str, meters: dict) -> list:
-    """The codex lane's long_context flags for one blob, under injected
-    per-model meters (issue #765)."""
+    """Codex long_context flags under injected per-model meters."""
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
@@ -216,11 +192,11 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
 
 APP_JSX = ROOT / "src" / "app.jsx"
 CTX_INPUT_JS = ROOT / "src" / "ctx-input.js"
+TOKEN_BREAKDOWN_JS = ROOT / "src" / "token-breakdown.js"
 
 
 def _token_breakdown_source() -> str:
-    """The breakdown fold verbatim (node cannot parse JSX; the fold left
-    app.jsx for its own module when issue #469's fee fold grew it)."""
+    """Read the standalone Token Breakdown fold (Node cannot parse JSX)."""
     return (ROOT / "src" / "token-breakdown.js").read_text(encoding="utf-8")
 
 
@@ -234,7 +210,7 @@ _NAIVE_LANE_BLOB = (
 
 
 class TestNodeDrivenLaneParsers:
-    # Every test below drives node; the class mark is the file's node skip (#746).
+    # Node-backed tests skip together when Node is unavailable.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
@@ -252,9 +228,7 @@ class TestNodeDrivenLaneParsers:
             assert got["output"] == want["output_tokens"], f"{label}: output"
             assert got["thinking_tokens"] == want["thinking_tokens"], (
                 f"{label}: thinking_tokens")
-            # Exact: the browser mirrors pricing.compute_cost's operation
-            # order (per-term division) and Python's round(x, 6), so each
-            # record's derived cost IS the stored cost_usd double.
+            # Match the backend's term order and per-record rounding.
             assert got["cost"] == want["cost_usd"], f"{label}: cost"
 
     @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
@@ -265,22 +239,14 @@ class TestNodeDrivenLaneParsers:
         assert browser["create"] == sum(r["cache_creation_tokens"] for r in backend)
         assert browser["read"] == sum(r["cache_read_tokens"] for r in backend)
         assert browser["output"] == sum(r["output_tokens"] for r in backend)
-        # Exact: the browser mirrors pricing.compute_cost's operation order
-        # (per-term division) and Python's round(x, 6), so every record's
-        # derived cost IS the stored double (asserted per record above). The
-        # total then depends only on summation: the browser accumulates
-        # naively, CPython's sum() is Neumaier-compensated and may land one
-        # ulp away, so sum here the way the browser does — left to right.
+        # Sum left to right like the browser; CPython sum may differ by an ulp.
         total = 0.0
         for r in backend:
             total += r["cost_usd"]
         assert browser["cost"] == total
 
     def test_a_settings_only_model_switch_labels_the_following_request(self):
-        """A switch carried by thread_settings_applied alone, with the next
-        request before any turn_context re-declares: both parsers must label
-        the request gpt-5.6-terra. rollout_model_switch.jsonl has no
-        token_count in that window, so the parity sweep missed it."""
+        """A settings-only switch labels the next request in both parsers."""
         blob = (FIX_CODEX / "rollout_settings_switch.jsonl").read_bytes()
         backend = parse.parse_file("codex/settings_switch.jsonl", blob)["records"]
         assert len(backend) == 1
@@ -293,9 +259,7 @@ class TestNodeDrivenLaneParsers:
         assert browser[0]["line"] == 3
 
     def test_a_browser_parse_never_labels_a_model_unknown(self):
-        """The mirror of the backend's refusal (issue #653): the browser has
-        no ingest to fail loudly, so a transcript that cannot attribute keeps
-        a null model — but never the `unknown` placeholder."""
+        """An unattributed browser record keeps null, never 'unknown'."""
         text = (FIX_CODEX / "rollout_fork_prefix.jsonl").read_text(encoding="utf-8")
         script = f"""
           global.window = {{}};
@@ -316,12 +280,7 @@ class TestNodeDrivenLaneParsers:
         assert all(m != "unknown" for m in models)
 
     def test_model_ids_survive_verbatim_in_both_parsers(self):
-        """No relabelling table, no flagship fallback (issue #471): each model
-        the transcript names survives verbatim after spelling normalisation —
-        in the browser exactly as in the backend. sol stays sol (a visible
-        estimate at the fallback rates), gpt-6.1-sol prices at its own row,
-        and the missing-separator spelling folds. Each model's token_count
-        advances every counter, or differencing reads it as a duplicate."""
+        """Model switches keep their normalized id in both parsers."""
         def _turn(second: int, model: str) -> dict:
             return {"timestamp": f"2026-06-14T12:00:{second:02d}.000Z",
                     "type": "turn_context", "payload": {"model": model}}
@@ -377,10 +336,7 @@ class TestNodeDrivenLaneParsers:
 
     @pytest.mark.parametrize("plan_type", [None, "pro"])
     def test_browser_costs_a_long_context_request_exactly_like_the_backend(self, plan_type):
-        """A >272k-token Codex request bills the whole record on the long-context
-        meter, whatever plan served the rollout (issue #194). The meter bills
-        every plan, so the browser must mirror the backend for both the
-        subscription rollout and the one declaring no plan."""
+        """The meter applies to Codex requests regardless of plan type."""
         blob = _long_context_blob(plan_type)
         backend = parse.parse_file("codex/long_context.jsonl", blob)["records"]
         assert len(backend) == 1
@@ -409,16 +365,14 @@ class TestNodeDrivenLaneParsers:
         assert json.loads(proc.stdout) == pricing.LONG_CONTEXT_THRESHOLD
 
     def test_browser_threshold_and_flag_decide_per_model(self):
-        """With synthetic meters injected, the threshold lookup and the
-        Claude-path flag follow the model's own band (issue #765); a
-        non-member keeps null."""
+        """The threshold and Claude flag follow the model's meter."""
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           window.longContextModels = ['acme-test-1'];
-          window.longContextMeters = {{'acme-test-1': 200000}};
+          window.longContextMeters = {{'acme-test-1': {{threshold: 200000}}}};
           const usage = {{input_tokens: 250000, cache_creation_input_tokens: 0,
                          cache_read_input_tokens: 10000}};
           console.log(JSON.stringify({{
@@ -428,6 +382,7 @@ class TestNodeDrivenLaneParsers:
             below: window.longContextFlagFor('acme-test-1',
               {{...usage, input_tokens: 150000}}),
             nonmember: window.longContextFlagFor('no-such-model', usage),
+            fallbackFactors: window.longContextFactorsFor('acme-test-1'),
           }}));
         """
         proc = subprocess.run(
@@ -441,12 +396,14 @@ class TestNodeDrivenLaneParsers:
             "above": True,
             "below": False,
             "nonmember": None,
+            "fallbackFactors": [
+                pricing.LONG_CONTEXT_INPUT_MULT,
+                pricing.LONG_CONTEXT_OUTPUT_MULT,
+            ],
         }
 
     def test_browser_codex_lane_decides_on_the_model_threshold(self):
-        """The lane decision consults the injected per-model threshold:
-        250k GPT tokens are flat at the 272k default and metered once the
-        model's own band pulls the threshold down (issue #765)."""
+        """The Codex lane consults its injected per-model threshold."""
         usage = {"input_tokens": 250_000, "cached_input_tokens": 0,
                  "cache_write_input_tokens": 0, "output_tokens": 1_000,
                  "reasoning_output_tokens": 0, "total_tokens": 251_000}
@@ -457,8 +414,76 @@ class TestNodeDrivenLaneParsers:
              "payload": {"model": "gpt-5.6-sol"}},
             {"timestamp": "2026-07-01T00:00:01.000Z", "type": "event_msg",
              "payload": {"type": "token_count", "info": info}}])
-        got = _node_long_context_shape(blob, {"gpt-5-6-sol": 200000})
+        got = _node_long_context_shape(
+            blob, {"gpt-5-6-sol": {"threshold": 200000}})
         assert got == [True]
+
+    def test_per_model_meter_factors_match_backend_and_inspector(self, monkeypatch):
+        """Synthetic per-model factors price the browser session and Token
+        Breakdown exactly as the backend stores the record (issue #878)."""
+        model_key = "gpt-5-6-sol"
+        rates = {
+            "fresh": 7.0, "create_5m": 8.75, "create_1h": 14.0,
+            "read": 0.7, "output": 35.0,
+        }
+        meter = {"threshold": 100_000, "input_mult": 5.0,
+                 "output_mult": 5.0}
+        monkeypatch.setattr(pricing, "MODEL_RATES",
+                            {**pricing.MODEL_RATES, model_key: rates})
+        monkeypatch.setattr(
+            pricing, "DATED_RATES",
+            {key: value for key, value in pricing.DATED_RATES.items()
+             if key != model_key})
+        monkeypatch.setattr(
+            pricing, "LONG_CONTEXT_MODELS",
+            frozenset({*pricing.LONG_CONTEXT_MODELS, model_key}))
+        monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
+                            {**pricing.LONG_CONTEXT_METERS, model_key: meter})
+        backend = parse.parse_file(
+            "codex/per_model_meter.jsonl", _long_context_blob(None))["records"][0]
+        assert backend["long_context"] is True
+
+        script = f"""
+          global.window = {{dashboardCol: {{inputTokens: '#1', outputTokens: '#2',
+            cacheCreateTokens: '#3', cacheReadTokens: '#4'}}}};
+          require({str(LANES_JS)!r});
+          require({str(CODEX_JS)!r});
+          require({str(LOADER_JS)!r});
+          window.modelRates[{json.dumps(model_key)}] = {{
+            fresh: 7.0, c5: 8.75, c1h: 14.0, read: 0.7, out: 35.0 }};
+          delete window.datedRates[{json.dumps(model_key)}];
+          delete window.modelFees[{json.dumps(model_key)}];
+          window.longContextModels = [{json.dumps(model_key)}];
+          window.longContextMeters = {{{json.dumps(model_key)}: {json.dumps(meter)}}};
+          require({str(RATES_JS)!r});
+          require({str(PARSER_JS)!r});
+          require({str(TOKEN_BREAKDOWN_JS)!r});
+          const text = {json.dumps(_long_context_blob(None).decode())};
+          const {{ events, meta }} = window.parseTranscript(text);
+          const record = meta.find(m => m.type === 'assistant_usage');
+          const usage = record.usage;
+          const inspector = window.computeTokenBreakdown([{{
+            model_id: record.model, model: record.model, provider: null,
+            ts: Date.parse(record.ts), input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_create: usage.cache_creation_input_tokens,
+            cache_read: usage.cache_read_input_tokens,
+            ephemeral_5m: 0, ephemeral_1h: 0,
+            long_context: record.long_context,
+          }}]);
+          console.log(JSON.stringify({{
+            factors: window.longContextFactorsFor(record.model),
+            session: window.computeSessionStats(events, meta).cost,
+            inspector: inspector.costTotal,
+          }}));
+        """
+        proc = subprocess.run(["node", "-e", script], capture_output=True,
+                              text=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        got = json.loads(proc.stdout)
+        assert got["factors"] == [5.0, 5.0]
+        assert got["session"] == pytest.approx(backend["cost_usd"], abs=1e-9)
+        assert got["inspector"] == pytest.approx(backend["cost_usd"], abs=1e-9)
 
     @pytest.mark.parametrize(
         "label",
@@ -474,11 +499,7 @@ class TestNodeDrivenLaneParsers:
 
     @pytest.mark.parametrize("name", [p.name for p in LANE_FIXTURES])
     def test_lane_output_carries_the_fields_the_inspector_renders(self, name):
-        """The Inspector (detail-pane.jsx, SessionView, SessionHeader,
-        ContextGrowthView, txToDashData) reads a fixed set of fields off the
-        Claude parse's shapes. A lane transcript goes through the same
-        components, so the lane parse must populate those same fields —
-        never a differently-named shape the renderer would crash on."""
+        """Pin the event shapes consumed by Inspector components."""
         fixtures = {p.name: p.read_text(encoding="utf-8") for p in [next(
             p for p in LANE_FIXTURES if p.name == name)]}
         script = f"""
@@ -537,15 +558,10 @@ class TestNodeDrivenLaneParsers:
                 "hitRate", "cost"} <= set(got["stats"])
 
     def test_browser_token_breakdown_applies_the_long_context_meter(self):
-        """The Token Breakdown re-derives per-component cost from summed
-        tokens, so a long-context row must be priced at the same 2x input /
-        1.5x output pricing.compute_cost stored — or its bars drift from the
-        stored cost_total they decompose."""
+        """Token Breakdown applies the meter to long-context rows."""
         lc_fresh, lc_out = 300_000, 2_000
         flat_fresh, flat_out = 50_000, 500
-        # The events' ts is June 2026 — inside sol's pre-Aug21 dated window —
-        # so the expected figures are computed at the SAME rates the browser's
-        # rateForModel resolves, isolating the meter as the only difference.
+        # Use the browser's same dated window to isolate the meter.
         ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
         expected_lc = pricing.compute_cost(
             "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
@@ -598,8 +614,7 @@ class TestNodeDrivenLaneParsers:
         )
 
     def test_browser_long_context_multipliers_equal_backend(self):
-        """The browser's meter multipliers are window constants from
-        parser-lanes.js and must equal pricing's."""
+        """Global browser fallback factors mirror pricing."""
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
@@ -619,12 +634,7 @@ class TestNodeDrivenLaneParsers:
         assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT
 
     def test_browser_inspector_turn_cost_applies_the_long_context_meter(self):
-        """txToDashData re-derives each Inspector turn's cost from the parsed
-        usage; a long-context record must price at the meter there too, or
-        the Inspector's per-turn cost drifts from the stored figure. The turn
-        prices at the rate in force at its own timestamp (issue #55), so the
-        expected figure is the metered DATED price — the blob's request
-        predates gpt-5-6-sol's list-price cut (tests/gpt56_cuts), where its list price begins."""
+        """Inspector turn cost matches the record's metered dated price."""
         expected = pricing.compute_cost(
             "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
             unsplit_create=0, read=290_000, long_context=True,
@@ -658,9 +668,7 @@ class TestNodeDrivenLaneParsers:
         assert got["cost"] == pytest.approx(expected)
 
     def test_lane_parser_reads_an_offset_less_timestamp_as_utc(self):
-        """A legacy-kimi line whose timestamp carries no offset prices and
-        stores as the UTC reading of its wall clock (backend), and the
-        browser records the same instant — not the viewer's local one."""
+        """A legacy Kimi timestamp without an offset resolves as UTC."""
         out = parse.parse_file("sessions/p/s/naive.jsonl", _NAIVE_LANE_BLOB)
         assert len(out["records"]) == 1
         assert out["records"][0]["ts"] == datetime(

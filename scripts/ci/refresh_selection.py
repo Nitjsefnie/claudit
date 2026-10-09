@@ -63,7 +63,8 @@ class Listing:
         return json.dumps([self.rates, self.schedule, list(self.fees)], sort_keys=True)
 
 
-def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> Listing:
+def _listing(model: str, endpoint: object, where: str, at: datetime,
+             kept: dict | None) -> Listing:
     """One listed endpoint at the fetch instant `at`. The listed price
     already has any promotional discount applied; the discount is kept only
     as the note beside it.
@@ -94,7 +95,7 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
             or not 0 <= discount < 1):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     identity = {k: endpoint.get(k) for k in _IDENTITY}
-    rates, schedule = rates_of(price, where), entry_schedule(price, where)
+    rates, schedule = rates_of(price, where), entry_schedule(price, where, model)
     if schedule and in_a_window(schedule, at):
         if kept is None and not covers_week(schedule):
             raise RefreshError(
@@ -103,7 +104,9 @@ def _listing(endpoint: object, where: str, at: datetime, kept: dict | None) -> L
                 "next fetch outside every window starts the row")
         if kept is not None:
             rates = kept
-            schedule = entry_schedule({**as_listed(kept), "overrides": price["overrides"]}, where)
+            schedule = entry_schedule(
+                {**as_listed(kept), "overrides": price["overrides"]},
+                where, model)
     return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)),
                    tuple(fees))
 
@@ -130,8 +133,9 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     rows, refused, notices, untracked = {}, {}, [], {}
     for host, endpoints in _by_host(model, payload).items():
         try:
-            chosen, host_notices = _host_row(f"{model} via {host}", endpoints, region,
-                                             resolutions.get(host), stored.get(host), at)
+            chosen, host_notices = _host_row(
+                model, f"{model} via {host}", endpoints, region,
+                resolutions.get(host), stored.get(host), at)
         except Untracked as exc:
             untracked[host] = f"{exc}; the host was left untouched"
             continue
@@ -157,11 +161,13 @@ def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]
     return by_host
 
 
-def _host_row(where: str, endpoints: list[tuple[int, object]], region: str | None,
+def _host_row(model: str, where: str, endpoints: list[tuple[int, object]],
+              region: str | None,
               pin: object, stored: dict | None,
               at: datetime) -> tuple[Listing | None, list[str]]:
     """One host's listing, and its notices; RefreshError refuses the host."""
-    listed = [_listing(e, f"{where} (endpoint {i})", at, stored) for i, e in endpoints]
+    listed = [_listing(model, e, f"{where} (endpoint {i})", at, stored)
+              for i, e in endpoints]
     chosen, notice = _host_price(where, listed, region, pin, stored)
     notices = [f"{where}: tag {tag!r} names neither a known region nor a quantization"
                for tag in sorted({e.tag for e in listed if unknown_suffixes(e.tag)})]

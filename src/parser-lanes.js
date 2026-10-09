@@ -1,35 +1,31 @@
-// Browser parsers for the lane transcript formats: Codex rollouts and the
-// two Kimi wire formats. The codex lane lives in src/parser-codex.js
-// (loaded beside this file); this file carries the sniff, the shared
-// helpers and the two Kimi parsers. Ported from backend/parse_codex.py,
-// backend/parse_kimi.py and backend/parse_lanes.py so the Inspector's
-// in-browser parse of a session transcript yields the same per-record
-// token totals (and, through the rates src/parser.js reads from
-// src/pricing.json, the same cost) as backend.parse.parse_file — the same
-// lockstep SV-PARSER-SPEC keeps src/parser.js in with backend/pricing.py.
+// Browser parsers for Codex and both Kimi wire formats. Codex logic is in
+// parser-codex.js; this file owns sniffing, shared helpers and Kimi parsing.
+// Keep lane records and pricing aligned with backend parsing (SV-PARSER-SPEC).
 //
-// The lane parsers emit the SAME shapes the Claude parser emits, so every
-// Inspector consumer (computeSessionStats, ContextGrowthView, txToDashData,
-// detail-pane.jsx) works unchanged:
-//   events: user_message / assistant_text / thinking / tool_call / tool_result
-//   meta:   assistant_usage (usage.{input,cache_creation,cache_read,output}_tokens)
-//           plus rate_limit entries
-// Fields the Claude shape has and a lane format does not express (refs,
-// toolUseResult, agent_spawn, iterations) are simply absent — every
-// consumer treats them as falsy already.
-
-// Codex bills a request whose prompt exceeds this many tokens on its
-// long-context meter (2x input-side, 1.5x output — applied by parser.js's
-// cost path and app.jsx's Token Breakdown off the row's long_context flag).
-// Mirror pricing.LONG_CONTEXT_THRESHOLD/_MULT; the lanes test pins all three.
+// Global Codex meter defaults; per-model entries can override them.
 window.LONG_CONTEXT_THRESHOLD = 272000;
 window.LONG_CONTEXT_INPUT_MULT = 2.0;
 window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
+// The model's complete meter entry, shared by threshold and factor lookups.
+function _longContextMeterFor(model) {
+  const norm = String(model || '').trim().toLowerCase();
+  const key = (norm.indexOf('claude') > 0
+    ? norm.slice(norm.indexOf('claude')) : norm).replace(/\./g, '-');
+  return (window.longContextMeters || {})[key];
+}
+
 // Per-model thresholds (issue #765): mirrors pricing.long_context_threshold.
 window.longContextThresholdFor = function (model) {
-  const norm = String(model || '').trim().toLowerCase();
-  const key = (norm.indexOf('claude') > 0 ? norm.slice(norm.indexOf('claude')) : norm).replace(/\./g, '-');
-  return (window.longContextMeters || {})[key] || window.LONG_CONTEXT_THRESHOLD;
+  const meter = _longContextMeterFor(model);
+  return (meter && meter.threshold) || window.LONG_CONTEXT_THRESHOLD;
+};
+// Per-model factors (issue #878): omitted fields keep the global defaults.
+window.longContextFactorsFor = function (model) {
+  const meter = _longContextMeterFor(model) || {};
+  return [
+    meter.input_mult ?? window.LONG_CONTEXT_INPUT_MULT,
+    meter.output_mult ?? window.LONG_CONTEXT_OUTPUT_MULT,
+  ];
 };
 
 // Context Growth drops cumulative counters above this derived-series bound.

@@ -6,14 +6,11 @@ output) and the entry schedule pricing.overrides becomes, plus the run's
 error types. A price or override kind not modelled here refuses its host:
 a pricing key outside PRICED listed at a nonzero price (a per-request
 fee, an image price), or an override kind outside _OVERRIDE_KEYS, is a
-RefreshError, which appends nothing (SV-RATE-REFRESH). The one modelled
-exception is the long-context band: a `min_prompt_tokens` override at the
-Codex meter's shape (meter_shape_ok) contributes no window and no
-membership here — its rates never enter a row — while a departing shape
-is Untracked (a NOTICE; the host's row untouched, the run stays green;
-SV-VENDOR-RATES states the vendor pass's side of the same rule). The
-provider refresh also uses this module for endpoint tag/region
-normalisation and weekly schedule coverage checks for first-seen hosts.
+RefreshError, which appends nothing (SV-RATE-REFRESH). A coherent
+`min_prompt_tokens` band yields its own per-model meter factors and
+threshold; its rates never enter a provider row. The provider refresh
+also uses this module for endpoint tag/region normalisation and weekly
+schedule coverage checks for first-seen hosts.
 
 Cache writes take the listed write price when it is nonzero, the input
 rate otherwise; no listed cache-read price is 0. OpenRouter lists USD per
@@ -22,6 +19,7 @@ Decimal keeps "0.0000001275" exactly 0.1275.
 """
 from __future__ import annotations
 
+import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -47,30 +45,41 @@ RECORDED_FEES = ("web_search",)
 _OVERRIDE_KEYS = frozenset({"utc_days", "utc_start", "utc_end", *PRICED})
 _UTC_KEYS = frozenset({"utc_days", "utc_start", "utc_end"})
 
-# The long-context band OpenRouter lists (a `min_prompt_tokens` override):
-# tolerated when its multipliers are the meter's, a not-tracked NOTICE
-# when they depart. `min_prompt_tokens` names the band; the other three
-# are the utc fields a weekly window carries. The band's THRESHOLD is the
-# model's own (issue #765's per-model meters): the vendor pass learns it
-# into long_context_meters, and the provider pass never compares it — the
-# sub-threshold listing prices the row either way.
+# The long-context band OpenRouter lists (a `min_prompt_tokens` override).
+# The band names its own threshold; its coherent price ratios yield the
+# model's input/output factors. `min_prompt_tokens` names the band; the
+# other three keys are the utc fields a weekly window carries.
 MIN_PROMPT_TOKENS = "min_prompt_tokens"
-_INPUT_FIELDS = ("fresh", "create_5m", "create_1h", "read")
 
 
-def meter_shape_ok(base: dict, band_rates: dict) -> bool:
-    """Whether one band's rates are the meter's multipliers: the input
-    side at the input multiplier, output at the output multiplier. The
-    threshold is the band's own — the model's meter takes it (issue
-    #765) — so only the multipliers decide the shape. `base` and
-    `band_rates` are rates_of() shapes. Shared by the vendor pass (the
-    membership and threshold fold) and the provider pass (the band's
-    tolerance)."""
-    for f in _INPUT_FIELDS:
-        if round(band_rates[f], 10) != round(base[f] * pricing.LONG_CONTEXT_INPUT_MULT, 10):
-            return False
-    return round(band_rates["output"], 10) == round(
-        base["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT, 10)
+def meter_shape_ok(base: dict, band_rates: dict,
+                   where: str = "long-context band") -> tuple[float, float]:
+    """Return the band's input/output price ratios, rounded to ten
+    decimal places. The input ratio is derived from fresh input and then
+    applies to fresh, both write TTLs, and cache reads alike. A band
+    departing from global defaults is still valid; the vendor fold writes
+    its derived factors.
+    """
+    if base["fresh"] == 0:
+        if band_rates["fresh"] != 0:
+            raise Untracked(
+                f"{where}: input factor cannot be inferred from a zero base rate")
+        input_mult = pricing.LONG_CONTEXT_INPUT_MULT
+    else:
+        input_mult = round(band_rates["fresh"] / base["fresh"], 10)
+    if not math.isfinite(input_mult) or input_mult <= 0:
+        raise Untracked(f"{where}: input multiplier is not positive and finite")
+
+    if base["output"] == 0:
+        if band_rates["output"] != 0:
+            raise Untracked(
+                f"{where}: output factor cannot be inferred from a zero base rate")
+        output_mult = pricing.LONG_CONTEXT_OUTPUT_MULT
+    else:
+        output_mult = round(band_rates["output"] / base["output"], 10)
+    if not math.isfinite(output_mult) or output_mult <= 0:
+        raise Untracked(f"{where}: output multiplier is not positive and finite")
+    return input_mult, output_mult
 
 
 def band_threshold(band: dict, where: str) -> int:
@@ -82,14 +91,11 @@ def band_threshold(band: dict, where: str) -> int:
     return value
 
 
-def metered_band(price: dict, where: str, bands: list[dict]) -> tuple[bool, int | None]:
-    """A price's `min_prompt_tokens` overrides as the (metered,
-    threshold) verdict: one band at the meter's multipliers is metered at
-    its OWN threshold — its rates never enter anything — and a departing
-    shape is Untracked (a NOTICE on both paths: the vendor pass's
-    not-tracked rule, the provider pass's untouched-host rule)."""
+def metered_band(price: dict, where: str,
+                 bands: list[dict]) -> dict | None:
+    """Fold one coherent `min_prompt_tokens` band to its meter entry."""
     if not bands:
-        return False, None
+        return None
     if len(bands) > 1:
         raise Untracked(f"{where}: {len(bands)} long-context bands are not modelled")
     band = bands[0]
@@ -102,11 +108,10 @@ def metered_band(price: dict, where: str, bands: list[dict]) -> tuple[bool, int 
             and isinstance(band.get("completion"), str)):
         raise Untracked(f"{where}: the band does not restate input and output: not modelled")
     threshold = band_threshold(band, where)
-    if not meter_shape_ok(rates_of(price, where), rates_of(band, where)):
-        raise Untracked(
-            f"{where}: long-context band departs from the meter's "
-            f"multipliers at threshold {threshold}")
-    return True, threshold
+    input_mult, output_mult = meter_shape_ok(
+        rates_of(price, where), rates_of(band, where), where)
+    return {"threshold": threshold, "input_mult": input_mult,
+            "output_mult": output_mult}
 
 
 # An endpoint tag is `host` or `host/<suffix>[/<suffix>...]`: quantizations
@@ -139,10 +144,11 @@ class RefreshError(Exception):
 
 
 class Untracked(RefreshError):
-    """A listed shape the refresh deliberately does not track: a NOTICE —
-    the model's or host's state untouched, the run stays green — never red.
-    The provider path catches it per host in refresh_selection.listed_rows;
-    the vendor pass raises it for its not-tracked shapes."""
+    """A listed shape a refresh caller cannot model as rate data.
+
+    The provider pass reports a host-level notice; the vendor pass turns
+    an actionable first-party shape into a run refusal.
+    """
 
 
 def _per_million(price: object, where: str) -> float:
@@ -229,16 +235,15 @@ def as_listed(rates: dict) -> dict:
     return price
 
 
-def entry_schedule(price: dict, where: str) -> list | None:
+def entry_schedule(price: dict, where: str, model: str) -> list | None:
     """The entry schedule for OpenRouter's pricing.overrides: weekly UTC
     windows (utc_days, utc_start/utc_end as HHMM), each with the prices it
     overrides; a price it does not name is the endpoint's own.
 
-    A `min_prompt_tokens` override is the long-context band: at the meter's
-    shape (meter_shape_ok over the top-level rates) it is tolerated — no
-    window, nothing enters the row; a departing shape raises Untracked (the
-    host's row untouched, the run stays green). Another override kind the
-    script does not model still refuses."""
+    A `min_prompt_tokens` override is the long-context band: its coherent
+    factor pair must match the model's stored meter and contributes no
+    window or rates to the row. The vendor fold learns factors from its own
+    first-party listing; provider rows follow after that meter is loaded."""
     overrides = price.get("overrides")
     if overrides is None or overrides == []:
         return None
@@ -262,7 +267,15 @@ def entry_schedule(price: dict, where: str) -> list | None:
             window["start"] = override.get("utc_start")
             window["end"] = override.get("utc_end")
         schedule.append(window)
-    metered_band(price, where, bands)
+    meter = metered_band(price, where, bands)
+    if meter is not None:
+        expected = tuple(round(factor, 10)
+                         for factor in pricing.long_context_factors(model))
+        listed = (meter["input_mult"], meter["output_mult"])
+        if listed != expected:
+            raise Untracked(
+                f"{where}: long-context band departs from the meter's "
+                f"multipliers at threshold {meter['threshold']}")
     if not schedule:
         return None
     try:

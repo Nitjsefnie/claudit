@@ -37,7 +37,7 @@ from backend import (long_context, meter_tables, model_names, pricing,
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
-_STRUCTURE_VERSION = 4
+_STRUCTURE_VERSION = 5
 
 # The modules whose source the logic digest hashes. The reprice pass
 # itself joins them at first use (hashed_modules) — a module-level
@@ -212,10 +212,10 @@ def _document(model: str, provider: str | None) -> dict:
         "norm": norm,
         "free": pricing._is_free(model, norm),  # pylint: disable=protected-access
         # The reprice pass's meter re-derivation consults membership and
-        # the per-model thresholds (issue #765), so a data-only edit to
-        # either must move every pair's fingerprint.
+        # complete per-model entries (issue #878), so a data-only edit to
+        # any threshold or factor moves every pair's fingerprint.
         "metered": sorted(pricing.LONG_CONTEXT_MODELS),
-        "meter_thresholds": sorted(pricing.LONG_CONTEXT_METERS.items()),
+        "meter_entries": sorted(pricing.LONG_CONTEXT_METERS.items()),
         # The bare-id vendor branch's inputs: the bare-form match table
         # (through the match itself) and the vendor row's data. Included
         # for every non-free pair — a provider-named pair never consults

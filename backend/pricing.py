@@ -406,12 +406,16 @@ def is_long_context_model(model: str) -> bool:
 
 
 def long_context_threshold(model: str | None) -> int:
-    """The meter threshold in force for a model (issue #765): its
-    long_context_meters entry when the card carries one, else the Codex
-    meter's global threshold. The id normalises the way
-    is_long_context_model normalises."""
-    return LONG_CONTEXT_METERS.get(_normalise(model),
-                                   LONG_CONTEXT_THRESHOLD)
+    """Model threshold (issue #765), defaulting to the global Codex value."""
+    return LONG_CONTEXT_METERS.get(_normalise(model), {}).get(
+        "threshold", LONG_CONTEXT_THRESHOLD)
+
+
+def long_context_factors(model: str | None) -> tuple[float, float]:
+    """Per-model meter factors, defaulting each omitted side independently."""
+    meter = LONG_CONTEXT_METERS.get(_normalise(model), {})
+    return (meter.get("input_mult", LONG_CONTEXT_INPUT_MULT),
+            meter.get("output_mult", LONG_CONTEXT_OUTPUT_MULT))
 
 
 def meter_flag(model: str | None, window: int) -> bool | None:
@@ -469,27 +473,19 @@ def compute_cost(
     98.7% of their cache at 1h, and 5m is the subagent exception (96% of
     all 5m writes). See SV-COST-SPLIT.
 
-    long_context applies the Codex long-context meter (2x input side,
-    1.5x output) to the whole request. It defaults off, so every existing
-    caller is unaffected: every Codex record above the threshold bills
-    the meter, whatever plan served the rollout (issue #194); no Kimi
-    caller passes it (the wire format has no such tier).
+    long_context applies model factors (defaulting to global factors) to
+    the whole request. Codex records above threshold set it per record
+    (issue #194); Kimi has no such tier.
 
-    A per-request fee the resolved entry's note records (issue #469) is
-    folded in ONCE per call — one call prices one request — so cost_usd
-    is what the session cost. The fee's provenance stays in the provider
-    row's note and in records.request_fee_usd. A caller that also needs
-    the fee split out — or that prices per record on a hot path —
-    resolves once itself and passes `res`: the Resolution carries the
-    rates, the serving host's fee and the record's own timestamp's dated
-    window, so one request costs one resolution and the (model, ts,
-    provider) triple is resolved in exactly one place.
+    A per-request fee from the resolved note is added once per call
+    (issue #469) and recorded in request_fee_usd. Hot paths pass `res` to
+    resolve once; it carries the rates, provider fee, and dated window.
     """
     if res is None:
         res = resolve(model, ts)
     r = res.rates
-    in_mult = LONG_CONTEXT_INPUT_MULT if long_context else 1.0
-    out_mult = LONG_CONTEXT_OUTPUT_MULT if long_context else 1.0
+    in_mult, out_mult = (long_context_factors(model)
+                         if long_context else (1.0, 1.0))
     return (
         fresh * r["fresh"] * in_mult / 1_000_000
         + eph5 * r["create_5m"] * in_mult / 1_000_000
