@@ -9,11 +9,8 @@
 // sniffs the format and delegates. One rate table only — src/pricing.json,
 // loaded by src/pricing-loader.js, which runs before this script.
 
-// The browser loads parser-usage.js before this file. Node tests that require
-// parser.js directly load the sibling helper here, matching that script order.
-if (!window.parserUsage && typeof module === 'object' && module.exports) {
-  require('./parser-usage.js');
-}
+// The browser loads parser-usage.js before this file. Node loads it lazily
+// only when the Claude parser needs usage normalization.
 
 // A user text that OPENS with an XML tag is harness-injected data, not a
 // prompt (issue #213) — deny-by-default, so an unknown future harness tag
@@ -57,6 +54,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
   if (window.sniffTranscriptFormat) {
     const fmt = window.sniffTranscriptFormat(text);
     if (fmt !== 'claude') return window.parseTranscriptLanes(text, opts);
+  }
+  if (!window.parserUsage && typeof module === 'object' && module.exports) {
+    require('./parser-usage.js');
   }
 
   const events = [];
