@@ -328,6 +328,9 @@ if (!Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_meters'))
 const _lcGroups = _PRICING.long_context_meters;
 if (!Array.isArray(_lcGroups))
   throw _pricingError('long_context_meters: not a list of groups');
+// Meter membership includes every tracked key, including keys without a
+// vendor_host and prefixed keys; vendorBare is only the resolvable bare subset.
+const _trackedMeterModels = _PRICING.openrouter.models;
 
 window.longContextMeters = {};
 const _lcThresholds = new Set();
@@ -369,7 +372,7 @@ for (const [i, group] of _lcGroups.entries()) {
     if (Object.prototype.hasOwnProperty.call(window.longContextMeters, key))
       throw _pricingError(`long_context_meters: ${key} appears more than once`);
     if (!Object.prototype.hasOwnProperty.call(window.modelRates, key)
-        && !Object.prototype.hasOwnProperty.call(window.vendorBare, key))
+        && !Object.prototype.hasOwnProperty.call(_trackedMeterModels, key))
       throw _pricingError(`long_context_meters: ${key} names no models-table or tracked key`);
 
     const meter = { threshold: group.threshold };

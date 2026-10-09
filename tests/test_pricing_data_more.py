@@ -14,7 +14,7 @@ from backend import app as app_mod
 from backend import pricing
 from backend import session as session_mod
 
-from tests.refresh_fixture_builders import seed_doc
+from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
 from tests.test_pricing_data import (
     CUT,
     NEWCOMER,
@@ -455,9 +455,14 @@ def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
     assert _js_rates(got["rates"]) == P_AFTER
 
 
+_METER_MODEL_A = "meter-model-a"
+_METER_MODEL_B = "meter-model-b"
+_METER_MODEL_C = "meter-model-c"
+
+
 def _grouped_meter_doc(groups):
-    doc = _doc()
-    doc.pop("long_context_models", None)
+    doc = seed_doc(models={key: [dict(DEFAULT_ROW)] for key in (
+        _METER_MODEL_A, _METER_MODEL_B, _METER_MODEL_C)})
     doc["long_context_meters"] = groups
     return doc
 
@@ -465,25 +470,24 @@ def _grouped_meter_doc(groups):
 def test_grouped_long_context_meters_fold_to_whole_entries():
     groups = [
         {"threshold": 200_000,
-         "models": ["claude-sonnet-4-5", "gpt-5-4"]},
+         "models": [_METER_MODEL_A, _METER_MODEL_B]},
         {"threshold": 100_000,
-         "models": [{"gpt-5-6-sol": {"input_mult": 5.0,
+         "models": [{_METER_MODEL_C: {"input_mult": 5.0,
                                       "output_mult": 5}}]},
     ]
     tables = pricing.load_tables(_grouped_meter_doc(groups))
     assert tables["LONG_CONTEXT_METERS"] == {
-        "claude-sonnet-4-5": {"threshold": 200_000},
-        "gpt-5-4": {"threshold": 200_000},
-        "gpt-5-6-sol": {"threshold": 100_000,
-                        "input_mult": 5.0, "output_mult": 5},
+        _METER_MODEL_A: {"threshold": 200_000},
+        _METER_MODEL_B: {"threshold": 200_000},
+        _METER_MODEL_C: {"threshold": 100_000,
+                         "input_mult": 5.0, "output_mult": 5},
     }
     assert tables["LONG_CONTEXT_MODELS"] == frozenset({
-        "claude-sonnet-4-5", "gpt-5-4", "gpt-5-6-sol"})
+        _METER_MODEL_A, _METER_MODEL_B, _METER_MODEL_C})
 
 
 def test_grouped_long_context_field_is_required_and_old_field_is_refused():
-    doc = _doc()
-    doc.pop("long_context_models", None)
+    doc = _grouped_meter_doc([])
     doc.pop("long_context_meters", None)
     with pytest.raises(ValueError, match="long_context_meters.*missing"):
         pricing.load_tables(doc)
@@ -495,25 +499,43 @@ def test_grouped_long_context_field_is_required_and_old_field_is_refused():
 
 
 @pytest.mark.parametrize(("groups", "reason"), [
-    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
-      {"threshold": 200_000, "models": ["gpt-5-4"]}], "duplicate threshold"),
+    ([{"threshold": 200_000, "models": [_METER_MODEL_A]},
+      {"threshold": 200_000, "models": [_METER_MODEL_B]}], "duplicate threshold"),
     ([{"threshold": 200_000, "models": []}], "models is empty"),
-    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
-      {"threshold": 100_000, "models": ["gpt-5-6-sol"]}], "more than once"),
-    ([{"threshold": 200_000, "models": ["gpt-9-ghost"]}], "gpt-9-ghost"),
-    ([{"models": ["gpt-5-6-sol"]}], "positive integer threshold"),
-    ([{"threshold": 0, "models": ["gpt-5-6-sol"]}], "positive integer threshold"),
+    ([{"threshold": 200_000, "models": [_METER_MODEL_A]},
+      {"threshold": 100_000, "models": [_METER_MODEL_A]}], "more than once"),
+    ([{"threshold": 200_000, "models": ["unknown-meter-model"]}],
+     "unknown-meter-model"),
+    ([{"models": [_METER_MODEL_A]}], "positive integer threshold"),
+    ([{"threshold": 0, "models": [_METER_MODEL_A]}], "positive integer threshold"),
+    ([{"threshold": 200_000, "models": [42]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [[]]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [{}]}],
+     "each model is a key or a one-key"),
     ([{"threshold": 200_000, "models": [
-        {"gpt-5-6-sol": {"input_mult": 0}}]}], "invalid input_mult"),
+        {_METER_MODEL_A: {}, _METER_MODEL_B: {}}]}],
+     "each model is a key or a one-key"),
     ([{"threshold": 200_000, "models": [
-        {"gpt-5-6-sol": {"input_mult": float("inf")}}]}], "invalid input_mult"),
+        {_METER_MODEL_C: 5.0}]}], "multipliers are not an object"),
     ([{"threshold": 200_000, "models": [
-        {"gpt-5-6-sol": {"mult": 2.0}}]}], "unknown field"),
-    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"], "extra": True}],
+        {_METER_MODEL_C: []}]}], "multipliers are not an object"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"input_mult": 0}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"output_mult": -1}}]}], "invalid output_mult"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"input_mult": True}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"input_mult": "5"}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"input_mult": float("inf")}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {_METER_MODEL_C: {"mult": 2.0}}]}], "unknown field"),
+    ([{"threshold": 200_000, "models": [_METER_MODEL_A], "extra": True}],
      "unknown field"),
-    ([{"threshold": 200_000, "models": ["gpt-5-6-sol"]},
-      {"threshold": 100_000, "models": ["gpt-5-6-sol"]}], "more than once"),
-    ({"gpt-5-6-sol": {"threshold": 200_000}}, "list of groups"),
+    ({_METER_MODEL_A: {"threshold": 200_000}}, "list of groups"),
 ])
 def test_grouped_long_context_meter_rules_are_refused(groups, reason):
     with pytest.raises(ValueError, match=reason):
