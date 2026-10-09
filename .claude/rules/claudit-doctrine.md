@@ -1039,6 +1039,11 @@ a vendor is a one-line pricing.json edit, no code change. The pass lives in
 their own model. PRICING_VERSION bumps once, one past the file, when either
 pass moved.
 
+- **Only text-output catalog entries are in scope.** The vendor pass considers
+  an entry only when `architecture.output_modalities` is exactly `["text"]`.
+  Missing `architecture` or `output_modalities`, and any other output modality
+  list, are dropped silently before endpoint selection and auto-add.
+
 - **Auto-add joins the tracked set.** A catalog id under a listed prefix
   (with no `:<suffix>` variant suffix) whose derived key is not yet tracked
   is ADDED to `openrouter.models` as `{"id": <catalog id>, "vendor_host":
