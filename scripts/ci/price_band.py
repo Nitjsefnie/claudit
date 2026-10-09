@@ -37,6 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_common import detection_stamp  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_load import check_band  # noqa: E402
+from backend.pricing_document import (  # noqa: E402
+    effective_rates, effective_schedule)
 
 RATE_FIELDS = pricing.RATE_FIELDS
 # The shapes a row's price moves can take over a window (classify).
@@ -79,8 +81,8 @@ def _instant(stamp: object) -> datetime:
 
 def _level(entry: dict) -> tuple:
     """A row's state as one comparable value: its five rates and its schedule."""
-    return (tuple(entry.get(field) for field in RATE_FIELDS),
-            json.dumps(entry.get("schedule"), sort_keys=True))
+    return (tuple(effective_rates(entry)[field] for field in RATE_FIELDS),
+            json.dumps(effective_schedule(entry.get("schedule")), sort_keys=True))
 
 
 def _window_levels(history: list[dict], at: datetime, days: float) -> list[dict]:
@@ -175,7 +177,7 @@ def time_weighted(history: list[dict], at: datetime,
     dated = [(_instant(entry["from"]), entry) for entry in history
              if entry.get("from") is not None]
     if not dated:
-        return {field: history[-1][field] for field in RATE_FIELDS}
+        return effective_rates(history[-1])
     if since is not None and history and history[0].get("from") is None \
             and dated[0][0] > since:
         # The leading undated entry is the level in force at the window's
@@ -186,10 +188,11 @@ def time_weighted(history: list[dict], at: datetime,
         dated = [(max(instant, since), entry) for instant, entry in dated]
     total = (at - dated[0][0]).total_seconds()
     if total <= 0:
-        return {field: dated[0][1][field] for field in RATE_FIELDS}
+        return effective_rates(dated[0][1])
     mean = {}
     for field in RATE_FIELDS:
-        area = sum(entry[field] * max(0.0, (end - start).total_seconds())
+        area = sum(effective_rates(entry)[field]
+                   * max(0.0, (end - start).total_seconds())
                    for start, end, entry in
                    ((dated[i][0], dated[i + 1][0] if i + 1 < len(dated) else at,
                      dated[i][1]) for i in range(len(dated))))
@@ -202,8 +205,8 @@ def form(levels: list[dict], at: datetime, since: datetime) -> dict:
     rates the mean prices by — time_weighted over the levels bounded by
     `since`, whose last level holds until `at`, so the mean follows the
     price in force and weighs only what the window saw."""
-    return {"band": {field: [min(entry[field] for entry in levels),
-                             max(entry[field] for entry in levels)]
+    return {"band": {field: [min(effective_rates(entry)[field] for entry in levels),
+                             max(effective_rates(entry)[field] for entry in levels)]
                      for field in RATE_FIELDS},
             **time_weighted(levels, at, since)}
 
@@ -233,10 +236,10 @@ def collapse(history: list[dict], at: datetime, days: float) -> list[dict]:
                          "collapsed to a token band: the search-rate epochs "
                          "must remain dated")
     levels = _window_levels(history, at, days)
-    band = {field: [min(entry[field] for entry in levels),
-                    max(entry[field] for entry in levels)]
+    band = {field: [min(effective_rates(entry)[field] for entry in levels),
+                    max(effective_rates(entry)[field] for entry in levels)]
             for field in RATE_FIELDS}
-    collapsed = {"from": history[0]["from"],
+    collapsed = {"from": history[0].get("from"),
                  **time_weighted(levels, at, at - timedelta(days=days)),
                  "band": band}
     search_rate = next(iter(search_rates))
@@ -300,7 +303,7 @@ def reform(history: list[dict], newest: dict, additions: list[dict],
     the follow-the-price one carries the state's own.
     """
     outside = [entry for entry in additions
-               if not in_band(newest, {f: entry[f] for f in RATE_FIELDS})]
+               if not in_band(newest, effective_rates(entry))]
     if not outside:
         return None
     whole = list(history) + list(additions)

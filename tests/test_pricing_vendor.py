@@ -26,7 +26,7 @@ import pytest
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
 
-from backend import long_context, pricing
+from backend import long_context, pricing, pricing_document
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -602,8 +602,8 @@ def test_the_live_migrated_rows_price_their_frozen_first_entries():
     """Bind the committed file to the migration at a fixed instant before
     every committed cutover: each migrated row's first entry still prices
     what the pre-migration models row held, whatever the refresh appends."""
-    doc = json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    doc = pricing_document.expand_pricing_doc(json.loads(
+        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
     assert len(doc["models"]) == 1 and "bonsai-2-27b" in doc["models"]
     for key in _PIN_KEYS:
         entry = doc["openrouter"]["models"][key]

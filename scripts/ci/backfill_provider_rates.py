@@ -23,6 +23,8 @@ import refresh_pricelog  # noqa: E402
 import refresh_provider_rates as hourly  # noqa: E402
 from refresh_pricelog import FetchEndpoints, FetchLog, FetchModels  # noqa: E402
 from backend import pricing  # noqa: E402
+from backend.pricing_document import (  # noqa: E402
+    effective_rates, expand_pricing_doc, serialize_pricing_doc)
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -51,11 +53,12 @@ def _arguments(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _entry_rates(entry: dict) -> dict:
-    return {field: entry[field] for field in _RATE_FIELDS}
+    return effective_rates(entry)
 
 
 def _same_rates(left: dict, right: dict) -> bool:
-    return all(round(float(left[field]), 10) == round(float(right[field]), 10)
+    left_rates, right_rates = effective_rates(left), effective_rates(right)
+    return all(round(float(left_rates[field]), 10) == round(float(right_rates[field]), 10)
                for field in _RATE_FIELDS)
 
 
@@ -71,7 +74,7 @@ def _rewrite(history: list[dict], entries: list[dict], as_of: str) -> list[dict]
     kept = [copy.deepcopy(entry) for entry in entries if entry["from"] <= as_of]
     if not kept:
         return None
-    kept[0]["from"] = _earlier_start(history[0]["from"], kept[0]["from"])
+    kept[0]["from"] = _earlier_start(history[0].get("from"), kept[0]["from"])
     return kept
 
 
@@ -226,10 +229,12 @@ def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
     `now` is the instant the listing and log describe; it defaults to the
     wall clock and bounds how far a series is read, exactly as in the
     hourly refresh."""
-    tracked, region = hourly._sources(doc)  # pylint: disable=protected-access
-    result = copy.deepcopy(doc)
+    pricing.load_tables(doc)
+    source_doc = expand_pricing_doc(doc)
+    tracked, region = hourly._sources(source_doc)  # pylint: disable=protected-access
+    result = copy.deepcopy(source_doc)
     logs, _ = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
-    context = BackfillContext(doc, result, region, fetch, logs, as_of,
+    context = BackfillContext(source_doc, result, region, fetch, logs, as_of,
                               now or datetime.now(timezone.utc))
     reports, rewrote = _backfill_models(context, tracked)
     if rewrote:
@@ -256,8 +261,7 @@ def main(argv: list[str] | None = None, *, fetch: FetchEndpoints = refresh_price
         return 1
     print(_render(args.as_of, reports))
     if rewrote and not args.dry_run:
-        pricing_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
-                                encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result), encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
     return 0
 

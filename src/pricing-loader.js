@@ -70,10 +70,11 @@ function _readPricing() {
 }
 
 const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
-const _FIELD_NAMES = Object.values(_RATE_FIELDS).sort().join();
 const _ratesOf = (entry, mayHaveSearch = false) => ({
   ...Object.fromEntries(
-    Object.entries(_RATE_FIELDS).map(([js, field]) => [js, entry[field]])),
+    Object.entries(_RATE_FIELDS).map(([js, field]) => [
+      js, entry[field] === undefined && ['create_5m', 'create_1h'].includes(field)
+        ? entry.fresh : entry[field]])),
   ...(mayHaveSearch && Object.prototype.hasOwnProperty.call(entry, 'web_search')
     ? { search: entry.web_search } : {}),
 });
@@ -113,9 +114,12 @@ function _checkSchedule(schedule, at) {
       throw _pricingError(`${w}: a window is {days?, start?, end?, rates}`);
     }
     const { rates, days } = window;
+    const required = Object.values(_RATE_FIELDS)
+      .filter((f) => !['create_5m', 'create_1h'].includes(f));
     if (rates === null || typeof rates !== 'object'
-        || Object.keys(rates).sort().join() !== _FIELD_NAMES
-        || !Object.values(_RATE_FIELDS).every((f) => _isRate(rates[f]))) {
+        || required.some((f) => !Object.prototype.hasOwnProperty.call(rates, f))
+        || Object.keys(rates).some((f) => !Object.values(_RATE_FIELDS).includes(f))
+        || !Object.values(_ratesOf(rates)).every((v) => _isRate(v))) {
       throw _pricingError(`${w}: rates are not the five finite non-negative rates`);
     }
     if (days !== undefined && !(Array.isArray(days) && days.length
@@ -174,6 +178,13 @@ function _checkBand(band, at) {
     }
     out[field] = [span[0], span[1]];
   }
+  if (Object.prototype.hasOwnProperty.call(out, 'fresh')) {
+    for (const field of ['create_5m', 'create_1h']) {
+      if (!Object.prototype.hasOwnProperty.call(out, field)) {
+        out[field] = [...out.fresh];
+      }
+    }
+  }
   return out;
 }
 
@@ -181,12 +192,16 @@ function _checkHistory(entries, where, mayBegin) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   const schedules = {};
+  const bands = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${i}]`;
     const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'band'].includes(k));
     const hasSearchRate = fields.includes('web_search');
-    const tokenFields = fields.filter((k) => k !== 'web_search').sort().join();
-    if (tokenFields !== _FIELD_NAMES || !('from' in entry)
+    const tokenFields = fields.filter((k) => k !== 'web_search');
+    const required = Object.values(_RATE_FIELDS)
+      .filter((f) => !['create_5m', 'create_1h'].includes(f));
+    if (required.some((f) => !tokenFields.includes(f))
+        || tokenFields.some((f) => !Object.values(_RATE_FIELDS).includes(f))
         || (hasSearchRate && !mayBegin)) {
       throw _pricingError(`${at}: fields ${Object.keys(entry).sort()}`);
     }
@@ -196,15 +211,16 @@ function _checkHistory(entries, where, mayBegin) {
     }
     if ('band' in entry) {
       if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a band`);
-      _checkBand(entry.band, at);
+      bands[i] = _checkBand(entry.band, at);
     }
-    const bad = Object.values(_RATE_FIELDS).filter((f) => !_isRate(entry[f]));
+    const bad = Object.entries(_ratesOf(entry))
+      .filter(([, value]) => !_isRate(value)).map(([js]) => js);
     if (hasSearchRate && !_isRate(entry.web_search)) bad.push('web_search');
     if (bad.length) throw _pricingError(`${at}: ${bad} not a finite non-negative number`);
     if ('note' in entry && typeof entry.note !== 'string') {
       throw _pricingError(`${at}: 'note' is not a string`);
     }
-    if (entry.from === null) {
+    if (!Object.prototype.hasOwnProperty.call(entry, 'from') || entry.from === null) {
       if (i > 0) throw _pricingError(`${at}: only the first entry has no 'from'`);
       return;
     }
@@ -220,7 +236,7 @@ function _checkHistory(entries, where, mayBegin) {
     }
     previous = start;
   });
-  return { schedules };
+  return { schedules, bands };
 }
 
 // A row's append-only history, oldest first: the newest entry is the list
@@ -228,14 +244,16 @@ function _checkHistory(entries, where, mayBegin) {
 // A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
 function _history(entries, where, mayBegin = false) {
-  const { schedules } = _checkHistory(entries, where, mayBegin);
+  const { schedules, bands } = _checkHistory(entries, where, mayBegin);
   return {
     schedules,
+    bands,
     list: _ratesOf(entries[entries.length - 1], mayBegin),
     windows: entries.slice(0, -1).map((entry, i) => (
       { endExclusive: _instantMs(entries[i + 1].from),
         rates: _ratesOf(entry, mayBegin) })),
-    start: entries[0].from === null ? null : _instantMs(entries[0].from),
+    start: !Object.prototype.hasOwnProperty.call(entries[0], 'from')
+      || entries[0].from === null ? null : _instantMs(entries[0].from),
   };
 }
 
@@ -253,11 +271,16 @@ window.providerRates = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
 window.providerSchedules = {};
+window.providerBands = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows, start, schedules } = _history(entries, `${model} via ${host}`, true);
+    const { list, windows, start, schedules, bands } = _history(
+      entries, `${model} via ${host}`, true);
     if (Object.keys(schedules).length) {
       (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
+    }
+    if (Object.keys(bands).length) {
+      (window.providerBands[model] = window.providerBands[model] || {})[host] = bands;
     }
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {

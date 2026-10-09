@@ -46,6 +46,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import price_band  # noqa: E402
 from refresh_common import bump_pricing_version  # noqa: E402
 from backend import pricing  # noqa: E402
+from backend.pricing_document import (  # noqa: E402
+    expand_pricing_doc, serialize_pricing_doc)
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -91,11 +93,13 @@ def collapse(doc: dict, days: float, as_of: str) -> tuple[dict, list[str], set[s
     `as_of` is the instant the window is measured against and the one left
     in provider_rates_fetched; it is never wall clock.
     """
-    result = copy.deepcopy(doc)
+    pricing.load_tables(doc)
+    source_doc = expand_pricing_doc(doc)
+    result = copy.deepcopy(source_doc)
     at = pricing._instant(as_of, "--as-of")  # pylint: disable=protected-access
     reports: list[str] = []
     hosts: set[str] = set()
-    for model, provider_hosts in doc["providers"].items():
+    for model, provider_hosts in source_doc["providers"].items():
         for host, history in provider_hosts.items():
             shape = price_band.classify(history, at, days)["shape"]
             if shape not in price_band.OSCILLATING:
@@ -143,8 +147,7 @@ def main(argv: list[str] | None = None, *, pricing_path: Path = PRICING_JSON,
         return 1
     print(_render(as_of, args.days, reports, hosts))
     if moved and not args.dry_run:
-        pricing_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
-                                encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result), encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
     # Every other row is written; the run is still red, so a human sees it.
     return 1 if any(" kept " in line for line in reports) else 0

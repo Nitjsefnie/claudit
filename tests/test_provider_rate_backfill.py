@@ -12,6 +12,7 @@ from pathlib import Path
 from tests.refresh_fixture_builders import (
     RATE_C, _endpoint as fixture_endpoint, seed_doc,
 )
+from backend.pricing_document import expand_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -30,6 +31,10 @@ def _load():
 
 
 backfill = _load()
+
+
+def _saved_doc(path: Path) -> dict:
+    return expand_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
 
 MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
@@ -144,7 +149,7 @@ def test_backfill_keeps_null_start_and_drops_changes_after_as_of(tmp_path, capsy
         tmp_path, capsys, {"Wafer": old}, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     assert saved["providers"][MODEL]["Wafer"] == [
         _entry(None, RATE_A), _entry("2031-01-01T00:10:00Z", RATE_B)]
     assert saved["provider_rates_fetched"] == AS_OF
@@ -162,7 +167,7 @@ def test_backfill_keeps_an_earlier_non_null_start(tmp_path, capsys):
     rc, _, err, pricing_path, _, _ = _run(tmp_path, capsys, {"Wafer": old}, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     rewritten = saved["providers"][MODEL]["Wafer"]
     assert len(rewritten) == 2
     assert rewritten[0] == _entry("2030-01-01T00:00:00Z", RATE_A)
@@ -178,7 +183,7 @@ def test_backfill_leaves_sampled_rows_unchanged_and_reports_the_reason(tmp_path,
     rc, out, err, pricing_path, _, _ = _run(tmp_path, capsys, rows, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     assert saved["providers"][MODEL][other] == rows[other]
     assert f"untouched {other}:" in out
     assert "series count does not match endpoint count" in out
@@ -193,7 +198,7 @@ def test_backfill_reports_hosts_without_rows_without_creating_new_rows(tmp_path,
         new_hosts=["NewHost"])
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     assert "NewHost" not in saved["providers"][MODEL]
     assert "untouched NewHost: no row" in out
     assert "series count does not match endpoint count" in out
@@ -224,7 +229,7 @@ def test_backfill_leaves_a_row_backed_only_by_a_future_point_untouched(tmp_path,
         tmp_path, capsys, {"Wafer": old}, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     assert saved["providers"][MODEL]["Wafer"] == old
     assert "untouched Wafer" in out
     assert "no in-force log state matches the listing" in out

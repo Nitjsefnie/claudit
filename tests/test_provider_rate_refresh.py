@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
+from backend.pricing_document import expand_pricing_doc
 from tests.refresh_fixture_builders import (_discount, _endpoint,
                                             _overrides, _per_token,
                                             DEFAULT_ROW)
@@ -177,7 +178,8 @@ class Run:
         self.pricing = tmp_path / "pricing.json"
         self.constants = tmp_path / "constants.py"
         self.pricing.write_text(json.dumps(
-            _seeded(json.loads(PRICING_JSON.read_text(encoding="utf-8"))),
+            _seeded(expand_pricing_doc(json.loads(
+                PRICING_JSON.read_text(encoding="utf-8")))),
             indent=2, sort_keys=True) + "\n", encoding="utf-8")
         text = CONSTANTS_PY.read_text(encoding="utf-8")
         if pricing_version is not None:
@@ -188,7 +190,8 @@ class Run:
         self.commit_msg = tmp_path / "commit-msg.txt"
 
     def doc(self) -> dict:
-        return json.loads(self.pricing.read_text(encoding="utf-8"))
+        return expand_pricing_doc(
+            json.loads(self.pricing.read_text(encoding="utf-8")))
 
     def endpoints(self, key: str) -> list[dict]:
         return self.payloads[self.doc()["openrouter"]["models"][key]["id"]]["data"]["endpoints"]

@@ -34,6 +34,7 @@ import pytest
 
 
 from backend import pricing
+from backend.pricing_document import expand_pricing_doc
 
 from tests.refresh_fixture_builders import RATE_C, seed_doc
 from tests.test_provider_rate_log_refresh import (
@@ -63,6 +64,10 @@ AT = datetime(2031, 1, 8, tzinfo=timezone.utc)
 STAMP = "2031-01-08T00:00:00Z"
 DAYS = 7
 FIELDS = pricing.RATE_FIELDS
+
+
+def _saved_doc(path: Path) -> dict:
+    return expand_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
 # The loader half names a synthetic host, not the refresh harness's, so its
 # own messages stay readable.
 BAND_HOST = "HostCo"
@@ -205,7 +210,7 @@ def test_the_collapse_rewrites_only_the_oscillating_row(tmp_path, capsys):
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err, (rc, err, out)
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     (entry,) = saved["providers"][MODEL]["BandCo"]
     assert entry["from"] == _day(8), "the row keeps its own start"
     assert entry["band"] == _band_of(RATE_A, RATE_B)
@@ -234,7 +239,7 @@ def test_the_collapse_band_and_mean_come_from_the_window(tmp_path, capsys):
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     (entry,) = saved["providers"][MODEL]["BandCo"]
     assert entry["from"] == _day(30), "the row keeps its own start"
     assert entry["band"] == _band_of(RATE_A, RATE_B), \
@@ -271,7 +276,7 @@ def test_the_collapse_refuses_a_scheduled_row_and_changing_search_rate(
     assert rc == 1
     assert out.count(" kept ") == 2
     assert "web_search" in out
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     assert saved["providers"][MODEL]["SearchCo"] == search_row
     assert saved["providers"][MODEL]["SchedCo"] == scheduled_row
 
@@ -321,7 +326,7 @@ def test_an_unbanded_row_that_oscillates_gets_its_moves_plus_one_band_entry(
         tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     mean = _mean_of((RATE_A, 1800), (RATE_B, 17400), (RATE_A, 600))
     assert history == row + [
@@ -343,7 +348,7 @@ def test_a_new_host_whose_log_oscillates_gets_the_log_plus_one_band_entry(
     rc, out, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     mean = _mean_of((RATE_A, 19800), (RATE_B, 71400), (RATE_A, 600))
     assert history == [_entry(at, rates) for at, rates in states] + [
@@ -364,7 +369,7 @@ def test_escapes_followed_by_an_in_band_state_append_the_price_in_force(
     rc, _, err, pricing_path, constants_path = _refresh(tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     assert history == [row[0], _entry("2031-01-01T00:15:00Z", RATE_B)]
     assert "band" not in history[-1], "a step carries no band"
@@ -393,7 +398,7 @@ def test_an_escape_that_keeps_oscillating_re_forms_the_band(tmp_path, capsys):
     rc, out, err, pricing_path, constants_path = _refresh(tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     # The banded baseline entry predates the window (200h ago, window
     # 168h), so it weighs only from the window's open: 149.5h, not the
@@ -436,7 +441,7 @@ def test_a_forming_window_weighs_its_pre_window_baseline_from_the_open(
         tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     mean = _mean_of((RATE_C, 585000), (RATE_A, 1800), (RATE_B, 17400),
                     (RATE_A, 600))
@@ -459,7 +464,7 @@ def test_an_undated_banded_entry_re_forms_like_its_dated_equivalent(
     rc, _, err, pricing_path, constants_path = _refresh(tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     mean = _mean_of((MEAN, 538200), (RATE_HIGH, 21600), (RATE_LOW, 21600),
                     (RATE_HIGH, 23400))
@@ -480,7 +485,7 @@ def test_a_genuine_step_from_a_banded_row_appends_the_price_in_force(
     rc, _, err, pricing_path, constants_path = _refresh(tmp_path, capsys, row, states)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = _saved_doc(pricing_path)
     history = saved["providers"][MODEL][HOST]
     assert history == [row[0], _entry(_ago(1.5), RATE_HIGH)], \
         "the step is followed, not swallowed by a widened band"

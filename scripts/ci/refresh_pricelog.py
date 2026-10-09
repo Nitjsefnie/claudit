@@ -21,6 +21,7 @@ from typing import Callable
 from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
 from refresh_prices import (RefreshError, token_rates_of, tag_region)
 from backend import pricing as rate_pricing
+from backend.pricing_document import effective_rates, omit_default_rates
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 LOG_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
@@ -171,7 +172,7 @@ def entries_for_series(series: PriceSeries) -> list[dict] | None:
         current = _rates(state)
         if current is not None and current != previous_rates:
             stamp = f"{second.year:04d}{second.strftime('-%m-%dT%H:%M:%SZ')}"
-            entry = {"from": stamp, **current}
+            entry = {"from": stamp, **omit_default_rates(current)}
             note = _discount_note(state.get("discount"))
             if note:
                 entry["note"] = note
@@ -243,7 +244,8 @@ def read_logs(tracked: dict, fetch_catalog: FetchModels | None,
 
 
 def _rate_vector(rates: dict) -> tuple[float, ...]:
-    return tuple(_rounded(float(rates[field])) for field in _RATE_FIELDS)
+    return tuple(_rounded(float(effective_rates(rates)[field]))
+                 for field in _RATE_FIELDS)
 
 
 def _endpoint_rates(endpoint: dict, where: str) -> dict[str, float]:

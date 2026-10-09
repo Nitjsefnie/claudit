@@ -701,21 +701,28 @@ list to `key -> {threshold, input_mult?, output_mult?}` and membership is
 exactly the map's keys. The complete entries ride the reprice pass's
 rate_fingerprint; the browser exposes them as `window.longContextMeters`.
 
-Each row's history is append-only, oldest first. Every entry carries
+Each row's history is append-only, oldest first. Its effective vector is
 five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
-`read`, `output`), an optional string `note`, an optional `schedule`, and
-— on a provider entry only — an optional `band`: a subset of the five
-rate fields mapped to a `[min, max]` pair of finite non-negative
-numbers with `min <= max`. A `band` is a record
-of what the host moved inside, never a price: the five rate fields
-beside it stay the priced rates, and both loaders check a band and
-ignore it (SV-RATE-REFRESH). Nothing writes a `band` beside a
-`schedule`, and the loaders do not refuse one if it appears: the band is
-read for its shape only, and the schedule still decides which hours
-price what. A model row's first
-entry has `from: null` (all of time). A provider row's first may name
-its start instant; before it, that host's records price by the model
-alone, and the start joins `RATE_EPOCHS`. Every other `from` is exactly
+`read`, `output`). `fresh`, `read`, and `output` are always present;
+`create_5m` and `create_1h` are present only when each differs from
+`fresh`, and each absent cache-write rate defaults to `fresh`. An entry
+also carries an optional string `note`, an optional `schedule`, and — on
+a provider entry only — an optional `band`. Every schedule window has the
+same five effective rates and the same absent-means-`fresh` rule. A band
+maps a subset of the five rate fields to `[min, max]` pairs of finite
+non-negative numbers with `min <= max`; either cache-write pair may be
+omitted when it equals the band's `fresh` pair, and then defaults to that
+pair. A `band` is a record of what the host moved inside, never a price:
+the five effective rate fields beside it stay the priced rates, and both
+loaders check and fold its shape without using it for pricing
+(SV-RATE-REFRESH). Nothing writes a
+`band` beside a `schedule`, and the loaders do not refuse one if it
+appears: the band is read for its shape only, and the schedule still
+decides which hours price what. The leading entry's `from` defaults to
+`null` when absent. A model row therefore covers all time. A provider
+row's first may name its start instant; before it, that host's records
+price by the model alone, and the start joins `RATE_EPOCHS`. Every later
+`from` is exactly
 `YYYY-MM-DDTHH:MM:SS` plus `Z` or `±HH:MM`, every field in range (a
 real calendar day, hour 0-23, minute/second 0-59, offset under 24:00),
 strictly after its predecessor. The newest entry is the list price;
@@ -1146,7 +1153,10 @@ pass moved.
   `web_search` value participates in endpoint selection and is validated
   as USD per search. The vendor pass keeps the selected `vendor_host` in
   `openrouter.models`; the provider pass writes the search rate to that
-  `(key, vendor_host)` history. Discount notes stay on provider entries.
+  `(key, vendor_host)` history, whose effective rates are `fresh`,
+  `create_5m`, `create_1h`, `read`, and `output`. Either cache-write field
+  is omitted when it equals `fresh`, and an absent field defaults to
+  `fresh` (SV-RATE-DATA). Discount notes stay on provider entries.
 - **A weekly schedule refuses the vendor pass:** the price the pass
   compared is a window price at fetch time, the same reason the provider
   pass refuses a first-seen scheduled host inside one; the model is not
