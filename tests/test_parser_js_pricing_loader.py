@@ -325,8 +325,11 @@ def test_the_browser_load_folds_grouped_meters_to_whole_entries(tmp_path):
         "models": ["claude-opus-4-8", "claude-opus-4-7"],
         "meters": {
             "claude-opus-4-8": {"threshold": 200_000},
-            "claude-opus-4-7": {"threshold": 100_000,
-                                 "input_mult": 5.0, "output_mult": 5.0},
+            "claude-opus-4-7": {
+                "threshold": 100_000,
+                "input_mult": 5.0,
+                "output_mult": 5.0,
+            },
         },
     }
 

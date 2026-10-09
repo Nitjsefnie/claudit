@@ -10,8 +10,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
-from backend import pricing
-from backend.pricing_document import serialize_pricing_doc
+from backend import pricing  # noqa: E402
+from backend.pricing_document import serialize_pricing_doc  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
