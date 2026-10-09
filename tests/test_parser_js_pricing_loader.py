@@ -332,6 +332,32 @@ def test_the_browser_load_folds_grouped_meters_to_whole_entries(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize(("key", "tracked_entry", "accepted"), [
+    pytest.param(ROW_KEY, None, True, id="tracked-without-vendor-host"),
+    pytest.param("anthropic/other-9",
+                 {"id": "anthropic/other.9", "vendor_host": HOST}, True,
+                 id="prefixed-tracked-key-with-vendor-host"),
+    pytest.param("ghost/other-9", None, False, id="unknown-key-refused"),
+])
+def test_backend_and_browser_agree_on_grouped_meter_keys(
+        tmp_path, key, tracked_entry, accepted):
+    doc = _grouped_doc([{"threshold": 100_000, "models": [key]}])
+    if tracked_entry is not None:
+        doc["openrouter"]["models"][key] = tracked_entry
+    rendered = json.dumps(doc, indent=2, sort_keys=True)
+
+    backend_error = None
+    try:
+        load_tables(json.loads(rendered))
+    except ValueError as exc:
+        backend_error = str(exc)
+    browser_error = _run(tmp_path, rendered)["error"]
+
+    assert (backend_error is None) == (browser_error is None)
+    assert (backend_error is None) is accepted
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize(("groups", "reason"), [
     ([{"threshold": 200_000, "models": ["claude-opus-4-8"]},
       {"threshold": 200_000, "models": ["claude-opus-4-7"]}],
@@ -342,6 +368,25 @@ def test_the_browser_load_folds_grouped_meters_to_whole_entries(tmp_path):
      "more than once"),
     ([{"threshold": 200_000, "models": [
         {"claude-opus-4-8": {"input_mult": 0}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": {"output_mult": -1}}]}], "invalid output_mult"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": {"input_mult": True}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": {"input_mult": "5"}}]}], "invalid input_mult"),
+    ([{"threshold": 200_000, "models": [42]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [[]]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [{}]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": {}, "claude-opus-4-7": {}}]}],
+     "each model is a key or a one-key"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": 5.0}]}], "multipliers are not an object"),
+    ([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": []}]}], "multipliers are not an object"),
     ([{"threshold": 200_000, "models": [
         {"claude-opus-4-8": {"mult": 2.0}}]}], "unknown field"),
     ([{"threshold": 200_000, "models": ["claude-opus-4-8"], "extra": True}],
