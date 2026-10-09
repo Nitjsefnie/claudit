@@ -55,9 +55,11 @@ window.parseTranscript = function parseTranscript(text, opts) {
     const fmt = window.sniffTranscriptFormat(text);
     if (fmt !== 'claude') return window.parseTranscriptLanes(text, opts);
   }
+  /* eslint-disable no-undef */
   if (!window.parserUsage && typeof module === 'object' && module.exports) {
     require('./parser-usage.js');
   }
+  /* eslint-enable no-undef */
 
   const events = [];
   const meta = [];
