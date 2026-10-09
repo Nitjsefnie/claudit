@@ -17,7 +17,7 @@
     "backend/parse.py": 824,
     "backend/parse_codex.py": 684,
     "backend/parse_kimi.py": 565,
-    "backend/schema.sql": 834,
+    "backend/schema.sql": 832,
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 704,
     "src/app.jsx": 1291,
