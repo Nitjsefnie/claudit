@@ -358,6 +358,24 @@ def test_backend_and_browser_agree_on_grouped_meter_keys(
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_backend_and_browser_refuse_array_shaped_tracked_models(tmp_path):
+    doc = _grouped_doc([{"threshold": 100_000, "models": ["0"]}])
+    doc["openrouter"]["models"] = [{"id": "acme/other.9"}]
+    rendered = json.dumps(doc, indent=2, sort_keys=True)
+
+    backend_error = None
+    try:
+        load_tables(json.loads(rendered))
+    except ValueError as exc:
+        backend_error = str(exc)
+    browser_error = _run(tmp_path, rendered)["error"]
+
+    assert (backend_error is None) == (browser_error is None)
+    assert backend_error and "openrouter.models" in backend_error
+    assert browser_error and "openrouter.models" in browser_error
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize(("groups", "reason"), [
     ([{"threshold": 200_000, "models": ["claude-opus-4-8"]},
       {"threshold": 200_000, "models": ["claude-opus-4-7"]}],

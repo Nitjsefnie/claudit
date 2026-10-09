@@ -32,7 +32,7 @@
         + 'list of distinct lowercase [a-z0-9-] namespace strings');
     }
     const tracked = openrouter.models;
-    if (tracked === null || typeof tracked !== 'object') {
+    if (tracked === null || typeof tracked !== 'object' || Array.isArray(tracked)) {
       throw _pricingError('openrouter.models is missing');
     }
     for (const [key, entry] of Object.entries(tracked)) {
