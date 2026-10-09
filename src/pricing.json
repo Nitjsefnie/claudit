@@ -719,6 +719,10 @@
           "InferenceNet": {
             "tag": "inference-net/fp4",
             "why": "InferenceNet lists kimi-k3 under inference-net/fp4 beside a throughput tier, with no bare inference-net endpoint. Pinned to inference-net/fp4: fp4 is the list-price quantization endpoint; the throughput tier is a distinct offering."
+          },
+          "Parasail": {
+            "tag": "parasail/fp4",
+            "why": "Parasail lists kimi-k3 under parasail/fp4 beside a throughput tier, with no bare parasail endpoint, so the fast-tier rule cannot take a base; same shape as the glm-5-3-flash Parasail pin. Pinned to parasail/fp4: the fp4 quantization endpoint is the list-price endpoint; fast is a distinct throughput tier, not a price twin, so 'cheapest' cannot apply."
           }
         },
         "vendor_host": "Moonshot AI"
