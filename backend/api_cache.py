@@ -200,7 +200,8 @@ def _session_total(per_model: list) -> dict:
         "cost_total": round(sum(m["cost_total"] for m in per_model), 4),
         "cost_buckets": {
             k: round(sum(m["cost_buckets"][k] for m in per_model), 4)
-            for k in ("fresh", "create_5m", "create_1h", "read", "output")
+            for k in ("fresh", "create_5m", "create_1h", "read", "output",
+                      "web_search")
         },
         "estimated_rate": any(m["estimated_rate"] for m in per_model),
     }

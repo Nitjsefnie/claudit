@@ -383,12 +383,19 @@ def test_cache_per_model_shape(app_with_data):
     body = r.json()
     assert "per_model" in body and "session_total" in body
     assert "top_output" in body and "top_cache_create" in body and "top_cache_read" in body
+    cost_buckets = {"fresh", "create_5m", "create_1h", "read", "output",
+                    "web_search"}
+    assert set(body["session_total"]["cost_buckets"]) == cost_buckets
+    assert body["session_total"]["cost_buckets"] == {
+        key: round(sum(m["cost_buckets"][key] for m in body["per_model"]), 4)
+        for key in cost_buckets
+    }
     if body["per_model"]:
         m = body["per_model"][0]
         assert {"model", "turns", "fresh", "cache_create", "cache_read",
                 "output", "eph5", "eph1h", "hit_rate_pct",
                 "cost_total", "cost_buckets"} <= set(m)
-        assert {"fresh", "create_5m", "create_1h", "read", "output"} == set(m["cost_buckets"])
+        assert cost_buckets == set(m["cost_buckets"])
 
 
 def test_cache_dedups_cross_file_uuid(app_with_data):
