@@ -32,6 +32,7 @@ from tests.test_pricing_vendor import (
     HOST,
     LOADER_JS,
     PARSER_JS,
+    PARSER_USAGE_JS,
     PREFIXES,
     R_NEW,
     R_OLD,
@@ -174,6 +175,7 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
         shutil.copy(VENDOR_TABLES_JS, d / "vendor-tables.js")
         shutil.copy(HHMM_JS, d / "hhmm-spelling.js")
         shutil.copy(RATES_JS, d / "rates.js")
+        shutil.copy(PARSER_USAGE_JS, d / "parser-usage.js")
         shutil.copy(PARSER_JS, d / "parser.js")
         script = f"""
           global.window = {{}};

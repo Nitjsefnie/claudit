@@ -34,6 +34,7 @@ CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
+PARSER_USAGE_JS = ROOT / "src" / "parser-usage.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
@@ -414,6 +415,7 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
     shutil.copy(RATES_JS, where / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, where / "parser-usage.js")
     shutil.copy(PARSER_JS, where / "parser.js")
     before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()
     script = f"""

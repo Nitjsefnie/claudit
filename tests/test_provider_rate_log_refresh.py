@@ -459,6 +459,8 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
         shutil.copy(ROOT / "src" / "vendor-tables.js",
                     browser_dir / "vendor-tables.js")
         shutil.copy(ROOT / "src" / "rates.js", browser_dir / "rates.js")
+        shutil.copy(ROOT / "src" / "parser-usage.js",
+                    browser_dir / "parser-usage.js")
         shutil.copy(parser_path, browser_dir / "parser.js")
         proc = subprocess.run(
             ["node", "-e", "global.window = {}; "

@@ -27,6 +27,7 @@ from tests.test_pricing_data import (
     LOADER_JS,
     VENDOR_TABLES_JS,
     HHMM_JS,
+    PARSER_USAGE_JS,
     PARSER_JS,
     RATES_JS,
     P_AFTER,
@@ -172,6 +173,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     assert want in _node(tmp_path / "parser.js",
                          "console.log(JSON.stringify(window.rateEpochs));")
@@ -197,6 +199,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     before = _stamp(_at(CUT) - timedelta(seconds=1))
     got = _node(tmp_path / "parser.js", f"""
@@ -270,6 +273,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
       const stamps = {json.dumps(stamps)};
@@ -351,6 +355,7 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js", f"""
       console.log(JSON.stringify({json.dumps(stamps)}.map(
@@ -378,6 +383,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
+    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
     got = _node(tmp_path / "parser.js",
                 "console.log(JSON.stringify(window.rateEpochs));")
