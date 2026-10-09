@@ -261,8 +261,9 @@ def main(argv: list[str] | None = None, *, fetch: FetchEndpoints = refresh_price
         return 1
     print(_render(args.as_of, reports))
     if rewrote and not args.dry_run:
-        pricing_path.write_text(serialize_pricing_doc(result), encoding="utf-8")
-        constants_path.write_text(constants, encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result),
+                                encoding="utf-8", newline="\n")
+        constants_path.write_text(constants, encoding="utf-8", newline="\n")
     return 0
 
 

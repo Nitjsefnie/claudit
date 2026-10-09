@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         doc = json.loads(args.pricing.read_text(encoding="utf-8"))
         pricing.load_tables(doc)
         converted = serialize_pricing_doc(doc)
-        args.pricing.write_text(converted, encoding="utf-8")
+        args.pricing.write_text(converted, encoding="utf-8", newline="\n")
     except (OSError, ValueError, TypeError, KeyError) as exc:
         print(f"convert_pricing_doc: {exc}", file=sys.stderr)
         return 1

@@ -147,8 +147,9 @@ def main(argv: list[str] | None = None, *, pricing_path: Path = PRICING_JSON,
         return 1
     print(_render(as_of, args.days, reports, hosts))
     if moved and not args.dry_run:
-        pricing_path.write_text(serialize_pricing_doc(result), encoding="utf-8")
-        constants_path.write_text(constants, encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result),
+                                encoding="utf-8", newline="\n")
+        constants_path.write_text(constants, encoding="utf-8", newline="\n")
     # Every other row is written; the run is still red, so a human sees it.
     return 1 if any(" kept " in line for line in reports) else 0
 

@@ -95,7 +95,8 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
     new_row_key = _maybe_add_new_row(doc, doc_max, rng, base_seed, iteration)
     pricing.load_tables(doc)
     pricing_path.write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        json.dumps(doc, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8", newline="\n")
     suite = run_suite(repo_root)
     result: dict = {"iteration": iteration, "seed": base_seed,
                     "ok": suite[0] == 0, "rows_touched": len(touched),
@@ -107,8 +108,7 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
     if suite[0] != 0:
         result["artifact"] = str(
             artifact_dir / f"fuzz-fail-{iteration}.json")
-        Path(result["artifact"]).write_text(
-            pricing_path.read_text(encoding="utf-8"), encoding="utf-8")
+        Path(result["artifact"]).write_bytes(pricing_path.read_bytes())
     return result
 
 
