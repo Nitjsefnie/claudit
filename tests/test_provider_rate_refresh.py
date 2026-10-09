@@ -18,7 +18,6 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -662,15 +661,6 @@ def test_the_region_a_tag_names(tag, region):
     assert refresh_prices.tag_region(tag) == region
 
 
-def _novita_region_twin(run: Run) -> dict:
-    """A dearer copy of GLM's Novita endpoint tagged novita/us."""
-    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
-    twin["tag"] = "novita/us"
-    twin["pricing"]["input_cache_read"] = "0.00000005"
-    run.endpoints(GLM).append(twin)
-    return twin
-
-
 # --- a per-host tag override -------------------------------------------------
 
 
@@ -680,23 +670,6 @@ def _two_global_novitas(run: Run) -> None:
     twin["tag"] = "novita/fp4"
     twin["pricing"]["input_cache_read"] = "0.00000005"
     run.endpoints(GLM).append(twin)
-
-
-def _pin_novita(tag: str):
-    return lambda doc: doc["openrouter"]["models"][GLM].update(
-        {"resolve": {"Novita": {"tag": tag, "why": "fixture"}}})
-
-
-# --- choosing the cheaper of identical twins ----------------------------------
-# BaseTen lists deepseek-v4.1-flash twice under fp8 at different prices. The
-# endpoints differ by a one-token completion-limit listing artifact; either
-# the recorded ignore or the same-quantization rule lets price order choose.
-
-
-def _baseten_twins(run: Run) -> list[dict]:
-    """[cheaper, dearer] by cache read."""
-    twins = [e for e in run.endpoints(V41) if e["provider_name"] == "BaseTen"]
-    return sorted(twins, key=lambda e: Decimal(e["pricing"]["input_cache_read"]))
 
 
 # --- the detection time ------------------------------------------------------

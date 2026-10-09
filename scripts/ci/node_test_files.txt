@@ -19,6 +19,7 @@ tests/test_parse_non_object.py
 tests/test_parser_js_dedup_merge.py
 tests/test_parser_js_fees.py
 tests/test_parser_js_fork.py
+tests/test_parser_js_lane_timestamps.py
 tests/test_parser_js_lanes.py
 tests/test_parser_js_meter_factors.py
 tests/test_parser_js_mirror.py

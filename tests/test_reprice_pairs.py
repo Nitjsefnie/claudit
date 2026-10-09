@@ -39,6 +39,7 @@ from test_reprice import (
     _seed_parents,
     _seeded_cost,
 )
+from tests.reprice_fixture_builders import SeedRecord
 
 from backend import (
     constants,
@@ -273,8 +274,9 @@ def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch,
     the keyset path, is recomputed, and comes out stamped with the
     CURRENT fingerprint and version."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="0",
-              cost_usd=_seeded_cost(), rate_fingerprint="stale-string")
+        _seed(c, _FILE_KEY, 1, SeedRecord(
+            pricing_version="0", cost_usd=_seeded_cost(),
+            rate_fingerprint="stale-string"))
         c.commit()
 
     monkeypatch.setattr(timing, "TIMING_ON", True)
@@ -413,9 +415,10 @@ def _seed_spellings(c) -> list[tuple[str | None, bool]]:
     fp = rate_fingerprint.pair_fingerprint(_SEED_MODEL, None)
     cost = _seeded_cost()
     for offset, (version, restampable) in enumerate(spellings):
-        _seed(c, _FILE_KEY, offset + 1, pricing_version=version,
-              cost_usd=0.5 if not restampable else cost,
-              rate_fingerprint=fp)
+        _seed(c, _FILE_KEY, offset + 1, SeedRecord(
+            pricing_version=version,
+            cost_usd=0.5 if not restampable else cost,
+            rate_fingerprint=fp))
     return spellings
 
 
@@ -585,11 +588,11 @@ def _seed_skip_fixture(c, *, with_escapee: bool) -> None:
             provider=provider)
         line += 10_000
     if with_escapee:
-        _seed(c, _FILE_KEY, line,
-              pricing_version=f"+{int(constants.PRICING_VERSION) - 1}",
-              cost_usd=_seeded_cost(),
-              rate_fingerprint=rate_fingerprint.pair_fingerprint(
-                  _SEED_MODEL, None))
+        _seed(c, _FILE_KEY, line, SeedRecord(
+            pricing_version=f"+{int(constants.PRICING_VERSION) - 1}",
+            cost_usd=_seeded_cost(),
+            rate_fingerprint=rate_fingerprint.pair_fingerprint(
+                _SEED_MODEL, None)))
 
 
 def test_phase_b_skipped_when_every_stale_row_clean_restamps(

@@ -4,6 +4,7 @@ straddles a cutover makes the buckets disagree with the authoritative
 SUM(cost_usd) they claim to decompose.
 """
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -20,13 +21,24 @@ from tests.refresh_fixture_builders import RATES_B
 UTC = timezone.utc
 
 
-def _row(model, epoch, fresh=0, cc=0, cr=0, output=0, eph5=0, eph1h=0,
-         cost=0.0, long_context=False, input_mult=None, output_mult=None):
+@dataclass(frozen=True)
+class _Tokens:
+    fresh: int = 0
+    cache_create: int = 0
+    cache_read: int = 0
+    output: int = 0
+    eph5: int = 0
+    eph1h: int = 0
+
+
+def _row(model, epoch, tokens: _Tokens = _Tokens(), cost=0.0,
+         long_context=False, input_mult=None, output_mult=None):
     # (model, provider, rate_epoch, long_context, turns, fresh,
     #  cache_create, cache_read, output, eph5, eph1h, cost_total,
     #  long_context_input_mult, long_context_output_mult)
-    return (model, None, epoch, long_context, 1, fresh, cc, cr, output,
-            eph5, eph1h, cost, input_mult, output_mult)
+    return (model, None, epoch, long_context, 1, tokens.fresh,
+            tokens.cache_create, tokens.cache_read, tokens.output,
+            tokens.eph5, tokens.eph1h, cost, input_mult, output_mult)
 
 
 def test_buckets_sum_to_total_within_a_single_epoch():
@@ -37,7 +49,8 @@ def test_buckets_sum_to_total_within_a_single_epoch():
         "claude-opus-4-8", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: stored read from the same tables the fold prices at)
         unsplit_create=0, read=0, ts=ts,
     )
-    rows = [_row("claude-opus-4-8", 0, fresh=1_000_000, cost=stored)]
+    rows = [_row("claude-opus-4-8", 0,
+                 tokens=_Tokens(fresh=1_000_000), cost=stored)]
     out = fold_per_model(rows, pair_bounds={})
     assert len(out) == 1
     m = out[0]
@@ -61,8 +74,10 @@ def test_buckets_sum_to_total_across_a_dated_rate_cutover(monkeypatch):
     monkeypatch.setattr(pricing, "DATED_RATES", {model: [(cutover, before)]})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
     rows = [
-        _row(model, 0, fresh=1_000_000, cost=before["fresh"]),
-        _row(model, 1, fresh=1_000_000, cost=after["fresh"]),
+        _row(model, 0, tokens=_Tokens(fresh=1_000_000),
+             cost=before["fresh"]),
+        _row(model, 1, tokens=_Tokens(fresh=1_000_000),
+             cost=after["fresh"]),
     ]
     total = before["fresh"] + after["fresh"]
     out = fold_per_model(
@@ -266,7 +281,8 @@ def test_an_undeclared_ttl_lands_in_the_1h_bucket(synthetic_dated_rate):
         w.model, fresh=0, output=0, eph5=0, eph1h=0,
         unsplit_create=1_000_000, read=0, ts=ts,
     )
-    rows = [_row(w.model, 0, cc=1_000_000, cost=stored)]
+    rows = [_row(w.model, 0,
+                 tokens=_Tokens(cache_create=1_000_000), cost=stored)]
     m = fold_per_model(
         rows, pair_bounds={(w.model, ""): [w.cutover]})[0]
     assert m["cost_buckets"]["create_1h"] == pytest.approx(
@@ -300,7 +316,7 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
     assert stored > flat, "the meter must actually move the total here"
 
     m = fold_per_model([
-        _row(w.model, 0, fresh=300_000, output=2_000,
+        _row(w.model, 0, tokens=_Tokens(fresh=300_000, output=2_000),
              cost=stored, long_context=True),
     ], pair_bounds={(w.model, ""): [w.cutover]})[0]
     assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
@@ -339,8 +355,10 @@ def test_per_model_meter_factors_keep_buckets_reconciled(monkeypatch):
     ) / 1_000_000
 
     folded = fold_per_model([
-        _row(model, 0, fresh=fresh, cc=eph5 + eph1h + unsplit, cr=read,
-             output=output, eph5=eph5, eph1h=eph1h, cost=stored,
+        _row(model, 0, tokens=_Tokens(
+            fresh=fresh, cache_create=eph5 + eph1h + unsplit,
+            cache_read=read, output=output, eph5=eph5, eph1h=eph1h),
+             cost=stored,
              long_context=True, input_mult=5.0, output_mult=5.0),
     ], pair_bounds={})[0]
     assert folded["cost_total"] == pytest.approx(round(stored, 4))
@@ -366,9 +384,9 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
         unsplit_create=0, read=0, ts=ts,
     )
     out = fold_per_model([
-        _row(w.model, 0, fresh=300_000, cost=stored_lc,
+        _row(w.model, 0, tokens=_Tokens(fresh=300_000), cost=stored_lc,
              long_context=True),
-        _row(w.model, 0, fresh=100_000, cost=stored_flat),
+        _row(w.model, 0, tokens=_Tokens(fresh=100_000), cost=stored_flat),
     ], pair_bounds={(w.model, ""): [w.cutover]})
     assert len(out) == 1
     m = out[0]

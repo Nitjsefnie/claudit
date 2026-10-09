@@ -21,9 +21,7 @@ are tested here:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-
-from typing import Any
+from datetime import timedelta, timezone
 
 import pytest
 
@@ -34,6 +32,15 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import constants, db, ingest, ingest_reprice, pricing
+from tests.reprice_fixture_builders import (
+    SEED_INPUTS as _SEED_INPUTS,
+    SEED_MODEL as _SEED_MODEL,
+    SEED_TOKENS as _SEED_TOKENS,
+    SEED_TS as _SEED_TS,
+    SeedRecord,
+    seed_parents as _seed_parents,
+    seed_record as _seed,
+)
 
 UTC = timezone.utc
 
@@ -45,12 +52,6 @@ _SCHED_RATES = {"fresh": 0.5, "create_5m": 0.625, "create_1h": 1.0,
 
 # One seeded record's token tally: unsplit_create = 2000 - 250 - 500,
 # so the pass's unsplit arithmetic is exercised by every seeded row.
-_SEED_MODEL = "claude-opus-4-7"
-_SEED_TS = datetime(2026, 5, 7, 10, 0, tzinfo=UTC)
-_SEED_TOKENS = (1_000, 2_000, 3_000, 100, 250, 500)
-_SEED_INPUTS: dict[str, Any] = {"fresh": 1_000, "output": 100,
-                                "eph5": 250, "eph1h": 500,
-                                "unsplit_create": 1_250, "read": 3_000}
 
 # The file key every unit test seeds its rows under (fresh_db is
 # per-test, so the name never collides across tests).
@@ -130,52 +131,6 @@ def test_pricing_version_column_is_nullable_migration(fresh_db, mini_r2_env):
         "pre-migration rows must read NULL, not be backfilled")
 
 
-def _seed_parents(c, file_key: str) -> None:
-    """The project+file rows every seeded record needs (idempotent)."""
-    c.execute(
-        "INSERT INTO projects (project_id, display_name, first_seen_at, "
-        "last_seen_at) VALUES (%s, %s, %s, %s) "
-        "ON CONFLICT (project_id) DO NOTHING",
-        ("reprice-test", "reprice-test", _SEED_TS, _SEED_TS),
-    )
-    c.execute(
-        "INSERT INTO files (file_key, project_id, session_id, is_main, "
-        "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
-        "parser_version) VALUES (%s, %s, %s, TRUE, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (file_key) DO NOTHING",
-        (file_key, "reprice-test", "sess-seed", "seed-etag", 12,
-         _SEED_TS, _SEED_TS, constants.PARSER_VERSION),
-    )
-
-
-def _seed(c, file_key: str, line_num: int, *, pricing_version=None,
-          cost_usd: float = 0.5, model: str = _SEED_MODEL, ts=_SEED_TS,
-          provider: str | None = None,
-          request_fee_usd: float | None = None,
-          web_search_requests: int | None = None,
-          rate_fingerprint: str | None = None) -> None:  # pylint: disable=redefined-outer-name
-    """One record row under seeded project+file parents, with a fixed
-    token tally (_SEED_TOKENS) a test prices through compute_cost.
-
-    cost_usd is a sentinel far from any computed value, so "untouched"
-    is observable. rate_fingerprint seeds the pair fingerprint the
-    reprice pass compares against (issue #351); None inserts NULL, the
-    pre-feature shape. The parameter is the stored column's own name,
-    hence the shadow of the module import of the same name.
-    """
-    _seed_parents(c, file_key)
-    c.execute(
-        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
-        "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd, "
-        "web_search_requests, provider, pricing_version, rate_fingerprint) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (file_key, line_num, ts, model, *_SEED_TOKENS,
-         cost_usd, request_fee_usd, web_search_requests, provider,
-         pricing_version, rate_fingerprint),
-    )
-
-
 def _seed_meter_row(c, line_num: int, *, model: str, fresh_tokens: int,
                     provider: str | None = None,
                     long_context: bool | None = None) -> None:
@@ -225,9 +180,9 @@ def _search_tables(monkeypatch) -> None:
 def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
         fresh_db, monkeypatch):
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
-              provider="SearchHost", request_fee_usd=0.99,
-              web_search_requests=3)
+        _seed(c, _FILE_KEY, 1, SeedRecord(
+            pricing_version=None, cost_usd=0.5, provider="SearchHost",
+            request_fee_usd=0.99, web_search_requests=3))
         c.commit()
     _search_tables(monkeypatch)
 
@@ -251,8 +206,9 @@ def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
 def test_reprice_null_search_count_does_not_charge_search_or_keep_old_fee(
         fresh_db, monkeypatch):
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=0.5,
-              provider=_SEARCH_HOST, request_fee_usd=0.99)
+        _seed(c, _FILE_KEY, 1, SeedRecord(
+            pricing_version=None, cost_usd=0.5, provider=_SEARCH_HOST,
+            request_fee_usd=0.99))
         c.commit()
     _search_tables(monkeypatch)
     assert ingest_reprice.reprice_stale() == 1
@@ -277,8 +233,9 @@ def test_reprice_restamps_when_search_cost_already_matches(fresh_db,
         adjustments=pricing.CostAdjustments(web_search_requests=3),
         res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version=None, cost_usd=search_cost,
-              provider=_SEARCH_HOST, web_search_requests=3)
+        _seed(c, _FILE_KEY, 1, SeedRecord(
+            pricing_version=None, cost_usd=search_cost, provider=_SEARCH_HOST,
+            web_search_requests=3))
         c.commit()
     assert ingest_reprice.reprice_stale() == 0
     with db.viz_conn() as c:
@@ -325,7 +282,8 @@ def test_reprice_leaves_the_current_version_alone(fresh_db):
     intact."""
     with db.viz_conn() as c:
         _seed(c, _FILE_KEY, 1)
-        _seed(c, _FILE_KEY, 2, pricing_version=constants.PRICING_VERSION)
+        _seed(c, _FILE_KEY, 2,
+              SeedRecord(pricing_version=constants.PRICING_VERSION))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
@@ -350,7 +308,8 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
     newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
         for line_num, version in ((1, None), (2, "0"), (3, newer)):
-            _seed(c, _FILE_KEY, line_num, pricing_version=version)
+            _seed(c, _FILE_KEY, line_num,
+                  SeedRecord(pricing_version=version))
         c.commit()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
@@ -370,7 +329,7 @@ def test_reprice_reprices_a_non_integer_version(fresh_db):
     row is repriced from its stored columns and stamped with the current
     version, exactly like a NULL."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, pricing_version="abc")
+        _seed(c, _FILE_KEY, 1, SeedRecord(pricing_version="abc"))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
@@ -407,8 +366,8 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
         for line_num in range(1, 8):
-            _seed(c, _FILE_KEY, line_num,
-                  pricing_version=newer if line_num == 4 else None)
+            _seed(c, _FILE_KEY, line_num, SeedRecord(
+                pricing_version=newer if line_num == 4 else None))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 6
@@ -460,10 +419,10 @@ def test_reprice_prices_a_provider_row(fresh_db,
     before_ts = prov.start + timedelta(days=5)   # inside the dated window
     after_ts = prov.cutover + timedelta(days=5)  # at the row's list price
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, model=prov.model, ts=before_ts,
-              provider=prov.host)
-        _seed(c, _FILE_KEY, 2, model=prov.model, ts=after_ts,
-              provider=prov.host)
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(model=prov.model, ts=before_ts, provider=prov.host))
+        _seed(c, _FILE_KEY, 2,
+              SeedRecord(model=prov.model, ts=after_ts, provider=prov.host))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 2
@@ -498,7 +457,8 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
         "the schedule must be the price in force at ts, or this test "
         "proves nothing")
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, model=prov.model, ts=ts, provider=prov.host)
+        _seed(c, _FILE_KEY, 1,
+              SeedRecord(model=prov.model, ts=ts, provider=prov.host))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1

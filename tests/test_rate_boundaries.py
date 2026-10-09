@@ -136,8 +136,8 @@ def _install_rate_table(monkeypatch, dated_fixture):
 def _rate_boundaries_function():
     spec = importlib.util.find_spec("backend.rate_boundaries")
     assert spec is not None, "backend.rate_boundaries.rate_boundaries is missing"
-    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
-    return rate_boundaries
+    return getattr(
+        importlib.import_module("backend.rate_boundaries"), "rate_boundaries")
 
 
 def _pair_probes(boundaries: list[datetime]) -> list[list[datetime]]:
@@ -198,8 +198,7 @@ def test_rate_boundaries_partition_every_synthetic_resolution(
 
 
 def test_search_only_provider_move_is_a_rate_boundary(monkeypatch):
-    from backend.rate_boundaries import rate_boundaries
-
+    rate_boundaries = _rate_boundaries_function()
     model, host = "acme/search-only-9", "SearchHost"
     pair = (model, host)
     cutover = datetime(2031, 1, 1, tzinfo=UTC)
