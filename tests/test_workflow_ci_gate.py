@@ -437,9 +437,9 @@ def test_the_canary_job_is_named_for_what_it_is():
 
 
 def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
-    # Each side's digest is pinned separately elsewhere; the EQUALITY is
-    # pinned here -- refresh-pricing could not move its postgres image
-    # alone without this failing.
+    # The EQUALITY is pinned here -- refresh-pricing could not move its
+    # postgres image alone without this failing. That every site pulls from
+    # the mirror is test_ci_workflows.py's job.
     tests_image = (
         yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8"))
         ["jobs"]["pytest"]["services"]["postgres"]["image"])
