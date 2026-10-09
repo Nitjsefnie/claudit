@@ -447,7 +447,7 @@ def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
         yaml.safe_load(REFRESH_WORKFLOW.read_text(encoding="utf-8"))
         ["jobs"]["refresh"]["services"]["postgres"]["image"])
     assert tests_image == refresh_image
-    assert tests_image.startswith("postgres:16@sha256:")
+    assert tests_image.startswith("public.ecr.aws/docker/library/postgres:16@sha256:")
 
 
 def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():

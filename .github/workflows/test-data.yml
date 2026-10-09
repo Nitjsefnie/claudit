@@ -58,7 +58,7 @@ jobs:
         # and drop run-named ones (tests/scratch_db.py), so the role needs
         # CREATEDB — the stock `postgres` superuser has it. Pinned by
         # digest, as in tests.yml (issue #559).
-        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

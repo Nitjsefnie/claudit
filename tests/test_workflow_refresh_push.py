@@ -96,7 +96,7 @@ def test_refresh_job_stays_the_keyless_suite_runner():
     assert job["timeout-minutes"] == 30
     assert job["permissions"] == {"contents": "read"}
     image = job["services"]["postgres"]["image"]
-    assert image.startswith("postgres:16@sha256:"), image
+    assert image.startswith("public.ecr.aws/docker/library/postgres:16@sha256:"), image
     assert (job["env"]["PGHOST"], job["env"]["PGPORT"],
             job["env"]["PGUSER"], job["env"]["PGPASSWORD"]) == (
         "localhost", "5432", "postgres", "postgres")
