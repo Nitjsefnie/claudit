@@ -221,12 +221,9 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
         "2031-01-01T05:00:00+05:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:15:00Z", RATE_B)],
         RATE_B, [_entry("2031-01-01T00:15:00Z", RATE_B)],
-        # Issue #836: the undated baseline makes B a return to it, so the
-        # row is a TOGGLE and the run forms the band on top. Window: the
-        # undated A weighs 603000s from the open to the dated A@00:00Z,
-        # which holds 900s, then B 900s.
-        {f: round((RATE_A[f] * 603000 + RATE_A[f] * 900 + RATE_B[f] * 900)
-                  / 604800, 10) for f in pricing.RATE_FIELDS},
+        # The +05 timestamp is the same instant as 00:00Z. The repeated A
+        # level counts once; the move to B is a single step, so no band forms.
+        None,
     ),
     (
         "2031-01-01T00:00:00-00:15", RATE_B,
