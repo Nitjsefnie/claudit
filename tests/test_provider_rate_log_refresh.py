@@ -81,7 +81,19 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:
-    return {"from": at, **rates, **extra}
+    """Provider history row in the pricing document's compact spelling."""
+    entry = {"from": at, **rates, **extra}
+    if at is None:
+        entry.pop("from")
+    for field in ("create_5m", "create_1h"):
+        if entry.get(field, entry["fresh"]) == entry["fresh"]:
+            entry.pop(field, None)
+    band = entry.get("band")
+    if isinstance(band, dict) and "fresh" in band:
+        for field in ("create_5m", "create_1h"):
+            if band.get(field) == band["fresh"]:
+                band.pop(field, None)
+    return entry
 
 
 def _endpoint(host: str, rates: dict) -> dict:
