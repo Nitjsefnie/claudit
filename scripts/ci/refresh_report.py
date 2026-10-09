@@ -158,11 +158,13 @@ def _logged_move_text(move: Move, new, old_rates: dict | None,
     if move.old is None:
         token_text = f"newest fresh {new.rates['fresh']!r}"
     elif search:
+        assert old_rates is not None
         changed = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
                    for field in _RATE_FIELDS
                    if old_rates[field] != new.rates[field]]
         token_text = ", ".join(changed) if changed else "token rates unchanged"
     else:
+        assert old_rates is not None
         token_text = (f"newest fresh {old_rates['fresh']!r} → "
                       f"{new.rates['fresh']!r}")
     search_text = f"; {search}" if search else ""
@@ -183,6 +185,8 @@ def _new_move_text(move: Move, new, windows: str, off: str) -> str:
 def _changed_move_text(move: Move, new, old_rates: dict | None,
                        off: str) -> str:
     """Format changes to an existing endpoint's stored listing."""
+    assert move.old is not None
+    assert old_rates is not None
     moved = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
              for field in _RATE_FIELDS if old_rates[field] != new.rates[field]]
     if move.old.get("web_search", 0.0) != new.rates.get("web_search", 0.0):

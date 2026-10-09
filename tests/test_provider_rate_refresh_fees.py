@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 from datetime import timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from backend.pricing_load import _history
 from tests.refresh_fixture_builders import (
@@ -18,6 +19,9 @@ from tests.refresh_fixture_builders import (
 from tests.test_provider_rate_refresh import (
     GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
+
+if TYPE_CHECKING:
+    from refresh_provider_rates import Listing
 
 # USD per search, deliberately distinct from per-token rate fields.
 # Synthetic per-search rate, deliberately unlike the deployed listing.
@@ -202,7 +206,7 @@ def test_search_only_move_on_log_backed_host_appends_unchanged_token_rates(
     assert "web_search 0.002 → 0.0137, sampled at detection" in out
 
 
-def _direct_listing(rates: dict) -> refresh.Listing:
+def _direct_listing(rates: dict) -> Listing:
     return refresh.Listing("fixture", {}, rates, None, Decimal(0))
 
 

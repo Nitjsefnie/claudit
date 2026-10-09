@@ -108,15 +108,18 @@ def _validate_meter_key(key: str, folded: dict, models: dict,
 
 def _meter(key: str, threshold: int, factors: dict) -> dict:
     """Build a model's meter after checking any non-default multipliers."""
-    meter = {"threshold": threshold}
+    meter: dict[str, int | float] = {"threshold": threshold}
     for field in ("input_mult", "output_mult"):
         if field not in factors:
             continue
         multiplier = factors[field]
+        if (not isinstance(multiplier, (int, float))
+                or isinstance(multiplier, bool)):
+            raise ValueError(
+                f"long_context_meters: {key!r} has invalid {field}; "
+                "expected a positive finite number")
         try:
-            finite = (isinstance(multiplier, (int, float))
-                      and not isinstance(multiplier, bool)
-                      and math.isfinite(float(multiplier)))
+            finite = math.isfinite(float(multiplier))
         except (OverflowError, ValueError):
             finite = False
         if not finite or multiplier <= 0:

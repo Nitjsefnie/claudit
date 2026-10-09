@@ -278,7 +278,10 @@ def _synthetic_pin_shape(pin: dict, host: str) -> tuple[list[tuple], str, str, b
     if pin.get("select") == "cheapest":
         quant_tag = target or _quantization_tag(why)
         assert quant_tag, f"no quantization endpoint in {why!r}"
-        entries = [(quant_tag, RATES_A), (quant_tag, RATES_B)]
+        entries: list[
+            tuple[str, dict[str, float]]
+            | tuple[str, dict[str, float], dict[str, int]]
+        ] = [(quant_tag, RATES_A), (quant_tag, RATES_B)]
         if "max_completion_tokens" in why:
             entries = [(quant_tag, RATES_A, {"max_completion_tokens": 32767}),
                        (quant_tag, RATES_B, {"max_completion_tokens": 32768})]
