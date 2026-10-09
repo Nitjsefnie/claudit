@@ -1,12 +1,15 @@
 name: pr gate
+
 # pull_request_target: a fork's pull_request token is read-only, so its
 # comment and close would silently do nothing. The pinned action reads the
 # template at the PR's base SHA and runs no pull-request code; the body
 # reaches it through the API, never through an expression.
 #
 # The pin moved to Nitjsefnie-Actions/pr-gate v2.1.0. v2.1.0 adds the
-# `require-commit-attribution` input, enabled below; the other action inputs,
-# their defaults, and the composite step are unchanged. With it on, the gate
+# `require-commit-attribution` input, enabled below; the other action inputs
+# and their defaults are unchanged; the composite step only wires the new
+# input into its environment (`REQUIRE_COMMIT_ATTRIBUTION`), and its command is
+# unchanged. With it on, the gate
 # auto-closes a pull request carrying a commit whose author or committer is
 # unlinked or unrelated to the PR author, web-flow, a write-or-above account,
 # or a co-author of the PR author. Because this step passes `github.token`, a
@@ -14,7 +17,7 @@ name: pr gate
 # the composite runs is not unchanged. The old pin is UNTAGGED: pr-gate has
 # only ever released v1.0.0, v1.0.1, v2.0.0 and v2.1.0, and 39b1b91
 # (2026-09-24) predates v1.0.0, so "the v1 line" would be a release that does
-# not exist.    
+# not exist.
 #
 # Two behaviours a consumer can observe:
 #
