@@ -31,6 +31,7 @@ tests/test_picker_fit_js.py
 tests/test_picker_label_rules_js.py
 tests/test_placeholder_model_refusal.py
 tests/test_price_band.py
+tests/test_pricing_compact.py
 tests/test_pricing_data.py
 tests/test_pricing_vendor.py
 tests/test_pricing_vendor_equality.py
