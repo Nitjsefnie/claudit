@@ -69,7 +69,6 @@ one PRICING_VERSION bump, one commit.
 """
 from __future__ import annotations
 
-import copy
 import http.client
 import json
 import sys
@@ -98,6 +97,8 @@ from refresh_selection import Listing, listed_rows  # noqa: E402
 import refresh_vendor_rates  # noqa: E402
 from refresh_provider_history import (Move, _append, _append_logged)  # noqa: E402
 from backend import pricing  # noqa: E402
+from backend.pricing_document import (  # noqa: E402
+    effective_rates, expand_pricing_doc, serialize_pricing_doc)
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -172,7 +173,8 @@ class ListedModel:
 
 
 def _same_rates(left: dict, right: dict) -> bool:
-    return all(round(float(left[field]), 10) == round(float(right[field]), 10)
+    left_rates, right_rates = effective_rates(left), effective_rates(right)
+    return all(round(float(left_rates[field]), 10) == round(float(right_rates[field]), 10)
                for field in RATE_FIELDS)
 
 
@@ -181,7 +183,7 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     payload = _fetch(context.fetch, model, source)
     rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
-        {host: {field: history[-1][field] for field in RATE_FIELDS}
+        {host: effective_rates(history[-1])
          for host, history in hosts.items()}, context.at)
     return ListedModel(payload, rows, refused, notices, untracked)
 
@@ -224,9 +226,14 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
             fetch_models: FetchModels | None = None,
             fetch_log: FetchLog | None = None) -> Result:
     """Append each log-backed move at its change time and sample the rest."""
-    tracked, region = _sources(doc)
+    try:
+        pricing.load_tables(doc)
+    except ValueError as exc:
+        raise RefreshError(f"the source file would not load: {exc}") from exc
+    source_doc = expand_pricing_doc(doc)
+    tracked, region = _sources(source_doc)
     logs, catalog = refresh_pricelog.read_logs(tracked, fetch_models, fetch_log)
-    result = Result(copy.deepcopy(doc), [], [], [], [], {})
+    result = Result(source_doc, [], [], [], [], {})
     context = RefreshContext(
         result.doc, fetch, region, stamp,
         datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
@@ -290,8 +297,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     print(body)
     if (result.moves or (outcome is not None and outcome.moves)) \
             and not args.dry_run:
-        pricing_path.write_text(json.dumps(result.doc, indent=2, sort_keys=True) + "\n",
-                                encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result.doc), encoding="utf-8")
         constants_path.write_text(constants, encoding="utf-8")
         if args.commit_msg:
             args.commit_msg.write_text(

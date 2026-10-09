@@ -11,6 +11,7 @@ import price_band
 import refresh_alternation
 from refresh_selection import Listing
 from backend import pricing
+from backend.pricing_document import effective_rates
 
 RATE_FIELDS = pricing.RATE_FIELDS
 
@@ -61,7 +62,8 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
             moves.append(Move(model, host, None, listing))
             continue
         newest = history[-1]
-        if (all(newest[f] == listing.rates[f] for f in RATE_FIELDS)
+        if (all(effective_rates(newest)[f] == listing.rates[f]
+                for f in RATE_FIELDS)
                 and newest.get("web_search", 0.0)
                 == listing.rates.get("web_search", 0.0)
                 and newest.get("schedule") == listing.schedule):
@@ -103,13 +105,13 @@ def _new_log_states(model: str, host: str, entries: list[dict],
     newest_from = newest["from"]
     newest_at = (_price_instant(newest_from, where)
                  if newest_from is not None else None)
-    previous = {field: newest[field] for field in RATE_FIELDS}
+    previous = effective_rates(newest)
     additions = []
     for entry in entries:
         entry_at = _price_instant(entry["from"], where)
         if newest_at is not None and entry_at <= newest_at:
             continue
-        rates = {field: entry[field] for field in RATE_FIELDS}
+        rates = effective_rates(entry)
         if rates == previous:
             continue
         additions.append(copy.deepcopy(entry))
@@ -277,8 +279,7 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
         return move
 
     search_entry = _entry(stamp, listing)
-    for field in RATE_FIELDS:
-        search_entry[field] = previous[field]
+    search_entry.update(effective_rates(previous))
     if "band" in previous:
         search_entry["band"] = copy.deepcopy(previous["band"])
     _set_search_rate(search_entry, new_search)

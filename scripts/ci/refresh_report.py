@@ -7,6 +7,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from pathlib import Path
 
+from backend.pricing_document import effective_rates
+
 if TYPE_CHECKING:
     from refresh_provider_rates import Move, Result
 
@@ -108,6 +110,7 @@ def _search_change(move: Move) -> str | None:
 
 def _move_text(move: Move) -> str:
     new = move.new
+    old_rates = effective_rates(move.old) if move.old is not None else None
     off = f" ({_discount_note(new.discount)})" if new.discount else ""
     windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
     search = _search_change(move)
@@ -122,7 +125,7 @@ def _move_text(move: Move) -> str:
                 f"{history}{off}")
     if move.source == "band":
         verb = "changed" if move.old is not None else "new"
-        old = f"{move.old['fresh']!r} → " if move.old is not None else ""
+        old = f"{old_rates['fresh']!r} → " if old_rates is not None else ""
         fresh = move.entry_fresh if move.entry_fresh is not None \
             else new.rates["fresh"]
         search_text = f"; {search}" if search else ""
@@ -135,12 +138,12 @@ def _move_text(move: Move) -> str:
         if move.old is None:
             token_text = f"newest fresh {new.rates['fresh']!r}"
         elif search:
-            changed = [f"{field} {move.old[field]!r} → {new.rates[field]!r}"
+            changed = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
                        for field in _RATE_FIELDS
-                       if move.old[field] != new.rates[field]]
+                       if old_rates[field] != new.rates[field]]
             token_text = ", ".join(changed) if changed else "token rates unchanged"
         else:
-            token_text = (f"newest fresh {move.old['fresh']!r} → "
+            token_text = (f"newest fresh {old_rates['fresh']!r} → "
                           f"{new.rates['fresh']!r}")
         search_text = f"; {search}" if search else ""
         verb = "new" if move.old is None else "changed"
@@ -152,8 +155,8 @@ def _move_text(move: Move) -> str:
         if search:
             rates += f", web_search {search!r}"
         return f"  new       {move.host}: {rates}{windows}{off}"
-    moved = [f"{field} {move.old[field]!r} → {new.rates[field]!r}"
-             for field in _RATE_FIELDS if move.old[field] != new.rates[field]]
+    moved = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
+             for field in _RATE_FIELDS if old_rates[field] != new.rates[field]]
     if move.old.get("web_search", 0.0) != new.rates.get("web_search", 0.0):
         moved.append(f"web_search {move.old.get('web_search', 0.0)!r} → "
                      f"{new.rates.get('web_search', 0.0)!r}")

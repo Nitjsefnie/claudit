@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
+from backend.pricing_document import expand_pricing_doc
 from backend.api_common import fold_per_model, fold_per_model_provider
 
 UTC = timezone.utc
@@ -160,8 +161,8 @@ def test_modal_resolution_returns_its_loaded_provider_row():
     The synthetic refresh test exercises the withdrawn fp8 and surviving
     nvfp4 tags directly.
     """
-    document = json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    document = expand_pricing_doc(json.loads(
+        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
     model_key = "glm-5-3-flash"
     model_id = document["openrouter"]["models"][model_key]["id"]
     host = next(host for row_model, host in pricing.PROVIDER_RATES
@@ -172,8 +173,8 @@ def test_modal_resolution_returns_its_loaded_provider_row():
 def test_provider_resolution_assertions_survive_later_dated_appends(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """A later rate entry moves today's provider row into a dated window."""
-    document = json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8"))
+    document = expand_pricing_doc(json.loads(
+        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
     base_model = V41.replace(".", "-")
     base_host = next(host for host in document["providers"][base_model]
                      if host.casefold() == "baseten")

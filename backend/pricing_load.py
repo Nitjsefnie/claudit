@@ -17,12 +17,12 @@ from pathlib import Path
 from typing import TypedDict
 
 from backend.meter_tables import _long_context_meters
+from backend.pricing_document import RATE_FIELDS, effective_rates
 
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
 # parser.js reads the same file from /src.
 PRICING_JSON = Path(__file__).resolve().parent.parent / "src" / "pricing.json"
-RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 
 Windows = list[tuple[datetime, dict]]
 
@@ -41,6 +41,7 @@ class RateTables(TypedDict):
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
+    PROVIDER_BANDS: dict[tuple[str, str], dict[int, dict]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
     # The vendor tables (SV-RATE-DATA): the bare first-party form each
@@ -122,8 +123,11 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
                 or set(window) - {"days", "start", "end", "rates"}):
             raise ValueError(f"{w}: a window is {{days?, start?, end?, rates}}")
         rates = window["rates"]
-        if (not isinstance(rates, dict) or set(rates) != set(RATE_FIELDS)
-                or not all(_is_rate(rates[f]) for f in RATE_FIELDS)):
+        required = set(RATE_FIELDS) - {"create_5m", "create_1h"}
+        if (not isinstance(rates, dict) or not required <= set(rates)
+                or set(rates) - set(RATE_FIELDS)
+                or not all(_is_rate(value)
+                           for value in effective_rates(rates).values())):
             raise ValueError(f"{w}: rates are not the five finite non-negative rates")
         days = window.get("days")
         if days is not None and not (
@@ -137,7 +141,7 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
         if start is not None and start == end:
             raise ValueError(f"{w}: start equals end")
         out.append((frozenset(days) if days else None, start, end,
-                    {f: rates[f] for f in RATE_FIELDS}))
+                    effective_rates(rates)))
     return out
 
 
@@ -164,6 +168,9 @@ def check_band(band: object, at: str) -> dict:
             raise ValueError(f"{where}: not a [min, max] pair of finite "
                              "non-negative numbers with min <= max")
         out[field] = [span[0], span[1]]
+    if "fresh" in out:
+        for field in ("create_5m", "create_1h"):
+            out.setdefault(field, list(out["fresh"]))
     return out
 
 
@@ -173,10 +180,13 @@ def _check_entry_fields(entry: dict, at: str, may_band: bool = False) -> None:
     has_search_rate = "web_search" in fields
     if has_search_rate:
         fields.remove("web_search")
-    if (fields != set(RATE_FIELDS) or "from" not in entry
+    rate_fields = fields - ({"web_search"} if has_search_rate else set())
+    required = set(RATE_FIELDS) - {"create_5m", "create_1h"}
+    if (not required <= rate_fields or rate_fields - set(RATE_FIELDS)
             or (has_search_rate and not may_band)):
         raise ValueError(f"{at}: fields {sorted(entry)}")
-    bad = [f for f in RATE_FIELDS if not _is_rate(entry[f])]
+    bad = [f for f, value in effective_rates(entry).items()
+           if not _is_rate(value)]
     if has_search_rate and not _is_rate(entry["web_search"]):
         bad.append("web_search")
     if bad:
@@ -216,7 +226,7 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
             schedules[i] = _schedule(entry["schedule"], at)
         if not isinstance(entry.get("note", ""), str):
             raise ValueError(f"{at}: 'note' is not a string")
-        stamp = entry["from"]
+        stamp = entry.get("from")
         if stamp is None and i > 0:
             raise ValueError(f"{at}: only the first entry has no 'from'")
         if stamp is not None and i == 0 and not may_begin:
@@ -226,13 +236,13 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
             if starts and start <= starts[-1]:
                 raise ValueError(f"{at}: 'from' is not after the previous entry's")
             starts.append(start)
-        row_rates = {f: entry[f] for f in RATE_FIELDS}
+        row_rates = effective_rates(entry)
         if may_begin and "web_search" in entry:
             row_rates["web_search"] = entry["web_search"]
         rates.append(row_rates)
     if not rates:
         raise ValueError(f"{where}: empty history")
-    begin = entries[0]["from"] is not None
+    begin = entries[0].get("from") is not None
     return (rates[-1], list(zip(starts[begin:], rates[:-1])),
             starts[0] if begin else None, schedules)
 
@@ -350,6 +360,18 @@ def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict]:
             provider_schedules)
 
 
+def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
+    """Checked provider bands with omitted cache pairs folded to fresh."""
+    out: dict[tuple[str, str], dict[int, dict]] = {}
+    for model, hosts in doc["providers"].items():
+        for host, entries in hosts.items():
+            bands = {i: check_band(entry["band"], f"{model} via {host}[{i}]")
+                     for i, entry in enumerate(entries) if "band" in entry}
+            if bands:
+                out[model, host] = bands
+    return out
+
+
 def load_tables(doc: dict) -> RateTables:
     """Every rate table, derived from the parsed pricing.json, in file order."""
     model_rates: dict[str, dict] = {}
@@ -360,6 +382,7 @@ def load_tables(doc: dict) -> RateTables:
             dated_rates[key] = windows
     (provider_rates, provider_dated, provider_starts,
      provider_schedules) = _provider_tables(doc)
+    provider_bands = _provider_bands(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
     vendor_prefixes = list(doc["openrouter"]["vendor"]["prefixes"])
     long_context_meters = _long_context_meters(doc)
@@ -370,6 +393,7 @@ def load_tables(doc: dict) -> RateTables:
         "PROVIDER_DATED_RATES": provider_dated,
         "PROVIDER_STARTS": provider_starts,
         "PROVIDER_SCHEDULES": provider_schedules,
+        "PROVIDER_BANDS": provider_bands,
         "PROVIDER_RATES_FETCHED": _instant(doc["provider_rates_fetched"],
                                            "provider_rates_fetched"),
         # Sorted boundaries where any rate changes. Read-time aggregation
@@ -411,6 +435,7 @@ PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 # that carries one. A schedule's windows are not rate epochs: see
 # SV-RATE-DATA for how the read-time fold treats a scheduled row.
 PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
+PROVIDER_BANDS = _TABLES["PROVIDER_BANDS"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # The Codex long-context meter's membership: dashed names of models-table

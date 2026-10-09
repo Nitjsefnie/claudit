@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from backend import pricing
+from backend.pricing_document import expand_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -43,7 +44,8 @@ def _pricing_json() -> Path:
 
 
 def _doc() -> dict:
-    return json.loads(_pricing_json().read_text(encoding="utf-8"))
+    return expand_pricing_doc(
+        json.loads(_pricing_json().read_text(encoding="utf-8")))
 
 
 def _at(stamp: str) -> datetime:
