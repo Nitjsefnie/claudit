@@ -304,11 +304,13 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     print(body)
     if (result.moves or (outcome is not None and outcome.moves)) \
             and not args.dry_run:
-        pricing_path.write_text(serialize_pricing_doc(result.doc), encoding="utf-8")
-        constants_path.write_text(constants, encoding="utf-8")
+        pricing_path.write_text(serialize_pricing_doc(result.doc),
+                                encoding="utf-8", newline="\n")
+        constants_path.write_text(constants, encoding="utf-8", newline="\n")
         if args.commit_msg:
             args.commit_msg.write_text(
-                commit_message(result, body, outcome), encoding="utf-8")
+                commit_message(result, body, outcome), encoding="utf-8",
+                newline="\n")
     # Every other move is written; the run is still red, so a human sees it.
     if _refusals(result, outcome):
         print("\n".join(f"refresh_provider_rates: {r}"
