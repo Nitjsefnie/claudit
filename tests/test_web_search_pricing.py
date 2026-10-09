@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend import pricing
-from backend.pricing_load import RATE_FIELDS, load_tables
+from backend.pricing_load import RATE_FIELDS, RateTables, load_tables
 from tests.refresh_fixture_builders import RATES_B, seed_doc
 
 UTC = timezone.utc
@@ -34,7 +34,7 @@ def _provider_doc(entries: list[dict]) -> dict:
     )
 
 
-def _install(monkeypatch, tables: dict) -> None:
+def _install(monkeypatch, tables: RateTables) -> None:
     for name in (
         "MODEL_RATES", "DATED_RATES", "PROVIDER_RATES",
         "PROVIDER_DATED_RATES", "PROVIDER_STARTS", "PROVIDER_SCHEDULES",

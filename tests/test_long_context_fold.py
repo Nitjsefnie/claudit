@@ -86,8 +86,10 @@ def _install_search_rate_tables(monkeypatch, token_rates: dict) -> None:
 
 def _seed_search_records(records: tuple[_SearchRecord, ...]) -> None:
     with db.viz_conn() as c:
-        file_key = c.execute(
-            "SELECT file_key FROM records LIMIT 1").fetchone()[0]
+        row = c.execute(
+            "SELECT file_key FROM records LIMIT 1").fetchone()
+        assert row is not None
+        file_key = row[0]
         c.execute("DELETE FROM records WHERE file_key = %s", (file_key,))
         c.execute("UPDATE usage_rollup SET provider = %s WHERE model = %s",
                   (_SEARCH_HOST, _SEARCH_MODEL))
@@ -243,7 +245,8 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
     with db.viz_conn() as c:
         file_key, line_num = c.execute(
             "SELECT file_key, line_num FROM records ORDER BY file_key, line_num"
-        ).fetchone()
+        ).fetchone() or (None, None)
+        assert file_key is not None and line_num is not None
         c.execute(
             "UPDATE records SET model = %s, ts = %s, fresh_tokens = %s, "
             "cache_creation_tokens = 0, cache_read_tokens = 0, "

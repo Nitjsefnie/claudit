@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TypedDict
 
 from backend import constants
 
@@ -10,8 +11,25 @@ from backend import constants
 SEED_MODEL = "claude-opus-4-7"
 SEED_TS = datetime(2026, 5, 7, 10, 0, tzinfo=timezone.utc)
 SEED_TOKENS = (1_000, 2_000, 3_000, 100, 250, 500)
-SEED_INPUTS = {"fresh": 1_000, "output": 100, "eph5": 250,
-               "eph1h": 500, "unsplit_create": 1_250, "read": 3_000}
+
+
+class SeedInputs(TypedDict):
+    fresh: int
+    output: int
+    eph5: int
+    eph1h: int
+    unsplit_create: int
+    read: int
+
+
+SEED_INPUTS: SeedInputs = {
+    "fresh": 1_000,
+    "output": 100,
+    "eph5": 250,
+    "eph1h": 500,
+    "unsplit_create": 1_250,
+    "read": 3_000,
+}
 
 
 @dataclass(frozen=True)
