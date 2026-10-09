@@ -73,8 +73,8 @@ def test_a_rollout_file_is_parsed_as_codex_not_as_a_kimi_wire():
 
 def test_codex_search_call_item_is_counted_once_per_reply():
     out = _parse("rollout_web_search.jsonl")
-    assert len(out["records"]) == 1
-    assert out["records"][0]["web_search_requests"] == 1
+    assert [record["web_search_requests"] for record in out["records"]] == [
+        1, None]
 
 
 def test_codex_reply_without_search_call_stays_null():

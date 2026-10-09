@@ -8,8 +8,13 @@ network.
 from __future__ import annotations
 
 import copy
+from datetime import timedelta
+from decimal import Decimal
 
-from tests.refresh_fixture_builders import _endpoint, _per_token
+from backend.pricing_load import _history
+from tests.refresh_fixture_builders import (
+    RATES_A, RATES_B, _endpoint, _per_token,
+)
 from tests.test_provider_rate_refresh import (
     GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
@@ -195,6 +200,204 @@ def test_search_only_move_on_log_backed_host_appends_unchanged_token_rates(
     assert entry["web_search"] == 0.0137
     assert {field: entry[field] for field in RATE_FIELDS} == token_rates
     assert "web_search 0.002 → 0.0137, sampled at detection" in out
+
+
+def _direct_listing(rates: dict) -> refresh.Listing:
+    return refresh.Listing("fixture", {}, rates, None, Decimal(0))
+
+
+def _days_before_detection(days: int) -> str:
+    return (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_simultaneous_token_and_search_move_keeps_loadable_history():
+    """A token point at detection and the sampled search change share one
+    dated entry so pricing_load's strict timestamp order remains valid."""
+    token_rates = {**RATES_B, "output": 12.0}
+    hosts = {"SearchHost": [{
+        "from": None, **RATES_B, "web_search": 0.002,
+    }]}
+
+    refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**token_rates, "web_search": 0.0137}),
+        [{"from": STAMP, **token_rates}], NOW)
+
+    history = hosts["SearchHost"]
+    _history(history, "acme/search-9 via SearchHost", may_begin=True)
+    at_detection = [entry for entry in history if entry.get("from") == STAMP]
+    assert len(at_detection) == 1
+    assert {field: at_detection[0][field] for field in RATE_FIELDS} == token_rates
+    assert at_detection[0]["web_search"] == 0.0137
+
+
+def test_band_formation_and_search_move_share_detection_timestamp():
+    hosts = {"SearchHost": [{
+        "from": None, **RATES_A, "web_search": 0.002,
+    }]}
+    states = [RATES_B, RATES_A, RATES_B, RATES_A]
+    entries = [
+        {"from": _days_before_detection(days), **rates}
+        for days, rates in zip((6, 5, 4, 3), states)
+    ]
+
+    refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**RATES_A, "web_search": 0.0137}),
+        entries, NOW)
+
+    history = hosts["SearchHost"]
+    _history(history, "acme/search-9 via SearchHost", may_begin=True)
+    at_detection = [entry for entry in history if entry.get("from") == STAMP]
+    assert len(at_detection) == 1
+    assert "band" in at_detection[0]
+    assert at_detection[0]["web_search"] == 0.0137
+
+
+def test_search_only_move_preserves_token_band():
+    band = {field: [value / 2, value * 2]
+            for field, value in RATES_B.items()}
+    hosts = {"SearchHost": [{
+        "from": None, **RATES_B, "web_search": 0.002, "band": band,
+    }]}
+
+    refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**RATES_B, "web_search": 0.0137}), [], NOW)
+
+    history = hosts["SearchHost"]
+    _history(history, "acme/search-9 via SearchHost", may_begin=True)
+    assert history[-1]["web_search"] == 0.0137
+    assert history[-1]["band"] == band
+
+
+def test_search_change_defers_when_detection_epoch_is_already_committed():
+    hosts = {"SearchHost": [{
+        "from": STAMP, **RATES_B, "web_search": 0.002,
+    }]}
+    before = copy.deepcopy(hosts)
+    listing = _direct_listing({**RATES_B, "web_search": 0.0137})
+    notices = []
+
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost", listing, [], NOW,
+        deferred_notices=notices)
+
+    assert move is None
+    assert hosts == before
+    assert len(notices) == 1
+    assert "web_search change deferred" in notices[0]
+    assert "next append" in notices[0]
+
+    later = NOW + timedelta(hours=1)
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost", listing, [], later,
+        deferred_notices=notices)
+    _history(hosts["SearchHost"], "acme/search-9 via SearchHost",
+             may_begin=True)
+    assert move is not None and move.source == "search"
+    assert hosts["SearchHost"][0] == before["SearchHost"][0]
+    assert hosts["SearchHost"][-1]["from"] == "2031-01-01T01:00:00Z"
+    assert hosts["SearchHost"][-1]["web_search"] == 0.0137
+
+
+def test_search_change_lands_on_the_next_token_append_after_conflict():
+    hosts = {"SearchHost": [{
+        "from": STAMP, **RATES_B, "web_search": 0.002,
+    }]}
+    committed = copy.deepcopy(hosts["SearchHost"][0])
+    later = NOW + timedelta(hours=1)
+    later_stamp = later.strftime("%Y-%m-%dT%H:%M:%SZ")
+    notices = []
+
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**RATES_A, "web_search": 0.0137}),
+        [{"from": later_stamp, **RATES_A}], NOW,
+        deferred_notices=notices)
+
+    _history(hosts["SearchHost"], "acme/search-9 via SearchHost",
+             may_begin=True)
+    assert move is not None and move.source == "log"
+    assert hosts["SearchHost"][0] == committed
+    assert hosts["SearchHost"][1]["from"] == later_stamp
+    assert {field: hosts["SearchHost"][1][field]
+            for field in RATE_FIELDS} == RATES_A
+    assert hosts["SearchHost"][1]["web_search"] == 0.0137
+    assert notices and later_stamp in notices[0]
+
+
+def test_refresh_reports_deferred_search_change_without_rewriting_history(
+        tmp_path, capsys):
+    run = Run(tmp_path)
+
+    def set_committed_search_epoch(doc):
+        entry = doc["providers"][GLM]["OpenInference"][0]
+        entry["from"] = STAMP
+        entry["web_search"] = 0.002
+        entry.pop("note", None)
+
+    run.edit(set_committed_search_epoch)
+    previous = copy.deepcopy(run.doc()["providers"][GLM]["OpenInference"])
+    _search_rate(run, GLM, "OpenInference")
+    token_rates = {field: previous[-1][field] for field in RATE_FIELDS}
+    rc = refresh.main(
+        ["--commit-msg", str(run.commit_msg)],
+        fetch=lambda model_id: copy.deepcopy(run.payloads[model_id]),
+        fetch_models=lambda: {"data": [
+            {"id": source["id"], "canonical_slug": source["id"]}
+            for source in run.doc()["openrouter"]["models"].values()]},
+        fetch_log=lambda _slug: {"data": {"series": [
+            _series(slug="openinference", host="OpenInference",
+                    rates=token_rates, at=STAMP)]}},
+        now=NOW, pricing_path=run.pricing, constants_path=run.constants,
+        vendor=None)
+    out, err = capsys.readouterr()
+
+    assert rc == 0, err
+    assert f"web_search change deferred from {STAMP} until the next append" in out
+    assert run.doc()["providers"][GLM]["OpenInference"] == previous
+
+
+def test_prior_search_epochs_do_not_disable_band_reform():
+    band = {field: [value / 2, value * 2]
+            for field, value in RATES_B.items()}
+    hosts = {"SearchHost": [
+        {"from": None, **RATES_B, "web_search": 0.002},
+        {"from": _days_before_detection(6), **RATES_B,
+         "web_search": 0.003, "band": band},
+    ]}
+    entries = [{"from": _days_before_detection(5), **RATES_A}]
+
+    move = refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)
+
+    assert move is None
+    assert len(hosts["SearchHost"]) == 2
+
+
+def test_prior_search_epochs_do_not_disable_band_formation():
+    hosts = {"SearchHost": [
+        {"from": None, **RATES_A, "web_search": 0.002},
+        {"from": _days_before_detection(8), **RATES_A,
+         "web_search": 0.003},
+    ]}
+    states = [RATES_B, RATES_A, RATES_B, RATES_A]
+    entries = [
+        {"from": _days_before_detection(days), **rates}
+        for days, rates in zip((6, 5, 4, 3), states)
+    ]
+
+    refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)
+
+    formed = [entry for entry in hosts["SearchHost"]
+              if entry.get("from") == STAMP]
+    assert len(formed) == 1
+    assert "band" in formed[0]
+    assert formed[0]["web_search"] == 0.003
 
 
 # --- a listed 1h cache write is the create_1h rate --------------------------

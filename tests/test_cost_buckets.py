@@ -471,9 +471,9 @@ def test_a_schedule_adds_no_rate_epoch(monkeypatch):
     assert pricing.RATE_EPOCHS == before
 
 
-def test_search_only_costs_land_in_their_rate_epoch_bucket(monkeypatch):
-    """A web-search-only epoch carries no token cost to scale, so its
-    separate search bucket must receive the requests at that epoch's rate."""
+def test_zero_token_search_cost_uses_the_stored_total_fallback(monkeypatch):
+    """With no token cost to derive, the fold assigns each stored row total
+    to its search bucket."""
     model, host = "acme/search-9", "SearchHost"
     pair = (model, host)
     cutover = datetime(2030, 1, 1, tzinfo=UTC)
@@ -485,16 +485,7 @@ def test_search_only_costs_land_in_their_rate_epoch_bucket(monkeypatch):
     monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
-    before = pricing.compute_cost(
-        model, fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=0,
-        read=0, web_search_requests=2,
-        res=pricing.resolve(model, cutover - timedelta(seconds=1), host),
-    )
-    after = pricing.compute_cost(
-        model, fresh=0, output=0, eph5=0, eph1h=0, unsplit_create=0,
-        read=0, web_search_requests=3,
-        res=pricing.resolve(model, cutover, host),
-    )
+    before, after = 2 * 0.0137, 3 * 0.045
     rows = [
         (model, host, 0, False, 1, 0, 0, 0, 0, 0, 0, 2, before, None, None),
         (model, host, 1, False, 1, 0, 0, 0, 0, 0, 0, 3, after, None, None),
@@ -502,8 +493,40 @@ def test_search_only_costs_land_in_their_rate_epoch_bucket(monkeypatch):
 
     folded = fold_per_model_provider(
         rows, pair_bounds={pair: [cutover]})[0]
-    assert folded["cost_total"] == pytest.approx(round(before + after, 4))
-    assert folded["cost_buckets"]["web_search"] == pytest.approx(
-        round(before + after, 4))
+    assert folded["cost_total"] == pytest.approx(0.1624)
+    assert folded["cost_buckets"]["web_search"] == pytest.approx(0.1624)
+    assert folded["cost_buckets"]["fresh"] == 0
     assert sum(folded["cost_buckets"].values()) == pytest.approx(
         folded["cost_total"])
+
+
+def test_search_and_token_costs_follow_their_rate_epochs(monkeypatch):
+    """Nonzero fresh-token cost makes a wrong search epoch visible in both
+    independent buckets instead of falling back to the stored total."""
+    # sv-test-data: synthetic rates and hand-calculated record totals.
+    model, host = "acme/search-9", "SearchHost"
+    pair = (model, host)
+    cutover = datetime(2030, 1, 1, tzinfo=UTC)
+    old_search, new_search = 0.0137, 0.045
+    older = {**RATES_B, "web_search": old_search}
+    newer = {**RATES_B, "web_search": new_search}
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: newer})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {pair: [(cutover, older)]})
+    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
+    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
+    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
+    rows = [
+        (model, host, 0, False, 1, 1_000_000, 0, 0, 0, 0, 0,
+         2, 2.0274, None, None),
+        (model, host, 1, False, 1, 2_000_000, 0, 0, 0, 0, 0,
+         3, 4.135, None, None),
+    ]
+
+    folded = fold_per_model_provider(
+        rows, pair_bounds={pair: [cutover]})[0]
+    search_total = 2 * old_search + 3 * new_search
+    assert folded["cost_total"] == pytest.approx(6.1624)
+    assert folded["cost_buckets"]["web_search"] == pytest.approx(search_total)
+    assert folded["cost_buckets"]["fresh"] == pytest.approx(6.0)
+    assert sum(folded["cost_buckets"].values()) == pytest.approx(6.1624)
