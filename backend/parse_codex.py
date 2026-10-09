@@ -132,6 +132,9 @@ class _CodexState(_ParseState):
     # Previous cumulative token snapshot, for differencing. None until the
     # file's first token_count seeds the inherited baseline.
     prev_usage: dict | None = None
+    # response_item/web_search_call items since the previous billing
+    # record. web_search_end is a companion event, not another call.
+    web_search_requests: int = 0
     # Model in force, from the most recent turn_context / settings record.
     # parse() opens it as the file's FIRST declared model — the model the
     # parent had in force where a fork cut, inherited by the replayed
@@ -322,7 +325,8 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
                          for k in _CODEX_USAGE_KEYS}
     delta = {k: cumulative[k] - st.prev_usage[k] for k in _CODEX_USAGE_KEYS}
     st.prev_usage = cumulative
-    if all(delta[k] <= 0 for k in _CODEX_USAGE_KEYS):
+    if (all(delta[k] <= 0 for k in _CODEX_USAGE_KEYS)
+            and not st.web_search_requests):
         return  # Trap 2: duplicate token_count, or a non-advancing snapshot.
 
     # Trap 3: cached and cache-write inputs are SUBSETS of input_tokens.
@@ -353,7 +357,9 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         (fresh, create, read, output),
         reasoning=reasoning,
         long_context=(total_in > pricing.long_context_threshold(st.model)),
+        web_search_requests=st.web_search_requests or None,
     )
+    st.web_search_requests = 0
 
 
 def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
@@ -609,7 +615,10 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
     if ptype in ("custom_tool_call", "function_call"):
         _codex_tool_call(st, line_num, ts, payload)
         _mark_assistant_event(st, ts)
-    elif ptype in ("reasoning", "web_search_call", "local_shell_call"):
+    elif ptype == "web_search_call":
+        st.web_search_requests += 1
+        _mark_assistant_event(st, ts)
+    elif ptype in ("reasoning", "local_shell_call"):
         # Model output that is not a tool_uses row here: it can still be
         # where the reply began.
         _mark_assistant_event(st, ts)
@@ -652,7 +661,9 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
     # rows. They share no call_id with the tool calls (0 of 324 and 0 of 11),
     # but every file that makes MCP calls through exec shows the two counts
     # matching exactly (11/11, 4/4) — they are the server side of the same
-    # call, and a row each would count it twice.
+    # call, and a row each would count it twice. A response_item/web_search_call
+    # is counted separately in web_search_requests; web_search_end never adds
+    # another search count.
 
 
 def parse(file_key: str, blob: bytes) -> dict:

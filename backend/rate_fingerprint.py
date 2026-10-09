@@ -6,10 +6,11 @@ stale row's stored ``records.rate_fingerprint`` against the CURRENT
 fingerprint of its pair and lets SQL restamp the rows that agree, so
 the read-and-recompute half of the pass costs O(changed pairs). The
 soundness contract — equal fingerprints imply equal prices for every
-(tokens, ts, long_context) on the pair — holds because the digest
-covers every input pricing.resolve() consults: the rate tables'
-consulted rows, the resolution's outcome (fold, key, tier, default),
-the pricing modules' source AND the reprice pass's own source, whose
+(tokens, web_search_requests, ts, long_context) on the pair — holds because
+the digest covers every input pricing.resolve() consults: the rate tables'
+consulted rows, the resolution's outcome (fold, key, tier, default), the
+parser's source that produces stored search counts, the pricing modules'
+source AND the reprice pass's own source, whose
 ``_record_updates`` is part of the derivation (the long-context
 re-derivation rule and the unsplit arithmetic live there) — so an
 edited entry, a correction, a schedule change, a logic change in the
@@ -37,29 +38,29 @@ from backend import (long_context, meter_tables, model_names, pricing,
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
-_STRUCTURE_VERSION = 5
+_STRUCTURE_VERSION = 6
 
-# The modules whose source the logic digest hashes. The reprice pass
-# itself joins them at first use (hashed_modules) — a module-level
-# import would be the cycle ingest_reprice already closes the other way.
+# Pricing modules are the stable imports; parser and reprice modules join
+# them at first use in hashed_modules to keep their import edges acyclic.
 _LOGIC_MODULES = (pricing, pricing_load, model_names, meter_tables,
                   long_context)
 
-# The digest, computed on first use: by then both import directions
-# (rate_fingerprint <-> ingest_reprice) have settled and getsource can
-# read the pass's module.
+# The digest, computed on first use: by then parser and reprice imports
+# have settled and getsource can read their modules.
 _LOGIC_CACHE: list[str] = []
 
 
 def hashed_modules() -> tuple:
-    """The modules whose concatenated source the logic digest hashes:
-    the pricing modules plus the reprice pass (issue #377). The import
-    is call-time: ingest_reprice imports this module, so the edge is
-    the cycle pylint names (R0401) and is only ever walked once both
-    modules are fully initialised."""
-    # pylint: disable-next=import-outside-toplevel,cyclic-import
-    from backend import ingest_reprice
-    return (*_LOGIC_MODULES, ingest_reprice)
+    """The parser, pricing and reprice source hashed by the logic digest.
+
+    Parser modules are imported at call time so this module stays outside
+    their import graph; the reprice pass is lazy because it imports this
+    module in the opposite direction.
+    """
+    # pylint: disable=import-outside-toplevel,cyclic-import
+    from backend import ingest_reprice, parse, parse_codex, parse_common
+    return (*_LOGIC_MODULES, parse, parse_common, parse_codex,
+            ingest_reprice)
 
 
 def _logic() -> str:
@@ -87,8 +88,10 @@ def clear_fingerprint_cache() -> None:
 
 
 def _rates(rates: dict | None) -> list[float] | None:
-    """A rates dict as a list in RATE_FIELDS order, or None."""
-    return None if rates is None else [rates[f] for f in RATE_FIELDS]
+    """Token rates plus the optional per-search rate, or None."""
+    return (None if rates is None else
+            [rates[f] for f in RATE_FIELDS]
+            + [rates.get("web_search", 0.0)])
 
 
 def _iso(stamp: datetime | None) -> str | None:
@@ -97,15 +100,6 @@ def _iso(stamp: datetime | None) -> str | None:
 
 def _windows(windows: pricing_load.Windows | None) -> list[list]:
     return [[_iso(end), _rates(rates)] for end, rates in windows or []]
-
-
-def _fees_doc(fees: dict[int, float] | None, count: int) -> list:
-    """The per-entry per-request fees (issue #469) as one slot per
-    history entry, windows first and the newest entry last: a fee is a
-    rate input resolve() consults, so it fingerprints like the rates and
-    schedules it rides. An entry without a fee slots None."""
-    return [None if not fees else fees.get(index, 0.0)
-            for index in range(count + 1)]
 
 
 def _schedule(
@@ -125,14 +119,12 @@ def _model_doc(norm: str) -> dict:
     # private resolvers it fingerprints are its direct interface.
     key = pricing._match_key(norm)  # pylint: disable=protected-access
     if key is None:
-        return {"key": None, "list": None, "windows": [], "fees": [None]}
+        return {"key": None, "list": None, "windows": []}
     windows = pricing.DATED_RATES.get(key)
     return {
         "key": key,
         "list": _rates(pricing.MODEL_RATES.get(key)),
         "windows": _windows(windows),
-        "fees": _fees_doc(pricing.FEES.get(key),
-                          len(windows or [])),
     }
 
 
@@ -150,19 +142,16 @@ def _tier(norm: str) -> list | None:
 
 def _provider_doc(norm: str, provider: str) -> dict:
     """The provider-row branch: the folded key, its start, list price,
-    dated windows, the schedule riding each window's history entry, and
-    the per-entry fees."""
+    dated windows, and the schedule riding each window's history entry."""
     fold = pricing._provider_key(norm, provider, None)  # pylint: disable=protected-access
     schedules: dict = {}
     start = None
     list_rates = None
-    fees: dict[int, float] | None = None
     windows: list[tuple[datetime, dict]] = []
     if fold is not None:
         schedules = pricing.PROVIDER_SCHEDULES.get(fold, {})
         start = pricing.PROVIDER_STARTS.get(fold)
         list_rates = pricing.PROVIDER_RATES.get(fold)
-        fees = pricing.PROVIDER_FEES.get(fold)
         windows = pricing.PROVIDER_DATED_RATES.get(fold, [])
     return {
         "fold": None if fold is None else [fold[0], fold[1]],
@@ -179,17 +168,13 @@ def _provider_doc(norm: str, provider: str) -> dict:
         # it, so the fp names it here: a whole-week schedule on a
         # one-entry row must move the fp.
         "tail": _schedule(schedules.get(len(windows))),
-        # The per-entry fees, windows first and the newest entry last,
-        # keyed the same way the schedule tail is (issue #469).
-        "fees": _fees_doc(fees, len(windows)),
     }
 
 
 def _vendor_doc(norm: str) -> dict:
     """The bare-id vendor branch: the tracked key the bare form matches,
     and that row's list price, dated windows and start — the inputs the
-    bare path consults (its fee and schedule are deliberately not inputs:
-    the bare path prices fee-free and schedule-free)."""
+    bare path consults (the provider-specific schedule is not applied)."""
     tracked = pricing._vendor_match(norm)  # pylint: disable=protected-access
     if tracked is None:
         return {"key": None, "list": None, "windows": [], "start": None}

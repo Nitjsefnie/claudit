@@ -14,8 +14,8 @@
 // Every rate lives in src/pricing.json (SV-RATE-DATA), the same file
 // backend/pricing.py loads; this file holds resolution logic only. The
 // rate tables are read and validated by src/pricing-loader.js, which runs
-// before this script and exposes window.modelRates and its siblings (fees
-// included, issue #469), window.FREE_RATES and window.scheduleRatesAt.
+// before this script and exposes window.modelRates, provider rates,
+// window.FREE_RATES and window.scheduleRatesAt.
 
 // Family fallbacks for unrecognised Claude models — current-generation
 // list rates for the tier, never a dated promotion. The generation is the
@@ -161,26 +161,14 @@ function _providerModelKey(norm, provider, ts) {
   return null;
 }
 
-// The per-request fee of a row's history entry in force, keyed by entry
-// index exactly like the schedules (windows[i] is entry i, the tail entry
-// is index windows.length; the list price when ts is null). Mirrors
-// pricing._fee_at.
-function _feeAt(fees, windows, t) {
-  if (!fees) return 0;
-  const key = t == null ? (windows ? windows.length : 0) : (windows || []).filter((w) => w.endExclusive <= t).length;
-  return fees[key] || 0;
-}
-
 // Resolve a model id to rates, reporting how confident the match is:
 // 'exact' | 'tier' | 'default'. Anything but 'exact' is an estimate.
 // `provider` is the record's serving host: a (model, provider) row wins,
-// otherwise (and always without one) the model alone decides. `fee` is
-// the serving host's per-request fee in force (issue #469), folded into
-// each record's cost beside the tokens.
+// otherwise (and always without one) the model alone decides.
 window.resolveModelRate = function resolveModelRate(model, ts, provider) {
   let norm = _normaliseModel(model);
   if (_isFreeModel(model, norm)) {
-    return { rates: window.FREE_RATES, kind: 'exact', key: norm, fee: 0 };
+    return { rates: window.FREE_RATES, kind: 'exact', key: norm };
   }
   norm = _foldVendorPrefix(norm);
   const pkey = provider ? _providerModelKey(norm, provider, ts) : null;
@@ -190,22 +178,19 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
     const t = _toMillis(ts);
     const entry = (windows || []).filter((w) => w.endExclusive <= t).length;
     const schedule = t == null ? null : ((window.providerSchedules[pkey] || {})[provider] || {})[entry];
-    const fee = _feeAt(((window.providerFees[pkey] || {})[provider]), windows, t);
-    if (!schedule) return { rates, kind: 'exact', key: pkey, fee };
-    return { rates: window.scheduleRatesAt(schedule, t) || rates, kind: 'exact', key: pkey, fee };
+    if (!schedule) return { rates, kind: 'exact', key: pkey };
+    return { rates: { ...rates, ...(window.scheduleRatesAt(schedule, t) || {}) },
+             kind: 'exact', key: pkey };
   }
   const key = _matchRateKey(norm);
   if (key) {
     const windows = window.datedRates[key];
-    const t = _toMillis(ts);
     return { rates: _inWindow(windows, ts, window.modelRates[key]),
-             kind: 'exact', key,
-             fee: _feeAt(window.modelFees[key], windows, t) };
+             kind: 'exact', key };
   }
   // The vendor bare path: the tracked key the bare form names prices the
-  // id from its own (tracked key, host) row's dated windows, fee-free and
-  // schedule-free — a host's fee and time-of-day windows are the host's
-  // own terms for requests THROUGH it, and a bare id names no host. A row
+  // id from its own (tracked key, host) row's dated windows. A host's
+  // schedule remains host-specific; a bare id names no serving host. A row
   // that begins at a time does not exist for a record before it: fall
   // through, exactly as a rowless model does. Mirrors the vendor branch
   // of pricing.resolve.
@@ -219,14 +204,14 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
       if (!(start !== undefined && t != null && t < start)) {
         const windows = (window.providerDatedRates[vkey] || {})[host];
         return { rates: _inWindow(windows, ts, hosts[host]),
-                 kind: 'exact', key: vkey, fee: 0 };
+                 kind: 'exact', key: vkey };
       }
     }
   }
   for (const [re, tierKey] of _TIER_FALLBACKS) {
-    if (re.test(norm)) return { rates: window.keyListRates(tierKey), kind: 'tier', key: null, fee: 0 };
+    if (re.test(norm)) return { rates: window.keyListRates(tierKey), kind: 'tier', key: null };
   }
-  return { rates: window.keyListRates('claude-opus-4-7'), kind: 'default', key: null, fee: 0 };
+  return { rates: window.keyListRates('claude-opus-4-7'), kind: 'default', key: null };
 };
 
 window.rateForModel = function rateForModel(model, ts, provider) {

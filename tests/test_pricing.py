@@ -42,7 +42,8 @@ def test_opus_5_5_resolves_exact_distinct_from_opus_5():
     o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert o55.kind == "exact"
     assert o55.key == "claude-opus-5-5"
-    assert set(o55.rates) == set(pricing.RATE_FIELDS)
+    assert set(o55.rates) in (set(pricing.RATE_FIELDS),
+                              {*pricing.RATE_FIELDS, "web_search"})
 
 
 def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
@@ -71,7 +72,8 @@ def test_sonnet_5_5_resolves_exact_to_its_own_row():
     s55 = pricing.resolve("claude-sonnet-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert s55.kind == "exact"
     assert s55.key == "claude-sonnet-5-5"
-    assert set(s55.rates) == set(pricing.RATE_FIELDS)
+    assert set(s55.rates) in (set(pricing.RATE_FIELDS),
+                              {*pricing.RATE_FIELDS, "web_search"})
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5(

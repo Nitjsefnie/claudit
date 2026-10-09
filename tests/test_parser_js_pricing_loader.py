@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from backend.pricing_load import load_tables
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
 
@@ -160,16 +161,23 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
       if (window.rateForModel) {{
         const K = {{fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
                    read: 'read', out: 'output'}};
-        const map = (r) => Object.fromEntries(
-          Object.entries(K).map(([a, b]) => [b, r[a]]));
-        rates = {{
-          day: map(window.rateForModel(
-            {json.dumps(MODEL_ID)}, '2026-09-21T10:00:00Z', {json.dumps(HOST)})),
-          night: map(window.rateForModel(
-            {json.dumps(MODEL_ID)}, '2026-09-21T20:00:00Z', {json.dumps(HOST)})),
+        const map = (r) => {{
+          const mapped = Object.fromEntries(
+            Object.entries(K).map(([a, b]) => [b, r[a]]));
+          if (r.search) mapped.web_search = r.search;
+          return mapped;
         }};
+      rates = {{
+        day: map(window.rateForModel(
+            {json.dumps(MODEL_ID)}, '2026-09-21T10:00:00Z', {json.dumps(HOST)})),
+        night: map(window.rateForModel(
+            {json.dumps(MODEL_ID)}, '2026-09-21T20:00:00Z', {json.dumps(HOST)})),
+      }};
       }}
-      console.log(JSON.stringify({{error, untouched, rates}}));
+      const vendorSearch = window.rateForModel
+        ? (window.rateForModel('glm-5-3-flash', null, null).search ?? 0)
+        : null;
+      console.log(JSON.stringify({{error, untouched, rates, vendorSearch}}));
     """
     proc = subprocess.run(["node", "-e", script], capture_output=True,
                           text=True, timeout=60, check=False)
@@ -207,6 +215,32 @@ def test_plain_integer_schedule_times_load_and_price_the_windows(tmp_path):
     out = _run(tmp_path, _render(_doc()))
     assert out["error"] is None, out["error"]
     assert out["rates"] == {"day": DAY, "night": NIGHT}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_provider_and_vendor_search_rates_load_in_python_and_both_js_paths(
+        tmp_path):
+    doc = _doc()
+    doc["providers"][ROW_KEY][HOST][0]["web_search"] = 0.0137
+    doc["openrouter"]["models"][ROW_KEY]["vendor_host"] = HOST
+    tables = load_tables(doc)
+    assert tables["PROVIDER_RATES"][(ROW_KEY, HOST)]["web_search"] == 0.0137
+    assert tables["VENDOR_BARE"]["glm-5-3-flash"] == ROW_KEY
+
+    for browser in (False, True):
+        out = _run(tmp_path, _render(doc), browser=browser)
+        assert out["error"] is None, out["error"]
+        assert out["rates"]["day"]["web_search"] == 0.0137
+        assert out["vendorSearch"] == 0.0137
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_browser_loader_rejects_a_negative_search_rate(tmp_path):
+    doc = _doc()
+    doc["providers"][ROW_KEY][HOST][0]["web_search"] = -0.1
+    out = _run(tmp_path, _render(doc))
+    assert out["error"]
+    assert "web_search not a finite non-negative number" in out["error"]
 
 
 # --- a fractional start outside a schedule -------------------------------------

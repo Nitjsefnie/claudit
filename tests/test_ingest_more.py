@@ -77,6 +77,21 @@ def test_tool_failure_columns_persist(fresh_db, mini_r2_env):
     assert rows[3][1] is False and rows[3][3] is None
 
 
+def test_web_search_request_counts_persist_nullable(fresh_db, mini_r2_env):
+    _plant(mini_r2_env, "projSearch", "sess-search", "web_search.jsonl")
+    _plant(mini_r2_env, "projSearch", "sess-no-search", "single_turn.jsonl")
+    ingest.run_ingest(trigger="manual")
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT f.session_id, r.web_search_requests, r.request_fee_usd "
+            "FROM records r JOIN files f USING (file_key) "
+            "WHERE f.project_id = %s ORDER BY f.session_id",
+            ("projSearch",)).fetchall()
+    assert rows == [("sess-no-search", None, None),
+                    ("sess-search", 2, None),
+                    ("sess-search", 4, None)]
+
+
 def test_agent_dispatch_columns_persist(fresh_db, mini_r2_env):
     """agent_type/agent_model survive the ingest INSERT and stay NULL
     for tools that dispatch nothing."""

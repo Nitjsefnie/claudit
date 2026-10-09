@@ -57,8 +57,9 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
     # $0.285 in / $1.14 out / $0.0057 cache read per 1M.
     r = pricing.resolve(V41, SEEDED, provider="Novita")  # sv-test-data: allow (closed-window pin at SEEDED)
     assert r.kind == "exact"
-    assert r.rates == {"fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
-                       "read": 0.0057, "output": 1.14}
+    assert {field: r.rates[field] for field in pricing.RATE_FIELDS} == {
+        "fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
+        "read": 0.0057, "output": 1.14}
     assert _cost(V41, "Novita", SEEDED, fresh=1_000_000, output=1_000_000,
                  read=1_000_000) == pytest.approx(
                      0.285 + 1.14 + 0.0057, rel=1e-12)

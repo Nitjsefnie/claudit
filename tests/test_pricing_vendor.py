@@ -57,8 +57,7 @@ HOST = "AcmeHost"
 ROUTER_HOST = "RouterHost"
 DATED_ROUTER_HOST = "DatedRouterHost"
 PREFIXED_BARE = f"acme/{BARE}"
-FEE_NOTE = ("web_search $0.01/request not modelled: per-request, "
-            "unpriceable from token counts")
+SEARCH_RATE = 0.0137
 PREFIXES = ["anthropic", "openai", "moonshotai", "z-ai"]
 
 
@@ -66,7 +65,7 @@ def _entry(rates, frm=None, **extra):
     return {"from": frm, **{f: rates[f] for f in RATE_FIELDS}, **extra}
 
 
-def _doc(*, vendor_host=True, prefixed=True, schedules=False, fees=False,
+def _doc(*, vendor_host=True, prefixed=True, schedules=False, web_search=False,
          start=None, models=None, no_prefixes=False, prefixes=None):
     """A shape-valid synthetic document: tracked vendor rows (one bare
     claude-style key, one acme/-prefixed), one tracked non-vendor entry,
@@ -76,8 +75,9 @@ def _doc(*, vendor_host=True, prefixed=True, schedules=False, fees=False,
     else:
         stamp = start.isoformat().replace("+00:00", "Z")
         acme_history = [_entry(R_OLD, stamp), _entry(R_NEW, STAMP)]
-    if fees:
-        acme_history[0]["note"] = FEE_NOTE
+    if web_search:
+        for entry in acme_history:
+            entry["web_search"] = SEARCH_RATE
     if schedules:
         acme_history[0]["schedule"] = [
             {"days": ["saturday"], "rates": R_THIRD}]
@@ -334,7 +334,7 @@ def test_a_bare_vendor_id_resolves_exact_at_the_windows(monkeypatch):
     assert (before.kind, before.key) == (at.kind, at.key) == \
         (list_.kind, list_.key) == ("exact", KEY)
     assert before.rates == R_OLD and at.rates == R_NEW and list_.rates == R_NEW
-    assert before.scheduled is False and before.request_fee == 0.0
+    assert before.scheduled is False
 
 
 def test_the_suffixed_bare_id_resolves_to_the_same_row(monkeypatch):
@@ -383,22 +383,21 @@ def test_a_vendor_row_before_its_start_falls_through(monkeypatch):
     monkeypatch.setattr(pricing, "_TIER_FALLBACKS", (  # pylint: disable=protected-access
         (re.compile(r"opus"), pricing._latest("opus")),))  # pylint: disable=protected-access
     r = pricing.resolve(KEY, start - timedelta(seconds=1))
-    assert (r.kind, r.key, r.request_fee, r.scheduled) == ("tier", None, 0.0, False)
+    assert (r.kind, r.key, r.scheduled) == ("tier", None, False)
     assert r.rates is pricing._latest("opus")  # pylint: disable=protected-access
     assert pricing.resolve(KEY).rates == R_NEW, "list still answers"
 
 
-def test_the_bare_path_carries_no_fee_and_no_schedule(monkeypatch):
-    """A host's per-request fee and time-of-day windows are the host's own
-    terms for requests THROUGH it; a bare first-party id names no host, so
-    the same row prices the bare id at its dated windows, fee 0,
-    scheduled False — while a record through the host pays both."""
-    _install(monkeypatch, _doc(fees=True, schedules=True))
+def test_the_bare_path_keeps_search_rate_but_not_host_schedule(monkeypatch):
+    """Search is a provider-row rate for the tracked vendor model. The
+    bare path uses its dated rate and ignores only the host's schedule."""
+    _install(monkeypatch, _doc(web_search=True, schedules=True))
     bare = pricing.resolve(KEY, CUT - timedelta(seconds=1))
     via_host = pricing.resolve(KEY, CUT - timedelta(seconds=1), HOST)
-    assert bare.request_fee == 0.0 and bare.scheduled is False
-    assert bare.rates == R_OLD
-    assert via_host.request_fee == 0.01, "the host's own fee applies"
+    assert bare.scheduled is False
+    assert bare.rates["web_search"] == SEARCH_RATE
+    assert {key: bare.rates[key] for key in RATE_FIELDS} == R_OLD
+    assert via_host.rates["web_search"] == SEARCH_RATE
     assert via_host.scheduled is True, "the host's schedule applies"
 
 
@@ -428,7 +427,7 @@ def test_default_rates_read_the_tracked_claude_row():
 
 @needs_node
 def test_the_browser_resolves_the_bare_path_identically(tmp_path):
-    doc = _doc(fees=True, schedules=True)
+    doc = _doc(web_search=True, schedules=True)
     (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
     _copy_browser(tmp_path)
     before = (CUT - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
@@ -456,8 +455,8 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
       }}));
     """)
     assert _js_rates(got["before"]["rates"]) == R_OLD
-    assert (got["before"]["kind"], got["before"]["key"],
-            got["before"]["fee"]) == ("exact", KEY, 0)
+    assert (got["before"]["kind"], got["before"]["key"]) == ("exact", KEY)
+    assert got["before"]["rates"]["search"] == SEARCH_RATE
     assert _js_rates(got["listRes"]["rates"]) == R_NEW
     assert (got["suffix"]["kind"], got["suffix"]["key"]) == ("exact", KEY)
     assert (got["atSuffix"]["kind"], got["atSuffix"]["key"]) == ("exact", KEY)
@@ -468,13 +467,13 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
     assert (got["barePrefixed"]["kind"], got["barePrefixed"]["key"]) == \
         ("exact", PKEY)
     got_host = got["hostSpelled"]
-    assert got_host["fee"] == 0.01, "the host's own fee applies"
+    assert got_host["rates"]["search"] == SEARCH_RATE
     # 2026-10-31 is a Saturday: the host's schedule window answers through
     # the host and never on the bare path.
     assert _js_rates(got["hostSaturday"]["rates"]) == R_THIRD
-    assert got["hostSaturday"]["fee"] == 0.01
+    assert got["hostSaturday"]["rates"]["search"] == SEARCH_RATE
     assert _js_rates(got["bareSaturday"]["rates"]) == R_OLD
-    assert got["bareSaturday"]["fee"] == 0
+    assert got["bareSaturday"]["rates"]["search"] == SEARCH_RATE
 
 
 @needs_node
@@ -610,6 +609,8 @@ def test_the_live_migrated_rows_price_their_frozen_first_entries():
         host = entry["vendor_host"]
         history = doc["providers"][key][host]
         rates = {f: history[0][f] for f in RATE_FIELDS}
+        if "web_search" in history[0]:
+            rates["web_search"] = history[0]["web_search"]
         assert pricing.rate_for(key, _PIN_INSTANT) == rates, key
         # The suffix tolerance and the tracked-key identity hold live too.
         assert pricing.resolve(f"{key}[1m]").key == key, key

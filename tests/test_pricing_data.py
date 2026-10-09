@@ -115,8 +115,14 @@ def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
             if day in window.get("days", [day]) and (
                     start is None or (start <= hhmm < end if start < end
                                       else hhmm >= start or hhmm < end)):
-                return dict(window["rates"])
-    return {f: current[f] for f in RATE_FIELDS}
+                rates = dict(window["rates"])
+                if "web_search" in current:
+                    rates["web_search"] = current["web_search"]
+                return rates
+    rates = {f: current[f] for f in RATE_FIELDS}
+    if "web_search" in current:
+        rates["web_search"] = current["web_search"]
+    return rates
 
 
 def _around(cutovers) -> list[str]:
@@ -169,7 +175,10 @@ def _node(parser_js, body: str):
 
 
 def _js_rates(js: dict) -> dict:
-    return {py: js[k] for k, py in JS_FIELDS.items()}
+    rates = {py: js[k] for k, py in JS_FIELDS.items()}
+    if "search" in js:
+        rates["web_search"] = js["search"]
+    return rates
 
 
 def test_the_file_has_every_cutover_the_backend_prices_by():

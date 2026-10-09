@@ -21,12 +21,6 @@ class Resolution:
     # for this record's own time: a fold re-deriving cost at one
     # representative time cannot reproduce them (SV-RATE-DATA).
     scheduled: bool = False
-    # The serving host's per-request fee in force (issue #469): USD this
-    # one request costs beside its tokens, folded into compute_cost's
-    # total and stored on records.request_fee_usd. Zero when the resolved
-    # entry carries no fee note (every non-OpenRouter lane, every
-    # unmodelled listing).
-    request_fee: float = 0.0
 
     @property
     def estimated(self) -> bool:
