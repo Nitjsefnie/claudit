@@ -34,14 +34,12 @@ These refuse the host or model they concern, which appends nothing:
   shape it does not recognise; a listed per-request fee is the exception:
   it is recorded in the row's note, never priced from token counts, so an
   unmodelled cost is never dropped in silence. The one modelled override
-  exception is the long-context band: a `min_prompt_tokens` override at
-  the Codex meter's shape (refresh_prices.meter_shape_ok) contributes no
-  window and no membership — the vendor pass owns membership — and its
-  rates never enter the row; departing the meter it is a NOTICE, that
-  host's row untouched, the run stays green (the vendor pass's
-  not-tracked rule, SV-VENDOR-RATES). A band never enters a provider
-  entry's `band` field: that field is the oscillation band, a different
-  shape;
+  exception is the long-context band: a coherent `min_prompt_tokens`
+  override yields its input/output factors, which must match the model's
+  currently stored meter for this provider row; the band contributes no
+  window or membership here — the vendor pass owns the meter entry — and
+  its rates never enter the row. A band never enters a provider entry's
+  `band` field: that field is the oscillation band, a different shape;
 - a host seen for the first time while the fetch falls inside one of its
   schedule's windows, unless its schedule covers the whole week: then no
   record is priced by the entry default and it starts as the listed top-level

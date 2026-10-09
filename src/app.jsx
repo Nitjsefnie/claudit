@@ -99,12 +99,10 @@ function txToDashData(tx) {
       const res = window.resolveModelRate(u.model, t, u.provider);
       const r = res.rates;
       const unsplit = Math.max(0, cc - eph5 - eph1h);
-      // The Codex long-context meter, exactly as pricing.compute_cost
-      // stores it (2x the whole input side, 1.5x output): lane meta
-      // records carry the flag, Claude records never do, and a turn
-      // priced flat here would drift from the stored cost_usd.
-      const lcIn = u.long_context ? window.LONG_CONTEXT_INPUT_MULT : 1.0;
-      const lcOut = u.long_context ? window.LONG_CONTEXT_OUTPUT_MULT : 1.0;
+      // Match pricing.compute_cost's per-model factors; lane meta records
+      // carry the flag and the inspector must match stored cost.
+      const [lcIn, lcOut] = u.long_context
+        ? window.longContextFactorsFor(u.model) : [1.0, 1.0];
       const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000 + (res.fee || 0);
       events.push({
         ts: t,
