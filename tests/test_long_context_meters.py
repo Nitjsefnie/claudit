@@ -75,22 +75,47 @@ def test_meter_flag_decides_per_model(monkeypatch):
 
 def test_compute_cost_uses_the_models_meter_factors(monkeypatch):
     _install_tables(monkeypatch)
-    assert pricing.long_context_factors(MEMBER) == (5.0, 5.0)
+    asymmetric_meter = {"threshold": THRESHOLD, "input_mult": 6.0,
+                        "output_mult": 3.0}
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
+                        {MEMBER: asymmetric_meter})
+    assert pricing.long_context_factors(MEMBER) == (6.0, 3.0)
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        **METERS, "gpt-5-6-sol": {"threshold": 200_000}})
+        MEMBER: asymmetric_meter,
+        "gpt-5-6-sol": {"threshold": 200_000}})
     assert pricing.long_context_factors("gpt-5.6-sol") == (
         pricing.LONG_CONTEXT_INPUT_MULT, pricing.LONG_CONTEXT_OUTPUT_MULT)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", METERS)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
+                        {MEMBER: asymmetric_meter})
 
     got = pricing.compute_cost(
         MEMBER, fresh=100_000, output=2_000, eph5=20_000, eph1h=30_000,
         unsplit_create=40_000, read=10_000, long_context=True)
     expected = (
-        100_000 * RATES["fresh"] * 5.0
-        + 20_000 * RATES["create_5m"] * 5.0
-        + 70_000 * RATES["create_1h"] * 5.0
-        + 10_000 * RATES["read"] * 5.0
-        + 2_000 * RATES["output"] * 5.0
+        100_000 * RATES["fresh"] * 6.0
+        + 20_000 * RATES["create_5m"] * 6.0
+        + 70_000 * RATES["create_1h"] * 6.0
+        + 10_000 * RATES["read"] * 6.0
+        + 2_000 * RATES["output"] * 3.0
+    ) / 1_000_000
+    assert got == pytest.approx(expected)
+
+
+def test_compute_cost_defaults_an_omitted_meter_factor_independently(
+        monkeypatch):
+    """A one-sided model override inherits only its missing output side."""
+    _install_tables(monkeypatch)
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
+        MEMBER: {"threshold": THRESHOLD, "input_mult": 6.0}})
+    assert pricing.long_context_factors(MEMBER) == (
+        6.0, pricing.LONG_CONTEXT_OUTPUT_MULT)
+    got = pricing.compute_cost(
+        MEMBER, fresh=10_000, output=2_000, eph5=0, eph1h=0,
+        unsplit_create=0, read=4_000, long_context=True)
+    expected = (
+        10_000 * RATES["fresh"] * 6.0
+        + 4_000 * RATES["read"] * 6.0
+        + 2_000 * RATES["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT
     ) / 1_000_000
     assert got == pytest.approx(expected)
 

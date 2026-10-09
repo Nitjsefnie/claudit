@@ -92,7 +92,8 @@ _SELECT_SQL = """
     SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
            cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
            ts, long_context, provider, cost_usd, pricing_version,
-           rate_fingerprint, request_fee_usd
+           rate_fingerprint, request_fee_usd, long_context_input_mult,
+           long_context_output_mult
       FROM records
      WHERE (file_key, line_num) > (%s, %s)
        AND pricing_version IS DISTINCT FROM %s
@@ -121,9 +122,12 @@ _SQL_REPRICE = """
     UPDATE records r
        SET cost_usd = d.cost, long_context = d.flag,
            request_fee_usd = d.fee,
+           long_context_input_mult = d.input_mult,
+           long_context_output_mult = d.output_mult,
            pricing_version = %s, rate_fingerprint = d.f
       FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[],
-                  %s::float8[], %s::text[]) AS d(k, n, cost, flag, fee, f)
+                  %s::float8[], %s::float8[], %s::float8[], %s::text[])
+           AS d(k, n, cost, flag, fee, input_mult, output_mult, f)
      WHERE r.file_key = d.k
        AND r.line_num = d.n
 """
@@ -144,22 +148,11 @@ _SQL_STALE_PAIRS = """
      GROUP BY 1, 2
 """
 
-# Phase A's clean restamp: rows whose stored rate_fingerprint equals
-# their pair's CURRENT fingerprint are stale only in the marker — the
-# fingerprint covers every rate input resolve() consults plus the
-# pricing modules' source (backend/rate_fingerprint.py), so their
-# recomputed cost IS their stored cost by construction and only the
-# marker needs advancing. The rollback guard admits ONLY plain-digit
-# versions at or below the binary's: Python's int() parses spellings
-# the SQL cast refuses (+5, ' 12 ', 1_0), so every stale row outside
-# this exact set — {plain-digit versions <= V} — is left for the
-# keyset path, whose _stored_pricing_version_is_newer decides it
-# exactly as before. That set is a subset of the keyset path's restamp
-# set, and a test pins the odd spellings row by row. The digit run is
-# bounded at 9: the cast is int4, so a longer plain-digit value (past
-# any reachable PRICING_VERSION) would abort the whole statement with
-# integer-out-of-range where the guard must merely skip it — bound it
-# out of the set-based statement and the Python path decides it.
+# Phase A clean-restamps rows with the current pair fingerprint and complete
+# meter provenance: pricing inputs and logic fingerprint to an identity
+# recomputation. Legacy metered rows without pairs use the keyset path to fill
+# them. Only 1-9 digit versions <= V enter SQL; odd spellings and newer rows
+# remain for Python's rollback guard, and the 9-digit bound avoids int4 overflow.
 _SQL_CLEAN_RESTAMP = """
     UPDATE records r
        SET pricing_version = %s
@@ -170,6 +163,10 @@ _SQL_CLEAN_RESTAMP = """
        AND r.pricing_version IS DISTINCT FROM %s
        AND r.pricing_version ~ '^[0-9]{1,9}$'
        AND r.pricing_version::int <= %s
+       AND COALESCE(r.long_context, FALSE) =
+           (r.long_context_input_mult IS NOT NULL)
+       AND COALESCE(r.long_context, FALSE) =
+           (r.long_context_output_mult IS NOT NULL)
 """
 
 
@@ -192,6 +189,8 @@ class _StaleRow(NamedTuple):
     pricing_version: str | None
     rate_fingerprint: str | None
     request_fee_usd: Decimal | None
+    long_context_input_mult: float | None = None
+    long_context_output_mult: float | None = None
 
 
 def _stored_pricing_version_is_newer(stored: str | None,
@@ -213,34 +212,13 @@ def _stored_pricing_version_is_newer(stored: str | None,
 
 
 def _record_updates(row: _StaleRow) -> dict:
-    """The columns one record's reprice writes, from its stored values —
-    THE one assembly point. The frozen differential
-    (tests/test_reprice_differential.py) imports this unchanged, so an
-    edit here moves BOTH passes and blinds the differential.
+    """Derive one stale row's rate state from its stored columns.
 
-    cost_usd and the long-context flag together (issue #194): for the
-    meter's models the flag is a pure function of stored columns —
-    fresh + cache_creation + cache_read against the model's own
-    threshold — and rides the same selection, batch, keyset and guard
-    as the cost. The derivation is membership-keyed (issue #249's law,
-    re-grounded by issue #765): a MEMBER row re-derives whatever its
-    stored flag — a refresh fold move (a band learned or moved) bumps
-    PRICING_VERSION only, and the reprice must then land exactly what a
-    reparse stores, including converting the 200k-band pre-fold NULL
-    rows; the decision ignores the provider because the parse's does.
-    A NON-MEMBER row keeps its stored flag — except a stored TRUE,
-    which only the Codex path's threshold test (issue #194) can have
-    written: the pass re-derives that test, so a lapsed member's TRUE
-    unbills at the global threshold (issue #833) and a genuinely
-    above-threshold Codex row keeps its meter. Two residuals remain,
-    both format-blind and named in issue #833: a lapsed member's
-    Claude-format row ABOVE the global threshold stays metered where a
-    reparse flattens (the pass keeps the band — the reading exact for
-    the only format that writes non-member TRUEs going forward), and a
-    lapsed member's Codex-format row between ITS old band and the
-    global threshold prices flat while a membership-blind reparse still
-    meters it; both heal at the next reparse and both need a listing
-    lapse to reach.
+    Members recompute their threshold flag. Non-members keep NULL/FALSE;
+    a stored TRUE is checked against the global threshold to unbill lapsed
+    members (issue #833). The provider does not affect flag derivation.
+    One resolution supplies token rates and request fee. A flagged row also
+    stores its effective meter pair, preserving provenance across batches.
     """
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
@@ -274,9 +252,13 @@ def _record_updates(row: _StaleRow) -> dict:
         long_context=bool(long_context),
         res=res,
     )
+    input_mult, output_mult = (pricing.long_context_factors(row.model)
+                               if long_context else (None, None))
     return {
         "cost_usd": round(cost, 6),
         "long_context": long_context,
+        "long_context_input_mult": input_mult,
+        "long_context_output_mult": output_mult,
         # The serving host's per-request fee in force (issue #469): the
         # fee rides inside compute_cost's total; stored beside it so
         # provenance survives, NULL when none — the same shape a reparse
@@ -298,6 +280,10 @@ def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
     """
     return (float(row.cost_usd) == updates["cost_usd"]
             and row.long_context == updates["long_context"]
+            and row.long_context_input_mult
+            == updates["long_context_input_mult"]
+            and row.long_context_output_mult
+            == updates["long_context_output_mult"]
             and (float(row.request_fee_usd)
                  if row.request_fee_usd is not None else None)
             == updates["request_fee_usd"])
@@ -390,9 +376,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
         # 66.9 s under load. The skip is exact: every row the SQL set
         # cannot restamp — a pair whose fingerprint moved, a NULL or
         # oddly-spelled version (NULL ~ regex is not TRUE), a plain-digit
-        # version above the binary's, a digit run past the int4 bound —
-        # leaves clean < stale_total, and the loop runs exactly as
-        # before.
+        # version above the binary's, or a digit run past int4 — leaves
+        # clean < stale_total, and the loop runs exactly as before.
         while clean != stale_total:
             if should_stop is not None and should_stop():
                 outcome = "aborted"
@@ -419,7 +404,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                 rows = [_StaleRow(*raw) for raw in raw_rows]
                 restamp_keys: list[tuple[str, int, str]] = []
                 moved: list[tuple[str, int, float, bool | None,
-                                  float | None, str]] = []
+                                  float | None, float | None, float | None,
+                                  str]] = []
                 for row in rows:
                     if _stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
@@ -436,6 +422,8 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                                       updates["cost_usd"],
                                       updates["long_context"],
                                       updates["request_fee_usd"],
+                                      updates["long_context_input_mult"],
+                                      updates["long_context_output_mult"],
                                       row_fp))
                 if ph is not None:
                     marks["recompute"] = (marks.get("recompute", 0.0)
@@ -459,7 +447,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
                                [r[2] for r in moved],
                                [r[3] for r in moved],
                                [r[4] for r in moved],
-                               [r[5] for r in moved]))
+                               [r[5] for r in moved],
+                               [r[6] for r in moved],
+                               [r[7] for r in moved]))
                 if ph is not None:
                     marks["moved"] = (marks.get("moved", 0.0)
                                       + time.perf_counter() - t0)
