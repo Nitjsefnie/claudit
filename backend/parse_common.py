@@ -321,13 +321,16 @@ def _append_usage_record(st: _ParseState, line_num: int,
         model,
         fresh=fresh, output=output,
         eph5=0, eph1h=0, unsplit_create=create,
-        read=read, long_context=long_context,
+        read=read,
+        adjustments=pricing.CostAdjustments(
+            long_context=long_context,
+            web_search_requests=web_search_requests,
+        ),
         # The record's OWN timestamp, so a rate that changed mid-corpus
         # bills each request at what it cost when it ran. An unstamped
         # record falls back to current list price, which is the only
         # answer available for one.
         ts=ts,
-        web_search_requests=web_search_requests,
     )
     st.records.append({
         "file_key": st.file_key,

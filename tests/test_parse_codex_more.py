@@ -95,14 +95,16 @@ def test_the_long_context_meter_doubles_input_and_multiplies_output_by_1_5(
         eph5=0, eph1h=0, unsplit_create=0, read=0)
     long_in = pricing.compute_cost(
         model, fresh=1, output=0,
-        eph5=0, eph1h=0, unsplit_create=0, read=0, long_context=True)
+        eph5=0, eph1h=0, unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(long_context=True))
     assert long_in == pytest.approx(base * 2.0, rel=1e-9)
     base_out = pricing.compute_cost(
         model, fresh=0, output=1,
         eph5=0, eph1h=0, unsplit_create=0, read=0)
     long_out = pricing.compute_cost(
         model, fresh=0, output=1,
-        eph5=0, eph1h=0, unsplit_create=0, read=0, long_context=True)
+        eph5=0, eph1h=0, unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(long_context=True))
     assert long_out == pytest.approx(base_out * 1.5, rel=1e-9)
 
 

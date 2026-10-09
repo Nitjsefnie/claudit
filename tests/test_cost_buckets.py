@@ -290,7 +290,8 @@ def test_long_context_buckets_reconcile_with_the_stored_total(synthetic_dated_ra
     rates = w.before
     stored = pricing.compute_cost(
         w.model, fresh=300_000, output=2_000, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, long_context=True, ts=ts,
+        unsplit_create=0, read=0, ts=ts,
+        adjustments=pricing.CostAdjustments(long_context=True),
     )
     flat = pricing.compute_cost(
         w.model, fresh=300_000, output=0, eph5=0, eph1h=0,
@@ -357,7 +358,8 @@ def test_long_context_and_flat_rows_of_one_model_fold_into_one_entry(
     ts = epoch_ts(0)
     stored_lc = pricing.compute_cost(
         w.model, fresh=300_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, long_context=True, ts=ts,
+        unsplit_create=0, read=0, ts=ts,
+        adjustments=pricing.CostAdjustments(long_context=True),
     )
     stored_flat = pricing.compute_cost(
         w.model, fresh=100_000, output=0, eph5=0, eph1h=0,

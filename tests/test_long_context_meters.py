@@ -90,7 +90,8 @@ def test_compute_cost_uses_the_models_meter_factors(monkeypatch):
 
     got = pricing.compute_cost(
         MEMBER, fresh=100_000, output=2_000, eph5=20_000, eph1h=30_000,
-        unsplit_create=40_000, read=10_000, long_context=True)
+        unsplit_create=40_000, read=10_000,
+        adjustments=pricing.CostAdjustments(long_context=True))
     expected = (
         100_000 * RATES["fresh"] * 6.0
         + 20_000 * RATES["create_5m"] * 6.0
@@ -111,7 +112,8 @@ def test_compute_cost_defaults_an_omitted_meter_factor_independently(
         6.0, pricing.LONG_CONTEXT_OUTPUT_MULT)
     got = pricing.compute_cost(
         MEMBER, fresh=10_000, output=2_000, eph5=0, eph1h=0,
-        unsplit_create=0, read=4_000, long_context=True)
+        unsplit_create=0, read=4_000,
+        adjustments=pricing.CostAdjustments(long_context=True))
     expected = (
         10_000 * RATES["fresh"] * 6.0
         + 4_000 * RATES["read"] * 6.0
@@ -148,7 +150,8 @@ def test_the_claude_path_bills_a_member_above_its_band(monkeypatch):
     assert rec["fresh_tokens"] + rec["cache_read_tokens"] == 260_000
     metered = pricing.compute_cost(
         MEMBER, fresh=250_000, output=500, eph5=0, eph1h=0,
-        unsplit_create=0, read=10_000, long_context=True,
+        unsplit_create=0, read=10_000,
+        adjustments=pricing.CostAdjustments(long_context=True),
         ts=_to_dt("2026-06-01T12:00:01Z"))
     assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6))
 

@@ -358,7 +358,8 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
 
     def cost(model, ts, provider=None, long_context=False):
         return round(pricing.compute_cost(
-            model, **_TALLY, ts=ts, long_context=long_context,
+            model, **_TALLY, ts=ts,
+            adjustments=pricing.CostAdjustments(long_context=long_context),
             res=pricing.resolve(model, ts, provider)), 6)
 
     def row(model, ts, **kwargs):
@@ -395,7 +396,7 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
             cost=round(pricing.compute_cost(
                 _METER_MODEL, fresh=300_000, output=100, eph5=250,
                 eph1h=500, unsplit_create=1250, read=3000, ts=_SEED_TS,
-                long_context=True), 6),
+                adjustments=pricing.CostAdjustments(long_context=True)), 6),
             fp=fp(_METER_MODEL)),                               # meter TRUE
         row(_METER_MODEL, _SEED_TS, flag=False,
             cost=cost(_METER_MODEL, _SEED_TS),
