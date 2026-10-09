@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Callable
 
 from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
-from refresh_prices import (RefreshError, lists_a_fee, rates_of, tag_region)
+from refresh_prices import (RefreshError, token_rates_of, tag_region)
 from backend import pricing as rate_pricing
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -252,7 +252,7 @@ def _endpoint_rates(endpoint: dict, where: str) -> dict[str, float]:
         raise PriceLogError(f"{where}: endpoint has no pricing object")
     try:
         return {field: _rounded(float(value))
-                for field, value in rates_of(pricing, where).items()}
+                for field, value in token_rates_of(pricing, where).items()}
     except (RefreshError, TypeError, ValueError, OverflowError) as exc:
         raise PriceLogError(f"{where}: {exc}") from exc
 
@@ -385,8 +385,6 @@ def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set
         reason = "host endpoints use more than one tag prefix"
     elif not prefix or prefix_owners.get(prefix) != {host}:
         reason = "tag prefix is shared by another host"
-    elif any(lists_a_fee(endpoint.get("pricing")) for endpoint in endpoints):
-        reason = "endpoint lists a per-request fee the price log cannot carry"
     elif any(kinds := [_endpoint_overrides_kind(endpoint)
                        for endpoint in endpoints]):
         reason = ("endpoint has a pricing schedule" if "schedule" in kinds

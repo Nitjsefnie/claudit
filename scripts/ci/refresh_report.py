@@ -101,6 +101,15 @@ def _move_text(move: Move) -> str:
     new = move.new
     off = f" ({_discount_note(new.discount)})" if new.discount else ""
     windows = f", schedule of {len(new.schedule)} windows" if new.schedule else ""
+    if move.source == "search":
+        old_search = move.old.get("web_search", 0.0) if move.old else 0.0
+        log_count = max(0, move.entries_appended - 1)
+        history = (f"; retained {log_count} token-history entries"
+                   if log_count else "")
+        verb = "changed" if move.old is not None else "new"
+        return (f"  {verb:<9} {move.host}: web_search {old_search!r} → "
+                f"{new.rates.get('web_search', 0.0)!r}, sampled at detection"
+                f"{history}{off}")
     if move.source == "band":
         verb = "changed" if move.old is not None else "new"
         old = f"{move.old['fresh']!r} → " if move.old is not None else ""
@@ -116,9 +125,15 @@ def _move_text(move: Move) -> str:
                 f"newest fresh {move.old['fresh']!r} → {new.rates['fresh']!r}{off}")
     if move.old is None:
         rates = ", ".join(f"{field} {new.rates[field]!r}" for field in _RATE_FIELDS)
+        search = new.rates.get("web_search", 0.0)
+        if search:
+            rates += f", web_search {search!r}"
         return f"  new       {move.host}: {rates}{windows}{off}"
     moved = [f"{field} {move.old[field]!r} → {new.rates[field]!r}"
              for field in _RATE_FIELDS if move.old[field] != new.rates[field]]
+    if move.old.get("web_search", 0.0) != new.rates.get("web_search", 0.0):
+        moved.append(f"web_search {move.old.get('web_search', 0.0)!r} → "
+                     f"{new.rates.get('web_search', 0.0)!r}")
     if move.old.get("schedule") != new.schedule:
         moved.append(f"schedule of {len(move.old.get('schedule') or [])} → "
                      f"{len(new.schedule or [])} windows")

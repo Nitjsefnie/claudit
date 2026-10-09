@@ -31,6 +31,9 @@ def _endpoint(host: str, rates: dict, discount: float = 0, tag: str = "") -> dic
         pricing["input_cache_write"] = _per_token(write)
     if write_1h != write:
         pricing["input_cache_write_1h"] = _per_token(write_1h)
+    if rates.get("web_search", 0):
+        pricing["web_search"] = format(
+            Decimal(repr(rates["web_search"])).normalize(), "f")
     return {
         "name": f"{host} | fixture", "provider_name": host,
         "tag": tag or host.lower(), "quantization": "fp8", "status": 0,

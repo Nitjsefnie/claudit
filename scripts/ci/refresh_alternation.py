@@ -22,6 +22,12 @@ from backend import pricing  # noqa: E402
 RATE_FIELDS = pricing.RATE_FIELDS
 
 
+def _rates_equal(entry: dict, rates: dict) -> bool:
+    return (all(entry[field] == rates[field] for field in RATE_FIELDS)
+            and entry.get("web_search", 0.0)
+            == rates.get("web_search", 0.0))
+
+
 def notice(history: list[dict], rates: dict, listing_schedule: list | None,
            newest: dict, at: datetime, where: str) -> str | None:
     """The notice for an alternating price, or None when the move appends.
@@ -39,7 +45,7 @@ def notice(history: list[dict], rates: dict, listing_schedule: list | None,
         return None
     cutoff = at - timedelta(days=7)
     for entry in history[:-1]:
-        if ({f: entry[f] for f in RATE_FIELDS} != rates
+        if (not _rates_equal(entry, rates)
                 or entry["from"] is None):
             continue
         # pylint: disable-next=protected-access

@@ -30,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # pylint: disable=wrong-import-position
-from refresh_prices import (PRICED, RECORDED_FEES, RefreshError, Untracked,  # noqa: E402
-                            as_listed, covers_week, entry_schedule, fee_notes,
+from refresh_prices import (PRICED, RefreshError, Untracked,  # noqa: E402
+                            as_listed, covers_week, entry_schedule,
                             in_a_window, is_zero, rates_of, unknown_suffixes)
 from refresh_selection_rules import (bare_namespace, price_groups,  # noqa: E402
                                      price_order, same_quantization,
@@ -53,14 +53,10 @@ class Listing:
     rates: dict
     schedule: list | None
     discount: Decimal
-    # The RECORDED_FEES notes this endpoint carries. They are part of what
-    # makes a listing a distinct price: two endpoints differing only in a fee
-    # are two offerings, and collapsing them would drop a real cost.
-    fees: tuple[str, ...] = ()
 
     @property
     def price(self) -> str:
-        return json.dumps([self.rates, self.schedule, list(self.fees)], sort_keys=True)
+        return json.dumps([self.rates, self.schedule], sort_keys=True)
 
 
 def _listing(endpoint: object, where: str, at: datetime,
@@ -85,9 +81,8 @@ def _listing(endpoint: object, where: str, at: datetime,
             and isinstance(endpoint.get("pricing"), dict)):
         raise RefreshError(f"{where}: unrecognised endpoint shape")
     price = endpoint["pricing"]
-    fees = fee_notes(price, where)
     for key, value in price.items():
-        if (key not in (*PRICED, *RECORDED_FEES, "discount", "overrides")
+        if (key not in (*PRICED, "discount", "overrides")
                 and not is_zero(value)):
             raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
@@ -103,12 +98,17 @@ def _listing(endpoint: object, where: str, at: datetime,
                 "top-level price is the active window's, not a default; the "
                 "next fetch outside every window starts the row")
         if kept is not None:
-            rates = kept
+            # The top-level token price inside an active schedule is that
+            # window's, while web_search remains a separate listing rate.
+            search = rates.get("web_search")
+            rates = dict(kept)
+            if search:
+                rates["web_search"] = search
             schedule = entry_schedule(
                 {**as_listed(kept), "overrides": price["overrides"]},
                 where)
-    return Listing(endpoint["tag"], identity, rates, schedule, Decimal(str(discount)),
-                   tuple(fees))
+    return Listing(endpoint["tag"], identity, rates, schedule,
+                   Decimal(str(discount)))
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,

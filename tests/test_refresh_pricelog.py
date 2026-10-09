@@ -53,16 +53,17 @@ def _point(at: str, value: float | None) -> dict:
 
 
 def _series(*, slug: str = "wafer", host: str = "Wafer",
-            rates: dict | None = None, schedule: list | None = None) -> dict:
+            rates: dict | None = None, schedule: list | None = None,
+            at: str = "2026-09-01T00:00:00Z") -> dict:
     current = rates or {"fresh": 0.3, "create_5m": 0.3,
                         "create_1h": 0.3, "read": 0.01, "output": 0.8}
     series = {
         "endpointId": f"synthetic-{slug}", "providerName": host,
         "providerSlug": slug,
-        "input": [_point("2026-09-01T00:00:00Z", current["fresh"])],
-        "output": [_point("2026-09-01T00:00:00Z", current["output"])],
-        "cacheRead": [_point("2026-09-01T00:00:00Z", current["read"])],
-        "cacheWrite": [_point("2026-09-01T00:00:00Z", current["create_5m"]
+        "input": [_point(at, current["fresh"])],
+        "output": [_point(at, current["output"])],
+        "cacheRead": [_point(at, current["read"])],
+        "cacheWrite": [_point(at, current["create_5m"]
                               if current["create_5m"] != current["fresh"] else 0)],
         "discount": [],
     }
@@ -83,7 +84,7 @@ def _rates(fresh: float, output: float, read: float = 0,
 
 
 def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False,
-              fee: str | None = None) -> dict:
+              web_search: str | None = None) -> dict:
     pricing = {
         "prompt": _per_token(rates["fresh"]),
         "completion": _per_token(rates["output"]),
@@ -92,8 +93,8 @@ def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False,
     }
     if rates["create_5m"] != rates["fresh"]:
         pricing["input_cache_write"] = _per_token(rates["create_5m"])
-    if fee is not None:
-        pricing["web_search"] = fee
+    if web_search is not None:
+        pricing["web_search"] = web_search
     if scheduled:
         pricing["overrides"] = [{"utc_days": ["monday"]}]
     return {"provider_name": host, "tag": tag, "pricing": pricing}
@@ -277,24 +278,22 @@ def test_global_region_filter_keeps_the_configured_global_suffix():
     assert match["Wafer"].entries[0]["fresh"] == 0.3
 
 
-def test_a_host_listing_a_recorded_fee_is_sampled_not_log_backed():
-    """The fee note is written by the sampled append path only. A host that
-    listed a per-request fee and was log-backed anyway would carry no note
-    at all — the silent drop the recorded-fee rule exists to prevent, on
-    the other append path. So a fee routes the host to sampling, where the
-    note is written, exactly as a split 1h tier already does.
-    """
+def test_a_host_listing_web_search_rate_remains_log_backed():
+    """The price log backs token rates; its missing web-search field no
+    longer forces a host to the sampled token-history path."""
     rates = _rates(0.3, 0.8, 0.01)
-    match = _joined([_endpoint("Wafer", "wafer/fp8", rates, fee="0.01")],
+    match = _joined([_endpoint("Wafer", "wafer/fp8", rates,
+                               web_search="0.0137")],
                     [_series(rates=rates)])
 
-    assert match["Wafer"].entries is None
-    assert "fee" in match["Wafer"].reason
+    assert match["Wafer"].entries is not None
+    assert match["Wafer"].reason is None
 
 
-def test_a_free_fee_leaves_the_host_log_backed():
+def test_zero_search_price_leaves_the_host_log_backed():
     rates = _rates(0.3, 0.8, 0.01)
-    match = _joined([_endpoint("Wafer", "wafer/fp8", rates, fee="0")],
+    match = _joined([_endpoint("Wafer", "wafer/fp8", rates,
+                               web_search="0")],
                     [_series(rates=rates)])
 
     assert match["Wafer"].entries is not None
