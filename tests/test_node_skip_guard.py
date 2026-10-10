@@ -15,29 +15,44 @@ whose every test drives node, and a per-test skipif the shape for one
 test; both are checked (#759), as is a mark inherited through a
 same-file base chain or a conditional class-body mark (#776): a node
 skip - own, class's, inherited, or conditional - must ride a test that
-itself runs node, judged by its
-transitive same-file call closure grounding in a node string constant
-(a helper chain resolves; the issue's purely-syntactic trap is the
-chain the closure exists to resolve). Decorators are excluded from
-every closure step (a skipif names node and would otherwise trivially
+itself runs node, judged by its transitive same-file call closure
+LAUNCHING node through a ``subprocess`` call whose argv names node (a
+helper chain resolves; the issue's purely-syntactic trap is the chain
+the closure exists to resolve, and #812 the incidental node string in
+the body that used to ground it). A mark predicate built from a
+module-level variable that itself names node
+(``HAS_NODE = shutil.which("node") is not None``) is a node skip too
+(#812), wherever the mark sits. Decorators are excluded from every
+closure step (a skipif names node and would otherwise trivially
 ground), and a function's docstring is excluded (a Python-only test's
 prose must not ground its closure). Residuals, disclosed: a helper
 outside the ``tests.`` package (or a conftest fixture) resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
-direction; a mark predicate built without a node string (a module
-variable) is invisible to the scan; a base the walk cannot resolve (out of
-file, dotted, called) collects no mark; the chain-walk ORs every same-file
-base, matching pytest's own MRO-wide mark accumulation (#776); and the grounding
-scan itself is
-substring-wide over the whole body, so an incidental node string in a
-marked test's body (an assert message, a payload variable) grounds
-that test, where a comment does not (comments are not AST). The scan
-proves presence, not exclusivity.
+direction; a node launched without a ``subprocess`` call (an
+``os.system``, a shelled wrapper) is not seen as an invocation; a base
+the walk cannot resolve (out of file, dotted, called) collects no
+mark; the chain-walk ORs every same-file base, matching pytest's own
+MRO-wide mark accumulation (#776). The argv scan is substring-wide over
+each argv element, so a node-named element grounds the call it appears
+in, where a comment does not (comments are not AST). The scan proves
+presence, not exclusivity.
 """
 from __future__ import annotations
 
 import ast
 from pathlib import Path
+from tests.node_skip_guard_impl import (
+    _is_module_node_importorskip,
+    _listed_files,
+    _mentions_node,
+    _mentions_node_ref,
+    _module_level_statements,
+    _node_mark_lines,
+    _node_names,
+    _node_skip_offenders,
+    _pytestmark_value,
+    _skip_without_node_lines,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,9 +63,10 @@ def test_no_node_listed_file_sets_a_module_level_node_skip() -> None:
     for rel in _listed_files(REPO_ROOT):
         tree = ast.parse(
             (REPO_ROOT / rel).read_text(encoding="utf-8"))
+        node_names = _node_names(tree)
         for stmt, line in _module_level_statements(tree):
             value = _pytestmark_value(stmt)
-            if value is not None and _mentions_node(value):
+            if value is not None and _mentions_node_ref(value, node_names):
                 offenders.append(f"{rel}:{line}")
             elif _is_module_node_importorskip(stmt):
                 offenders.append(f"{rel}:{line}")
@@ -248,6 +264,59 @@ def test_a_python_only_member_is_not_saved_by_its_docstring() -> None:
         (9, "test_docstring_mentions_node")]
 
 
+def test_a_node_string_in_a_python_only_member_does_not_ground() -> None:
+    """Shape one of #812: a marked member whose only node mention is an
+    incidental string (a path, an assert message) never runs node, so it
+    is flagged - a string constant no longer grounds a closure."""
+    mod = ast.parse(_MARKED_CLASS + (
+        "    def test_pins_node_modules(self):\n"
+        "        assert \"node_modules/picker.js\" in SRC\n"))
+    assert _skip_without_node_lines(mod) == [(9, "test_pins_node_modules")]
+
+
+def test_a_locally_bound_node_command_still_grounds() -> None:
+    """The #812 control: a member that binds the node path and launches it
+    through subprocess still grounds (the picker-fit shape)."""
+    mod = ast.parse(_MARKED_CLASS + (
+        "    def test_binds_then_runs(self):\n"
+        "        node = shutil.which(\"node\")\n"
+        "        assert subprocess.run([node], input='1+1')\n"))
+    assert not _skip_without_node_lines(mod)
+
+
+def test_a_mark_predicated_on_a_module_node_variable_is_detected() -> None:
+    """Shape two of #812: a node skip spelled through a module-level
+    availability variable, with a reason that does not name node, is
+    still a node skip on a test that never runs node."""
+    mod = ast.parse(
+        "import shutil\nimport pytest\n"
+        "HAS_NODE = shutil.which(\"node\") is not None\n"
+        "@pytest.mark.skipif(not HAS_NODE, reason=\"runtime unavailable\")\n"
+        "def test_python_only():\n"
+        "    assert sum([1, 2]) == 3\n")
+    assert _skip_without_node_lines(mod) == [(5, "test_python_only")]
+
+
+def test_a_module_mark_predicated_on_a_module_node_variable_is_detected(
+) -> None:
+    """The module-level spelling of shape two (#812)."""
+    mod = ast.parse(
+        "import shutil\nimport pytest\n"
+        "HAS_NODE = shutil.which(\"node\") is not None\n"
+        "pytestmark = pytest.mark.skipif(not HAS_NODE, reason=\"no runtime\")\n")
+    assert len(_node_mark_lines(mod)) == 1
+
+
+def test_a_mark_on_a_non_node_module_variable_is_left_alone() -> None:
+    """The isolating negative for shape two: a module variable that names
+    no node leaves the mark a non-node skip."""
+    mod = ast.parse(
+        "import pytest\n"
+        "HAS_DB = True\n"
+        "pytestmark = pytest.mark.skipif(not HAS_DB, reason=\"no database\")\n")
+    assert not _node_mark_lines(mod)
+
+
 def test_a_self_call_to_a_node_method_grounds() -> None:
     """The self/cls edge: a marked member grounding only through a
     self-call to a same-class node method is not flagged."""
@@ -382,318 +451,3 @@ def test_the_full_guard_fails_a_seeded_python_only_member(tmp_path) -> None:
     assert len(offenders) == 1
     assert victim_rel in offenders[0]
     assert "test_seeded_python_only" in offenders[0]
-
-
-def _listed_files(root: Path) -> list[str]:
-    list_file = root / "scripts" / "ci" / "node_test_files.txt"
-    return sorted(
-        line.strip()
-        for line in list_file.read_text(encoding="utf-8").splitlines()
-        if line.strip())
-
-
-def _node_skip_offenders(root: Path) -> list[str]:
-    """The #759 branch: file:line (test) for every node-skipped test that
-    never runs node, across every listed file."""
-    offenders = []
-    cache: dict[str, dict] = {}
-    for rel in _listed_files(root):
-        tree = ast.parse((root / rel).read_text(encoding="utf-8"))
-        ctx = _context_from_tree(tree, root, cache)
-        for line, name in _test_offenders_in_ctx(ctx):
-            offenders.append(f"{rel}:{line} ({name})")
-    return offenders
-
-
-def _skip_without_node_lines(
-        tree: ast.Module) -> list[tuple[int, str]]:
-    """The #759 branch over one parsed tree (synthetic modules, tests)."""
-    return _test_offenders_in_ctx(_context_from_tree(tree, None, {}))
-
-
-def _context_from_tree(tree: ast.Module, root: Path | None,
-                       cache: dict) -> dict:
-    """The tables the closure walks: same-file functions and classes,
-    fixtures keyed by their declared name, and the tests-module names
-    imported from sibling files (cache shared across the guard run, so a
-    helper file parses once)."""
-    module_funcs, classes = _scope_tables(tree)
-    return {
-        "root": root,
-        "cache": cache,
-        "module_funcs": module_funcs,
-        "classes": classes,
-        "fixtures": _fixture_table(module_funcs),
-        "imported": _imported_names(tree),
-    }
-
-
-def _test_offenders_in_ctx(ctx: dict) -> list[tuple[int, str]]:
-    """Every test carrying a node skip - its own mark or the class mark
-    it inherits - whose transitive call closure never grounds in a node
-    string. The closure resolves a bare call to a module-level function
-    (this file or an imported tests module), a self/cls call to the
-    enclosing class's methods, and a test argument to a same-file
-    fixture by its declared name; decorators are excluded at every
-    closure step (the test's own skipif names node and would trivially
-    ground), and so is each step's docstring (prose must not ground a
-    closure). A call the closure cannot resolve - a conftest fixture, a
-    helper outside the tests package - grounds nothing and fails loud,
-    the deny-guard's safe direction."""
-    offenders: list[tuple[int, str]] = []
-    for cls in ctx["classes"].values():
-        methods = {s.name: s for s in cls.body
-                   if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))}
-        class_mark = _class_mark_mentions_node(cls, ctx)
-        for func in methods.values():
-            if func.name.startswith("test_"):
-                offenders += _skip_without_node(
-                    func, ctx, methods, class_mark)
-    for func in ctx["module_funcs"].values():
-        if func.name.startswith("test_"):
-            offenders += _skip_without_node(func, ctx, None, False)
-    return offenders
-
-
-def _scope_tables(
-        tree: ast.Module,
-) -> tuple[dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
-           dict[str, ast.ClassDef]]:
-    """Module-level functions and classes, conditionals descended (the
-    same hiding places the module-level check refuses)."""
-    module_funcs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
-    classes: dict[str, ast.ClassDef] = {}
-    for stmt, _line in _module_level_statements(tree):
-        if isinstance(stmt, ast.ClassDef):
-            classes[stmt.name] = stmt
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            module_funcs[stmt.name] = stmt
-    return module_funcs, classes
-
-
-def _fixture_table(module_funcs) -> dict:
-    """Same-file fixtures keyed by declared name: the function's own
-    name, or the ``name=`` a ``@pytest.fixture(...)`` decoration gives."""
-    out: dict = {}
-    for func in module_funcs.values():
-        decos = [d.func if isinstance(d, ast.Call) else d
-                 for d in func.decorator_list]
-        if not any(_is_bare_fixture(d) for d in decos):
-            continue
-        key = func.name
-        for d in func.decorator_list:
-            if isinstance(d, ast.Call):
-                for kw in d.keywords:
-                    if (kw.arg == "name"
-                            and isinstance(kw.value, ast.Constant)
-                            and isinstance(kw.value.value, str)):
-                        key = kw.value.value
-        out[key] = func
-    return out
-
-
-def _is_bare_fixture(deco: ast.expr) -> bool:
-    return (isinstance(deco, ast.Attribute) and deco.attr == "fixture"
-            and isinstance(deco.value, ast.Name)
-            and deco.value.id == "pytest")
-
-
-def _imported_names(tree: ast.Module) -> dict[str, tuple[str, str]]:
-    """local name -> (module, original name) for ``from tests.<mod>
-    import <name>`` - the corpus's one cross-file helper idiom."""
-    out: dict[str, tuple[str, str]] = {}
-    for stmt, _line in _module_level_statements(tree):
-        if (isinstance(stmt, ast.ImportFrom) and stmt.module
-                and stmt.module.startswith("tests.")):
-            for alias in stmt.names:
-                if alias.name != "*":
-                    out[alias.asname or alias.name] = (
-                        stmt.module, alias.name)
-    return out
-
-
-def _cross_file_target(ctx: dict, name: str):
-    """(target ctx, original name) when name is imported from a sibling
-    tests module that exists under root, else None."""
-    hit = ctx["imported"].get(name)
-    if hit is None or ctx["root"] is None:
-        return None
-    module, orig = hit
-    rel = module.replace(".", "/") + ".py"
-    target = ctx["cache"].get(rel)
-    if target is None:
-        path = ctx["root"] / rel
-        if not path.exists():
-            return None
-        target = _context_from_tree(
-            ast.parse(path.read_text(encoding="utf-8")), ctx["root"],
-            ctx["cache"])
-        ctx["cache"][rel] = target
-    return target, orig
-
-
-def _skip_without_node(func, ctx, class_methods,
-                       class_mark: bool) -> list[tuple[int, str]]:
-    own_mark = any(_mentions_node(d) for d in func.decorator_list)
-    if not (own_mark or class_mark):
-        return []
-    if _grounds_in_node(func, ctx, class_methods, set()):
-        return []
-    return [(func.lineno, func.name)]
-
-
-def _grounds_in_node(func, ctx, class_methods,
-                     visited: set[int]) -> bool:
-    if id(func) in visited:
-        return False
-    visited.add(id(func))
-    flat = [n for stmt in _closure_stmts(func) for n in ast.walk(stmt)]
-    if any(isinstance(n, ast.Constant) and isinstance(n.value, str)
-           and "node" in n.value for n in flat):
-        return True
-    targets = _call_targets(flat, func, ctx, class_methods)
-    return any(_grounds_in_node(t, tctx, tcls, visited)
-               for t, tctx, tcls in targets)
-
-
-def _closure_stmts(func) -> list[ast.stmt]:
-    """The body walked for grounding: everything but a leading docstring
-    (prose must not ground a closure)."""
-    stmts = list(func.body)
-    if (stmts and isinstance(stmts[0], ast.Expr)
-            and isinstance(stmts[0].value, ast.Constant)
-            and isinstance(stmts[0].value.value, str)):
-        return stmts[1:]
-    return stmts
-
-
-def _call_targets(flat, func, ctx, class_methods) -> list:
-    """(callee, its ctx, its class methods) for every edge the closure
-    follows: fixture arguments by declared name, plus each call's
-    targets."""
-    targets = []
-    for n in flat:
-        if isinstance(n, ast.Call):
-            targets += _named_targets(n.func, ctx, class_methods)
-    for arg in (func.args.posonlyargs + func.args.args
-                + func.args.kwonlyargs):
-        same = ctx["module_funcs"].get(arg.arg) or ctx["fixtures"].get(
-            arg.arg)
-        if same is not None:
-            targets.append((same, ctx, None))
-    return targets
-
-
-def _named_targets(func_expr, ctx, class_methods) -> list:
-    """What one call site may dispatch to: a bare name to a module-level
-    function here or in an imported tests module, a self/cls call to the
-    enclosing class's methods."""
-    if isinstance(func_expr, ast.Name):
-        same = ctx["module_funcs"].get(func_expr.id)
-        if same is not None:
-            return [(same, ctx, None)]
-        cross = _cross_file_target(ctx, func_expr.id)
-        if cross is not None:
-            target_ctx, orig = cross
-            same = target_ctx["module_funcs"].get(orig)
-            if same is not None:
-                return [(same, target_ctx, None)]
-    elif (isinstance(func_expr, ast.Attribute)
-            and isinstance(func_expr.value, ast.Name)
-            and func_expr.value.id in ("self", "cls")
-            and class_methods is not None):
-        same = class_methods.get(func_expr.attr)
-        if same is not None:
-            return [(same, ctx, class_methods)]
-    return []
-
-
-def _class_mark_mentions_node(cls: ast.ClassDef, ctx: dict) -> bool:
-    """cls's pytestmark or a same-file base's, conditionals descended (#776)."""
-    seen: set[int] = set()
-    stack = [cls]
-    while stack:
-        c = stack.pop()
-        if id(c) in seen:
-            continue
-        seen.add(id(c))
-        if any(_mentions_node(v) for s in _conditionals_descended(c.body)
-               if (v := _pytestmark_value(s)) is not None):
-            return True
-        stack += [ctx["classes"][b.id] for b in c.bases if isinstance(b, ast.Name) and b.id in ctx["classes"]]
-    return False
-
-
-def _conditionals_descended(stmts: list[ast.stmt]) -> list[ast.stmt]:
-    """``stmts`` with ``if``/``try``/``with``/``for``/``while`` bodies and else/finally/handler arms descended."""
-    out: list[ast.stmt] = []
-    stack = list(stmts)
-    while stack:
-        stmt = stack.pop(0)
-        out.append(stmt)
-        if not isinstance(stmt, (ast.If, ast.Try, ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While)):
-            continue
-        kids = (list(getattr(stmt, "body", [])) + list(getattr(stmt, "orelse", []))
-                + list(getattr(stmt, "finalbody", [])) + list(getattr(stmt, "handlers", [])))
-        stack += [s for k in kids for s in (k.body if isinstance(k, ast.ExceptHandler) else [k])]
-    return out
-
-
-def _module_level_statements(tree: ast.Module) -> list[tuple[ast.stmt, int]]:
-    """Every module-level statement, conditionals descended (see _conditionals_descended)."""
-    return [(s, s.lineno) for s in _conditionals_descended(tree.body)]
-
-
-def _node_mark_lines(tree: ast.Module) -> list[int]:
-    lines = []
-    for stmt, line in _module_level_statements(tree):
-        value = _pytestmark_value(stmt)
-        if (value is not None and _mentions_node(value)) or (
-                _is_module_node_importorskip(stmt)):
-            lines.append(line)
-    return lines
-
-
-def _pytestmark_value(stmt: ast.stmt) -> ast.expr | None:
-    """The assigned value when stmt binds ``pytestmark``, else None."""
-    if isinstance(stmt, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "pytestmark"
-            for t in stmt.targets):
-        return stmt.value
-    if isinstance(stmt, ast.AnnAssign) and isinstance(
-            stmt.target, ast.Name) and stmt.target.id == "pytestmark":
-        return stmt.value
-    return None
-
-
-def _is_module_node_importorskip(stmt: ast.stmt) -> bool:
-    """True for a module-level pytest.importorskip of node, or a bare
-    pytest.skip whose reason names node - both skip the whole module."""
-    if not isinstance(stmt, ast.Expr) or not isinstance(
-            stmt.value, ast.Call):
-        return False
-    call = stmt.value
-    func = call.func
-    if not (isinstance(func, ast.Attribute)
-            and isinstance(func.value, ast.Name)
-            and func.value.id == "pytest"
-            and func.attr in ("importorskip", "skip")):
-        return False
-    if func.attr == "importorskip":
-        return bool(call.args) and isinstance(
-            call.args[0], ast.Constant) and call.args[0].value == "node"
-    return _mentions_node_stmt(call)
-
-
-def _mentions_node(value: ast.expr) -> bool:
-    # Deliberately substring-wide: a deny-guard biasing to false positives
-    # is the safe direction; a non-node mark whose reason merely contains
-    # "node" fails loud, not silent.
-    return _mentions_node_stmt(value)
-
-
-def _mentions_node_stmt(node: ast.AST) -> bool:
-    return any(
-        isinstance(n, ast.Constant) and isinstance(n.value, str)
-        and "node" in n.value
-        for n in ast.walk(node))

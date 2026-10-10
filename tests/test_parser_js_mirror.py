@@ -45,8 +45,8 @@ class TestNodeHarnessesLoadLanes:
     or renamed-constant requires); a renamed lanes constant reads as
     a false offender."""
 
-    @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
     def test_harnesses_driving_the_real_parser_load_lanes(self):
+        """A pure source scan - no node, so no node skip (issue #812)."""
         offenders = []
         for path in sorted((ROOT / "tests").glob("test_*.py")):
             text = path.read_text()
