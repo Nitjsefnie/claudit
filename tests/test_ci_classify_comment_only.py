@@ -103,8 +103,15 @@ def _js_run(contents, base_tokens, head_tokens):
 # --- comment_only: the over-run directions ----------------------------------
 
 
+# A pair whose only difference is a comment BELOW line 2 — the magic-comment
+# window the rule keeps — so it is genuinely comment-only.
+BELOW_WINDOW_BASE = "a = 1\nb = 2\nc = 3\n"
+BELOW_WINDOW_HEAD = "a = 1\nb = 2\nc = 3  # c\n"
+
+
 def test_py_comment_only_is_true():
-    contents = {("m.py", BASE): "x = 1\n", ("m.py", HEAD): "x = 1  # c\n"}
+    contents = {("m.py", BASE): BELOW_WINDOW_BASE,
+                ("m.py", HEAD): BELOW_WINDOW_HEAD}
     assert classify.comment_only(["m.py"], EVENT, _run(contents)) is True
 
 
@@ -125,6 +132,7 @@ def test_a_python_magic_comment_is_not_comment_only():
     # A PEP 263 coding declaration (and a shebang) is a COMMENT token the
     # interpreter still reads: flipping utf-8 -> latin-1 decodes the same
     # bytes to "naïve" (5 chars) vs "naÃ¯ve" (6), a real behaviour change.
+    # Both sit on line 1, which the rule keeps unconditionally.
     body = 's = "naïve"\nprint(len(s), s)\n'
     assert classify.comment_only(["m.py"], EVENT, _run({
         ("m.py", BASE): "# -*- coding: utf-8 -*-\n" + body,
@@ -135,11 +143,25 @@ def test_a_python_magic_comment_is_not_comment_only():
 
 
 def test_a_comment_change_after_line_two_still_narrows():
-    # The control: the magic-comment rule is scoped to lines 1-2, so a
-    # comment edit below them is still comment-only.
+    # The control: the rule keeps only lines 1-2, so a comment edit below
+    # them is still comment-only.
     contents = {("m.py", BASE): "x = 1\ny = 2\n# a\nz = 3\n",
                 ("m.py", HEAD): "x = 1\ny = 2\n# b\nz = 3\n"}
     assert classify.comment_only(["m.py"], EVENT, _run(contents)) is True
+
+
+def test_the_early_comment_boundary_is_line_two():
+    # Both directions at the boundary, with a magic SPELLING the old
+    # hand-rolled predicate missed (`# vim: fileencoding=...`): a comment
+    # change on line 2 does not narrow, the same change on line 3 does.
+    def pair(line):
+        filler = ["x = 1"] * (line - 1)
+        base = "\n".join(filler + ["# vim: fileencoding=utf-8", "y = 2"]) + "\n"
+        head = "\n".join(filler + ["# vim: fileencoding=latin-1", "y = 2"]) + "\n"
+        return {("m.py", BASE): base, ("m.py", HEAD): head}
+
+    assert classify.comment_only(["m.py"], EVENT, _run(pair(2))) is False
+    assert classify.comment_only(["m.py"], EVENT, _run(pair(3))) is True
 
 
 def test_a_non_source_path_over_runs_without_a_content_read():
@@ -158,8 +180,8 @@ def test_more_than_the_cap_over_runs():
     paths = [f"m{i}.py" for i in range(classify.MAX_COMMENT_ONLY_FILES + 1)]
     contents = {}
     for path in paths:
-        contents[(path, BASE)] = "x = 1\n"
-        contents[(path, HEAD)] = "x = 1  # c\n"
+        contents[(path, BASE)] = BELOW_WINDOW_BASE
+        contents[(path, HEAD)] = BELOW_WINDOW_HEAD
     assert classify.comment_only(paths, EVENT, _run(contents)) is False
     assert classify.comment_only(paths[:-1], EVENT, _run(contents)) is True
 
@@ -195,7 +217,8 @@ def test_js_comment_only_and_real_change_via_canned_tokens():
 
 
 def test_classify_reports_the_comment_only_class():
-    contents = {("m.py", BASE): "x = 1\n", ("m.py", HEAD): "x = 1  # c\n"}
+    contents = {("m.py", BASE): BELOW_WINDOW_BASE,
+                ("m.py", HEAD): BELOW_WINDOW_HEAD}
     docs, data, comment, reason = classify.classify(
         EVENT, _run(contents, paths=["m.py"]))
     assert (docs, data, comment) == (False, False, True)
@@ -241,7 +264,8 @@ def test_refs_over_runs_on_an_unreadable_pull_request():
 
 
 def test_comment_only_on_a_pull_request():
-    contents = {("m.py", BASE): "x = 1\n", ("m.py", HEAD): "x = 1  # c\n"}
+    contents = {("m.py", BASE): BELOW_WINDOW_BASE,
+                ("m.py", HEAD): BELOW_WINDOW_HEAD}
 
     def run(argv):
         url = next((arg for arg in argv if arg.startswith("repos/")), "")
