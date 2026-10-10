@@ -206,12 +206,19 @@ def test_the_action_uploads_the_measurement_as_an_artifact():
     it after the gate, or slipping in a step fails here.
     """
     steps = _action_steps()
-    assert [step.get("uses", "") for step in steps] == [
-        "",
-        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "",
-    ], ("the action's shape is measure -> upload -> gate; the upload step "
-        "with the repo's hash-pinned action is missing or displaced")
+    # Position and action identity, never the revision: which upload
+    # release runs is the workflow's business (fleet-rules, "Merging and
+    # CI" — a legitimate CI change never fails a test).
+    uses = [step.get("uses", "") for step in steps]
+    assert len(uses) == 3, (
+        "the action's shape is measure -> upload -> gate; a step was "
+        "added or removed")
+    assert uses[0] == "" and uses[2] == "", (
+        "the action's shape is measure -> upload -> gate; only the "
+        "middle step may carry a uses")
+    assert uses[1].startswith("actions/upload-artifact@"), (
+        "the action's shape is measure -> upload -> gate; the upload step "
+        "is missing, displaced or not the artifact upload")
     upload = steps[1]
     assert upload["if"] == "${{ !cancelled() }}", (
         "the upload is not always-on: a breached gate is exactly when the "
