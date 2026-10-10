@@ -40,6 +40,7 @@ from test_reprice import (
     _seeded_cost,
 )
 from tests.reprice_fixture_builders import SeedRecord
+from tests.test_rate_fingerprint import _prefixed_tables, _refresh
 
 from backend import (
     constants,
@@ -292,6 +293,32 @@ def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch,
     assert version == constants.PRICING_VERSION
     assert re.search(r"\brows=1\b", _timing_line(caplog)), (
         "the row must have reached Python, not the SQL restamp")
+
+
+def test_prefixed_rate_move_escapes_sql_clean_restamp(fresh_db, monkeypatch):
+    """Bare token/search moves reprice both named-host and vendor-fallback rows."""
+    rates = _prefixed_tables(monkeypatch)
+    old_version = str(int(constants.PRICING_VERSION) - 1)
+    with db.viz_conn() as c:
+        for line, provider in enumerate(("Host", None), 1):
+            _seed(c, _FILE_KEY, line, SeedRecord(
+                model="acme/toy", provider=provider, cost_usd=0.08,
+                pricing_version=old_version, web_search_requests=3,
+                rate_fingerprint=rate_fingerprint.pair_fingerprint("acme/toy", provider)))
+        c.commit()
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
+        ("toy", "Host"): {**rates, "fresh": 30.0, "web_search": 0.045}})
+    _refresh()
+    assert ingest_reprice.reprice_stale() == 2
+    with db.viz_conn() as c:
+        rows = c.execute("SELECT cost_usd, pricing_version, rate_fingerprint "
+                         "FROM records ORDER BY line_num").fetchall()
+    # Fixed seed tokens cost .035 + 3*.015 before; .055 + 3*.045 after.
+    assert [float(row[0]) for row in rows] == [0.19, 0.19]
+    assert [row[1] for row in rows] == [constants.PRICING_VERSION] * 2
+    assert [row[2] for row in rows] == [
+        rate_fingerprint.pair_fingerprint("acme/toy", provider)
+        for provider in ("Host", None)]
 
 
 def test_moved_pair_recomputes_while_the_clean_pair_restamps(
