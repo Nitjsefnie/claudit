@@ -390,7 +390,7 @@ def _latency_live(rng: str, project: str | None, model: str | None,
     FROM records r
     JOIN files f ON f.file_key = r.file_key
     WHERE r.ts >= %s {proj_filter} {model_filter}
-      AND r.reply_latency_s IS NOT NULL
+      AND r.reply_latency_s IS NOT NULL AND r.is_canonical
     GROUP BY 1, 2
     ORDER BY 1, 2
     """
@@ -425,7 +425,7 @@ def _latency_live(rng: str, project: str | None, model: str | None,
       FROM records r
       JOIN files f ON f.file_key = r.file_key
       WHERE r.ts >= %s {proj_filter} {model_filter}
-        AND r.reply_latency_s IS NOT NULL
+        AND r.reply_latency_s IS NOT NULL AND r.is_canonical
     )
     SELECT bucket, model, event_ts, file_key, line_num, latency_s
     FROM ranked
