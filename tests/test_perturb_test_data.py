@@ -73,6 +73,7 @@ def _seed_doc() -> dict:
         providers={
             "acme/acme-9": {
                 "HostCo": [{"from": "2026-01-01T00:00:00Z", **RATES_A,
+                            "web_search": 0.02,
                             "schedule": [{"days": ["saturday", "sunday"],
                                           "start": 2200, "end": 200,
                                           "rates": RATES_B}]}],
@@ -325,6 +326,20 @@ def test_every_row_gains_a_single_field_entry(tmp_path):
             if other != moved:
                 assert (_effective_rates(entry)[other]
                         == _effective_rates(per_field)[other])
+
+
+def test_provider_entries_carry_the_web_search_rate(tmp_path):
+    """Issue #900: a provider row's appended entries carry the optional
+    `web_search` rate, moved off the row's previous one; a models row
+    never does, the loader refusing the field there."""
+    _doc, perturbed, _text, _path = _run(tmp_path)
+    assert all("web_search" not in e for es in perturbed["models"].values()
+               for e in es)
+    for model, hosts in perturbed["providers"].items():
+        for host, entries in hosts.items():
+            previous = entries[-6].get("web_search", 0.0)
+            assert all(e["web_search"] not in (0.0, previous)
+                       for e in entries[-5:]), (model, host)
 
 
 def test_the_single_field_choice_follows_the_seed(tmp_path):
@@ -665,12 +680,9 @@ def test_the_script_answers_help(capsys):
 
 
 def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
-    """main()'s printed line states what the run applied — five appended
-    entries per row, naming the classes (×2.0, ×0.37, the seeded per-row
-    irregular factor, the independent per-field factors, and the
-    single-field moves), the seed, and the stamp base — so a CI-leg log
-    shows the perturbation, and names the seed a rerun can reproduce,
-    without reading the tree."""
+    """main()'s printed line states what the run applied, the seed, and
+    the stamp base — so a CI-leg log shows the perturbation, and names
+    the seed a rerun can reproduce, without reading the tree."""
     pricing_path, constants_path, _doc = _seed_tree(tmp_path)
     exit_code = perturb_module.main(["--pricing", str(pricing_path),
                                      "--constants", str(constants_path),
@@ -681,8 +693,8 @@ def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
     assert "×2.0" in out
     assert "×0.37" in out
     assert "irregular" in out
-    assert "per-field" in out
-    assert "single-field" in out
+    assert "per-field" in out and "single-field" in out
+    assert "web_search" in out
     assert "seed=42" in out
     # The seed document's newest real stamp (acme/acme-9's second entry).
     assert "stamp base=2026-06-01T00:00:00Z" in out
