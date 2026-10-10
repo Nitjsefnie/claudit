@@ -50,6 +50,7 @@ def _ratchet():
 def _reparse_family(shares=None):
     """A synthetic reparse family: both metrics for every bench phase."""
     shares = shares or {}
+    schema = _thresholds()
     return {
         phase: {
             metric: {
@@ -57,9 +58,9 @@ def _reparse_family(shares=None):
                 "floor": Decimal(
                     shares.get(f"{phase}.{metric}", "10.0")) + Decimal("1.5"),
             }
-            for metric in _thresholds().REPARSE_METRICS
+            for metric in schema.REPARSE_METRICS
         }
-        for phase in _thresholds().REPARSE_PHASES
+        for phase in schema.REPARSE_PHASES
     }
 
 
