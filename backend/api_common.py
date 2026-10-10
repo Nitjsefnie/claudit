@@ -209,11 +209,16 @@ def _row_is_banded(res: pricing.Resolution, ts: datetime | None,
         row = (res.key, pricing.VENDOR_HOSTS[res.key])
     else:
         return False
+    if ts is not None and ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    # Mirror _provider_key's start guard: a record before its provider row's
+    # start is priced by the MODELS TABLE, so the row's band does not apply.
+    start = pricing.PROVIDER_STARTS.get(row)
+    if start is not None and ts is not None and ts < start:
+        return False
     if ts is None:
         entry = len(pricing.PROVIDER_DATED_RATES.get(row) or [])
     else:
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
         entry = sum(1 for end, _ in pricing.PROVIDER_DATED_RATES.get(row) or []
                     if end <= ts)
     return entry in pricing.PROVIDER_BANDS.get(row, {})
