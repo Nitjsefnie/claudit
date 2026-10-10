@@ -3,6 +3,16 @@
 // of these streams: equal means the change carried only comments, so the
 // behaviour legs cannot have moved.
 //
+// Each token prints [type, value, brokeLine]: the third field is true
+// when a line terminator sits between this token and the previous one.
+// It MUST be there. A line terminator is semantic in JS — the ASI
+// restricted productions (`return`/`throw`/`break`/`continue`/postfix
+// `++`/`--`) terminate on a newline, and espree's tokens otherwise erase
+// whitespace entirely, so a change that only moves a line break could
+// read as comment-only while it changes behaviour. Python needs no such
+// field: its NEWLINE/INDENT/DEDENT tokens already carry the line
+// structure, and only COMMENT/NL are dropped.
+//
 // Usage:
 //   node js_comment_tokens.mjs <espree-module-dir> <source-file> <jsx|plain>
 //
@@ -25,9 +35,12 @@ try {
     ecmaVersion: 'latest',
     sourceType: 'module',
     comment: false,
+    loc: true,
     ecmaFeatures: { jsx },
   });
-  process.stdout.write(JSON.stringify(tokens.map(t => [t.type, t.value])));
+  process.stdout.write(JSON.stringify(tokens.map((t, i, a) => [
+    t.type, t.value, i > 0 && t.loc.start.line > a[i - 1].loc.end.line,
+  ])));
 } catch (err) {
   process.stderr.write(String((err && err.message) || err));
   process.exit(1);

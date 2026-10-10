@@ -120,6 +120,13 @@ jobs:
           # .git/config is reusable by later steps.
           persist-credentials: false
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The tokenizer's node matches the repo's stated pin (tests.yml
+          # and eslint.yml carry the same version), so espree parses under
+          # the node the JS gates were measured with.
+          node-version: "24.17.0"
+
       - name: Install the JS tokenizer
         # The comment-only class strips JS/JSX comments with espree. It
         # installs into an isolated prefix at the LOCKFILE's espree
@@ -213,8 +220,11 @@ jobs:
     uses: $/.github/workflows/actionlint.yml
 
   codeql:
+    # NOT narrowed by comment_only: `// codeql[...]` / `// lgtm[...]` are
+    # comment-keyed alert suppressions, so a comment-only diff CAN change
+    # CodeQL's verdict.
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.comment_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
     uses: $/.github/workflows/codeql.yml
     permissions:
       # Writing the analysis is the whole point of the callee; the rest

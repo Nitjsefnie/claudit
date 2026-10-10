@@ -56,11 +56,15 @@ FAILED = 'failed'
 # (tests/test_workflow_ci_gate.py, issue #455).
 CHEAP_LEGS = frozenset({'lint', 'smoke'})
 
-# The legs the comment-only class skips: the perturbed-data leg, the
-# panel-layout guard and codeql, none of which a comment can affect. The
-# workflow narrows exactly these (and the portable matrix inside
-# tests.yml), pinned in lockstep by tests/test_workflow_ci_gate.py.
-COMMENT_ONLY_SKIPPED = frozenset({'test-data', 'panel-layout', 'codeql'})
+# The legs the comment-only class skips: the perturbed-data leg and the
+# panel-layout guard, neither of which a comment can affect. CodeQL is
+# NOT here: `// codeql[...]` and `// lgtm[...]` are comment-keyed alert
+# suppressions, so a comment-only diff CAN change its verdict and the
+# class's "a comment cannot affect it" invariant is false for it.
+# tests/test_workflow_ci_gate.py pins the legs; the matrix half (the
+# `comment_only` passthrough into tests.yml) is pinned by
+# tests/test_ci_classify_comment_only.py.
+COMMENT_ONLY_SKIPPED = frozenset({'test-data', 'panel-layout'})
 
 
 def _classify_output(needs, name):
