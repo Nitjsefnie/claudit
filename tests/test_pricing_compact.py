@@ -12,6 +12,7 @@ import pytest
 from scripts.ci import perturb_test_data
 
 from backend import pricing, rate_fingerprint
+from backend.pricing_document import omit_default_rates
 from backend.pricing_load import load_tables
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
 from tests.test_provider_rate_refresh import Run, _move_openinference
@@ -72,6 +73,19 @@ def _omit_equal_tiers(rates: dict) -> None:
     for field in ("create_5m", "create_1h"):
         if rates.get(field) == rates.get("fresh"):
             rates.pop(field, None)
+
+
+def test_omitting_cache_defaults_without_fresh_returns_an_independent_copy():
+    rates = {"create_5m": 2.0, "create_1h": 2.0, "read": 0.2, "output": 6.0}
+    expected = dict(rates)
+
+    copied = omit_default_rates(rates)
+
+    assert copied == expected
+    assert copied is not rates
+    assert rates == expected
+    copied["create_5m"] = 9.0
+    assert rates == expected
 
 
 def _js_tables(tmp_path: Path, doc: dict) -> dict:
