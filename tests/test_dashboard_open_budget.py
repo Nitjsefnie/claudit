@@ -249,10 +249,28 @@ def test_ctx_at_end_is_the_last_turn_not_the_first(app_with_fresh_data):
         "ctx_at_end reported the FIRST ctx turn's input")
 
 
-def _strip_line_comments(src: str) -> str:
-    """Drop `//` line comments so prose about the routing is not read as
-    the routing itself (the lookbehind spares `https://`)."""
+def _strip_comments(src: str) -> str:
+    """Drop JS comments so prose about the routing is never read as the
+    routing itself.
+
+    Block comments first (they span lines), then `//` line comments (the
+    lookbehind spares `https://`). The block pass is load-bearing: without
+    it a `/* window.deferred.run(...) */` left in the file satisfies the
+    pin while the real call was reverted — a false green for the exact
+    defect this pin exists to catch (issue #838 delta review).
+    """
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     return re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)
+
+
+def _traces_effect_src() -> str:
+    """The Context Growth panel's traces-fetch effect, comment-stripped."""
+    src = _strip_comments(_EXTRA_JSX.read_text(encoding="utf-8"))
+    m = re.search(
+        r"fetch\(`/api/context-growth/traces.*?\}, \[project, range, nonce\]\);",
+        src, re.S)
+    assert m, "could not locate the traces-fetch effect in the panel source"
+    return m.group(0)
 
 
 def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
@@ -264,13 +282,24 @@ def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     nothing in the suite renders React, so the deferral is invisible to
     every behavioural test — the routing can be deleted and nothing else
     fails.
+
+    Comments are stripped before matching, and the negative direction
+    covers BOTH revert spellings: no `.then(...)` handler in the effect
+    may call `setTraces(...)` except through `window.deferred.run`.
     """
-    src = _strip_line_comments(_EXTRA_JSX.read_text(encoding="utf-8"))
+    effect = _traces_effect_src()
     assert re.search(
         r"window\.deferred\.run\(\s*b\.traces\s*\|\|\s*\[\]\s*,\s*setTraces\s*\)",
-        src), (
+        effect), (
         "the traces fetch no longer routes setTraces through "
         "window.deferred.run (issue #838)")
-    assert not re.search(r"setTraces\(\s*b\.traces\s*\|\|\s*\[\]\s*\)", src), (
-        "the traces fetch calls setTraces directly again, undoing the "
-        "deferral (issue #838)")
+    offenders = [
+        handler.strip()
+        for handler in re.findall(r"\.then\(([^\n]*)\)", effect)
+        if "setTraces(" in handler
+        and not re.search(r"window\.deferred\.run\([^)]*setTraces\s*\)",
+                          handler)
+    ]
+    assert not offenders, (
+        "the traces fetch calls setTraces directly instead of routing it "
+        f"through window.deferred.run (issue #838): {offenders}")
