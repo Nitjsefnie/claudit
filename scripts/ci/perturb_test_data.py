@@ -11,7 +11,12 @@ the same range; then a single-field move, exactly one seeded field
 scaled by its own seeded factor and the other four copying the
 per-field entry — so any within-row ratio the data once had (read ==
 fresh * k, say) can flip. A zero rate becomes one under every factor,
-so every field differs. The rows are processed in a seeded-shuffled
+so every field differs. Every PROVIDER row's appended entries also
+carry the optional `web_search` rate (SV-RATE-REFRESH carries it
+forward), scaled off the row's previous one by its own seeded factor,
+so the leg exercises the shape a refresh appends (issue #900); a
+models-table row never carries it, the loader refusing the field
+there. The rows are processed in a seeded-shuffled
 order; the run seed is `int(now.timestamp())`, or the `--seed N`
 value. The seed drives the factors and the shuffle ONLY — never a
 `from` stamp (issue #227): the appended entries take their stamps from
@@ -113,10 +118,10 @@ def perturb_pricing(path: Path,
     if base is None:
         base = datetime.now(timezone.utc).replace(microsecond=0)
     counter = base + timedelta(seconds=1)
-    for row_key, entries in _shuffled(all_rows, seed):
+    for row_key, entries, may_search in _shuffled(all_rows, seed):
         newest = entries[-1]
         previous_from = newest.get("from")
-        for note, rates in _appended_specs(seed, row_key, newest):
+        for note, rates in _appended_specs(seed, row_key, newest, may_search):
             entry_from = _stamp_after(previous_from, candidate=counter)
             entries.append({
                 "from": entry_from,
@@ -132,11 +137,11 @@ def perturb_pricing(path: Path,
         STAMP_FORMAT)
 
 
-def _newest_stamp(rows: list[tuple[str, list]]) -> datetime | None:
+def _newest_stamp(rows: list[tuple[str, list, bool]]) -> datetime | None:
     """The document's newest real `from`, parsed, over every entry of
     every row; None when no entry carries one."""
     stamps = [_parse_stamp(entry["from"])
-              for _key, entries in rows for entry in entries
+              for _key, entries, _search in rows for entry in entries
               if entry.get("from") is not None]
     return max(stamps) if stamps else None
 
@@ -146,24 +151,31 @@ def _parse_stamp(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def _rows(doc: dict) -> list[tuple[str, list]]:
-    """Every rate row as (row key, entry list): models first, then hosts."""
-    rows = list(doc["models"].items())
+def _rows(doc: dict) -> list[tuple[str, list, bool]]:
+    """Every rate row as (row key, entry list, may_search): models
+    first, then hosts.
+
+    Only a PROVIDER row may carry the `web_search` rate — the loader
+    refuses the field on a models-table row — so the flag decides which
+    rows the perturbation gives it to.
+    """
+    rows = [(key, entries, False) for key, entries in doc["models"].items()]
     for model, hosts in doc["providers"].items():
-        rows.extend((f"{model} via {host}", entries)
+        rows.extend((f"{model} via {host}", entries, True)
                     for host, entries in hosts.items())
     return rows
 
 
-def _shuffled(rows: list[tuple[str, list]], seed: int) -> list[tuple[str, list]]:
+def _shuffled(rows: list[tuple[str, list, bool]], seed: int
+              ) -> list[tuple[str, list, bool]]:
     """The rows in a seeded-shuffled order (the factors' own seed)."""
     order = list(rows)
     random.Random(seed).shuffle(order)
     return order
 
 
-def _appended_specs(seed: int, row_key: str,
-                    newest: dict) -> list[tuple[str, dict]]:
+def _appended_specs(seed: int, row_key: str, newest: dict,
+                    may_search: bool) -> list[tuple[str, dict]]:
     """The five appended entries' (note, rates) pairs, in stamp order.
 
     The first three scale the row's previous newest entry WHOLE: by
@@ -173,19 +185,28 @@ def _appended_specs(seed: int, row_key: str,
     within-row ratio the data once had can flip. Every factor is
     deterministic in its inputs, so the same (document, seed)
     reproduces the run byte for byte.
+
+    A PROVIDER row's entries also carry the optional `web_search` rate
+    (SV-RATE-REFRESH), scaled off the row's previous one by its own
+    seeded factor — a zero rate becoming one, like every other field —
+    so the leg exercises the shape a refresh appends. Every provider row
+    gains it, a superset of the live hosts that list one (issue #900).
     """
     previous_rates = effective_rates(newest)
+    extra = (_search_rates(seed, row_key, newest) if may_search else {})
     whole_row = [
         (f"{NOTE_PREFIX}{factor_text}{NOTE_SUFFIX}",
-         {field: _scaled(previous_rates[field], float(factor_text))
-          for field in pricing.RATE_FIELDS})
+         {**extra,
+          **{field: _scaled(previous_rates[field], float(factor_text))
+             for field in pricing.RATE_FIELDS}})
         for factor_text in (*FIXED_FACTORS, _irregular_factor(seed, row_key))
     ]
     per_field = (
         PER_FIELD_NOTE,
-        {field: _scaled(previous_rates[field],
-                        float(_field_factor(seed, row_key, field)))
-         for field in pricing.RATE_FIELDS},
+        {**extra,
+         **{field: _scaled(previous_rates[field],
+                           float(_field_factor(seed, row_key, field)))
+            for field in pricing.RATE_FIELDS}},
     )
     moved = _moved_field(seed, row_key)
     single_field = (
@@ -195,6 +216,15 @@ def _appended_specs(seed: int, row_key: str,
                         float(_single_field_factor(seed, row_key, moved)))},
     )
     return [*whole_row, per_field, single_field]
+
+
+def _search_rates(seed: int, row_key: str, newest: dict) -> dict:
+    """A provider row's appended `web_search` rate, as {field: value}:
+    the row's previous rate under its own seeded factor, a zero rate
+    becoming one — the same convention every other field follows.
+    """
+    return {"web_search": _scaled(newest.get("web_search", 0.0),
+                                  float(_search_factor(seed, row_key)))}
 
 
 def _bounded_factor(digest_input: str) -> str:
@@ -235,6 +265,14 @@ def _single_field_factor(seed: int, row_key: str, field: str) -> str:
     move actually moves the field off the per-field entry's value.
     """
     return _bounded_factor(f"{seed}:{row_key}:single:{field}")
+
+
+def _search_factor(seed: int, row_key: str) -> str:
+    """A per-row factor in [0.61, 1.47), six decimals, never exactly 1.0,
+    for the appended `web_search` rate — keyed APART from every token
+    field's factor, so the search rate moves off its own predecessor.
+    """
+    return _bounded_factor(f"{seed}:{row_key}:search")
 
 
 def _moved_field(seed: int, row_key: str) -> str:
@@ -296,7 +334,8 @@ def main(argv: list[str] | None = None) -> int:
                     "every rate row in src/pricing.json — ×2.0, ×0.37, a "
                     "per-row irregular factor in [0.61, 1.47), five "
                     "independent per-field factors, and a single-field move "
-                    "(a zero rate becomes one under every factor) — and "
+                    "(a zero rate becomes one under every factor), plus the "
+                    "optional web_search rate on every provider row — and "
                     "bump the three version constants, so the suite runs "
                     "against data the repository changed by design. The "
                     "seed drives the row order and the factors only; the "
@@ -319,7 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     bump_constants(args.constants)
     print(f"perturbed {rows} rate rows (5 entries per row: ×2.0, ×0.37, "
           f"seeded per-row irregular, independent per-field factors, "
-          f"single-field moves), seed={seed}, stamp base={base_text}, "
+          f"single-field moves, web_search on provider rows), "
+          f"seed={seed}, stamp base={base_text}, "
           f"and bumped {len(VERSION_NAMES)} version constants")
     return 0
 
