@@ -149,7 +149,7 @@ REGION_RE = re.compile(
 
 
 def tag_region(tag: str) -> str | None:
-    """The data region an endpoint tag names, or None for a global one."""
+    """The recognized region marker, including global, or None for a bare tag."""
     for suffix in tag.split("/")[1:]:
         if REGION_RE.fullmatch(suffix):
             return suffix.lower()
