@@ -11,6 +11,8 @@ import pytest
 
 from backend.bash_churn import bash_churn, python_write_paths
 from backend.bash_churn_errors import _verbatim_targets, churn_survives_error
+from backend.bash_effects import _redirects
+from backend.bash_literals import shell_tokens
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -558,10 +560,12 @@ def test_tee_into_stderr_alone_has_no_survivable_write():
     assert churn_survives_error(command, text) is False
 
 
-@pytest.mark.parametrize("redirect", ["1>", "1>>", "1>|", "1>&"])
+@pytest.mark.parametrize("redirect", ["1>", "1>>", "1>|", "1>&",
+                                      "01>", "001>", "01>>", "01>|", "01>&"])
 def test_heredoc_cat_books_churn_through_fd_one_stdout_spellings(redirect):
     """fd 1 IS stdout: bash lands the heredoc body in the target through
-    the fd-spelled stdout forms exactly like plain `>` (#819)."""
+    the fd-spelled stdout forms exactly like plain `>`. Leading zeros are
+    insignificant, so a zero-padded fd reads as fd 1 too (#819, #857)."""
     command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (3, 0)
 
@@ -573,12 +577,13 @@ def test_heredoc_cat_through_an_fd_dup_books_no_churn_case():
     assert bash_churn(command) == (0, 0)
 
 
-def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line():
-    """`21>` points another descriptor at f.txt — the body lands on
-    stdout (no heredoc churn), but bash creates f.txt, and the redirect
-    itself is a recognized write of unknown addition size: the one
-    unknown-size line, `2>`'s parity (#805, #819)."""
-    command = "cat <<EOF 21> f.txt\nline1\nline2\nline3\nEOF\n"
+@pytest.mark.parametrize("redirect", ["2>", "21>"])
+def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
+    """A higher fd's redirect (`2>`, `21>`) points another descriptor at
+    f.txt — the body lands on stdout (no heredoc churn), but bash creates
+    f.txt, and the redirect itself is a recognized write of unknown
+    addition size: the one unknown-size line, `2>`'s parity (#805, #819)."""
+    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (1, 0)
 
 
@@ -587,6 +592,7 @@ def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line():
     ("tee <<E >&2", []),
     ("cat <<E | tee f.txt >&2", ["f.txt"]),
     ("cat <<E | tee -a log.txt", ["log.txt"]),
+    ("cat <<E | tee 2.py", ["2.py"]),
 ])
 def test_tee_arm_books_no_operator_tokens(context, expected):
     """The tee arm reads raw shlex tokens, so a redirect operator rides
@@ -617,12 +623,16 @@ def test_heredoc_sink_line_through_multi_digit_fds(fd):
 @pytest.mark.parametrize("context,expected", [
     ("cat <<E | tee <f.txt", []),
     ("cat <<E | tee <f.txt out.txt", ["out.txt"]),
+    ("cat <<E | tee 2<f.txt", []),
+    ("cat <<E | tee 3<in.txt", []),
+    ("cat <<E | tee 2<f.txt out.txt", ["out.txt"]),
 ])
 def test_tee_arm_books_no_stdin_redirect_target(context, expected):
     """A `<` token is tee's INPUT redirect, never a file the tee writes:
     bash opens f.txt for reading and the body lands on stdout, so the
     stdin-redirect shape filters with the other operators while real
-    targets book (#855)."""
+    targets book. An fd-prefixed `<` (`2<f.txt`) is the same input
+    redirect and filters too (#855, #856)."""
     assert _verbatim_targets(context) == expected
 
 
@@ -633,3 +643,21 @@ def test_heredoc_sink_line_stays_off_for_a_bare_fd_zero():
     N1; whether fd 0's creation should count is #854-class follow-up)."""
     command = "cat <<EOF 0> f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (0, 0)
+
+
+def test_echo_pipeline_reads_fd_prefix_by_value():
+    """The pipeline fold reads an explicit fd by VALUE too: `echo hi 01>
+    f.txt` books its payload like plain `>` (fd 1 is stdout), and a null
+    sink still books nothing (#857)."""
+    assert bash_churn("echo hi 01> f.txt") == (1, 0)
+    assert bash_churn("echo hi 001> f.txt") == (1, 0)
+    assert bash_churn("echo hi 01> /dev/null") == (0, 0)
+
+
+def test_folded_fd_zero_narrows_other_sink_and_replaces_stdin():
+    """`00>` folds to fd 0, so it stops booking the unknown-size other
+    sink and narrows to the pinned `0>` shape; `00<` folds to fd 0 and
+    now counts as stdin-replaced (#856, #857)."""
+    assert bash_churn("cat /dev/null 00> f.txt") == (0, 0)
+    assert bash_churn("cat /dev/null 0> f.txt") == (0, 0)
+    assert _redirects(shell_tokens("cat 00< f.txt"))[2] is True
