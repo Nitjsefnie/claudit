@@ -227,7 +227,7 @@ class Run:
         return int(m.group(1))
 
     def __call__(self, capsys, *args: str, now: datetime = NOW,
-                 catalog: dict | None = None):
+                 catalog: dict | None = None, vendor=None):
         rc = refresh.main(["--commit-msg", str(self.commit_msg), *args],
                           fetch=lambda model_id: copy.deepcopy(self.payloads[model_id]),
                           fetch_models=lambda: (
@@ -237,7 +237,7 @@ class Run:
                                   for source in self.doc()["openrouter"]["models"].values()]}),
                           fetch_log=lambda _slug: {"data": {"series": []}},
                           now=now, pricing_path=self.pricing, constants_path=self.constants,
-                          vendor=None)
+                          vendor=vendor)
         out, err = capsys.readouterr()
         return rc, out, err
 
@@ -600,6 +600,13 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
 # --- a model is delisted -----------------------------------------------------
 
 
+def _catalog_without(run: Run, *ids: str) -> dict:
+    """A readable /api/v1/models catalog missing the named tracked ids."""
+    return {"data": [{"id": source["id"], "canonical_slug": source["id"]}
+                     for source in run.doc()["openrouter"]["models"].values()
+                     if source["id"] not in ids]}
+
+
 def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
         tmp_path, capsys):
     """A tracked model absent from OpenRouter's /api/v1/models catalog is
@@ -609,9 +616,7 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
     run = Run(tmp_path, pricing_version="73")
     moved = _move_openinference(run)
     run.endpoints("stealth/space-bunny-alpha").clear()
-    catalog = {"data": [{"id": source["id"], "canonical_slug": source["id"]}
-                        for source in run.doc()["openrouter"]["models"].values()
-                        if source["id"] != "stealth/space-bunny-alpha"]}
+    catalog = _catalog_without(run, "stealth/space-bunny-alpha")
     before = run.doc()
     rc, out, _ = run(capsys, catalog=catalog)
     assert rc == 0, "a delisted model is not a refusal"

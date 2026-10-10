@@ -21,6 +21,16 @@ name: refresh-pricing
 # unless it appends: the fetch stamp in the JSON moves only with the data,
 # so a quiet hour leaves the tree clean and commits nothing.
 #
+# AN UNCHANGED NOTICE IS NOT REPEATED. The run omits a notice line the last
+# committing run already carried, so a model still delisted — or a tag still
+# unrecognised — is not reprinted in every commit. A notice that is new, or
+# that changed, still appears. The baseline is src/pricing_notices.json, the
+# last committing run's FULL notice set — the lines it showed and the lines
+# it suppressed — because a baseline read from the previous commit's message
+# would lose a suppressed line and re-emit it in the next commit. That file
+# is committed with the data, so a run that appends nothing publishes no
+# commit and does not move the baseline (issue #888).
+#
 # THE SUITE GATES THE PUSH. The suite runs in the keyless refresh job and
 # only a green run stages the tested data; the data travels to the push
 # job as an artifact. The push job runs no test, dependency or upstream
@@ -138,6 +148,9 @@ jobs:
         # the push job, and the verdict job turns the run red.
         run: |
           rc=0
+          # The script reads and rewrites src/pricing_notices.json itself: the
+          # notice baseline that keeps a suppressed notice suppressed (issue
+          # #888). It is written only when the run appends.
           python3 scripts/ci/refresh_provider_rates.py \
             --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
             > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?
@@ -197,6 +210,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/push-data"
           cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"
           cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"
+          cp src/pricing_notices.json "$RUNNER_TEMP/push-data/pricing_notices.json"
           cp "$RUNNER_TEMP/commit-msg.txt" "$RUNNER_TEMP/push-data/commit-msg.txt"
           git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"
 
@@ -275,7 +289,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/push-repo/src" "$RUNNER_TEMP/push-repo/backend"
           cp "$RUNNER_TEMP/push-data/pricing.json" "$RUNNER_TEMP/push-repo/src/pricing.json"
           cp "$RUNNER_TEMP/push-data/constants.py" "$RUNNER_TEMP/push-repo/backend/constants.py"
-          git -C "$RUNNER_TEMP/push-repo" add src/pricing.json backend/constants.py
+          cp "$RUNNER_TEMP/push-data/pricing_notices.json" "$RUNNER_TEMP/push-repo/src/pricing_notices.json"
+          git -C "$RUNNER_TEMP/push-repo" add src/pricing.json backend/constants.py src/pricing_notices.json
           git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
           git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git -C "$RUNNER_TEMP/push-repo" commit -F "$RUNNER_TEMP/push-data/commit-msg.txt"

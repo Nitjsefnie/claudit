@@ -37,6 +37,9 @@ reason:
   and never pinned by the suite (tests derive expectations from them
   at run time), so no leg's verdict depends on the file's content; the
   bot's commit touches it alongside the data file.
+- `src/pricing_notices.json` — the same bot's notice baseline, written
+  by the refresh run itself (issue #888). Like the data file, no leg's
+  verdict depends on its content and the bot's push is gate-silent.
 
 THE EXTRACTION. Over-broad on purpose: it tokenizes workflow texts for
 path-shaped tokens resolving to tracked files, so an over-read turns
@@ -91,6 +94,10 @@ EXEMPT = {
         "version constants are read at run time and never pinned by the"
         " suite, so no gate leg's verdict depends on the file's"
         " content; the bot's commit touches it beside the data file"),
+    "src/pricing_notices.json": (
+        "the rate-refresh bot's notice baseline, written by the refresh"
+        " run itself; no gate leg's verdict depends on its content and"
+        " the bot's push is itself gate-silent"),
     "VERSION": (
         "the release input; the version guard is not a required check"
         " (the ruleset requires the aggregate alone) and no aggregate"

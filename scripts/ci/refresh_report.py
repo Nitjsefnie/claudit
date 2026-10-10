@@ -78,8 +78,12 @@ def _notice_parts(notice: str):
     return None
 
 
-def _notice_lines(notices: list[str]) -> list[str]:
-    """Group catalog notices by their shared message, retaining subjects."""
+def notice_lines(notices: list[str]) -> list[str]:
+    """Group catalog notices by their shared message, retaining subjects.
+
+    The rendered lines are the notice unit: the same text is what the run
+    carries as its baseline and what the commit message shows, so a grouped
+    line that gains or loses a subject is a different line."""
     lines: list[str | None] = []
     groups: dict[str, tuple[int, list[str]]] = {}
     for notice in notices:
@@ -97,6 +101,15 @@ def _notice_lines(notices: list[str]) -> list[str]:
         subjects_text = ", ".join(sorted(set(subjects)))
         lines[index] = f"{message}: {subjects_text}"
     return [line for line in lines if line is not None]
+
+
+def _visible(lines: list[str], previous: frozenset[str]) -> list[str]:
+    """Drop a rendered line the baseline already carried (issue #888).
+
+    A line the previous run published — shown or suppressed — is not
+    repeated; a line that is new, or that changed, is not in the baseline
+    and still appears."""
+    return [line for line in lines if line not in previous]
 
 
 def _search_change(move: Move) -> str | None:
@@ -202,8 +215,12 @@ def _discount_note(discount: Decimal) -> str:
     return f"{format((discount * 100).normalize(), 'f')}% off"
 
 
-def report(stamp: str, result: Result, tracked: dict) -> str:
-    """Render moves, sampled coverage, vanished rows, and notices."""
+def report(stamp: str, result: Result, tracked: dict,
+           previous: frozenset[str] = frozenset()) -> str:
+    """Render moves, sampled coverage, vanished rows, and notices.
+
+    A notice line the baseline already carried is omitted; an empty
+    ``previous`` renders every notice (issue #888)."""
     lines = [f"OpenRouter provider rates, detected {stamp}"]
     if not result.moves:
         lines.append("no rate moved")
@@ -220,12 +237,9 @@ def report(stamp: str, result: Result, tracked: dict) -> str:
     if result.refusals:
         lines += ["", "refused, rows left untouched:",
                   *(f"  {reason}" for reason in result.refusals)]
-    if result.notices:
-        lines += [
-            "",
-            "notices:",
-            *(f"  {notice}" for notice in _notice_lines(result.notices)),
-        ]
+    notices = _visible(notice_lines(result.notices), previous)
+    if notices:
+        lines += ["", "notices:", *(f"  {notice}" for notice in notices)]
     return "\n".join(lines)
 
 
@@ -264,8 +278,12 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def vendor_report(stamp: str, vendor) -> str:
-    """Render the vendor pass's section of the hourly report."""
+def vendor_report(stamp: str, vendor,
+                  previous: frozenset[str] = frozenset()) -> str:
+    """Render the vendor pass's section of the hourly report.
+
+    ``previous`` is the same published-notice set ``report`` takes: a vendor
+    notice line unchanged since the last commit is omitted (issue #888)."""
     lines = [f"Vendor tracked table, detected {stamp}"]
     if not (vendor.moves or vendor.refusals or vendor.notices):
         lines.append("no first-party vendor moved")
@@ -294,9 +312,7 @@ def vendor_report(stamp: str, vendor) -> str:
     if vendor.refusals:
         lines += ["refused, rows left untouched:",
                   *(f"  {reason}" for reason in vendor.refusals)]
-    if vendor.notices:
-        lines += [
-            "notices:",
-            *(f"  {notice}" for notice in _notice_lines(vendor.notices)),
-        ]
+    notices = _visible(notice_lines(vendor.notices), previous)
+    if notices:
+        lines += ["notices:", *(f"  {notice}" for notice in notices)]
     return "\n".join(lines)

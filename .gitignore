@@ -160,6 +160,7 @@
 !/src/*.js
 !/src/*.jsx
 !/src/pricing.json
+!/src/pricing_notices.json
 !/src/views/
 /src/views/*
 !/src/views/*.jsx
