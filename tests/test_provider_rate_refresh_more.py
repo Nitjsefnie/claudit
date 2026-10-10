@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
-import shutil
-import subprocess
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -17,13 +14,9 @@ from tests.refresh_fixture_builders import _per_token
 from tests.test_provider_rate_log_refresh import _series as _log_series
 from tests.test_provider_rate_refresh import (
     GLM,
-    LOADER_JS,
-    VENDOR_TABLES_JS,
-    HHMM_JS,
     NOW,
-    PARSER_USAGE_JS,
-    PARSER_JS,
-    PRICING_JSON,
+    _openrouter_template,
+    _browser_pricing,
     Run,
     STAMP,
     UTC,
@@ -375,8 +368,8 @@ def test_a_resolution_keyed_on_a_rate_is_refused(tmp_path, capsys, pin):
 
 
 def test_baseten_is_resolved_by_price_order_as_data():
-    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-    pin = doc["openrouter"]["models"][V41]["resolve"]["BaseTen"]
+    doc = _openrouter_template()
+    pin = doc["models"][V41]["resolve"]["BaseTen"]
     assert pin["select"] == "cheapest" and pin["why"]
     assert set(pin) == {"tag", "select", "ignore", "why"}
     assert pin["tag"] == "baseten/fp8"
@@ -633,22 +626,8 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     epochs = pricing.load_tables(doc)["RATE_EPOCHS"]
     want = int(datetime(2030, 12, 31, 23, 2, 3, tzinfo=UTC).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000) for e in epochs]
-    js = tmp_path / "js"
-    js.mkdir()
-    shutil.copy(run.pricing, js / "pricing.json")
-    shutil.copy(LOADER_JS, js / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, js / "vendor-tables.js")
-    shutil.copy(HHMM_JS, js / "hhmm-spelling.js")
-    shutil.copy(PARSER_USAGE_JS, js / "parser-usage.js")
-    shutil.copy(PARSER_JS, js / "parser.js")
-    proc = subprocess.run(["node", "-e", f"""
-      global.window = {{}};
-      require({str(js / "pricing-loader.js")!r});
-      require({str(js / "parser.js")!r});
-      console.log(JSON.stringify(window.rateEpochs));
-    """], capture_output=True, text=True, timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    assert want in json.loads(proc.stdout)
+    assert want in _browser_pricing(run, tmp_path / "js",
+                                    "console.log(JSON.stringify(window.rateEpochs));")
 
 
 def test_a_dry_run_reports_and_writes_nothing(tmp_path, capsys):

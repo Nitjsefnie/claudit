@@ -8,14 +8,12 @@ driven through listed_rows, and the live Alibaba shape end to end.
 """
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from tests.refresh_fixture_builders import RATES_A, RATES_B, _endpoint
 from tests.test_provider_rate_refresh import (
     NOW,
-    PRICING_JSON,
+    _openrouter_template,
     Run,
     STAMP,
     refresh,
@@ -379,9 +377,9 @@ def test_a_pinned_tag_with_two_prices_still_needs_a_human():
 
 def test_the_alibaba_stopgap_pins_are_gone_from_the_document():
     """#893's two cheapest pins were the stopgap this rule replaces."""
-    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+    doc = _openrouter_template()
     for key in ("deepseek/deepseek-v4-pro", "glm-5-2"):
-        assert "Alibaba" not in doc["openrouter"]["models"][key].get("resolve", {})
+        assert "Alibaba" not in doc["models"][key].get("resolve", {})
 
 
 def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
