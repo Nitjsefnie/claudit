@@ -32,7 +32,7 @@ from backend.parse_common import _dispatch_prompt_shape, _to_dt, iter_lines
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
-from backend.parse_projection import _project_record
+from backend.parse_projection import project_records
 
 
 # A `type:"assistant"` record with isApiErrorMessage=True and
@@ -723,9 +723,9 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
                          walk.tool_result_text, walk.tool_result_chars)
     resolve_rereads(walk.tool_uses)
-    records = [
-        _project_record(file_key, ev) for ev in walk.records_in_order
-    ]
+    records = project_records(
+        file_key, walk.records_in_order,
+    )
     ctx_turns = _build_ctx_turns(records, walk.user_text_lines)
 
     return {

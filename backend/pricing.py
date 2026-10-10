@@ -234,6 +234,9 @@ def _match_key(norm: str) -> str | None:
 
 
 _VENDOR_MATCH_CACHE: dict[str, str | None] = {}
+# The loaded table is stable; synthetic tables in tests replace the list.
+_VENDOR_PREFIXES_SOURCE = VENDOR_PREFIXES
+_VENDOR_PREFIXES_SET = frozenset(VENDOR_PREFIXES)
 
 
 def _vendor_match(norm: str) -> str | None:
@@ -258,10 +261,14 @@ def _vendor_match(norm: str) -> str | None:
 
 def _fold_vendor_prefix(norm: str) -> str:
     """Fold a tracked namespace prefix only when its remainder is a bare form."""
-    for prefix in sorted(VENDOR_PREFIXES, key=len, reverse=True):
-        bare = norm.removeprefix(f"{prefix}/")
-        if bare != norm and _vendor_match(bare) is not None:
-            return bare
+    prefix, separator, bare = norm.partition("/")
+    if not separator:
+        return norm
+    prefixes = (_VENDOR_PREFIXES_SET
+                if VENDOR_PREFIXES is _VENDOR_PREFIXES_SOURCE
+                else frozenset(VENDOR_PREFIXES))
+    if prefix in prefixes and _vendor_match(bare) is not None:
+        return bare
     return norm
 
 
@@ -349,7 +356,8 @@ def resolve(model: str | None, ts: datetime | None = None,
     norm = _normalise(model)
     if _is_free(model, norm):
         return Resolution(FREE_RATES, "exact", norm)
-    norm = _fold_vendor_prefix(norm)
+    if "/" in norm:
+        norm = _fold_vendor_prefix(norm)
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
         rates, scheduled = _provider_rates(pkey, ts)
@@ -410,7 +418,8 @@ def meter_flag(model: str | None, window: int) -> bool | None:
     norm = _normalise(model)
     if norm not in LONG_CONTEXT_MODELS:
         return None
-    return window > long_context_threshold(norm)
+    return window > LONG_CONTEXT_METERS.get(norm, {}).get(
+        "threshold", LONG_CONTEXT_THRESHOLD)
 
 
 def rate_for(model: str | None, ts: datetime | None = None,
