@@ -95,8 +95,10 @@ def test_refresh_job_stays_the_keyless_suite_runner():
     assert job["if"] == "github.ref == 'refs/heads/master'"
     assert job["timeout-minutes"] == 30
     assert job["permissions"] == {"contents": "read"}
-    image = job["services"]["postgres"]["image"]
-    assert image.startswith("public.ecr.aws/docker/library/postgres:16@sha256:"), image
+    # The Postgres image value (version + digest shape) is deliberately
+    # unread — fleet-rules, "Merging and CI": no dependency pin copied
+    # out of a workflow; the cross-workflow lockstep equality in
+    # test_workflow_ci_gate.py holds the two images' agreement instead.
     assert (job["env"]["PGHOST"], job["env"]["PGPORT"],
             job["env"]["PGUSER"], job["env"]["PGPASSWORD"]) == (
         "localhost", "5432", "postgres", "postgres")

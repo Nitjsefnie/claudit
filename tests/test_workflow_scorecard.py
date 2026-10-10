@@ -17,13 +17,11 @@ are load-bearing rather than incidental:
     refactor that quietly drops either leaves a workflow that scans and
     reports nothing.
 
-Asserted on the YAML-DECODED structure, the way GitHub reads it, except the
-action pins, which are comments and do not survive parsing.
+Asserted on the YAML-DECODED structure, the way GitHub reads it.
 """
 from __future__ import annotations
 
 import importlib.util
-import re
 import subprocess
 import sys
 from pathlib import Path
