@@ -9,8 +9,14 @@ module stays one concern: what a body writes, not how often.
 from __future__ import annotations
 
 import math
+import re
 
-from backend.bash_literals import ShellWord
+from backend.bash_literals import ShellWord, _fold_fd
+
+# A stdin-close token: an optional fd prefix before `<&`. The fd is read
+# by VALUE (via `_fold_fd`), so `0<&` / `00<&` are fd 0 like the bare
+# `<&` that `_split_heredocs` writes as its heredoc marker (#917).
+_STDIN_CLOSE = re.compile(r"([0-9]*)(<&)")
 
 # Words after which the next word is in command position again.
 _COMMAND_START_WORDS = frozenset({"do", "then", "else", "elif", "{", "!"})
@@ -65,7 +71,9 @@ def heredoc_repeats(tokens: list[ShellWord], n_heredocs: int) -> list[int]:
     while i < len(tokens):
         tok = tokens[i]
         if tok.operator:
-            if tok == "<&" and i + 1 < len(tokens) and tokens[i + 1] == "-":
+            close = _STDIN_CLOSE.fullmatch(tok)
+            if close and _fold_fd(close.group(1)) in ("", "0") \
+                    and i + 1 < len(tokens) and tokens[i + 1] == "-":
                 repeats.append(math.prod(stack))
                 i += 2
                 command_position = False
