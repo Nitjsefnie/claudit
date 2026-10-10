@@ -121,6 +121,27 @@ def test_py_real_code_change_is_not_comment_only():
     assert classify.comment_only(["m.py"], EVENT, _run(contents)) is False
 
 
+def test_a_python_magic_comment_is_not_comment_only():
+    # A PEP 263 coding declaration (and a shebang) is a COMMENT token the
+    # interpreter still reads: flipping utf-8 -> latin-1 decodes the same
+    # bytes to "naïve" (5 chars) vs "naÃ¯ve" (6), a real behaviour change.
+    body = 's = "naïve"\nprint(len(s), s)\n'
+    assert classify.comment_only(["m.py"], EVENT, _run({
+        ("m.py", BASE): "# -*- coding: utf-8 -*-\n" + body,
+        ("m.py", HEAD): "# -*- coding: latin-1 -*-\n" + body})) is False
+    assert classify.comment_only(["m.py"], EVENT, _run({
+        ("m.py", BASE): "#!/usr/bin/env python3\nx = 1\n",
+        ("m.py", HEAD): "#!/usr/bin/python3\nx = 1\n"})) is False
+
+
+def test_a_comment_change_after_line_two_still_narrows():
+    # The control: the magic-comment rule is scoped to lines 1-2, so a
+    # comment edit below them is still comment-only.
+    contents = {("m.py", BASE): "x = 1\ny = 2\n# a\nz = 3\n",
+                ("m.py", HEAD): "x = 1\ny = 2\n# b\nz = 3\n"}
+    assert classify.comment_only(["m.py"], EVENT, _run(contents)) is True
+
+
 def test_a_non_source_path_over_runs_without_a_content_read():
     calls = []
     contents = {("m.py", BASE): "x = 1\n", ("m.py", HEAD): "x = 1  # c\n"}

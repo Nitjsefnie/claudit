@@ -13,6 +13,12 @@
 // field: its NEWLINE/INDENT/DEDENT tokens already carry the line
 // structure, and only COMMENT/NL are dropped.
 //
+// No analogue of Python's load-bearing magic comments is needed: espree
+// drops a JS hashbang (`#!...`) entirely, and it is non-semantic — it
+// names an interpreter for direct OS execution, never affects the
+// program the engine evaluates, and no ci-gate leg runs a repo JS file
+// by its shebang — so a hashbang-only change cannot move any leg.
+//
 // Usage:
 //   node js_comment_tokens.mjs <espree-module-dir> <source-file> <jsx|plain>
 //

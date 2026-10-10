@@ -37,13 +37,11 @@ A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
 MAX_COMMENT_ONLY_FILES, and each path's base and head blob both read,
 DIFFER as text, and strip to an IDENTICAL token stream once comments are
-removed, the change is `comment_only`: the legs a comment cannot affect
-(test-data, panel-layout, codeql) and the portable pytest matrix inside
-tests.yml are skipped, while the behaviour legs still run. A docstring
-edit is a STRING token and reads as a change; a byte-equal (no-op or
-mode-only) pair is not comment-only. Every failure over-runs: an
-unreadable ref or blob, a tokenization error, a set too large or
-outside the source suffixes.
+removed, the change is `comment_only`: test-data, panel-layout and the
+portable pytest matrix inside tests.yml skip, the behaviour legs run. A
+docstring's STRING token and a load-bearing magic comment — a shebang or
+a PEP 263 coding declaration — read as changes; a byte-equal pair is not
+comment-only, and every failure over-runs.
 
 On a PUSH the changed set is read over the verified base rather than
 the push's own `before`: the newest ci-gate run on master whose
@@ -181,31 +179,37 @@ def data_only(paths):
 
 def _espree_dir():
     """The espree module dir the JS tokenizer requires from: the repo's
-    own node_modules by default, ESPREE_DIR_ENV (CI's isolated prefix)
-    when set."""
+    own node_modules, or ESPREE_DIR_ENV when set."""
     return os.environ.get(ESPREE_DIR_ENV) or os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__)))), 'node_modules')
 
 
+def _magic_comment(token):
+    """A shebang or PEP 263 coding declaration on line 1 or 2: a COMMENT
+    the interpreter still reads, so the token stream must keep it."""
+    return (token.type == tokenize.COMMENT and token.start[0] <= 2
+            and (token.string.startswith('#!')
+                 or 'coding' in token.string.split(':', 1)[0].split('=', 1)[0]))
+
+
 def _comment_stripped_py(text):
     """A Python source's `(type, string)` tokens minus COMMENT and NL, or
     None. Dropping those makes a comment-only edit compare equal while
-    any real edit — a docstring's STRING token included — compares
-    unequal; a tokenizer or parse failure answers None, which over-runs."""
+    any real edit — a docstring's STRING token or a magic comment —
+    compares unequal; a tokenizer or parse failure answers None."""
     try:
         tokens = tokenize.generate_tokens(io.StringIO(text).readline)
         return tuple((token.type, token.string) for token in tokens
-                     if token.type not in (tokenize.COMMENT, tokenize.NL))
+                     if token.type != tokenize.NL and (token.type != tokenize.COMMENT or _magic_comment(token)))
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return None
 
 
 def _js_token_stream(text, path, run):
-    """A JS/JSX source's comment-stripped espree tokens, or None. Writes
-    the text to a temp file and shells the node helper out through `run`,
-    which prints the `[type, value]` list as JSON; any failure — node
-    missing, espree absent, a parse error — answers None and over-runs."""
+    """A JS/JSX source's comment-stripped espree tokens, or None. Shells
+    the node helper out through `run`; any failure — node missing, espree
+    absent, a parse error — answers None and over-runs."""
     helper = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           'js_comment_tokens.mjs')
     try:
@@ -370,9 +374,8 @@ def _blob(repository, path, ref, run):
 
 def _refs(event, repository, run):
     """The (base, head) commit pair to compare blobs at, or None. A push
-    compares its verified base (the same one the changed-path read uses)
-    against its own SHA; a pull request reads its base and head SHAs.
-    Both are 40-hex, and anything unreadable answers None."""
+    uses its verified base against its own SHA, a pull request its base
+    and head SHAs; both 40-hex, anything unreadable answers None."""
     name = event.get('name')
     if name == 'push':
         base, sha = _verified_base(repository, run), event.get('sha')
@@ -400,9 +403,8 @@ def comment_only(paths, event, run):
     """Whether `paths` is a comment-only change over the source files.
     Every path must be a source file, the set must fit
     MAX_COMMENT_ONLY_FILES, and each path's base and head blob must both
-    read, DIFFER as text (a no-op or mode-only change is not comment-only)
-    and strip to an identical token stream. Any failure answers False,
-    the over-run."""
+    read, DIFFER, and strip to an identical token stream. Any failure
+    answers False, the over-run."""
     if not paths or len(paths) > MAX_COMMENT_ONLY_FILES:
         return False
     if not all(path.endswith(SOURCE_SUFFIXES) for path in paths):
