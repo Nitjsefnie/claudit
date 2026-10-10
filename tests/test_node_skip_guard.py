@@ -29,7 +29,9 @@ prose must not ground its closure). Residuals, disclosed: a helper
 outside the ``tests.`` package (or a conftest fixture) resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
 direction; a node launched without a ``subprocess`` call (an
-``os.system``, a shelled wrapper) is not seen as an invocation; a base
+``os.system``, a shelled wrapper) is not seen as an invocation, nor is
+one launched through an aliased or directly imported ``subprocess``
+(``import subprocess as sp``, ``from subprocess import run``); a base
 the walk cannot resolve (out of file, dotted, called) collects no
 mark; the chain-walk ORs every same-file base, matching pytest's own
 MRO-wide mark accumulation (#776). The argv scan is substring-wide over
