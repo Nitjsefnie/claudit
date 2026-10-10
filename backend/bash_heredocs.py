@@ -14,13 +14,15 @@ from backend.bash_dash_c import _PYTHON_STDIN
 # A redirect to a path. The first branch matches an unprefixed operator
 # (plain, clobber, both-streams) and the lookbehind keeps the fd-prefixed
 # forms (`2>`, `2>&1`, `2&>`) out; the second admits the fd-1 STDOUT
-# spellings (`1>`, `1>>`, `1>|`, `1>& file`) — fd 1 IS stdout, where a
-# heredoc body lands (#819) — and the digit only reads as an fd when it
-# STARTS the token, so a word-adjacent one (`f1>`) stays a word; `21>`
-# and friends stay blocked, and any all-digits or `-` `>&` target is
-# filtered as a descriptor by _FD_TARGET.
+# spellings (`1>`, `1>>`, `1>|`, `1>& file`, and their zero-padded forms
+# `01>` — leading zeros are insignificant, so `0*1` reads the fd by
+# VALUE) — fd 1 IS stdout, where a heredoc body lands (#819, #857) — and
+# the digit only reads as an fd when it STARTS the token, so a
+# word-adjacent one (`f1>`) stays a word; `21>` and friends stay blocked,
+# and any all-digits or `-` `>&` target is filtered as a descriptor by
+# _FD_TARGET.
 _REDIRECT = re.compile(
-    r"(?:(?<![0-9<>&])(?:>>|>\|?|&>>?|>&)|(?<![0-9A-Za-z_])1(?:>>|>\|?|>&))\s*"
+    r"(?:(?<![0-9<>&])(?:>>|>\|?|&>>?|>&)|(?<![0-9A-Za-z_])0*1(?:>>|>\|?|>&))\s*"
     r"(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";&|<>()]+))")
 
 # A `>&` dup/close target: digits or a lone `-` name descriptors.
