@@ -4,6 +4,8 @@ on:
   # Trigger ownership moved to ci-gate.yml (issue #127): this file is
   # called as a leg; workflow_dispatch keeps a direct run possible.
   workflow_call:
+    inputs:
+      comment_only: {description: "narrow the portable matrix", type: string, default: "false"}
   workflow_dispatch:
 
 # Least privilege: without an explicit block every job inherits the
@@ -433,6 +435,9 @@ jobs:
     # The suite minus every DB-touching test (tests/db_marker.py's
     # mechanical split), where no Postgres service exists: the full
     # suite, the ratchets and the DB tests stay in the `pytest` job.
+    # A comment-only change skips the whole matrix: the canary already
+    # runs the suite over the same tree.
+    if: inputs.comment_only != 'true'
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
