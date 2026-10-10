@@ -132,28 +132,25 @@ def test_tests_job_measures_and_gates_on_every_event():
     assert bench["id"] == "suite_bench"
     # The gate runs wherever the canary runs -- every non-docs,
     # non-data event. Only a green suite and a green JavaScript
-    # coverage pass are worth measuring.
-    assert bench["with"] == {
-        "measurement": "${{ runner.temp }}/suite-measurement.json"}
+    # coverage pass are worth measuring. The bench action's own input
+    # (measurement) is contract and deliberately unread — fleet-rules,
+    # "Merging and CI" with:-inputs ruling.
     assert bench["if"] == (
         "${{ !cancelled() && steps.pytest.outcome == 'success' "
         "&& steps.jscov.outcome == 'success' }}")
 
-    # One artifact name, and it is the bot's feed. A red gate's numbers
-    # stay inspectable: the upload runs whenever the bench ran at all.
+    # One upload, located by its condition (the workflow's behaviour,
+    # never a with: input — fleet-rules, "Merging and CI" with:-inputs
+    # ruling). A red gate's numbers stay inspectable: the upload runs
+    # whenever the bench ran at all.
     uploads = [step for step in _steps(job)
                if (step.get("uses") or "").startswith(
                    "actions/upload-artifact")
-               and (step.get("with") or {}).get("name")
-               == "suite-measurement"]
+               and "steps.suite_bench" in (step.get("if") or "")]
     assert len(uploads) == 1
     upload = uploads[0]
     assert upload["if"] == (
         "${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}")
-    assert upload["with"]["path"] == (
-        "${{ runner.temp }}/suite-measurement.json")
-    assert upload["with"]["if-no-files-found"] == "error"
-    assert upload["with"]["retention-days"] == "1"
 
     # A red bench gate must not stage ratchet data inside the failed
     # job, whatever the run-level fold does with it.
@@ -168,10 +165,21 @@ def test_tests_job_measures_and_gates_on_every_event():
 
 
 def test_the_suite_measurement_upload_is_unique_repo_wide():
-    # The bot (ratchet-push.yml) reads one artifact name out of the
+    # The bot (ratchet-push.yml) reads artifact names out of the
     # triggering run. Two uploads of one name in the same ci-gate run
     # made that download a coin toss (issue #496); the fold (issue
-    # #515) leaves exactly ONE publisher of the measurement.
+    # #515) leaves exactly ONE publisher per downloaded name. The names
+    # are DERIVED from the download side — workflow against workflow,
+    # no literal (fleet-rules, "Merging and CI"): rename both together
+    # and this follows; rename one and the disagreement reds.
+    bot_doc = _load("ratchet-push.yml")
+    download_names = sorted({
+        (step.get("with") or {}).get("name")
+        for job in (bot_doc.get("jobs") or {}).values()
+        for step in (job or {}).get("steps") or []
+        if (step.get("uses") or "").startswith("actions/download-artifact")
+        and (step.get("with") or {}).get("name")})
+    assert download_names, "the bot downloads nothing — the sweep is vacuous"
     uploaders = []
     for path in sorted(WORKFLOWS.glob("*.yml")):
         doc = _load(path.name)
@@ -179,9 +187,11 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
             for step in (job or {}).get("steps") or []:
                 name = (step.get("with") or {}).get("name") or ""
                 if (step.get("uses") or "").startswith(
-                        "actions/upload-artifact") and "suite" in name:
+                        "actions/upload-artifact") and name in download_names:
                     uploaders.append(f"{path.name}:{job_id}:{name}")
-    assert uploaders == ["tests.yml:pytest:suite-measurement"]
+    assert sorted(uploaders) == sorted(
+        f"tests.yml:pytest:{name}" for name in download_names), sorted(
+            uploaders)
 
 
 def test_the_canary_never_compares_two_checkouts():
