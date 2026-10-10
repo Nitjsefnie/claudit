@@ -189,6 +189,61 @@ def test_dashboard_payload_stays_within_budget(app_with_fresh_data):
         f"{_PAYLOAD_BUDGET_BYTES}-byte budget")
 
 
+def _main_file_with_records() -> tuple[str, str]:
+    """A main file that also has usage records, so its session lands in
+    the dashboard's sessions panel (which is folded from usage_rollup)."""
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+            conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.file_key, f.session_id FROM files f "
+            "WHERE f.is_main "
+            "  AND EXISTS (SELECT 1 FROM records r "
+            "              WHERE r.file_key = f.file_key) "
+            "ORDER BY f.file_key LIMIT 1")
+        row = cur.fetchone()
+        assert row is not None, "fixture has no main file with records"
+        return row
+
+
+def _seed_ctx_turn_inputs(file_key: str, inputs: list[int]) -> None:
+    """Rewrite one file's ctx_turns to `inputs`, in order."""
+    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+            conn.cursor() as cur:
+        cur.execute(
+            "UPDATE files SET ctx_turns = ("
+            "  SELECT jsonb_agg(jsonb_build_object("
+            "    'idx', i, 'ts', '', 'line', i, 'input', arr.v,"
+            "    'output', 5, 'delta', 0) ORDER BY i) "
+            "  FROM generate_series(1, %s) AS i "
+            "  CROSS JOIN LATERAL (SELECT (%s::int[])[i] AS v) arr"
+            ") WHERE file_key = %s",
+            (len(inputs), inputs, file_key),
+        )
+        conn.commit()
+
+
+def test_ctx_at_end_is_the_last_turn_not_the_first(app_with_fresh_data):
+    """ctx_at_end must read the LAST ctx turn, not the first.
+
+    Every file in fixtures/r2_mini carries exactly ONE ctx turn, so
+    `ctx_turns -> -1` and `-> 0` are indistinguishable there: a future
+    edit to `-> 0` would silently make every ctx_at_end the FIRST turn.
+    Seed a multi-turn trace whose first and last inputs differ, and pin
+    that the dashboard reports the last one (issue #838).
+    """
+    file_key, sid = _main_file_with_records()
+    _seed_ctx_turn_inputs(file_key, [11, 22, 333])
+    cache.response_cache.clear()
+    body = app_with_fresh_data.get("/api/dashboard?range=all").json()
+    entries = {s["session_id"]: s for s in body["sessions"]}
+    assert sid in entries, "the seeded session is absent from the payload"
+    assert entries[sid]["ctx_at_end"] == 333, (
+        "ctx_at_end is not the LAST ctx turn's input (333); the jsonb "
+        "projection may have become `-> 0`")
+    assert entries[sid]["ctx_at_end"] != 11, (
+        "ctx_at_end reported the FIRST ctx turn's input")
+
+
 def _strip_line_comments(src: str) -> str:
     """Drop `//` line comments so prose about the routing is not read as
     the routing itself (the lookbehind spares `https://`)."""
