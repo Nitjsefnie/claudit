@@ -10,6 +10,15 @@ import re
 from decimal import Decimal
 
 from backend.long_context import LONG_CONTEXT_THRESHOLD
+from backend.pricing import RATE_FIELDS
+
+# The rate-key sets a LIVE row's vector may carry (SV-RATE-DATA): the
+# five RATE_FIELDS, plus the optional `web_search` rate a PROVIDER row
+# gains from the refresh (issue #900). A structure test reading a live
+# row asserts membership here, so an appended web_search rate — valid
+# data — never reds the suite.
+LIVE_RATE_KEY_SETS = (frozenset(RATE_FIELDS),
+                      frozenset({*RATE_FIELDS, "web_search"}))
 
 
 def _per_token(rate: float) -> str:
