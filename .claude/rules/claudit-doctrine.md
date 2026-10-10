@@ -991,6 +991,17 @@ same rules:
   priced at the old rate), and moves `provider_rates_fetched`. A run
   that appends nothing writes nothing. A new entry adds a rate epoch
   only to its own row's grouping (SV-DATED-RATES).
+- The commit message omits a notice line the last committing run already
+  carried, so a model still delisted — or a tag still unrecognised — is
+  not reprinted every hour (issue #888). The baseline is
+  `src/pricing_notices.json`, committed beside the pricing document: that
+  run's FULL rendered notice set, the lines it showed AND the lines it
+  suppressed. It must hold the suppressed lines — a baseline read from the
+  previous commit's message would lose them and re-emit them in the next
+  commit, alternating forever. A notice that is new, or that changed,
+  still appears; an absent, unreadable or malformed file suppresses
+  nothing, so the baseline can only under-suppress. A run that appends
+  nothing publishes no commit, so it does not move the baseline.
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with multiple in-region prices that remain ambiguous after

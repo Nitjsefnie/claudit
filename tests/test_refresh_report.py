@@ -64,6 +64,108 @@ def test_report_groups_model_notices_by_shared_message():
     ]
 
 
+# A raw notice is "<subject>: <message>"; a rendered line is
+# "<message>: <subjects>". Both spellings are built from these so the
+# fixtures cannot drift from the renderer's shape.
+_DELISTED_MSG = "delisted from OpenRouter's catalog; row kept, not fetched"
+_TAG_MSG = "tag 'wafer/fast' names neither a known region nor a quantization"
+_NO_ENDPOINT_MSG = "the vendor lists no first-party endpoint; skipped"
+
+
+def _delisted(subject: str) -> str:
+    return f"{subject}: {_DELISTED_MSG}"
+
+
+def test_notice_lines_render_groups_and_pass_through_the_rest():
+    """The baseline unit is the rendered line: grouped subjects join one
+    line, a notice `_notice_parts` does not recognise passes through
+    verbatim, and exact duplicates collapse (issue #888)."""
+    assert refresh.notice_lines([
+        _delisted("alpha (openrouter/alpha)"),
+        _delisted("beta (openrouter/beta)"),
+        f"alpha via Fireworks: {_TAG_MSG}",
+        "rule-resolved: took the bare namespace endpoint",
+        "rule-resolved: took the bare namespace endpoint",
+    ]) == [
+        f"{_DELISTED_MSG}: alpha (openrouter/alpha), beta (openrouter/beta)",
+        f"{_TAG_MSG}: alpha via Fireworks",
+        "rule-resolved: took the bare namespace endpoint",
+    ]
+    assert refresh.notice_lines([]) == []
+
+
+def test_report_omits_a_notice_line_the_baseline_carries():
+    result = _result(notices=[
+        _delisted("alpha (openrouter/alpha)"),
+        f"beta (openrouter/beta): {_TAG_MSG}",
+    ])
+    previous = frozenset({f"{_DELISTED_MSG}: alpha (openrouter/alpha)"})
+
+    output = refresh.report("2031-01-01T00:00:00Z", result,
+                            {"alpha": {"id": "openrouter/alpha"},
+                             "beta": {"id": "openrouter/beta"}}, previous)
+
+    assert "delisted from OpenRouter's catalog" not in output
+    assert f"{_TAG_MSG}: beta (openrouter/beta)" in output
+
+
+def test_report_omits_the_notices_header_when_every_line_is_unchanged():
+    result = _result(notices=[_delisted("alpha (openrouter/alpha)")])
+    previous = frozenset({f"{_DELISTED_MSG}: alpha (openrouter/alpha)"})
+
+    output = refresh.report("2031-01-01T00:00:00Z", result,
+                            {"alpha": {"id": "openrouter/alpha"}}, previous)
+
+    assert "notices:" not in output
+
+
+def test_a_changed_notice_line_still_appears():
+    """A grouped line that gains a subject differs from the carried one, so
+    it appears in full — the changed notice is never dropped."""
+    result = _result(notices=[
+        _delisted("alpha (openrouter/alpha)"),
+        _delisted("beta (openrouter/beta)"),
+    ])
+    previous = frozenset({f"{_DELISTED_MSG}: alpha (openrouter/alpha)"})
+
+    output = refresh.report("2031-01-01T00:00:00Z", result,
+                            {"alpha": {"id": "openrouter/alpha"},
+                             "beta": {"id": "openrouter/beta"}}, previous)
+
+    assert (f"{_DELISTED_MSG}: alpha (openrouter/alpha), "
+            f"beta (openrouter/beta)") in output
+
+
+def test_a_passthrough_notice_is_filtered_by_the_baseline():
+    """A notice `_notice_parts` returns None for is appended verbatim, and
+    that arm is filtered too — not only the grouped one."""
+    result = _result(notices=[
+        "rule-resolved: took the bare namespace endpoint",
+        "rule-resolved: the data region leaves 'azure'",
+    ])
+    previous = frozenset({"rule-resolved: took the bare namespace endpoint"})
+
+    output = refresh.report("2031-01-01T00:00:00Z", result, {}, previous)
+
+    assert "took the bare namespace endpoint" not in output
+    assert "the data region leaves 'azure'" in output
+
+
+def test_vendor_report_omits_an_unchanged_notice_line():
+    vendor = SimpleNamespace(
+        moves=[], refusals=[],
+        notices=[
+            f"openai/alpha: {_NO_ENDPOINT_MSG}",
+            f"openai/beta: {_NO_ENDPOINT_MSG}",
+        ])
+    previous = frozenset({f"{_NO_ENDPOINT_MSG}: openai/alpha, openai/beta"})
+
+    output = refresh.vendor_report("2031-01-01T00:00:00Z", vendor, previous)
+
+    assert "no first-party endpoint" not in output
+    assert "notices:" not in output, "an all-suppressed vendor section is bare"
+
+
 def test_vendor_report_groups_missing_first_party_endpoint_notices():
     vendor = SimpleNamespace(
         moves=[], refusals=[],

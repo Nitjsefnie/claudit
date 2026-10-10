@@ -136,6 +136,9 @@ def test_refresh_job_stages_and_uploads_the_tested_data():
     assert 'mkdir -p "$RUNNER_TEMP/push-data"' in run
     assert 'cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"' in run
     assert 'cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"' in run
+    # The notice baseline travels with the data it describes (issue #888).
+    assert ('cp src/pricing_notices.json '
+            '"$RUNNER_TEMP/push-data/pricing_notices.json"' in run)
     assert ('cp "$RUNNER_TEMP/commit-msg.txt" '
             '"$RUNNER_TEMP/push-data/commit-msg.txt"' in run)
     assert 'git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"' in run
@@ -186,8 +189,11 @@ def test_push_run_block_pins_the_order_and_never_forces_or_tokens():
             '"$RUNNER_TEMP/push-repo/src/pricing.json"' in run)
     assert ('cp "$RUNNER_TEMP/push-data/constants.py" '
             '"$RUNNER_TEMP/push-repo/backend/constants.py"' in run)
+    assert ('cp "$RUNNER_TEMP/push-data/pricing_notices.json" '
+            '"$RUNNER_TEMP/push-repo/src/pricing_notices.json"' in run)
     assert ('git -C "$RUNNER_TEMP/push-repo" '
-            'add src/pricing.json backend/constants.py' in run)
+            'add src/pricing.json backend/constants.py '
+            'src/pricing_notices.json' in run)
     assert ("git -C \"$RUNNER_TEMP/push-repo\" "
             "config user.name 'github-actions[bot]'" in run)
     assert (f'git -C "$RUNNER_TEMP/push-repo" '
@@ -411,6 +417,8 @@ def _stage_push_data(scratch: Path) -> str:
         '{\n  "refreshed": true\n', encoding="utf-8")
     (data / "constants.py").write_text(
         'PRICING_VERSION = "7"\n', encoding="utf-8")
+    (data / "pricing_notices.json").write_text(
+        '{\n  "notices": [\n    "delisted: alpha"\n  ]\n}\n', encoding="utf-8")
     (data / "commit-msg.txt").write_text(
         "refresh report, invocation 1\n", encoding="utf-8")
     base = _sha(scratch / "remote.git", "master")
@@ -467,6 +475,8 @@ def test_push_lands_the_staged_tree_when_master_stood_still(scratch: Path):
                       / "pricing.json").read_text(encoding="utf-8")
     staged_constants = (scratch / "runner-temp" / "push-data"
                         / "constants.py").read_text(encoding="utf-8")
+    staged_notices = (scratch / "runner-temp" / "push-data"
+                      / "pricing_notices.json").read_text(encoding="utf-8")
     commit_msg = (scratch / "runner-temp" / "push-data"
                   / "commit-msg.txt").read_text(encoding="utf-8").strip()
 
@@ -480,6 +490,7 @@ def test_push_lands_the_staged_tree_when_master_stood_still(scratch: Path):
                 "master").stdout.strip() == BOT_EMAIL
     assert _remote_show(scratch, "src/pricing.json") == staged_pricing
     assert _remote_show(scratch, "backend/constants.py") == staged_constants
+    assert _remote_show(scratch, "src/pricing_notices.json") == staged_notices
     assert commit_msg in _git(
         bare, "log", "-1", "--format=%B", "master").stdout
     assert _state_lines(scratch, "ssh-agent-called") == ["called"]
