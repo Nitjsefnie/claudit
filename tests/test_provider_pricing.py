@@ -18,7 +18,8 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc
-from backend.api_common import fold_per_model, fold_per_model_provider
+from backend.api_common import (_row_is_banded, fold_per_model,
+                                fold_per_model_provider)
 
 UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +89,11 @@ _BAND = {"fresh": [0.05, 0.9], "create_5m": [0.05, 0.9],
          "output": [0.25, 2.9]}
 
 
+def _banded(model, ts, provider=None):
+    """The band flag the fold computes for a record (issue #666)."""
+    return _row_is_banded(pricing.resolve(model, ts, provider), ts, provider)
+
+
 def test_resolve_reports_a_banded_provider_entry(monkeypatch):
     pair = ("acme/banded-9", "HostA")
     monkeypatch.setattr(pricing, "PROVIDER_RATES",
@@ -96,9 +102,9 @@ def test_resolve_reports_a_banded_provider_entry(monkeypatch):
                         {**pricing.PROVIDER_DATED_RATES, pair: []})
     monkeypatch.setattr(pricing, "PROVIDER_BANDS",
                         {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
-    assert pricing.resolve(pair[0], SEEDED, pair[1]).banded is True
+    assert _banded(pair[0], SEEDED, pair[1]) is True
     # The list-price path (no ts) reports the banded list entry too.
-    assert pricing.resolve(pair[0], None, pair[1]).banded is True
+    assert _banded(pair[0], None, pair[1]) is True
 
 
 def test_resolve_reports_banded_false_for_an_unbanded_row(monkeypatch):
@@ -108,12 +114,12 @@ def test_resolve_reports_banded_false_for_an_unbanded_row(monkeypatch):
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
                         {**pricing.PROVIDER_DATED_RATES, pair: []})
     monkeypatch.setattr(pricing, "PROVIDER_BANDS", dict(pricing.PROVIDER_BANDS))
-    assert pricing.resolve(pair[0], SEEDED, pair[1]).banded is False
+    assert _banded(pair[0], SEEDED, pair[1]) is False
     # A models-table (non-provider) resolve carries no band.
     monkeypatch.setattr(pricing, "MODEL_RATES",
                         {**pricing.MODEL_RATES, "synthetic-table-9": _BAND_RATES})
     monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
-    assert pricing.resolve("synthetic-table-9", SEEDED).banded is False
+    assert _banded("synthetic-table-9", SEEDED) is False
 
 
 def _banded_two_entry_row(monkeypatch):
@@ -141,19 +147,18 @@ def test_resolve_picks_the_banded_entry_by_its_index(monkeypatch):
     flag records priced through a NEWER, unbanded one (issue #666)."""
     model, host, cut = _banded_two_entry_row(monkeypatch)
     before = cut - timedelta(seconds=1)
-    assert pricing.resolve(model, before, host).banded is True
-    assert pricing.resolve(model, cut, host).banded is False
-    assert pricing.resolve(model, None, host).banded is False
+    assert _banded(model, before, host) is True
+    assert _banded(model, cut, host) is False
+    assert _banded(model, None, host) is False
 
 
 def test_a_naive_instant_lands_the_same_banded_entry(monkeypatch):
-    """_entry_index reads a naive instant as UTC, so a naive ts lands the
-    same entry — and the same banded flag — as its aware twin (issue #666)."""
+    """A naive instant is read as UTC, so a naive ts lands the same entry —
+    and the same banded flag — as its aware twin (issue #666)."""
     model, host, cut = _banded_two_entry_row(monkeypatch)
     for aware in (cut - timedelta(seconds=1), cut):
         naive = aware.replace(tzinfo=None)
-        assert (pricing.resolve(model, naive, host).banded
-                == pricing.resolve(model, aware, host).banded)
+        assert _banded(model, naive, host) == _banded(model, aware, host)
 
 
 def test_resolve_reports_a_banded_vendor_bare_form(monkeypatch):
@@ -175,7 +180,7 @@ def test_resolve_reports_a_banded_vendor_bare_form(monkeypatch):
     monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
     res = pricing.resolve(bare, SEEDED)
     assert (res.kind, res.key) == ("exact", tracked)
-    assert res.banded is True
+    assert _row_is_banded(res, SEEDED, None) is True
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
