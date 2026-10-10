@@ -239,6 +239,15 @@ def _echo(args: list[str]) -> str | None:
     return payload + ("\n" if newline else "")
 
 
+def _fold_fd(fd: str) -> str:
+    """An explicit fd read by VALUE: leading zeros are insignificant, so
+    `01` is fd 1 and `00` is fd 0. An omitted fd stays empty; an
+    all-zero spelling folds to `0`."""
+    if not fd:
+        return ""
+    return fd.lstrip("0") or "0"
+
+
 def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bool]:
     """Remove redirects, retaining stdout's sink and whether stdin is replaced."""
     args: list[ShellWord] = []
@@ -257,14 +266,14 @@ def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bo
                 # shape never tokenizes; refuse it like an incomplete
                 # redirect rather than reading the target as an operand.
                 return [], False, True
-            if fd in ("", "1") and redirect in (">", ">>", ">&", ">|", "&>", "&>>"):
-                # `>& file` with the fd omitted (or spelled 1) is the
-                # stdout+stderr-to-file spelling, `&>`'s twin (#802);
-                # against a digit or `-` it is a duplication or close
-                # and sinks nothing.
+            if _fold_fd(fd) in ("", "1") and redirect in (">", ">>", ">&", ">|", "&>", "&>>"):
+                # `>& file` with the fd omitted (or spelled 1, zero-padded
+                # included) is the stdout+stderr-to-file spelling, `&>`'s
+                # twin (#802); against a digit or `-` it is a duplication
+                # or close and sinks nothing.
                 dup = redirect == ">&" and re.fullmatch(r"[0-9]+|-", words[idx + 1])
                 sink = not dup and _file_sink(words[idx + 1])
-            if fd in ("", "0") and redirect in ("<", "<&"):
+            if _fold_fd(fd) in ("", "0") and redirect in ("<", "<&"):
                 stdin_replaced = True
             idx += 2
         else:
@@ -388,9 +397,11 @@ def _pipeline_payloads(tokens: list[ShellWord], inherited: bool | None) -> list[
         empty_input = any(t.operator and t in ("<&", "0<&", "<", "0<")
                           and i + 1 < len(stage) and stage[i + 1] in ("-", "/dev/null")
                           for i, t in enumerate(stage))
-        other_sink = any(t.operator and re.fullmatch(r"(?:[2-9]|[0-9]{2,})[0-9]*(?:>>|>\|?)", t)
-                         and i + 1 < len(stage) and _file_sink(stage[i + 1])
-                         for i, t in enumerate(stage))
+        other_sink = any(
+            _fold_fd(m.group(1)) not in ("", "0", "1")
+            and i + 1 < len(stage) and _file_sink(stage[i + 1])
+            for i, t in enumerate(stage) if t.operator
+            for m in (re.fullmatch(r"([0-9]*)(?:>>|>\|?)", t),) if m)
         stage = []
         if not args:
             pending = None
