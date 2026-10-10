@@ -236,8 +236,8 @@ def test_dashboard_script_tags_all_carry_the_header_nonce(guest_client):
         "'nonce-")[1][:-1]
     body = resp.text
     assert body.count("<script") == body.count(f'<script nonce="{nonce}"')
-    # 3 unpkg + 1 injected classic + 6 plain /src/*.js + 11 text/babel
-    # (10 src + 1 inline) as of this writing; the equality above is the
+    # 3 unpkg + 1 injected classic + 26 plain /src/*.js + 22 text/babel
+    # (21 src + 1 inline) as of this writing; the equality above is the
     # real pin, the floor just fails loud if the page empties.
     assert body.count("<script") >= 21
 
