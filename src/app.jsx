@@ -457,7 +457,7 @@ function RangePicker({ active, onChange }) {
     { label: 'all',  value: 'all'  },
   ];
   return (
-    <div className="project-picker" data-perf-region="project_picker" style={{ borderTop: '1px solid #2a2a4a' }}>
+    <div className="project-picker" data-perf-region="range_picker" style={{ borderTop: '1px solid #2a2a4a' }}>
       <span style={{ color: '#9090b0', fontFamily: 'monospace', fontSize: 11, marginRight: 8 }}>range:</span>
       {presets.map(p => (
         <button
@@ -878,7 +878,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       <div className="page-head"><h1>Overview</h1></div>
       <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
       {summary.kind === 'data' && (
-      <div className="dash-summary">
+      <div className="dash-summary" data-perf-region="summary_strip">
         <Stat label="window" value={`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`} />
         <Stat label="main sessions with usage" value={(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length))).toLocaleString()} />
         {mainEmpty != null && <Stat label="main empty sessions" value={mainEmpty.toLocaleString()} />}

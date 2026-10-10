@@ -72,12 +72,13 @@ METRIC_PARTS = {
     "longtask": ("block",),
 }
 
-#: The six fixed regions: the grid, the Inspector, the sign-in page, the
-#: top bar, the project picker strip, and the catch-all. The client
-#: declares exactly this set as its own REGIONS table; the panel terms
-#: below are declared client-side as the PANELS title list instead.
+#: The eight fixed regions: the grid, the Inspector, the sign-in page, the
+#: top bar, the project picker strip, the range preset strip, the summary
+#: strip, and the catch-all. The client declares exactly this set as its
+#: own REGIONS table; the panel terms below are declared client-side as the
+#: PANELS title list instead.
 FIXED_REGIONS = ("panel_grid", "inspector", "signin", "topbar",
-                 "project_picker", "other")
+                 "project_picker", "range_picker", "summary_strip", "other")
 
 #: Named page regions a shift can be attributed to. The frontend walks up from
 #: the shift's own node: the nearest element carrying `data-perf-region` wins,

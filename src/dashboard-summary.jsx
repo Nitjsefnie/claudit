@@ -20,7 +20,7 @@
 function OverviewStatus({ summary, activeRange, Stat }) {
   if (summary.kind !== 'data') {
     return (
-      <div className="dash-summary">
+      <div className="dash-summary" data-perf-region="summary_strip">
         <Stat label="status" value={summary.text} warn={summary.kind === 'error'} />
         <Stat label="range" value={activeRange} />
         {summary.detail && <Stat label="detail" value={summary.detail} />}
@@ -29,7 +29,7 @@ function OverviewStatus({ summary, activeRange, Stat }) {
   }
   if (!summary.error) return null;
   return (
-    <div className="dash-summary">
+    <div className="dash-summary" data-perf-region="summary_strip">
       <Stat label="status" value="error" warn />
       <Stat label="detail" value={summary.detail} />
     </div>
