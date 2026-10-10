@@ -38,7 +38,7 @@ from backend import (long_context, meter_tables, model_names, pricing,
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
-_STRUCTURE_VERSION = 6
+_STRUCTURE_VERSION = 7
 
 # Pricing modules are the stable imports; parser and reprice modules join
 # them at first use in hashed_modules to keep their import edges acyclic.
@@ -201,17 +201,19 @@ def _document(model: str, provider: str | None) -> dict:
         # any threshold or factor moves every pair's fingerprint.
         "metered": sorted(pricing.LONG_CONTEXT_MODELS),
         "meter_entries": sorted(pricing.LONG_CONTEXT_METERS.items()),
-        # The bare-id vendor branch's inputs: the bare-form match table
-        # (through the match itself) and the vendor row's data. Included
-        # for every non-free pair — a provider-named pair never consults
-        # it, and a stale fingerprint there only means a recompute, never
-        # a wrong price.
-        "vendor": _vendor_doc(norm),
     }
     if doc["free"]:
         # A free id prices at zero without consulting any table, so its
         # fingerprint names no table data at all.
         return doc
+    # Use resolve()'s domain and ordering: free ids never fold, while a
+    # tracked prefix redirects provider/model/vendor lookups to the bare id.
+    norm = pricing._fold_vendor_prefix(norm)  # pylint: disable=protected-access
+    doc["resolution_norm"] = norm
+    # The selected vendor key and row also cover fallback when a named
+    # provider has no applicable row. The fold result records its namespace
+    # and bare-form membership dependencies without hashing unrelated rows.
+    doc["vendor"] = _vendor_doc(norm)
     if provider:
         doc["provider"] = _provider_doc(norm, provider)
     doc["model"] = _model_doc(norm)
