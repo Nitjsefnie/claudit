@@ -71,6 +71,7 @@ def _reparse(shares=None):
     a Decimal there is not serialisable.
     """
     shares = shares or {}
+    schema = _thresholds()
     return {
         phase: {
             metric: {
@@ -79,9 +80,9 @@ def _reparse(shares=None):
                 "floor": float(
                     shares.get(f"{phase}.{metric}", "10.0")) + float(GAP),
             }
-            for metric in _thresholds().REPARSE_METRICS
+            for metric in schema.REPARSE_METRICS
         }
-        for phase in _thresholds().REPARSE_PHASES
+        for phase in schema.REPARSE_PHASES
     }
 
 

@@ -46,6 +46,7 @@ def _size_baseline():
 
 
 def _document(baseline=None):
+    schema = _load("thresholds")
     return {
         "schema_version": 1,
         "coverage": {
@@ -61,9 +62,9 @@ def _document(baseline=None):
         "reparse": {
             phase: {
                 metric: {"measured": 10.0, "floor": 11.5}
-                for metric in _load("thresholds").REPARSE_METRICS
+                for metric in schema.REPARSE_METRICS
             }
-            for phase in _load("thresholds").REPARSE_PHASES
+            for phase in schema.REPARSE_PHASES
         },
         "module_size_baseline": baseline or {},
         "pylint_suppression_baseline": {},
