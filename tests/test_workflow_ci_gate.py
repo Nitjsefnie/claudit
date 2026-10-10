@@ -283,22 +283,21 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert download["if"] == "steps.list.outputs.ratchet == 'true'"
     assert download["uses"].startswith(
         "actions/download-artifact@"), download
-    assert download["with"] == {
-        "name": "ratchet-push",
-        "path": "${{ runner.temp }}/ratchet-data",
-        "run-id": "${{ github.event.workflow_run.id }}",
-        "github-token": "${{ secrets.GITHUB_TOKEN }}",
-    }
+    # Only the trust-boundary inputs are asserted: which run the bytes
+    # come from and under what token. The action's contract inputs (name,
+    # path) are deliberately unread — fleet-rules "Merging and CI"
+    # with:-inputs ruling: a legitimate reconfiguration must pass.
+    assert download["with"]["run-id"] == (
+        "${{ github.event.workflow_run.id }}")
+    assert download["with"]["github-token"] == "${{ secrets.GITHUB_TOKEN }}"
     assert suite_download["name"] == "Download the suite measurement"
     assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
     assert suite_download["uses"].startswith(
         "actions/download-artifact@"), suite_download
-    assert suite_download["with"] == {
-        "name": "suite-measurement",
-        "path": "${{ runner.temp }}/suite-data",
-        "run-id": "${{ github.event.workflow_run.id }}",
-        "github-token": "${{ secrets.GITHUB_TOKEN }}",
-    }
+    assert suite_download["with"]["run-id"] == (
+        "${{ github.event.workflow_run.id }}")
+    assert suite_download["with"]["github-token"] == (
+        "${{ secrets.GITHUB_TOKEN }}")
     # The two staged artifacts must come from the SAME revision of the
     # download action: a bump landing on only one step is a half-applied
     # dependency change. Derived from the workflow itself, quoting no
