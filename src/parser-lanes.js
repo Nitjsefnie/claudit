@@ -303,6 +303,7 @@ function parseLaneLegacy(blob) {
   }
 
   lanePairToolEvents(events);
+  if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
   return { events, meta };
 }
 
@@ -482,6 +483,7 @@ function parseLaneKimiCode(blob, opts) {
   }
 
   lanePairToolEvents(events);
+  if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
   return { events, meta };
 }
 

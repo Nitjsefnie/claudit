@@ -28,7 +28,7 @@ from backend.bash_churn import BashCommand, replace_churn
 from backend import bash_churn_errors, bash_reads
 from backend.ctx_turns import _build_ctx_turns
 from backend.prompt_gate import _is_prompt_text
-from backend.parse_common import _dispatch_prompt_shape, _to_dt, iter_lines
+from backend.parse_common import _dispatch_prompt_shape, _to_dt, iter_lines, resolve_cache_writes
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
@@ -761,6 +761,6 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     its role itself), which agent_sidecar.apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
-    if fmt == "claude":
-        return parse_lanes.refuse_unattributed(_parse_claude(file_key, blob), fmt, file_key)
-    return parse_lanes.refuse_unattributed(to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt), fmt, file_key)
+    parsed = _parse_claude(file_key, blob) if fmt == "claude" else to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt)
+    resolve_cache_writes(parsed["records"])
+    return parse_lanes.refuse_unattributed(parsed, fmt, file_key)

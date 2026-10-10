@@ -1,0 +1,7 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1782740973430}
+{"type":"usage.record","usage":{"inputOther":1000,"output":10,"inputCacheRead":0,"inputCacheCreation":0},"time":1782740977271}
+{"type":"usage.record","usage":{"inputOther":1000,"output":10,"inputCacheRead":600,"inputCacheCreation":0},"time":1782740977272}
+{"type":"usage.record","usage":{"inputOther":40,"output":10,"inputCacheRead":700,"inputCacheCreation":0},"time":1782740977273}
+{"type":"usage.record","usage":{"inputOther":1000,"output":10,"inputCacheRead":5000,"inputCacheCreation":0},"time":1782740977274}
+{"type":"usage.record","usage":{"inputOther":1000,"output":10,"inputCacheRead":0,"inputCacheCreation":500},"time":1782740977275}
+{"type":"usage.record","usage":{"inputOther":1000,"output":10,"inputCacheRead":900,"inputCacheCreation":0},"time":1782740977276}

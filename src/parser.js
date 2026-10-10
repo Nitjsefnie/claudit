@@ -300,6 +300,11 @@ window.parseTranscript = function parseTranscript(text, opts) {
     }
   }
 
+  // The provider-neutral cache-write split (issue #842), over this file's
+  // assistant_usage entries in order — mirrors the backend's
+  // resolve_cache_writes (SV-PARSER-SPEC), before the cross-file dedup.
+  if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
+
   // Tool-call dedup (issue #795): the Claude path's tail of the codex
   // lane's seenToolIds contract (issue #766) — a compaction sidecar
   // replays the main file's tool_use blocks under new line uuids, so the
@@ -363,6 +368,9 @@ window.computeSessionStats = function (events, meta) {
     toolCounts: {},
     models: new Set(),
     fresh: 0, create: 0, read: 0, output: 0, eph5: 0, eph1h: 0,
+    // The provider-neutral cache-write total (issue #842), summed from
+    // each record's parse-time cache_write.
+    write: 0,
     webSearchRequests: 0,
     turns: 0,
     cost: 0,
@@ -449,6 +457,9 @@ window.computeSessionStats = function (events, meta) {
     const eph1h = (u.cache_creation && u.cache_creation.ephemeral_1h_input_tokens) || 0;
     stats.fresh += f; stats.create += cc; stats.read += cr; stats.output += o;
     stats.eph5 += eph5; stats.eph1h += eph1h;
+    // The neutral cache-write split (issue #842); 0 when a parser did not
+    // attach it (a bare parser.js load with no parser-cache-write.js).
+    stats.write += m.cache_write || 0;
 
     const r = rate(m.model || '', m.ts, m.provider);
     const searches = Number.isInteger(m.web_search_requests)
