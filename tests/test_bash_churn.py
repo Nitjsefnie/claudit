@@ -39,15 +39,24 @@ def test_exit_marker_payloads(command, expected):
     assert bash_churn(command) == expected
 
 
-@pytest.mark.parametrize("redirect", [
-    "< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt",
-    "00< /dev/null", "000< /dev/null", "00<&-",
-    "1< /dev/null", "01< /dev/null",
+@pytest.mark.parametrize("command,expected", [
+    ('echo "EXIT=$?" | tee out.txt < /dev/null', (0, 0)),
+    ('echo "EXIT=$?" | tee out.txt < input.txt', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt 0<&3', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt <&-', (0, 0)),
+    ('echo "EXIT=$?" | tee out.txt 0< input.txt', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt 00< /dev/null', (0, 0)),
+    ('echo "EXIT=$?" | tee out.txt 000< /dev/null', (0, 0)),
+    ('echo "EXIT=$?" | tee out.txt 00<&-', (0, 0)),
+    ('echo "EXIT=$?" | tee out.txt 1< /dev/null', (1, 0)),
+    ('echo "EXIT=$?" | tee out.txt 01< /dev/null', (1, 0)),
+    # `1<` opens fd 1, never stdin, and the earlier `< real.txt` already
+    # set stdin_replaced — so ONLY the fd-value limb can decide this one,
+    # and a widening that accepted fd 1 would sever real.txt to (0, 0).
+    ('cat < real.txt 1< /dev/null > f.txt', (1, 0)),
 ])
-def test_receiving_stdin_redirect_severs_exit_marker(redirect):
-    emptied = redirect in ("< /dev/null", "<&-", "00< /dev/null",
-                           "000< /dev/null", "00<&-")
-    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0 if emptied else 1, 0)
+def test_receiving_stdin_redirect_severs_exit_marker(command, expected):
+    assert bash_churn(command) == expected
 
 
 def test_receiving_heredoc_replaces_exit_marker():
