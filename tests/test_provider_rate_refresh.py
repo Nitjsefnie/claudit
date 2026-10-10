@@ -422,33 +422,35 @@ def test_a_new_provider_prices_from_the_detection_time_in_the_browser(
     assert _node_rates(run, tmp_path / "js", "Newcomer") == [fallback, NEWCOMER]
 
 
-def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
-    """The browser's rates for `host`'s GLM row one second before, and at,
-    the detection time, loading the run's own pricing.json."""
+def _browser_pricing(run: Run, where: Path, body: str):
+    """Load the run's real browser pricing modules and evaluate one readout."""
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
-    shutil.copy(LOADER_JS, where / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
-    shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
-    shutil.copy(RATES_JS, where / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, where / "parser-usage.js")
-    shutil.copy(PARSER_JS, where / "parser.js")
-    before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()
+    for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS, RATES_JS, PARSER_USAGE_JS, PARSER_JS):
+        shutil.copy(source, where / source.name)
     script = f"""
       global.window = {{}};
       require({str(where / "pricing-loader.js")!r});
       require({str(where / "rates.js")!r});
       require({str(where / "parser.js")!r});
+    """ + body
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
+                          timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
+    """Browser rates immediately before and at the detection instant."""
+    before = (datetime.fromisoformat(STAMP) - timedelta(seconds=1)).isoformat()
+    script = f"""
       const K = {{fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
                   read: 'read', out: 'output'}};
       console.log(JSON.stringify([{json.dumps(before)}, {json.dumps(STAMP)}]
         .map(ts => window.rateForModel('z-ai/glm-5.3-flash', ts, {json.dumps(host)}))
         .map(r => Object.fromEntries(Object.entries(K).map(([a, b]) => [b, r[a]])))));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
-                          timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    return _browser_pricing(run, where, script)
 
 
 # --- a provider vanishes -----------------------------------------------------
