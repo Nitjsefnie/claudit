@@ -554,11 +554,12 @@ def test_resolve_reports_exact_match():
 
 
 def test_resolve_reports_tier_fallback_for_unknown_claude_model():
-    res = pricing.resolve("claude-sonnet-6")
+    # A Sonnet generation beyond any plausible release, and the family's
+    # current-generation rates derived (never a pinned generation), so a
+    # refresh adding a newer Sonnet row can never turn this exact (#827).
+    res = pricing.resolve("claude-sonnet-99")
     assert res.kind == "tier"
-    # Current-generation Sonnet rates, whatever they are today — read from
-    # the merged view, since the family rows are tracked vendor rows now.
-    assert res.rates == pricing._list_rates("claude-sonnet-5-5")  # pylint: disable=protected-access
+    assert res.rates == pricing._latest("sonnet")  # pylint: disable=protected-access
 
 
 def test_resolve_reports_default_for_wholly_unknown_model():
