@@ -299,6 +299,11 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
         "run-id": "${{ github.event.workflow_run.id }}",
         "github-token": "${{ secrets.GITHUB_TOKEN }}",
     }
+    # The two staged artifacts must come from the SAME revision of the
+    # download action: a bump landing on only one step is a half-applied
+    # dependency change. Derived from the workflow itself, quoting no
+    # value (fleet-rules, "Merging and CI").
+    assert download["uses"] == suite_download["uses"]
 
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
