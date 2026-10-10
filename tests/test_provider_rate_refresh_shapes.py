@@ -3,7 +3,6 @@ automatic rules that replace the mechanical ones (#877); payloads are
 fixture-only."""
 from __future__ import annotations
 
-import json
 import re
 
 import pytest
@@ -12,9 +11,9 @@ from tests.refresh_fixture_builders import RATE_C, RATES_A, RATES_B, _endpoint
 from tests.test_provider_rate_refresh import (
     GLM,
     NOW,
-    PRICING_JSON,
     Run,
     STAMP,
+    _openrouter_template,
     _payloads,
     _endpoint as fixture_endpoint,
     refresh,
@@ -27,14 +26,13 @@ def _assert_document_shape_resolves(
         listings: tuple[tuple[str, dict], ...]) -> None:
     """The documented host resolves over `listings`: through its resolve
     pin when the document carries one, else by rule."""
-    pin = json.loads(PRICING_JSON.read_text(encoding="utf-8"))[
-        "openrouter"]["models"][key].get("resolve", {}).get(host)
+    pin = _openrouter_template()["models"][key].get("resolve", {}).get(host)
 
     run = Run(tmp_path)
 
     def add_fixture_host(doc):
         if pin is not None:
-            doc["openrouter"]["models"][GLM].setdefault("resolve", {})[host] = pin
+            doc["models"][GLM].setdefault("resolve", {})[host] = pin
         doc["providers"][GLM][host] = [{"from": None, **RATE_C}]
 
     run.edit(add_fixture_host)
@@ -57,8 +55,8 @@ def _assert_document_shape_resolves(
 def test_the_alibaba_shape_resolves_without_a_pin(tmp_path, capsys):
     """#893's stopgap pin is gone: the host's live shape (its fp8 endpoint
     listed twice at two prices, beside a throughput tier) resolves by rule."""
-    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-    assert "Alibaba" not in doc["openrouter"]["models"]["glm-5-2"].get("resolve", {})
+    doc = _openrouter_template()
+    assert "Alibaba" not in doc["models"]["glm-5-2"].get("resolve", {})
     _assert_document_shape_resolves(
         tmp_path, capsys, "glm-5-2", "Alibaba",
         (("alibaba/fp8", RATES_A), ("alibaba/fp8", RATES_B),
@@ -136,17 +134,6 @@ def test_quantization_endpoint_wins_over_a_cheaper_service_tier():
                for note in notices)
 
 
-def test_data_region_filter_reports_its_single_surviving_endpoint():
-    selected, refused, notices, _ = _select_synthetic_host(
-        "Fixture", [("fixture/global", RATES_A), ("fixture/europe", RATES_B)])
-
-    assert refused == {}
-    assert selected["Fixture"].tag == "fixture/global"
-    assert selected["Fixture"].rates == RATES_A
-    assert any("rule-resolved" in note and "data region" in note
-               for note in notices)
-
-
 def test_explicit_global_tag_beats_a_bare_tag_in_the_global_region():
     selected, refused, notices, _ = _select_synthetic_host(
         "Fixture", [("fixture/global", RATES_A), ("fixture", RATES_B)])
@@ -190,38 +177,23 @@ def test_global_preference_resolves_only_regional_alternatives(alternative_tag, 
         assert not any("rule-resolved (data region)" in note for note in notices)
 
 
-def test_same_quantization_uses_cache_read_then_input_then_output_order():
-    cheap_by_read = {**RATES_A, "fresh": 100.0, "read": 0.1, "output": 500.0}
-    cheap_by_input = {**RATES_A, "fresh": 0.01, "read": 0.2, "output": 0.01}
+@pytest.mark.parametrize(("first_values", "second_values"), [
+    pytest.param((100.0, 0.1, 500.0), (0.01, 0.2, 0.01), id="cache-read"),
+    pytest.param((0.2, 0.1, 3.0), (0.3, 0.1, 1.0), id="input-after-cache-read"),
+    pytest.param((1.0, 0.1, 2.0), (1.0, 0.1, 3.0), id="output-after-cache-read-and-input"),
+])
+def test_same_quantization_uses_cache_read_then_input_then_output_order(
+        first_values, second_values):
+    fields = ("fresh", "read", "output")
+    first = {**RATES_A, **dict(zip(fields, first_values))}
+    second = {**RATES_A, **dict(zip(fields, second_values))}
     selected, refused, notices, _ = _select_synthetic_host(
-        "Fixture", [("fixture/fp8", cheap_by_read), ("fixture/fp8", cheap_by_input)])
+        "Fixture", [("fixture/fp8", first), ("fixture/fp8", second)])
 
     assert refused == {}
-    assert selected["Fixture"].rates == cheap_by_read
+    assert selected["Fixture"].rates == first
     assert any("rule-resolved" in note and "same quantization" in note
                for note in notices)
-
-
-def test_same_quantization_uses_input_after_equal_cache_read():
-    cheaper_input = {**RATES_A, "read": 0.1, "fresh": 0.2, "output": 3.0}
-    cheaper_output = {**RATES_A, "read": 0.1, "fresh": 0.3, "output": 1.0}
-    selected, refused, _, _ = _select_synthetic_host(
-        "Fixture", [("fixture/fp8", cheaper_input),
-                    ("fixture/fp8", cheaper_output)])
-
-    assert refused == {}
-    assert selected["Fixture"].rates == cheaper_input
-
-
-def test_same_quantization_uses_output_after_equal_cache_read_and_input():
-    cheaper_output = {**RATES_A, "read": 0.1, "fresh": 1.0, "output": 2.0}
-    dearer_output = {**RATES_A, "read": 0.1, "fresh": 1.0, "output": 3.0}
-    selected, refused, _, _ = _select_synthetic_host(
-        "Fixture", [("fixture/fp8", cheaper_output),
-                    ("fixture/fp8", dearer_output)])
-
-    assert refused == {}
-    assert selected["Fixture"].rates == cheaper_output
 
 
 def test_rule_resolved_same_quantization_keeps_the_possible_twin_switch_notice():
@@ -401,12 +373,11 @@ def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
     """Issue #877: each committed pin's listing shape resolves without
     passing the pin to the selector, and selects its recorded price vector.
     """
-    doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-    region = None if doc["openrouter"]["data_region"] == "global" \
-        else doc["openrouter"]["data_region"]
+    doc = _openrouter_template()
+    region = None if doc["data_region"] == "global" else doc["data_region"]
     counts: dict[str, int] = {}
     pins = [(model, entry["id"], host, pin)
-            for model, entry in doc["openrouter"]["models"].items()
+            for model, entry in doc["models"].items()
             for host, pin in entry.get("resolve", {}).items()]
     assert pins, "the pricing document has no resolve entries to prove"
 

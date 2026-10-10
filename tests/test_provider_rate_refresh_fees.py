@@ -10,7 +10,6 @@ from __future__ import annotations
 import copy
 from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from backend.pricing_load import _history
 from tests.refresh_fixture_builders import (
@@ -19,9 +18,6 @@ from tests.refresh_fixture_builders import (
 from tests.test_provider_rate_refresh import (
     GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
-
-if TYPE_CHECKING:
-    from refresh_provider_rates import Listing
 
 # USD per search, deliberately distinct from per-token rate fields.
 # Synthetic per-search rate, deliberately unlike the deployed listing.
@@ -206,8 +202,13 @@ def test_search_only_move_on_log_backed_host_appends_unchanged_token_rates(
     assert "web_search 0.002 → 0.0137, sampled at detection" in out
 
 
-def _direct_listing(rates: dict) -> Listing:
-    return refresh.Listing("fixture", {}, rates, None, Decimal(0))
+def _append_search(hosts, rates, entries, at=NOW, *, notices=None, search=0.0137):
+    """Exercise the real log append with the shared synthetic search pair."""
+    # pylint: disable=protected-access
+    return refresh._append_logged(
+        "acme/search-9", hosts, "SearchHost",
+        refresh.Listing("fixture", {}, {**rates, "web_search": search}, None, Decimal(0)),
+        entries, at, deferred_notices=notices)
 
 
 def _days_before_detection(days: int) -> str:
@@ -227,11 +228,7 @@ def test_simultaneous_token_and_search_move_keeps_loadable_history():
         "from": None, **RATES_B, "web_search": 0.002,
     }]}
 
-    # pylint: disable=protected-access
-    refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**token_rates, "web_search": 0.0137}),
-        [{"from": STAMP, **token_rates}], NOW)
+    _append_search(hosts, token_rates, [{"from": STAMP, **token_rates}])
 
     history = hosts["SearchHost"]
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
@@ -251,11 +248,7 @@ def test_band_formation_and_search_move_share_detection_timestamp():
         for days, rates in zip((6, 5, 4, 3), states)
     ]
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**RATES_A, "web_search": 0.0137}),
-        entries, NOW)
+    move = _append_search(hosts, RATES_A, entries)
 
     history = hosts["SearchHost"]
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
@@ -279,13 +272,11 @@ def test_search_only_epoch_cannot_turn_a_token_step_into_a_band():
         {"from": search_stamp, **token_a, "web_search": 0.0137},
     ]}
     without_search = {"SearchHost": [copy.deepcopy(baseline)]}
-    listing = _direct_listing({**token_b, "web_search": 0.0137})
+    listing = token_b
     entries = [{"from": token_stamp, **token_b}]
 
     for hosts in (with_search, without_search):
-        # pylint: disable=protected-access
-        refresh._append_logged("acme/search-9", hosts, "SearchHost",
-                               listing, entries, NOW)
+        _append_search(hosts, listing, entries)
 
     searched_history = with_search["SearchHost"]
     plain_history = without_search["SearchHost"]
@@ -316,10 +307,7 @@ def test_search_only_repeated_level_does_not_reform_a_band():
     ]}
     entries = [{"from": _days_before_detection(1), **token_c}]
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**token_c, "web_search": 0.0137}), entries, NOW)
+    move = _append_search(hosts, token_c, entries)
 
     history = hosts["SearchHost"]
     rates, *_ = _history(history, "acme/search-9 via SearchHost",
@@ -338,11 +326,7 @@ def test_mixed_log_search_move_report_identifies_both_changes():
         "from": None, **token_a, "web_search": 0.002,
     }]}
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**token_b, "web_search": 0.0137}),
-        [{"from": _days_before_detection(1), **token_b}], NOW)
+    move = _append_search(hosts, token_b, [{"from": _days_before_detection(1), **token_b}])
     rendered = _render_move(move)
 
     assert move.entries_appended == 1
@@ -359,10 +343,7 @@ def test_search_only_move_preserves_token_band():
         "from": None, **RATES_B, "web_search": 0.002, "band": band,
     }]}
 
-    # pylint: disable=protected-access
-    refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**RATES_B, "web_search": 0.0137}), [], NOW)
+    _append_search(hosts, RATES_B, [])
 
     history = hosts["SearchHost"]
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
@@ -375,13 +356,10 @@ def test_search_change_defers_when_detection_epoch_is_already_committed():
         "from": STAMP, **RATES_B, "web_search": 0.002,
     }]}
     before = copy.deepcopy(hosts)
-    listing = _direct_listing({**RATES_B, "web_search": 0.0137})
+    listing = RATES_B
     notices = []
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost", listing, [], NOW,
-        deferred_notices=notices)
+    move = _append_search(hosts, listing, [], notices=notices)
 
     assert move is None
     assert hosts == before
@@ -390,10 +368,7 @@ def test_search_change_defers_when_detection_epoch_is_already_committed():
     assert "next append" in notices[0]
 
     later = NOW + timedelta(hours=1)
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost", listing, [], later,
-        deferred_notices=notices)
+    move = _append_search(hosts, listing, [], at=later, notices=notices)
     _history(hosts["SearchHost"], "acme/search-9 via SearchHost",
              may_begin=True)
     assert move is not None and move.source == "search"
@@ -411,12 +386,7 @@ def test_search_change_lands_on_the_next_token_append_after_conflict():
     later_stamp = later.strftime("%Y-%m-%dT%H:%M:%SZ")
     notices = []
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**RATES_A, "web_search": 0.0137}),
-        [{"from": later_stamp, **RATES_A}], NOW,
-        deferred_notices=notices)
+    move = _append_search(hosts, RATES_A, [{"from": later_stamp, **RATES_A}], notices=notices)
 
     _history(hosts["SearchHost"], "acme/search-9 via SearchHost",
              may_begin=True)
@@ -471,10 +441,7 @@ def test_prior_search_epochs_do_not_disable_band_reform():
     ]}
     entries = [{"from": _days_before_detection(5), **RATES_A}]
 
-    # pylint: disable=protected-access
-    move = refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)
+    move = _append_search(hosts, RATES_A, entries, search=0.003)
 
     assert move is None
     assert len(hosts["SearchHost"]) == 2
@@ -492,10 +459,7 @@ def test_prior_search_epochs_do_not_disable_band_formation():
         for days, rates in zip((6, 5, 4, 3), states)
     ]
 
-    # pylint: disable=protected-access
-    refresh._append_logged(
-        "acme/search-9", hosts, "SearchHost",
-        _direct_listing({**RATES_A, "web_search": 0.003}), entries, NOW)
+    _append_search(hosts, RATES_A, entries, search=0.003)
 
     formed = [entry for entry in hosts["SearchHost"]
               if entry.get("from") == STAMP]
