@@ -8,8 +8,7 @@ on:
 
 # Least privilege: without an explicit block every job inherits the
 # repository default, which can be read/write for the whole token.
-permissions:
-  contents: read
+permissions: {contents: read}
 
 concurrency:
   # ci-gate legs join this group under the caller's event: a
