@@ -528,6 +528,18 @@ def test_every_step_running_job_declares_timeout_minutes():
     assert not offenders, offenders
 
 
+def test_panel_layout_job_timeout_is_pinned_by_value():
+    # Issue #849. The presence check above cannot see the VALUE, so
+    # reverting this job's bound to the pre-#846 value passes silently —
+    # #846/#847 raised it from 20 to 30 because healthy runs took 94-97%
+    # of the old limit, and a slow step cancelled the leg (master red on
+    # d0a07178 twice). Pin the value the way the other jobs' bounds are
+    # pinned here and in tests/test_workflow_refresh_push.py.
+    jobs = _load(WORKFLOWS / "panel-layout.yml")["jobs"]
+    assert set(jobs) == {"panel-layout"}
+    assert jobs["panel-layout"]["timeout-minutes"] == "30"
+
+
 def test_gate_freshness_publishes_on_push_and_pr_targets():
     # Issue #495: every master push re-publishes every open head, and a
     # pull_request_target event re-publishes the event's own head,

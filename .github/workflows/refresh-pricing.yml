@@ -177,10 +177,14 @@ jobs:
         timeout-minutes: 5
         if: steps.moved.outputs.moved == 'true'
         run: |
+          echo "==> adding the PGDG apt source"
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          curl -fsSL --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          sudo apt-get update -qq -o Acquire::Retries=3
-          sudo apt-get install -y -qq -o Acquire::Retries=3 postgresql-client-16
+          echo "==> fetching the PostgreSQL signing key"
+          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          echo "==> apt-get update"
+          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          echo "==> installing postgresql-client-16"
+          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
 
       - name: Install dependencies
         if: steps.moved.outputs.moved == 'true'
