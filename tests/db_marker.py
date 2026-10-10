@@ -64,6 +64,8 @@ import pytest
 #                        with no ingest (issue #436)
 #   gated_client         test_web_metrics; the api router behind the real
 #                        auth middleware, as a guest
+#   lat_client           test_latency_read_canonical; creates its own
+#                        scratch DB in-body
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -84,6 +86,7 @@ DB_FIXTURES = frozenset({
     # issue #436; see the `client` entry above for why it is not repeated.
     "viz",
     "gated_client",
+    "lat_client",
 })
 
 
