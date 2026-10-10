@@ -17,16 +17,18 @@ weekly time-of-day prices (pricing.overrides) become its entry's schedule;
 its top-level price is the entry's default only when the fetch falls
 outside every window, since inside one it is that window's price.
 Endpoint selection — the resolution shapes (a tag, "cheapest", their
-combination, a recorded ignore), the fast-tier rule over an exact
-{p, p/fast} tag pair, and the twin-order rules — lives in
-refresh_selection.py. Tag/region normalisation and whole-week schedule
-coverage live in refresh_prices.py and are imported here.
+combination, a recorded ignore) and the four automatic rules over the
+mechanical multi-price shapes — lives in refresh_selection.py and
+refresh_selection_rules.py. Tag/region normalisation and whole-week
+schedule coverage live in refresh_prices.py and are imported here.
 These refuse the host or model they concern, which appends nothing:
 - a host with two endpoints in that region at different prices and no
   resolution for it (a tag, "cheapest" of otherwise identical twins, or
   their combination with a recorded "ignore" of listing-artifact fields),
-  an exact {p, p/fast} pair excepted — the fast-tier rule takes its base
-  endpoint;
+  where no automatic rule fits the shape — a bare namespace endpoint
+  beside its service tiers, one quantization endpoint beside throughput
+  tiers, the configured data region, and one quantization's price twins
+  each resolve themselves and are reported as rule-resolved;
 - a resolution that no longer applies;
 - a price or override kind this script does not model, or a response
   shape it does not recognise; a listed per-request fee is the exception:
