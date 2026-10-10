@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from backend import pricing
+from tests.refresh_fixture_builders import LIVE_RATE_KEY_SETS
 
 
 def test_fable_5_1_and_mythos_5_1_price_identically(
@@ -84,5 +85,15 @@ def test_gpt_6_1_sol_resolves_exact_distinct_from_gpt_6_sol():
     assert sol.kind == dashed.kind == "exact"
     assert sol.key == dashed.key == "gpt-6-1-sol"
     assert shorter.key == "gpt-6-sol"
-    assert set(sol.rates) == set(pricing.RATE_FIELDS)
+    assert set(sol.rates) in LIVE_RATE_KEY_SETS
     assert sol.rates is not shorter.rates
+
+
+def test_the_live_rate_key_sets_keep_their_negative_space():
+    """Issue #900 widened the live-row shape by the optional web_search
+    rate; the class stays CLOSED — a key set that is neither of the two
+    admitted shapes is refused, so an unexpected extra field still reds
+    the structure tests rather than riding along."""
+    assert {*pricing.RATE_FIELDS, "bogus"} not in LIVE_RATE_KEY_SETS
+    assert frozenset() not in LIVE_RATE_KEY_SETS
+    assert frozenset({"web_search"}) not in LIVE_RATE_KEY_SETS
