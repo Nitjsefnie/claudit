@@ -355,15 +355,16 @@ def test_a_code_push_runs_every_leg_end_to_end(tmp_path):
 
 
 # A comment-only push: two source files whose head text differs from the
-# base ONLY by comments, so the comment-stripped token streams are equal.
+# base ONLY by comments BELOW line 2 — the magic-comment window the
+# classifier keeps — so the comment-stripped token streams are equal.
 COMMENT_ONLY_PATHS = ["backend/alpha.py", "backend/beta.py"]
 COMMENT_ONLY_BASE = {
-    "backend/alpha.py": "def f():\n    return 1\n",
-    "backend/beta.py": "VALUE = 2\n",
+    "backend/alpha.py": "def f():\n    x = 1\n    y = 2\n    return x + y\n",
+    "backend/beta.py": "A = 1\nB = 2\nVALUE = 3\n",
 }
 COMMENT_ONLY_HEAD = {
-    "backend/alpha.py": "def f():\n    # explain\n    return 1\n",
-    "backend/beta.py": "VALUE = 2  # doubled\n",
+    "backend/alpha.py": "def f():\n    x = 1\n    y = 2  # two\n    return x + y\n",
+    "backend/beta.py": "A = 1\nB = 2\nVALUE = 3  # three\n",
 }
 
 

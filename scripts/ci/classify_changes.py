@@ -39,9 +39,9 @@ MAX_COMMENT_ONLY_FILES, and each path's base and head blob both read,
 DIFFER as text, and strip to an IDENTICAL token stream once comments are
 removed, the change is `comment_only`: test-data, panel-layout and the
 portable pytest matrix inside tests.yml skip, the behaviour legs run. A
-docstring's STRING token and a load-bearing magic comment — a shebang or
-a PEP 263 coding declaration — read as changes; a byte-equal pair is not
-comment-only, and every failure over-runs.
+docstring's STRING token and any comment on line 1 or 2 (where Python's
+load-bearing magic comments live) read as changes; a byte-equal pair is
+not comment-only, and every failure over-runs.
 
 On a PUSH the changed set is read over the verified base rather than
 the push's own `before`: the newest ci-gate run on master whose
@@ -185,23 +185,19 @@ def _espree_dir():
             os.path.abspath(__file__)))), 'node_modules')
 
 
-def _magic_comment(token):
-    """A shebang or PEP 263 coding declaration on line 1 or 2: a COMMENT
-    the interpreter still reads, so the token stream must keep it."""
-    return (token.type == tokenize.COMMENT and token.start[0] <= 2
-            and (token.string.startswith('#!')
-                 or 'coding' in token.string.split(':', 1)[0].split('=', 1)[0]))
-
-
 def _comment_stripped_py(text):
     """A Python source's `(type, string)` tokens minus COMMENT and NL, or
-    None. Dropping those makes a comment-only edit compare equal while
-    any real edit — a docstring's STRING token or a magic comment —
-    compares unequal; a tokenizer or parse failure answers None."""
+    None. A comment on line 1 or 2 is KEPT: that is where Python's
+    load-bearing magic comments live (a shebang on line 1; a PEP 263
+    source-encoding declaration on line 1 or 2), a hand-rolled predicate
+    for them keeps leaking one spelling over, and a uniform keep-all-early
+    rule can only over-run. Every later comment and NL drops; a tokenizer
+    or parse failure answers None."""
     try:
         tokens = tokenize.generate_tokens(io.StringIO(text).readline)
         return tuple((token.type, token.string) for token in tokens
-                     if token.type != tokenize.NL and (token.type != tokenize.COMMENT or _magic_comment(token)))
+                     if token.type != tokenize.NL and (
+                         token.type != tokenize.COMMENT or token.start[0] <= 2))
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return None
 
