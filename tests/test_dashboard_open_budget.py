@@ -22,14 +22,14 @@ from contextlib import closing
 import psycopg
 import pytest
 
-from backend import cache, db
-
 # Reuses the API suite's fresh-DB + mini-R2 fixtures rather than standing
 # up a second one; having the function objects in this module's globals is
 # what registers them here. Imported under their private function names —
 # the registered names stay "app_with_data" / "app_with_fresh_data" — and
 # listed in __all__ so the re-export is explicit, not an unused import.
 from test_api import _app_with_data_fixture, _app_with_fresh_data_fixture
+
+from backend import cache, db
 
 __all__ = ["_app_with_data_fixture", "_app_with_fresh_data_fixture"]
 
