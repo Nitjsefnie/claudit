@@ -2,8 +2,10 @@
 
 `agg` and `session/{id}` moved verbatim out of api.py when `traces`
 joined the family (issue #644); the module keeps one copy of the
-per-file trace SQL, which the dashboard's ctx_at_end fold shares —
-there is no second implementation to drift.
+per-file trace SQL, which the panel endpoint owns alone. The dashboard
+no longer shares it: it needs only each main file's last turn, so it
+runs `ctx_end_rows` — a files-only projection, no records join — instead
+of the full trace query (issue #838).
 """
 from __future__ import annotations
 
@@ -25,8 +27,9 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
     file with usage. The "Per-Session Context Growth" panel treats each
     file as its own conversation, so a sub-agent invocation surfaces
     under whatever model it ran on, even if there's no main session file
-    on disk. Moved verbatim from api_dashboard (issue #644), whose
-    ctx_at_end fold still reads these rows server-side."""
+    on disk. Moved verbatim from api_dashboard (issue #644); the panel
+    endpoint owns it alone — the dashboard's ctx_at_end fold reads
+    `ctx_end_rows` instead (issue #838)."""
     proj_filter = "AND f.project_id = %s" if project else ""
     args: list[Any] = [since]
     if project:
@@ -63,6 +66,51 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
         """,
         args,
     ).fetchall()
+
+
+def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
+    """Per-session context-at-end for the dashboard's session fold.
+
+    The dashboard needs ONLY the last ctx turn of each MAIN file — the
+    session panel's ctx_at_end — but it used to run the panel's full
+    per-file trace query (ctx_traces_rows, with its file_models CTE over
+    records) and then throw away every trace but the last turn. This runs
+    ONE query over `files` alone, with no records join (issue #838).
+
+    `ctx_turns` is machine-written by backend/ctx_turns.py, so every
+    element is an object carrying an int `input`; the jsonb projection
+    (`-> -1 ->> 'input'`) is exact for real data. A value that does not
+    parse as an int degrades to None rather than raising, matching the
+    tolerant read the old server-side fold made.
+
+    Rows come back ordered by (session_id, file_key), and the dict is
+    built in that order, so a later row for one session id overwrites an
+    earlier one — the same arbitrary pick the old
+    `{sid: turns for ... if is_main}` comprehension made when two main
+    files shared a session id.
+    """
+    proj_filter = "AND f.project_id = %s" if project else ""
+    args: list[Any] = [since]
+    if project:
+        args.append(project)
+    rows = c.execute(
+        f"""
+        SELECT f.session_id, f.ctx_turns -> -1 ->> 'input'
+        FROM files f
+        WHERE f.r2_last_modified >= %s {proj_filter}
+          AND f.is_main = TRUE
+          AND jsonb_array_length(f.ctx_turns) > 0
+        ORDER BY f.session_id, f.file_key
+        """,
+        args,
+    ).fetchall()
+    out: dict[str, int | None] = {}
+    for sid, text in rows:
+        try:
+            out[sid] = int(text)
+        except (TypeError, ValueError):
+            out[sid] = None
+    return out
 
 
 def project_traces(rows: list) -> list[dict]:
