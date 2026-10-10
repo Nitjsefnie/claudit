@@ -253,7 +253,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
         if parsed["records"]:
             # long_context is a lane row's meter decision
             # (parse_common._append_usage_record) or, since issue #765, a
-            # Claude-format meter member's (parse._project_record); any
+            # Claude-format meter member's (parse.project_records); any
             # other record lacks the decision and stores NULL, and
             # readers COALESCE long_context to FALSE.
             # Its effective multiplier pair is persisted with the cost so
