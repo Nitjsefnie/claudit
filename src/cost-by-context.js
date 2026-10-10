@@ -1,7 +1,9 @@
-// The shared in-flight /api/cost-by-context fetch. Moved verbatim out of
+// The shared in-flight /api/cost-by-context fetch, lifted out of
 // src/dashboard-charts-extra.jsx (issue #839) so a plain-JS test can drive
 // it through node — nothing else in the suite could see that the shared
-// fetch in `fetchCostByContext` had been reverted.
+// fetch in `fetchCostByContext` had been reverted. The logic is unchanged;
+// the pending map is renamed `pending` and the file is now an IIFE, since
+// it loads as a classic script rather than a JSX module body.
 //
 // app.jsx renders the tokens and the cost variants of this panel side by
 // side; both draw from ONE endpoint response, but each instance used to
