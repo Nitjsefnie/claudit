@@ -12,14 +12,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
-from tests.refresh_fixture_builders import seed_doc
+from tests.refresh_fixture_builders import LIVE_RATE_KEY_SETS, seed_doc
 
 UTC = timezone.utc
 
 
 def test_opus_4_7_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-opus-4-7")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
-    assert set(r) == set(pricing.RATE_FIELDS)
+    r = pricing.rate_for("claude-opus-4-7")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
+    assert set(r) in LIVE_RATE_KEY_SETS
     assert pricing.resolve("claude-opus-4-7").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 
@@ -42,8 +42,7 @@ def test_opus_5_5_resolves_exact_distinct_from_opus_5():
     o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert o55.kind == "exact"
     assert o55.key == "claude-opus-5-5"
-    assert set(o55.rates) in (set(pricing.RATE_FIELDS),
-                              {*pricing.RATE_FIELDS, "web_search"})
+    assert set(o55.rates) in LIVE_RATE_KEY_SETS
 
 
 def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
@@ -72,8 +71,7 @@ def test_sonnet_5_5_resolves_exact_to_its_own_row():
     s55 = pricing.resolve("claude-sonnet-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert s55.kind == "exact"
     assert s55.key == "claude-sonnet-5-5"
-    assert set(s55.rates) in (set(pricing.RATE_FIELDS),
-                              {*pricing.RATE_FIELDS, "web_search"})
+    assert set(s55.rates) in LIVE_RATE_KEY_SETS
 
 
 def test_fable_5_1_does_not_misroute_to_fable_5(
@@ -139,14 +137,14 @@ def test_opus_4_8_does_not_misroute_to_legacy_opus_4(
 
 
 def test_sonnet_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
-    assert set(r) == set(pricing.RATE_FIELDS)
+    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
+    assert set(r) in LIVE_RATE_KEY_SETS
     assert pricing.resolve("claude-sonnet-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 
 def test_haiku_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-haiku-4-5")  # sv-test-data: allow (structure: each loaded history row has the five RATE_FIELDS)
-    assert set(r) == set(pricing.RATE_FIELDS)
+    r = pricing.rate_for("claude-haiku-4-5")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
+    assert set(r) in LIVE_RATE_KEY_SETS
     assert pricing.resolve("claude-haiku-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
 
 

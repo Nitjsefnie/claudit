@@ -357,7 +357,13 @@ def _appended(path: tuple[str, ...]) -> tuple[dict, dict, dict]:
     history: Any = doc
     for part in path:
         history = history[part]
-    before = {f: history[-1][f] for f in RATE_FIELDS}
+    # The row's own field set: the five RATE_FIELDS, plus the optional
+    # `web_search` rate a provider row carries (SV-RATE-DATA) — the
+    # appended entry restates whatever the row's newest one holds, so
+    # the shape is read off the row, never pinned to five fields.
+    before = {field: history[-1][field]
+              for field in (*RATE_FIELDS, "web_search")
+              if field in history[-1]}
     after = {field: (0.123456 if value != 0.123456 else 0.654321)
              for field, value in before.items()}
     newest = max((_at(entry["from"]) for entry in history if entry["from"]),
