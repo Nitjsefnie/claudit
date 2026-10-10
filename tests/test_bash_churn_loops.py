@@ -83,3 +83,20 @@ def test_the_session_loop_that_found_this():
            f"cat > $S/merge-$key/brief.md <<EOF\n{body}\nEOF\n"
            "done; ls $S/merge-*/")
     assert bash_churn(cmd) == (52, 0)
+
+
+@pytest.mark.parametrize("close,expected", [
+    # `0` is fd 0, the same stdin-close bash sees, so `0<&-` / `00<&-`
+    # must shift the marker pairing exactly as the bare `<&-` does: the
+    # user-written close is a second `<&`-`-` token, the marker count no
+    # longer matches the heredoc count, and the walk floors to one
+    # iteration (#917). `1<&-` closes fd 1, not stdin, so it is not a
+    # marker and the confident loop count stands.
+    ("<&-", (2, 0)),
+    ("0<&-", (2, 0)),
+    ("00<&-", (2, 0)),
+    ("1<&-", (4, 0)),
+])
+def test_a_stdin_close_in_a_loop_is_read_by_fd_value(close, expected):
+    cmd = f"for x in W1 W2; do cat <<EOF > f.txt {close}\nl1\nl2\nEOF\ndone"
+    assert bash_churn(cmd) == expected
