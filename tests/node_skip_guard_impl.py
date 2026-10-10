@@ -66,11 +66,11 @@ def _test_offenders_in_ctx(ctx: dict) -> list[tuple[int, str]]:
     (this file or an imported tests module), a self/cls call to the
     enclosing class's methods, and a test argument to a same-file
     fixture by its declared name; decorators are excluded at every
-    closure step (the test's own skipif names node and would trivially
-    ground), and so is each step's docstring (prose must not ground a
-    closure). A call the closure cannot resolve - a conftest fixture, a
-    helper outside the tests package - grounds nothing and fails loud,
-    the deny-guard's safe direction."""
+    closure step (a skipif decorator is not part of the body the
+    closure walks), and so is each step's docstring (prose must not
+    ground a closure). A call the closure cannot resolve - a conftest
+    fixture, a helper outside the tests package - grounds nothing and
+    fails loud, the deny-guard's safe direction."""
     offenders: list[tuple[int, str]] = []
     for cls in ctx["classes"].values():
         methods = {s.name: s for s in cls.body
