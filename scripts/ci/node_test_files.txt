@@ -8,6 +8,8 @@ tests/test_ctx_input_js.py
 tests/test_ctx_turn_parity.py
 tests/test_dashboard_binning.py
 tests/test_dashboard_fetch_js.py
+tests/test_dashboard_latency_pins.py
+tests/test_deferred_js.py
 tests/test_empty_usage_parity.py
 tests/test_heatmap_layout_wiring.py
 tests/test_ingest.py
