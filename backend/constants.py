@@ -104,7 +104,7 @@ PARSER_VERSION = "105"
 # It clears the retired request_fee_usd column to NULL. A stored-flag rule
 # change is a trigger with no rate change at all. PARSER_VERSION bumps
 # only for parser-semantics changes from now on.
-PRICING_VERSION = "303"
+PRICING_VERSION = "304"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
