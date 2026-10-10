@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify a ci-gate run: docs-only, bot-data-only, or a full change.
+"""Classify a ci-gate run: docs-only, bot-data-only, comment-only, or full.
 
 The gate workflows used to narrow documentation-only runs at the
 trigger, with `paths-ignore` on their push and pull_request events. A
@@ -33,6 +33,18 @@ alone, is not the bot. `src/pricing.json` alone is a lone hand-edited
 rate file — the bot never produces it, so it has no pre-test behind it
 and runs the full matrix.
 
+A THIRD class narrows a change that cannot move behaviour at all. When
+EVERY changed path is a source file (.py/.js/.jsx), the set fits
+MAX_COMMENT_ONLY_FILES, and each path's base and head blob both read,
+DIFFER as text, and strip to an IDENTICAL token stream once comments are
+removed, the change is `comment_only`: the legs a comment cannot affect
+(test-data, panel-layout, codeql) and the portable pytest matrix inside
+tests.yml are skipped, while the behaviour legs still run. A docstring
+edit is a STRING token and reads as a change; a byte-equal (no-op or
+mode-only) pair is not comment-only. Every failure over-runs: an
+unreadable ref or blob, a tokenization error, a set too large or
+outside the source suffixes.
+
 On a PUSH the changed set is read over the verified base rather than
 the push's own `before`: the newest ci-gate run on master whose
 conclusion is `success` and that executed at least one leg marks the
@@ -49,8 +61,12 @@ full gate set.
 from __future__ import annotations
 
 import fnmatch
+import io
+import json
 import os
 import subprocess
+import tempfile
+import tokenize
 
 # The paths-ignore deny-lists the gate workflows carried on master, now
 # re-homed as classifier patterns. `.github/ci-thresholds.json` is
@@ -82,6 +98,13 @@ SETUP_DOC_PATTERNS = ('README.md', 'CONTRIBUTING.md', 'AGENTS.md')
 # check (smoke) and lint still run, and a lone hand-edited rate file is
 # untested data that keeps the full matrix.
 BOT_SIGNATURE = frozenset({'src/pricing.json', 'backend/constants.py'})
+
+# The comment-only class's shape: the suffixes the classifier can
+# tokenize, the cap bounding the read cost, and the env naming where
+# espree resolves from (CI installs it into an isolated prefix).
+SOURCE_SUFFIXES = ('.py', '.js', '.jsx')
+MAX_COMMENT_ONLY_FILES = 30
+ESPREE_DIR_ENV = 'CLAUDIT_ESPREE_DIR'
 
 # The workflow whose runs decide the verified base on a push, and the
 # two jobs whose conclusions say nothing about whether the legs ran:
@@ -154,6 +177,56 @@ def documentation_only(paths):
 def data_only(paths):
     """Whether `paths` is exactly the refresh bot's push signature."""
     return bool(paths) and set(paths) == BOT_SIGNATURE
+
+
+def _espree_dir():
+    """The espree module dir the JS tokenizer requires from: the repo's
+    own node_modules by default, ESPREE_DIR_ENV (CI's isolated prefix)
+    when set."""
+    return os.environ.get(ESPREE_DIR_ENV) or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), 'node_modules')
+
+
+def _comment_stripped_py(text):
+    """A Python source's `(type, string)` tokens minus COMMENT and NL, or
+    None. Dropping those makes a comment-only edit compare equal while
+    any real edit — a docstring's STRING token included — compares
+    unequal; a tokenizer or parse failure answers None, which over-runs."""
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        return tuple((token.type, token.string) for token in tokens
+                     if token.type not in (tokenize.COMMENT, tokenize.NL))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+
+
+def _js_token_stream(text, path, run):
+    """A JS/JSX source's comment-stripped espree tokens, or None. Writes
+    the text to a temp file and shells the node helper out through `run`,
+    which prints the `[type, value]` list as JSON; any failure — node
+    missing, espree absent, a parse error — answers None and over-runs."""
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          'js_comment_tokens.mjs')
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', suffix='.js') as handle:
+            handle.write(text)
+            handle.flush()
+            stdout = run(['node', helper, _espree_dir(), handle.name,
+                          'jsx' if path.endswith('.jsx') else 'plain'])
+        return tuple(tuple(token) for token in json.loads(stdout))
+    except Exception:  # any failure over-runs, never under-runs
+        return None
+
+
+def _source_tokens(text, path, run):
+    """The comment-stripped token stream of a source file, or None."""
+    if path.endswith('.py'):
+        return _comment_stripped_py(text)
+    if path.endswith(('.js', '.jsx')):
+        return _js_token_stream(text, path, run)
+    return None
 
 
 def _hex40(value):
@@ -286,30 +359,100 @@ def changed_paths(event, run):
     return None
 
 
+def _blob(repository, path, ref, run):
+    """A path's raw file text at `ref`, or None when it cannot be read."""
+    try:
+        return run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
+                    f'repos/{repository}/contents/{path}?ref={ref}'])
+    except Exception:  # any read failure over-runs, never under-runs
+        return None
+
+
+def _refs(event, repository, run):
+    """The (base, head) commit pair to compare blobs at, or None. A push
+    compares its verified base (the same one the changed-path read uses)
+    against its own SHA; a pull request reads its base and head SHAs.
+    Both are 40-hex, and anything unreadable answers None."""
+    name = event.get('name')
+    if name == 'push':
+        base, sha = _verified_base(repository, run), event.get('sha')
+        return (base, sha) if base is not None and _hex40(sha) else None
+    if name != 'pull_request':
+        return None
+    number = event.get('pull_request')
+    if not (isinstance(number, str) and number.isascii()
+            and number.isdigit()):
+        return None
+    try:
+        line = run([
+            'gh', 'api', '-H', 'Cache-Control: no-cache',
+            f'repos/{repository}/pulls/{number}',
+            '--jq', '.base.sha + " " + .head.sha']).strip()
+    except Exception:
+        return None
+    parts = line.split()
+    if len(parts) != 2 or not all(_hex40(part) for part in parts):
+        return None
+    return (parts[0], parts[1])
+
+
+def comment_only(paths, event, run):
+    """Whether `paths` is a comment-only change over the source files.
+    Every path must be a source file, the set must fit
+    MAX_COMMENT_ONLY_FILES, and each path's base and head blob must both
+    read, DIFFER as text (a no-op or mode-only change is not comment-only)
+    and strip to an identical token stream. Any failure answers False,
+    the over-run."""
+    if not paths or len(paths) > MAX_COMMENT_ONLY_FILES:
+        return False
+    if not all(path.endswith(SOURCE_SUFFIXES) for path in paths):
+        return False
+    repository = event.get('repository')
+    refs = _refs(event, repository, run) if repository else None
+    if refs is None:
+        return False
+    base, head = refs
+    for path in paths:
+        base_text = _blob(repository, path, base, run)
+        head_text = _blob(repository, path, head, run)
+        if base_text is None or head_text is None or base_text == head_text:
+            return False
+        base_tokens = _source_tokens(base_text, path, run)
+        head_tokens = _source_tokens(head_text, path, run)
+        if (base_tokens is None or head_tokens is None
+                or base_tokens != head_tokens):
+            return False
+    return True
+
+
 def classify(event, run):
-    """Return (docs_only, data_only, reason) for this run's changed paths."""
+    """Return (docs_only, data_only, comment_only, reason)."""
     paths = changed_paths(event, run)
     if paths is None:
-        return (False, False,
+        return (False, False, False,
                 'could not read the changed paths; running the '
                 'full gate set')
     if documentation_only(paths):
-        return (True, False,
+        return (True, False, False,
                 f'documentation-only change: {len(paths)} paths')
     if touches_setup_docs(paths) and all(
             is_documentation(path) for path in paths):
         setup = sorted({path for path in paths
                         if path in SETUP_DOC_PATTERNS})
-        return (False, False,
+        return (False, False, False,
                 f'documentation-only change touching the pinned setup '
                 f'docs ({"; ".join(setup)}): running the matrix so the '
                 f'setup-docs pin fails on this push, not the next '
                 f'code-touching one')
     if data_only(paths):
-        return (False, True, f'bot-data-only change: {len(paths)} paths')
+        return (False, True, False,
+                f'bot-data-only change: {len(paths)} paths')
+    if comment_only(paths, event, run):
+        return (False, False, True,
+                f'comment-only change: {len(paths)} source files')
     outside = sum(1 for path in paths if not is_documentation(path))
-    return (False, False, f'{len(paths)} paths changed, {outside} outside '
-            'documentation')
+    return (False, False, False, f'{len(paths)} paths changed, {outside} '
+            'outside documentation')
 
 
 def event_from_environment(environ):
@@ -323,13 +466,14 @@ def event_from_environment(environ):
     }
 
 
-def write_outputs(path, documentation, data, reason):
+def write_outputs(path, documentation, data, comment, reason):
     """Append the step outputs to the file `path` names."""
     if not path:
         return
     with open(path, 'a', encoding='utf-8') as handle:
         handle.write(f"docs_only={'true' if documentation else 'false'}\n")
         handle.write(f"data_only={'true' if data else 'false'}\n")
+        handle.write(f"comment_only={'true' if comment else 'false'}\n")
         handle.write(f'reason={reason}\n')
 
 
@@ -342,9 +486,9 @@ def main():
             command, capture_output=True, text=True, check=True,
             timeout=60).stdout
 
-    documentation, data, reason = classify(event, run)
+    documentation, data, comment, reason = classify(event, run)
     write_outputs(os.environ.get('GITHUB_OUTPUT'), documentation, data,
-                  reason)
+                  comment, reason)
     print(reason)
     return 0
 
