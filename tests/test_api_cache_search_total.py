@@ -63,10 +63,9 @@ def test_cache_session_search_total_sums_real_search_requests(
     body = app_with_fresh_data.get("/api/cache?range=3650d").json()
     model_row = next(row for row in body["per_model"]
                      if row["model"] == _SEARCH_MODEL)
-    assert model_row["cost_buckets"]["web_search"] == pytest.approx(
-        _EXPECTED_SEARCH_COST)
+    # cost_buckets is stripped from per_model (issue #916); the session
+    # total still carries the decomposition, and only this model bills a
+    # search rate, so its web_search bucket is the whole total.
+    assert "cost_buckets" not in model_row
     session_search = body["session_total"]["cost_buckets"]["web_search"]
     assert session_search == pytest.approx(_EXPECTED_SEARCH_COST)
-    assert session_search == round(
-        sum(row["cost_buckets"]["web_search"] for row in body["per_model"]),
-        4)
