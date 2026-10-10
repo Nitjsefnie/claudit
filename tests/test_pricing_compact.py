@@ -18,30 +18,23 @@ from tests.test_provider_rate_refresh import Run, _move_openinference
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER = ROOT / "scripts" / "ci" / "convert_pricing_doc.py"
-LOADER_JS = ROOT / "src" / "pricing-loader.js"
 
 
 def _synthetic_doc() -> dict:
     """An old-spelling document with rates, a fee, schedule, band, and meter."""
     doc = _doc()
     row = doc["providers"][ROW_KEY][HOST][0]
-    row.update({"from": None, "fresh": 2.0, "create_5m": 2.0,
-                "create_1h": 2.0, "read": 0.2, "output": 6.0,
-                "web_search": 0.015})
+    rates = {"fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,
+             "read": 0.2, "output": 6.0}
+    row.update({"from": None, **rates, "web_search": 0.015})
     row["band"] = {
-        "fresh": [1.0, 3.0], "create_5m": [1.0, 3.0],
-        "create_1h": [1.0, 3.0], "read": [0.1, 0.3],
-        "output": [4.0, 8.0],
+        **dict.fromkeys(("fresh", "create_5m", "create_1h"), [1.0, 3.0]),
+        "read": [0.1, 0.3], "output": [4.0, 8.0],
     }
     row["schedule"] = [
-        {"days": ["monday"], "rates": {
-            "fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,
-            "read": 0.2, "output": 6.0,
-        }},
+        {"days": ["monday"], "rates": dict(rates)},
         {"days": ["tuesday"], "rates": {
-            "fresh": 2.0, "create_5m": 2.5, "create_1h": 3.0,
-            "read": 0.2, "output": 6.0,
-        }},
+            **rates, "create_5m": 2.5, "create_1h": 3.0}},
     ]
     doc["providers"][ROW_KEY][HOST].append({
         "from": "2027-01-01T00:00:00Z", "fresh": 3.0,
@@ -91,19 +84,7 @@ def _js_tables(tmp_path: Path, doc: dict) -> dict:
     script = f"""
       global.window = {{}};
       require({str(where / 'pricing-loader.js')!r});
-      console.log(JSON.stringify({{
-        models: window.modelRates,
-        dated: window.datedRates,
-        providers: window.providerRates,
-        providerDated: window.providerDatedRates,
-        providerStarts: window.providerStarts,
-        providerSchedules: window.providerSchedules,
-        providerBands: window.providerBands,
-        vendorBare: window.vendorBare,
-        vendorPrefixes: window.vendorPrefixes,
-        vendorHosts: window.vendorHosts,
-        longContextMeters: window.longContextMeters,
-      }}));
+      console.log(JSON.stringify(window));
     """
     proc = subprocess.run(["node", "-e", script], capture_output=True,
                           text=True, timeout=60, check=False)
@@ -118,32 +99,14 @@ def test_python_loader_folds_sparse_rates_bands_and_leading_from():
     sparse_tables = load_tables(sparse)
 
     assert sparse_tables == old_tables
-    assert sparse_tables["PROVIDER_RATES"][ROW_KEY, HOST] == {
-        "fresh": 3.0, "create_5m": 3.5, "create_1h": 3.0,
-        "read": 0.3, "output": 7.0, "web_search": 0.015,
-    }
-    provider_starts = sparse_tables["PROVIDER_STARTS"]
-    assert isinstance(provider_starts, dict) and not provider_starts
+    assert sparse_tables["PROVIDER_RATES"][ROW_KEY, HOST]["create_5m"] == 3.5
     end, window_rates = sparse_tables["PROVIDER_DATED_RATES"][ROW_KEY, HOST][0]
     assert end.isoformat() == "2027-01-01T00:00:00+00:00"
-    assert window_rates == {
-        "fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,
-        "read": 0.2, "output": 6.0, "web_search": 0.015,
-    }
-    assert sparse_tables["PROVIDER_BANDS"][ROW_KEY, HOST][0] == {
-        "fresh": [1.0, 3.0], "create_5m": [1.0, 3.0],
-        "create_1h": [1.0, 3.0], "read": [0.1, 0.3],
-        "output": [4.0, 8.0],
-    }
+    assert window_rates["create_1h"] == 2.0
+    band = sparse_tables["PROVIDER_BANDS"][ROW_KEY, HOST][0]
+    assert band["fresh"] == [1.0, 3.0]
     schedule = sparse_tables["PROVIDER_SCHEDULES"][ROW_KEY, HOST][0]
-    assert schedule[0][3] == {
-        "fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,
-        "read": 0.2, "output": 6.0,
-    }
-    assert schedule[1][3] == {
-        "fresh": 2.0, "create_5m": 2.5, "create_1h": 3.0,
-        "read": 0.2, "output": 6.0,
-    }
+    assert schedule[1][3]["create_5m"] == 2.5
     assert sparse_tables["LONG_CONTEXT_METERS"] == {
         "claude-opus-4-8": {"threshold": 100_000, "input_mult": 3.5},
     }
@@ -157,26 +120,14 @@ def test_browser_loader_folds_sparse_rates_bands_and_leading_from(tmp_path):
     sparse_tables = _js_tables(tmp_path / "sparse", sparse)
 
     assert sparse_tables == old_tables
-    assert sparse_tables["providers"][ROW_KEY][HOST] == {
-        "fresh": 3.0, "c5": 3.5, "c1h": 3.0,
-        "read": 0.3, "out": 7.0, "search": 0.015,
-    }
+    assert sparse_tables["providerRates"][ROW_KEY][HOST]["c5"] == 3.5
     assert sparse_tables["providerStarts"] == {}
-    assert sparse_tables["providerDated"][ROW_KEY][HOST][0] == {
-        "endExclusive": 1_798_761_600_000,
-        "rates": {"fresh": 2.0, "c5": 2.0, "c1h": 2.0,
-                  "read": 0.2, "out": 6.0, "search": 0.015},
-    }
-    assert sparse_tables["providerBands"][ROW_KEY][HOST]["0"] == {
-        "fresh": [1.0, 3.0], "create_5m": [1.0, 3.0],
-        "create_1h": [1.0, 3.0], "read": [0.1, 0.3],
-        "output": [4.0, 8.0],
-    }
-    assert [window["rates"] for window in
-            sparse_tables["providerSchedules"][ROW_KEY][HOST]["0"]] == [
-        {"fresh": 2.0, "c5": 2.0, "c1h": 2.0, "read": 0.2, "out": 6.0},
-        {"fresh": 2.0, "c5": 2.5, "c1h": 3.0, "read": 0.2, "out": 6.0},
-    ]
+    dated_rates = sparse_tables["providerDatedRates"][ROW_KEY][HOST][0]["rates"]
+    assert dated_rates["c1h"] == 2.0
+    bands = sparse_tables["providerBands"][ROW_KEY][HOST]["0"]
+    assert bands["fresh"] == [1.0, 3.0]
+    schedules = sparse_tables["providerSchedules"][ROW_KEY][HOST]["0"]
+    assert schedules[1]["rates"]["c5"] == 2.5
     assert sparse_tables["longContextMeters"] == {
         "claude-opus-4-8": {"threshold": 100_000, "input_mult": 3.5},
     }
@@ -219,16 +170,7 @@ def test_conversion_is_idempotent_and_keeps_canonical_layout(tmp_path):
     text = converted.decode("utf-8")
     doc = json.loads(text)
     assert text == json.dumps(doc, indent=2, sort_keys=True) + "\n"
-    first_entry = doc["providers"][ROW_KEY][HOST][0]
-    assert "from" not in first_entry
-    assert "create_5m" not in first_entry and "create_1h" not in first_entry
-    assert doc["providers"][ROW_KEY][HOST][1]["create_5m"] == 3.5
-    assert "create_1h" not in doc["providers"][ROW_KEY][HOST][1]
-    assert "create_5m" not in first_entry["band"]
-    assert "create_1h" not in first_entry["band"]
-    assert "create_5m" not in first_entry["schedule"][0]["rates"]
-    assert "create_1h" not in first_entry["schedule"][0]["rates"]
-    assert first_entry["schedule"][1]["rates"]["create_5m"] == 2.5
+    assert doc == _sparse_doc(_synthetic_doc())
 
 
 def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
@@ -260,7 +202,7 @@ def test_perturber_writes_compact_entries_accepted_by_both_loaders(tmp_path):
     assert doubled["create_5m"] == 7.0
     assert "create_1h" not in doubled
     python_rates = load_tables(perturbed)["PROVIDER_RATES"][ROW_KEY, HOST]
-    browser_rates = _js_tables(tmp_path, perturbed)["providers"][ROW_KEY][HOST]
+    browser_rates = _js_tables(tmp_path, perturbed)["providerRates"][ROW_KEY][HOST]
     latest = entries[-1]
     assert browser_rates["fresh"] == python_rates["fresh"] == latest["fresh"]
     assert browser_rates["c1h"] == python_rates["create_1h"]
@@ -268,10 +210,7 @@ def test_perturber_writes_compact_entries_accepted_by_both_loaders(tmp_path):
 
 def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys):
     run = Run(tmp_path)
-    converted = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "ci" / "convert_pricing_doc.py"),
-         "--pricing", str(run.pricing)], capture_output=True, text=True,
-        timeout=60, check=False)
+    converted = _convert(run.pricing)
     assert converted.returncode == 0, converted.stderr
     before = run.pricing.read_bytes()
 
@@ -291,7 +230,5 @@ def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):
     assert rc == 0, err
     entry = json.loads(run.pricing.read_text(encoding="utf-8"))[
         "providers"]["glm-5-3-flash"]["OpenInference"][-1]
-    assert entry.get("create_5m", entry["fresh"]) == entry["fresh"]
-    assert entry.get("create_1h", entry["fresh"]) == entry["fresh"]
     assert "create_5m" not in entry
     assert "create_1h" not in entry

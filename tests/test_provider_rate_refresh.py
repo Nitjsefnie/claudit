@@ -52,6 +52,11 @@ needs_node = pytest.mark.skipif(
 )
 
 
+def _openrouter_template() -> dict:
+    """Read the committed catalog configuration for synthetic endpoint shapes."""
+    return json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]  # sv-test-data: allow (catalog configuration only; endpoint prices are synthetic)
+
+
 def _load():
     """Import scripts/ci/refresh_provider_rates.py by path (scripts/ci is
     not a package)."""
