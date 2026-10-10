@@ -57,6 +57,41 @@ def _refresh() -> None:
     rate_fingerprint.clear_fingerprint_cache()
 
 
+def _prefixed_tables(monkeypatch) -> dict:
+    """One tracked bare row shared by prefixed host and vendor fallback."""
+    rates = {"fresh": 10.0, "create_5m": 10.0, "create_1h": 10.0,
+             "read": 1.0, "output": 20.0, "web_search": 0.015}
+    for name, value in {
+        "VENDOR_PREFIXES": ["acme"], "VENDOR_BARE": {"toy": "toy"},
+        "VENDOR_HOSTS": {"toy": "Host"},
+        "PROVIDER_RATES": {("toy", "Host"): rates},
+        "PROVIDER_DATED_RATES": {}, "PROVIDER_STARTS": {},
+        "PROVIDER_SCHEDULES": {},
+    }.items():
+        monkeypatch.setattr(pricing, name, value)
+    _refresh()
+    return rates
+
+
+@pytest.mark.parametrize("provider", ["Host", None])
+@pytest.mark.parametrize(("field", "value"), [("fresh", 30.0), ("web_search", 0.045)])
+def test_prefixed_pair_fingerprint_tracks_consulted_bare_rates(monkeypatch, provider, field, value):
+    rates = _prefixed_tables(monkeypatch)
+    before = rate_fingerprint.pair_fingerprint("acme/toy", provider)
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {("toy", "Host"): {**rates, field: value}})
+    _refresh()
+    assert rate_fingerprint.pair_fingerprint("acme/toy", provider) != before
+
+
+@pytest.mark.parametrize("model", ["other/toy", "acme/toy:free", "stealth/toy"])
+def test_untracked_and_free_prefixes_do_not_consult_the_bare_row(monkeypatch, model):
+    rates = _prefixed_tables(monkeypatch)
+    before = rate_fingerprint.pair_fingerprint(model, "Host")
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {("toy", "Host"): {**rates, "fresh": 30.0}})
+    _refresh()
+    assert rate_fingerprint.pair_fingerprint(model, "Host") == before
+
+
 @pytest.fixture(name="rate_tables")
 def _rate_tables_fixture(monkeypatch):
     """Synthetic rate tables, fully patched: two model keys, two
