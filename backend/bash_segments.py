@@ -12,7 +12,7 @@ import re
 
 from typing import cast
 
-from backend.bash_literals import ShellWord, shell_tokens
+from backend.bash_literals import ShellWord, _fold_fd, shell_tokens
 
 _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 
@@ -239,15 +239,15 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
         target = args[idx + 1]
         if operator in (">", ">>", ">|", "&>", "&>>"):
             writes.append(target)
-        elif operator == ">&" and fd in ("", "1") \
+        elif operator == ">&" and _fold_fd(fd) in ("", "1") \
                 and not re.fullmatch(r"[0-9]+|-", target):
-            # `>& file` with the fd omitted (or spelled 1) is bash's
-            # stdout+stderr-to-file spelling, `&>`'s twin (#802); against
-            # a digit or `-` it is a duplication or close, and a digit
-            # fd of 0 or 2+ refuses the filename form outright
-            # (ambiguous redirect, nothing runs).
+            # `>& file` with the fd omitted (or spelled 1, zero-padded
+            # included) is bash's stdout+stderr-to-file spelling, `&>`'s
+            # twin (#802); against a digit or `-` it is a duplication or
+            # close, and a digit fd of 0 or 2+ refuses the filename form
+            # outright (ambiguous redirect, nothing runs).
             writes.append(target)
-        elif operator == "<" and fd in ("", "0"):
+        elif operator == "<" and _fold_fd(fd) in ("", "0"):
             inputs.append(target)
         elif operator in (">&", "<&") and not re.fullmatch(r"[0-9]+|-", target):
             raise ValueError("unsupported descriptor target")
