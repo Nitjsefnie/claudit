@@ -2,6 +2,17 @@
   "long_context_meters": [
     {
       "models": [
+        {
+          "claude-haiku-5-5": {
+            "input_mult": 5.0,
+            "output_mult": 5.0
+          }
+        }
+      ],
+      "threshold": 100000
+    },
+    {
+      "models": [
         "claude-sonnet-4-5"
       ],
       "threshold": 200000
@@ -79,6 +90,10 @@
             "why": "Google lists claude-haiku-4.5 under google-vertex/global, the data region configured for this account. Pinned to google-vertex/global because the account is billed by the global endpoint; regional endpoints do not apply."
           }
         },
+        "vendor_host": "Anthropic"
+      },
+      "claude-haiku-5-5": {
+        "id": "anthropic/claude-haiku-5.5",
         "vendor_host": "Anthropic"
       },
       "claude-mythos-5": {
@@ -731,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-10T02:53:50Z",
+  "provider_rates_fetched": "2026-10-10T08:54:47Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -807,6 +822,15 @@
           "fresh": 10.0,
           "output": 50.0,
           "read": 1.0
+        },
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 50.0,
+          "read": 1.0,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -863,6 +887,15 @@
           "note": "Cache reads at 0.025x base input.",
           "output": 50.0,
           "read": 0.25
+        },
+        {
+          "create_1h": 20.0,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 50.0,
+          "read": 0.25,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -907,6 +940,15 @@
           "fresh": 1.0,
           "output": 5.0,
           "read": 0.1
+        },
+        {
+          "create_1h": 2.0,
+          "create_5m": 1.25,
+          "fresh": 1.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 5.0,
+          "read": 0.1,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1007,6 +1049,15 @@
           "fresh": 5.0,
           "output": 25.0,
           "read": 0.5
+        },
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 25.0,
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1062,6 +1113,15 @@
           "fresh": 5.0,
           "output": 25.0,
           "read": 0.5
+        },
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 25.0,
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1117,6 +1177,15 @@
           "fresh": 5.0,
           "output": 25.0,
           "read": 0.5
+        },
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 25.0,
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1172,6 +1241,15 @@
           "fresh": 5.0,
           "output": 25.0,
           "read": 0.5
+        },
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 25.0,
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1227,6 +1305,15 @@
           "fresh": 5.0,
           "output": 25.0,
           "read": 0.5
+        },
+        {
+          "create_1h": 10.0,
+          "create_5m": 6.25,
+          "fresh": 5.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 25.0,
+          "read": 0.5,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1356,6 +1443,15 @@
           "fresh": 3.0,
           "output": 15.0,
           "read": 0.3
+        },
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 15.0,
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1411,6 +1507,15 @@
           "fresh": 3.0,
           "output": 15.0,
           "read": 0.3
+        },
+        {
+          "create_1h": 6.0,
+          "create_5m": 3.75,
+          "fresh": 3.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 15.0,
+          "read": 0.3,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -1466,6 +1571,15 @@
           "fresh": 2.0,
           "output": 10.0,
           "read": 0.2
+        },
+        {
+          "create_1h": 4.0,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 10.0,
+          "read": 0.2,
+          "web_search": 0.01
         }
       ],
       "Azure": [
@@ -3039,6 +3153,26 @@
           "from": "2026-10-08T20:54:42Z",
           "output": 1.0302062636,
           "read": 0.0119537915
+        },
+        {
+          "band": {
+            "fresh": [
+              0.00099,
+              0.2
+            ],
+            "output": [
+              0.036931,
+              1.32
+            ],
+            "read": [
+              0.00099,
+              0.2
+            ]
+          },
+          "fresh": 0.0377781084,
+          "from": "2026-10-10T08:40:35Z",
+          "output": 1.0401721161,
+          "read": 0.0130726343
         }
       ],
       "Parasail": [
@@ -3718,6 +3852,12 @@
           "from": "2026-10-08T22:54:00Z",
           "output": 0.9393777552,
           "read": 0.013648054
+        },
+        {
+          "fresh": 0.0007,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 0.6,
+          "read": 0.005
         }
       ],
       "Sail Research": [
@@ -3793,6 +3933,33 @@
           "note": "51% off",
           "output": 0.588,
           "read": 0.00294
+        },
+        {
+          "fresh": 0.15,
+          "from": "2026-10-10T04:05:29Z",
+          "note": "50% off",
+          "output": 0.6,
+          "read": 0.003
+        },
+        {
+          "band": {
+            "fresh": [
+              0.141,
+              0.1808603947
+            ],
+            "output": [
+              0.564,
+              0.7234415787
+            ],
+            "read": [
+              0.00282,
+              0.0036172079
+            ]
+          },
+          "fresh": 0.1628164756,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 0.6512659024,
+          "read": 0.0032563295
         }
       ],
       "Together": [
@@ -4202,6 +4369,44 @@
           "from": "2026-10-10T01:54:15Z",
           "output": 1.2,
           "read": 0.029
+        },
+        {
+          "fresh": 0.05,
+          "from": "2026-10-10T03:50:30Z",
+          "output": 1.6,
+          "read": 0.049
+        },
+        {
+          "fresh": 0.05,
+          "from": "2026-10-10T06:10:27Z",
+          "output": 0.65,
+          "read": 0.049
+        },
+        {
+          "fresh": 0.05,
+          "from": "2026-10-10T08:35:34Z",
+          "output": 1.6,
+          "read": 0.01
+        },
+        {
+          "band": {
+            "fresh": [
+              0.0145,
+              0.145
+            ],
+            "output": [
+              0.3,
+              1.6
+            ],
+            "read": [
+              0.01,
+              0.06
+            ]
+          },
+          "fresh": 0.0685916521,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 0.8806477331,
+          "read": 0.0480212622
         }
       ]
     },
@@ -6710,6 +6915,152 @@
           "from": "2026-10-10T02:53:50Z",
           "output": 0.6,
           "read": 0.027
+        },
+        {
+          "fresh": 0.1066,
+          "from": "2026-10-10T03:00:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0853,
+          "from": "2026-10-10T03:10:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0648,
+          "from": "2026-10-10T03:20:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0615,
+          "from": "2026-10-10T03:40:53Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0492,
+          "from": "2026-10-10T03:50:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0472,
+          "from": "2026-10-10T04:00:30Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0482,
+          "from": "2026-10-10T04:30:28Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0492,
+          "from": "2026-10-10T04:50:27Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0502,
+          "from": "2026-10-10T05:10:33Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0513,
+          "from": "2026-10-10T05:30:52Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0533,
+          "from": "2026-10-10T05:40:53Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0554,
+          "from": "2026-10-10T06:00:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0574,
+          "from": "2026-10-10T06:10:27Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0595,
+          "from": "2026-10-10T06:30:28Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0615,
+          "from": "2026-10-10T06:50:31Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0646,
+          "from": "2026-10-10T07:10:29Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0677,
+          "from": "2026-10-10T07:20:26Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0697,
+          "from": "2026-10-10T07:40:31Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0718,
+          "from": "2026-10-10T08:10:27Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0748,
+          "from": "2026-10-10T08:30:52Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "fresh": 0.0779,
+          "from": "2026-10-10T08:50:39Z",
+          "output": 0.6,
+          "read": 0.027
+        },
+        {
+          "band": {
+            "fresh": [
+              0.0056,
+              0.1476
+            ],
+            "output": [
+              0.0182,
+              0.8048
+            ],
+            "read": [
+              0.0248877265,
+              0.027
+            ]
+          },
+          "fresh": 0.0599518981,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 0.4958003875,
+          "read": 0.0259406706
         }
       ],
       "Makora": [
@@ -11807,6 +12158,12 @@
           "fresh": 1.18,
           "from": "2026-09-27T20:50:53Z",
           "output": 4.4,
+          "read": 0.26
+        },
+        {
+          "fresh": 0.5,
+          "from": "2026-10-10T06:00:29Z",
+          "output": 6.0,
           "read": 0.26
         }
       ],
@@ -19710,6 +20067,26 @@
           "from": "2026-10-10T02:00:30Z",
           "output": 0.517440646,
           "read": 0.0349298978
+        },
+        {
+          "band": {
+            "fresh": [
+              0.04,
+              0.2
+            ],
+            "output": [
+              0.357,
+              0.75
+            ],
+            "read": [
+              0.015,
+              0.04
+            ]
+          },
+          "fresh": 0.1498219661,
+          "from": "2026-10-10T07:50:29Z",
+          "output": 0.503616088,
+          "read": 0.0337978475
         }
       ],
       "Near AI": [
@@ -24230,6 +24607,15 @@
           "note": "Cut -80%. From: OpenAI's post time, 20:12 Europe/Prague.",
           "output": 1.2,
           "read": 0.02
+        },
+        {
+          "create_1h": 0.25,
+          "create_5m": 0.25,
+          "fresh": 0.2,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 1.2,
+          "read": 0.02,
+          "web_search": 0.01
         }
       ]
     },
@@ -24351,6 +24737,15 @@
           "note": "Cut -20%. From: OpenAI's post time, 20:12 Europe/Prague.",
           "output": 12.0,
           "read": 0.2
+        },
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 12.0,
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -24445,6 +24840,15 @@
           "note": "Cache writes at 1.25x uncached input whatever the TTL; reads at 0.05x - the official cached-input price halves the older gpt-6 rows' 0.1x.",
           "output": 10.0,
           "read": 0.1
+        },
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 10.0,
+          "read": 0.1,
+          "web_search": 0.01
         }
       ]
     },
@@ -24491,6 +24895,15 @@
           "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
           "output": 50.0,
           "read": 1.0
+        },
+        {
+          "create_1h": 12.5,
+          "create_5m": 12.5,
+          "fresh": 10.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 50.0,
+          "read": 1.0,
+          "web_search": 0.01
         }
       ]
     },
@@ -24537,6 +24950,15 @@
           "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
           "output": 0.5,
           "read": 0.01
+        },
+        {
+          "create_1h": 0.125,
+          "create_5m": 0.125,
+          "fresh": 0.1,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 0.5,
+          "read": 0.01,
+          "web_search": 0.01
         }
       ]
     },
@@ -24583,6 +25005,15 @@
           "note": "Cache writes at 1.25x uncached input whatever the TTL, reads at 0.1x.",
           "output": 10.0,
           "read": 0.2
+        },
+        {
+          "create_1h": 2.5,
+          "create_5m": 2.5,
+          "fresh": 2.0,
+          "from": "2026-10-10T08:54:47Z",
+          "output": 10.0,
+          "read": 0.2,
+          "web_search": 0.01
         }
       ]
     },
@@ -29413,6 +29844,26 @@
           "from": "2026-10-09T19:56:22Z",
           "output": 14.27831721,
           "read": 0.3834024446
+        },
+        {
+          "band": {
+            "fresh": [
+              0.4,
+              1.73
+            ],
+            "output": [
+              13.0,
+              15.0
+            ],
+            "read": [
+              0.3,
+              0.45
+            ]
+          },
+          "fresh": 1.0056799632,
+          "from": "2026-10-10T07:55:32Z",
+          "output": 14.2895461162,
+          "read": 0.3874104797
         }
       ]
     },
