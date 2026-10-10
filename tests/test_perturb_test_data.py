@@ -61,7 +61,7 @@ perturb_module = _load()
 
 
 def _seed_doc() -> dict:
-    """One dated model row, one all-zero row, one scheduled provider row."""
+    """One dated model row, one all-zero row, two provider rows."""
     doc = build_seed_doc(
         models={
             "acme/acme-9": [
@@ -77,6 +77,7 @@ def _seed_doc() -> dict:
                             "schedule": [{"days": ["saturday", "sunday"],
                                           "start": 2200, "end": 200,
                                           "rates": RATES_B}]}],
+                "BareCo": [{"from": None, **RATES_A}],
             },
         },
         fetched="2026-06-01T00:00:00Z",
@@ -196,8 +197,7 @@ def test_the_irregular_factor_is_bounded_with_six_decimals(tmp_path):
 
 def test_two_rows_get_different_irregular_factors(tmp_path):
     _doc, perturbed, _text, _path = _run(tmp_path)
-    factors = [float(_note_factor(entries[-3]))
-               for entries in _histories(perturbed)]
+    factors = [float(_note_factor(e[-3])) for e in _histories(perturbed)]
     assert len(set(factors)) == len(factors)
 
 
@@ -258,7 +258,7 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     rows, _seed, _base = perturb_module.perturb_pricing(
         pricing_path, seed=int(NOW.timestamp()))
-    assert rows == 4, "the seed doc's four rate rows"
+    assert rows == 5, "the seed doc's five rate rows"
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert pricing.load_tables(perturbed)
     for entries in _histories(perturbed):
