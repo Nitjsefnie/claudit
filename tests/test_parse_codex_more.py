@@ -7,6 +7,7 @@ import pytest
 
 from backend import parse, parse_codex, pricing
 from backend.parse_codex import _change_churn, _diff_churn
+from backend.parse_codex_churn import _CODEX_CMD_ARGV, _codex_json_values
 
 from tests.test_parse_codex import (
     FIX,
@@ -451,6 +452,48 @@ def test_a_command_that_only_runs_tests_has_no_churn():
     by_name = [(t["tool_name"], t["lines_added"], t["lines_deleted"])
                for t in out["tool_uses"]]
     assert by_name[2] == ("exec_command", 0, 0)
+
+
+def _parse_shell_program(program):
+    lines = [
+        {"timestamp": "2026-06-14T12:00:01Z", "type": "turn_context",
+         "payload": {"model": "synthetic-codex-model"}},
+        {"timestamp": "2026-06-14T12:00:02Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call", "name": "exec",
+                     "call_id": "synthetic-shell-call", "input": program}},
+    ]
+    blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+    return parse.parse_file("codex/synthetic-shell.jsonl", blob)
+
+
+def test_monitor_command_text_is_not_scanned_as_a_second_argv():
+    shell = "cat > notes.txt <<'EOF'\ncommand: []\nstill outer\nEOF\n"
+    command = ["bash", "-lc", shell]
+    program = f"await tools.monitor({json.dumps({'command': command})});"
+
+    out = _parse_shell_program(program)
+
+    assert [(tool["tool_name"], tool["lines_added"], tool["lines_deleted"])
+            for tool in out["tool_uses"]] == [("monitor", 2, 0)]
+    # An extra empty argv adds zero churn, so assert the decoded boundary too.
+    assert list(_codex_json_values(program, _CODEX_CMD_ARGV)) == [command]
+
+
+@pytest.mark.parametrize(("api", "field", "malformed", "argv"), [
+    ("exec_command", "cmd", '"ignored\\q"', False),
+    ("monitor", "command", '["bash",]', True),
+])
+def test_malformed_command_json_does_not_hide_a_later_write(
+        api, field, malformed, argv):
+    shell = "cat > notes.txt <<'EOF'\nfirst\nsecond\nEOF\n"
+    value = ["bash", "-lc", shell] if argv else shell
+    program = (f"await tools.{api}({{{field}: {malformed}}});\n"
+               f"await tools.{api}({{{field}: {json.dumps(value)}}});")
+
+    out = _parse_shell_program(program)
+
+    assert [(tool["tool_name"], tool["lines_added"], tool["lines_deleted"])
+            for tool in out["tool_uses"]] == [(api, 2, 0)]
 
 
 def test_an_applied_patch_is_not_also_counted_from_its_program_text():
