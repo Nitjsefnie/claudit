@@ -204,6 +204,7 @@ def _session_total(per_model: list) -> dict:
                       "web_search")
         },
         "estimated_rate": any(m["estimated_rate"] for m in per_model),
+        "banded_rate": any(m["banded_rate"] for m in per_model),
     }
     total_in = (
         session_total["fresh"]

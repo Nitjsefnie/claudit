@@ -75,6 +75,20 @@ function EstimatedRateMark({ estimated }) {
   return <span className="muted" title={ESTIMATED_RATE_HINT}>~</span>;
 }
 
+// Shown next to a cost the backend priced through a provider row carrying
+// a `band` (`banded_rate`): the host's listed price oscillates inside a
+// recorded range, so the cost is the time-weighted mean of that range, not
+// a listed price (SV-RATE-REFRESH).
+const BANDED_RATE_HINT =
+  'Banded rate — this host’s listed price oscillates inside a recorded ' +
+  'range, so the cost shown is the time-weighted mean of that range, not a ' +
+  'listed price.';
+
+function BandedRateMark({ banded }) {
+  if (!banded) return null;
+  return <span className="muted" title={BANDED_RATE_HINT}>≈</span>;
+}
+
 function PerModelTable({ rows, sessionTotal }) {
   const fmt = window.humanFmt;
   const allRows = [
@@ -109,7 +123,11 @@ function PerModelTable({ rows, sessionTotal }) {
             <td>{fmt(r.eph5)}</td>
             <td>{fmt(r.eph1h)}</td>
             <td>{r.hit_rate_pct.toFixed(1)}%</td>
-            <td><EstimatedRateMark estimated={r.estimated_rate} />${r.cost_total.toFixed(2)}</td>
+            <td>
+              <EstimatedRateMark estimated={r.estimated_rate} />
+              <BandedRateMark banded={r.banded_rate} />
+              ${r.cost_total.toFixed(2)}
+            </td>
           </tr>
         ))}
       </tbody>

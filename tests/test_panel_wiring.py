@@ -171,6 +171,15 @@ def test_cost_by_context_hover_matches_the_reference():
 APP = ROOT / "src" / "app.jsx"
 SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
 FETCH = ROOT / "src" / "dashboard-fetch.js"
+CACHE_VIEW = ROOT / "src" / "views" / "cache-view.jsx"
+
+
+def test_cache_view_marks_a_banded_rate():
+    """Issue #666: a banded cost is a time-weighted mean, not a listed price."""
+    src = _strip_line_comments(CACHE_VIEW.read_text(encoding="utf-8"))
+    assert "banded_rate" in src and "function BandedRateMark(" in src
+    assert "<BandedRateMark banded={r.banded_rate}" in src
+
 
 # Every token/churn panel in the main dash-grid, and the guard that must
 # gate it. An UNGATED panel draws a flat empty plot for any dataset whose

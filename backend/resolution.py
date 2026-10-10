@@ -21,6 +21,10 @@ class Resolution:
     # for this record's own time: a fold re-deriving cost at one
     # representative time cannot reproduce them (SV-RATE-DATA).
     scheduled: bool = False
+    # True when the rates came from a provider history entry carrying a
+    # `band`: the entry's five rates are the band's time-weighted mean over
+    # the window that formed it, not a listed price (SV-RATE-REFRESH).
+    banded: bool = False
 
     @property
     def estimated(self) -> bool:

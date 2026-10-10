@@ -87,6 +87,10 @@ def _empty_model_entry(model: str) -> dict:
         # OR of every folded row's resolution, so an entry is an estimate
         # when any of its rows priced at a guessed rate.
         "estimated_rate": False,
+        # OR of every folded row's band flag, so an entry whose rows priced
+        # through a banded provider row (a time-weighted mean, not a listed
+        # price) is surfaced (SV-RATE-REFRESH).
+        "banded_rate": False,
         "_buckets": {
             "fresh": 0.0, "create_5m": 0.0, "create_1h": 0.0,
             "read": 0.0, "output": 0.0, "web_search": 0.0,
@@ -143,6 +147,7 @@ def _accumulate_model_row(
     model, provider, tokens, res = _model_row_pricing(row, pair_bounds)
     entry = _model_entry(acc, model, provider, by_provider)
     entry["estimated_rate"] = entry["estimated_rate"] or res.estimated
+    entry["banded_rate"] = entry["banded_rate"] or res.banded
     entry["turns"] += int(row[4] or 0)
     for field, value in tokens.items():
         entry[field] += value

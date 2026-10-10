@@ -78,6 +78,44 @@ def test_two_providers_of_one_model_price_differently(monkeypatch):
     assert host_a != pricing.rate_for("acme/v9", SEEDED, provider="HostB")
 
 
+# Issue #666: a banded provider entry's five rates are the time-weighted mean
+# of a range the host oscillates inside, not a listed price, so resolve()
+# reports the mean was used (SV-RATE-REFRESH, #640's ruling).
+_BAND_RATES = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
+               "read": 0.015, "output": 0.75}
+_BAND = {"fresh": [0.05, 0.9], "create_5m": [0.05, 0.9],
+         "create_1h": [0.05, 0.9], "read": [0.005, 0.09],
+         "output": [0.25, 2.9]}
+
+
+def test_resolve_reports_a_banded_provider_entry(monkeypatch):
+    pair = ("acme/banded-9", "HostA")
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {**pricing.PROVIDER_DATED_RATES, pair: []})
+    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
+                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+    assert pricing.resolve(pair[0], SEEDED, pair[1]).banded is True
+    # The list-price path (no ts) reports the banded list entry too.
+    assert pricing.resolve(pair[0], None, pair[1]).banded is True
+
+
+def test_resolve_reports_banded_false_for_an_unbanded_row(monkeypatch):
+    pair = ("acme/unbanded-9", "HostA")
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {**pricing.PROVIDER_DATED_RATES, pair: []})
+    monkeypatch.setattr(pricing, "PROVIDER_BANDS", dict(pricing.PROVIDER_BANDS))
+    assert pricing.resolve(pair[0], SEEDED, pair[1]).banded is False
+    # A models-table (non-provider) resolve carries no band.
+    monkeypatch.setattr(pricing, "MODEL_RATES",
+                        {**pricing.MODEL_RATES, "synthetic-table-9": _BAND_RATES})
+    monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
+    assert pricing.resolve("synthetic-table-9", SEEDED).banded is False
+
+
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
     # A host that lists no write price is charged the input rate for the
     # write, never a free one: every seeded HOST row's create buckets

@@ -297,19 +297,31 @@ def _scheduled(schedule: list[ScheduleWindow], ts: datetime) -> dict | None:
     return None
 
 
-def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, bool]:
-    """A provider row's rates at `ts`, and whether a schedule set them."""
-    windows = PROVIDER_DATED_RATES.get(pkey)
-    rates = _in_window(windows, ts, PROVIDER_RATES[pkey])
+def _entry_index(windows: Windows | None, ts: datetime | None) -> int:
+    """The provider history entry in force at `ts` — the index
+    PROVIDER_SCHEDULES and PROVIDER_BANDS are keyed by. The list (newest)
+    entry is the count of dated windows; a naive instant is read as UTC."""
     if ts is None:
-        return rates, False
+        return len(windows or [])
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
-    entry = sum(1 for end, _ in windows or [] if end <= ts)
+    return sum(1 for end, _ in windows or [] if end <= ts)
+
+
+def _provider_rates(pkey: tuple[str, str], ts: datetime | None
+                    ) -> tuple[dict, bool, bool]:
+    """A provider row's rates at `ts`, whether a schedule set them, and
+    whether the entry in force carries a band (a time-weighted mean)."""
+    windows = PROVIDER_DATED_RATES.get(pkey)
+    rates = _in_window(windows, ts, PROVIDER_RATES[pkey])
+    entry = _entry_index(windows, ts)
+    banded = entry in PROVIDER_BANDS.get(pkey, {})
+    if ts is None:
+        return rates, False, banded
     schedule = PROVIDER_SCHEDULES.get(pkey, {}).get(entry)
     if schedule is None:
-        return rates, False
-    return {**rates, **(_scheduled(schedule, ts) or {})}, True
+        return rates, False, banded
+    return {**rates, **(_scheduled(schedule, ts) or {})}, True, banded
 
 
 def _dated(key: str, ts: datetime | None) -> dict:
@@ -360,8 +372,8 @@ def resolve(model: str | None, ts: datetime | None = None,
         norm = _fold_vendor_prefix(norm)
     pkey = _provider_key(norm, provider, ts) if provider else None
     if pkey is not None:
-        rates, scheduled = _provider_rates(pkey, ts)
-        return Resolution(rates, "exact", pkey[0], scheduled)
+        rates, scheduled, banded = _provider_rates(pkey, ts)
+        return Resolution(rates, "exact", pkey[0], scheduled, banded)
     key = _match_key(norm)
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)
@@ -371,9 +383,10 @@ def resolve(model: str | None, ts: datetime | None = None,
         if row in PROVIDER_RATES:
             start = PROVIDER_STARTS.get(row)
             if not (start is not None and ts is not None and ts < start):
-                rates = _in_window(PROVIDER_DATED_RATES.get(row), ts,
-                                   PROVIDER_RATES[row])
-                return Resolution(rates, "exact", vkey, False)
+                windows = PROVIDER_DATED_RATES.get(row)
+                rates = _in_window(windows, ts, PROVIDER_RATES[row])
+                banded = _entry_index(windows, ts) in PROVIDER_BANDS.get(row, {})
+                return Resolution(rates, "exact", vkey, False, banded)
     for pattern, rates in _tier_fallbacks():
         if pattern.search(norm):
             return Resolution(rates, "tier")
