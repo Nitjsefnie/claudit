@@ -25,7 +25,6 @@ from contextlib import closing
 from pathlib import Path
 
 import psycopg
-import pytest
 
 # Reuses the API suite's fresh-DB + mini-R2 fixtures rather than standing
 # up a second one; having the function objects in this module's globals is
@@ -82,14 +81,18 @@ def _counting_conn(real_ctx, log):
         yield _CountingCursor(conn, log)
 
 
-@pytest.fixture(name="statement_log")
-def _statement_log_fixture(monkeypatch):
+def _log_statements(monkeypatch):
     """Record every SQL statement the read endpoints run, per request.
 
-    `db.viz_conn` is the single seam every panel query goes through; the
-    proxy logs the SQL text and delegates. Patching the `db` name as seen
-    by api_dashboard and api_ctx_growth too is belt-and-braces (they are
-    the same module object), so a future refactor to a module-level
+    A plain helper, not a fixture: `db.viz_conn` is the single seam every
+    panel query goes through, but the proxy only LOGS — it hands no test a
+    database — so registering it in db_marker.DB_FIXTURES would over-mark
+    (every fixture there creates a database). tests/test_db_marker.py
+    roots fixtures by their source, so a plain helper roots nothing.
+
+    The proxy logs the SQL text and delegates. Patching the `db` name as
+    seen by api_dashboard and api_ctx_growth too is belt-and-braces (they
+    are the same module object), so a future refactor to a module-level
     ``from backend.db import viz_conn`` cannot slip past the count.
     """
     log: list[str] = []
@@ -104,13 +107,14 @@ def _statement_log_fixture(monkeypatch):
     return log
 
 
-def test_dashboard_runs_no_context_trace_query(app_with_data, statement_log):
+def test_dashboard_runs_no_context_trace_query(app_with_data, monkeypatch):
     """Opening the dashboard must not run the panel's trace query.
 
     `file_models` is the trace SQL's distinctive CTE (a records scan
     grouped per file); its presence means the full per-file trace query
     ran — exactly what the ctx_at_end fold no longer needs (issue #838).
     """
+    statement_log = _log_statements(monkeypatch)
     cache.response_cache.clear()
     r = app_with_data.get("/api/dashboard?range=all")
     assert r.status_code == 200
@@ -126,9 +130,10 @@ def test_dashboard_runs_no_context_trace_query(app_with_data, statement_log):
 
 
 def test_opening_the_dashboard_runs_the_trace_query_at_most_once(
-        app_with_data, statement_log):
+        app_with_data, monkeypatch):
     """A dashboard open plus a panel open runs the trace query ONCE — the
     panel's own fetch. The dashboard contributes none (issue #838)."""
+    statement_log = _log_statements(monkeypatch)
     cache.response_cache.clear()
     app_with_data.get("/api/dashboard?range=all")
     after_dashboard = len(statement_log)
