@@ -288,15 +288,13 @@ def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     either `setTraces(b.traces || [])` or `setTraces(b.traces)`. A
     `/* ... */` block comment, or a free-standing `//` line comment,
     spelling the routing does not satisfy it — those are stripped before
-    matching. (Residual the strip leaves: a `//` glued to a word character
-    is not removed, so a comment of that shape spelling the routing could
-    still satisfy the positive.)
+    matching.
 
-    The NEGATIVE assertion is a best-effort second net, not a proof. It
-    scans SAME-LINE `.then(...)` handlers in the FIRST traces-fetch effect
-    only: a multi-line handler, a second traces-fetch effect, and a `//`
-    comment glued to a word character are all outside what it can see. It
-    does cover a spaced `setTraces (`.
+    The NEGATIVE assertion is a best-effort second net ONLY. It is not a
+    proof of coverage and no set of blind spots is claimed for it: it flags
+    a direct `setTraces(...)` call visible in the scanned region, including
+    a spaced `setTraces (`, and it makes no claim about what it does not
+    see.
     """
     effect = _traces_effect_src()
     assert re.search(
