@@ -278,23 +278,12 @@ def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     `window.deferred.run`, not call it in the commit that lands the fetch
     (issue #838).
 
-    This is a source-level pin on purpose: node cannot parse the JSX and
-    nothing in the suite renders React, so the deferral is invisible to
-    every behavioural test — the routing can be deleted and nothing else
-    fails.
-
     The POSITIVE assertion is the pin: it matches the deferred call in the
     first traces-fetch effect, so it fails when the routing is reverted to
     either `setTraces(b.traces || [])` or `setTraces(b.traces)`. A
     `/* ... */` block comment, or a free-standing `//` line comment,
     spelling the routing does not satisfy it — those are stripped before
     matching.
-
-    The NEGATIVE assertion is a best-effort second net ONLY. It is not a
-    proof of coverage and no set of blind spots is claimed for it: it flags
-    a direct `setTraces(...)` call visible in the scanned region, including
-    a spaced `setTraces (`, and it makes no claim about what it does not
-    see.
     """
     effect = _traces_effect_src()
     assert re.search(
