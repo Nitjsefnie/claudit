@@ -32,9 +32,9 @@ def test_gzip_middleware_uses_level_six():
     entries = [m for m in app.user_middleware if m.cls is _SelectiveGZip]
     assert entries, "_SelectiveGZip is not installed on the app"
     kwargs = entries[0].kwargs
-    assert kwargs["compresslevel"] == 6, (
+    assert kwargs.get("compresslevel") == 6, (
         f"gzip compresslevel is {kwargs.get('compresslevel')!r}, not 6")
-    assert kwargs["minimum_size"] == 1024, (
+    assert kwargs.get("minimum_size") == 1024, (
         f"gzip minimum_size is {kwargs.get('minimum_size')!r}, not 1024")
 
 
