@@ -8,8 +8,9 @@ needs document the workflow passes in as JSON:
 
 - a leg's `success` passes, and so does its `skipped` when and only
   when a classifier output narrowed it — `docs_only` skips every leg,
-  `data_only` skips every leg outside CHEAP_LEGS — so narrowing runs
-  still report without any check ever going missing;
+  `data_only` skips every leg outside CHEAP_LEGS, `comment_only` skips
+  exactly COMMENT_ONLY_SKIPPED (the legs a comment cannot affect) — so
+  narrowing runs still report without any check ever going missing;
 - any other result (`failure`, `cancelled`, anything unrecognised)
   fails the aggregate and is named in the verdict;
 - a leg the document lacks at all fails it too, so the fold and the
@@ -55,6 +56,12 @@ FAILED = 'failed'
 # (tests/test_workflow_ci_gate.py, issue #455).
 CHEAP_LEGS = frozenset({'lint', 'smoke'})
 
+# The legs the comment-only class skips: the perturbed-data leg, the
+# panel-layout guard and codeql, none of which a comment can affect. The
+# workflow narrows exactly these (and the portable matrix inside
+# tests.yml), pinned in lockstep by tests/test_workflow_ci_gate.py.
+COMMENT_ONLY_SKIPPED = frozenset({'test-data', 'panel-layout', 'codeql'})
+
 
 def _classify_output(needs, name):
     """A classifier output, read fail-closed."""
@@ -77,15 +84,23 @@ def data_only(needs):
     return _classify_output(needs, 'data_only')
 
 
+def comment_only(needs):
+    """The classifier's comment_only output, read fail-closed."""
+    return _classify_output(needs, 'comment_only')
+
+
 def _narrowed(name, needs):
     """Whether classification legitimately skips leg `name`.
 
     A docs-only run skips every leg; a data-only run skips every leg
-    OUTSIDE the cheap set — lint and smoke are why the class exists.
+    OUTSIDE the cheap set — lint and smoke are why the class exists; a
+    comment-only run skips exactly the legs a comment cannot affect.
     """
     if docs_only(needs):
         return True
-    return data_only(needs) and name not in CHEAP_LEGS
+    if data_only(needs) and name not in CHEAP_LEGS:
+        return True
+    return comment_only(needs) and name in COMMENT_ONLY_SKIPPED
 
 
 def fold(needs):
@@ -128,6 +143,15 @@ def decide(needs):
             return PASSED, (
                 f'data-only change: {len(skipped)} gate legs skipped by '
                 f'classification ({joined}); cheap legs ran ({cheap})')
+        if comment_only(needs):
+            skipped = sorted(name for name, result in entries
+                             if result == 'skipped')
+            joined = ', '.join(skipped)
+            legs = ', '.join(sorted(COMMENT_ONLY_SKIPPED))
+            return PASSED, (
+                f'comment-only change: {len(skipped)} gate legs skipped by '
+                f'classification ({joined}); the legs a comment cannot '
+                f'affect were skipped ({legs})')
         # One sentence, naming no legs: the per-leg results are the
         # table's job (issue #517) -- the enumeration read twice.
         return PASSED, f'all {len(entries)} legs succeeded'
@@ -150,6 +174,8 @@ def render(needs, verdict, message):
         f'{"true" if _classify_output(needs, "docs_only") else "false"}',
         f'data-only narrowing: '
         f'{"true" if _classify_output(needs, "data_only") else "false"}',
+        f'comment-only narrowing: '
+        f'{"true" if _classify_output(needs, "comment_only") else "false"}',
     ]
     classify = needs.get('classify')
     reason = ((classify or {}).get('outputs') or {}).get('reason')
@@ -170,6 +196,8 @@ def render(needs, verdict, message):
                 note = ' (docs-only narrowing)'
             elif data_only(needs) and name not in CHEAP_LEGS:
                 note = ' (data-only narrowing)'
+            elif comment_only(needs) and name in COMMENT_ONLY_SKIPPED:
+                note = ' (comment-only narrowing)'
         lines.append(f'| {name} | {result}{note} |')
     return '\n'.join(lines) + '\n'
 
