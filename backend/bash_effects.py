@@ -386,9 +386,14 @@ def _pipeline_payloads(tokens: list[ShellWord], inherited: bool | None) -> list[
             stage.append(token)
             continue
         args, sink, stdin_replaced = _redirects(stage)
-        empty_input = any(t.operator and t in ("<&", "0<&", "<", "0<")
-                          and i + 1 < len(stage) and stage[i + 1] in ("-", "/dev/null")
-                          for i, t in enumerate(stage))
+        # An input redirect whose fd folds to stdin (`<`, `<&`, `0<`,
+        # `0<&`, a zero-padded spelling included) from `-`/`/dev/null`
+        # empties the input; `1<`/`01<` open fd 1, never stdin.
+        empty_input = any(
+            _fold_fd(m.group(1)) in ("", "0")
+            and i + 1 < len(stage) and stage[i + 1] in ("-", "/dev/null")
+            for i, t in enumerate(stage) if t.operator
+            for m in (re.fullmatch(r"([0-9]*)(<&?)", t),) if m)
         # `for m in (...) if m` binds the match without a walrus, so no
         # function-level local is added (pylint R0914 on this function).
         other_sink = any(
