@@ -82,7 +82,7 @@ def select_region(where: str, listed: list[Listing], region: str | None,
     spellings here; a named region needs no such preference, its own tag
     being the one the filter keeps. An explicit resolution suppresses both,
     and decides for itself."""
-    kept = [endpoint for endpoint in listed if tag_region(endpoint.tag) == region]
+    kept = [endpoint for endpoint in listed if _account_region(endpoint.tag) == region]
     if pin is None:
         if region is None:
             preferred = _global_choice(where, kept, listed)
@@ -91,6 +91,12 @@ def select_region(where: str, listed: list[Listing], region: str | None,
         if len(kept) < len(listed) and len(price_groups(kept)) == 1:
             return _filtered_choice(where, kept, listed, region)
     return RegionSelection(kept, None, None)
+
+
+def _account_region(tag: str) -> str | None:
+    """Map the recognized global marker to the account's geographic sentinel."""
+    marker = tag_region(tag)
+    return None if marker == "global" else marker
 
 
 def _global_choice(where: str, kept: list[Listing],
@@ -150,7 +156,7 @@ def _filtered_choice(where: str, kept: list[Listing], listed: list[Listing],
     chosen_group = price_groups(kept)[0]
     chosen = _region_endpoint(chosen_group, region)
     excluded = sorted({endpoint.tag for endpoint in listed
-                       if tag_region(endpoint.tag) != region})
+                       if _account_region(endpoint.tag) != region})
     detail = f"the {_region_name(region)} data region leaves {chosen.tag!r}"
     if excluded:
         detail += f"; dropped {', '.join(repr(tag) for tag in excluded)}"
