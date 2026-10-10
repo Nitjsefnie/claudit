@@ -41,9 +41,13 @@ def test_exit_marker_payloads(command, expected):
 
 @pytest.mark.parametrize("redirect", [
     "< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt",
+    "00< /dev/null", "000< /dev/null", "00<&-",
+    "1< /dev/null", "01< /dev/null",
 ])
 def test_receiving_stdin_redirect_severs_exit_marker(redirect):
-    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0 if redirect in ('< /dev/null', '<&-') else 1, 0)
+    emptied = redirect in ("< /dev/null", "<&-", "00< /dev/null",
+                           "000< /dev/null", "00<&-")
+    assert bash_churn('echo "EXIT=$?" | tee out.txt ' + redirect) == (0 if emptied else 1, 0)
 
 
 def test_receiving_heredoc_replaces_exit_marker():
