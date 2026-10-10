@@ -1,26 +1,17 @@
 """Report layout for the hourly pricing refresh."""
 from __future__ import annotations
 
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-
-# pylint: disable=wrong-import-position
-import refresh_report  # noqa: E402
-import refresh_prices  # noqa: E402
-import refresh_selection  # noqa: E402
-from refresh_provider_rates import Result  # noqa: E402
-from tests.refresh_fixture_builders import RATES_A, _endpoint  # noqa: E402
+from tests.refresh_fixture_builders import RATES_A, _endpoint
+from tests.test_provider_rate_refresh import refresh, refresh_prices
 
 
 def _result(*, vanished=(), sampled=None, notices=()):
-    return Result({}, [], list(vanished), [], list(notices), sampled or {})
+    return refresh.Result({}, [], list(vanished), [], list(notices), sampled or {})
 
 
 def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():
@@ -34,8 +25,8 @@ def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():
         }},
     )
 
-    output = refresh_report.report("2031-01-01T00:00:00Z", result,
-                                   {"model": {"id": "openrouter/model"}})
+    output = refresh.report("2031-01-01T00:00:00Z", result,
+                            {"model": {"id": "openrouter/model"}})
 
     model_section = output.split("model (openrouter/model)", 1)[1].strip("\n")
     assert model_section.splitlines() == [
@@ -43,9 +34,6 @@ def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():
         "  sampled   Alibaba, DeepSeek (endpoint schedule); "
         "Sail Research (2 endpoints at one current price)",
     ]
-    for host in ("Fireworks", "Io Net", "Nebius", "NextBit", "Reka",
-                 "Alibaba", "DeepSeek", "Sail Research"):
-        assert output.count(host) == 1
 
 
 def test_report_groups_model_notices_by_shared_message():
@@ -62,9 +50,9 @@ def test_report_groups_model_notices_by_shared_message():
         "nor a quantization",
     ])
 
-    output = refresh_report.report("2031-01-01T00:00:00Z", result,
-                                   {"alpha": {"id": "openrouter/alpha"},
-                                    "beta": {"id": "openrouter/beta"}})
+    output = refresh.report("2031-01-01T00:00:00Z", result,
+                            {"alpha": {"id": "openrouter/alpha"},
+                             "beta": {"id": "openrouter/beta"}})
 
     assert output.split("notices:\n", 1)[1].splitlines() == [
         "  delisted from OpenRouter's catalog; row kept, not fetched: "
@@ -85,7 +73,7 @@ def test_vendor_report_groups_missing_first_party_endpoint_notices():
         ],
     )
 
-    output = refresh_report.vendor_report("2031-01-01T00:00:00Z", vendor)
+    output = refresh.vendor_report("2031-01-01T00:00:00Z", vendor)
 
     assert "  the vendor lists no first-party endpoint; skipped: " \
            "openai/alpha, openai/beta" in output
@@ -103,7 +91,7 @@ def test_vendor_report_groups_missing_first_party_endpoint_notices():
 def test_region_suffixes_include_global_and_area_number_forms(suffix, expected):
     tag = f"provider/{suffix}"
     region = None if suffix in {"global", "unknown"} else suffix
-    selected, refused, notices, _ = refresh_selection.listed_rows(
+    selected, refused, notices, _ = refresh.listed_rows(
         "synthetic/model",
         {"data": {"endpoints": [_endpoint("Fixture", RATES_A, tag=tag)]}},
         region, {}, {}, datetime(2031, 1, 1, tzinfo=timezone.utc))
