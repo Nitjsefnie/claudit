@@ -114,8 +114,8 @@ def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
 
 
 def project_traces(rows: list) -> list[dict]:
-    """Wire projection shared with the dashboard build: {model, turns},
-    turns flattened to positionally-indexed ctx ints."""
+    """The traces endpoint's wire projection: {model, turns}, turns
+    flattened to positionally-indexed ctx ints."""
     return [
         {
             "model": model or "",
