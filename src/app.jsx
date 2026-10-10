@@ -379,12 +379,12 @@ function App() {
   }, [backendOn]);
 
   const liveData = useMemo(() => tx ? txToDashData(tx) : null, [tx]);
-  // Memoised: this re-maps every hourly bucket, session and ctx trace in
-  // the payload (~8.9k traces at range=all) into fresh objects. Called
-  // inline in render it re-ran on EVERY state change — /api/me,
-  // /api/projects, /api/models and each SSE tick — and the new object
-  // identities invalidated every useMemo inside Dashboard, re-rendering
-  // all panels each time.
+  // Memoised: this re-maps every hourly bucket and session in the
+  // payload into fresh objects. (The per-file ctx traces left this
+  // payload in #644, so this fold no longer sees them.) Called inline
+  // in render it re-ran on EVERY state change — /api/me, /api/projects,
+  // /api/models and each SSE tick — and the new object identities
+  // invalidated every useMemo inside Dashboard, re-rendering all panels.
   const dashData = useMemo(
     () => (backendDash
       ? backendDashToShape(backendDash)
@@ -614,9 +614,9 @@ function backendDashToShape(b) {
       requests: s.requests,
       model: short(s.model),
       models_used: (s.models_used || []).map(short),
-      // No `turns`: the per-session ctx trace is already in ctx_traces,
-      // which this panel prefers. ctx_at_end (derived from it server-side)
-      // is what the burn-rate dot scaling actually needs.
+      // No `turns`: the per-session ctx trace belongs to the Context
+      // Growth panel, which fetches /api/context-growth/traces itself
+      // (issue #644). ctx_at_end (folded server-side) is what the dot needs.
     };
   });
   return {
