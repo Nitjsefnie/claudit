@@ -72,6 +72,7 @@ def test_explicit_names_every_convention_read_config():
         "requirements-test.txt",
         "requirements-pip-audit.txt",
         "requirements-zizmor.txt",
+        "package-lock.json",
         ".pylintrc",
         "setup.cfg",
         "pyrightconfig.json",

@@ -147,6 +147,10 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
     # module's CHEAP_LEGS, so a leg cannot change class in one place.
     cheap = _aggregate_module().CHEAP_LEGS
     assert set(cheap) == {"lint", "smoke"}
+    # Issue #844: the legs a comment cannot affect additionally read the
+    # comment-only output, so a comment-only change skips exactly them.
+    comment_skipped = _aggregate_module().COMMENT_ONLY_SKIPPED
+    assert set(comment_skipped) == {"test-data", "panel-layout", "codeql"}
     doc = _ci_gate()
     for leg in LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""
@@ -154,9 +158,13 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
             assert gate == (
                 "needs.classify.outputs.docs_only != 'true'"), leg
         else:
-            assert gate == (
+            expected = (
                 "needs.classify.outputs.docs_only != 'true' "
-                "&& needs.classify.outputs.data_only != 'true'"), leg
+                "&& needs.classify.outputs.data_only != 'true'")
+            if leg in comment_skipped:
+                expected += (
+                    " && needs.classify.outputs.comment_only != 'true'")
+            assert gate == expected, leg
 
 
 def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():

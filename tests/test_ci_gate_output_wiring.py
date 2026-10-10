@@ -67,7 +67,9 @@ REFERENCE = re.compile(r"needs\.classify\.outputs\.([A-Za-z_][A-Za-z0-9_-]*)")
 CONJUNCT = (r"needs\.classify\.outputs\.([A-Za-z_][A-Za-z0-9_-]*)"
             r" != 'true'")
 CONJUNCT_RE = re.compile(CONJUNCT)
-EVALUABLE = re.compile(rf"^{CONJUNCT}(?: && {CONJUNCT})?$")
+# One or more conjuncts joined by `&&`: the comment-only class adds a
+# third narrowing output to some legs' conditions.
+EVALUABLE = re.compile(rf"^(?:{CONJUNCT})(?: && {CONJUNCT})*$")
 
 # The stub `gh`: the classifier shells out to it, so the reads it
 # decides on are answered here. The push path reads three endpoints —
@@ -92,6 +94,15 @@ if "/runs?" in url:
     print("{head} completed success 4242")
 elif "/jobs?" in url:
     print("tests success")
+elif "/contents/" in url:
+    # A raw blob read for the comment-only class: the path's text at the
+    # ref the classifier asked for (the verified base or the head).
+    path = url.split("/contents/", 1)[1].split("?", 1)[0]
+    ref = url.split("ref=", 1)[1] if "ref=" in url else ""
+    contents = {base_contents!r} if ref == {base!r} else {head_contents!r}
+    if path not in contents:
+        sys.exit("stub gh: no content for " + url)
+    sys.stdout.write(contents[path])
 elif "/compare/" in url:
     for path in {paths!r}:
         print(path)
@@ -120,16 +131,19 @@ def _legs(gate):
             if name not in ("classify", "aggregate")}
 
 
-def _stub_gh(directory, paths):
+def _stub_gh(directory, paths, base_contents=None, head_contents=None):
     """An executable stub `gh` on PATH that answers the push-path reads."""
     script = directory / "gh"
-    script.write_text(STUB_GH.format(head=BEFORE, paths=list(paths)),
-                      encoding="utf-8")
+    script.write_text(STUB_GH.format(
+        head=BEFORE, paths=list(paths), base=BEFORE,
+        base_contents=base_contents or {}, head_contents=head_contents or {}),
+        encoding="utf-8")
     script.chmod(0o755)
     return script
 
 
-def _run_classifier(tmp_path, paths=None, writes=True):
+def _run_classifier(tmp_path, paths=None, writes=True, base_contents=None,
+                    head_contents=None):
     """Run the classifier on a push event over the stub `gh`.
 
     PR_NUMBER is empty and BEFORE_SHA is a 40-hex commit, the shape of
@@ -165,7 +179,7 @@ def _run_classifier(tmp_path, paths=None, writes=True):
         "BEFORE_SHA": BEFORE,
         "GITHUB_OUTPUT": target,
     })
-    _stub_gh(tmp_path, paths)
+    _stub_gh(tmp_path, paths, base_contents, head_contents)
     completed = subprocess.run([sys.executable, str(CLASSIFIER)], env=env,
                                capture_output=True, text=True,
                                check=writes, timeout=120)
@@ -180,7 +194,7 @@ def _run_classifier(tmp_path, paths=None, writes=True):
 # it would arrive as the same fail-closed over-run the narrowing decision
 # makes, and every assertion below would pass on an answer the harness
 # never gave.
-MODELLED_READS = ("/runs?", "/jobs?", "/compare/")
+MODELLED_READS = ("/runs?", "/jobs?", "/compare/", "/contents/")
 
 
 def _only_modelled_reads(run):
@@ -338,6 +352,38 @@ def test_a_code_push_runs_every_leg_end_to_end(tmp_path):
     _over_the_verified_base(run)
     assert outputs.get("reason", "").startswith("2 paths changed, 2 outside")
     assert _gating_legs(outputs) == set(_legs(_ci_gate()))
+
+
+# A comment-only push: two source files whose head text differs from the
+# base ONLY by comments, so the comment-stripped token streams are equal.
+COMMENT_ONLY_PATHS = ["backend/alpha.py", "backend/beta.py"]
+COMMENT_ONLY_BASE = {
+    "backend/alpha.py": "def f():\n    return 1\n",
+    "backend/beta.py": "VALUE = 2\n",
+}
+COMMENT_ONLY_HEAD = {
+    "backend/alpha.py": "def f():\n    # explain\n    return 1\n",
+    "backend/beta.py": "VALUE = 2  # doubled\n",
+}
+
+
+def test_a_comment_only_push_skips_the_behaviour_legs_end_to_end(tmp_path):
+    # Issue #844: a change whose source files strip to an identical token
+    # stream runs only the legs a comment cannot affect. The comment-only
+    # class skips test-data, panel-layout and codeql (and the portable
+    # matrix inside tests.yml via the input), so the running set is the
+    # legs minus those three.
+    run = _run_classifier(tmp_path, paths=COMMENT_ONLY_PATHS,
+                          base_contents=COMMENT_ONLY_BASE,
+                          head_contents=COMMENT_ONLY_HEAD)
+    _only_modelled_reads(run)
+    _over_the_verified_base(run)
+    outputs = _parse_step_outputs(run.written)
+    assert outputs.get("comment_only") == "true", outputs
+    assert _published(outputs).get("comment_only") == "true", outputs
+    assert outputs.get("reason", "").startswith("comment-only change")
+    expected = set(_legs(_ci_gate())) - {"test-data", "panel-layout", "codeql"}
+    assert _gating_legs(outputs) == expected
 
 
 def test_a_docs_push_skips_every_leg_end_to_end(tmp_path):

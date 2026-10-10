@@ -86,7 +86,7 @@ def test_data_only_refuses_either_half_alone():
 
 
 def test_classify_the_bots_signature_gets_the_cheap_class():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "src/pricing.json\nbackend/constants.py\n",
     )
@@ -97,7 +97,7 @@ def test_classify_the_bots_signature_gets_the_cheap_class():
 def test_classify_mixed_pricing_json_and_code_runs_everything():
     # The class is the SET of changed paths, never individual files: one
     # code file beside the data file is a full run.
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "src/pricing.json\nbackend/app.py\n",
     )
@@ -106,7 +106,7 @@ def test_classify_mixed_pricing_json_and_code_runs_everything():
 
 
 def test_classify_pricing_json_beside_docs_runs_everything():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "src/pricing.json\nREADME.md\n",
     )
@@ -116,11 +116,11 @@ def test_classify_pricing_json_beside_docs_runs_everything():
 
 def test_write_outputs_records_the_data_only_narrowing(tmp_path):
     out = tmp_path / "output.txt"
-    classify.write_outputs(str(out), False, True,
+    classify.write_outputs(str(out), False, True, False,
                            "bot-data-only change: 1 paths")
     assert out.read_text(encoding="utf-8") == (
         "docs_only=false\n"
-        "data_only=true\n"
+        "data_only=true\n" "comment_only=false\n"
         "reason=bot-data-only change: 1 paths\n"
     )
 
