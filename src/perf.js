@@ -35,7 +35,8 @@
   // is a 400, so a typo in a call site reports nothing rather than
   // sending a batch that takes every other beacon in it down.
   const JOURNEYS = ['dashboard_open', 'inspector_open', 'signin'];
-  const REGIONS = ['panel_grid', 'inspector', 'signin', 'topbar', 'project_picker', 'other'];
+  const REGIONS = ['panel_grid', 'inspector', 'signin', 'topbar',
+    'project_picker', 'range_picker', 'summary_strip', 'other'];
 
   // #717: a shift inside one panel names the panel, not just the grid.
   // The closed set of `data-panel` titles the dashboard renders, kept as
@@ -262,9 +263,12 @@
   // first walk used to return it before any panel name was read -- every
   // panel shift read `panel_grid` and never named the panel. The order
   // is now: a named non-grid region (the Inspector, the sign-in page,
-  // the top bar, the picker strip), then the nearest named panel as its
-  // own `panel_` term, then `panel_grid` for what sits in the grid but
-  // under no named panel (grid gaps, the summary strip), then `other`.
+  // the top bar, the project and range strips, the summary strip), then
+  // the nearest named panel as its own `panel_` term, then `panel_grid`
+  // for what sits in the grid but under no named panel (grid gaps), then
+  // `other`. The range strip and the summary strip got their own terms in
+  // #755: sharing `project_picker` and `panel_grid` meant a beacon could
+  // not say which element had shifted.
   function region(node) {
     let el = node;
     while (el && typeof el.getAttribute === 'function') {
