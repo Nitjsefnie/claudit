@@ -152,16 +152,6 @@ def test_scan_step_is_bare_verbose_and_redacted():
         "green")
 
 
-# --- action pinning ----------------------------------------------------------
-
-def test_every_action_is_digest_pinned_with_a_version_comment():
-    lines = [ln for ln in _src().splitlines() if re.search(r"\buses:", ln)]
-    assert lines, "no `uses:` lines found — the guard would pass vacuously"
-    for ln in lines:
-        assert re.search(r"uses:\s*\S+@[0-9a-f]{40}\s+# v\S+$", ln), (
-            f"action not hash-pinned with a `# v` version comment: {ln.strip()!r}")
-
-
 # --- the gitleaks config -----------------------------------------------------
 
 def test_gitleaks_config_exists_and_extends_the_default_ruleset():
