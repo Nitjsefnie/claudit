@@ -86,6 +86,24 @@ def test_unsplit_cache_charged_at_1h_rate(monkeypatch):
         1_000_000 / 1e6 * SPLIT_RATES["create_1h"], rel=1e-9)
 
 
+def test_malformed_cache_detail_is_billed_as_unsplit_creation(monkeypatch):
+    monkeypatch.setattr(pricing, "MODEL_RATES", {
+        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
+    out = parse.parse_file(
+        "k/sess-malformed/sess-malformed.jsonl",
+        _read("malformed_cache_detail.jsonl"))
+
+    assert len(out["records"]) == 1
+    record = out["records"][0]
+    assert record["cache_creation_tokens"] == 1_000_000
+    assert (record["eph5_tokens"], record["eph1h_tokens"]) == (0, 0)
+    assert (record["fresh_tokens"], record["cache_read_tokens"],
+            record["output_tokens"]) == (0, 0, 0)
+    # The malformed list supplies no TTL split: 1M at the synthetic $6/1M.
+    assert record["cost_usd"] == pytest.approx(6.0, rel=1e-9)
+    assert record["ctx_input"] == 1_000_000
+
+
 def test_ttl_split_charges_each_bucket(monkeypatch):
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
