@@ -125,10 +125,10 @@ def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
     assert selected["Modal"].rates == surviving_rates
 
 
-# --- the fast-tier rule -------------------------------------------------------
+# --- the bare-namespace rule over a /fast tier --------------------------------
 # OpenRouter lists a /fast throughput tier under its own tag beside a host's
-# base endpoint. The exact {p, p/fast} pair resolves by rule (issue #623):
-# the base endpoint prices the row. Every other multi-price shape refuses.
+# base endpoint. The bare namespace rule (#877) takes the base endpoint: a
+# tier is a distinct offering, not a price twin. Shapes no rule fits refuse.
 
 BASE_RATES = {"fresh": 0.17, "create_5m": 0.17, "create_1h": 0.17,
               "read": 0.169, "output": 3.0}
@@ -180,9 +180,10 @@ def test_the_base_is_taken_even_when_the_fast_tier_is_cheaper() -> None:
     pytest.param(["fireworks/fp4", "fp8"], id="two-non-fast-tags"),
 ])
 def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
-    """The rule is narrow: only the exact {p, p/fast} pair, with no resolve
-    entry, resolves itself. Every other multi-price shape keeps refusing,
-    whether the extra tag is a region twin or a third tier."""
+    """Each of these shapes fits no automatic rule — a bare namespace
+    beside a quantization, a third price beside a fast pair, two
+    non-fast tags — so it keeps refusing, as does every shape whose
+    endpoints are several offerings rather than variants of one."""
     selected, refused, _, _ = refresh.listed_rows(
         GLM, _fast_payload(tags), None, {}, {}, NOW)
     assert selected == {}
@@ -190,7 +191,7 @@ def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
     assert "resolve it in openrouter.models" in refused["Fireworks"]
 
 
-def test_an_explicit_pin_beats_the_fast_tier_rule() -> None:
+def test_an_explicit_pin_beats_the_bare_namespace_rule() -> None:
     """A resolve entry keeps precedence: a pin on the fast tag tracks the
     fast endpoint, and no rule-resolved line is reported."""
     selected, refused, notices, _ = refresh.listed_rows(
@@ -202,8 +203,8 @@ def test_an_explicit_pin_beats_the_fast_tier_rule() -> None:
 
 
 def test_a_cheapest_pin_on_a_fast_pair_still_refuses() -> None:
-    """The auto-rule never rescues an explicit resolution: a 'cheapest' pin
-    on a {p, p/fast} pair keeps refusing — the tags differ, so the twins
+    """An automatic rule never rescues an explicit resolution: a 'cheapest'
+    pin on a {p, p/fast} pair keeps refusing — the tags differ, so the twins
     are not identical."""
     selected, refused, _, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
@@ -236,8 +237,8 @@ def _fast_log_series(states: list[tuple[str, dict]]) -> dict:
 
 
 def test_a_fast_pair_does_not_extend_to_the_log_selection() -> None:
-    """SV-RATE-REFRESH's log boundary: the fast-tier rule never extends to
-    the price log's own endpoint selection — a {p, p/fast} host the log
+    """SV-RATE-REFRESH's log boundary: no automatic rule extends to the
+    price log's own endpoint selection — a {p, p/fast} host the log
     would otherwise back stays sampled unless the base endpoint is pinned."""
     payload = {"data": {"endpoints": [
         _endpoint("Fireworks", BASE_RATES, tag="fireworks"),
@@ -381,10 +382,22 @@ def test_baseten_is_resolved_by_price_order_as_data():
     assert pin["ignore"] == ["max_completion_tokens"]
 
 
-def test_identical_twins_without_an_override_are_refused(tmp_path, capsys):
+def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, capsys):
+    """#877: one quantization's price twins are one offering priced twice,
+    so the same-quantization rule takes the cheaper without a resolution.
+    The recorded pin's own `ignore` machinery still governs a pinned host
+    (the tests below), and a genuinely ambiguous shape still refuses."""
     run = Run(tmp_path)
     run.edit(lambda doc: doc["openrouter"]["models"][V41].pop("resolve"))
-    _refused(run, capsys, f"{V41} via BaseTen", "baseten/fp8")
+    cheaper, _ = _baseten_twins(run)
+    before = run.snapshot()
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    assert "rule-resolved (same quantization)" in out
+    # The rule takes the cheaper twin, which is the price the row already
+    # holds: nothing appends. The dearer twin would have moved the row.
+    assert run.snapshot() == before
+    assert Decimal(cheaper["pricing"]["input_cache_read"]).scaleb(6) == Decimal("0.007")
 
 
 def test_a_moved_price_on_the_cheaper_twin_is_appended(tmp_path, capsys):

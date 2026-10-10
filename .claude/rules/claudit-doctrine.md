@@ -940,9 +940,10 @@ same rules:
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with two in-region endpoints at different prices (e.g.
-    quantization variants) and no resolution, named by tag — an exact
-    {`p`, `p`/fast} tag pair excepted: the fast-tier rule (below) takes
-    its base endpoint;
+    quantization variants) and no resolution, named by tag — the
+    mechanical shapes the four automatic rules (below) resolve are
+    excepted: one of them takes the endpoint the account reaches and the
+    report records it as rule-resolved;
   - a stale resolution: a pinned tag not listed, or `cheapest` twins
     that differ beyond price, tie in price order, or have flipped
     order;
@@ -961,16 +962,27 @@ same rules:
   that host untouched with a notice — appending after it would refuse
   the file — and blocks nothing else.
 
-- The fast-tier rule resolves one shape with no human decision: when a
-  host's in-region endpoints are exactly one tagged `p` and one tagged
-  `p/fast` at different prices, the refresh takes the base `p` endpoint
-  automatically and the run's report records it as rule-resolved — a
-  `/fast` tier is a distinct offering under its own tag, not a price
-  twin. The rule fires only where no resolve entry exists for the host
-  (an explicit resolution keeps precedence, refusals included), takes
-  the base whichever of the two is cheaper, and never extends to the
-  price log's own endpoint selection: a {`p`, `p`/fast} host the log
-  would otherwise back needs its base pinned to stay log-backed.
+- Four automatic rules resolve the mechanical multi-price shapes with no
+  human decision, beneath an explicit resolution (which keeps precedence,
+  refusals included): a bare namespace endpoint beside its service tiers
+  takes the bare one; the one quantization endpoint beside throughput
+  tiers takes that one; the configured data region takes its own endpoint
+  (the region filter, and under `global` the namespace's global endpoint —
+  an explicit `<ns>/global`, else the bare `<ns>` — over a region spelling
+  the vocabulary does not carry); and one quantization's price twins take
+  the cheaper, ordered by cache read, then input, then output — the twins
+  are taken to be one offering priced per region, so the rule compares
+  prices and not the identity fields a recorded `cheapest` pin compares
+  (that pin's `ignore` exists for a listing artifact, which is why the
+  hosts whose twins differ in a limit keep their pin). Each rule
+  fires only where no resolve entry exists for the host, and the run's
+  report records every one that fires as rule-resolved. A multi-price
+  shape none of them fits still refuses, as does a shape whose tags name
+  two quantizations, two prices under one tag, or a region spelling with
+  no global endpoint to prefer. The rules live in
+  `scripts/ci/refresh_selection_rules.py`, and none of them extends to the
+  price log's own endpoint selection: a host the log would otherwise back
+  needs its base pinned to stay log-backed.
 - The fix is a human decision recorded in
   `openrouter.models.<model>.resolve.<host>`, with a `why`:
   - `{"tag": ...}` takes that tag's endpoint, whatever its region.

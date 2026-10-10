@@ -235,14 +235,7 @@
         "id": "deepseek/deepseek-v4-flash-0731"
       },
       "deepseek/deepseek-v4-pro": {
-        "id": "deepseek/deepseek-v4-pro",
-        "resolve": {
-          "Alibaba": {
-            "select": "cheapest",
-            "tag": "alibaba/fp8",
-            "why": "Alibaba lists one deepseek-v4-pro offering twice under alibaba/fp8 at two prices (fresh 1.416, output 2.832, cache read 0.118 per million against 1.56, 3.12, 0.13), alike in quantization (fp8), context length, max_completion_tokens and max_prompt_tokens, so nothing needs ignoring. Pinned to alibaba/fp8 and taking the cheaper: the keys reach only the global data region, and the dearer twin is a region premium. Stopgap for #877 until #887's same-quantization rule resolves it unpinned."
-          }
-        }
+        "id": "deepseek/deepseek-v4-pro"
       },
       "deepseek/deepseek-v4-pro-0813": {
         "id": "deepseek/deepseek-v4-pro-0813"
@@ -282,11 +275,6 @@
       "glm-5-2": {
         "id": "z-ai/glm-5.2",
         "resolve": {
-          "Alibaba": {
-            "select": "cheapest",
-            "tag": "alibaba/fp8",
-            "why": "Alibaba lists glm-5.2 twice under alibaba/fp8 at two prices (fresh 0.966, output 3.036, cache read 0.1932 per million against 1.12, 3.52, 0.224), alike in quantization (fp8), context length, max_completion_tokens and max_prompt_tokens, beside an alibaba/fast throughput tier, with no bare alibaba endpoint. Pinned to alibaba/fp8, which excludes the fast tier, and taking the cheaper: the keys reach only the global data region, and the dearer twin is a region premium. Stopgap for #877 until #887's pin fall-through resolves it."
-          },
           "Baidu": {
             "tag": "baidu/fp8",
             "why": "Baidu lists glm-5.2 under baidu/fp8 beside a throughput tier, with no bare baidu endpoint. Pinned to baidu/fp8: fp8 is the list-price quantization endpoint; the throughput tier is a distinct offering."
