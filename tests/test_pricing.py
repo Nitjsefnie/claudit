@@ -93,17 +93,18 @@ def test_fable_5_1_does_not_misroute_to_fable_5(
 
 
 def test_unknown_fable_falls_back_to_current_generation():
-    r = pricing.resolve("claude-fable-9")
+    r = pricing.resolve("claude-fable-99")
     assert r.kind == "tier"
     # The family rows are tracked vendor rows since the migration: the
-    # merged view's list price is the assertion's source.
-    assert r.rates is pricing._list_rates("claude-fable-5-1")  # pylint: disable=protected-access
+    # merged view's list price is the assertion's source, derived (never
+    # a pinned generation) so a refresh moves both sides together (#907).
+    assert r.rates is pricing._latest("fable", "mythos")  # pylint: disable=protected-access
 
 
 def test_unknown_opus_falls_back_to_current_generation():
-    r = pricing.resolve("claude-opus-6")
+    r = pricing.resolve("claude-opus-99")
     assert r.kind == "tier"
-    assert r.rates is pricing._list_rates("claude-opus-5-5")  # pylint: disable=protected-access
+    assert r.rates is pricing._latest("opus")  # pylint: disable=protected-access
 
 
 def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
@@ -324,7 +325,7 @@ def test_tier_fallback_never_inherits_a_dated_promotion(monkeypatch):
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
                         {row: [(cutover, promo)]})
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
-    r = pricing.resolve("claude-sonnet-9", ts=datetime(2026, 7, 21, tzinfo=UTC))
+    r = pricing.resolve("claude-sonnet-99", ts=datetime(2026, 7, 21, tzinfo=UTC))
     assert r.kind == "tier"
     assert r.rates == fallback
 
@@ -511,11 +512,11 @@ def test_an_exact_variant_row_wins_over_the_bare_fold(
 
 
 def test_future_opus_uses_the_current_opus_tier_fallback():
-    # 'claude-opus-4' is a prefix of 'claude-opus-4-9', but the unknown
+    # 'claude-opus-4' is a prefix of 'claude-opus-4-99', but the unknown
     # future model must use the family fallback rather than an exact row.
-    r = pricing.resolve("claude-opus-4-9")
+    r = pricing.resolve("claude-opus-4-99")
     assert r.kind == "tier"
-    assert r.rates is pricing._list_rates("claude-opus-5-5")  # pylint: disable=protected-access
+    assert r.rates is pricing._latest("opus")  # pylint: disable=protected-access
 
 
 def test_dated_snapshot_still_matches_its_generic_key(
