@@ -15,10 +15,12 @@ EXPLICIT. Files named by hand. Two kinds:
   text: the ratchet data — the correction at this set's core, since a
   tighten raises what the gates demand of the same source tree even
   though it touches nothing in any pull request's diff (issue #495) —
-  the scanner config, and the five requirements files the audit, test
-  and lint legs install from or audit (issue #551 added the two CI-tool
+  the scanner config, the five requirements files the audit, test and
+  lint legs install from or audit (issue #551 added the two CI-tool
   manifests; a manifest's presence in the set must not depend on a
-  spelling surviving in a workflow text).
+  spelling surviving in a workflow text), and the JS lockfile the
+  eslint and JS-tokenizer steps pin their tool versions from (issue
+  #844 names it in ci-gate.yml).
 - Gate parameters read by tool DISCOVERY, invisible to the extraction:
   bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
   `.pylintrc` / `setup.cfg` / `pyrightconfig.json` /
@@ -68,7 +70,9 @@ FAMILIES = (
 
 # Files held by hand: gate parameters whose presence in the set must
 # not depend on a spelling surviving in a workflow text, plus the four
-# tool-discovery configs the extraction cannot see.
+# tool-discovery configs the extraction cannot see. The JS lockfile is
+# here since issue #844: ci-gate's JS-tokenizer step pins espree from
+# it, so a lockfile move can change what the JS gates install.
 EXPLICIT = (
     ".github/ci-thresholds.json",
     ".gitleaks.toml",
@@ -77,6 +81,7 @@ EXPLICIT = (
     "requirements-test.txt",
     "requirements-pip-audit.txt",
     "requirements-zizmor.txt",
+    "package-lock.json",
     ".pylintrc",
     "setup.cfg",
     "pyrightconfig.json",
