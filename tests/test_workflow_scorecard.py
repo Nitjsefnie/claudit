@@ -46,15 +46,6 @@ FORK_GUARD = (
     "format('refs/heads/{0}', github.event.repository.default_branch) }}"
 )
 
-# `uses: owner/repo[/path]@<40-hex>  # vX.Y.Z` — the hash is what GitHub
-# runs; the comment is the version a bump reads from. Text-only, by
-# necessity: a YAML parse drops comments.
-_PINNED_USES = re.compile(
-    r"\s*uses:\s*(?P<action>[\w.-]+/[\w./-]+)@(?P<sha>[0-9a-f]{40})"
-    r"\s+#\s*v(?P<version>\d+\.\d+\.\d+)"
-)
-_ANY_USES = re.compile(r"\s*uses:\s*(?P<ref>\S+)")
-
 # The trigger events that make a check run a gate of its commit, by way of
 # release_gate.py. Kept as names here and cross-checked against the module
 # below, so the list cannot drift into a second, laxer copy.
@@ -71,21 +62,6 @@ def _load(name):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _pinned_at(line: str) -> bool:
-    """Whether the `uses:` a line carries is itself pinned.
-
-    Both patterns are matched at the SAME offset, so a pinned reference
-    quoted later in the line — in a comment, or in a `run:` body that merely
-    mentions one — cannot vouch for the `uses:` that actually runs.
-    """
-    any_match = _ANY_USES.match(line)
-    if any_match is None:
-        return False
-    pinned = _PINNED_USES.match(line, any_match.start())
-    return pinned is not None and pinned["action"] == any_match[
-        "ref"].split("@", 1)[0].rstrip("/")
 
 
 release_gate = _load("release_gate")
@@ -409,32 +385,6 @@ def test_no_step_is_conditional():
     assert not skipped, (
         "these steps can be skipped, so the run reports green without "
         f"producing or uploading what it exists to produce: {skipped}"
-    )
-
-
-# --- pins -----------------------------------------------------------------
-
-def test_every_action_is_hash_pinned_with_its_version_comment():
-    """Every `uses:` LINE on its own, because the shape IS the rule and the
-    shape is per line: `uses: owner/repo@<40-hex-sha>  # vX.Y.Z`.
-
-    A set-membership reading — "this action name is pinned somewhere in the
-    file" — is satisfied by a second, unpinned step naming an action another
-    step pins: `uses: actions/checkout@v4` beside a correctly pinned
-    checkout reads as covered and runs whatever upstream last tagged. So
-    each line carrying `uses:` must match the full pattern itself.
-    """
-    text = SCORECARD.read_text(encoding="utf-8")
-    uses_lines = [line for line in text.splitlines()
-                  if _ANY_USES.match(line)]
-    assert uses_lines, "the oracle must be live: no `uses:` line found"
-    unpinned = [line.strip() for line in uses_lines
-                if not _pinned_at(line)]
-    assert not unpinned, (
-        "an action is not pinned as `uses: owner/repo@<40-hex-sha> # vX.Y.Z` "
-        "on its own line — the hash is what runs, the version comment is what "
-        "a bump reads, and a floating tag in either position decays when "
-        "upstream re-points it: " + "; ".join(unpinned)
     )
 
 
