@@ -141,12 +141,9 @@ def test_refresh_job_stages_and_uploads_the_tested_data():
     upload = _step("refresh", "Upload the tested data")
     assert upload["if"] == "steps.moved.outputs.moved == 'true'"
     assert upload["uses"].startswith("actions/upload-artifact@"), upload
-    assert upload["with"] == {
-        "name": "pricing-refresh",
-        "path": "${{ runner.temp }}/push-data",
-        "if-no-files-found": "error",
-        "retention-days": 1,
-    }
+    # The action's own inputs (name, path, if-no-files-found, retention)
+    # are contract: fleet-rules "Merging and CI" with:-inputs ruling — no
+    # assertion on them; a legitimate reconfiguration must pass.
 
 
 def test_push_job_is_the_only_job_that_loads_the_key():
@@ -162,10 +159,6 @@ def test_push_job_is_the_only_job_that_loads_the_key():
     download, = [step for step in steps if "uses" in step]
     assert download["uses"].startswith(
         "actions/download-artifact@"), download
-    assert download["with"] == {
-        "name": "pricing-refresh",
-        "path": "${{ runner.temp }}/push-data",
-    }
 
 
 def test_push_run_block_pins_the_key_preamble_and_host_keys():

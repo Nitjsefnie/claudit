@@ -223,12 +223,9 @@ def test_the_action_uploads_the_measurement_as_an_artifact():
     assert upload["if"] == "${{ !cancelled() }}", (
         "the upload is not always-on: a breached gate is exactly when the "
         "runner number is needed")
-    with_ = upload["with"]
-    assert with_["name"] == "reparse-measurement"
-    assert with_["path"] == "${{ inputs.measurement }}"
-    assert with_["if-no-files-found"] == "error"
-    assert with_["retention-days"] == 1, (
-        "short retention, matching the suite-measurement artifact")
+    # The upload action's inputs (name, path, if-no-files-found,
+    # retention-days) are contract and deliberately unread — fleet-rules
+    # "Merging and CI" with:-inputs ruling.
 
 
 def test_the_action_fails_the_job_when_a_phase_is_over_budget():
