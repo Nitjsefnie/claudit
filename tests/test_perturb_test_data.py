@@ -152,8 +152,7 @@ def test_every_row_gains_exactly_five_entries(tmp_path):
     for model, hosts in compact["providers"].items():
         for host, entries in hosts.items():
             got = perturbed["providers"][model][host]
-            assert len(got) == len(entries) + 5
-            assert got[:-5] == entries
+            assert len(got) == len(entries) + 5 and got[:-5] == entries
 
 
 def test_every_new_entry_comes_after_its_predecessor(tmp_path):
@@ -236,8 +235,7 @@ def test_the_note_names_the_factor_that_was_applied(tmp_path):
             assert entry["note"] == (
                 f"{NOTE_PREFIX}{text} (a zero rate becomes one)")
             checked += 1
-            factor = float(text)
-            rates = _effective_rates(entry)
+            factor, rates = float(text), _effective_rates(entry)
             for field in RATE_FIELDS:
                 expected = base[field] * factor if base[field] else 1.0
                 assert rates[field] == expected
@@ -330,16 +328,19 @@ def test_every_row_gains_a_single_field_entry(tmp_path):
 
 def test_provider_entries_carry_the_web_search_rate(tmp_path):
     """Issue #900: a provider row's appended entries carry the optional
-    `web_search` rate, moved off the row's previous one; a models row
-    never does, the loader refusing the field there."""
+    `web_search` rate — the row's previous one under its own seeded
+    factor, a zero becoming one; a models row never does, the loader
+    refusing the field there."""
     _doc, perturbed, _text, _path = _run(tmp_path)
     assert all("web_search" not in e for es in perturbed["models"].values()
                for e in es)
     for model, hosts in perturbed["providers"].items():
         for host, entries in hosts.items():
             previous = entries[-6].get("web_search", 0.0)
-            assert all(e["web_search"] not in (0.0, previous)
-                       for e in entries[-5:]), (model, host)
+            factor = float(perturb_module._search_factor(  # pylint: disable=protected-access
+                int(NOW.timestamp()), f"{model} via {host}"))
+            want = perturb_module._scaled(previous, factor)  # pylint: disable=protected-access
+            assert all(e["web_search"] == want for e in entries[-5:]), (model, host)
 
 
 def test_the_single_field_choice_follows_the_seed(tmp_path):
@@ -673,10 +674,9 @@ def test_the_script_answers_help(capsys):
         perturb_module.main(["--help"])
     assert exit_info.value.code == 0
     out = capsys.readouterr().out
-    assert "perturb" in out
+    assert "perturb" in out and "--seed" in out
     assert "×2.0" in out and "×0.37" in out
     assert "per-field" in out and "single-field" in out
-    assert "--seed" in out
 
 
 def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
