@@ -157,7 +157,7 @@ def test_a_pinned_setup_doc_is_never_documentation_only():
 
 def test_a_docs_only_diff_touching_a_setup_doc_classifies_tests_class():
     for path in SETUP_DOCS:
-        docs_only, data_only, reason = classify.classify(
+        docs_only, data_only, _comment, reason = classify.classify(
             {"name": "pull_request", "repository": "o/r",
              "pull_request": "17"},
             lambda argv, path=path: f"{path}\ndocs/guide.md\n",
@@ -169,7 +169,7 @@ def test_a_docs_only_diff_touching_a_setup_doc_classifies_tests_class():
 
 
 def test_a_docs_only_diff_touching_no_setup_doc_stays_docs_only():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "docs/guide.md\nLICENSE\n",
     )
@@ -180,7 +180,7 @@ def test_a_docs_only_diff_touching_no_setup_doc_stays_docs_only():
 def test_a_mixed_code_and_docs_diff_touching_a_setup_doc_is_unchanged():
     # Control: the carve-out narrows nothing here. The diff already ran
     # every leg, and its reason stays the one naming the code path.
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "README.md\nbackend/app.py\n",
     )
@@ -358,7 +358,7 @@ def test_pr_rename_row_yields_both_paths_and_classifies_full():
         "backend/auth.md", "backend/auth.py"]
     assert calls[0][calls[0].index("--jq") + 1] == PR_FILES_JQ
 
-    docs_only, data_only, reason = classify.classify(event, run)
+    docs_only, data_only, _comment, reason = classify.classify(event, run)
     assert (docs_only, data_only) == (False, False)
     assert "outside documentation" in reason
 
@@ -420,7 +420,7 @@ def test_docs_only_rename_yields_both_paths_and_stays_docs_only():
              "pull_request": "17"}
     assert classify.changed_paths(event, run) == [
         "docs/b.md", "docs/a.md"]
-    docs_only, data_only, reason = classify.classify(event, run)
+    docs_only, data_only, _comment, reason = classify.classify(event, run)
     assert (docs_only, data_only) == (True, False)
     assert "documentation-only" in reason
 
@@ -445,7 +445,7 @@ def test_row_without_previous_filename_yields_one_path():
 
 
 def test_classify_docs_only():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "docs/guide.md\nNOTICE\n",
     )
@@ -454,7 +454,7 @@ def test_classify_docs_only():
 
 
 def test_classify_mixed_change_runs_everything():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "README.md\nbackend/app.py\n",
     )
@@ -463,7 +463,7 @@ def test_classify_mixed_change_runs_everything():
 
 
 def test_classify_unreadable_paths_run_everything():
-    docs_only, data_only, reason = classify.classify(
+    docs_only, data_only, _comment, reason = classify.classify(
         {"name": "push"}, lambda argv: "")
     assert (docs_only, data_only) == (False, False)
     assert "full" in reason
@@ -483,11 +483,11 @@ def test_event_from_environment():
 
 def test_write_outputs(tmp_path):
     out = tmp_path / "output.txt"
-    classify.write_outputs(str(out), True, False,
+    classify.write_outputs(str(out), True, False, False,
                            "documentation-only change: 2 paths")
     assert out.read_text(encoding="utf-8") == (
         "docs_only=true\n"
-        "data_only=false\n"
+        "data_only=false\n" "comment_only=false\n"
         "reason=documentation-only change: 2 paths\n"
     )
 
