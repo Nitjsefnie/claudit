@@ -3,10 +3,11 @@
 
 One host's listed endpoints become its one row: the data-region filter, the
 per-host resolution recorded in openrouter.models.<model>.resolve, and the
-price-order twin machinery. These refuse the host they concern, which
-appends nothing: a stale pin; twins that differ beyond a recorded ignore;
-a tied or flipped price order; a resolution keyed on a price. The hourly
-append machinery lives in refresh_provider_rates.py.
+automatic rules of refresh_selection_rules.py. These refuse the host they
+concern, which appends nothing: a stale pin; twins that differ beyond a
+recorded ignore; a tied or flipped price order; a resolution keyed on a
+price; a multi-price shape no rule fits. The hourly append machinery lives
+in refresh_provider_rates.py.
 
     A resolution: {"tag": ...} takes that tag's endpoints, whatever their
     region; {"select": "cheapest"} takes the cheaper of endpoints identical
@@ -14,10 +15,9 @@ append machinery lives in refresh_provider_rates.py.
     output; the two combine, the tag narrowing first. "ignore": [fields]
     refines a 'cheapest': the named identity fields are a recorded human
     decision that the endpoints are one offering listed with a listing
-    artifact, so 'cheapest' compares the rest. With no resolution at all,
-    an exact {p, p/fast} tag pair takes the base endpoint by rule and the
-    run's report records it as rule-resolved; every other multi-price
-    shape refuses.
+    artifact, so 'cheapest' compares the rest. With no resolution at all the
+    four rules of refresh_selection_rules.py resolve the mechanical
+    multi-price shapes and the run's report records each as rule-resolved.
 """
 from __future__ import annotations
 
@@ -32,8 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # pylint: disable=wrong-import-position
 from refresh_prices import (PRICED, RECORDED_FEES, RefreshError, Untracked,  # noqa: E402
                             as_listed, covers_week, entry_schedule, fee_notes,
-                            in_a_window, is_zero, rates_of, tag_region,
-                            unknown_suffixes)
+                            in_a_window, is_zero, rates_of, unknown_suffixes)
+from refresh_selection_rules import (bare_namespace, price_groups,  # noqa: E402
+                                     price_order, same_quantization,
+                                     select_region, unique_quantization)
 
 # What tells two of one host's endpoints apart when the price does not.
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
@@ -41,8 +43,6 @@ _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
 # The identity fields a recorded ignore may name; never the tag, which a
 # tag pin already narrows and whose mixing would pool different offerings.
 _IGNORABLE = _IDENTITY[1:]
-# Price order for "select": "cheapest": cache read, then input, then output.
-_ORDER = ("read", "fresh", "output")
 
 
 @dataclass(frozen=True)
@@ -188,27 +188,28 @@ def _endpoints_of(model: str, payload: object) -> list:
 def _host_price(where: str, listed: list[Listing], region: str | None, pin: object,
                 stored: dict | None) -> tuple[Listing | None, str | None]:
     """A host's one listing (None when it lists nothing the account can
-    use), and a notice when a price-order resolution may have switched."""
+    use), and the notice a rule-resolved choice or a twin switch earns."""
     override = _override(where, pin)
+    chosen = notice = None
     if override.get("tag") is not None:
-        chosen = [e for e in listed if e.tag == override["tag"]]
-        if not chosen:
-            tags = ", ".join(sorted({e.tag for e in listed}))
-            raise RefreshError(f"{where}: pinned tag {override['tag']!r} is not listed "
-                               f"({tags})")
-        listed = chosen
+        listed = _pinned_listings(where, listed, override["tag"])
     else:
-        listed = [e for e in listed if tag_region(e.tag) == region]
-    prices = list({e.price: e for e in reversed(listed)}.values())
+        selected = select_region(where, listed, region, pin)
+        listed, chosen, notice = selected.listings, selected.chosen, selected.notice
+    groups = price_groups(listed)
+    prices = [group[0] for group in groups]
     if len(prices) > 1 and override.get("select") == "cheapest":
         return _cheapest(where, prices, stored, override.get("ignore") or [])
+    if notice:
+        return chosen, notice
     if len(prices) > 1 and pin is None:
-        base = _fast_pair(prices)
-        if base is not None:
-            return base, (
-                f"{where}: rule-resolved: the endpoints are exactly {base.tag!r} "
-                f"and {base.tag + '/fast'!r} at two prices; took the base endpoint "
-                "(a /fast tier is a distinct offering, not a price twin)")
+        for rule in (bare_namespace, unique_quantization):
+            resolved = rule(where, groups)
+            if resolved is not None:
+                return resolved
+        twins = same_quantization(where, groups, stored)
+        if twins is not None:
+            return twins
     if len(prices) > 1:
         tags = ", ".join(sorted({e.tag or "(untagged)" for e in listed}))
         raise RefreshError(f"{where}: {len(listed)} endpoints ({tags}) at "
@@ -217,24 +218,14 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
     return (prices[0] if prices else None), None
 
 
-def _fast_pair(prices: list[Listing]) -> Listing | None:
-    """The base endpoint of an exact {p, p/fast} pair at two prices, else
-    None.
-
-    A /fast tier is a distinct throughput offering under its own tag, not a
-    price twin, so the pair needs no human decision: the base endpoint is
-    the one the row tracks, whichever of the two is cheaper. Any other
-    multi-price shape returns None and keeps refusing."""
-    if len(prices) != 2:
-        return None
-    a, b = prices
-    if not a.tag or not b.tag:
-        return None
-    if b.tag == a.tag + "/fast":
-        return a
-    if a.tag == b.tag + "/fast":
-        return b
-    return None
+def _pinned_listings(where: str, listed: list[Listing], tag: str) -> list[Listing]:
+    """The endpoints under an explicitly pinned tag, or the refusal naming
+    the tags the host does list."""
+    chosen = [endpoint for endpoint in listed if endpoint.tag == tag]
+    if not chosen:
+        tags = ", ".join(sorted({endpoint.tag for endpoint in listed}))
+        raise RefreshError(f"{where}: pinned tag {tag!r} is not listed ({tags})")
+    return chosen
 
 
 def _override(where: str, pin: object) -> dict:
@@ -277,40 +268,20 @@ def _pin_ok(pin: dict, keys: set[str]) -> bool:
 
 def _cheapest(where: str, prices: list[Listing],
               stored: dict | None, ignore: list[str]) -> tuple[Listing, str | None]:
-    """The cheaper of endpoints that differ in nothing but price, ordered by
-    cache read, then input, then output.
+    """The cheaper of endpoints that differ in nothing but price.
 
     The price is the only identity such twins have, so the endpoint the
-    row tracks is the one still listed at the row's price. When that one is
-    no longer the cheaper, the order has flipped and a human must look; an
-    equal order between different prices is refused the same way.
+    row tracks is the one still listed at the row's price; the price-order
+    rules that guard it (a tie and a flip refuse, a rise is reported) live
+    in refresh_selection_rules.price_order, which the automatic
+    same-quantization rule shares.
 
     An ignore narrows what identity compares: only a recorded human decision
     may declare differing fields a listing artifact, and the comparison
     keeps every field it was not given.
-
-    A rise is reported, not refused. The tracked twin moving above the
-    other looks exactly like the other becoming the row's price, and since
-    the other was the dearer one, that always shows as the row's price
-    rising (unless the other fell at the same time). No data can tell it
-    from a genuine rise.
     """
     keys = [key for key in _IDENTITY if key not in ignore]
     if len({tuple(e.identity.get(key) for key in keys) for e in prices}) > 1:
         raise RefreshError(f"{where}: 'cheapest' applies only to endpoints identical "
                            "in tag, quantization and limits; these differ")
-    ranked = sorted(prices, key=lambda e: [e.rates[f] for f in _ORDER])
-    chosen, other = ranked[0], ranked[1]
-    if [chosen.rates[f] for f in _ORDER] == [other.rates[f] for f in _ORDER]:
-        raise RefreshError(f"{where}: a tie in price order between different prices")
-    if stored is not None and any(e.rates == stored for e in ranked[1:]):
-        raise RefreshError(f"{where}: the price order flipped: the endpoint at the "
-                           "row's price is no longer the cheaper")
-    notice = None
-    if stored is not None and [chosen.rates[f] for f in _ORDER] > [stored[f] for f in _ORDER]:
-        moved = ", ".join(f"{f} {stored[f]!r} → {chosen.rates[f]!r}"
-                          for f in _ORDER if chosen.rates[f] != stored[f])
-        notice = (f"possible twin switch: {where}: the price rose ({moved}); the other "
-                  f"twin is at {', '.join(f'{f} {other.rates[f]!r}' for f in _ORDER)}. "
-                  "Check which endpoint the row tracks")
-    return chosen, notice
+    return price_order(where, prices, stored)
