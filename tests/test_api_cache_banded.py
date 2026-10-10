@@ -76,5 +76,4 @@ def test_cache_session_total_banded_rate_false_for_an_unbanded_pair(
     body = app_with_fresh_data.get("/api/cache?range=3650d").json()
     row = next(r for r in body["per_model"] if r["model"] == pair[0])
     assert row["banded_rate"] is False
-    assert body["session_total"]["banded_rate"] is any(
-        m["banded_rate"] for m in body["per_model"])
+    assert body["session_total"]["banded_rate"] is False

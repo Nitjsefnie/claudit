@@ -116,6 +116,68 @@ def test_resolve_reports_banded_false_for_an_unbanded_row(monkeypatch):
     assert pricing.resolve("synthetic-table-9", SEEDED).banded is False
 
 
+def _banded_two_entry_row(monkeypatch):
+    """A provider history whose OLDER entry (index 0) carries a band and
+    whose NEWER entry (index 1) does not — a band appended at a later
+    detection instant, the realistic multi-entry shape (issue #666)."""
+    model, host = "acme/two-entry-9", "HostA"
+    cut = datetime(2031, 1, 1, tzinfo=UTC)
+    old = {"fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
+           "read": 0.005, "output": 0.25}
+    new = {"fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
+           "read": 0.09, "output": 2.9}
+    pair = (model, host)
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {**pricing.PROVIDER_RATES, pair: new})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {**pricing.PROVIDER_DATED_RATES, pair: [(cut, old)]})
+    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
+                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+    return model, host, cut
+
+
+def test_resolve_picks_the_banded_entry_by_its_index(monkeypatch):
+    """The band's ENTRY-INDEX selection: a band on an OLDER entry must not
+    flag records priced through a NEWER, unbanded one (issue #666)."""
+    model, host, cut = _banded_two_entry_row(monkeypatch)
+    before = cut - timedelta(seconds=1)
+    assert pricing.resolve(model, before, host).banded is True
+    assert pricing.resolve(model, cut, host).banded is False
+    assert pricing.resolve(model, None, host).banded is False
+
+
+def test_a_naive_instant_lands_the_same_banded_entry(monkeypatch):
+    """_entry_index reads a naive instant as UTC, so a naive ts lands the
+    same entry — and the same banded flag — as its aware twin (issue #666)."""
+    model, host, cut = _banded_two_entry_row(monkeypatch)
+    for aware in (cut - timedelta(seconds=1), cut):
+        naive = aware.replace(tzinfo=None)
+        assert (pricing.resolve(model, naive, host).banded
+                == pricing.resolve(model, aware, host).banded)
+
+
+def test_resolve_reports_a_banded_vendor_bare_form(monkeypatch):
+    """The vendor bare-form path prices through a provider row too, so a
+    banded vendor row's mean is surfaced there as well (issue #666)."""
+    bare, tracked, host = "acme-vendor-bare-9", "acme/tracked-9", "HostA"
+    pair = (tracked, host)
+    monkeypatch.setattr(pricing, "VENDOR_BARE",
+                        {**pricing.VENDOR_BARE, bare: tracked})
+    monkeypatch.setattr(pricing, "VENDOR_HOSTS",
+                        {**pricing.VENDOR_HOSTS, tracked: host})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES",
+                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
+    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
+                        {**pricing.PROVIDER_DATED_RATES, pair: []})
+    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
+                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+    monkeypatch.setattr(pricing, "_VENDOR_MATCH_CACHE", {})
+    monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
+    res = pricing.resolve(bare, SEEDED)
+    assert (res.kind, res.key) == ("exact", tracked)
+    assert res.banded is True
+
+
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
     # A host that lists no write price is charged the input rate for the
     # write, never a free one: every seeded HOST row's create buckets
