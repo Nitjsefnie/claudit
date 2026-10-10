@@ -1,4 +1,4 @@
-"""GET /api/dashboard — hourly aggregates + sessions + ctx traces.
+"""GET /api/dashboard — hourly aggregates + sessions + ctx_at_end.
 
 Split out of api.py (issue #8 module split). The endpoint body is broken
 into _dashboard_sources (shared SQL fragments), _dashboard_queries (the
@@ -358,13 +358,14 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         src["roll_args"],
     ).fetchall()
 
-    # Per-FILE ctx traces — one row per main file AND per sub-agent
-    # file with usage. The SQL moved to api_ctx_growth.ctx_traces_rows
-    # (issue #644), where the panel endpoint shares it; the dashboard
-    # keeps the rows only to fold sessions' ctx_at_end.
+    # Per-session context-at-end for the session fold below. This is NOT
+    # the panel's trace query: the panel fetches
+    # /api/context-growth/traces itself (issue #644), so the dashboard
+    # runs only the last turn of each main file — all ctx_at_end needs —
+    # instead of the full per-file trace SQL (issue #838).
     _t_ctx = time.perf_counter()
-    ctx_traces_rows = api_ctx_growth.ctx_traces_rows(c, *src["file_args"])
-    ph.mark("ctx_traces", time.perf_counter() - _t_ctx)
+    ctx_end = api_ctx_growth.ctx_end_rows(c, *src["file_args"])
+    ph.mark("ctx_end", time.perf_counter() - _t_ctx)
 
     rl_rows = ph.execute(
         "rate_limit_hits", c, f"""
@@ -404,7 +405,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         "tokens_by_project": tokens_by_project_rows,
         "file_counts_row": file_counts_row,
         "sessions": sessions_rows,
-        "ctx_traces": ctx_traces_rows,
+        "ctx_end": ctx_end,
         "rate_limits": rl_rows,
     }
 
@@ -614,25 +615,14 @@ def _fold_tokens_by_project(rows) -> list:
     return tokens_by_project
 
 
-def _turns_projection(raw_turns) -> list:
-    """Project raw ctx_turns to {t, ctx} (input is total ctx-window:
-    input+cc+cr)."""
-    return [
-        {"t": i, "ctx": int(t.get("input", 0) or 0)}
-        for i, t in enumerate(raw_turns)
-        if isinstance(t, dict)
-    ]
-
-
-def _session_entry(row, ctx_turns_by_session: dict) -> dict:
-    """One sessions-panel entry, with ctx_turns folded in from the
-    traces."""
+def _session_entry(row, ctx_end: dict) -> dict:
+    """One sessions-panel entry, with ctx_at_end folded in from the
+    per-session ctx-end map."""
     (sid, st, et, reqs, inp, out, cc, cr, cost, dom, models_used) = row
-    turns_proj = _turns_projection(ctx_turns_by_session.get(sid) or [])
     # null (not 0) when ctx_turns is empty so the UI can flag the dot
     # as "ctx unknown" instead of silently falling back to a synthetic
     # duration-based size encoding.
-    ctx_at_end = turns_proj[-1]["ctx"] if turns_proj else None
+    ctx_at_end = ctx_end.get(sid)
     return {
         "session_id": sid,
         "start_ts": float(st or 0),
@@ -649,17 +639,11 @@ def _session_entry(row, ctx_turns_by_session: dict) -> dict:
     }
 
 
-def _fold_sessions(sessions_rows, ctx_traces_rows) -> list:
-    """Per-session aggregates, with ctx_turns folded in from the traces."""
-    # ctx_turns used to be its own query, but it is a strict subset of
-    # ctx_traces (main files only) — the same jsonb scan run twice.
-    ctx_turns_by_session = {
-        sid: turns
-        for (_fk, sid, is_main, _mdl, turns) in ctx_traces_rows
-        if is_main
-    }
+def _fold_sessions(sessions_rows, ctx_end: dict) -> list:
+    """Per-session aggregates, with ctx_at_end folded in from the
+    per-session ctx-end map."""
     return [
-        _session_entry(row, ctx_turns_by_session) for row in sessions_rows
+        _session_entry(row, ctx_end) for row in sessions_rows
     ]
 
 
@@ -697,7 +681,7 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "tokens_by_project": _fold_tokens_by_project(
             rows["tokens_by_project"]),
         "rate_limit_hits": _fold_rate_limits(rows["rate_limits"]),
-        "sessions": _fold_sessions(rows["sessions"], rows["ctx_traces"]),
+        "sessions": _fold_sessions(rows["sessions"], rows["ctx_end"]),
         "total_sessions": int(total_sessions_row[0] or 0) if total_sessions_row else 0,
         "main_w_usage": int(file_counts_row[0] or 0),
         "main_empty": int(file_counts_row[1] or 0),
@@ -714,7 +698,9 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         # The per-file ctx traces moved to /api/context-growth/traces
         # (issue #644): they were 82% of this payload's gzip (1.83 MB of
         # a 2.36 MB body at range=all) while drawing one panel of ~30.
-        # The session fold above still reads the rows server-side.
+        # The session fold above reads only each main file's LAST turn,
+        # through api_ctx_growth.ctx_end_rows — the full trace query is
+        # never run here (issue #838).
         "response_sizes": [
             {
                 "ts": _iso(bucket),
@@ -791,6 +777,6 @@ def dashboard(
     ph.done(
         hourly=len(out["hourly"]),
         sessions=len(out["sessions"]),
-        ctx_traces=len(rows["ctx_traces"]),
+        ctx_end=len(rows["ctx_end"]),
     )
     return out
