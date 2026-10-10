@@ -283,9 +283,20 @@ def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     every behavioural test — the routing can be deleted and nothing else
     fails.
 
-    Comments are stripped before matching, and the negative direction
-    covers BOTH revert spellings: no `.then(...)` handler in the effect
-    may call `setTraces(...)` except through `window.deferred.run`.
+    The POSITIVE assertion is the pin: it matches the deferred call in the
+    first traces-fetch effect, so it fails when the routing is reverted to
+    either `setTraces(b.traces || [])` or `setTraces(b.traces)`. A
+    `/* ... */` block comment, or a free-standing `//` line comment,
+    spelling the routing does not satisfy it — those are stripped before
+    matching. (Residual the strip leaves: a `//` glued to a word character
+    is not removed, so a comment of that shape spelling the routing could
+    still satisfy the positive.)
+
+    The NEGATIVE assertion is a best-effort second net, not a proof. It
+    scans SAME-LINE `.then(...)` handlers in the FIRST traces-fetch effect
+    only: a multi-line handler, a second traces-fetch effect, and a `//`
+    comment glued to a word character are all outside what it can see. It
+    does cover a spaced `setTraces (`.
     """
     effect = _traces_effect_src()
     assert re.search(
@@ -296,7 +307,7 @@ def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     offenders = [
         handler.strip()
         for handler in re.findall(r"\.then\(([^\n]*)\)", effect)
-        if "setTraces(" in handler
+        if re.search(r"setTraces\s*\(", handler)
         and not re.search(r"window\.deferred\.run\([^)]*setTraces\s*\)",
                           handler)
     ]
