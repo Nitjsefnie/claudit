@@ -375,11 +375,35 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     assert 'data-perf-region="topbar"' in src, (
         "the top bar carries no region, so its shifts are attributed "
         "to `other` (#733)")
-    assert (src.count('data-perf-region="project_picker"')
-            + picker_src.count('data-perf-region="project_picker"')) == 2, (
-        "the project picker strip mounts twice (range and project) and "
-        "both need the region, or a shift in the unmarked one is "
-        "attributed to `other` (#733)")
+    # #755: the range strip and the project strip no longer SHARE
+    # `project_picker` -- a beacon naming it could not say which strip
+    # shifted. Each names its own term, so the range strip's shifts stop
+    # reading as the project strip's.
+    assert picker_src.count('data-perf-region="project_picker"') == 1, (
+        "the project strip carries no `project_picker` region, or carries "
+        "it more than once (#733/#755)")
+    assert src.count('data-perf-region="project_picker"') == 0, (
+        "another mount still carries `project_picker` -- a shift in it "
+        "would read as the project strip's (#755)")
+    assert src.count('data-perf-region="range_picker"') == 1, (
+        "the range preset strip carries no region of its own, so its "
+        "shifts are attributed to another strip's term (#755)")
+    # The summary strip renders in three places: the numeric strip in
+    # app.jsx, and OverviewStatus's two `.dash-summary` returns (the
+    # loading/empty/error strip and the failed-over-stale-data strip) in
+    # dashboard-summary.jsx. Every one must name the term, or the
+    # unmarked state still inherits the grid's `panel_grid` (#755). The
+    # counts are exact per site, not a floor: a sum lets any ONE of the
+    # three regress with the assertion still green.
+    summary_src = _strip_line_comments(
+        (ROOT / "src" / "dashboard-summary.jsx").read_text(encoding="utf-8"))
+    assert src.count('data-perf-region="summary_strip"') == 1, (
+        "the numeric summary strip in app.jsx does not carry exactly one "
+        "`summary_strip` region (#755)")
+    assert summary_src.count('data-perf-region="summary_strip"') == 2, (
+        "OverviewStatus's two `.dash-summary` returns do not both carry "
+        "`summary_strip`, so a summary state still reports the whole-grid "
+        "`panel_grid` (#755)")
 
 
 def test_the_client_and_the_panel_are_loaded_before_the_app():

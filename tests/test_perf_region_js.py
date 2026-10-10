@@ -64,8 +64,8 @@ def test_a_node_under_the_grid_names_its_panel_not_the_grid():
     and every panel shift read `panel_grid`. The walk now defers the grid
     term: a named panel on the node itself or any ancestor wins over the
     grid's `panel_grid`, and the grid keeps only what no panel
-    names — grid gaps, the summary strip, elements that carry no
-    `data-panel` of their own."""
+    names — grid gaps, elements that carry no `data-panel` of their own.
+    (The summary strip was one of these until #755 gave it its own term.)"""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -89,9 +89,10 @@ def test_the_topbar_and_the_picker_strip_name_their_own_terms():
     attribute, so a shift sourced in either — the logo, the nav buttons,
     the picker buttons — landed in `other`, the exact outcome #643's
     Expected Behavior forbids. Both carry their own terms now (src/app.jsx
-    marks the `<header class="topbar">` and both `.project-picker`
-    mounts); the walk returns them like any named region, and a node
-    under neither still falls to `other`."""
+    marks the `<header class="topbar">` and src/picker.jsx the project
+    strip); the walk returns them like any named region, and a node
+    under neither still falls to `other`. #755 split the range strip off
+    the project strip's term, so the two no longer share one."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -128,6 +129,55 @@ def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
     rows = out["beacons"]
     assert [(r["region"], r["value"]) for r in rows] == [
         ("topbar", 0.04), ("project_picker", 0.06)], out
+
+
+def test_the_range_strip_and_the_summary_strip_name_their_own_terms():
+    """#755: the range preset strip carried the project strip's
+    `project_picker`, so a beacon naming it could not say which strip
+    shifted; and a node inside the summary strip — in the grid but under
+    no panel — reported the whole-grid `panel_grid`, the same term a gap
+    between panels carries. Each names its own term now, and the walk
+    returns it like any named region."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const dashboard = mk({ 'data-perf-region': 'panel_grid' }, null);
+      const range = mk({ 'data-perf-region': 'range_picker' }, null);
+      const project = mk({ 'data-perf-region': 'project_picker' }, null);
+      const summary = mk({ 'data-perf-region': 'summary_strip' }, dashboard);
+      console.log(JSON.stringify({
+        range: window.perf.region(mk({}, range)),
+        project: window.perf.region(mk({}, project)),
+        summary: window.perf.region(mk({}, summary)),
+      }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"range": "range_picker", "project": "project_picker",
+                   "summary": "summary_strip"}, out
+
+
+def test_a_shift_sourced_in_the_range_or_summary_strip_beacons_the_term():
+    """End to end through the observer: a shift whose source sits in the
+    range strip or the summary strip names that strip in the beacon the
+    sink receives, where it read the project strip's term and `panel_grid`
+    respectively before #755."""
+    out = _run("""
+      const mk = (attrs, parent) => ({
+        getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
+      const rbtn = mk({},
+        mk({ 'data-perf-region': 'range_picker' }, null));
+      const stat = mk({},
+        mk({ 'data-perf-region': 'summary_strip' },
+          mk({ 'data-perf-region': 'panel_grid' }, null)));
+      __emit('layout-shift', [
+        { value: 0.02, hadRecentInput: false, sources: [{node: rbtn}] },
+        { value: 0.03, hadRecentInput: false, sources: [{node: stat}] },
+      ]);
+      __tick();
+      console.log(JSON.stringify({ beacons: beacons() }));
+    """, sendBeacon=True, observers=["layout-shift"])
+    rows = out["beacons"]
+    assert [(r["region"], r["value"]) for r in rows] == [
+        ("range_picker", 0.02), ("summary_strip", 0.03)], out
 
 
 def test_a_shift_inside_a_panel_beacons_the_panel_term():
