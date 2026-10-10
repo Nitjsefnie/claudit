@@ -138,7 +138,11 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
     fetch(`/api/context-growth/traces?range=${range || 'all'}${q}`,
           { credentials: 'same-origin' })
       .then(r => r.json())
-      .then(b => setTraces(b.traces || []))
+      // Defer the per-model transform out of the commit that lands the
+      // fetch (issue #838): building the groups for every trace blocked
+      // the frame the response arrived on. window.deferred runs the
+      // callback on an idle callback (or the next macrotask).
+      .then(b => window.deferred.run(b.traces || [], setTraces))
       .catch(() => setTraces([]));
   }, [project, range, nonce]);
 
@@ -905,21 +909,9 @@ const BAR_OPACITY_HOVER = 0.85;
 // copy would drift out from under those guards.
 
 // app.jsx renders the tokens and the cost variants of this panel side by
-// side; both draw from ONE endpoint response, but each instance used to
-// GET the same URL. The first caller to ask for a URL starts the fetch,
-// the second joins the in-flight promise (issue #644).
-const _cbcPending = new Map();
-function fetchCostByContext(url) {
-  let p = _cbcPending.get(url);
-  if (!p) {
-    p = fetch(url, { credentials: 'same-origin' }).then(r => r.json());
-    _cbcPending.set(url, p);
-    // Drop the entry once settled: a later refetch (a range or model
-    // change) must re-request, not read a stale body.
-    p.finally(() => { if (_cbcPending.get(url) === p) _cbcPending.delete(url); });
-  }
-  return p;
-}
+// side; both draw from ONE endpoint response. The shared in-flight fetch
+// that de-duplicates them lives in src/cost-by-context.js (moved out for
+// issue #839 so a plain-JS test can drive it through node).
 
 function CostByContextPanel({ models, project, range, nonce, measure }) {
   const isTokens = measure === 'tokens';
@@ -942,7 +934,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetchCostByContext(`/api/cost-by-context?range=${range || 'all'}${q}`)
+    window.costByContext.fetch(`/api/cost-by-context?range=${range || 'all'}${q}`)
       .then(b => {
         setData(b.buckets || []);
         setMeta({
