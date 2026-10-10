@@ -3,12 +3,18 @@
 // top-level fresh+create+read is the BILLING sum across iterations, not
 // the peak single-call window.
 // For context-growth views we want the peak: max-of-iteration-totals.
-// Exposed at top level (not inside parseTranscript) so the lane delegation
-// path, which returns before this body runs, still exposes it.
+// Lives in its own file (loaded by public/index.html) so every consumer —
+// the dashboard projection and the Inspector's turn stats — reaches it
+// regardless of which parse path produced the trace.
 function usageCtxInput(u) {
   if (!u) return 0;
-  const iters = u.iterations;
-  if (Array.isArray(iters) && iters.length > 1) {
+  const raw = u.iterations;
+  // Mirror backend json_shape.dict_list: only object entries count, so a
+  // malformed entry (null, array, scalar) is skipped rather than thrown on.
+  const iters = Array.isArray(raw)
+    ? raw.filter((it) => it && typeof it === 'object' && !Array.isArray(it))
+    : [];
+  if (iters.length > 1) {
     let peak = 0;
     for (const it of iters) {
       const t = (it.input_tokens || 0)
