@@ -7,11 +7,32 @@ from typing import Any
 import pytest
 
 from backend import constants, parse, pricing
+from backend.ctx_input import usage_ctx_input
+from backend.parse_projection_usage import _usage_tokens
 from backend.rereads import resolve_rereads
 
 from tests.test_parse import (
     _read,
 )
+
+
+@pytest.mark.parametrize(("iterations", "expected"), [
+    pytest.param(None, 21, id="top-level"),
+    pytest.param({"input_tokens": 90}, 21, id="malformed-container"),
+    pytest.param([None, "invalid"], 21, id="no-valid-iterations"),
+    pytest.param([{"input_tokens": 90}], 21, id="single-iteration"),
+    pytest.param([None, {"input_tokens": 90}], 21, id="one-valid-iteration"),
+    pytest.param([{"input_tokens": 31, "cache_creation_input_tokens": 2},
+                  {"input_tokens": 4, "cache_read_input_tokens": 45}],
+                 49, id="multiple-valid-iterations"),
+])
+def test_projection_context_preserves_iteration_fallback_and_peak(
+        iterations: object, expected: int) -> None:
+    """Context uses the single-call peak only when two valid calls survive."""
+    usage = {"input_tokens": 11, "cache_creation_input_tokens": 7,
+             "cache_read_input_tokens": 3, "iterations": iterations}
+    assert usage_ctx_input(usage) == expected
+    assert _usage_tokens(usage).ctx_input == expected
 
 
 def test_a_full_million_token_window_is_still_a_turn():
