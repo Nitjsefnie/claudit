@@ -174,11 +174,11 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
     # and this follows; rename one and the disagreement reds.
     bot_doc = _load("ratchet-push.yml")
     download_names = sorted({
-        (step.get("with") or {}).get("name")
+        name
         for job in (bot_doc.get("jobs") or {}).values()
         for step in (job or {}).get("steps") or []
         if (step.get("uses") or "").startswith("actions/download-artifact")
-        and (step.get("with") or {}).get("name")})
+        if isinstance(name := (step.get("with") or {}).get("name"), str)})
     assert download_names, "the bot downloads nothing — the sweep is vacuous"
     uploaders = []
     for path in sorted(WORKFLOWS.glob("*.yml")):
