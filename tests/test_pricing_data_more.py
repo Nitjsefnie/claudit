@@ -499,6 +499,19 @@ def test_grouped_long_context_field_is_required_and_old_field_is_refused():
 
 
 @pytest.mark.parametrize(("groups", "reason"), [
+    pytest.param([None], "group is not an object", id="null-group"),
+    pytest.param([42], "group is not an object", id="scalar-group"),
+    pytest.param([{"threshold": 10**400, "models": [_METER_MODEL_A]}],
+                 "positive integer threshold", id="overflowing-threshold"),
+    pytest.param([{"threshold": 200_000, "models": [{"": {}}]}],
+                 "models entries need non-empty model keys",
+                 id="empty-object-model-key"),
+    pytest.param([{"threshold": 200_000, "models": [""]}],
+                 "models entries need non-empty model keys",
+                 id="empty-bare-model-key"),
+    pytest.param([{"threshold": 200_000, "models": [
+        {_METER_MODEL_A: {"input_mult": 10**400}}]}],
+                 "invalid input_mult", id="overflowing-input-multiplier"),
     ([{"threshold": 200_000, "models": [_METER_MODEL_A]},
       {"threshold": 200_000, "models": [_METER_MODEL_B]}], "duplicate threshold"),
     ([{"threshold": 200_000, "models": []}], "models is empty"),
