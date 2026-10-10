@@ -65,6 +65,16 @@ openrouter.models as {"id", "vendor_host"} — no rates; the provider pass
 carries its (key, vendor_host) row from the next hourly run. One report,
 one PRICING_VERSION bump, one commit.
 
+A notice line the last committing run already carried is not repeated
+(issue #888). That run's full rendered notice set is committed beside the
+pricing document as pricing_notices.json; this run omits a line identical
+to one there, and a line that is new, or that changed, still appears. The
+baseline holds the lines the last run SUPPRESSED as well as the ones it
+showed, so a suppressed notice stays suppressed in the next commit instead
+of alternating back. An absent, unreadable or malformed file suppresses
+nothing, and a run that appends nothing publishes no commit, so it does
+not move the baseline.
+
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
 from __future__ import annotations
@@ -91,7 +101,8 @@ from refresh_pricelog import (FetchEndpoints as Fetch, FetchLog, FetchModels)  #
 from refresh_common import (bump_pricing_version,  # noqa: E402
                             detection_stamp, sources as _sources)
 from refresh_report import (arguments as _arguments,  # noqa: E402
-                            commit_message, report, vendor_report)
+                            commit_message, notice_lines, report,
+                            vendor_report)
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
 import refresh_vendor_rates  # noqa: E402
@@ -277,6 +288,55 @@ def _refusals(result: Result, outcome) -> list[str]:
     return result.refusals + (outcome.refusals if outcome is not None else [])
 
 
+def _notices_path(pricing_path: Path) -> Path:
+    """The committed baseline of the last run's carried notices (issue #888),
+    beside the pricing document it describes."""
+    return pricing_path.with_name("pricing_notices.json")
+
+
+def _published_notices(pricing_path: Path) -> frozenset[str]:
+    """The notice lines the last committing run carried (issue #888).
+
+    That run's FULL rendered notice set — the lines it showed and the lines
+    it suppressed — because the baseline must not move when a run suppresses
+    a line: a baseline read from the previous commit's message would drop the
+    suppressed line and re-emit it in the next commit, alternating forever.
+
+    An absent, unreadable or malformed file yields the empty set, which
+    suppresses nothing: the baseline can only under-suppress, never hide a
+    notice."""
+    try:
+        carried = json.loads(
+            _notices_path(pricing_path).read_text(encoding="utf-8"))["notices"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return frozenset()
+    if not isinstance(carried, list):
+        return frozenset()
+    return frozenset(line for line in carried if isinstance(line, str))
+
+
+def _write_notices(pricing_path: Path, lines: list[str]) -> None:
+    """Record what this run carried, for the next run's baseline."""
+    _notices_path(pricing_path).write_text(
+        json.dumps({"notices": sorted(set(lines))}, indent=2, sort_keys=True)
+        + "\n", encoding="utf-8", newline="\n")
+
+
+def _carried_notices(result: Result, outcome) -> list[str]:
+    """Every notice line this run carries, shown and suppressed alike."""
+    lines = notice_lines(result.notices)
+    return lines + (notice_lines(outcome.notices) if outcome is not None else [])
+
+
+def _report_body(stamp: str, result: Result, outcome, previous) -> str:
+    """The provider report, with the vendor section appended when it has
+    anything to say; ``previous`` drops a notice line already published."""
+    body = report(stamp, result, result.doc["openrouter"]["models"], previous)
+    if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
+        body += "\n\n" + vendor_report(stamp, outcome, previous)
+    return body
+
+
 def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch_endpoints,
          fetch_models: FetchModels = refresh_pricelog.fetch_models,
          fetch_log: FetchLog = refresh_pricelog.fetch_listed_pricing,
@@ -298,15 +358,14 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    body = report(stamp, result, result.doc["openrouter"]["models"])
-    if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
-        body += "\n\n" + vendor_report(stamp, outcome)
+    body = _report_body(stamp, result, outcome, _published_notices(pricing_path))
     print(body)
     if (result.moves or (outcome is not None and outcome.moves)) \
             and not args.dry_run:
         pricing_path.write_text(serialize_pricing_doc(result.doc),
                                 encoding="utf-8", newline="\n")
         constants_path.write_text(constants, encoding="utf-8", newline="\n")
+        _write_notices(pricing_path, _carried_notices(result, outcome))
         if args.commit_msg:
             args.commit_msg.write_text(
                 commit_message(result, body, outcome), encoding="utf-8",
