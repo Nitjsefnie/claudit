@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -16,7 +18,7 @@ from tests.test_provider_rate_refresh import (
     GLM,
     NOW,
     _openrouter_template,
-    _browser_pricing,
+    _browser_pricing_script,
     Run,
     STAMP,
     UTC,
@@ -626,8 +628,12 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     epochs = pricing.load_tables(doc)["RATE_EPOCHS"]
     want = int(datetime(2030, 12, 31, 23, 2, 3, tzinfo=UTC).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000) for e in epochs]
-    assert want in _browser_pricing(run, tmp_path / "js",
-                                    "console.log(JSON.stringify(window.rateEpochs));")
+    script = _browser_pricing_script(
+        run, tmp_path / "js", "console.log(JSON.stringify(window.rateEpochs));")
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
+                          timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert want in json.loads(proc.stdout)
 
 
 def test_a_dry_run_reports_and_writes_nothing(tmp_path, capsys):

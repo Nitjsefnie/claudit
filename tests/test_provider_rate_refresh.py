@@ -422,18 +422,23 @@ def test_a_new_provider_prices_from_the_detection_time_in_the_browser(
     assert _node_rates(run, tmp_path / "js", "Newcomer") == [fallback, NEWCOMER]
 
 
-def _browser_pricing(run: Run, where: Path, body: str):
-    """Load the run's real browser pricing modules and evaluate one readout."""
+def _browser_pricing_script(run: Run, where: Path, body: str) -> str:
+    """Prepare the run's real browser pricing modules and one readout."""
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
     for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS, RATES_JS, PARSER_USAGE_JS, PARSER_JS):
         shutil.copy(source, where / source.name)
-    script = f"""
+    return f"""
       global.window = {{}};
       require({str(where / "pricing-loader.js")!r});
       require({str(where / "rates.js")!r});
       require({str(where / "parser.js")!r});
     """ + body
+
+
+def _browser_pricing(run: Run, where: Path, body: str):
+    """Load the run's real browser pricing modules and evaluate one readout."""
+    script = _browser_pricing_script(run, where, body)
     proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
