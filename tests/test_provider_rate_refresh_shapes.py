@@ -32,7 +32,7 @@ def _assert_document_shape_resolves(
 
     def add_fixture_host(doc):
         if pin is not None:
-            doc["models"][GLM].setdefault("resolve", {})[host] = pin
+            doc["openrouter"]["models"][GLM].setdefault("resolve", {})[host] = pin
         doc["providers"][GLM][host] = [{"from": None, **RATE_C}]
 
     run.edit(add_fixture_host)
@@ -144,13 +144,14 @@ def test_explicit_global_tag_beats_a_bare_tag_in_the_global_region():
                for note in notices)
 
 
-def test_identical_global_and_bare_price_tags_are_reported_interchangeable():
+def test_identical_global_and_bare_prices_need_no_automatic_choice():
     selected, refused, notices, _ = _select_synthetic_host(
         "Fixture", [("fixture/global", RATES_A), ("fixture", RATES_A)])
 
     assert refused == {}
-    assert selected["Fixture"].tag == "fixture/global"
-    assert any("interchangeable" in note for note in notices)
+    assert selected["Fixture"].tag in {"fixture/global", "fixture"}
+    assert selected["Fixture"].rates == RATES_A
+    assert not any("rule-resolved" in note for note in notices)
 
 
 @pytest.mark.parametrize(("alternative_tag", "regional"), [

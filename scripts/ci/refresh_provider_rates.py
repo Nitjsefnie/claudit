@@ -34,8 +34,8 @@ These refuse the host or model they concern, which appends nothing:
   shape it does not recognise. Web-search rates are sampled separately
   from the token price log and stored as a per-search rate. The one modelled override
   exception is the long-context band: a coherent `min_prompt_tokens`
-  override yields its input/output factors, which must match the model's
-  currently stored meter for this provider row; the band contributes no
+  override infers representable input/output factors from its listed prices;
+  those factors need not match the currently stored meter. The band contributes no
   window or membership here — the vendor pass owns the meter entry — and
   its rates never enter the row. A band never enters a provider entry's
   `band` field: that field is the oscillation band, a different shape;
