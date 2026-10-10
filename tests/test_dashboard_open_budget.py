@@ -11,13 +11,18 @@ back — or the traces could quietly re-enter the payload — with no test
 failing.
 
 This pins both, from the outside (a statement-counting cursor proxy and
-the raw response bytes), so neither can regress unnoticed.
+the raw response bytes), so neither can regress unnoticed. It also pins
+the panel-side half of the fix — the traces fetch handing `setTraces` to
+`window.deferred.run` — at the source level, since node cannot parse the
+JSX and nothing in the suite renders React.
 """
 from __future__ import annotations
 
 import contextlib
 import os
+import re
 from contextlib import closing
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -32,6 +37,9 @@ from test_api import _app_with_data_fixture, _app_with_fresh_data_fixture
 from backend import cache, db
 
 __all__ = ["_app_with_data_fixture", "_app_with_fresh_data_fixture"]
+
+_ROOT = Path(__file__).resolve().parents[1]
+_EXTRA_JSX = _ROOT / "src" / "dashboard-charts-extra.jsx"
 
 
 # The most statements one /api/dashboard?range=all may run. It is the
@@ -179,3 +187,30 @@ def test_dashboard_payload_stays_within_budget(app_with_fresh_data):
     assert len(body) < _PAYLOAD_BUDGET_BYTES, (
         f"dashboard payload is {len(body)} bytes, over the "
         f"{_PAYLOAD_BUDGET_BYTES}-byte budget")
+
+
+def _strip_line_comments(src: str) -> str:
+    """Drop `//` line comments so prose about the routing is not read as
+    the routing itself (the lookbehind spares `https://`)."""
+    return re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)
+
+
+def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
+    """The Context Growth panel's traces fetch must hand `setTraces` to
+    `window.deferred.run`, not call it in the commit that lands the fetch
+    (issue #838).
+
+    This is a source-level pin on purpose: node cannot parse the JSX and
+    nothing in the suite renders React, so the deferral is invisible to
+    every behavioural test — the routing can be deleted and nothing else
+    fails.
+    """
+    src = _strip_line_comments(_EXTRA_JSX.read_text(encoding="utf-8"))
+    assert re.search(
+        r"window\.deferred\.run\(\s*b\.traces\s*\|\|\s*\[\]\s*,\s*setTraces\s*\)",
+        src), (
+        "the traces fetch no longer routes setTraces through "
+        "window.deferred.run (issue #838)")
+    assert not re.search(r"setTraces\(\s*b\.traces\s*\|\|\s*\[\]\s*\)", src), (
+        "the traces fetch calls setTraces directly again, undoing the "
+        "deferral (issue #838)")
