@@ -77,17 +77,20 @@ def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
     records) and then throw away every trace but the last turn. This runs
     ONE query over `files` alone, with no records join (issue #838).
 
-    `ctx_turns` is machine-written by backend/ctx_turns.py, so every
-    element is an object carrying an int `input`; the jsonb projection
-    (`-> -1 ->> 'input'`) is exact for real data. A value that does not
-    parse as an int degrades to None rather than raising, matching the
-    tolerant read the old server-side fold made.
+    `ctx_turns` is machine-written by backend/ctx_turns.py, which always
+    writes an object carrying a POSITIVE int `input`, so the jsonb
+    projection (`-> -1 ->> 'input'`) is exact for real data and the
+    `try`/`except` is defensive only: its shapes are unreachable from
+    that writer. Should one occur anyway, the fallback is None — NOT the
+    old server-side fold's behaviour, which yielded 0 for a missing or
+    None `input` and raised on a non-numeric string.
 
     Rows come back ordered by (session_id, file_key), and the dict is
-    built in that order, so a later row for one session id overwrites an
-    earlier one — the same arbitrary pick the old
-    `{sid: turns for ... if is_main}` comprehension made when two main
-    files shared a session id.
+    built in that order, so the LAST row for one session id wins —
+    deterministic by file_key. The old
+    `{sid: turns for ... if is_main}` comprehension it replaces was
+    unordered, so when two main files shared a session id its pick was
+    arbitrary rather than the highest file_key.
     """
     proj_filter = "AND f.project_id = %s" if project else ""
     args: list[Any] = [since]
