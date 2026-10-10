@@ -370,9 +370,9 @@ COMMENT_ONLY_HEAD = {
 def test_a_comment_only_push_skips_the_behaviour_legs_end_to_end(tmp_path):
     # Issue #844: a change whose source files strip to an identical token
     # stream runs only the legs a comment cannot affect. The comment-only
-    # class skips test-data, panel-layout and codeql (and the portable
-    # matrix inside tests.yml via the input), so the running set is the
-    # legs minus those three.
+    # class skips test-data and panel-layout (and the portable matrix
+    # inside tests.yml via the input); codeql is NOT skipped (its
+    # `// codeql[...]` suppressions are comment-keyed).
     run = _run_classifier(tmp_path, paths=COMMENT_ONLY_PATHS,
                           base_contents=COMMENT_ONLY_BASE,
                           head_contents=COMMENT_ONLY_HEAD)
@@ -382,7 +382,7 @@ def test_a_comment_only_push_skips_the_behaviour_legs_end_to_end(tmp_path):
     assert outputs.get("comment_only") == "true", outputs
     assert _published(outputs).get("comment_only") == "true", outputs
     assert outputs.get("reason", "").startswith("comment-only change")
-    expected = set(_legs(_ci_gate())) - {"test-data", "panel-layout", "codeql"}
+    expected = set(_legs(_ci_gate())) - {"test-data", "panel-layout"}
     assert _gating_legs(outputs) == expected
 
 

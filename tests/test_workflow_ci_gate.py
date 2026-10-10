@@ -149,8 +149,10 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
     assert set(cheap) == {"lint", "smoke"}
     # Issue #844: the legs a comment cannot affect additionally read the
     # comment-only output, so a comment-only change skips exactly them.
+    # CodeQL is NOT among them: `// codeql[...]` / `// lgtm[...]` are
+    # comment-keyed suppressions, so a comment-only diff can change it.
     comment_skipped = _aggregate_module().COMMENT_ONLY_SKIPPED
-    assert set(comment_skipped) == {"test-data", "panel-layout", "codeql"}
+    assert set(comment_skipped) == {"test-data", "panel-layout"}
     doc = _ci_gate()
     for leg in LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""

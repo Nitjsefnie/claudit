@@ -7,7 +7,8 @@ cannot affect skip. These tests drive `comment_only` and `classify`
 through an injected `run` seam (the same seam the classifier uses in
 production), pinning each over-run direction — a non-source path, an
 oversized set, an unreadable blob, a byte-equal pair, a tokenization
-failure — and the node helper's own contract against a fake espree.
+failure — the aggregate fold's negative space, and the node helper's own
+contract against a fake espree and the real one.
 """
 from __future__ import annotations
 
@@ -17,7 +18,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
+TESTS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "tests.yml"
 
 
 def _load(name):
@@ -32,6 +38,7 @@ def _load(name):
 
 
 classify = _load("classify_changes")
+aggregate = _load("aggregate_gate")
 
 REPO = "o/r"
 BASE = "b" * 40
@@ -123,8 +130,17 @@ def test_a_non_source_path_over_runs_without_a_content_read():
 
 
 def test_more_than_the_cap_over_runs():
+    # Every path is seeded with byte-different, token-identical contents,
+    # so the ONLY reason to refuse is MAX_COMMENT_ONLY_FILES — not a
+    # missing blob. The cap-minus-one control proves the seed reaches the
+    # tokenizer and would otherwise classify True.
     paths = [f"m{i}.py" for i in range(classify.MAX_COMMENT_ONLY_FILES + 1)]
-    assert classify.comment_only(paths, EVENT, _run({})) is False
+    contents = {}
+    for path in paths:
+        contents[(path, BASE)] = "x = 1\n"
+        contents[(path, HEAD)] = "x = 1  # c\n"
+    assert classify.comment_only(paths, EVENT, _run(contents)) is False
+    assert classify.comment_only(paths[:-1], EVENT, _run(contents)) is True
 
 
 def test_a_byte_equal_pair_is_not_comment_only():
@@ -146,12 +162,12 @@ def test_a_tokenization_failure_over_runs():
 
 def test_js_comment_only_and_real_change_via_canned_tokens():
     contents = {("m.js", BASE): "a\n", ("m.js", HEAD): "// c\na\n"}
-    same = '[["Identifier", "a"]]'
+    same = '[["Identifier", "a", false]]'
     assert classify.comment_only(
         ["m.js"], EVENT, _js_run(contents, same, same)) is True
     assert classify.comment_only(
         ["m.js"], EVENT,
-        _js_run(contents, same, '[["Identifier", "b"]]')) is False
+        _js_run(contents, same, '[["Identifier", "b", false]]')) is False
 
 
 # --- classify: the class through the whole decision --------------------------
@@ -177,25 +193,200 @@ def test_write_outputs_emits_the_four_lines(tmp_path):
     )
 
 
-# --- the node helper, against a fake espree ---------------------------------
+# --- _refs: the pull-request path (issue #822's event) -----------------------
 
 
-def test_the_node_helper_strips_comments_with_espree(tmp_path):
-    # A fake espree that throws unless it is handed comment:false, so the
-    # helper's own options are exercised, not merely its output shape.
+def test_refs_reads_a_pull_request_base_and_head():
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        return f"{BASE} {HEAD}\n"
+
+    event = {"name": "pull_request", "repository": REPO, "pull_request": "17"}
+    assert classify._refs(event, REPO, run) == (BASE, HEAD)  # pylint: disable=protected-access
+    assert "repos/o/r/pulls/17" in calls[0]
+
+
+def test_refs_over_runs_on_an_unreadable_pull_request():
+    def run(argv):
+        raise OSError("gh failed")
+
+    event = {"name": "pull_request", "repository": REPO, "pull_request": "17"}
+    assert classify._refs(event, REPO, run) is None  # pylint: disable=protected-access
+    # And the class over-runs with it: unreadable refs are not
+    # comment-only, and no blob read is attempted.
+    assert classify.comment_only(["m.py"], event, run) is False
+
+
+def test_comment_only_on_a_pull_request():
+    contents = {("m.py", BASE): "x = 1\n", ("m.py", HEAD): "x = 1  # c\n"}
+
+    def run(argv):
+        url = next((arg for arg in argv if arg.startswith("repos/")), "")
+        if "/pulls/" in url:
+            return f"{BASE} {HEAD}\n"
+        if "/contents/" in url:
+            path = url.split("/contents/", 1)[1].split("?", 1)[0]
+            ref = url.split("ref=", 1)[1]
+            return contents[(path, ref)]
+        raise AssertionError(url)
+
+    event = {"name": "pull_request", "repository": REPO, "pull_request": "17"}
+    assert classify.comment_only(["m.py"], event, run) is True
+
+
+# --- aggregate: the comment-only fold's negative space -----------------------
+
+LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
+        "panel-layout", "smoke", "audit", "actionlint", "codeql")
+
+
+def _needs(comment_only: str | None = "true", **results):
+    """A needs document shaped for the comment-only fold pins.
+
+    A LOCAL helper so the suite-bench-listed test_ci_gate_modules.py does
+    not grow; `comment_only` is the classifier output, `results` override
+    per-leg results by leg id.
+    """
+    doc = {"classify": {"result": "success",
+                        "outputs": {"docs_only": "false",
+                                    "data_only": "false",
+                                    "comment_only": comment_only}}}
+    for leg in LEGS[1:]:
+        doc[leg] = {"result": results.get(leg, "success")}
+    return doc
+
+
+def test_comment_only_fold_passes_when_only_the_skippable_legs_skip():
+    doc = _needs()
+    for leg in aggregate.COMMENT_ONLY_SKIPPED:
+        doc[leg] = {"result": "skipped"}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.PASSED
+    assert "comment-only" in message
+
+
+def test_comment_only_fold_fails_when_a_behaviour_leg_skips():
+    # The negative space: a skip outside COMMENT_ONLY_SKIPPED is a
+    # fold/workflow disagreement and must go red, not pass.
+    for leg in ("tests", "lint", "types", "eslint", "smoke", "audit",
+                "actionlint", "codeql"):
+        doc = _needs()
+        for skipped in aggregate.COMMENT_ONLY_SKIPPED:
+            doc[skipped] = {"result": "skipped"}
+        doc[leg] = {"result": "skipped"}
+        verdict, message = aggregate.decide(doc)
+        assert verdict == aggregate.FAILED, leg
+        assert f"{leg}=skipped" in message
+
+
+def test_comment_only_output_reads_fail_closed():
+    # Missing, empty, wrong-case and non-string outputs cannot turn a
+    # skipped leg into a pass.
+    for value in (None, "", "True", "1"):
+        doc = _needs(comment_only=value)
+        doc["test-data"] = {"result": "skipped"}
+        verdict, message = aggregate.decide(doc)
+        assert verdict == aggregate.FAILED, value
+        assert "test-data=skipped" in message
+
+
+def test_comment_only_output_absent_fails():
+    doc = _needs()
+    del doc["classify"]["outputs"]["comment_only"]
+    doc["test-data"] = {"result": "skipped"}
+    assert aggregate.decide(doc)[0] == aggregate.FAILED
+
+
+# --- the workflow wiring the class depends on --------------------------------
+
+
+def _ci_gate():
+    return yaml.safe_load(CI_GATE.read_text(encoding="utf-8")) or {}
+
+
+def _tests_workflow():
+    return yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8")) or {}
+
+
+def test_the_tests_leg_forwards_the_comment_only_output():
+    # A text/structural pin is the available instrument for a `with:`
+    # passthrough: nothing here executes the reusable-call boundary, so
+    # the decoded `with:` mapping is what binds the classifier output to
+    # the callee's input. A dropped or renamed passthrough silently runs
+    # the whole matrix on every comment-only push.
+    call = _ci_gate()["jobs"]["tests"]
+    assert call["with"]["comment_only"] == (
+        "${{ needs.classify.outputs.comment_only }}")
+
+
+def test_the_portable_matrix_reads_the_comment_only_input():
+    portable = _tests_workflow()["jobs"]["pytest-portable"]
+    assert portable["if"] == "inputs.comment_only != 'true'"
+
+
+def test_the_espree_dir_env_name_matches_the_workflow():
+    # A wrong name silently disables the whole class with a green gate:
+    # the classifier reads one env key and the workflow sets another.
+    step = next(s for s in _ci_gate()["jobs"]["classify"]["steps"]
+                if s.get("id") == "classify")
+    assert classify.ESPREE_DIR_ENV == "CLAUDIT_ESPREE_DIR"
+    assert classify.ESPREE_DIR_ENV in (step.get("env") or {})
+
+
+# --- the node helper ---------------------------------------------------------
+
+
+def test_the_node_helper_strips_comments_and_marks_line_breaks(tmp_path):
+    # A fake espree that throws unless handed comment:false and loc:true,
+    # returning two tokens with loc, so the helper's options AND its
+    # three-field output (the third is the line-break flag) are both
+    # exercised: the first token is at the start, the second follows a
+    # line break.
     module_dir = tmp_path / "mods"
     module_dir.mkdir()
     (module_dir / "espree.js").write_text(
         "module.exports = { tokenize(src, opts) {\n"
         "  if (opts.comment !== false) { throw new Error('comment not false'); }\n"
-        "  return [{type: 'Identifier', value: 'x'},\n"
-        "          {type: 'Punctuator', value: ';'}];\n"
+        "  if (opts.loc !== true) { throw new Error('loc not true'); }\n"
+        "  return [\n"
+        "    {type: 'Identifier', value: 'x', loc: {start: {line: 1}, end: {line: 1}}},\n"
+        "    {type: 'Identifier', value: 'y', loc: {start: {line: 2}, end: {line: 2}}},\n"
+        "  ];\n"
         "} };\n", encoding="utf-8")
     source = tmp_path / "s.js"
-    source.write_text("x;  // c\n", encoding="utf-8")
+    source.write_text("x\ny\n", encoding="utf-8")
     helper = REPO_ROOT / "scripts" / "ci" / "js_comment_tokens.mjs"
     completed = subprocess.run(
         ["node", str(helper), str(module_dir), str(source), "plain"],
         capture_output=True, text=True, check=True, timeout=60)
-    assert json.loads(completed.stdout) == [["Identifier", "x"],
-                                            ["Punctuator", ";"]]
+    assert json.loads(completed.stdout) == [
+        ["Identifier", "x", False], ["Identifier", "y", True]]
+
+
+def test_the_node_helper_distinguishes_an_asi_line_break(tmp_path):
+    # The regression this field exists for. A line terminator is semantic
+    # in JS (the ASI restricted productions), and espree's tokens erase
+    # whitespace, so a two-field key reads the ASI pair below as EQUAL
+    # while the two functions return undefined vs 42. The real espree is
+    # only present where `npm ci` has run (the JS-coverage step), so this
+    # skips without it.
+    espree_dir = REPO_ROOT / "node_modules"
+    if not (espree_dir / "espree" / "package.json").is_file():
+        pytest.skip("espree is not installed at the repository root")
+    helper = REPO_ROOT / "scripts" / "ci" / "js_comment_tokens.mjs"
+
+    def keys(text):
+        source = tmp_path / "s.js"
+        source.write_text(text, encoding="utf-8")
+        completed = subprocess.run(
+            ["node", str(helper), str(espree_dir), str(source), "plain"],
+            capture_output=True, text=True, check=True, timeout=60)
+        return json.loads(completed.stdout)
+
+    asi = keys("export function f(x) {\n  return\n  x * 2;\n}\n")
+    no_asi = keys("export function f(x) {\n  return x * 2;\n}\n")
+    assert asi != no_asi
+    # A comment-only edit leaves the keys equal.
+    assert keys("const a = 1; // c\n") == keys("const a = 1;\n")
