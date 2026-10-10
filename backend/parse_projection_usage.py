@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from backend.ctx_input import usage_ctx_input
+
 
 class _UsageTokens(NamedTuple):
     """Token counts used by the row projection and cost calculation."""
@@ -37,17 +39,11 @@ def _usage_tokens(usage: dict) -> _UsageTokens:
     details = usage.get("output_tokens_details") or {}
     thinking = (int(details.get("thinking_tokens", 0) or 0)
                 if isinstance(details, dict) else 0)
-    # Inline ctx_input.usage_ctx_input's small fold to avoid another call per
-    # record in the reparse hot path.
+    # Reuse already-read tokens for the common path. Multiple raw entries
+    # need the shared policy to filter malformed calls and select their peak.
     ctx_input = fresh + create + read
     iterations = usage.get("iterations")
     if isinstance(iterations, list) and len(iterations) > 1:
-        iterations = [it for it in iterations if isinstance(it, dict)]
-        if len(iterations) > 1:
-            ctx_input = max(
-                int(it.get("input_tokens", 0) or 0)
-                + int(it.get("cache_creation_input_tokens", 0) or 0)
-                + int(it.get("cache_read_input_tokens", 0) or 0)
-                for it in iterations)
+        ctx_input = usage_ctx_input(usage)
     return _UsageTokens(fresh, create, read, output, thinking, eph5, eph1h,
                         web_search_requests, ctx_input)

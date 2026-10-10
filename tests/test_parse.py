@@ -236,6 +236,7 @@ def test_iterations_flattened_to_sum():
     # eph1h = 2623 + 1067 = 3690, eph5 = 0
     assert r["eph1h_tokens"] == 3690
     assert r["eph5_tokens"] == 0
+    assert r["ctx_input"] == 118733  # peak call, rather than the 354714 billing sum
 
 
 def test_prompt_count_excludes_instrumentation_and_interrupts():
