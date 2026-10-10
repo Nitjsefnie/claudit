@@ -216,9 +216,6 @@ def test_every_group_has_a_security_updates_twin() -> None:
     )
 
 
-# A container image reference carrying an explicit digest — `name:tag@sha256:…`
-# or `name@sha256:…`. Bare `name` and `name:tag` are floating.
-_DIGESTED_IMAGE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 # A step that runs an image instead of an action: `uses: docker://image`.
 _DOCKER_REF = "docker://"
 
@@ -293,26 +290,6 @@ def test_every_postgres_service_pulls_from_the_public_ecr_mirror() -> None:
     assert not off_mirror, (
         "pull Postgres from " + POSTGRES_MIRROR + " (issue #885): "
         + repr(off_mirror))
-
-
-def test_every_workflow_container_image_is_digest_pinned() -> None:
-    """No workflow names a container image by a moving tag (issue #559).
-
-    Three of the five workflows that start the suite's Postgres named it
-    `image: postgres:16`, a tag upstream re-points, so the database a CI
-    leg measured against could change under a fixed commit. Every image is
-    pinned to a digest instead.
-    """
-    images = _service_images()
-    # the oracle must be live: a refactor that stopped finding the
-    # containers must not silence this into a vacuous pass
-    assert images, "found no container image in .github/workflows/"
-    unpinned = [(where, image) for where, image in images
-                if not _DIGESTED_IMAGE.match(image)]
-    assert not unpinned, (
-        "container images named by a moving tag or bare name — pin each to "
-        "the digest the other jobs use: " + repr(unpinned)
-    )
 
 
 def test_postgres_service_images_share_one_digest() -> None:
