@@ -13,7 +13,8 @@ import posixpath
 import re
 
 from backend.bash_literals import (MAX_LITERAL_CHARS, ShellWord, _file_sink,
-                                   command_options, literal_path, shell_tokens)
+                                   _fold_fd, command_options, literal_path,
+                                   shell_tokens)
 from backend.target_paths import copy_source_name, directory_spelling, join_child
 
 
@@ -239,15 +240,6 @@ def _echo(args: list[str]) -> str | None:
     return payload + ("\n" if newline else "")
 
 
-def _fold_fd(fd: str) -> str:
-    """An explicit fd read by VALUE: leading zeros are insignificant, so
-    `01` is fd 1 and `00` is fd 0. An omitted fd stays empty; an
-    all-zero spelling folds to `0`."""
-    if not fd:
-        return ""
-    return fd.lstrip("0") or "0"
-
-
 def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bool]:
     """Remove redirects, retaining stdout's sink and whether stdin is replaced."""
     args: list[ShellWord] = []
@@ -397,6 +389,8 @@ def _pipeline_payloads(tokens: list[ShellWord], inherited: bool | None) -> list[
         empty_input = any(t.operator and t in ("<&", "0<&", "<", "0<")
                           and i + 1 < len(stage) and stage[i + 1] in ("-", "/dev/null")
                           for i, t in enumerate(stage))
+        # `for m in (...) if m` binds the match without a walrus, so no
+        # function-level local is added (pylint R0914 on this function).
         other_sink = any(
             _fold_fd(m.group(1)) not in ("", "0", "1")
             and i + 1 < len(stage) and _file_sink(stage[i + 1])

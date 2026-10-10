@@ -161,6 +161,15 @@ def _file_sink(word: str) -> bool:
                 and not getattr(word, "operator", False))
 
 
+def _fold_fd(fd: str) -> str:
+    """An explicit fd read by VALUE: leading zeros are insignificant, so
+    `01` is fd 1 and `00` is fd 0. An omitted fd stays empty; an
+    all-zero spelling folds to `0`."""
+    if not fd:
+        return ""
+    return fd.lstrip("0") or "0"
+
+
 def _option_value(word: str, offset: int) -> ShellWord:
     value = ShellWord(word[offset:], getattr(word, "literal", True))
     value.expansion = getattr(word, "expansion", word)[offset:]
