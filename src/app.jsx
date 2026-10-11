@@ -937,13 +937,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         <window.HBar listPanel
           title="Cost by Model"
           rows={costByModel}
-          fixedColors={window.modelColors} groupByModel partFmt={r => window.humanCurrency(r.value)}
+          fixedColors={window.modelColors} groupByModel partFmt={v => window.humanCurrency(v)}
           fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costByModelTotal * 100).toFixed(1)}%)`} />
         )}
         <window.HBar listPanel
           title="Tokens by Model"
           rows={tokensByModel}
-          fixedColors={window.modelColors} groupByModel partFmt={r => window.humanFmt(r.value)}
+          fixedColors={window.modelColors} groupByModel partFmt={v => window.humanFmt(v)}
           fmt={r => `${window.humanFmt(r.value)} (${tokensByModelTotal > 0 ? (r.value / tokensByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
       </div>
 
