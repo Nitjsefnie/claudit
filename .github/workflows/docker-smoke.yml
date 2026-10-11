@@ -65,8 +65,12 @@ jobs:
             exit 1
           fi
 
+      # The same `env -u` scrub as the assert: `up --build` interpolates
+      # compose defaults under the job's full environment, so a job-level
+      # env: or a runner-exported R2_* credential must not reach the stack
+      # a credential-free assert just proved.
       - name: Build the image and start the stack
-        run: docker compose up -d --build
+        run: env -u R2_ENDPOINT -u R2_BUCKET -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY docker compose up -d --build
 
       # The patience shape of scripts/ci/smoke.py: poll on a deadline,
       # keep the last observation for the failure message, and accept
