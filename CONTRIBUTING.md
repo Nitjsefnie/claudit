@@ -35,7 +35,7 @@ was. That is fine in both directions.
 
 Read [`AGENTS.md`](AGENTS.md) first — it is the architecture and
 conventions brief, written for you. Then read
-[`.claude/rules/claudit-doctrine.md`](.claude/rules/claudit-doctrine.md),
+[`.claude/rules/`](.claude/rules/),
 which holds the invariants as numbered rules (`SV-*`). Those two files are
 authoritative; this one only covers process.
 
