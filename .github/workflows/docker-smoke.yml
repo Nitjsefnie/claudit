@@ -1,0 +1,138 @@
+name: docker-smoke
+
+# Does the container image build, and does the compose stack boot and
+# serve on a runner that carries no configuration?
+#
+# The Dockerfile and compose.yaml (issues #941's first two halves) are
+# dead weight without a CI that exercises them: nothing else in this
+# repository builds the image, starts the digest-pinned Postgres with
+# its first-boot init, or reads the fixtures through the R2 client's
+# file:// mode FROM INSIDE the container. This leg is that check, and it
+# runs with the runner's bare environment — no R2_* variables — so the
+# only configuration that can make it green is compose's zero-config
+# defaults. A step before `up` asserts the RESOLVED config is
+# file-backed and credential-free, so a later compose edit that
+# defaults to a real bucket reddens here rather than at a deploy.
+#
+# The /health probe repeats the patience shape of
+# scripts/ci/smoke.py — poll on a deadline, accept only a 200 whose
+# body says ok and a startup ingest that finished against the mounted
+# mirror — and teardown runs under `if: always()` so a failed probe
+# leaves no stack or volume behind on the runner.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Pin the zero-config claim before anything is built. `env -u`
+      # scrubs the four R2 variables from compose's interpolation, so
+      # what `config` prints is what a bare `docker compose up` resolves
+      # to on a machine with no .env: the file:// default endpoint and
+      # empty keys. Unsetting rather than overriding is the point —
+      # there is no compose flag that drops inherited environment, and
+      # a future runner that exported a credential would otherwise be
+      # interpolated straight into the stack this step exists to prove
+      # needs none.
+      - name: Assert the resolved config is file-backed and credential-free
+        run: |
+          resolved="$(env -u R2_ENDPOINT -u R2_BUCKET -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY docker compose config)"
+          printf '%s\n' "$resolved"
+          printf '%s\n' "$resolved" | grep -Eq 'R2_ENDPOINT: "?file://'
+          printf '%s\n' "$resolved" | grep -Fq 'R2_ACCESS_KEY_ID: ""'
+          printf '%s\n' "$resolved" | grep -Fq 'R2_SECRET_ACCESS_KEY: ""'
+          if printf '%s\n' "$resolved" | grep -Eq 'r2\.cloudflarestorage\.com'; then
+            echo "the resolved config names a real object-store endpoint, not the file:// default"
+            exit 1
+          fi
+
+      - name: Build the image and start the stack
+        run: docker compose up -d --build
+
+      # The patience shape of scripts/ci/smoke.py: poll on a deadline,
+      # keep the last observation for the failure message, and accept
+      # only what the endpoint actually returns — 200 with ok and db
+      # true, no ingest in flight, and a finished startup ingest that
+      # LISTED objects (zero would mean the container never read the
+      # mounted mirror, and a green probe would prove nothing).
+      - name: Probe /health until the startup ingest finishes
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          BASE = "http://127.0.0.1:8000"
+          DEADLINE = time.monotonic() + 180
+          POLL_S = 2
+          last = "no response yet"
+          while time.monotonic() < DEADLINE:
+              try:
+                  with urllib.request.urlopen(f"{BASE}/health", timeout=5) as resp:
+                      status, body = resp.status, resp.read()
+              except urllib.error.HTTPError as exc:
+                  status, body = exc.code, exc.read()
+              except OSError as exc:            # not listening yet
+                  last = f"connect: {exc}"
+                  time.sleep(POLL_S)
+                  continue
+              if status != 200:
+                  last = f"HTTP {status}: {body[:200]!r}"
+                  time.sleep(POLL_S)
+                  continue
+              payload = json.loads(body)
+              if not payload.get("ok") or not payload.get("db"):
+                  last = f"not ok: {payload.get('error')!r}"
+                  time.sleep(POLL_S)
+                  continue
+              if payload.get("ingest_running"):
+                  prog = payload.get("ingest_progress") or {}
+                  last = f"ingest {prog.get('phase')} {prog.get('pct')}%"
+                  time.sleep(POLL_S)
+                  continue
+              run = payload.get("last_ingest") or {}
+              if not run.get("finished_at"):
+                  last = "no finished ingest recorded yet"
+                  time.sleep(POLL_S)
+                  continue
+              if not run.get("r2_listed"):
+                  last = f"startup ingest listed 0 objects: {run!r}"
+                  time.sleep(POLL_S)
+                  continue
+              print(f"health ok: version={payload.get('version')} "
+                    f"listed={run['r2_listed']} reparsed={run.get('reparsed')}")
+              break
+          else:
+              print(f"/health never reported a finished ingest ({last})",
+                    file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      # A red probe that showed only its last observation would hide the
+      # container's own traceback — the same reason smoke.py dumps the
+      # server log beside the failed check.
+      - name: Dump the stack log on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear the stack down
+        if: always()
+        run: docker compose down -v

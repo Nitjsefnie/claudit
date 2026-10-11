@@ -50,7 +50,7 @@ name: ci gate
 # executed (scripts/ci/classify_changes.py). A cancelled run's CODE is
 # therefore not forgotten either way.
 #
-# TRIGGER OWNERSHIP. The nine gate workflows below are called as
+# TRIGGER OWNERSHIP. The eleven gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
 # daily, codeql weekly) and `workflow_dispatch`, and they carry no
 # `push` or `pull_request` trigger any more — this file owns that
@@ -209,6 +209,12 @@ jobs:
     if: needs.classify.outputs.docs_only != 'true'
     uses: $/.github/workflows/smoke.yml
 
+  docker-smoke:
+    # Build the container image and smoke-run the compose stack (issue #941).
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
+    uses: $/.github/workflows/docker-smoke.yml
+
   audit:
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
@@ -235,7 +241,7 @@ jobs:
 
   aggregate:
     needs: [classify, tests, test-data, lint, types, eslint, panel-layout,
-            smoke, audit, actionlint, codeql]
+            smoke, docker-smoke, audit, actionlint, codeql]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15

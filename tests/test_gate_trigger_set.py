@@ -105,7 +105,7 @@ def test_exempt_beats_every_other_part_of_the_set():
     # otherwise match.
     for name in ("src/pricing.json", "src/pricing_notices.json",
                  "backend/constants.py", "VERSION",
-                 "backend", "tests", "fixtures"):
+                 "backend", "tests", "fixtures", "compose"):
         assert name in gts.EXEMPT, name
         assert not gts.is_triggered(name)
     assert not gts.is_triggered(

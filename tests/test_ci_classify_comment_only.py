@@ -284,7 +284,8 @@ def test_comment_only_on_a_pull_request():
 # --- aggregate: the comment-only fold's negative space -----------------------
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
-        "panel-layout", "smoke", "audit", "actionlint", "codeql")
+        "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
+        "codeql")
 
 
 def _needs(comment_only: str | None = "true", **results):
@@ -315,8 +316,8 @@ def test_comment_only_fold_passes_when_only_the_skippable_legs_skip():
 def test_comment_only_fold_fails_when_a_behaviour_leg_skips():
     # The negative space: a skip outside COMMENT_ONLY_SKIPPED is a
     # fold/workflow disagreement and must go red, not pass.
-    for leg in ("tests", "lint", "types", "eslint", "smoke", "audit",
-                "actionlint", "codeql"):
+    for leg in ("tests", "lint", "types", "eslint", "smoke", "docker-smoke",
+                "audit", "actionlint", "codeql"):
         doc = _needs()
         for skipped in aggregate.COMMENT_ONLY_SKIPPED:
             doc[skipped] = {"result": "skipped"}
