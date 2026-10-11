@@ -103,3 +103,34 @@ def test_transitive_advisory_floor_is_pinned(package: str) -> None:
     assert floor >= FIXED_FLOORS[package], (
         f"{package}!={spec} floors at {floor}, below the advisory fix "
         f"{FIXED_FLOORS[package]} (issue #938)")
+
+
+def test_option_and_include_lines_are_refused(tmp_path: Path) -> None:
+    """The reader's "raises, never silently drop" claim, branch 1.
+
+    A floor cannot be audited through an ``-r`` hop or an index option,
+    so a ``-``-prefixed line raises. Discriminating by message: the
+    match pins THIS branch — routed through the unparsable-line branch
+    instead, the message would differ and the match would fail.
+    """
+    path = tmp_path / "requirements.txt"
+    path.write_text(
+        "# a comment line the reader skips\n"
+        "urllib3==2.8.0\n"
+        "--index-url https://example.invalid/simple\n",
+        encoding="utf-8")
+    with pytest.raises(AssertionError, match="options/includes"):
+        _pins(path)
+
+
+def test_an_unparsable_line_is_refused(tmp_path: Path) -> None:
+    """The reader's refusal claim, branch 2: a line PEP 440 cannot read.
+
+    A silently dropped line would turn the absence of a pin into a
+    passing audit, so the parse failure raises — pinned to this branch
+    by its own message, distinct from the options/includes one.
+    """
+    path = tmp_path / "requirements.txt"
+    path.write_text("?? definitely not PEP 508 ??\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="unparsable"):
+        _pins(path)
