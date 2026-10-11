@@ -239,8 +239,9 @@ def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys)
 
 
 def test_the_perturbers_fetch_stamp_covers_its_appends(tmp_path):
-    """The perturber moves provider_rates_fetched only as far as its own
-    appended stamps (issue #931: no `from` postdates the fetch stamp),
+    """The perturber moves provider_rates_fetched exactly to
+    max(its old value, its newest appended stamp) — never backwards,
+    never further (issue #931: no `from` postdates the fetch stamp) —
     and never touches the openrouter section. (Relocated here from the
     perturber's own file, which sits at its 700-line size ceiling.)"""
     # pylint: disable=protected-access
@@ -250,9 +251,9 @@ def test_the_perturbers_fetch_stamp_covers_its_appends(tmp_path):
                  for entry in entries if entry.get("from"))
     fetched = perturb_test_data._parse_stamp(
         perturbed["provider_rates_fetched"])
-    assert fetched >= newest, "no appended stamp postdates the fetch stamp"
-    assert fetched >= perturb_test_data._parse_stamp(
-        doc["provider_rates_fetched"]), "the stamp never moves backwards"
+    previous = perturb_test_data._parse_stamp(doc["provider_rates_fetched"])
+    assert fetched == max(previous, newest), (
+        "the stamp moves exactly to max(its old value, the newest append)")
     assert perturbed["openrouter"] == doc["openrouter"]
 
 
