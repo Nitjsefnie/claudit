@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-11T18:53:43Z",
+  "provider_rates_fetched": "2026-10-11T20:54:10Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -19354,6 +19354,14 @@
           "note": "20% off",
           "output": 3.52,
           "read": 0.208
+        }
+      ],
+      "Tenstorrent": [
+        {
+          "fresh": 0.6,
+          "from": "2026-10-11T20:38:28Z",
+          "output": 2.5,
+          "read": 0.2
         }
       ],
       "Together": [
