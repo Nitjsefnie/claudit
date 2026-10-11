@@ -34,6 +34,47 @@ const _checkHhmmSpelling =
     : window.checkHhmmSpelling;
 /* eslint-enable no-undef */
 
+// The STORED document's shape (SV-RATE-DATA, #931): a cache-write rate is
+// stored only when it differs from fresh; called only at raw-ingest so the
+// shared validation below stays shape-agnostic for expanded documents.
+function checkCompactShape(doc) {
+  const rows = [];
+  for (const [key, entries] of Object.entries((doc || {}).models || {})) {
+    rows.push([key, entries]);
+  }
+  for (const [model, hosts] of Object.entries((doc || {}).providers || {})) {
+    for (const [host, entries] of Object.entries(hosts || {})) {
+      rows.push([`${model} via ${host}`, entries]);
+    }
+  }
+  const refuse = (spot, rates) => {
+    for (const field of ['create_5m', 'create_1h']) {
+      if (field in rates && 'fresh' in rates
+          && rates[field] === rates.fresh) {
+        throw _pricingError(
+          `${spot}: ${field} is present and equals fresh; it is present `
+          + 'only when it differs');
+      }
+    }
+  };
+  for (const [where, entries] of rows) {
+    if (!Array.isArray(entries)) continue;
+    entries.forEach((entry, i) => {
+      if (entry === null || typeof entry !== 'object') return;
+      const at = `${where}[${i}]`;
+      refuse(at, entry);
+      if (Array.isArray(entry.schedule)) {
+        entry.schedule.forEach((window, j) => {
+          if (window && typeof window === 'object' && window.rates
+              && typeof window.rates === 'object') {
+            refuse(`${at}.schedule[${j}]`, window.rates);
+          }
+        });
+      }
+    });
+  }
+}
+
 function _readPricing() {
   if (typeof document === 'undefined') {
     let text;
@@ -62,11 +103,14 @@ function _readPricing() {
   // Signed out, the request is redirected to the sign-in page, which is a 200.
   if (xhr.responseURL !== url) throw _pricingError(`redirected to ${xhr.responseURL}`);
   _checkHhmmSpelling(xhr.responseText);
+  let doc;
   try {
-    return JSON.parse(xhr.responseText);
+    doc = JSON.parse(xhr.responseText);
   } catch (e) {
     throw _pricingError(`not JSON (${e.message})`);
   }
+  checkCompactShape(doc);
+  return doc;
 }
 
 const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
@@ -96,6 +140,16 @@ function _instantMs(stamp) {
   return inRange ? wall.getTime() - (m[7] === '-' ? -1 : 1) * (oh * 60 + om) * 60000 : NaN;
 }
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+// Canonical JSON (keys sorted at every depth): issue #930's whole-entry compare.
+const _stable = (v) => (Array.isArray(v)
+  ? `[${v.map(_stable).join(',')}]`
+  : (v !== null && typeof v === 'object'
+      ? `{${Object.keys(v).sort().map(
+        (k) => `${JSON.stringify(k)}:${_stable(v[k])}`).join(',')}}`
+      : JSON.stringify(v)));
+const _withoutFrom = (entry) => Object.fromEntries(
+  Object.entries(entry).filter(([k]) => k !== 'from'));
 
 // Refuses what pricing._history refuses, naming the row the same way.
 // A provider entry's weekly UTC schedule, checked and read into windows of
@@ -188,7 +242,7 @@ function _checkBand(band, at) {
   return out;
 }
 
-function _checkHistory(entries, where, mayBegin) {
+function _checkHistory(entries, where, mayBegin, fetchedMs) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   const schedules = {};
@@ -212,6 +266,16 @@ function _checkHistory(entries, where, mayBegin) {
     if ('band' in entry) {
       if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a band`);
       bands[i] = _checkBand(entry.band, at);
+      // the band contains the entry's effective rates (#931).
+      const eff = Object.fromEntries(
+        Object.entries(_ratesOf(entry)).map(([js, v]) => [_RATE_FIELDS[js], v]));
+      for (const [field, [lo, hi]] of Object.entries(bands[i])) {
+        if (eff[field] < lo || eff[field] > hi) {
+          throw _pricingError(
+            `${at}: band[${field}] [${lo}, ${hi}] does not contain `
+            + `the entry's ${eff[field]}`);
+        }
+      }
     }
     const bad = Object.entries(_ratesOf(entry))
       .filter(([, value]) => !_isRate(value)).map(([js]) => js);
@@ -234,7 +298,16 @@ function _checkHistory(entries, where, mayBegin) {
     if (previous !== null && start <= previous) {
       throw _pricingError(`${at}: 'from' is not after the previous entry's`);
     }
+    if (start > fetchedMs) {
+      throw _pricingError(
+        `${at}: 'from' ${JSON.stringify(entry.from)} is after `
+        + `provider_rates_fetched ${JSON.stringify(new Date(fetchedMs).toISOString())}`);
+    }
     previous = start;
+    if (i > 0 && _stable(_withoutFrom(entry))
+        === _stable(_withoutFrom(entries[i - 1]))) {
+      throw _pricingError(`${at}: equal to the previous entry except 'from'`);
+    }
   });
   return { schedules, bands };
 }
@@ -243,8 +316,8 @@ function _checkHistory(entries, where, mayBegin) {
 // price, and each earlier one a window ending where its successor starts.
 // A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
-function _history(entries, where, mayBegin = false) {
-  const { schedules, bands } = _checkHistory(entries, where, mayBegin);
+function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
+  const { schedules, bands } = _checkHistory(entries, where, mayBegin, fetchedMs);
   return {
     schedules,
     bands,
@@ -258,6 +331,11 @@ function _history(entries, where, mayBegin = false) {
 }
 
 const _PRICING = _readPricing();
+// Parsed before the histories: no dated entry postdates the fetch (#931).
+const _fetchedMs = _instantMs(_PRICING.provider_rates_fetched);
+if (Number.isNaN(_fetchedMs)) {
+  throw _pricingError(`provider_rates_fetched: ${JSON.stringify(_PRICING.provider_rates_fetched)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
+}
 window.modelRates = {};
 window.datedRates = {};
 for (const [key, entries] of Object.entries(_PRICING.models)) {
@@ -265,7 +343,7 @@ for (const [key, entries] of Object.entries(_PRICING.models)) {
     throw _pricingError(
       `models key ${JSON.stringify(key)} is not a non-empty string`);
   }
-  const { list, windows } = _history(entries, key);
+  const { list, windows } = _history(entries, key, false, _fetchedMs);
   window.modelRates[key] = list;
   if (windows.length) window.datedRates[key] = windows;
 }
@@ -279,7 +357,7 @@ window.providerBands = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
     const { list, windows, start, schedules, bands } = _history(
-      entries, `${model} via ${host}`, true);
+      entries, `${model} via ${host}`, true, _fetchedMs);
     if (Object.keys(schedules).length) {
       (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
     }
@@ -414,3 +492,9 @@ for (const [i, group] of _lcGroups.entries()) {
   }
 }
 window.longContextModels = Object.keys(window.longContextMeters);
+
+/* eslint-disable no-undef */
+if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+  module.exports = { checkCompactShape };
+}
+/* eslint-enable no-undef */

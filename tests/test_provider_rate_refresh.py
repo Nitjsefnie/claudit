@@ -144,7 +144,6 @@ def _seeded(doc: dict) -> dict:
     # no epoch moves).
     if "claude-opus-4-7" not in doc["models"]:
         doc["models"]["claude-opus-4-7"] = [dict(DEFAULT_ROW)]
-    doc["provider_rates_fetched"] = "2026-09-24T22:03:13Z"
     return doc
 
 
@@ -255,10 +254,15 @@ def test_every_provider_table_model_names_its_openrouter_id():
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
     assert set(doc["providers"]) <= set(doc["openrouter"]["models"])
+    # The five delisted claude-3-* keys stay dashed snapshot handles (#929).
+    snapshot_keys = {"claude-3-5-haiku-", "claude-3-5-sonnet-",
+                     "claude-3-7-sonnet-", "claude-3-haiku-", "claude-3-opus-"}
     for key, entry in doc["openrouter"]["models"].items():
         if entry.get("vendor_host"):
             slug = entry["id"].partition("/")[2]
-            assert pricing._normalise(slug) == key  # pylint: disable=protected-access
+            normalised = pricing._normalise(slug)  # pylint: disable=protected-access
+            assert normalised == key or (
+                key in snapshot_keys and normalised == key[:-1]), key
         else:
             assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
 

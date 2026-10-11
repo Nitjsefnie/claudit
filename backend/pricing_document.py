@@ -83,3 +83,47 @@ def serialize_pricing_doc(doc: dict) -> str:
     """Serialize the canonical compact document used by every writer."""
     return json.dumps(compact_pricing_doc(doc), indent=2, sort_keys=True,
                       allow_nan=False) + "\n"
+
+
+def check_compact_shape(doc: dict) -> None:
+    """Refuse a STORED document whose cache-write rates repeat ``fresh``.
+
+    ``compact_pricing_doc`` strips an equal ``create_5m``/``create_1h``
+    pair at every write, so a present equal pair in the stored file is a
+    hand edit (SV-RATE-DATA: present only when it differs). This runs at
+    the raw-file boundaries only — pricing_load's module load and the
+    browser loader's fetch — never inside ``load_tables``: the shared
+    validation accepts the expanded intermediate ``expand_pricing_doc``
+    materialises, by design. Mirrored by src/pricing-loader.js's
+    ``checkCompactShape``.
+    """
+    models = doc.get("models")
+    providers = doc.get("providers")
+    rows = list(models.items()) if isinstance(models, dict) else []
+    if isinstance(providers, dict):
+        rows += [(f"{model} via {host}", entries)
+                 for model, hosts in providers.items()
+                 if isinstance(hosts, dict)
+                 for host, entries in hosts.items()]
+    for where, entries in rows:
+        if not isinstance(entries, list):
+            continue
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            at = f"{where}[{i}]"
+            spots = [(at, entry)]
+            schedule = entry.get("schedule")
+            if isinstance(schedule, list):
+                spots += [(f"{at}.schedule[{j}]", window.get("rates"))
+                          for j, window in enumerate(schedule)
+                          if isinstance(window, dict)]
+            for spot, rates in spots:
+                if not isinstance(rates, dict):
+                    continue
+                for field in CACHE_WRITE_FIELDS:
+                    if (field in rates and "fresh" in rates
+                            and rates[field] == rates["fresh"]):
+                        raise ValueError(
+                            f"{spot}: {field} is present and equals fresh; "
+                            "it is present only when it differs")

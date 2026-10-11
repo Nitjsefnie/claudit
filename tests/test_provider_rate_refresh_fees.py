@@ -408,6 +408,8 @@ def test_refresh_reports_deferred_search_change_without_rewriting_history(
         entry["from"] = STAMP
         entry["web_search"] = 0.002
         entry.pop("note", None)
+        # The fetch stamp covers the dated entry (issue #931).
+        doc["provider_rates_fetched"] = STAMP
 
     run.edit(set_committed_search_epoch)
     previous = copy.deepcopy(run.doc()["providers"][GLM]["OpenInference"])

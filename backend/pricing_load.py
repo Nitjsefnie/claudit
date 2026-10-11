@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import TypedDict
 
 from backend.meter_tables import _long_context_meters
-from backend.pricing_document import RATE_FIELDS, effective_rates
+from backend.pricing_document import (RATE_FIELDS, check_compact_shape,
+                                      effective_rates)
 
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
@@ -194,10 +195,18 @@ def _check_entry_fields(entry: dict, at: str, may_band: bool = False) -> None:
     if "band" in entry:
         if not may_band:
             raise ValueError(f"{at}: only a provider row carries a band")
-        check_band(entry["band"], at)
+        folded = check_band(entry["band"], at)
+        # the band contains the entry's effective rates (#931).
+        effective = effective_rates(entry)
+        for field, span in folded.items():
+            if not span[0] <= effective[field] <= span[1]:
+                raise ValueError(
+                    f"{at}: band[{field}] [{span[0]}, {span[1]}] does "
+                    f"not contain the entry's {effective[field]}")
 
 
-def _history(entries: list[dict], where: str, may_begin: bool = False
+def _history(entries: list[dict], where: str, may_begin: bool = False,
+             fetched: datetime | None = None
              ) -> tuple[dict, Windows, datetime | None,
                         dict[int, list[ScheduleWindow]]]:
     """A row's append-only history as (list rates, dated windows, start,
@@ -211,8 +220,9 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
 
     The first entry's ``from`` is null — the row covers all of time —
     unless `may_begin`, where it may instead name the instant the row
-    begins; start is that instant, else None. Mirrored by parser.js's
-    _checkHistory.
+    begins; start is that instant, else None. `fetched` bounds every
+    dated entry; a predecessor-equal entry is refused (#931, #930).
+    Mirrored by _checkHistory.
     """
     rates: list[dict] = []
     starts: list[datetime] = []
@@ -235,7 +245,15 @@ def _history(entries: list[dict], where: str, may_begin: bool = False
             start = _instant(stamp, at)
             if starts and start <= starts[-1]:
                 raise ValueError(f"{at}: 'from' is not after the previous entry's")
+            if fetched is not None and start > fetched:
+                raise ValueError(
+                    f"{at}: 'from' {stamp!r} is after provider_rates_fetched "
+                    f"{fetched.isoformat().replace('+00:00', 'Z')!r}")
             starts.append(start)
+        if i > 0 and ({k: v for k, v in entry.items() if k != "from"}
+                      == {k: v for k, v in entries[i - 1].items()
+                          if k != "from"}):
+            raise ValueError(f"{at}: equal to the previous entry except 'from'")
         row_rates = effective_rates(entry)
         if may_begin and "web_search" in entry:
             row_rates["web_search"] = entry["web_search"]
@@ -263,7 +281,7 @@ def _bare_form(key: str, prefixes: list[str]) -> str:
     return key
 
 
-def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:
+def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:  # pylint: disable=too-many-locals
     """The bare-id vendor tables (SV-RATE-DATA), checked: for each tracked
     entry carrying `vendor_host`, the (bare form → tracked key) match table
     and the (tracked key → host) host table. A tracked entry without
@@ -286,6 +304,7 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
     tracked = openrouter.get("models")
     if not isinstance(tracked, dict):
         raise ValueError("pricing.json: openrouter.models is missing")
+    vendor_resolve = vendor.get("resolve") if isinstance(vendor, dict) else None
     bare: dict[str, str] = {}
     hosts: dict[str, str] = {}
     for key, entry in tracked.items():
@@ -294,6 +313,20 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
             raise ValueError(f"pricing.json: {where} is not a mapping")
         if not isinstance(entry.get("id"), str) or not entry["id"]:
             raise ValueError(f"pricing.json: {where} carries no 'id'")
+        # A key pinned in BOTH resolve tables names one endpoint: when both
+        # sides carry tags they must agree (#931); tagless pins and `why`
+        # are not compared.
+        vendor_pin = vendor_resolve.get(key) if isinstance(vendor_resolve, dict) else None
+        model_pins = entry.get("resolve")
+        vendor_tags = ({vendor_pin["tag"]} if isinstance(vendor_pin, dict)
+                       and "tag" in vendor_pin else set())
+        model_tags = ({pin["tag"] for pin in model_pins.values()
+                       if isinstance(pin, dict) and "tag" in pin}
+                      if isinstance(model_pins, dict) else set())
+        if vendor_tags and model_tags and vendor_tags != model_tags:
+            raise ValueError(
+                f"pricing.json: {where}: vendor resolve tags {sorted(vendor_tags)} "
+                f"differ from the model's resolve tags {sorted(model_tags)}")
         host = entry.get("vendor_host")
         if host is None:
             continue
@@ -338,7 +371,7 @@ def _default_rates(model_rates: dict, vendor_bare: dict[str, str],
     return rates
 
 
-def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict]:
+def _provider_tables(doc: dict, fetched: datetime) -> tuple[dict, dict, dict, dict]:
     """The provider-row tables (rates, dated windows, starts, schedules),
     one row per (model, host) the document names."""
     provider_rates: dict[tuple[str, str], dict] = {}
@@ -349,7 +382,8 @@ def _provider_tables(doc: dict) -> tuple[dict, dict, dict, dict]:
         for host, entries in hosts.items():
             where = f"{model} via {host}"
             (provider_rates[model, host], windows, start,
-             schedules) = _history(entries, where, may_begin=True)
+             schedules) = _history(entries, where, may_begin=True,
+                                   fetched=fetched)
             if schedules:
                 provider_schedules[model, host] = schedules
             if windows:
@@ -372,19 +406,22 @@ def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
     return out
 
 
-def load_tables(doc: dict) -> RateTables:
+def load_tables(doc: dict) -> RateTables:  # pylint: disable=too-many-locals
     """Every rate table, derived from the parsed pricing.json, in file order."""
+    fetched = _instant(doc["provider_rates_fetched"],
+                       "provider_rates_fetched")
     model_rates: dict[str, dict] = {}
     dated_rates: dict[str, Windows] = {}
     for key, entries in doc["models"].items():
         if not isinstance(key, str) or not key:
             raise ValueError(
                 f"pricing.json: models key {key!r} is not a non-empty string")
-        model_rates[key], windows, _, _ = _history(entries, key)
+        model_rates[key], windows, _, _ = _history(entries, key,
+                                                   fetched=fetched)
         if windows:
             dated_rates[key] = windows
     (provider_rates, provider_dated, provider_starts,
-     provider_schedules) = _provider_tables(doc)
+     provider_schedules) = _provider_tables(doc, fetched)
     provider_bands = _provider_bands(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
     vendor_prefixes = list(doc["openrouter"]["vendor"]["prefixes"])
@@ -397,8 +434,7 @@ def load_tables(doc: dict) -> RateTables:
         "PROVIDER_STARTS": provider_starts,
         "PROVIDER_SCHEDULES": provider_schedules,
         "PROVIDER_BANDS": provider_bands,
-        "PROVIDER_RATES_FETCHED": _instant(doc["provider_rates_fetched"],
-                                           "provider_rates_fetched"),
+        "PROVIDER_RATES_FETCHED": fetched,
         # Sorted boundaries where any rate changes. Read-time aggregation
         # that re-derives rates from summed tokens must group by these, or
         # its per-component breakdown drifts from the stored per-record cost.
@@ -417,7 +453,11 @@ def load_tables(doc: dict) -> RateTables:
     }
 
 
-_TABLES = load_tables(json.loads(PRICING_JSON.read_text(encoding="utf-8")))
+# The raw file at import is the storage boundary, checked for stored shape
+# first; load_tables stays shape-agnostic for every other caller.
+_RAW = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+check_compact_shape(_RAW)
+_TABLES = load_tables(_RAW)
 MODEL_RATES = _TABLES["MODEL_RATES"]
 # Dated overrides per exact key: (end_exclusive_utc, rates), oldest first.
 # Applied only when a timestamp is supplied and only on an EXACT key match —

@@ -93,6 +93,7 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
     for _key, entries in touched:
         entries.append(_appended_entry(entries, doc_max, rng))
     new_row_key = _maybe_add_new_row(doc, doc_max, rng, base_seed, iteration)
+    _bump_fetch_stamp(doc)
     pricing.load_tables(doc)
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n",
@@ -175,15 +176,26 @@ def run_suite(repo_root: Path) -> tuple[int, str]:
     return proc.returncode, proc.stdout + proc.stderr
 
 
+def _compact(entry: dict) -> dict:
+    """The stored spelling (SV-RATE-DATA): a cache write equal to fresh
+    is omitted — a present equal pair is a hand edit the loaders refuse
+    at the raw-file boundary (issue #931)."""
+    for field in ("create_5m", "create_1h"):
+        if entry.get(field) == entry.get("fresh"):
+            entry.pop(field, None)
+    return entry
+
+
 def _appended_entry(entries: list[dict], doc_max: datetime | None,
                     rng: random.Random) -> dict:
     """One valid appended entry for the row: five independent pool
-    draws, stamped one second past the row's floor instant."""
+    draws, stamped one second past the row's floor instant, stored
+    compactly."""
     instant = _floor_instant(entries, doc_max) + timedelta(seconds=1)
-    return {"from": _spell(instant, rng),
-            **{field: rng.choice(VALUE_POOL)
-               for field in pricing.RATE_FIELDS},
-            "note": NOTE}
+    return _compact({"from": _spell(instant, rng),
+                     **{field: rng.choice(VALUE_POOL)
+                        for field in pricing.RATE_FIELDS},
+                     "note": NOTE})
 
 
 def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
@@ -207,6 +219,7 @@ def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
     if is_host and doc_max is not None and rng.random() < 0.5:
         entry["from"] = (doc_max + timedelta(seconds=1)).astimezone(
             timezone.utc).strftime(STAMP_FORMAT)
+    entry = _compact(entry)
     if not is_host:
         doc["models"][key] = [entry]
         return key
@@ -214,6 +227,21 @@ def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
     model = rng.choice(list(doc["providers"])) if doc["providers"] else key
     doc["providers"].setdefault(model, {})[key] = [entry]
     return f"{model} via {key}"
+
+
+def _bump_fetch_stamp(doc: dict) -> None:
+    """Move provider_rates_fetched to the document's newest `from`, the
+    way a committing refresh run does: no dated entry may postdate the
+    fetch stamp that recorded the document (issue #931)."""
+    stamps = [_parse_stamp(e["from"]) for _key, entries in _rows(doc)
+              for e in entries if e.get("from")]
+    if not stamps:
+        return
+    newest = max(stamps)
+    stamped = doc.get("provider_rates_fetched")
+    if stamped is None or newest > _parse_stamp(stamped):
+        doc["provider_rates_fetched"] = newest.astimezone(
+            timezone.utc).strftime(STAMP_FORMAT)
 
 
 def _spell(instant: datetime, rng: random.Random) -> str:

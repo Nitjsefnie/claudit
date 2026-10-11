@@ -94,13 +94,17 @@ def _appended_document(doc: dict) -> dict:
              "read": 0.05, "output": 2.0}
     model = next(iter(doc["providers"]))
     for host_index in range(20):
+        # Each entry differs from its predecessor (issue #930); the
+        # rates' values never price anything in the bench's own probe.
         entries = [{"from": f"2027-{1 + stamp // 12:02d}-{1 + stamp % 12:02d}"
-                    "T00:00:00Z", **rates}
+                    "T00:00:00Z", **rates, "read": 0.05 + stamp * 1e-6}
                    for stamp in range(40)]
         doc["providers"][model][f"Synthetic{host_index}"] = entries
     newcomer = {key: [{"from": None, **rates}]
                 for key in ("suite-synth-appended-model",)}
     doc["models"].update(newcomer)
+    # The fetch stamp covers the synthetic rows (issue #931).
+    doc["provider_rates_fetched"] = "2028-01-01T00:00:00Z"
     return doc
 
 
