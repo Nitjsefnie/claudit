@@ -36,3 +36,13 @@ src/*
 !src/views/
 src/views/*
 !src/views/*.jsx
+
+# ---- scripts/plots/ — the /api/export render script (backend/api_export.py) -
+# The repo tooling under scripts/ stays out; only the three plot modules the
+# export subprocess runs come in, reopened and named back the same way
+# .gitignore's scripts/plots block does it.
+!/scripts/
+scripts/*
+!scripts/plots/
+scripts/plots/*
+!scripts/plots/*.py

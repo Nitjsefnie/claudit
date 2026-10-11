@@ -140,6 +140,10 @@ a meter composes up without colliding:
 POSTGRES_HOST_PORT=15432 CLAUDIT_HOST_PORT=18000 docker compose up -d
 ```
 
+In-container `/api/export` needs `EXPORT_PYTHON` pointed at an interpreter with
+the renderer's dependencies (e.g. a derived image), while the rest of the
+service runs stock.
+
 **Teardown:** `docker compose down -v` — the `-v` drops the named `pgdata`
 volume along with the containers and the network, so the next
 `docker compose up` starts from empty databases and re-runs the first-boot

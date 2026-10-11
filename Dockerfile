@@ -3,8 +3,9 @@
 # The image ships the code and the interpreter, nothing else: every setting
 # arrives as environment at run time, the same variables the systemd unit
 # hands the service through its EnvironmentFile. The command is the unit's
-# ExecStart — same module, same port, same flags — so the image runs the way
-# examples/claudit.service runs the service.
+# ExecStart — same module, same port, same flags but the bind address (see
+# the CMD below) — so the image runs the way examples/claudit.service runs
+# the service.
 
 # Tag-pinned (no digest): the repo has no docker-update machinery to keep a
 # digest honest, so the tag is the pin the maintainers can see and bump.
@@ -33,15 +34,24 @@ RUN useradd --system --user-group --home /opt/claudit \
     && chown -R claudit:claudit /opt/claudit
 
 # Exactly what the service serves and reads: the app, the browser modules,
-# the static assets, and the root VERSION that constants.VERSION reads. The
-# schema files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm
-# stage because React and Babel load from unpkg at run time. --chown stamps
+# the static assets, the root VERSION that constants.VERSION reads, and the
+# scripts/plots/ module backend/api_export.py runs as its /api/export
+# subprocess (resolved relative to backend/, so the in-image path
+# /opt/claudit/scripts/plots/ccusage_plot_db.py must exist). The schema
+# files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm stage
+# because React and Babel load from unpkg at run time. What does NOT ship:
+# the render interpreter and its dependencies — the default
+# EXPORT_PYTHON (/usr/bin/python3) is absent from python:slim and matplotlib
+# is not in backend/requirements.txt, so in-container /api/export needs
+# EXPORT_PYTHON pointed at an interpreter with the renderer's dependencies
+# (e.g. a derived image); the rest of the service runs stock. --chown stamps
 # the owner here rather than in a later chown layer, so the ownership of
 # these files stays static with the copy itself.
 COPY --chown=claudit:claudit VERSION VERSION
 COPY --chown=claudit:claudit backend/ backend/
 COPY --chown=claudit:claudit src/ src/
 COPY --chown=claudit:claudit public/ public/
+COPY --chown=claudit:claudit scripts/plots/ scripts/plots/
 
 USER claudit
 
