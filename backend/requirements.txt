@@ -19,3 +19,13 @@ python-multipart==0.0.32
 pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx2==2.13.1
+# Transitive floors (issue #938): urllib3 arrives under botocore and
+# anyio under starlette/httpx, so audit.yml's pip-audit and Dependabot
+# see neither unless THIS file names them — which is how both shipped
+# with open PYSEC advisories. Pinned at the advisories' fix versions:
+# urllib3 2.8.0 clears PYSEC-2026-141/-142/-4175/-4176/-4177, anyio
+# 4.14.2 clears PYSEC-2026-4024/-4025. Both sit inside the declaring
+# packages' floors: botocore wants urllib3 (!=2.2.0,<3,>=1.25.4),
+# starlette wants anyio (<5,>=3.6.2).
+urllib3==2.8.0
+anyio==4.14.2
