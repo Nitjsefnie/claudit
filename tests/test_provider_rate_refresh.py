@@ -321,20 +321,6 @@ def test_a_run_that_appends_bumps_pricing_version_relative_to_the_file(
     assert not re.search(r"(?m)^# 74\b", text)
 
 
-def test_the_commit_message_names_the_counts_and_carries_the_report(
-        tmp_path, capsys):
-    run = Run(tmp_path)
-    _move_openinference(run)
-    run.endpoints(GLM).append(_endpoint("Newcomer", NEWCOMER))
-    rc, out, _ = run(capsys)
-    assert rc == 0
-    message = run.commit_msg.read_text(encoding="utf-8")
-    subject, _, body = message.partition("\n\n")
-    assert subject == "Refresh OpenRouter provider rates: 1 changed, 1 new"
-    assert out.strip() in body
-    assert "Co-Authored-By" not in message
-
-
 @pytest.fixture(name="moved_run")
 def _moved_run_fixture(tmp_path, capsys):
     run = Run(tmp_path)

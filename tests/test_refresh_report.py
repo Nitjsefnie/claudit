@@ -36,6 +36,59 @@ def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():
     ]
 
 
+def test_report_drops_the_standing_blocks_for_the_commit_body():
+    """Issue #933: the vanished and sampled blocks are standing state — the
+    run's own stdout report keeps them (the default above), the commit body
+    does not, and a model section left empty by the drop leaves no header."""
+    result = _result(
+        vanished=[("model", host) for host in ("Fireworks", "Nebius")],
+        sampled={"model": {"DeepSeek": "endpoint has a pricing schedule"}},
+    )
+
+    body = refresh.report("2031-01-01T00:00:00Z", result,
+                          {"model": {"id": "openrouter/model"}},
+                          standing=False)
+
+    assert "vanished" not in body
+    assert "sampled" not in body
+    assert "model (openrouter/model)" not in body
+
+
+def test_report_keeps_notices_when_the_standing_blocks_drop():
+    result = _result(notices=[_delisted("alpha (openrouter/alpha)")])
+
+    body = refresh.report("2031-01-01T00:00:00Z", result,
+                          {"alpha": {"id": "openrouter/alpha"}},
+                          standing=False)
+
+    assert "notices:" in body
+    assert _DELISTED_MSG in body
+
+
+def test_vanished_state_groups_hosts_per_model_in_order():
+    assert refresh.vanished_state([
+        ("b-model", "Zeta"), ("a-model", "Host2"),
+        ("a-model", "Host1"), ("b-model", "Alpha"),
+    ]) == {"a-model": ["Host1", "Host2"], "b-model": ["Alpha", "Zeta"]}
+    assert refresh.vanished_state([]) == {}
+
+
+def test_sampled_state_records_the_display_classification():
+    """The recorded classification per sampled host is the short display
+    reason the report's sampled line groups by, so a changed
+    classification is a diff of the state file (issue #933); a model with
+    no sampled hosts leaves no empty entry behind."""
+    assert refresh.sampled_state({
+        "model": {
+            "Baidu": "no in-force log state matches the listing",
+            "Wafer": "the listing lags the price log",
+        },
+        "quiet": {},
+    }) == {"model": {"Baidu": "no matching log state",
+                     "Wafer": "listing lags log"}}
+    assert refresh.sampled_state({}) == {}
+
+
 def test_report_groups_model_notices_by_shared_message():
     result = _result(notices=[
         "alpha (openrouter/alpha): delisted from OpenRouter's catalog; "

@@ -149,14 +149,16 @@ def _request_payloads(history: list[tuple[str, dict]], hosts: dict[str, list[dic
 def _run(tmp_path: Path, capsys, *, history: list[tuple[str, dict]],
          hosts: dict[str, list[dict]] | None = None,
          endpoint_rates: dict | None = None, now: datetime = NOW,
-         log_fetch=None, catalog=None, version: int = 13):
+         log_fetch=None, catalog=None, version: int = 13,
+         commit_msg: Path | None = None):
     case = RefreshCase(
         history, hosts if hosts is not None else {HOST: [_entry(None, RATE_A)]},
         endpoint_rates or history[-1][1], now, log_fetch, catalog, version)
-    return _run_case(tmp_path, capsys, case)
+    return _run_case(tmp_path, capsys, case, commit_msg)
 
 
-def _run_case(tmp_path: Path, capsys, case: RefreshCase):
+def _run_case(tmp_path: Path, capsys, case: RefreshCase,
+              commit_msg: Path | None = None):
     doc = _doc(case.hosts)
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
@@ -165,7 +167,8 @@ def _run_case(tmp_path: Path, capsys, case: RefreshCase):
     payload, log_payload = _request_payloads(
         case.history, case.hosts, case.endpoint_rates)
     fetches = RefreshFetches(payload, log_payload, case.log_fetch, case.catalog)
-    rc = refresh.main([], fetch=fetches.fetch_endpoints,
+    argv = ["--commit-msg", str(commit_msg)] if commit_msg else []
+    rc = refresh.main(argv, fetch=fetches.fetch_endpoints,
                       fetch_models=fetches.fetch_models, fetch_log=fetches.fetch_log,
                       now=case.now, pricing_path=pricing_path,
                       constants_path=constants_path, vendor=None)
