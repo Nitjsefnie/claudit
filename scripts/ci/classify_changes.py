@@ -21,17 +21,18 @@ be truncated all classify as a full change and run every leg. An API
 failure that under-runs would skip gates over code; one that over-runs
 only wastes minutes.
 
-A second class narrows the refresh bot's data: its hourly push changes
-EXACTLY `src/pricing.json` and `backend/constants.py` — the appended
-rate entries, and the PRICING_VERSION bump that SV-RATE-REFRESH ships
-in the same commit — so that exact changed set gets the cheap class.
-The refresh job runs the full suite against the new rates BEFORE
-pushing (refresh-pricing.yml's refresh job), so re-running the whole
-matrix on the bot's push re-verifies nothing. The class matches the
-exact SET, never per-file verdicts: a third path, or either half
-alone, is not the bot. `src/pricing.json` alone is a lone hand-edited
-rate file — the bot never produces it, so it has no pre-test behind it
-and runs the full matrix.
+A second class narrows the refresh bot's data: its hourly push stages
+EXACTLY `src/pricing.json`, `backend/constants.py` and
+`src/pricing_notices.json` — the appended rate entries, the
+PRICING_VERSION bump SV-RATE-REFRESH ships with them, and the notice
+baseline (#888). Every commit it produces is one of two exact sets:
+the pair when this run's carried notice set is unchanged, the triple
+when the baseline moved too (issue #932). The refresh job runs the
+full suite against the new rates BEFORE pushing (refresh-pricing.yml's
+refresh job), so re-running the whole matrix on the bot's push
+re-verifies nothing. A third path, or either half alone, is not the
+bot: `src/pricing.json` alone is a hand-edited rate file with no
+pre-test behind it.
 
 A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
@@ -87,15 +88,18 @@ DOC_PATTERNS = ('**/*.md', 'PRESENTATION.txt', 'examples/**', '.claude/**',
 # is a green push that broke the pin and finds out hours later.
 SETUP_DOC_PATTERNS = ('README.md', 'CONTRIBUTING.md', 'AGENTS.md')
 
-# The refresh bot's push signature: the hourly refresh appends rate
-# entries to `src/pricing.json` and bumps PRICING_VERSION in
-# `backend/constants.py` in the SAME commit (SV-RATE-REFRESH), so a bot
-# push changes exactly this pair. Deliberately NOT a filter set beside
-# DOC_PATTERNS: the cheap class exists for generated data the refresh
-# job already tested, so only the exact set gets it — the boot-and-serve
-# check (smoke) and lint still run, and a lone hand-edited rate file is
-# untested data that keeps the full matrix.
-BOT_SIGNATURE = frozenset({'src/pricing.json', 'backend/constants.py'})
+# The refresh bot's push signature: the paths its push stages
+# (`git add` in refresh-pricing.yml). Deliberately NOT a filter set
+# beside DOC_PATTERNS: the cheap class exists for generated data the
+# refresh job already tested, so only an exact bot commit shape gets
+# it — the boot-and-serve check (smoke) and lint still run, and a
+# lone hand-edited rate file is untested data that keeps the matrix.
+BOT_CORE = frozenset({'src/pricing.json', 'backend/constants.py'})
+BOT_SIGNATURE = BOT_CORE | {'src/pricing_notices.json'}
+# Two shapes: every committing run writes all three files, but git
+# records only what differs, so an unchanged notices baseline commits
+# the pair alone; each shape is matched as a whole set (#932).
+BOT_COMMIT_SHAPES = frozenset({BOT_CORE, BOT_SIGNATURE})
 
 # The comment-only class's shape: the suffixes the classifier can
 # tokenize, the cap bounding the read cost, and the env naming where
@@ -173,8 +177,8 @@ def documentation_only(paths):
 
 
 def data_only(paths):
-    """Whether `paths` is exactly the refresh bot's push signature."""
-    return bool(paths) and set(paths) == BOT_SIGNATURE
+    """Whether `paths` is exactly one of the refresh bot's commit shapes."""
+    return bool(paths) and frozenset(paths) in BOT_COMMIT_SHAPES
 
 
 def _espree_dir():
