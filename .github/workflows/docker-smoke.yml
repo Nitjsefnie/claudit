@@ -15,10 +15,13 @@ name: docker-smoke
 # defaults to a real bucket reddens here rather than at a deploy.
 #
 # The /health probe repeats the patience shape of
-# scripts/ci/smoke.py — poll on a deadline, accept only a 200 whose
-# body says ok and a startup ingest that finished against the mounted
-# mirror — and teardown runs under `if: always()` so a failed probe
-# leaves no stack or volume behind on the runner.
+# scripts/ci/smoke.py — poll on a deadline, keep the last observation
+# for the failure message, accept only a 200 whose body says ok, a
+# startup ingest that finished against the mounted mirror, and the
+# three terminal checks scripts/ci/smoke.py's check_health makes
+# (VERSION equal to the checkout's file, no recorded ingest error, a
+# nonzero listed count) — and teardown runs under `if: always()` so a
+# failed probe leaves no stack or volume behind on the runner.
 
 on:
   workflow_call:
@@ -68,9 +71,16 @@ jobs:
       # The patience shape of scripts/ci/smoke.py: poll on a deadline,
       # keep the last observation for the failure message, and accept
       # only what the endpoint actually returns — 200 with ok and db
-      # true, no ingest in flight, and a finished startup ingest that
-      # LISTED objects (zero would mean the container never read the
-      # mounted mirror, and a green probe would prove nothing).
+      # true, no ingest in flight, and a finished startup ingest. The
+      # three limbs that follow are check_health's, and they TERMINATE
+      # there, so they terminate here too rather than retrying a
+      # condition that cannot change: the image's version must equal
+      # the checkout's VERSION file, the finished ingest must carry no
+      # recorded error (ingest books errors and still lists objects —
+      # a retry-blind green here would miss exactly the container-side
+      # failure this leg exists to catch), and it must have listed
+      # objects (zero would mean the container never read the mounted
+      # mirror, so a green probe would prove nothing).
       - name: Probe /health until the startup ingest finishes
         run: |
           python3 - <<'PY'
@@ -81,9 +91,12 @@ jobs:
           import urllib.request
 
           BASE = "http://127.0.0.1:8000"
+          with open("VERSION", encoding="utf-8") as handle:
+              EXPECTED_VERSION = handle.read().strip()
           DEADLINE = time.monotonic() + 180
           POLL_S = 2
           last = "no response yet"
+          passed = False
           while time.monotonic() < DEADLINE:
               try:
                   with urllib.request.urlopen(f"{BASE}/health", timeout=5) as resp:
@@ -113,15 +126,22 @@ jobs:
                   last = "no finished ingest recorded yet"
                   time.sleep(POLL_S)
                   continue
+              if payload.get("version") != EXPECTED_VERSION:
+                  last = (f"/health version is {payload.get('version')!r}, "
+                          f"VERSION says {EXPECTED_VERSION!r}")
+                  break
+              if run.get("error"):
+                  last = f"startup ingest recorded an error: {run['error']}"
+                  break
               if not run.get("r2_listed"):
                   last = f"startup ingest listed 0 objects: {run!r}"
-                  time.sleep(POLL_S)
-                  continue
+                  break
               print(f"health ok: version={payload.get('version')} "
                     f"listed={run['r2_listed']} reparsed={run.get('reparsed')}")
+              passed = True
               break
-          else:
-              print(f"/health never reported a finished ingest ({last})",
+          if not passed:
+              print(f"/health never passed the probe ({last})",
                     file=sys.stderr)
               sys.exit(1)
           PY
