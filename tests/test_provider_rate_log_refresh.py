@@ -76,7 +76,9 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
         models={MODEL: [{"from": None, **RATE_A}]},
         providers={MODEL: hosts},
         tracked={MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
-        fetched="2026-01-01T00:00:00Z",
+        # At the detection instant: every seeded row entry is dated at or
+        # before it, as issue #931 requires of a stored document.
+        fetched=STAMP,
     )
 
 
@@ -257,7 +259,11 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
 def test_log_append_compares_offset_timestamps_as_instants(
         tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions,
         band_mean):
-    row = [_entry(None, RATE_A), _entry(row_at, row_rates)]
+    # The second entry repeats the row's level so the comparison under
+    # test is about INSTANTS; a note distinguishes it from its
+    # predecessor, which issue #930 refuses as a no-op otherwise.
+    row = [_entry(None, RATE_A),
+           _entry(row_at, row_rates, note="offset-spelled cutover")]
     expected = row + additions
     if band_mean is not None:
         expected = expected + [_entry(
@@ -512,13 +518,17 @@ def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
             "https://example.invalid/listed-pricing", 503,
             "synthetic HTTP failure", Message(), None)
 
-    endpoint_payload = {"data": {"endpoints": [
-        _endpoint(HOST, RATE_C), fixture_endpoint("Ancient", RATE_C, tag="ancient/fp8")]}}
+    # The run makes NO move elsewhere (its only endpoint is the skipped
+    # host), so the fetch stamp stays where the fixture set it — at or
+    # after the future entry, as issue #931 requires of a stored file.
+    endpoint_payload = {"data": {"endpoints": [_endpoint(HOST, RATE_C)]}}
     fetches = RefreshFetches(endpoint_payload, {"data": {"series": []}}, fail_log, None)
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
+    doc = _doc({HOST: row})
+    doc["provider_rates_fetched"] = "2100-01-01T00:00:00Z"
     pricing_path.write_text(
-        json.dumps(_doc({HOST: row}), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     constants_path.write_text('PRICING_VERSION = "13"\n', encoding="utf-8")
 
     rc = refresh.main([], fetch=fetches.fetch_endpoints,
@@ -530,8 +540,6 @@ def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
     assert rc == 0 and not err
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL][HOST] == row
-    assert saved["providers"][MODEL]["Ancient"] == [
-        _entry("2031-01-01T01:30:00Z", RATE_C)]
     assert "not before the detection instant" in out
     assert "listed-pricing log unavailable for synthetic/model" in out
 
@@ -547,7 +555,7 @@ def test_a_consistent_future_change_stays_log_backed_and_waits_for_its_instant(
     assert rc == 0 and not err
     saved = json.loads(pricing_path.read_text(encoding="utf-8"))
     assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A)]
-    assert saved["provider_rates_fetched"] == "2026-01-01T00:00:00Z"
+    assert saved["provider_rates_fetched"] == STAMP
 
     later = datetime(2099, 1, 1, 0, 30, tzinfo=timezone.utc)
     rc, _, err, pricing_path, _ = _run(

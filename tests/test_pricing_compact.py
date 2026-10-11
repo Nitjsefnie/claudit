@@ -15,6 +15,7 @@ from backend import pricing, rate_fingerprint
 from backend.pricing_document import omit_default_rates
 from backend.pricing_load import load_tables
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
+from tests.test_perturb_test_data import _run as _perturb_run
 from tests.test_provider_rate_refresh import Run, _move_openinference
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,8 @@ def _synthetic_doc() -> dict:
         "threshold": 100_000,
         "models": [{"claude-opus-4-8": {"input_mult": 3.5}}],
     }]
+    # The appended cutover must not postdate the fetch stamp (#931).
+    doc["provider_rates_fetched"] = "2027-01-01T00:00:00Z"
     return doc
 
 
@@ -233,6 +236,24 @@ def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys)
     assert rc == 0, err
     assert "no rate moved" in out
     assert run.pricing.read_bytes() == before
+
+
+def test_the_perturbers_fetch_stamp_covers_its_appends(tmp_path):
+    """The perturber moves provider_rates_fetched only as far as its own
+    appended stamps (issue #931: no `from` postdates the fetch stamp),
+    and never touches the openrouter section. (Relocated here from the
+    perturber's own file, which sits at its 700-line size ceiling.)"""
+    # pylint: disable=protected-access
+    doc, perturbed, _text, _path = _perturb_run(tmp_path)
+    newest = max(perturb_test_data._parse_stamp(entry["from"])
+                 for _key, entries, _may in perturb_test_data._rows(perturbed)
+                 for entry in entries if entry.get("from"))
+    fetched = perturb_test_data._parse_stamp(
+        perturbed["provider_rates_fetched"])
+    assert fetched >= newest, "no appended stamp postdates the fetch stamp"
+    assert fetched >= perturb_test_data._parse_stamp(
+        doc["provider_rates_fetched"]), "the stamp never moves backwards"
+    assert perturbed["openrouter"] == doc["openrouter"]
 
 
 def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):

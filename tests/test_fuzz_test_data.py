@@ -22,12 +22,23 @@ from tests.refresh_fixture_builders import RATES_A, RATES_B, seed_doc
 
 
 from backend import pricing
+from backend.pricing_document import effective_rates, omit_default_rates
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fuzz_test_data.py"
 
 RATE_FIELDS = pricing.RATE_FIELDS
 DOC_MAX_STAMP = "2026-06-01T00:00:00Z"
+
+
+def _assert_stored_compactly(entry: dict) -> None:
+    """The appended entry's shape: five effective draws — from, note and
+    the five rates — stored in the document's compact spelling (a cache
+    write equal to fresh is omitted, issue #931's storage rule)."""
+    assert {"from", "note"} <= set(entry)
+    assert set(entry) <= {"from", "note", *RATE_FIELDS}
+    assert set(effective_rates(entry)) == set(RATE_FIELDS)
+    assert omit_default_rates(entry) == entry
 
 
 def _load():
@@ -118,7 +129,7 @@ def test_the_appended_entry_has_five_fields_a_stamp_and_a_note(
     assert result["rows_touched"] == len(result["keys"])
     for key in result["keys"]:
         appended = _rows_of(perturbed)[key][-1]
-        assert set(appended) == {"from", "note", *RATE_FIELDS}
+        _assert_stored_compactly(appended)
         assert appended["note"] == fuzz_module.NOTE
 
 
@@ -127,7 +138,7 @@ def test_every_field_value_comes_from_the_pool(monkeypatch, tmp_path):
     for key in result["keys"]:
         appended = _rows_of(perturbed)[key][-1]
         for field in RATE_FIELDS:
-            assert appended[field] in fuzz_module.VALUE_POOL
+            assert effective_rates(appended)[field] in fuzz_module.VALUE_POOL
 
 
 def test_the_fields_are_drawn_independently(monkeypatch, tmp_path):
@@ -148,7 +159,8 @@ def test_the_fields_are_drawn_independently(monkeypatch, tmp_path):
         for entries in _rows_of(doc).values():
             entry = entries[-1]
             if entry.get("note") == fuzz_module.NOTE:
-                draws.append(tuple(entry[f] for f in RATE_FIELDS))
+                draws.append(tuple(effective_rates(entry)[f]
+                                   for f in RATE_FIELDS))
     assert len(set(draws)) >= 8
     # No two fields always move together: gluing the five draws into one
     # would make two columns identical.
@@ -552,7 +564,7 @@ def test_the_schedule_of_a_touched_provider_row_is_untouched(
             original["providers"][model][host]
         appended = perturbed["providers"][model][host][-1]
         assert "schedule" not in appended
-        assert set(appended) == {"from", "note", *RATE_FIELDS}
+        _assert_stored_compactly(appended)
 
 
 def test_sequential_main_runs_iterations_and_prints_a_summary(

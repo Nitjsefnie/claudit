@@ -35,6 +35,7 @@
     if (tracked === null || typeof tracked !== 'object' || Array.isArray(tracked)) {
       throw _pricingError('openrouter.models is missing');
     }
+    const vendorResolve = vendor && typeof vendor === 'object' ? vendor.resolve : null;
     for (const [key, entry] of Object.entries(tracked)) {
       const where = `openrouter.models[${JSON.stringify(key)}]`;
       if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -42,6 +43,29 @@
       }
       if (typeof entry.id !== 'string' || !entry.id) {
         throw _pricingError(`${where} carries no 'id'`);
+      }
+      // A key pinned in BOTH resolve tables names one endpoint: when both
+      // sides carry tags they must agree (#931); tagless pins and `why`
+      // are not compared.
+      const vendorPin = vendorResolve && typeof vendorResolve === 'object'
+        ? vendorResolve[key] : undefined;
+      const vendorTags = new Set(
+        vendorPin && typeof vendorPin === 'object' && 'tag' in vendorPin
+          ? [vendorPin.tag] : []);
+      const modelTags = new Set();
+      if (entry.resolve && typeof entry.resolve === 'object') {
+        for (const pin of Object.values(entry.resolve)) {
+          if (pin && typeof pin === 'object' && 'tag' in pin) {
+            modelTags.add(pin.tag);
+          }
+        }
+      }
+      if (vendorTags.size && modelTags.size
+          && (vendorTags.size !== modelTags.size
+              || [...vendorTags].some((t) => !modelTags.has(t)))) {
+        throw _pricingError(
+          `${where}: vendor resolve tags [${[...vendorTags]}] differ from `
+          + `the model's resolve tags [${[...modelTags]}]`);
       }
       const host = entry.vendor_host;
       if (host === undefined || host === null) continue;

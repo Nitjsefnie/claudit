@@ -17,12 +17,21 @@ from tests.refresh_fixture_builders import RATES_A, RATES_B, seed_doc
 
 
 from backend import pricing
+from backend.pricing_document import effective_rates, omit_default_rates
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fuzz_test_data.py"
 RESERVED_NAMESPACE = "zz-fuzz-local/"
 RATE_FIELDS = pricing.RATE_FIELDS
 FLOOR_STAMP = "2026-06-01T00:00:00Z"
+
+
+def _assert_stored_compactly(entry: dict) -> None:
+    """Five effective draws stored compactly (issue #931's storage rule)."""
+    assert {"from", "note"} <= set(entry)
+    assert set(entry) <= {"from", "note", *RATE_FIELDS}
+    assert set(effective_rates(entry)) == set(RATE_FIELDS)
+    assert omit_default_rates(entry) == entry
 
 
 def _load_fuzzer():
@@ -99,7 +108,7 @@ def _assert_new_model_row(doc: dict, key: str, result: dict) -> None:
     entry = doc["models"][key][0]
     assert key.startswith(RESERVED_NAMESPACE)
     assert entry["from"] is None
-    assert set(entry) == {"from", "note", *RATE_FIELDS}
+    _assert_stored_compactly(entry)
     assert key in result["keys"]
 
 
@@ -108,7 +117,7 @@ def _assert_new_host_row(doc: dict, row: tuple[str, str],
     model, host = row
     entry = doc["providers"][model][host][0]
     assert host.startswith(RESERVED_NAMESPACE)
-    assert set(entry) == {"from", "note", *RATE_FIELDS}
+    _assert_stored_compactly(entry)
     assert (entry["from"] is None
             or _stamp(entry["from"]) > _stamp(FLOOR_STAMP))
     assert f"{model} via {host}" in result["keys"]

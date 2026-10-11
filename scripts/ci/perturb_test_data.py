@@ -35,9 +35,10 @@ tests/test_no_pinned_version_literals.py is the other half.
 The pricing document is rewritten through the shared compact serializer
 (SV-RATE-DATA's canonical layout), and the serialized document is
 validated through the same loader the backend uses — pricing.load_tables
-refuses a broken file before anything is written. Schedules, the
-openrouter section and provider_rates_fetched are untouched; a second
-run appends a further five entries per row and moves the constants again.
+refuses a broken file before anything is written. Schedules and the
+openrouter section are untouched; provider_rates_fetched moves only as
+far as the appended stamps (issue #931). A second run appends a further
+five entries per row and moves the constants again.
 
     python3 scripts/ci/perturb_test_data.py [--seed N] [--pricing PATH]
         [--constants PATH]
@@ -118,6 +119,7 @@ def perturb_pricing(path: Path,
     if base is None:
         base = datetime.now(timezone.utc).replace(microsecond=0)
     counter = base + timedelta(seconds=1)
+    last_appended = None
     for row_key, entries, may_search in _shuffled(all_rows, seed):
         newest = entries[-1]
         previous_from = newest.get("from")
@@ -129,7 +131,16 @@ def perturb_pricing(path: Path,
                 "note": note,
             })
             previous_from = entry_from
+            if last_appended is None or _parse_stamp(entry_from) > _parse_stamp(last_appended):
+                last_appended = entry_from
             counter += timedelta(seconds=1)
+    # No dated entry may postdate the fetch stamp that recorded the
+    # document (issue #931); move it the way a committing run does.
+    stamped = doc.get("provider_rates_fetched")
+    if last_appended is not None and (
+            stamped is None
+            or _parse_stamp(last_appended) > _parse_stamp(stamped)):
+        doc["provider_rates_fetched"] = last_appended
     serialized = serialize_pricing_doc(doc)
     pricing.load_tables(json.loads(serialized))
     path.write_text(serialized, encoding="utf-8", newline="\n")
