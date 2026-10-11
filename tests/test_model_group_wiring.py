@@ -105,10 +105,13 @@ def test_zero_valued_rows_drop_before_the_grouping():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_checked_is_todays_per_host_rows_in_todays_order():
-    """The checkbox flips the panel back to what it drew before #936: one
-    row per (model, host), globally descending — NOT the model's hosts
-    stacked in place under their collapsed row, which would read as a
-    different sort to anyone comparing against a saved screenshot."""
+    """The checkbox flips the panel back to today's per-host rows: one
+    row per (model, host), globally descending on value and stable
+    within exact ties — NOT the model's hosts stacked in place under
+    their collapsed row, which would read as a different sort to anyone
+    comparing against a saved screenshot. Descending-sort semantics,
+    not a byte-for-byte replay of the pre-#936 flat fold: an exact tie
+    spanning two models was broken there by label-map insertion order."""
     grouped = (
         "window.modelGroup.group({"
         "'m-a · DeepInfra': 75, 'm-a · StreamLake': 15,"
@@ -293,7 +296,12 @@ def test_every_hbar_row_consumer_reads_the_rendered_rows():
 def test_the_collapsed_rows_hover_lines_come_from_the_module():
     """rowTip is shared by every HBar mount, so the host lines are an
     additive spread the module returns EMPTY for rows without hosts —
-    not a rewrite of the tip the other panels rely on."""
+    not a rewrite of the tip the other panels rely on.
+
+    The formatter argument is load-bearing: hostLines calls it per host
+    (valueFmt is not optional), so a call that drops it renders
+    `hostLines(r)` → TypeError on the first hover of a collapsed row and
+    takes the whole tooltip with it."""
     charts = _strip(CHARTS.read_text(encoding="utf-8"))
     start = charts.index("function HBar(")
     end = charts.index("window.HBar = HBar;", start)
@@ -301,7 +309,10 @@ def test_the_collapsed_rows_hover_lines_come_from_the_module():
     assert "partFmt" in body.split(") {", 1)[0], (
         "HBar takes no partFmt prop, so the host lines cannot format a "
         "cost panel's values")
-    assert "window.modelGroup.hostLines(" in body
+    assert re.search(r"hostLines\(r, partFmt \|\| humanFmt\)", body), (
+        "rowTip no longer hands hostLines its formatter fallback -- "
+        "hostLines(row, undefined) throws `valueFmt is not a function`, "
+        "so hovering any collapsed multi-host row kills the tooltip")
     assert re.search(r"const shown = groupByModel \? "
                      r"window\.modelGroup\.shown\(rows, open\) : rows;", body), (
         "HBar does not expand through the module -- a second expansion "
