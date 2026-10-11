@@ -190,12 +190,18 @@ def _appended_entry(entries: list[dict], doc_max: datetime | None,
                     rng: random.Random) -> dict:
     """One valid appended entry for the row: five independent pool
     draws, stamped one second past the row's floor instant, stored
-    compactly."""
+    compactly. The draw retries while the compact entry would equal its
+    predecessor but for `from`, so the generator can never emit the
+    no-op the loaders refuse (issue #930)."""
     instant = _floor_instant(entries, doc_max) + timedelta(seconds=1)
-    return _compact({"from": _spell(instant, rng),
-                     **{field: rng.choice(VALUE_POOL)
-                        for field in pricing.RATE_FIELDS},
-                     "note": NOTE})
+    predecessor = {k: v for k, v in entries[-1].items() if k != "from"}
+    while True:
+        entry = _compact({"from": _spell(instant, rng),
+                          **{field: rng.choice(VALUE_POOL)
+                             for field in pricing.RATE_FIELDS},
+                          "note": NOTE})
+        if {k: v for k, v in entry.items() if k != "from"} != predecessor:
+            return entry
 
 
 def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
