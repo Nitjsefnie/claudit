@@ -50,15 +50,17 @@ CODE = [
 # ---------------------------------------------------------------------------
 
 
-def test_bot_signature_is_exactly_the_refresh_bots_pair():
-    # The hourly refresh appends rate entries to src/pricing.json and
-    # bumps PRICING_VERSION in backend/constants.py in the SAME commit
-    # (SV-RATE-REFRESH), so a bot push changes exactly this pair. A
-    # signature, not a filter: the cheap class exists for generated data
-    # the refresh job ran the full suite against BEFORE pushing, and
-    # only this exact set carries that pre-test.
+def test_bot_signature_is_the_refresh_bots_staged_paths():
+    # The push stages exactly these three paths (refresh-pricing.yml's
+    # `git add`): rate entries in src/pricing.json, the PRICING_VERSION
+    # bump in backend/constants.py (SV-RATE-REFRESH), and the notice
+    # baseline src/pricing_notices.json (#888). A signature, not a
+    # filter: the cheap class exists for generated data the refresh
+    # job ran the full suite against BEFORE pushing, and only the bot's
+    # exact commit shapes carry that pre-test.
     assert classify.BOT_SIGNATURE == frozenset(
-        {"src/pricing.json", "backend/constants.py"})
+        {"src/pricing.json", "backend/constants.py",
+         "src/pricing_notices.json"})
 
 
 def test_data_only_requires_the_exact_signature():
@@ -69,10 +71,25 @@ def test_data_only_requires_the_exact_signature():
         ["backend/constants.py", "src/pricing.json", "src/pricing.json"])
 
 
+def test_data_only_accepts_the_three_path_bot_commit():
+    # Every refresh commit since pricing_notices.json joined the push
+    # (#888, ef8b131c) carries this shape: the notices baseline moved
+    # with the data. Under the pair-only signature it classified full
+    # and ran the whole matrix on a pure bot push (issue #932).
+    assert classify.data_only(
+        ["src/pricing.json", "backend/constants.py",
+         "src/pricing_notices.json"])
+
+
 def test_data_only_refuses_a_third_path():
     for intruder in (DOCS + CODE + ["src/parser.js", "src/pricing.py"]):
         assert not classify.data_only(
             ["src/pricing.json", "backend/constants.py", intruder]), intruder
+        # The notices baseline does not widen the class: the triple
+        # beside anything else is not the bot either.
+        assert not classify.data_only(
+            ["src/pricing.json", "backend/constants.py",
+             "src/pricing_notices.json", intruder]), intruder
 
 
 def test_data_only_refuses_either_half_alone():
@@ -80,9 +97,16 @@ def test_data_only_refuses_either_half_alone():
     # without constants.py narrows the issue-455 class on purpose: the
     # bot never produces it (SV-RATE-REFRESH bumps in the same commit),
     # so a lone hand-edited rate file has no pre-test behind it and runs
-    # the full matrix.
+    # the full matrix. The notices baseline alone — or beside only one
+    # half — the bot never commits either (it is written only inside the
+    # moves branch, together with both data files).
     assert not classify.data_only(["backend/constants.py"])
     assert not classify.data_only(["src/pricing.json"])
+    assert not classify.data_only(["src/pricing_notices.json"])
+    assert not classify.data_only(
+        ["src/pricing.json", "src/pricing_notices.json"])
+    assert not classify.data_only(
+        ["backend/constants.py", "src/pricing_notices.json"])
 
 
 def test_classify_the_bots_signature_gets_the_cheap_class():
@@ -92,6 +116,29 @@ def test_classify_the_bots_signature_gets_the_cheap_class():
     )
     assert (docs_only, data_only) == (False, True)
     assert "data-only" in reason
+
+
+def test_classify_the_bots_three_path_commit_gets_the_cheap_class():
+    docs_only, data_only, _comment, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: ("src/pricing.json\nbackend/constants.py\n"
+                      "src/pricing_notices.json\n"),
+    )
+    assert (docs_only, data_only) == (False, True)
+    assert "data-only" in reason
+
+
+def test_classify_an_ordinary_push_stays_full():
+    # Direction two of the proof (issue #932): a non-bot change must
+    # keep data_only=false — ci-gate's expensive legs and the tests
+    # canary gate on data_only != 'true', so a misclassification here
+    # never errors, it silently stops gating real pushes.
+    docs_only, data_only, _comment, reason = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
+        lambda argv: "backend/app.py\nVERSION\n",
+    )
+    assert (docs_only, data_only) == (False, False)
+    assert "outside documentation" in reason
 
 
 def test_classify_mixed_pricing_json_and_code_runs_everything():
