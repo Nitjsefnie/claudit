@@ -1,6 +1,6 @@
 # Dev stack for claudit (issue #941): `docker compose up` and nothing else.
 #
-# Zero-config boot — no .env, no credentials, no outbound network at run
+# Zero-config boot — no .env, no credentials, makes no outbound calls at run
 # time. Postgres runs as a container of its own with its own volume, and the
 # app ingests the committed fixtures/r2_mini mirror through the R2 client's
 # file:// mode, the same default the `smoke` workflow documents as "No

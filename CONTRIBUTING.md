@@ -150,8 +150,8 @@ time.
 **Storage defaults to the bundled fixtures.** `R2_ENDPOINT` points at the
 repository's `fixtures/r2_mini/`, mounted read-only into the container at
 `/opt/claudit/fixtures`, so a fresh stack ingests a working sample with no
-credentials and no outbound network — the same "no credentials, no network,
-nothing to rot" default `smoke.yml` documents.
+credentials and makes no outbound calls at run time — the same "no
+credentials, no network, nothing to rot" default `smoke.yml` documents.
 For a real bucket, override the R2 variables through a `.env` file in the
 repository root — the file Compose reads for the `${VAR:-default}` defaults
 in `compose.yaml`, and the same file the bare-metal route seeds from
