@@ -97,6 +97,12 @@ def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_pat
     assert error and "deepseek/deepseek-v4-flash via Azure" in error, error
 
 
+def test_an_empty_models_key_is_refused_naming_the_row():
+    """A models key must be a non-empty string (issue #837)."""
+    with pytest.raises(ValueError, match=r"models key ''"):
+        pricing.load_tables(seed_doc(models={"": [dict(DEFAULT_ROW)]}))
+
+
 @needs_node
 def test_the_browser_loads_the_url_the_page_names_synchronously():
     got = _browser_load(pricing_attr="/src/pricing.json?v=7")

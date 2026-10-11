@@ -204,6 +204,7 @@ def _session_total(per_model: list) -> dict:
                       "web_search")
         },
         "estimated_rate": any(m["estimated_rate"] for m in per_model),
+        "banded_rate": any(m["banded_rate"] for m in per_model),
     }
     total_in = (
         session_total["fresh"]
@@ -249,11 +250,13 @@ def cache_view(
       {
         range, project,
         per_model: [{model, turns, fresh, cache_create, cache_read, output,
-                     eph5, eph1h, hit_rate_pct, cost_total, cost_buckets}],
+                     eph5, eph1h, hit_rate_pct, cost_total}],
         per_model_provider: [{same shape, plus provider}] -- one entry per
                      (model, provider); provider is null for a record
                      that named no serving host,
-        session_total: {same shape, summed across per_model},
+        session_total: {same shape, plus cost_buckets, summed across
+                     per_model} -- the only entry carrying cost_buckets;
+                     per_model / per_model_provider omit it (issue #916),
         top_output: [{ts, line, request_id, model, output, c_read,
                       c_create_1h, c_create_5m, fresh, cost, file_key}],
         top_cache_create: [...],
@@ -277,6 +280,13 @@ def cache_view(
         query_results.per_model_rows, pair_bounds=query_results.pair_bounds)
     per_model_provider = fold_per_model_provider(
         query_results.per_model_rows, pair_bounds=query_results.pair_bounds)
+    # session_total SUMS per_model[].cost_buckets, so build it first; then
+    # strip the decomposition from the two arrays (issue #916) — no
+    # frontend file reads it there (only session_total.cost_buckets is
+    # rendered). The fold helpers keep building it for their own callers.
+    session_total = _session_total(per_model)
+    for entry in (*per_model, *per_model_provider):
+        entry.pop("cost_buckets", None)
     ph.done(models=len(per_model))
 
     return {
@@ -284,7 +294,7 @@ def cache_view(
         "project": project,
         "per_model": per_model,
         "per_model_provider": per_model_provider,
-        "session_total": _session_total(per_model),
+        "session_total": session_total,
         "top_output": _top_rows(query_results.top_output, [
             "ts", "line", "request_id", "model",
             "output", "c_read", "c_create_1h", "c_create_5m", "fresh",

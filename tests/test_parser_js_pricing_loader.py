@@ -244,6 +244,17 @@ def test_browser_loader_rejects_a_negative_search_rate(tmp_path):
     assert "web_search not a finite non-negative number" in out["error"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_browser_loader_rejects_an_empty_models_key(tmp_path):
+    """Issue #837: the browser loader refuses an empty models key."""
+    doc = _doc()
+    doc["models"][""] = [dict(DEFAULT_ROW)]
+    out = _run(tmp_path, _render(doc))
+    assert out["error"], "the empty models key must be refused"
+    assert "pricing.json" in out["error"]
+    assert 'models key ""' in out["error"], out["error"]
+
+
 # --- a fractional start outside a schedule -------------------------------------
 
 

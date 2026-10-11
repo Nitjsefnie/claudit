@@ -151,12 +151,15 @@ def test_cache_splits_per_model_by_provider_and_keeps_the_totals(client):
         # = 1e-4 strict, and 1.5e-4 adds float margin.
         assert split[(m, p)]["cost_total"] == pytest.approx(
             round(cost, 4), abs=1.5e-4)
-        # Five buckets + the total: six values rounded on the same
-        # 4-decimal grid, each within half a unit (5e-5) of its true
-        # value, so the two sides sit at most 6 * 5e-5 = 3e-4 apart
-        # whatever the rates are.
-        assert abs(sum(split[(m, p)]["cost_buckets"].values())
-                   - split[(m, p)]["cost_total"]) <= 3e-4
+        # cost_buckets is stripped from per_model_provider (issue #916), so
+        # the split entry must not carry it.
+        assert "cost_buckets" not in split[(m, p)]
+    # The session total still carries the decomposition: five buckets + the
+    # total, six values on the same 4-decimal grid, at most
+    # 6 * 5e-5 = 3e-4 apart whatever the rates are.
+    session_total = body["session_total"]
+    assert abs(sum(session_total["cost_buckets"].values())
+               - session_total["cost_total"]) <= 3e-4
     per_model = {e["model"]: e for e in body["per_model"]}
     assert "provider" not in per_model[V41]
     assert per_model[V41]["turns"] == 3

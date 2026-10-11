@@ -385,17 +385,15 @@ def test_cache_per_model_shape(app_with_data):
     assert "top_output" in body and "top_cache_create" in body and "top_cache_read" in body
     cost_buckets = {"fresh", "create_5m", "create_1h", "read", "output",
                     "web_search"}
+    # Only the session total carries the decomposition; per_model omits it
+    # (issue #916).
     assert set(body["session_total"]["cost_buckets"]) == cost_buckets
-    assert body["session_total"]["cost_buckets"] == {
-        key: round(sum(m["cost_buckets"][key] for m in body["per_model"]), 4)
-        for key in cost_buckets
-    }
     if body["per_model"]:
         m = body["per_model"][0]
         assert {"model", "turns", "fresh", "cache_create", "cache_read",
                 "output", "eph5", "eph1h", "hit_rate_pct",
-                "cost_total", "cost_buckets"} <= set(m)
-        assert cost_buckets == set(m["cost_buckets"])
+                "cost_total"} <= set(m)
+        assert "cost_buckets" not in m
 
 
 def test_cache_dedups_cross_file_uuid(app_with_data):

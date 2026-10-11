@@ -377,6 +377,9 @@ def load_tables(doc: dict) -> RateTables:
     model_rates: dict[str, dict] = {}
     dated_rates: dict[str, Windows] = {}
     for key, entries in doc["models"].items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(
+                f"pricing.json: models key {key!r} is not a non-empty string")
         model_rates[key], windows, _, _ = _history(entries, key)
         if windows:
             dated_rates[key] = windows
