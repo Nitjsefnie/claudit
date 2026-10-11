@@ -322,6 +322,19 @@ def test_tracked_vendor_model_keys_use_bare_forms_only():
     assert prefixed == []
 
 
+def test_tracked_model_ids_carry_no_dangling_dash():
+    """A tracked entry's `id` is the catalog's exact spelling of the model
+    (issue #929): no leading or trailing dash, so catalog membership tests
+    read the real label. The dashed KEYS are snapshot-substring matching
+    handles and stay as they are."""
+    doc = json.loads(_pricing_json().read_text(encoding="utf-8"))
+    dangling = [f"{key}: {entry['id']}"
+                for key, entry in doc["openrouter"]["models"].items()
+                if isinstance(entry.get("id"), str)
+                and entry["id"].strip("-") != entry["id"]]
+    assert dangling == []
+
+
 def test_neither_side_carries_a_rate_literal():
     """A second copy of a rate is what the file replaced. The cache-write
     field is unique to rate rows, so a literal one is a copied row."""
