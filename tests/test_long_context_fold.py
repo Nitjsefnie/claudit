@@ -107,10 +107,16 @@ def _seed_search_records(records: tuple[_SearchRecord, ...]) -> None:
         c.commit()
 
 
-def _cache_search_model_row(codex_app) -> dict:
+def _cache_search_model_row(codex_app) -> tuple[dict, dict]:
+    """The search model's per_model entry (for its cost_total) and the
+    session total — the only entry carrying cost_buckets (issue #916).
+    _seed_search_records leaves this model the sole one, so the session
+    total's buckets are this model's."""
     body = codex_app.get("/api/cache?range=3650d").json()
-    return next(row for row in body["per_model"]
-                if row["model"] == _SEARCH_MODEL)
+    model_row = next(row for row in body["per_model"]
+                     if row["model"] == _SEARCH_MODEL)
+    assert "cost_buckets" not in model_row
+    return model_row, body["session_total"]
 
 
 @pytest.fixture(name="fresh_db")
@@ -162,25 +168,29 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
     body = codex_app.get("/api/cache?range=3650d").json()
     m = body["per_model"][0]
     assert m["model"] == "gpt-5.6-sol"
+    assert "cost_buckets" not in m
+    # The session total is the only entry carrying the decomposition, and
+    # the fixture holds one model, so its buckets are this model's.
+    buckets = body["session_total"]["cost_buckets"]
     assert body["session_total"]["cost_total"] > 0
     # Three valued buckets + the total, each rounded to 4 decimals:
     # they can disagree by up to 6 * 5e-5 = 3e-4 whatever the rates are.
     assert m["cost_total"] == pytest.approx(
-        sum(m["cost_buckets"].values()), abs=3e-4
+        sum(buckets.values()), abs=3e-4
     )
     # The record's ts (2026-06-14) sits inside sol's pre-Aug21 dated
     # window; the fold resolves the same rates for the epoch, so the
     # expected figures read them at that ts too.
     rates = pricing.rate_for("gpt-5.6-sol", _BLOB_TS)  # sv-test-data: allow (derived: expected priced from the same window rates at the record's own ts)
-    assert m["cost_buckets"]["fresh"] == pytest.approx(
+    assert buckets["fresh"] == pytest.approx(
         10_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
         abs=1e-4,
     )
-    assert m["cost_buckets"]["read"] == pytest.approx(
+    assert buckets["read"] == pytest.approx(
         290_000 * rates["read"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
         abs=1e-4,
     )
-    assert m["cost_buckets"]["output"] == pytest.approx(
+    assert buckets["output"] == pytest.approx(
         2_000 * rates["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT / 1_000_000,
         abs=1e-4,
     )
@@ -194,10 +204,10 @@ def test_cache_fold_uses_stored_total_for_zero_token_search_rows(
         _SearchRecord(_SEARCH_CUTOVER, 0.135, 3),
     ))
 
-    model_row = _cache_search_model_row(codex_app)
+    model_row, session_total = _cache_search_model_row(codex_app)
     assert model_row["cost_total"] == pytest.approx(0.1624)
-    assert model_row["cost_buckets"]["web_search"] == pytest.approx(0.1624)
-    assert sum(model_row["cost_buckets"].values()) == pytest.approx(0.1624)
+    assert session_total["cost_buckets"]["web_search"] == pytest.approx(0.1624)
+    assert sum(session_total["cost_buckets"].values()) == pytest.approx(0.1624)
 
 
 def test_cache_fold_places_token_and_search_cost_in_each_rate_epoch(
@@ -212,13 +222,13 @@ def test_cache_fold_places_token_and_search_cost_in_each_rate_epoch(
         _SearchRecord(_SEARCH_CUTOVER, 4.135, 3, fresh_tokens=2_000_000),
     ))
 
-    model_row = _cache_search_model_row(codex_app)
+    model_row, session_total = _cache_search_model_row(codex_app)
     expected_search = 2 * _OLD_SEARCH_RATE + 3 * _NEW_SEARCH_RATE
     assert model_row["cost_total"] == pytest.approx(6.1624)
-    assert model_row["cost_buckets"]["web_search"] == pytest.approx(
+    assert session_total["cost_buckets"]["web_search"] == pytest.approx(
         expected_search)
-    assert model_row["cost_buckets"]["fresh"] == pytest.approx(6.0)
-    assert sum(model_row["cost_buckets"].values()) == pytest.approx(6.1624)
+    assert session_total["cost_buckets"]["fresh"] == pytest.approx(6.0)
+    assert sum(session_total["cost_buckets"].values()) == pytest.approx(6.1624)
 
 
 def test_mixed_stored_factor_pairs_decompose_stored_total(
@@ -300,7 +310,11 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
     body = codex_app.get("/api/cache?range=3650d").json()
     model_row = next(row for row in body["per_model"] if row["model"] == model)
     assert model_row["cost_total"] == 62.0
-    assert sum(model_row["cost_buckets"].values()) == pytest.approx(62.0)
+    assert "cost_buckets" not in model_row
+    # The synthetic model is the sole one here, so the session total's
+    # decomposition is its own (issue #916).
+    assert sum(body["session_total"]["cost_buckets"].values()) == \
+        pytest.approx(62.0)
     assert [(float(cost), in_mult, out_mult) for cost, in_mult, out_mult,
             _fingerprint, _version in rows] == [(32.0, 6.0, 5.0), (30.0, 5.0, 5.0)]
     assert rows[0][3:] == (current_fingerprint, constants.PRICING_VERSION)

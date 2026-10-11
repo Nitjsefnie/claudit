@@ -261,6 +261,10 @@ const _PRICING = _readPricing();
 window.modelRates = {};
 window.datedRates = {};
 for (const [key, entries] of Object.entries(_PRICING.models)) {
+  if (!key) {
+    throw _pricingError(
+      `models key ${JSON.stringify(key)} is not a non-empty string`);
+  }
   const { list, windows } = _history(entries, key);
   window.modelRates[key] = list;
   if (windows.length) window.datedRates[key] = windows;
