@@ -131,42 +131,6 @@ function humanCurrency(v) {
   return '$' + v.toFixed(2);
 }
 
-// Per-character advance of the dashboard's monospace face, measured once per
-// font size and cached.
-//
-// It must be measured with getComputedTextLength() on a real SVG text node
-// under a .dashboard ancestor, because app.css applies
-//   .dashboard svg text { font-family: var(--mono); letter-spacing: 0.04em }
-// and letter-spacing is invisible to canvas measureText. At 11px that is
-// 0.44px/char — canvas reports 6.6px/char while the browser actually renders
-// 7.04px/char. The old hard-coded 6.6 constant was exactly that canvas
-// figure, and the missing 6.7% came out of the left margin: HBar's longest
-// model label sat 3.6px from the panel edge.
-function monoAdvancePx(fontSize) {
-  monoAdvancePx._c = monoAdvancePx._c || {};
-  if (monoAdvancePx._c[fontSize]) return monoAdvancePx._c[fontSize];
-  const NS = 'http://www.w3.org/2000/svg';
-  const host = document.createElement('div');
-  host.className = 'dashboard';
-  host.style.cssText =
-    'position:absolute;left:-9999px;top:0;height:0;overflow:hidden;visibility:hidden';
-  const svg = document.createElementNS(NS, 'svg');
-  const text = document.createElementNS(NS, 'text');
-  text.setAttribute('font-size', String(fontSize));
-  text.setAttribute('font-family', 'monospace');
-  const SAMPLE = '0123456789';
-  text.textContent = SAMPLE;
-  svg.appendChild(text);
-  host.appendChild(svg);
-  document.body.appendChild(host);
-  // visibility:hidden still lays out, so this is a real measurement.
-  const adv = text.getComputedTextLength() / SAMPLE.length;
-  document.body.removeChild(host);
-  // The face is monospace, so width === length * advance exactly; verified
-  // against 8-, 9- and 10-character labels, all 7.041px/char at 11px.
-  return (monoAdvancePx._c[fontSize] = adv > 0 ? adv : fontSize * 0.64);
-}
-
 function fmtDate(ts, opts = {}) {
   const d = new Date(ts);
   const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -557,7 +521,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
 
         {(() => {
           const totalStr = `Total: ${humanFmt(total, isCurrency)}`;
-          const boxW = Math.ceil(totalStr.length * monoAdvancePx(11)) + 16;
+          const boxW = Math.ceil(totalStr.length * window.monoAdvancePx(11)) + 16;
           // Top-LEFT corner of the plot, the mirror of the old
           // `w - padR - boxW - 6`: same 6px inset from the gutter, same
           // padT + 2 top. The cumulative line is lowest at the left, so
@@ -584,10 +548,11 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
 }
 
 // --- Horizontal bar chart ---
-function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel = false }) {
+function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, listPanel = false, groupByModel }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null);
+  const [open, setOpen] = React.useState(false);
   const [mouse, setMouse] = React.useState({ x: 0, y: 0 });
   const [labelPx, setLabelPx] = React.useState(0);
 
@@ -615,30 +580,36 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
     return () => ro.disconnect();
   }, []);
 
+  // #936: a groupByModel mount passes ONE row per model (app.jsx grouped
+  // them); its single header checkbox swaps the whole panel for today's
+  // per-host rows, and a collapsed row's hover lists each host's share of
+  // the model total. Every other mount passes its rows through untouched.
+  const shown = groupByModel ? window.modelGroup.shown(rows, open) : rows;
+
   // Rows render on a 36px pitch from padT — size the SVG to exactly
   // that (the old 40 + rows*44 left ~8px of dead space per row).
-  const h = 32 + rows.length * 36 + 18;
+  const h = 32 + shown.length * 36 + 18;
   // Left pad fits the widest label. Labels are end-anchored at padL - 8, so
   // +20 buys that 8px plus a 12px margin to the panel edge. labelPx is the
   // measured width from the layout effect above; the font-metric estimate
   // only seeds the very first paint, before anything exists to measure.
-  const estLabelPx = monoAdvancePx(11) *
-    rows.reduce((m, r) => Math.max(m, (r.label || '').length), 0);
+  const estLabelPx = window.monoAdvancePx(11) *
+    shown.reduce((m, r) => Math.max(m, (r.label || '').length), 0);
   const padL = Math.min(
     Math.max(60, w * 0.45),
     Math.ceil(Math.max(labelPx, estLabelPx)) + 20
   );
-  const labMax = Math.floor((padL - 16) / monoAdvancePx(11)); const padR = 60, padT = 32;
+  const labMax = Math.floor((padL - 16) / window.monoAdvancePx(11)); const padR = 60, padT = 32;
   const plotW = Math.max(10, w - padL - padR);
-  const max = Math.max(1, ...rows.map(r => r.value));
+  const max = Math.max(1, ...shown.map(r => r.value));
   const xMax = max * 1.4;
 
-  const total = rows.reduce((a, r) => a + r.value, 0);
+  const total = shown.reduce((a, r) => a + r.value, 0);
   const a11y = useChartA11y(
     title,
-    `horizontal bars, ${rows.length} rows`,
-    rows.length
-      ? `Bar values: ${rows.slice(0, 3)
+    `horizontal bars, ${shown.length} rows`,
+    shown.length
+      ? `Bar values: ${shown.slice(0, 3)
         .map(r => `${r.label} ${fmt ? fmt(r) : humanFmt(r.value)}`).join('; ')}.`
       : null);
 
@@ -648,6 +619,9 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
     return {
       x: mouse.x, y: mouse.y, title: r.label, accent: c,
       lines: [
+        // #936: a collapsed multi-host row lists each host's share of the
+        // MODEL total; the module returns [] for every other row.
+        ...window.modelGroup.hostLines(r, partFmt || humanFmt),
         ['value',    fmt ? fmt(r) : humanFmt(r.value)],
         ['% of bar', total > 0 ? ((r.value / total) * 100).toFixed(2) + '%' : '0%'],
         ...(totalForPct ? [['% of total', ((r.value / totalForPct) * 100).toFixed(2) + '%']] : []),
@@ -670,7 +644,7 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
         data-panel={title} data-list-panel={listPanel ? '' : undefined} width={w} height={h} style={{ display: 'block' }}>
         <text data-role="title" x={w/2} y={20} fontSize="13" fontWeight="bold" fill={TH.text}
           textAnchor="middle" fontFamily="monospace">{title}</text>
-        <rect data-role="plot" x={padL} y={padT} width={plotW} height={rows.length * 36} fill="none" />{rows.map((r, idx) => {
+        <rect data-role="plot" x={padL} y={padT} width={plotW} height={shown.length * 36} fill="none" />{shown.map((r, idx) => {
           const y = padT + idx * 36;
           const barW = (r.value / xMax) * plotW;
           const c = (fixedColors && fixedColors[r.label]) || r.color || COL.inputTokens;
@@ -693,10 +667,25 @@ function HBar({ title, rows, totalForPct, fmt, fixedColors, embedded, listPanel 
           );
         })}
       </svg>
+      {/* #936: ONE control per panel, parked over the header band's right
+          edge (the title is centred). Gated on groupByModel AND on there
+          being a model to split, so a single-host lane's panel still
+          renders exactly as it did before the grouping shipped. */}
+      {groupByModel && rows.some(r => r.parts) && (
+        <label data-model-group-toggle="" style={{
+          position: 'absolute', top: 5, right: 8, display: 'flex',
+          alignItems: 'center', gap: 4, fontFamily: 'monospace',
+          fontSize: 11, color: TH.text, cursor: 'pointer',
+        }} title="Show each model's rows split by serving host">
+          <input type="checkbox" checked={open}
+            onChange={e => { setHover(null); setOpen(e.target.checked); }} />
+          per provider
+        </label>
+      )}
       {a11y.descText && (
         <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
       )}
-      {hover != null && <Tooltip tip={rowTip(rows[hover])} />}
+      {hover != null && <Tooltip tip={rowTip(shown[hover])} />}
     </div>
   );
 }
@@ -803,7 +792,7 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
   const slot = plotW / n;
   // padB fits the tallest wrapped axis label (helpers above): a fixed
   // gutter clipped long rotated names and wasted space under short ones.
-  const charPx = monoAdvancePx(VBAR_LABEL_FS);
+  const charPx = window.monoAdvancePx(VBAR_LABEL_FS);
   const { padB, maxChars } = vbarPadB(rows, slot, padL, charPx);
   const wrappedLabels = rows.map(r => wrapAxisLabel(r.label, maxChars));
   const h = padT + plotH + padB;
