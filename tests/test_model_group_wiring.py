@@ -198,38 +198,96 @@ def test_the_group_module_loads_before_the_panels_that_call_it():
     assert html.index("/src/model-group.js") < html.index("/src/app.jsx")
 
 
+def _hbar_body() -> str:
+    """Just HBar's body: its declaration to the next top-level
+    `function`/`window.` (the slice test_panel_wiring._panel_src uses).
+
+    Scoping is the point of both pins below: a count over the whole
+    module trips on an unrelated component's own checkbox and reports
+    HBar's as the culprit, while a slice that runs past HBar (to the
+    `window.HBar = HBar;` export, say) swallows VBar on the way.
+    """
+    src = _strip(CHARTS.read_text(encoding="utf-8"))
+    start = src.index("function HBar(")
+    nxt = re.search(r"^(?:function |window\.)", src[start + 1:], re.M)
+    end = start + 1 + nxt.start() if nxt else len(src)
+    return src[start:end]
+
+
 def test_the_panel_carries_exactly_one_checkbox_outside_the_row_loop():
     """One control flips the WHOLE panel (maintainer, 2026-10-11 — the
     per-row checkbox the issue first described was rejected). Three
     regressions this pins: a second checkbox, a checkbox that moved into
     the row map (one per row again), and a control that is no longer
     gated on the panel having opted into grouping — every other HBar
-    mount (Cost/Tokens by Agent Type) must stay untouched."""
-    charts = _strip(CHARTS.read_text(encoding="utf-8"))
-    assert charts.count('type="checkbox"') == 1, (
-        "dashboard-charts.jsx renders more than one checkbox -- the "
-        "control belongs to the panel, not to its rows")
-    start = charts.index("function HBar(")
+    mount (Cost/Tokens by Agent Type) must stay untouched.
+
+    The count and the position check run over HBar's body alone, so a
+    future checkbox in another component of this module (a legend
+    expander, a table control) is that component's business and does not
+    fail here with a message naming the wrong panel."""
+    body = _hbar_body()
+    assert body.count('type="checkbox"') == 1, (
+        "HBar renders more than one checkbox -- the control belongs to "
+        "the panel as a whole, not to its rows")
     gate = re.search(
         r"groupByModel && rows\.some\(r => r\.parts\) && \(\s*"
-        r"<label data-model-group-toggle", charts[start:])
+        r"<label data-model-group-toggle", body)
     assert gate, (
         "the toggle is not gated on groupByModel AND on there being a "
         "model worth splitting")
-    # Declared once, OUTSIDE the svg: everything between shown.map( and
-    # the closing </svg> is per-row markup, which is where the per-row
-    # design the maintainer rejected lived.
-    loop = charts.index("shown.map(", start)
-    svg_end = charts.index("</svg>", loop)
-    toggle = start + gate.start()
-    assert not loop < toggle < svg_end, (
+    # Declared once, OUTSIDE the svg: everything between the row map
+    # (the `shown.map(` that follows the plot rect) and the closing
+    # </svg> is per-row markup, which is where the per-row design the
+    # maintainer rejected lived.
+    loop = body.index("shown.map(", body.index('data-role="plot"'))
+    svg_end = body.index("</svg>", loop)
+    assert not loop < gate.start() < svg_end, (
         "the checkbox sits inside the svg's row loop -- that is the "
         "per-row design the maintainer rejected")
     assert re.search(r"const \[open, setOpen\] = React\.useState\(false\)",
-                     charts[start:start + 1200]), (
+                     body[:1200]), (
         "the panel's open state is not declared in HBar")
     # Default UNCHECKED: the grouped rows are what the mount passes.
-    assert re.search(r"checked=\{open\}", charts[start:])
+    assert re.search(r"checked=\{open\}", body)
+
+
+# HBar's readers of a row LIST. `rows` is the mount's grouped input;
+# only `shown` (the list the checkbox controls) may be read for geometry,
+# scale, a11y, the row map or the hover's tip.
+_ROW_USE = re.compile(
+    r"\b(rows|shown)\.(?:length|map|reduce|slice)\b"
+    r"|\browTip\(\s*(rows|shown)\[hover\]")
+
+
+def test_every_hbar_row_consumer_reads_the_rendered_rows():
+    """The mount hands HBar GROUPED rows; `shown` is what it draws — the
+    same list collapsed, the per-host rows once the box is checked. A
+    consumer reverted to `rows` draws the ungrouped list while every
+    other pin stays green: the svg height, the bar scale, the a11y
+    summary, the row map and the hover would all disagree with the
+    checkbox's state, which is exactly the shape a bad merge reverts
+    silently.
+
+    One deliberate `rows.` reader is NOT in this pattern, and must not
+    be "fixed" into one: the checkbox gate's `rows.some(r => r.parts)`
+    reads the GROUPED input on purpose — `shown` carries no `parts` once
+    expanded, so a gate on it would unmount the control and strand the
+    panel open with no way back.
+
+    Pinned as a single pattern over HBar's own body, so a revert
+    anywhere in the component trips it and the failure names the exact
+    expression that still reads `rows`."""
+    body = _hbar_body()
+    hits = [m.group(0) for m in _ROW_USE.finditer(body)]
+    assert len(hits) >= 6, (
+        f"found only {len(hits)} row consumers in HBar ({hits}) -- too "
+        f"few to mean anything; the pin would pass vacuously")
+    wrong = [h for h in hits
+             if h.startswith("rows.") or h.startswith("rowTip(rows")]
+    assert not wrong, (
+        f"HBar reads the raw grouped rows here: {wrong} -- these must "
+        f"read `shown`, the list the panel's checkbox actually controls")
 
 
 def test_the_collapsed_rows_hover_lines_come_from_the_module():
