@@ -122,15 +122,33 @@ async def _render_export(argv: list[str], out_path: str) -> None:
     """Run the plot subprocess, bounded by _EXPORT_TIMEOUT_S. Raises
     HTTPException(404) when the child signals no data for the range or
     project (exit 3 — an empty outcome, not a failure), HTTPException(503)
-    on timeout or when the interpreter died of a missing module (an
-    EXPORT_PYTHON environment problem), HTTPException(500) on any other
-    non-zero exit. The child is killed and its pipes are drained on
-    timeout, cancellation, or another exception while communicating."""
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    on timeout, when the interpreter died of a missing module, or when the
+    interpreter itself could not be launched (an EXPORT_PYTHON environment
+    problem), HTTPException(500) on any other non-zero exit. The child is
+    killed and its pipes are drained on timeout, cancellation, or another
+    exception while communicating."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        # The spawn is the one failure mode OUTSIDE the guarded region
+        # below: an EXPORT_PYTHON naming a missing or unlaunchable
+        # interpreter raises FileNotFoundError / PermissionError /
+        # IsADirectoryError here, which nothing else classifies, so the
+        # request died as an unhandled 500 (issue #949). Answer the same
+        # 503 vocabulary as the missing-module path: name the knob with
+        # its resolved value and the fix.
+        raise HTTPException(
+            503,
+            f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
+            f"could not be launched ({exc.__class__.__name__}: {exc}) — "
+            "point EXPORT_PYTHON at an interpreter with backend/"
+            "requirements.txt and requirements-dev.txt installed "
+            "(matplotlib and psycopg must both be importable)",
+        ) from None
     _live_renders[proc] = out_path
     try:
         try:
