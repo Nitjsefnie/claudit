@@ -9,35 +9,25 @@ files in this directory, each carrying `paths` frontmatter so it loads into
 context when you work on a file in its area:
 
 - `claudit-doctrine-parser.md` — the parse spec and the parser-side rules
-  (`SV-PARSER-SPEC`, `SV-BASH-CHURN`, `SV-CONTEXT-INTAKE`). Area:
-  `backend/parse*.py`, `backend/codex_fork.py`, `backend/kimi_content.py`,
-  `backend/bash_*.py`, `backend/turn_flags.py`, `backend/prompt_gate.py`,
-  `src/parser*.js`, `src/record-dedup.js`, `src/ctx-input.js`,
-  `fixtures/parser/`, `fixtures/codex/`.
+  (`SV-PARSER-SPEC`, `SV-BASH-CHURN`, `SV-CONTEXT-INTAKE`): the parser modules
+  and their browser mirror, and the parser fixtures.
 - `claudit-doctrine-ingest.md` — schema, identity, dedup and rollups
   (`SV-SCHEMA-AUTOAPPLY`, `SV-SCHEMA-FAIL-FAST`, `SV-FILES-RECORDS`,
   `SV-CANONICAL-FLAG`, `SV-SUPPRESSED-MODELS`, `SV-PROJECT-ALIASES`,
-  `SV-ROLLUP`, `SV-REKEY-CUTOVER`). Area: `backend/ingest*.py`,
-  `backend/db.py`, `backend/schema*.sql`, `backend/key_layout.py`,
-  `backend/lane_*.py`, `backend/project_aliases.py`,
-  `backend/parse_common.py`, `backend/parse_lanes.py`,
-  `backend/api_dashboard.py`, `backend/api_common.py`.
+  `SV-ROLLUP`, `SV-REKEY-CUTOVER`): the ingest, schema, identity and
+  rollup-read modules.
 - `claudit-doctrine-pricing.md` — rate data, resolution and the refresh
   passes (`SV-DATED-RATES`, `SV-RATE-DATA`, `SV-RATE-REFRESH`,
-  `SV-VENDOR-RATES`, `SV-REPRICE`, `SV-PROVIDER-RATES`, `SV-RATE-ESTIMATES`).
-  Area: `src/pricing.json`, `src/pricing_notices.json`, `src/rates.js`,
-  `backend/pricing*.py`, `backend/rate_*.py`, `backend/ingest_reprice.py`,
-  `backend/long_context.py`, `scripts/ci/refresh_*.py`,
-  `scripts/ci/backfill_provider_rates.py`,
-  `scripts/ci/collapse_oscillating_rates.py`, `scripts/ci/price_band.py`.
+  `SV-VENDOR-RATES`, `SV-REPRICE`, `SV-PROVIDER-RATES`, `SV-RATE-ESTIMATES`):
+  the rate tables, the pricing modules and the rate-refresh scripts.
 - `claudit-doctrine-ci.md` — the CI ratchets and the test-data rule
-  (`SV-CI-RATCHETS`, `SV-TEST-DATA`). Area: `.github/workflows/`,
-  `.github/actions/`, `.github/ci-thresholds.json`, `.gitleaks.toml`,
-  `scripts/ci/`, `tests/`.
+  (`SV-CI-RATCHETS`, `SV-TEST-DATA`): the workflows, the CI scripts and the
+  test suite.
 
-A path-scoped rule loads when you open a file matching its area, but do not
-rely on that alone: when you are planning or discussing an area without having
-opened one of its files, read the domain file directly — it is a plain
+Each file's `paths:` frontmatter is the authoritative list of the files it
+loads for. A path-scoped rule loads when you open a file matching its area, but
+do not rely on that alone: when you are planning or discussing an area without
+having opened one of its files, read the domain file directly — it is a plain
 Markdown file in this directory. Every `SV-*` rule lives in exactly one file.
 
 ## Cost accounting is split TTL, always (SV-COST-SPLIT)
@@ -195,4 +185,3 @@ page:
 
 A new surface echoing a brand value MUST route through one of these —
 not a copy, not a new escape, never `f"{value}"`.
-

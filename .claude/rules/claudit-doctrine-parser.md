@@ -19,7 +19,6 @@ paths:
 
 # claudit Doctrine — parser
 
-
 ## Parser-spec ownership (SV-PARSER-SPEC)
 
 This rule is the parse spec. `backend/parse.py` and the in-browser
@@ -144,4 +143,3 @@ sits in a few image-heavy sessions, so a chart would show an outlier as
 a trend. Query it:
 
     SELECT sum(result_chars) FROM tool_uses WHERE is_reread;
-

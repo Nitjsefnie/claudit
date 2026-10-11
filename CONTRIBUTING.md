@@ -36,8 +36,9 @@ was. That is fine in both directions.
 Read [`AGENTS.md`](AGENTS.md) first — it is the architecture and
 conventions brief, written for you. Then read
 [`.claude/rules/`](.claude/rules/),
-which holds the invariants as numbered rules (`SV-*`). Those two files are
-authoritative; this one only covers process.
+which holds the invariants as numbered rules (`SV-*`). The `AGENTS.md` brief
+and the `.claude/rules/` directory are authoritative; this one only covers
+process.
 
 The rules that reject the most patches, in order:
 
