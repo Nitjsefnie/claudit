@@ -23,8 +23,16 @@ def _alternating_row(run: Run, first_from: str, second_from: str) -> tuple[dict,
     seeded = run.doc()["providers"][GLM]["OpenInference"][-1]
     a = {f: seeded[f] for f in RATE_FIELDS}
     b = {**a, "output": seeded["output"] * 2}
-    run.edit(lambda doc: doc["providers"][GLM].update({"OpenInference": [
-        {"from": first_from, **a}, {"from": second_from, **b}]}))
+
+    def apply(doc):
+        doc["providers"][GLM].update({"OpenInference": [
+            {"from": first_from, **a}, {"from": second_from, **b}]})
+        # The hand-written entries must not postdate the fetch stamp
+        # their document carries (issue #931): stamp it at the row's
+        # newest entry, as a stored document requires.
+        doc["provider_rates_fetched"] = second_from
+
+    run.edit(apply)
     return a, b
 
 
