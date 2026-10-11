@@ -77,9 +77,10 @@ def test_bot_signature_spans_the_refresh_push_workflow():
         .read_text(encoding="utf-8"))
     runs = [step.get("run", "") for step in workflow["jobs"]["push"]["steps"]
             if isinstance(step, dict)]
-    staged = re.search(r'push-repo" add ([^\n]+)', "\n".join(runs))
+    staged = re.findall(r'push-repo" add ([^\n]+)', "\n".join(runs))
     assert staged, "the push job no longer stages paths with git add"
-    assert set(staged.group(1).split()) == classify.BOT_SIGNATURE
+    paths = {path for line in staged for path in line.split()}
+    assert paths == classify.BOT_SIGNATURE
 
 
 def test_data_only_requires_the_exact_signature():
