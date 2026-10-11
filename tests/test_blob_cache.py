@@ -135,6 +135,22 @@ def test_prune_cap_from_env(cache_root, monkeypatch):
     assert blob_cache.lookup("claude/a", "e", 10) is None
 
 
+def _is_control(ch: str) -> bool:
+    """A character _log_safe must drop (issue #940): C0, DEL, C1."""
+    code = ord(ch)
+    return code < 0x20 or 0x7F <= code <= 0x9F
+
+
+def _store_failure_record(caplog, key):
+    """Run one failing store() and return its single log record."""
+    with caplog.at_level(logging.DEBUG, logger="claudit.blob_cache"):
+        assert blob_cache.store(key, "e", b"x") is False
+    records = [
+        r for r in caplog.records if r.name == "claudit.blob_cache"]
+    assert len(records) == 1, f"expected one record, got {len(records)}"
+    return records[0]
+
+
 def test_store_failure_log_carries_no_control_characters(
         monkeypatch, tmp_path, caplog):
     """A store() key can come from a user query param (issue #940), so
@@ -143,16 +159,36 @@ def test_store_failure_log_carries_no_control_characters(
     blocker = tmp_path / "blocker"
     blocker.write_text("a file, not a directory")
     monkeypatch.setenv("R2_BLOB_CACHE", str(blocker / "cache"))
-    key = "claude/p/s/w.jsonl.xz\r\ninjected\x07\x1bline\x00end"
-    with caplog.at_level(logging.DEBUG, logger="claudit.blob_cache"):
-        assert blob_cache.store(key, "e", b"x") is False
-    records = [
-        r for r in caplog.records if r.name == "claudit.blob_cache"]
-    assert len(records) == 1, f"expected one record, got {len(records)}"
-    message = records[0].getMessage()
+    key = ("claude/p/s/w.jsonl.xz\r\ninjected\x07\x1bline\x00end"
+           "\x7f\x85nel")
+    record = _store_failure_record(caplog, key)
+    message = record.getMessage()
     assert "\n" not in message and "\r" not in message, message
-    assert not any(ord(ch) < 0x20 or ord(ch) == 0x7F
-                   for ch in message), message
+    assert not [ch for ch in message if _is_control(ch)], message
+
+
+def test_store_failure_log_scrubs_the_exception_text(
+        cache_root, monkeypatch, caplog):
+    """The exception text store() logs is tainted by the same route as
+    the key (issue #940). OSError escapes unprintables in a filename, so
+    a real ENOTDIR can never seed it — force a failure whose message
+    carries the tainted text raw instead, with a key that carries none,
+    so only the exc limb can put a control char in the record."""
+    raised = []
+
+    def boom(*_args, **_kwargs):
+        exc = ValueError("write failed: path\r\ninjected\x07\x7f\x85end")
+        raised.append(exc)
+        raise exc
+
+    monkeypatch.setattr(blob_cache.os, "replace", boom)
+    record = _store_failure_record(caplog, "claude/k")
+    # Seed proof: the exception text really carries control characters
+    # before _log_safe ever sees it, so this is no vacuous assertion.
+    assert any(_is_control(ch) for ch in str(raised[0])), str(raised[0])
+    message = record.getMessage()
+    assert "\n" not in message and "\r" not in message, message
+    assert not [ch for ch in message if _is_control(ch)], message
 
 
 def test_prune_cap_env_garbage_falls_to_default(cache_root, monkeypatch):
