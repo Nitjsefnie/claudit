@@ -25,9 +25,10 @@ classic-script instantiation.
 The seams' typeof alone cannot catch a miswired seam: a rename in
 parser-lanes.js leaves every seam a function bound to undefined helpers,
 and typeof cannot see inside a closure. So the guard also runs the real
-Codex fixture fixtures/parser/codex_min.jsonl through
+Codex fixture fixtures/parser/codex_min.jsonl and both Kimi wires'
+fixtures (kimi_code_min.jsonl, kimi_legacy_min.jsonl) through
 window.parseTranscriptLanes after the load and requires usage records
-out - the seams must not merely exist, they must work.
+out of each - the seams must not merely exist, they must work.
 """
 from __future__ import annotations
 
@@ -44,23 +45,30 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "public" / "index.html"
 CODEX_PROBE_FIXTURE = ROOT / "fixtures" / "parser" / "codex_min.jsonl"
+KIMI_CODE_PROBE_FIXTURE = ROOT / "fixtures" / "parser" / "kimi_code_min.jsonl"
+KIMI_LEGACY_PROBE_FIXTURE = (
+    ROOT / "fixtures" / "parser" / "kimi_legacy_min.jsonl"
+)
 
 # The seams later scripts and the panels consume; all must survive the
 # full classic-script load.
 _SEAMS = (
     "parseLaneCodex",
+    "parseLaneKimiCode",
+    "parseLaneLegacy",
     "parseTranscriptLanes",
     "sniffTranscriptFormat",
     "parseTranscript",
 )
 
-# Reads the (name, source) list as one JSON array on stdin, runs every
-# script in order over ONE shared vm context (classic-script semantics),
-# and reports the typeof of each seam after the full load. The first
+# Reads the (name, source) list and the named probe fixtures as one JSON
+# object on stdin, runs every script in order over ONE shared vm context
+# (classic-script semantics), and reports the typeof of each seam after
+# the full load plus each probe's assistant_usage count. The first
 # failing script is reported on stderr and exits nonzero.
 _RUNNER = """
 const vm = require('vm');
-const { scripts, probe } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const { scripts, probes } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 // pricing-loader.js takes its node path in the sandbox (no document
 // here): it reads the rate document beside __dirname, so hand the
 // context the require/__dirname pair its own docstring names as the
@@ -80,12 +88,14 @@ for (const [name, code] of scripts) {
 }
 const seams = %SEAMS%;
 const seam = (n) => vm.runInContext(`typeof window.${n}`, ctx);
-ctx.__probe = probe;
+ctx.__probes = probes;
 const probeOut = vm.runInContext(`
-  (() => {
-    const r = window.parseTranscriptLanes(window.__probe);
-    return { usage: r.meta.filter((m) => m.type === 'assistant_usage').length };
-  })()
+  (() => Object.fromEntries(Object.entries(window.__probes).map(
+    ([name, text]) => {
+      const r = window.parseTranscriptLanes(text);
+      return [name,
+              r.meta.filter((m) => m.type === 'assistant_usage').length];
+    })))()
 `, ctx);
 console.log(JSON.stringify({
   ran: scripts.length,
@@ -161,11 +171,17 @@ def test_classic_scripts_load_in_one_realm() -> None:
     scripts = _classic_scripts()
     assert scripts, "index.html lost its classic scripts; guard ran on nothing"
     runner = _RUNNER.replace("%SEAMS%", repr(list(_SEAMS)))
+    probes = {
+        "codex_min.jsonl": CODEX_PROBE_FIXTURE,
+        "kimi_code_min.jsonl": KIMI_CODE_PROBE_FIXTURE,
+        "kimi_legacy_min.jsonl": KIMI_LEGACY_PROBE_FIXTURE,
+    }
     proc = subprocess.run(
         ["node", "-e", runner],
         input=json.dumps({
             "scripts": scripts,
-            "probe": CODEX_PROBE_FIXTURE.read_text(encoding="utf-8"),
+            "probes": {name: path.read_text(encoding="utf-8")
+                       for name, path in probes.items()},
         }).encode(),
         capture_output=True,
         timeout=60,
@@ -179,9 +195,17 @@ def test_classic_scripts_load_in_one_realm() -> None:
             f"window.{name} is {summary['seams'][name]!r} after the full "
             "classic-script load"
         )
-    assert summary["probe"]["usage"] >= 1, (
+    assert summary["probe"]["codex_min.jsonl"] >= 1, (
         "the codex probe fixture yielded no assistant_usage through "
         "window.parseTranscriptLanes after the full load - a seam is "
         "miswired (e.g. a renamed helper left a seam a function bound "
         "to undefined)"
     )
+    for name in ("kimi_code_min.jsonl", "kimi_legacy_min.jsonl"):
+        assert summary["probe"][name] >= 1, (
+            f"the {name} probe fixture yielded no assistant_usage through "
+            "window.parseTranscriptLanes after the full classic-script "
+            "load - the parser-kimi.js seam is miswired (e.g. its tag "
+            "dropped or reordered in index.html, or its helpers bound to "
+            "undefined)"
+        )
