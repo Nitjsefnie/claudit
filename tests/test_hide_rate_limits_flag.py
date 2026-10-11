@@ -17,7 +17,7 @@ import os
 
 import pytest
 
-from backend import api_dashboard
+from backend import hide_rate_limits
 
 # Reuses test_api's fresh-DB + mini-R2 fixture WITH rate-limit hits —
 # an empty hits list would let a broken computation pass unnoticed.
@@ -43,9 +43,10 @@ DASHBOARD_KEYS = frozenset({
 @pytest.fixture(name="hide_flag_env")
 def _hide_flag_env():
     """Drive CLAUDIT_HIDE_RATE_LIMITS the way a deploy does: set the
-    env, then let the backend read it at import. Restores BOTH the env
-    (a host-exported value must neither leak into a test nor be
-    silently dropped) and the module constant afterwards."""
+    env, then let backend/hide_rate_limits re-read it at import — the
+    payload picks the value up through the module reference. Restores
+    BOTH the env (a host-exported value must neither leak into a test
+    nor be silently dropped) and the module constant afterwards."""
     original = os.environ.get(FLAG_ENV)     # None == unset (env is str)
 
     def apply(value: str | None) -> None:
@@ -53,7 +54,7 @@ def _hide_flag_env():
             os.environ.pop(FLAG_ENV, None)
         else:
             os.environ[FLAG_ENV] = value
-        importlib.reload(api_dashboard)
+        importlib.reload(hide_rate_limits)
 
     apply(None)                     # start from the documented default
     yield apply
@@ -62,7 +63,7 @@ def _hide_flag_env():
         os.environ.pop(FLAG_ENV, None)
     else:
         os.environ[FLAG_ENV] = original
-    importlib.reload(api_dashboard)
+    importlib.reload(hide_rate_limits)
 
 
 def test_hide_rate_limits_false_when_env_unset(app_with_rl_data, hide_flag_env):
