@@ -83,8 +83,10 @@
   // The collapsed row's hover: one line per host — `DeepInfra 928.03M
   // (75%)` — as a share of that MODEL's total. The bar label already
   // states the model's share of the panel, so these lines say only how
-  // the model splits. A row without parts (every other HBar mount, and
-  // every single-entry row) gets no lines at all.
+  // the model splits. `valueFmt` formats a VALUE (HBar's `partFmt`, the
+  // mount's `v => humanCurrency(v)`), not a row like `fmt` does — the
+  // share is computed here. A row without parts (every other HBar mount,
+  // and every single-entry row) gets no lines at all.
   function hostLines(row, valueFmt) {
     if (!row.parts || !row.parts.length) return [];
     return row.parts.map(p => [
