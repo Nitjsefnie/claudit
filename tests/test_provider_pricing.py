@@ -79,9 +79,8 @@ def test_two_providers_of_one_model_price_differently(monkeypatch):
     assert host_a != pricing.rate_for("acme/v9", SEEDED, provider="HostB")
 
 
-# Issue #666: a banded provider entry's five rates are the time-weighted mean
-# of a range the host oscillates inside, not a listed price, so resolve()
-# reports the mean was used (SV-RATE-REFRESH, #640's ruling).
+# Issue #666: a banded provider entry's rates are the time-weighted mean of
+# a range the host oscillates inside, not a listed price.
 _BAND_RATES = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
                "read": 0.015, "output": 0.75}
 _BAND = {"fresh": [0.05, 0.9], "create_5m": [0.05, 0.9],
@@ -94,88 +93,70 @@ def _banded(model, ts, provider=None):
     return _row_is_banded(pricing.resolve(model, ts, provider), ts, provider)
 
 
-def test_resolve_reports_a_banded_provider_entry(monkeypatch):
-    pair = ("acme/banded-9", "HostA")
+def _band_pair(monkeypatch, pair, windows=(), banded=True):
+    """Install a provider pair (banded unless asked otherwise); return it."""
     monkeypatch.setattr(pricing, "PROVIDER_RATES",
                         {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, pair: []})
-    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
-                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
-    assert _banded(pair[0], SEEDED, pair[1]) is True
-    # The list-price path (no ts) reports the banded list entry too.
-    assert _banded(pair[0], None, pair[1]) is True
+                        {**pricing.PROVIDER_DATED_RATES, pair: list(windows)})
+    if banded:
+        monkeypatch.setattr(pricing, "PROVIDER_BANDS",
+                            {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+    return pair
 
 
-def test_resolve_reports_banded_false_for_an_unbanded_row(monkeypatch):
-    pair = ("acme/unbanded-9", "HostA")
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, pair: []})
-    monkeypatch.setattr(pricing, "PROVIDER_BANDS", dict(pricing.PROVIDER_BANDS))
-    assert _banded(pair[0], SEEDED, pair[1]) is False
-    # A models-table (non-provider) resolve carries no band.
+def test_banded_and_unbanded_provider_rows(monkeypatch):
+    """A banded pair flags True (the list price included); an unbanded pair
+    and a models-table resolve flag False."""
+    banded = _band_pair(monkeypatch, ("acme/banded-9", "HostA"))
+    assert _banded(banded[0], SEEDED, banded[1]) is True
+    assert _banded(banded[0], None, banded[1]) is True
+    plain = _band_pair(monkeypatch, ("acme/unbanded-9", "HostA"), banded=False)
+    assert _banded(plain[0], SEEDED, plain[1]) is False
     monkeypatch.setattr(pricing, "MODEL_RATES",
                         {**pricing.MODEL_RATES, "synthetic-table-9": _BAND_RATES})
     monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
     assert _banded("synthetic-table-9", SEEDED) is False
 
 
-def _banded_two_entry_row(monkeypatch):
+def _two_entry_row(monkeypatch):
     """A provider history whose OLDER entry (index 0) carries a band and
-    whose NEWER entry (index 1) does not — a band appended at a later
-    detection instant, the realistic multi-entry shape (issue #666)."""
+    whose NEWER entry (index 1) does not — a band appended later."""
     model, host = "acme/two-entry-9", "HostA"
     cut = datetime(2031, 1, 1, tzinfo=UTC)
-    old = {"fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
+    old = {**_BAND_RATES, "fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
            "read": 0.005, "output": 0.25}
-    new = {"fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
+    new = {**_BAND_RATES, "fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
            "read": 0.09, "output": 2.9}
-    pair = (model, host)
+    _band_pair(monkeypatch, (model, host), windows=[(cut, old)])
     monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, pair: new})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, pair: [(cut, old)]})
-    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
-                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+                        {**pricing.PROVIDER_RATES, (model, host): new})
     return model, host, cut
 
 
-def test_resolve_picks_the_banded_entry_by_its_index(monkeypatch):
+def test_the_banded_entry_is_picked_by_index_and_naive_ts(monkeypatch):
     """The band's ENTRY-INDEX selection: a band on an OLDER entry must not
-    flag records priced through a NEWER, unbanded one (issue #666)."""
-    model, host, cut = _banded_two_entry_row(monkeypatch)
+    flag a record priced through a NEWER, unbanded one; a naive ts lands the
+    same entry — and flag — as its aware twin."""
+    model, host, cut = _two_entry_row(monkeypatch)
     before = cut - timedelta(seconds=1)
     assert _banded(model, before, host) is True
     assert _banded(model, cut, host) is False
     assert _banded(model, None, host) is False
+    for aware in (before, cut):
+        assert _banded(model, aware.replace(tzinfo=None), host) == \
+            _banded(model, aware, host)
 
 
-def test_a_naive_instant_lands_the_same_banded_entry(monkeypatch):
-    """A naive instant is read as UTC, so a naive ts lands the same entry —
-    and the same banded flag — as its aware twin (issue #666)."""
-    model, host, cut = _banded_two_entry_row(monkeypatch)
-    for aware in (cut - timedelta(seconds=1), cut):
-        naive = aware.replace(tzinfo=None)
-        assert _banded(model, naive, host) == _banded(model, aware, host)
-
-
-def test_resolve_reports_a_banded_vendor_bare_form(monkeypatch):
+def test_a_banded_vendor_bare_form_flags(monkeypatch):
     """The vendor bare-form path prices through a provider row too, so a
-    banded vendor row's mean is surfaced there as well (issue #666)."""
+    banded vendor row's mean is surfaced there as well."""
     bare, tracked, host = "acme-vendor-bare-9", "acme/tracked-9", "HostA"
-    pair = (tracked, host)
     monkeypatch.setattr(pricing, "VENDOR_BARE",
                         {**pricing.VENDOR_BARE, bare: tracked})
     monkeypatch.setattr(pricing, "VENDOR_HOSTS",
                         {**pricing.VENDOR_HOSTS, tracked: host})
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, pair: []})
-    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
-                        {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
+    _band_pair(monkeypatch, (tracked, host))
     monkeypatch.setattr(pricing, "_VENDOR_MATCH_CACHE", {})
     monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
     res = pricing.resolve(bare, SEEDED)

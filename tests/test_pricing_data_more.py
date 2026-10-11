@@ -98,10 +98,7 @@ def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_pat
 
 
 def test_an_empty_models_key_is_refused_naming_the_row():
-    """A models key must be a non-empty string (issue #837). JSON admits only
-    the empty-string case, and an empty row name would price a transcript id
-    through a row the file never names — a rule-breaking file, so the loader
-    refuses it naming the row (SV-RATE-DATA)."""
+    """A models key must be a non-empty string (issue #837)."""
     with pytest.raises(ValueError, match=r"models key ''"):
         pricing.load_tables(seed_doc(models={"": [dict(DEFAULT_ROW)]}))
 

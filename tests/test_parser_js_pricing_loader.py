@@ -246,8 +246,7 @@ def test_browser_loader_rejects_a_negative_search_rate(tmp_path):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_loader_rejects_an_empty_models_key(tmp_path):
-    """Issue #837: an empty models key is a row the file never names, so the
-    browser loader refuses the document, naming the file and the row."""
+    """Issue #837: the browser loader refuses an empty models key."""
     doc = _doc()
     doc["models"][""] = [dict(DEFAULT_ROW)]
     out = _run(tmp_path, _render(doc))
