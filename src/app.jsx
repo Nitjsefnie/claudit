@@ -828,22 +828,18 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // backend already applied to each returned point.
   const binMs = window.dashboardBinMs(range, bucketS);
 
-  // A host-split row ("model · Host") has no fixedColors entry of its
-  // own, so it takes its model's colour.
-  const modelColor = label => window.modelColors[label.split(' · ')[0]];
-  const costByModel = Object.entries(totals.byModel)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value, color: modelColor(label) }));
+  // One row per model by default (#936): rows sharing a model id collapse
+  // to their summed value, sorted desc, each coloured by its model (a
+  // host-split row has no fixedColors entry of its own). The module drops
+  // zero rows first, exactly as the flat fold did; the panel's single
+  // checkbox flips the grouped rows back to today's per-host rows.
+  const costByModel = window.modelGroup.group(totals.byModel);
   // Share of the charted total, not of `totals.cost`: the rows above drop
   // zero-cost models, so summing them is what makes the labels add to 100%.
   const costByModelTotal = costByModel.reduce((a, r) => a + r.value, 0);
   // Same shape as Cost by Model, measured in tokens: a free lane
   // (bonsai at $0) is invisible on the cost bar and visible here.
-  const tokensByModel = Object.entries(totals.tokensByModel)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value, color: modelColor(label) }));
+  const tokensByModel = window.modelGroup.group(totals.tokensByModel);
   const tokensByModelTotal = tokensByModel.reduce((a, r) => a + r.value, 0);
 
   // One colour for every bar: this is a magnitude comparison, identity is
@@ -941,13 +937,13 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         <window.HBar listPanel
           title="Cost by Model"
           rows={costByModel}
-          fixedColors={window.modelColors}
+          fixedColors={window.modelColors} groupByModel partFmt={r => window.humanCurrency(r.value)}
           fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costByModelTotal * 100).toFixed(1)}%)`} />
         )}
         <window.HBar listPanel
           title="Tokens by Model"
           rows={tokensByModel}
-          fixedColors={window.modelColors}
+          fixedColors={window.modelColors} groupByModel partFmt={r => window.humanFmt(r.value)}
           fmt={r => `${window.humanFmt(r.value)} (${tokensByModelTotal > 0 ? (r.value / tokensByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
       </div>
 
