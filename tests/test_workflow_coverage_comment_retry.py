@@ -273,9 +273,13 @@ class TestPostStep:
         bin_dir, log = _fake_gh(tmp_path, fake_body)
         state_dir = tmp_path / "state"
         state_dir.mkdir(exist_ok=True)
+        # The post step reads the artifact's two files from the FRESH
+        # extraction directory in runner temp, never the workspace CWD.
+        art_dir = helper_path.parent / "coverage-artifact"
+        art_dir.mkdir(parents=True, exist_ok=True)
         body_md = "### Coverage\n\n- backend/api.py: 92%\n"
-        (tmp_path / "body.md").write_text(body_md, encoding="utf-8")
-        (tmp_path / "pr-number.txt").write_text("763\n", encoding="utf-8")
+        (art_dir / "body.md").write_text(body_md, encoding="utf-8")
+        (art_dir / "pr-number.txt").write_text("763\n", encoding="utf-8")
         # The driver shadows sleep so the bounded waits cost nothing.
         script = (
             'sleep() { :; }\n'
