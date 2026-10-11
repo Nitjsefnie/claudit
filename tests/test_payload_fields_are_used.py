@@ -47,9 +47,6 @@ ALLOWED_UNUSED: dict[str, str] = {
     "range": "echo of the request parameter",
     "project": "echo of the request parameter",
     "tz": "echo of the server-side timezone used for bucketing",
-    # Backend half of CLAUDIT_HIDE_RATE_LIMITS (issue #943) lands before
-    # the frontend half; the UI task reads it and drops this entry.
-    "hide_rate_limits": "backend flag sent ahead of its frontend reader",
 }
 
 # Generic names that appear all over the frontend for unrelated reasons,
