@@ -37,6 +37,7 @@
 !/README.md
 !/SECURITY.md
 !/VERSION
+!/compose.yaml
 !/package-lock.json
 !/package.json
 !/pyrightconfig.json
@@ -87,6 +88,14 @@
 # every one of them is shipped, so the block names the family back rather
 # than one file.
 !/backend/schema_*.sql
+
+# ---- compose/ — the dev stack's Postgres first-boot init -------------------
+# The docker compose stack's init SQL (issue #941): deliberately NOT under
+# examples/, which the CI classifier marks documentation, so a change to it
+# still runs the smoke leg. Only .sql is shipped here.
+!/compose/
+/compose/*
+!/compose/*.sql
 
 # ---- examples/ — sample systemd unit ---------------------------------------
 !/examples/
