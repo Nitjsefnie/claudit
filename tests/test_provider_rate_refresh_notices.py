@@ -209,9 +209,21 @@ def test_a_vendor_notice_also_stays_suppressed_across_commits(tmp_path, capsys):
 def test_the_shipped_baseline_has_the_documents_shape():
     """The committed baseline is repository-managed data the refresh rewrites
     on every committing run, so only its SHAPE is pinned, never its content
-    (SV-TEST-DATA)."""
+    (SV-TEST-DATA).
+
+    The ``sampled`` and ``vanished`` standing-state keys (issue #933) join
+    the file at the first committing run on that code; the shipped baseline
+    predates it, so they are shape-checked only while present."""
     doc = json.loads(_NOTICES_JSON.read_text(encoding="utf-8"))
 
-    assert list(doc) == ["notices"]
+    assert set(doc) <= {"notices", "sampled", "vanished"}
     assert isinstance(doc["notices"], list)
     assert all(isinstance(line, str) for line in doc["notices"])
+    if "sampled" in doc:
+        assert isinstance(doc["sampled"], dict)
+        assert all(isinstance(classifications, dict)
+                   for classifications in doc["sampled"].values())
+    if "vanished" in doc:
+        assert isinstance(doc["vanished"], dict)
+        assert all(isinstance(hosts, list)
+                   for hosts in doc["vanished"].values())
