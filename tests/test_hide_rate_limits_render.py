@@ -10,10 +10,11 @@ One flag drives both surfaces — the always-present boolean
 CLAUDIT_HIDE_RATE_LIMITS at backend startup):
 
 * true  -> NO "rate-limit hits" Stat at all (not a zero), and the
-  Session Burn Rate panel draws no rate-limit bands and speaks no
-  "N rate-limit lines marked" sentence.
+  Session Burn Rate panel draws no rate-limit bands, speaks no
+  "N rate-limit lines marked" sentence, and shows no "Rate limit hit"
+  legend key for bands that can never render.
 * false -> exactly the pre-#943 render: the Stat, the bands, the
-  sentence, all unchanged.
+  sentence, the legend key, all unchanged.
 """
 from __future__ import annotations
 
@@ -108,3 +109,22 @@ def test_the_rate_limit_sentence_is_dropped_when_hidden():
     assert "hideRateLimits ? ''" in window, (
         "the rate-limit sentence is not gated on hideRateLimits -- a "
         "hidden deploy would still speak it (as a zero)")
+
+
+def test_the_rate_limit_legend_key_is_gated_like_the_bands():
+    """A legend key for bands that can never render leaks the same
+    information the bands do, so the "Rate limit hit" swatch is gated on
+    the flag with them. The gate wraps the push itself, so the false
+    shape is untouched: the same entry, appended the same way."""
+    src = _burn()
+    m = re.search(
+        r"^(?P<indent>\s*)(?P<gate>.*?)legendItems\.push\("
+        r"\{ key: '__ratelimit'[^\n]*label: 'Rate limit hit'",
+        src, re.M)
+    assert m, (
+        "the '__ratelimit' legend push is gone entirely -- if the entry "
+        "was deleted rather than gated, the false-shape render changed; "
+        "rewrite this guard")
+    assert m.group("gate").startswith("if (!hideRateLimits) "), (
+        "the __ratelimit legend entry is not gated on !hideRateLimits -- "
+        "a hidden deploy would still show a key for bands it never draws")
