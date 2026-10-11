@@ -432,7 +432,9 @@ same rules:
   keeps both blocks, and a committing run records them in the same state
   file as `vanished` (model → hosts) and `sampled` (model → host → the
   display classification), so a changed set or classification shows as a
-  diff of that file. The subject's counts still move with the run.
+  diff of that file. The subject carries only this run's counts —
+  changed, new, refused; the vanished count left the subject with the
+  blocks (issue #933).
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with multiple in-region prices that remain ambiguous after

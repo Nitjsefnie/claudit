@@ -459,11 +459,14 @@ def test_a_file_with_two_pricing_versions_is_refused(tmp_path, capsys):
     _refused(run, capsys, "PRICING_VERSION")
 
 
-def test_the_subject_counts_vanished_hosts(tmp_path, capsys):
+def test_the_subject_drops_the_vanished_count(tmp_path, capsys):
+    """The vanished set is standing state — the stdout report and the
+    state file — never a subject count: the subject carries this run's
+    moves and refusals only (issue #933)."""
     run = Run(tmp_path)
     _move_glm(run)
     run.endpoints(GLM)[:] = [e for e in run.endpoints(GLM)
                              if e["provider_name"] != "Cloudflare"]
     assert run(capsys)[0] == 0
-    assert run.commit_msg.read_text(encoding="utf-8").startswith(
-        "Refresh OpenRouter provider rates: 1 changed, 1 vanished")
+    subject = run.commit_msg.read_text(encoding="utf-8").partition("\n\n")[0]
+    assert subject == "Refresh OpenRouter provider rates: 1 changed"

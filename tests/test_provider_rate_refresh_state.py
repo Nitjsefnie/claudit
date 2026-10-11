@@ -119,6 +119,9 @@ def test_the_sampled_block_leaves_the_commit_body_and_is_recorded(
     state = json.loads(
         pricing_path.with_name("pricing_notices.json").read_text(
             encoding="utf-8"))
+    # The recorded classification is the SAME display literal the run's
+    # stdout report printed — the writer and the renderer cannot drift.
+    assert state["sampled"][MODEL][HOST] in out
     assert state["sampled"] == {MODEL: {HOST: "no matching log state"}}
     assert state["vanished"] == {}
 
