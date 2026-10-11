@@ -170,7 +170,7 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
   // inline; it moved up here so the pad it sizes exists before plotH.
   const legendItems = Object.entries(series).map(([k, s]) => (
     { key: k, color: s.color, label: `${s.label} (EMA)` }));
-  legendItems.push({ key: '__ratelimit', color: '#ff3366', label: 'Rate limit hit' });
+  if (!hideRateLimits) legendItems.push({ key: '__ratelimit', color: '#ff3366', label: 'Rate limit hit' });
   const legendAdvUsed = legendAdv || 6.4;
   const LEGEND_SWATCH = 20, LEGEND_GAP = 6, LEGEND_SPACING = 24, LEGEND_ROW = 16;
   // Wrap instead of running off the panel: at a 800px viewport the
