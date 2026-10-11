@@ -122,6 +122,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for deepseek/deepseek-v4-flash-0731 via Inceptron; the host was sampled",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba, glm-5-3 via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
     "tag 'azure/swedencentral' names neither a known region nor a quantization: gpt-4-1 via Azure, gpt-4-1-mini via Azure, gpt-4-1-nano via Azure, gpt-4o-mini via Azure, gpt-5 via Azure, gpt-5-1 via Azure, gpt-5-mini via Azure, gpt-5-nano via Azure",
@@ -138,11 +139,273 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via Morph; the host was sampled",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-flash via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-flash-0731 via OpenInference; the host was sampled",
-    "the listing lags the listed-pricing log for glm-5-3 via Io Net; the host was sampled",
-    "the listing lags the listed-pricing log for glm-5-3-flash via Morph; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, anthropic/claude-sonnet-4, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
-  ]
+  ],
+  "sampled": {
+    "claude-fable-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-fable-5-1": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-haiku-4-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-haiku-5-5": {
+      "Amazon Bedrock": "long-context band",
+      "Anthropic": "long-context band",
+      "Azure": "long-context band",
+      "Claude Platform on AWS": "long-context band",
+      "Google": "long-context band"
+    },
+    "claude-opus-4-1": {
+      "Amazon Bedrock": "no matching log state"
+    },
+    "claude-opus-4-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-opus-4-6": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-opus-4-7": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-opus-4-8": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "2 endpoints selected",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-opus-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "2 endpoints selected",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-opus-5-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-sonnet-4": {
+      "Amazon Bedrock": "long-context band"
+    },
+    "claude-sonnet-4-5": {
+      "Amazon Bedrock": "long-context band",
+      "Anthropic": "long-context band",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "long-context band",
+      "Google": "long-context band"
+    },
+    "claude-sonnet-4-6": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-sonnet-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "claude-sonnet-5-5": {
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
+    },
+    "deepseek/deepseek-v4-1-flash": {
+      "Alibaba": "endpoint schedule",
+      "BaseTen": "cheapest resolution",
+      "DeepInfra": "cheapest resolution",
+      "DeepSeek": "endpoint schedule"
+    },
+    "deepseek/deepseek-v4-flash-0731": {
+      "Alibaba": "endpoint schedule",
+      "BaseTen": "2 endpoints selected",
+      "Inceptron": "no matching log state"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "Alibaba": "2 endpoints selected"
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "Alibaba": "endpoint schedule",
+      "DeepSeek": "endpoint schedule",
+      "Sail Research": "2 endpoints at one current price"
+    },
+    "glm-5-2": {
+      "Alibaba": "3 endpoints selected",
+      "BaseTen": "2 endpoints selected"
+    },
+    "glm-5-3": {
+      "BaseTen": "2 endpoints selected",
+      "Fireworks": "2 endpoints selected",
+      "Mistral": "2 endpoints at one current price",
+      "Sail Research": "2 endpoints at one current price"
+    },
+    "glm-5-3-flash": {
+      "BaseTen": "2 endpoints selected",
+      "Sail Research": "2 endpoints at one current price"
+    },
+    "gpt-5-3-codex": {
+      "OpenAI": "2 endpoints selected"
+    },
+    "gpt-5-4": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-4-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-5": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-5-pro": {
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-luna": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-luna-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-sol": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-sol-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-terra": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-5-6-terra-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-1-sol": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-1-sol-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-astra": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-astra-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-luna": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-luna-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-sol": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-sol-pro": {
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
+    },
+    "kimi-k3": {
+      "Fireworks": "2 endpoints selected"
+    }
+  },
+  "vanished": {
+    "claude-opus-4-1": [
+      "Anthropic"
+    ],
+    "claude-sonnet-4": [
+      "Anthropic"
+    ],
+    "deepseek/deepseek-v4-1-flash": [
+      "Io Net",
+      "Krea",
+      "NextBit",
+      "Reka"
+    ],
+    "deepseek/deepseek-v4-flash": [
+      "Azure",
+      "NextBit",
+      "Novita",
+      "Reka"
+    ],
+    "deepseek/deepseek-v4-flash-0731": [
+      "Fireworks",
+      "Makora",
+      "Morph",
+      "Nebius",
+      "NextBit"
+    ],
+    "deepseek/deepseek-v4-pro": [
+      "NextBit"
+    ],
+    "deepseek/deepseek-v4-pro-0813": [
+      "Fireworks",
+      "Io Net",
+      "Nebius",
+      "NextBit",
+      "Reka",
+      "Relace"
+    ],
+    "glm-5-2": [
+      "Relace"
+    ],
+    "glm-5-3": [
+      "Nebius",
+      "OpenInference",
+      "Relace"
+    ],
+    "glm-5-3-flash": [
+      "Cloudflare"
+    ],
+    "xiaomi/mimo-v2-6-flash": [
+      "InferenceNet",
+      "Relace"
+    ]
+  }
 }
