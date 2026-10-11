@@ -72,6 +72,7 @@ COMPUTE_STEP = "Patch coverage against the merge base"
 STAGE_STEP = "Stage the patch-coverage comment"
 UPLOAD_STEP = "Upload the patch-coverage comment"
 POST_STEP = "Post or update the pull request comment"
+DOWNLOAD_STEP = "Download the comment artifact"
 MARK_STEP = "Mark missing patch coverage"
 RESOLVE_STEP = "Resolve the target pull request from the event"
 
@@ -247,15 +248,49 @@ class TestPostingSide:
         assert not [u for u in _uses(_comment_job())
                     if (u or "").startswith("actions/checkout")]
 
-    def test_it_downloads_the_artifact_of_the_triggering_run_only(self):
-        downloads = [s for s in _comment_job()["steps"]
-                     if (s.get("uses") or "").startswith(
-                         "actions/download-artifact")]
-        assert len(downloads) == 1, downloads
-        with_ = downloads[0].get("with") or {}
-        assert with_.get("name") == ARTIFACT
-        # Bound to the EVENT's run id, never to something the artifact says.
-        assert "github.event.workflow_run.id" in str(with_.get("run-id"))
+    def test_the_zip_is_fetched_through_the_api_not_a_download_action(
+            self):
+        # CodeQL alert 13 (actions/artifact-poisoning, issue #939): a
+        # workflow_run consumer no longer pulls what a pull request
+        # produced with actions/download-artifact. The zip is fetched
+        # through the shared retry into $RUNNER_TEMP instead — by the id
+        # selected off the EVENT run's own artifact listing — and
+        # extracted into a fresh directory outside the workspace.
+        text = COVERAGE_WF.read_text(encoding="utf-8")
+        doc = _load(COVERAGE_WF)
+        uses = [step.get("uses") or ""
+                for job in (doc.get("jobs") or {}).values()
+                for step in (job.get("steps") or [])]
+        assert not [u for u in uses if "download-artifact" in u], uses
+        assert "download-artifact@" not in text
+        step = _step(_comment_job(), DOWNLOAD_STEP)
+        # It is a plain run step now: the flagged action is gone.
+        assert "uses" not in step, step
+        run = step.get("run") or ""
+        assert '. "$RUNNER_TEMP/api_retry.sh"' in run
+        assert (
+            'api_retry "downloading the diff-coverage-comment artifact"'
+            in run)
+        assert "gh api" in run
+        assert '"$RUNNER_TEMP/diff-coverage-comment.zip"' in run
+        # The address is chosen from the event-run's own artifact list.
+        assert "artifacts.json" in run
+        # Extracted into a FRESH directory in the runner's temp, by
+        # fixed member name: no zip entry name reaches the filesystem.
+        assert 'rm -rf "$RUNNER_TEMP/coverage-artifact"' in run
+        assert 'mkdir -p "$RUNNER_TEMP/coverage-artifact"' in run
+        assert (
+            'unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" body.md'
+            in run)
+        assert '> "$RUNNER_TEMP/coverage-artifact/body.md"' in run
+        # The step's gate is unchanged, and the post step reads only
+        # from that directory, still behind the shared retry.
+        assert step.get("if") == _step(_comment_job(), POST_STEP).get(
+            "if")
+        post = _step(_comment_job(), POST_STEP).get("run") or ""
+        assert '. "$RUNNER_TEMP/api_retry.sh"' in post
+        assert '"$ART_DIR/body.md"' in post
+        assert '"$ART_DIR/pr-number.txt"' in post
 
     def test_the_destination_is_resolved_from_the_event(self):
         env = _step(_comment_job(), RESOLVE_STEP).get("env") or {}
@@ -268,7 +303,7 @@ class TestPostingSide:
 
     def test_the_artifact_claim_is_compared_not_obeyed(self):
         run = _step(_comment_job(), POST_STEP).get("run") or ""
-        assert 'claimed="$(cat pr-number.txt)"' in run
+        assert 'claimed="$(cat "$ART_DIR/pr-number.txt")"' in run
         assert '[ "$claimed" != "$PR_NUMBER" ]' in run
         # Digits only, and pinned to the FULL case line with the empty
         # arm: a bare `*[!0-9]*)` is satisfied by the sibling comment-id
@@ -305,7 +340,7 @@ class TestPostingSide:
         assert '[ ! -f "$f" ] || [ -L "$f" ]' in run
         # Refused, never trimmed: a truncated coverage report is a wrong
         # one, and the comments API caps a body at 65536 characters.
-        assert "wc -c < body.md" in run
+        assert 'wc -c < "$ART_DIR/body.md"' in run
         assert 'if [ "$size" -gt 60000 ]; then' in run
 
     def test_the_body_reaches_github_as_data_never_as_shell(self):
@@ -314,7 +349,7 @@ class TestPostingSide:
         run = step.get("run") or ""
         assert "-F body=@" in run
         # The body is concatenated into a file and uploaded as a file.
-        assert run.count("cat body.md") == 1
+        assert run.count('cat "$ART_DIR/body.md"') == 1
         # Every address the API is given comes from the resolved EVENT,
         # never from a value the artifact supplied.
         env = step.get("env") or {}
@@ -402,7 +437,8 @@ class TestCommentComposition:
             (tmp_path / "body.md").write_text(body, encoding="utf-8")
         subprocess.run(
             ["bash", "-c", self._composer_block(step_name, start_anchor)],
-            cwd=tmp_path, env={**os.environ, **variables},
+            cwd=tmp_path,
+            env={**os.environ, "ART_DIR": str(tmp_path), **variables},
             capture_output=True, text=True, check=True)
         return (tmp_path / "comment.md").read_text(encoding="utf-8")
 

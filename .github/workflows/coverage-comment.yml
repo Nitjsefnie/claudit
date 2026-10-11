@@ -3,26 +3,28 @@ name: coverage comment
 # Post or invalidate the patch-coverage comment after the ci-gate run.
 #
 # WHY THIS IS A SEPARATE WORKFLOW (issue #560). The `tests` leg of
-# ci-gate.yml checks out and EXECUTES the proposed tree, so that job must
-# not also hold the token that can write pull-request conversation. It
-# used to hold `pull-requests: write` for exactly that reason — a token
-# live from `pip install` through the suite, and on a fork pull request
-# one that is read-only anyway, which is why no fork ever saw the
-# readout. Only the RENDERED BODY crosses the boundary now.
+# ci-gate.yml checks out and EXECUTES the proposed tree, so that job
+# must not also hold a token that can write pull-request conversation —
+# it held `pull-requests: write`, read-only on a fork, so no fork ever
+# saw the readout. Only the RENDERED BODY crosses the boundary.
 #
 # THE DESTINATION DOES NOT CROSS IT. This is a workflow_run consumer of an
 # artifact a pull request produced, which is the classic artifact-poisoning
 # shape, so every byte of the artifact is untrusted:
 #
 #   - the pull request number is resolved from the `workflow_run` EVENT,
-#     never read from the artifact and obeyed. The artifact's copy is only
-#     COMPARED with the event's, and a disagreement fails the step loudly
-#     rather than being corrected quietly — the disagreement is the signal
-#     that somebody tried to aim bot-authored text at another pull request;
-#   - the artifact is never executed, never `eval`'d, and never
-#     interpolated into a shell command. `body.md` reaches GitHub as a
-#     FILE argument (`-F body=@file`); `pr-number.txt` is compared as a
-#     string and checked to be digits before it is used as anything;
+#     never read from the artifact and obeyed: the artifact's copy is only
+#     COMPARED, and a disagreement fails the step loudly rather than
+#     corrected quietly — that disagreement is the signal that somebody
+#     tried to aim bot-authored text at another pull request;
+#   - the zip is fetched through the API into `$RUNNER_TEMP` and extracted
+#     by member NAME into a fresh directory outside the workspace, so no
+#     zip entry name can place a file outside it (CodeQL alert 13 /
+#     issue #939 retired `actions/download-artifact` here); only the two
+#     named files are read, and neither is ever executed, never `eval`'d,
+#     never interpolated into a shell. `body.md` reaches GitHub as a FILE
+#     argument (`-F body=@file`); `pr-number.txt` is compared as a string
+#     and checked to be digits before it is used as anything;
 #   - an oversized body is refused, never truncated: a silently trimmed
 #     coverage report is a wrong coverage report, and the comments API
 #     caps a body at 65536 characters;
@@ -30,14 +32,12 @@ name: coverage comment
 #     pull request at all. The only thing that crosses is the TEXT of a
 #     comment, under a token scoped to writing one.
 #
-# `pull_request_target` is not the alternative. It would give a run of
-# proposed code the base repository's token and secrets, which is strictly
-# worse than the situation this replaces.
+# `pull_request_target` is not the alternative: it would give a run of
+# proposed code the base repository's token and secrets — strictly worse.
 #
-# NOT A GATE. The readout is informational (issue #129): this workflow
-# publishes no check run, joins no aggregate, and is absent from
-# release_gate.py's gate events. Its failures redden only its own run,
-# which nothing waits on.
+# NOT A GATE. The readout is informational (issue #129): no check run,
+# no aggregate, absent from release_gate.py's gate events; its failures
+# redden only its own run, which nothing waits on.
 #
 # RETRIES (issue #763). Every `gh api` call in the `comment` job runs
 # behind `api_retry`, a bounded, spaced retry (three attempts, five then
@@ -348,13 +348,31 @@ jobs:
           steps.artifact.outputs.present == 'true'
           && steps.pr.outputs.stale != 'true'
           && steps.pr.outputs.present != 'false'
-        # actions/download-artifact v8.0.1
-        uses: >-
-          actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: diff-coverage-comment
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/coverage-artifact"
+          mkdir -p "$RUNNER_TEMP/coverage-artifact"
+
+          # Issue #763 wraps the transfer; the id comes from the event
+          # run's own listing (issue #939: no actions/download-artifact).
+          . "$RUNNER_TEMP/api_retry.sh"
+          id="$(jq -rs 'map(select(.name == "diff-coverage-comment"
+            and .expired == false))[0].id // empty' artifacts.json)"
+          if [ -z "$id" ]; then
+            echo "no unexpired diff-coverage-comment artifact listed" >&2
+            exit 1
+          fi
+          api_retry "downloading the diff-coverage-comment artifact" -- \
+            gh api -H 'Cache-Control: no-cache' \
+            "repos/$REPO/actions/artifacts/$id/zip" \
+            > "$RUNNER_TEMP/diff-coverage-comment.zip"
+          unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" body.md \
+            > "$RUNNER_TEMP/coverage-artifact/body.md"
+          unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" pr-number.txt \
+            > "$RUNNER_TEMP/coverage-artifact/pr-number.txt"
 
       - name: Post or update the pull request comment
         if: >-
@@ -371,11 +389,12 @@ jobs:
 
           # Issue #763: the shared retry wraps the calls below.
           . "$RUNNER_TEMP/api_retry.sh"
+          ART_DIR="$RUNNER_TEMP/coverage-artifact"
 
           # Both entries must be ordinary files. An artifact is attacker-
           # shaped input: a symlink or a directory named body.md would
           # otherwise redirect the `cat` below.
-          for f in body.md pr-number.txt; do
+          for f in "$ART_DIR/body.md" "$ART_DIR/pr-number.txt"; do
             if [ ! -f "$f" ] || [ -L "$f" ]; then
               echo "the artifact's $f is not an ordinary file" >&2
               exit 1
@@ -385,7 +404,7 @@ jobs:
           # CHECKED, NEVER OBEYED. See the header: the producer runs the
           # pull request's own tests.yml, so its claim about which pull
           # request it belongs to carries no authority.
-          claimed="$(cat pr-number.txt)"
+          claimed="$(cat "$ART_DIR/pr-number.txt")"
           case "$claimed" in
             ''|*[!0-9]*)
               echo "the artifact names a non-numeric pull request:" \
@@ -402,7 +421,7 @@ jobs:
           # The comments API caps a body at 65536 characters. A silently
           # truncated coverage report is a wrong coverage report, so an
           # oversized body is refused rather than trimmed to fit.
-          size="$(wc -c < body.md)"
+          size="$(wc -c < "$ART_DIR/body.md")"
           if [ "$size" -gt 60000 ]; then
             echo "body.md is $size bytes, past the comment limit" >&2
             exit 1
@@ -413,7 +432,7 @@ jobs:
             printf '%s\n\n' "$marker"
             printf 'Patch coverage for commit %s, measured on the merge ref.\n\n' \
               "$HEAD_COMMIT"
-            cat body.md
+            cat "$ART_DIR/body.md"
           } > comment.md
 
           # Bounded, spaced retry (issue #763). Every attempt RE-LISTS
