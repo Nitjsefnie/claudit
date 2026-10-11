@@ -76,6 +76,11 @@
 <script type="text/babel" src="/src/event-helpers.jsx"></script>
 <script type="text/babel" src="/src/detail-pane.jsx"></script>
 <script type="text/babel" src="/src/context-growth-view.jsx"></script>
+<!-- The monospace advance probe and the by-model row grouping: plain
+     scripts dashboard-charts.jsx and app.jsx reach through window (the
+     grouping is issue #936's one-row-per-model default). -->
+<script src="/src/mono-advance.js"></script>
+<script src="/src/model-group.js"></script>
 <script type="text/babel" src="/src/dashboard-charts.jsx"></script>
 <script src="/src/per-turn-stats.js"></script>
 <script type="text/babel" src="/src/dashboard-charts-extra.jsx"></script>
