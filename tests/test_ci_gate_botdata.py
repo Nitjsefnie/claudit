@@ -12,8 +12,11 @@ by path here too.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,6 +64,22 @@ def test_bot_signature_is_the_refresh_bots_staged_paths():
     assert classify.BOT_SIGNATURE == frozenset(
         {"src/pricing.json", "backend/constants.py",
          "src/pricing_notices.json"})
+
+
+def test_bot_signature_spans_the_refresh_push_workflow():
+    # The contract issue #932 broke on: refresh-pricing.yml's push job
+    # stages the bot's paths and BOT_SIGNATURE names them, but each side
+    # was pinned only inside its own suite — a fourth staged path
+    # (#888) left both green. Parse the push job's git add and compare
+    # the SET the workflow stages against the classifier's signature.
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github" / "workflows" / "refresh-pricing.yml")
+        .read_text(encoding="utf-8"))
+    runs = [step.get("run", "") for step in workflow["jobs"]["push"]["steps"]
+            if isinstance(step, dict)]
+    staged = re.search(r'push-repo" add ([^\n]+)', "\n".join(runs))
+    assert staged, "the push job no longer stages paths with git add"
+    assert set(staged.group(1).split()) == classify.BOT_SIGNATURE
 
 
 def test_data_only_requires_the_exact_signature():
