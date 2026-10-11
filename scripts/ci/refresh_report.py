@@ -110,7 +110,7 @@ def vanished_state(vanished: list[tuple[str, str]]) -> dict[str, list[str]]:
     state: dict[str, list[str]] = {}
     for model, host in vanished:
         state.setdefault(model, []).append(host)
-    return {model: sorted(hosts) for model, hosts in sorted(state.items())}
+    return {model: sorted(set(hosts)) for model, hosts in sorted(state.items())}
 
 
 def sampled_state(sampled: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
@@ -276,7 +276,6 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
     added = len(result.moves) - changed
     counts = [f"{changed} changed" if changed else "",
               f"{added} new" if added else "",
-              f"{len(result.vanished)} vanished" if result.vanished else "",
               f"{len(result.refusals)} refused" if result.refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     if vendor is not None and vendor.moves:
