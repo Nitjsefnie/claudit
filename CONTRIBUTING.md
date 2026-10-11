@@ -104,6 +104,80 @@ R2_ENDPOINT=file:///path/to/transcripts/
 `fixtures/r2_mini/` is a tiny mirror you can point at to get a working
 instance in seconds.
 
+## Running with Docker
+
+Prerequisite: **Docker Engine with the Compose plugin** — the
+`docker compose` command (Compose V2 or later), not the legacy standalone
+`docker-compose`. No Python, no local PostgreSQL, and no `.env` — the stack
+boots from a clean checkout:
+
+```bash
+docker compose up
+```
+
+That builds the root `Dockerfile` and starts two services:
+
+- **db** — a digest-pinned PostgreSQL 16 (the same image the `smoke`
+  workflow runs). On its first boot, against an empty data directory,
+  `compose/postgres-init.sql` creates the `claudit` application database and
+  the external `claudit_auth` database with its two-column `users` table —
+  the floor `db.schema_check()` demands, spelled out in
+  [Getting it running](#getting-it-running) above. The application's own
+  tables are **not** created there: schema applies automatically at
+  startup (`db.apply_schema()`, SV-SCHEMA-AUTOAPPLY), so a restart after
+  editing `backend/schema*.sql` is enough.
+- **app** — the image, waiting until db reports healthy.
+
+`/health` answers at **<http://localhost:8000/health>** as soon as the app
+has applied the schema and can reach Postgres; the body carries `ok`, the
+build `version`, and the startup ingest's progress behind it. `docker
+compose ps` shows both services' health.
+
+Both published ports are overridable, so a box already running Postgres or
+a meter composes up without colliding:
+
+```bash
+POSTGRES_HOST_PORT=15432 CLAUDIT_HOST_PORT=18000 docker compose up -d
+```
+
+**Teardown:** `docker compose down -v` — the `-v` drops the named `pgdata`
+volume along with the containers and the network, so the next
+`docker compose up` starts from empty databases and re-runs the first-boot
+init script. A plain `docker compose down` keeps the volume, and the
+databases (and the data already ingested into them) are still there next
+time.
+
+**Storage defaults to the bundled fixtures.** `R2_ENDPOINT` points at the
+repository's `fixtures/r2_mini/`, mounted read-only into the container at
+`/opt/claudit/fixtures`, so a fresh stack ingests a working sample with no
+credentials and no outbound network — the same "no credentials, no network,
+nothing to rot" default `smoke.yml` documents.
+For a real bucket, override the R2 variables through a `.env` file in the
+repository root — the file Compose reads for the `${VAR:-default}` defaults
+in `compose.yaml`, and the same file the bare-metal route seeds from
+`backend/.env.example`:
+
+```bash
+R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+R2_BUCKET=claude
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+```
+
+Note that a `.env` written for the bare-metal route is inherited by Compose
+as-is: its socket DSNs (`DATABASE_URL_VIZ=postgresql:///claudit`) and host
+paths (`R2_ENDPOINT=file:///path/to/r2/`) do not resolve inside a
+container. Delete a variable to fall back to the compose default, or give
+it a container-reachable value — `DATABASE_URL_VIZ`/`DATABASE_URL_AUTH` at
+host `db`, port 5432, and `R2_ENDPOINT` at a path inside the container.
+An exported shell variable beats `.env` in Compose's precedence, so a
+leftover `DATABASE_URL_VIZ` in your shell overrides the file too.
+
+**The browser still needs the internet.** React, ReactDOM and Babel load
+from unpkg.com at run time in the page (README:
+[Client-side internet requirement](README.md#client-side-internet-requirement));
+containerising the server does not make the dashboard offline-capable.
+
 ## Tests
 
 ```bash

@@ -1,0 +1,77 @@
+# Dev stack for claudit (issue #941): `docker compose up` and nothing else.
+#
+# Zero-config boot — no .env, no credentials, no outbound network at run
+# time. Postgres runs as a container of its own with its own volume, and the
+# app ingests the committed fixtures/r2_mini mirror through the R2 client's
+# file:// mode, the same default the `smoke` workflow documents as "No
+# credentials, no network, nothing to rot".
+#
+# Every value a real deploy changes arrives as ${VAR:-default} interpolation,
+# so a bare `docker compose up` on a machine with no .env resolves to the
+# defaults below. Compose reads a .env in the project directory for that
+# interpolation — the same file the bare-metal route seeds from
+# backend/.env.example — which is how a real bucket or an occupied host port
+# is selected.
+
+services:
+  db:
+    # The digest-pinned Postgres the CI workflows use (smoke.yml, tests.yml):
+    # one version across local dev and CI.
+    image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    # First boot only, into an empty data directory: creates the `claudit`
+    # application database and the external `claudit_auth` database with the
+    # two-column `users` table db.schema_check() requires. The application's
+    # own tables are applied by the app at startup (db.apply_schema()).
+    # The data directory is a NAMED volume, so `docker compose down` keeps
+    # the databases and `down -v` drops them — that is the documented reset.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./compose/postgres-init.sql:/docker-entrypoint-initdb.d/10-claudit.sql:ro
+    # Probes over TCP rather than the default unix socket: during first-boot
+    # init the entrypoint runs a temporary server on the socket only, so a
+    # socket probe would report healthy while the init script is still
+    # running and the app could start against a half-made database. The
+    # final server listens on TCP, so healthy means init finished. The start
+    # period keeps a slow first boot (initdb plus the init script) from
+    # counting against the retries, which would fail the app's
+    # `service_healthy` dependency before it ever got the chance.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    # Host-side override for a box that already runs Postgres.
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL_VIZ: ${DATABASE_URL_VIZ:-postgresql://postgres:postgres@db:5432/claudit}
+      DATABASE_URL_AUTH: ${DATABASE_URL_AUTH:-postgresql://postgres:postgres@db:5432/claudit_auth}
+      # file:// mode against the fixtures mounted below: the mirror is test
+      # data, not served code, so it is not COPYed into the image. For a real
+      # bucket, override these four (and leave no access keys in the tree).
+      R2_ENDPOINT: ${R2_ENDPOINT:-file:///opt/claudit/fixtures/r2_mini/}
+      R2_BUCKET: ${R2_BUCKET:-claude}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ./fixtures:/opt/claudit/fixtures:ro
+    # Host-side override for a box already serving claudit or anything on
+    # 8000 — the image's port (EXPOSE 8000, the systemd unit's --port).
+    ports:
+      - "${CLAUDIT_HOST_PORT:-8000}:8000"
+
+volumes:
+  # Postgres data, named so it outlives `docker compose down` and is
+  # dropped by `docker compose down -v`.
+  pgdata:
