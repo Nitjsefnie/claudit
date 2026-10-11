@@ -221,6 +221,12 @@ function parseLaneCodex(blob, opts) {
     for (const e of events) e.isReplay = e.line < firstDeclaredLine;
   }
 
+  // The provider-neutral cache-write split (issue #842), over this file's
+  // assistant_usage entries in order — mirrors the backend's
+  // resolve_cache_writes (SV-PARSER-SPEC). Applied BEFORE the cross-file
+  // dedup below, since the backend derives per file.
+  if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
+
   // Cross-file record dedup (issue #713): the lane's derived record
   // identities join the shared seenUuids map the way parser.js feeds the
   // Claude path's line uuids — decide per assistant_usage entry, then

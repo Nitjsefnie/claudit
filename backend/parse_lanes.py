@@ -230,6 +230,10 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         r["turn_tool_results"] = 0
         r["eph5_tokens"] = 0
         r["eph1h_tokens"] = 0
+        # Provider-neutral cache-write count (issue #842), derived over
+        # the final records list in parse_file(); a lane row that reaches
+        # the projection directly carries the honest zero until then.
+        r["cache_write_tokens"] = 0
         r.setdefault("web_search_requests", None)
     for tu in parsed["tool_uses"]:
         tc_id = str(tu.pop("tool_call_id", "") or "")

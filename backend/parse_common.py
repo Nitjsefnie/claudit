@@ -16,6 +16,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import pairwise
 
 from backend import pricing
 from backend.agent_types import canonical_agent_type
@@ -428,3 +429,40 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
         "tool_uses": st.tool_uses,
         "agent_role": st.agent_role,
     }
+
+
+def resolve_cache_writes(records: list[dict]) -> None:
+    """Set each record's provider-neutral cache-write count (issue #842).
+
+    A request's input splits into three neutral categories on every lane:
+    read from cache (``cache_read_tokens``), written to cache
+    (``cache_write_tokens``), and the uncached tail
+    (``fresh_tokens + cache_creation_tokens - cache_write_tokens``).
+
+    The billed partition keeps an automatic-caching lane's implicit
+    writes inside ``fresh_tokens`` (they bill at the fresh rate), so the
+    neutral count lands in its own column that is NOT a pricing input --
+    ``compute_cost`` never sees it, and billing is byte-identical.
+
+    An explicit-caching lane reports its write: ``cache_creation_tokens >
+    0`` is trusted verbatim. Otherwise the write is derived from the NEXT
+    record IN FILE ORDER -- the growth in ``cache_read_tokens`` is what
+    this request wrote and the next request then read -- capped by this
+    record's fresh input. The last record of a file has no successor, so
+    its fresh input is treated as uncached and the count is 0.
+
+    Applied once by parse_file over the final records list, so both the
+    Claude path and the lane path get it identically.
+    """
+    for rec, nxt in pairwise(records):
+        if rec["cache_creation_tokens"] > 0:
+            rec["cache_write_tokens"] = rec["cache_creation_tokens"]
+        else:
+            growth = max(0, nxt["cache_read_tokens"] - rec["cache_read_tokens"])
+            rec["cache_write_tokens"] = min(rec["fresh_tokens"], growth)
+    if records:
+        last = records[-1]
+        if last["cache_creation_tokens"] > 0:
+            last["cache_write_tokens"] = last["cache_creation_tokens"]
+        else:
+            last["cache_write_tokens"] = 0

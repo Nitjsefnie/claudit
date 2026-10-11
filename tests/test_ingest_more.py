@@ -6,10 +6,12 @@ import lzma
 import os
 import shutil
 from contextlib import closing
+from datetime import datetime, timezone
 
 import psycopg
 
-from backend import cache, constants, db, ingest, lane_projects
+from backend import cache, constants, db, ingest, lane_projects, parse
+from backend.r2 import R2Object
 
 # Imported fixtures are discovered from their pytest fixture markers.
 from tests.test_ingest import (  # pylint: disable=unused-import
@@ -497,3 +499,25 @@ def test_a_stored_test_session_row_is_swept_as_an_orphan(fresh_db,
                           " = 'h'") == 0
         assert _scalar(c, "SELECT COUNT(*) FROM projects WHERE project_id"
                           " = 'h'") == 0
+
+
+def test_cache_write_tokens_persist_through_ingest(fresh_db):
+    """Issue #842: the derived provider-neutral cache-write count lands in
+    the records column, one value per file-order record."""
+    key = "sessions/p/s/wire.jsonl"
+    out = parse.parse_file(
+        key, (_FIX_ROOT / "parser" / "cache_write_split.jsonl").read_bytes())
+    assert [r["cache_write_tokens"] for r in out["records"]] == \
+        [600, 100, 40, 0, 500, 0]
+    when = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    ingest._persist(  # pylint: disable=protected-access
+        R2Object(key=key, etag="etag", size=1024, last_modified=when),
+        {"project_id": "p", "display_name": "p",
+         "first_seen_at": when, "last_seen_at": when},
+        out, constants.PARSER_VERSION,
+    )
+    with db.viz_conn() as c:
+        rows = c.execute(
+            "SELECT cache_write_tokens FROM records WHERE file_key = %s "
+            "ORDER BY line_num", (key,)).fetchall()
+    assert [r[0] for r in rows] == [600, 100, 40, 0, 500, 0]
