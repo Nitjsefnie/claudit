@@ -127,3 +127,35 @@ def check_compact_shape(doc: dict) -> None:
                         raise ValueError(
                             f"{spot}: {field} is present and equals fresh; "
                             "it is present only when it differs")
+
+
+def check_dual_pin_tags(openrouter: dict) -> None:
+    """Refuse a key pinned in BOTH resolve tables whose tag sets differ
+    (SV-RATE-DATA, issue #931): the vendor pin and the tracked entry's
+    own pins name one endpoint, so when both sides carry tags they must
+    agree. A pin without a tag (cheapest/ignore shapes) is not compared,
+    nor is `why`, which legitimately differs between the two tables.
+    Called from pricing_load._vendor_tables; mirrored by
+    src/vendor-tables.js's buildVendorTables."""
+    vendor = openrouter.get("vendor")
+    tracked = openrouter.get("models")
+    vendor_resolve = vendor.get("resolve") if isinstance(vendor, dict) else None
+    if not isinstance(tracked, dict):
+        return
+    for key, entry in tracked.items():
+        if not isinstance(entry, dict):
+            continue
+        where = f"openrouter.models[{key!r}]"
+        vendor_pin = (vendor_resolve.get(key)
+                      if isinstance(vendor_resolve, dict) else None)
+        model_pins = entry.get("resolve")
+        vendor_tags = ({vendor_pin["tag"]} if isinstance(vendor_pin, dict)
+                       and "tag" in vendor_pin else set())
+        model_tags = ({pin["tag"] for pin in model_pins.values()
+                       if isinstance(pin, dict) and "tag" in pin}
+                      if isinstance(model_pins, dict) else set())
+        if vendor_tags and model_tags and vendor_tags != model_tags:
+            raise ValueError(
+                f"pricing.json: {where}: vendor resolve tags "
+                f"{sorted(vendor_tags)} differ from the model's resolve "
+                f"tags {sorted(model_tags)}")
