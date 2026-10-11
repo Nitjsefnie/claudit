@@ -38,7 +38,10 @@ def _doc(*, note: str | None = None) -> dict:
               "from": CUTOVER}
     if note is not None:
         first = _entry(RATES_B, note=note)
-        second = {**_entry(RATES_B, note=note), "from": CUTOVER}
+        # The entries must differ beyond `from` (issue #930): the cutover
+        # carries a token move beside the shared note.
+        second = {**_entry(RATES_B, note=note), "from": CUTOVER,
+                  "output": RATES_B["output"] + 1}
     return seed_doc(
         models={"acme/acme-9": [_entry(RATES_B)]},
         providers={"acme/acme-9": {"HostCo": [first, second]}},

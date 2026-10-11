@@ -252,6 +252,7 @@ MOVED = {"create_1h": 0.4, "create_5m": 0.4, "fresh": 0.4, "output": 1.8, "read"
 def _newcomer_then_moved() -> dict:
     doc = _with_newcomer()
     doc["providers"][_GLM_MODEL]["Newcomer"].append({"from": LATER, **MOVED})
+    doc["provider_rates_fetched"] = LATER
     return doc
 
 

@@ -71,7 +71,9 @@ def _doc(hosts: dict[str, list[dict]]) -> dict:
         models={MODEL: [{"from": None, **RATE_A}]},
         providers={MODEL: hosts},
         tracked={MODEL: {"id": MODEL_ID}},
-        fetched="2026-01-01T00:00:00Z",
+        # At the backfill horizon: every seeded row entry is dated at or
+        # before it, as issue #931 requires of a stored document.
+        fetched=AS_OF,
     )
 
 

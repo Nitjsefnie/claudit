@@ -170,8 +170,9 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     model = "acme/edge-9"
     doc = seed_doc(
         models={model: [{"from": None, **rates},
-                        {"from": stamp, **rates}]},
-        fetched="2030-01-01T00:00:00Z",
+                        {"from": stamp, **rates,
+                         "read": 0.8}]},
+        fetched=stamp,
     )
     want = int(_at(stamp).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000)

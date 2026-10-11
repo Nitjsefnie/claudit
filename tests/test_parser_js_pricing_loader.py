@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from backend.pricing_document import compact_pricing_doc
 from backend.pricing_load import load_tables
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
@@ -81,9 +82,11 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
 
 
 def _render(doc: dict, spelling: str | None = None) -> str:
-    """The doc as its JSON text, with the SENTINEL placeholder replaced by
-    a raw number token (`spelling`) where a test controls the spelling."""
-    text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    """The doc as its STORED spelling (compact — the shape the page's
+    ingest check enforces, issue #931), with the SENTINEL placeholder
+    replaced by a raw number token (`spelling`) where a test controls
+    the spelling."""
+    text = json.dumps(compact_pricing_doc(doc), indent=2, sort_keys=True) + "\n"
     if spelling is not None:
         assert str(SENTINEL) in text, "no placeholder to spell"
         text = text.replace(str(SENTINEL), spelling, 1)

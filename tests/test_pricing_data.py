@@ -201,6 +201,8 @@ def _with_newcomer() -> dict:
     doc = copy.deepcopy(_doc())
     doc["providers"][_GLM_MODEL]["Newcomer"] = [
         {"from": CUT, **NEWCOMER}]
+    # A row beginning at CUT implies a fetch that saw it at or after CUT.
+    doc["provider_rates_fetched"] = CUT
     return doc
 
 
