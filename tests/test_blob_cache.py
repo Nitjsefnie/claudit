@@ -4,6 +4,7 @@ every failure, size-capped LRU prune.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 from pathlib import Path
@@ -132,6 +133,26 @@ def test_prune_cap_from_env(cache_root, monkeypatch):
     monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "5")
     blob_cache.prune()
     assert blob_cache.lookup("claude/a", "e", 10) is None
+
+
+def test_store_failure_log_carries_no_control_characters(
+        monkeypatch, tmp_path, caplog):
+    """A store() key can come from a user query param (issue #940), so
+    CR/LF and other control characters must not reach the log record:
+    one record, no newline, nothing that could forge a second line."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory")
+    monkeypatch.setenv("R2_BLOB_CACHE", str(blocker / "cache"))
+    key = "claude/p/s/w.jsonl.xz\r\ninjected\x07\x1bline\x00end"
+    with caplog.at_level(logging.DEBUG, logger="claudit.blob_cache"):
+        assert blob_cache.store(key, "e", b"x") is False
+    records = [
+        r for r in caplog.records if r.name == "claudit.blob_cache"]
+    assert len(records) == 1, f"expected one record, got {len(records)}"
+    message = records[0].getMessage()
+    assert "\n" not in message and "\r" not in message, message
+    assert not any(ord(ch) < 0x20 or ord(ch) == 0x7F
+                   for ch in message), message
 
 
 def test_prune_cap_env_garbage_falls_to_default(cache_root, monkeypatch):

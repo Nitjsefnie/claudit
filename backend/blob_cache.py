@@ -42,6 +42,18 @@ def _root() -> str:
     return os.environ[_ENV].strip()
 
 
+def _log_safe(value: object) -> str:
+    """`value` with control characters (C0, DEL, C1) dropped.
+
+    A key can carry text from a user query param (issue #940), so an
+    unfiltered CR/LF in it would forge extra log lines.
+    """
+    return "".join(
+        "" if ord(ch) < 0x20 or ord(ch) == 0x7F or 0x80 <= ord(ch) <= 0x9F
+        else ch
+        for ch in str(value))
+
+
 def _entry_path(key: str, etag: str) -> str:
     """The entry file for (key, etag): a 2-hex fan-out under the root.
 
@@ -95,7 +107,8 @@ def store(key: str, etag: str, data: bytes) -> bool:
                 pass
             raise
     except (OSError, ValueError) as exc:
-        log.debug("blob cache: store of %s failed: %s", key, exc)
+        log.debug("blob cache: store of %s failed: %s",
+                  _log_safe(key), _log_safe(exc))
         return False
     return True
 
