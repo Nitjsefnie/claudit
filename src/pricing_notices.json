@@ -138,7 +138,6 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
-    "the listing lags the listed-pricing log for glm-5-2 via InferenceNet; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, anthropic/claude-sonnet-4, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -264,8 +263,7 @@
     },
     "glm-5-2": {
       "Alibaba": "3 endpoints selected",
-      "BaseTen": "2 endpoints selected",
-      "InferenceNet": "listing lags log"
+      "BaseTen": "2 endpoints selected"
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints selected",
