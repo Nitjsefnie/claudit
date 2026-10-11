@@ -45,11 +45,11 @@ TESTS_WORKFLOW = WORKFLOWS / "tests.yml"
 REFRESH_WORKFLOW = WORKFLOWS / "refresh-pricing.yml"
 RATCHET_PUSH_WORKFLOW = WORKFLOWS / "ratchet-push.yml"
 
-# The ten gate workflows ci-gate calls, plus the classifier job.
+# The eleven gate workflows ci-gate calls, plus the classifier job.
 LEG_WORKFLOWS = (
     "tests.yml", "test-data.yml", "lint.yml", "types.yml", "eslint.yml",
-    "panel-layout.yml", "smoke.yml", "audit.yml", "actionlint.yml",
-    "codeql.yml",
+    "panel-layout.yml", "smoke.yml", "docker-smoke.yml", "audit.yml",
+    "actionlint.yml", "codeql.yml",
 )
 LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
 

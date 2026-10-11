@@ -120,6 +120,12 @@ EXEMPT = {
     "fixtures": (
         "the fixture mirror's path argument in the test-data legs;"
         " fixture content is not a rule definition"),
+    "compose": (
+        "the docker compose subcommand token, which prefix-matches the"
+        " compose/ directory as it appears in the container leg's"
+        " commands (issue #941); like fixtures, the stack files are the"
+        " subject that leg builds and runs, judged from the head's own"
+        " tree — only files that move the RULES strand it"),
 }
 
 # One optional leading dot, not preceded by a word, dot or dash
