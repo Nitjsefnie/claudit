@@ -16,6 +16,7 @@ from backend import parse, pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+KIMI_JS = ROOT / "src" / "parser-kimi.js"
 CODEX_JS = ROOT / "src" / "parser-codex.js"
 CACHE_WRITE_JS = ROOT / "src" / "parser-cache-write.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -55,6 +56,7 @@ def _browser_lane_output() -> dict:
       global.window = {{}};
       require({str(CACHE_WRITE_JS)!r});
       require({str(LANES_JS)!r});
+      require({str(KIMI_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
       const fixtures = {json.dumps(fixtures)};
@@ -520,6 +522,7 @@ class TestNodeDrivenLaneParsers:
         script = f"""
           global.window = {{}};
           require({str(LANES_JS)!r});
+          require({str(KIMI_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
           const fixtures = {json.dumps(fixtures)};
