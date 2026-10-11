@@ -26,7 +26,10 @@ const timeTicksUTC_B = window.timeTicksUTC;
 const Tooltip_B = window.Tooltip;
 const useChartA11y_B = window.useChartA11y;
 // --- Burn rate panel ---
-function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBoundaries }) {
+function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propRange, windowBoundaries, hideRateLimits = false }) {
+  // Issue #943: every rate-limit surface below reads THIS binding, so an
+  // empty list suppresses them all; when false the raw prop passes through.
+  const limitHits = hideRateLimits ? [] : rawLimitHits;
   const ref = React.useRef(null);
   const [size, setSize] = React.useState({ w: 1200, h: 360 });
   const [tip, setTip] = React.useState(null);
@@ -363,7 +366,7 @@ function BurnRatePanel({ events, sessions, limitHits, range: propRange, windowBo
     `scatter, ${sessionData.length} sessions`,
     `Each dot is one session, its area scaled by context at session end; `
     + `open dashed dots have unknown context. `
-    + `${limitHits.length} rate-limit ${limitHits.length === 1 ? 'line' : 'lines'} marked.`);
+    + (hideRateLimits ? '' : `${limitHits.length} rate-limit ${limitHits.length === 1 ? 'line' : 'lines'} marked.`));
   // Marks are taken top-down in render order (see the dot map below).
   const dotSeen = new Set();
   return (
