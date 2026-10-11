@@ -631,7 +631,7 @@ function backendDashToShape(b) {
     subagentOnlySessions: b.subagent_only_sessions,
     totalPrompts: b.total_prompts,
     totalTurns: b.total_turns,
-    responseSizes: b.response_sizes || [],
+    responseSizes: b.response_sizes || [], hideRateLimits: !!b.hide_rate_limits,
     bucketS: b.bucket_s || 86400,
     // Which token types survived the backend's zero-suppression
     // (api_dashboard.drop_zero_token_types). Absent on the synthetic
@@ -779,7 +779,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     tokensByProject: backendTokensByProject = [],
     sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
     subagentOnlySessions, totalPrompts, totalTurns, responseSizes,
-    bucketS, tokenTypes,
+    bucketS, tokenTypes, hideRateLimits = false,
   } = synth || {};
   // Placeholder window so the bin-size maths below stays finite pre-data.
   const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
@@ -894,7 +894,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
           </span>
         } />
         {totals.cost > 0 && <Stat label="total cost" value={totalCostStr} highlight />}
-        <Stat label="rate-limit hits" value={String(limitHits.length)} warn={limitHits.length > 0} />
+        {!hideRateLimits && <Stat label="rate-limit hits" value={String(limitHits.length)} warn={limitHits.length > 0} />}
       </div>
       )}
 
@@ -992,7 +992,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         <window.BurnRatePanel
           events={events}
           sessions={sessions}
-          limitHits={limitHits}
+          limitHits={limitHits} hideRateLimits={hideRateLimits}
           range={range}
           windowBoundaries={windowBoundaries} />
       </div>
