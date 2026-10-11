@@ -2,9 +2,9 @@
 
 Human-facing overview: [`README.md`](README.md). Process, setup detail
 and the CI workflow catalogue: [`CONTRIBUTING.md`](CONTRIBUTING.md). The
-invariants live as numbered SV-* rules in
-[`.claude/rules/claudit-doctrine.md`](.claude/rules/claudit-doctrine.md);
-this brief points at them instead of restating them.
+invariants live as numbered SV-* rules in [`.claude/rules/`](.claude/rules/)
+— the core file plus the path-scoped domain files; this brief points at them
+instead of restating them.
 
 ## Project overview
 
@@ -263,7 +263,8 @@ fixtures/         — parser/, codex/, r2_mini/ (SV-FIXTURE-SIZE)
 
 examples/         — claudit.service
 
-.claude/rules/    — Doctrine (SV-* rules)
+.claude/rules/    — Doctrine — a cross-cutting core plus the
+                    path-scoped domain files (SV-* rules)
 ```
 
 ## Build and test commands

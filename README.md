@@ -194,7 +194,7 @@ only until a reparse restores their raw object-key id or the next marker-backed
 lane ingest moves them to the marker slug.
 
 `backend/parse.py` implements the parse spec (SV-PARSER-SPEC in
-`.claude/rules/claudit-doctrine.md`, pinned by `fixtures/parser/`),
+`.claude/rules/claudit-doctrine-parser.md`, pinned by `fixtures/parser/`),
 including Phase 1 within-file `requestId` max-merge, sniffs each blob's
 format (`backend/parse_lanes.py`) and dispatches Codex/Kimi blobs to the
 lane parsers; cross-file uuid dedup (Phase 2) is resolved at ingest into
