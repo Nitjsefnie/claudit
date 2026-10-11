@@ -16,6 +16,7 @@ from backend import parse
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "parser"
 LANES_JS = ROOT / "src" / "parser-lanes.js"
+KIMI_JS = ROOT / "src" / "parser-kimi.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
@@ -37,6 +38,7 @@ def _browser_results() -> dict[str, dict[str, Any]]:
     script = f"""
       global.window = {{}};
       require({json.dumps(str(LANES_JS))});
+      require({json.dumps(str(KIMI_JS))});
       require({json.dumps(str(ROOT / 'src' / 'parser-codex.js'))});
       require({json.dumps(str(LOADER_JS))});
       require({json.dumps(str(RATES_JS))});
