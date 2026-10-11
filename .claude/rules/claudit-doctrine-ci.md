@@ -10,7 +10,6 @@ paths:
 
 # claudit Doctrine — CI and tests
 
-
 ## CI thresholds are self-raising ratchets (SV-CI-RATCHETS)
 
 Coverage and module size are governed by

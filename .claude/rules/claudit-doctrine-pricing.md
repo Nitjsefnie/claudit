@@ -17,7 +17,6 @@ paths:
 
 # claudit Doctrine — pricing and rates
 
-
 ## Rates are a function of (model, timestamp) (SV-DATED-RATES)
 
 `pricing.rate_for(model, ts)`: a model may carry dated overrides in
@@ -698,4 +697,3 @@ provider as well as epoch. Both sides read them from `src/pricing.json`
 
 Never invent a rate for an unpriced variant (e.g. `-fast`): let it fall
 back and be flagged.
-
