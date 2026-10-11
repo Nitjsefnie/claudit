@@ -1,3 +1,4 @@
+*
 # Deny-by-default, the same mechanic .gitignore documents: `*` ignores
 # everything, and each rule below names back exactly what the image build
 # COPYs. The builder does not look inside a directory it has already
@@ -9,7 +10,6 @@
 # lives in them, and a file the build needs but no rule names back simply
 # never enters the context.
 
-*
 # ---- repository root ------------------------------------------------------
 !/VERSION
 

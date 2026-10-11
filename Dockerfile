@@ -22,33 +22,41 @@ WORKDIR /opt/claudit
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Exactly what the service serves and reads: the app, the browser modules,
-# the static assets, and the root VERSION that constants.VERSION reads. The
-# schema files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm
-# stage because React and Babel load from unpkg at run time.
-COPY VERSION VERSION
-COPY backend/ backend/
-COPY src/ src/
-COPY public/ public/
-
-# The same unprivileged account the unit runs as. The app writes nothing
-# durable to disk — transcripts, aggregates and session state live in
-# Postgres or in memory, and the export renderer makes its file with
-# tempfile.mkstemp().
+# The same unprivileged account the unit runs as, created after the pip
+# layer and before any source copy: a code-only change then reuses this
+# layer instead of re-running useradd and chown on every edit. The app
+# writes nothing durable to disk — transcripts, aggregates and session
+# state live in Postgres or in memory, and the export renderer makes its
+# file with tempfile.mkstemp().
 RUN useradd --system --user-group --home /opt/claudit \
         --shell /usr/sbin/nologin claudit \
     && chown -R claudit:claudit /opt/claudit
+
+# Exactly what the service serves and reads: the app, the browser modules,
+# the static assets, and the root VERSION that constants.VERSION reads. The
+# schema files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm
+# stage because React and Babel load from unpkg at run time. --chown stamps
+# the owner here rather than in a later chown layer, so the ownership of
+# these files stays static with the copy itself.
+COPY --chown=claudit:claudit VERSION VERSION
+COPY --chown=claudit:claudit backend/ backend/
+COPY --chown=claudit:claudit src/ src/
+COPY --chown=claudit:claudit public/ public/
+
 USER claudit
 
 # The unit's port.
 EXPOSE 8000
 
 # python:slim ships no curl, so the probe is stdlib. urlopen raises on a
-# non-2xx status (/health answers 503 while the database is unreachable),
-# and the probe's 4 s socket timeout sits under HEALTHCHECK's 5 s --timeout,
-# so a hung probe fails the check instead of being killed by it.
+# 4xx/5xx but FOLLOWS a 3xx redirect, so the probe installs a handler that
+# refuses to follow one and then asserts an explicit 2xx on the response it
+# got: a redirect, a 4xx, or the 503 /health answers while the database is
+# unreachable all exit non-zero and fail the check. The probe's 4 s socket
+# timeout sits under HEALTHCHECK's 5 s --timeout, so a hung probe fails the
+# check instead of being killed by it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).read()"]
+    CMD ["python", "-c", "import urllib.request as u; H=type('H',(u.HTTPRedirectHandler,),{'redirect_request':lambda self,*a,**k:None}); r=u.build_opener(H).open('http://127.0.0.1:8000/health',timeout=4); r.read(); assert 200<=r.status<300, r.status"]
 
 # The unit's ExecStart, verbatim apart from the bind address: a container
 # listening on 127.0.0.1 is unreachable through a published port, and every
