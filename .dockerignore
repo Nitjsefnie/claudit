@@ -1,0 +1,38 @@
+# Deny-by-default, the same mechanic .gitignore documents: `*` ignores
+# everything, and each rule below names back exactly what the image build
+# COPYs. The builder does not look inside a directory it has already
+# ignored, so every kept directory is re-opened (`!dir/`), its contents
+# denied again (`dir/*`), and its files named back by a glob SCOPED to that
+# directory — that scoping is what stops a `!*.py` from reaching into a
+# directory the build never copies. `.git`, `.venv`, `node_modules` and
+# `tests/` stay denied with no rule of their own: nothing the build COPYs
+# lives in them, and a file the build needs but no rule names back simply
+# never enters the context.
+
+*
+# ---- repository root ------------------------------------------------------
+!/VERSION
+
+# ---- backend/ — the app, its requirements and the schema files ------------
+!backend/
+backend/*
+!backend/*.py
+!backend/*.sql
+!backend/requirements.txt
+
+# ---- public/ — static assets served at / -----------------------------------
+!public/
+public/*
+!public/*.css
+!public/*.html
+!public/favicon.ico
+
+# ---- src/ — browser modules served at /src/* -------------------------------
+!src/
+src/*
+!src/*.js
+!src/*.jsx
+!src/*.json
+!src/views/
+src/views/*
+!src/views/*.jsx

@@ -21,6 +21,7 @@
 # #361); package.json + package-lock.json are the CI toolchain manifest
 # Dependabot bumps — devDependencies only, no frontend build step.
 !/eslint.config.mjs
+!/.dockerignore
 !.gitattributes
 !/.gitignore
 !/.gitleaks.toml
@@ -28,6 +29,7 @@
 !/AGENTS.md
 !/CLAUDE.md
 !/CONTRIBUTING.md
+!/Dockerfile
 !/LICENSE
 !/NOTICE
 !/PRESENTATION.txt
