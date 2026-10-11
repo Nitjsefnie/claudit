@@ -115,6 +115,19 @@ def perturb_pricing(path: Path,
         # about the rate half.
         raise ValueError(f"{path}: no rate rows under models/providers; "
                          "perturbing nothing would price nothing")
+    base = _append_rows(doc, all_rows, seed)
+    serialized = serialize_pricing_doc(doc)
+    pricing.load_tables(json.loads(serialized))
+    path.write_text(serialized, encoding="utf-8", newline="\n")
+    return len(all_rows), seed, base.astimezone(timezone.utc).strftime(
+        STAMP_FORMAT)
+
+
+def _append_rows(doc: dict, all_rows: list[tuple[str, list, bool]],
+                 seed: int) -> datetime:
+    """Append the five seeded entries to every row, then move the fetch
+    stamp to cover them (issue #931: no `from` postdates the fetch
+    stamp). Returns the run's stamp base."""
     base = _newest_stamp(all_rows)
     if base is None:
         base = datetime.now(timezone.utc).replace(microsecond=0)
@@ -134,18 +147,18 @@ def perturb_pricing(path: Path,
             if last_appended is None or _parse_stamp(entry_from) > _parse_stamp(last_appended):
                 last_appended = entry_from
             counter += timedelta(seconds=1)
-    # No dated entry may postdate the fetch stamp that recorded the
-    # document (issue #931); move it the way a committing run does.
+    _bump_fetch_stamp(doc, last_appended)
+    return base
+
+
+def _bump_fetch_stamp(doc: dict, last_appended: str | None) -> None:
+    """Move provider_rates_fetched to the last appended stamp when it
+    postdates it — the way a committing run does (issue #931)."""
     stamped = doc.get("provider_rates_fetched")
     if last_appended is not None and (
             stamped is None
             or _parse_stamp(last_appended) > _parse_stamp(stamped)):
         doc["provider_rates_fetched"] = last_appended
-    serialized = serialize_pricing_doc(doc)
-    pricing.load_tables(json.loads(serialized))
-    path.write_text(serialized, encoding="utf-8", newline="\n")
-    return len(all_rows), seed, base.astimezone(timezone.utc).strftime(
-        STAMP_FORMAT)
 
 
 def _newest_stamp(rows: list[tuple[str, list, bool]]) -> datetime | None:
