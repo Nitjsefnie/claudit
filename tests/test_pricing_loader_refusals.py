@@ -16,7 +16,7 @@ from datetime import timedelta
 import pytest
 
 from backend import pricing
-from tests.pricing_data_loader_helpers import _browser_load, _node_load
+from tests.pricing_data_loader_helpers import _node_load
 from tests.test_pricing_data import (
     _GLM_HOST,
     _GLM_MODEL,
@@ -26,10 +26,6 @@ from tests.test_pricing_data import (
     _stamp,
     needs_node,
 )
-
-
-def _row() -> list[dict]:
-    return _doc()["providers"][_GLM_MODEL][_GLM_HOST]
 
 
 def _cut(doc: dict) -> str:
@@ -77,8 +73,8 @@ def test_an_append_that_changes_only_the_schedule_is_accepted():
     doc = _schedule_only_append()
     tables = pricing.load_tables(doc)
     history = doc["providers"][_GLM_MODEL][_GLM_HOST]
-    assert (len(history) - 1) in \
-        tables["PROVIDER_SCHEDULES"][_GLM_MODEL, _GLM_HOST]
+    schedules = tables["PROVIDER_SCHEDULES"][_GLM_MODEL, _GLM_HOST]
+    assert len(history) - 1 in schedules
 
 
 @needs_node
