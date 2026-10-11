@@ -1,6 +1,6 @@
 """EXPORT_PYTHON launch-failure handling for the export endpoint (issue #949).
 
-Its own module rather than a addition to tests/test_export_cancel.py: that
+Its own module rather than an addition to tests/test_export_cancel.py: that
 file sits at the size ratchet's test ceiling.
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ def test_missing_export_python_answers_handled_503(tmp_path, monkeypatch):
         detail = str(excinfo.value.detail)
         assert excinfo.value.status_code == 503
         assert "EXPORT_PYTHON" in detail
+        assert "point EXPORT_PYTHON at an interpreter" in detail
         assert missing in detail
 
     asyncio.run(run())
