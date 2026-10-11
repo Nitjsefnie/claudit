@@ -13,7 +13,6 @@ paths:
 
 # claudit Doctrine — ingest and identity
 
-
 ## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
 
 `db.apply_schema()` runs the idempotent `backend/schema.sql` when this
@@ -375,4 +374,3 @@ when the first clean run finishes — run it off-peak and watch `/health`:
   hourly run.
 
 A fresh DB has none of these.
-
