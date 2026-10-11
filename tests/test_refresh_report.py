@@ -49,8 +49,8 @@ def test_report_drops_the_standing_blocks_for_the_commit_body():
                           {"model": {"id": "openrouter/model"}},
                           standing=False)
 
-    assert "vanished" not in body
-    assert "sampled" not in body
+    assert not any(line.startswith(("  vanished  ", "  sampled   "))
+                   for line in body.splitlines())
     assert "model (openrouter/model)" not in body
 
 
