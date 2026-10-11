@@ -55,23 +55,23 @@
     "data_region": "global",
     "models": {
       "claude-3-5-haiku-": {
-        "id": "anthropic/claude-3-5-haiku-",
+        "id": "anthropic/claude-3-5-haiku",
         "vendor_host": "Anthropic"
       },
       "claude-3-5-sonnet-": {
-        "id": "anthropic/claude-3-5-sonnet-",
+        "id": "anthropic/claude-3-5-sonnet",
         "vendor_host": "Anthropic"
       },
       "claude-3-7-sonnet-": {
-        "id": "anthropic/claude-3-7-sonnet-",
+        "id": "anthropic/claude-3-7-sonnet",
         "vendor_host": "Anthropic"
       },
       "claude-3-haiku-": {
-        "id": "anthropic/claude-3-haiku-",
+        "id": "anthropic/claude-3-haiku",
         "vendor_host": "Anthropic"
       },
       "claude-3-opus-": {
-        "id": "anthropic/claude-3-opus-",
+        "id": "anthropic/claude-3-opus",
         "vendor_host": "Anthropic"
       },
       "claude-fable-5": {
@@ -2593,12 +2593,6 @@
       "Krea": [
         {
           "fresh": 0.225,
-          "output": 0.9,
-          "read": 0.006
-        },
-        {
-          "fresh": 0.225,
-          "from": "2026-09-16T06:46:16Z",
           "output": 0.9,
           "read": 0.006
         }
@@ -6145,12 +6139,6 @@
       "Parasail": [
         {
           "fresh": 0.14,
-          "output": 0.28,
-          "read": 0.07
-        },
-        {
-          "fresh": 0.14,
-          "from": "2026-07-14T05:01:06Z",
           "output": 0.28,
           "read": 0.07
         }
@@ -25596,12 +25584,6 @@
       "Z.AI": [
         {
           "fresh": 1.2,
-          "output": 4.0,
-          "read": 0.24
-        },
-        {
-          "fresh": 1.2,
-          "from": "2026-03-23T14:03:21Z",
           "output": 4.0,
           "read": 0.24
         }
