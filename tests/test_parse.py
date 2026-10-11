@@ -104,6 +104,48 @@ def test_malformed_cache_detail_is_billed_as_unsplit_creation(monkeypatch):
     assert record["ctx_input"] == 1_000_000
 
 
+def test_cache_write_tokens_derives_the_neutral_write_per_record():
+    """Issue #842: every record carries a provider-neutral cache-write
+    count. An explicit-caching lane's reported write (create > 0) is
+    trusted verbatim; otherwise the write is derived from the NEXT
+    request's cache-read growth, capped by this record's fresh input;
+    the last record of a file has no successor and counts 0."""
+    out = parse.parse_file(
+        "k/sess-cw/sess-cw.jsonl", _read("cache_write_split.jsonl"))
+    writes = [r["cache_write_tokens"] for r in out["records"]]
+    # r1: next read 600 - 0 = 600, capped by fresh 1000 -> 600
+    # r2: next read 700 - 600 = 100 -> 100
+    # r3: next read 5000 - 700 = 4300, capped by fresh 40 -> 40
+    # r4: next read 0 - 5000 -> 0 -> 0
+    # r5: create 500 > 0 -> 500
+    # r6: last record -> 0
+    assert writes == [600, 100, 40, 0, 500, 0]
+
+
+@pytest.mark.parametrize("key,name", [
+    ("k/sess-cw/sess-cw.jsonl", "cache_write_split.jsonl"),
+    ("sessions/p/s/wire.jsonl", "codex_min.jsonl"),
+])
+def test_cache_write_tokens_is_not_a_pricing_input(key, name):
+    """Issue #842: the neutral column is NOT billed. cost_usd stays equal
+    to compute_cost over the billed partition (fresh/create/read/output)
+    alone, exactly as before the column existed -- for the Claude path and
+    a lane path alike."""
+    out = parse.parse_file(key, _read(name))
+    assert out["records"]
+    for r in out["records"]:
+        expected = pricing.compute_cost(
+            r["model"],
+            fresh=r["fresh_tokens"], output=r["output_tokens"],
+            eph5=r["eph5_tokens"], eph1h=r["eph1h_tokens"],
+            unsplit_create=max(0, r["cache_creation_tokens"]
+                               - r["eph5_tokens"] - r["eph1h_tokens"]),
+            read=r["cache_read_tokens"],
+            ts=r["ts"],
+        )
+        assert r["cost_usd"] == pytest.approx(expected, abs=1e-6)
+
+
 def test_ttl_split_charges_each_bucket(monkeypatch):
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})

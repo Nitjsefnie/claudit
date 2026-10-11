@@ -17,6 +17,7 @@ from backend import parse, pricing
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
 CODEX_JS = ROOT / "src" / "parser-codex.js"
+CACHE_WRITE_JS = ROOT / "src" / "parser-cache-write.js"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 RATES_JS = ROOT / "src" / "rates.js"
 PARSER_JS = ROOT / "src" / "parser.js"
@@ -28,6 +29,9 @@ FIX_CODEX = ROOT / "fixtures" / "codex"
 LANE_FIXTURES = [
     FIX_PARSER / "codex_min.jsonl",
     FIX_PARSER / "codex_user_xml.jsonl",
+    # The Claude path derives the same neutral cache-write split (issue
+    # #842); a Claude fixture exercises it through the same assertions.
+    FIX_PARSER / "cache_write_claude.jsonl",
     # The unattributed rollout has a separate browser null-model pin.
     *[p for p in sorted(FIX_CODEX.glob("*.jsonl"))
       if p.name != "rollout_fork_prefix.jsonl"],
@@ -49,6 +53,7 @@ def _browser_lane_output() -> dict:
     fixtures = {p.name: p.read_text(encoding="utf-8") for p in LANE_FIXTURES}
     script = f"""
       global.window = {{}};
+      require({str(CACHE_WRITE_JS)!r});
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
@@ -69,6 +74,7 @@ def _browser_lane_output() -> dict:
               read: m.usage.cache_read_input_tokens || 0,
               output: m.usage.output_tokens || 0,
               web_search_requests: m.web_search_requests ?? null,
+              cache_write: m.cache_write,
               // One record through the real cost path — no formula
               // duplicated in this test.
               cost: window.computeSessionStats([], [m]).cost,
@@ -76,7 +82,7 @@ def _browser_lane_output() -> dict:
           totals: (() => {{
             const s = window.computeSessionStats(events, meta);
             return {{ fresh: s.fresh, create: s.create, read: s.read,
-                     output: s.output, cost: s.cost }};
+                     output: s.output, write: s.write, cost: s.cost }};
           }})(),
         }};
       }}
@@ -227,6 +233,8 @@ class TestNodeDrivenLaneParsers:
             assert got["output"] == want["output_tokens"], f"{label}: output"
             assert got["thinking_tokens"] == want["thinking_tokens"], (
                 f"{label}: thinking_tokens")
+            assert got["cache_write"] == want["cache_write_tokens"], (
+                f"{label}: cache_write")
             # Match the backend's term order and per-record rounding.
             assert got["cost"] == want["cost_usd"], f"{label}: cost"
 
@@ -238,6 +246,7 @@ class TestNodeDrivenLaneParsers:
         assert browser["create"] == sum(r["cache_creation_tokens"] for r in backend)
         assert browser["read"] == sum(r["cache_read_tokens"] for r in backend)
         assert browser["output"] == sum(r["output_tokens"] for r in backend)
+        assert browser["write"] == sum(r["cache_write_tokens"] for r in backend)
         # Sum left to right like the browser; CPython sum may differ by an ulp.
         total = 0.0
         for r in backend:

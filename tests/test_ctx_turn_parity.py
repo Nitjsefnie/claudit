@@ -178,7 +178,7 @@ def test_browser_drops_context_above_backend_plausibility_bound():
     path = FIXTURE_DIR / "ctx_implausible_context.jsonl"
     backend_result = parse.parse_file(path.name, path.read_bytes())
     assert len(backend_result["records"]) == 1
-    assert backend_result["ctx_turns"] == []
+    assert len(backend_result["ctx_turns"]) == 0
 
     browser_result = _browser_context_stats([path])
     assert browser_result["fixtures"][0]["turns"] == []
