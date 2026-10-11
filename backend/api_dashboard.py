@@ -7,7 +7,6 @@ function trips the locals/branches/statements gates.
 """
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -15,19 +14,11 @@ from typing import Any
 from fastapi import APIRouter, Query
 from starlette.requests import Request
 
-from backend import db, api_ctx_growth
+from backend import db, api_ctx_growth, hide_rate_limits
 from backend.api_common import Phases, _bucket_seconds, _iso, _parse_range
 from backend.cache import cache_response
 
 router = APIRouter()
-
-# Issue #943: display-only switch, read ONCE at backend startup the way
-# timing.py reads CLAUDIT_TIMING — env is deploy config, not per-request
-# state. It gates nothing here: rate_limit_hits is still queried and
-# folded below; whether the UI SHOWS them is the frontend's decision,
-# keyed off the payload field.
-HIDE_RATE_LIMITS = os.environ.get(
-    "CLAUDIT_HIDE_RATE_LIMITS", "").lower() not in ("", "0", "false", "no")
 
 
 def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
@@ -687,10 +678,9 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "cost_by_model": cost_by_model,
         "cost_by_model_provider": cost_by_model_provider,
         "cost_by_project": _fold_cost_by_project(rows["cost_by_project"]),
-        "tokens_by_project": _fold_tokens_by_project(
-            rows["tokens_by_project"]),
+        "tokens_by_project": _fold_tokens_by_project(rows["tokens_by_project"]),
         "rate_limit_hits": _fold_rate_limits(rows["rate_limits"]),
-        "hide_rate_limits": HIDE_RATE_LIMITS,
+        "hide_rate_limits": hide_rate_limits.HIDE_RATE_LIMITS,
         "sessions": _fold_sessions(rows["sessions"], rows["ctx_end"]),
         "total_sessions": int(total_sessions_row[0] or 0) if total_sessions_row else 0,
         "main_w_usage": int(file_counts_row[0] or 0),
