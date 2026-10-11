@@ -158,23 +158,28 @@ def _mount(title: str) -> tuple[str, str]:
     return src[idx:idx + 400], src[max(0, idx - 40):idx]
 
 
-@pytest.mark.parametrize("title,rows_name,map_name,fmt_name", [
-    ("Cost by Model", "costByModel", "byModel", "humanCurrency"),
-    ("Tokens by Model", "tokensByModel", "tokensByModel", "humanFmt"),
+@pytest.mark.parametrize("title,rows_name,map_name,part_fmt", [
+    ("Cost by Model", "costByModel", "byModel",
+     "partFmt={v => window.humanCurrency(v)}"),
+    ("Tokens by Model", "tokensByModel", "tokensByModel",
+     "partFmt={v => window.humanFmt(v)}"),
 ])
 def test_both_panels_mount_the_grouped_rows_with_one_panel_control(
-        title, rows_name, map_name, fmt_name):
+        title, rows_name, map_name, part_fmt):
     """Both mounts pass the grouped rows, ask for the grouping treatment,
     and hand HBar the value formatter the host lines need — the cost
     panel in dollars, the token panel in humanFmt. Dropping partFmt from
     either mount would render the cost panel's host values as bare token
-    counts (928.03M where the bar says $11.5M)."""
+    counts (928.03M where the bar says $11.5M); spelling it as a ROW
+    formatter (r => …(r.value)) instead is the bug the browser probe
+    caught: hostLines hands it a value, so humanCurrency received
+    undefined and the cost panel's hover threw TypeError on toFixed."""
     window, before = _mount(title)
     assert "<window.HBar" in before
     assert f"rows={{{rows_name}}}" in window
     assert "groupByModel" in window, f"{title} does not opt into grouping"
-    assert re.search(r"partFmt=\{", window), f"{title} passes no host formatter"
-    assert fmt_name in window
+    assert part_fmt in window, (
+        f"{title} does not pass partFmt as a VALUE formatter ({part_fmt})")
     # The rows themselves are the module's, sorted and summed there —
     # one implementation behind both panels, not a copy per mount.
     assert f"window.modelGroup.group(totals.{map_name})" in _strip(
