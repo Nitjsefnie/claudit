@@ -75,6 +75,13 @@ of alternating back. An absent, unreadable or malformed file suppresses
 nothing, and a run that appends nothing publishes no commit, so it does
 not move the baseline.
 
+The vanished-host set and the sampled classifications are standing state
+(issue #933): they never enter the commit body. The run's own stdout
+report keeps both blocks, and a committing run records them in the same
+state file beside the notices (keys ``vanished`` and ``sampled``), so a
+vanished set or a classification that changes shows as a diff of that
+file instead of re-printing every run.
+
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
 from __future__ import annotations
@@ -102,6 +109,7 @@ from refresh_common import (bump_pricing_version,  # noqa: E402
                             detection_stamp, sources as _sources)
 from refresh_report import (arguments as _arguments,  # noqa: E402
                             commit_message, notice_lines, report,
+                            sampled_state, vanished_state,
                             vendor_report)
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
@@ -289,8 +297,9 @@ def _refusals(result: Result, outcome) -> list[str]:
 
 
 def _notices_path(pricing_path: Path) -> Path:
-    """The committed baseline of the last run's carried notices (issue #888),
-    beside the pricing document it describes."""
+    """The committed state file beside the pricing document it describes:
+    the last run's carried notice lines (issue #888) and its standing
+    vanished/sampled state (issue #933)."""
     return pricing_path.with_name("pricing_notices.json")
 
 
@@ -315,10 +324,16 @@ def _published_notices(pricing_path: Path) -> frozenset[str]:
     return frozenset(line for line in carried if isinstance(line, str))
 
 
-def _write_notices(pricing_path: Path, lines: list[str]) -> None:
-    """Record what this run carried, for the next run's baseline."""
+def _write_state(pricing_path: Path, lines: list[str], result: Result) -> None:
+    """Record what this run carried, for the next run's notice baseline
+    (issue #888), and the standing vanished/sampled state beside it
+    (issue #933): both blocks the commit body dropped, queryable and
+    diffable in the state file instead of re-printed every run."""
     _notices_path(pricing_path).write_text(
-        json.dumps({"notices": sorted(set(lines))}, indent=2, sort_keys=True)
+        json.dumps({"notices": sorted(set(lines)),
+                    "sampled": sampled_state(result.sampled),
+                    "vanished": vanished_state(result.vanished)},
+                   indent=2, sort_keys=True)
         + "\n", encoding="utf-8", newline="\n")
 
 
@@ -328,10 +343,14 @@ def _carried_notices(result: Result, outcome) -> list[str]:
     return lines + (notice_lines(outcome.notices) if outcome is not None else [])
 
 
-def _report_body(stamp: str, result: Result, outcome, previous) -> str:
+def _report_body(stamp: str, result: Result, outcome, previous,
+                 *, standing: bool = True) -> str:
     """The provider report, with the vendor section appended when it has
-    anything to say; ``previous`` drops a notice line already published."""
-    body = report(stamp, result, result.doc["openrouter"]["models"], previous)
+    anything to say; ``previous`` drops a notice line already published
+    (issue #888), ``standing=False`` drops the vanished/sampled blocks
+    for the commit body (issue #933)."""
+    body = report(stamp, result, result.doc["openrouter"]["models"], previous,
+                  standing=standing)
     if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
         body += "\n\n" + vendor_report(stamp, outcome, previous)
     return body
@@ -358,17 +377,24 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    body = _report_body(stamp, result, outcome, _published_notices(pricing_path))
-    print(body)
+    # The notice baseline (issue #888) is read ONCE, before this run
+    # rewrites it: the stdout report keeps every block, while the commit
+    # body drops the standing vanished/sampled ones (issue #933), which
+    # are recorded in the state file instead.
+    previous = _published_notices(pricing_path)
+    print(_report_body(stamp, result, outcome, previous))
     if (result.moves or (outcome is not None and outcome.moves)) \
             and not args.dry_run:
         pricing_path.write_text(serialize_pricing_doc(result.doc),
                                 encoding="utf-8", newline="\n")
         constants_path.write_text(constants, encoding="utf-8", newline="\n")
-        _write_notices(pricing_path, _carried_notices(result, outcome))
+        _write_state(pricing_path, _carried_notices(result, outcome), result)
         if args.commit_msg:
             args.commit_msg.write_text(
-                commit_message(result, body, outcome), encoding="utf-8",
+                commit_message(result,
+                               _report_body(stamp, result, outcome, previous,
+                                            standing=False),
+                               outcome), encoding="utf-8",
                 newline="\n")
     # Every other move is written; the run is still red, so a human sees it.
     if _refusals(result, outcome):

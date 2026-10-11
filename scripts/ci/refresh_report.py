@@ -103,6 +103,26 @@ def notice_lines(notices: list[str]) -> list[str]:
     return [line for line in lines if line is not None]
 
 
+def vanished_state(vanished: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """The vanished hosts per model, both levels in order (issue #933):
+    the standing set the commit body no longer re-prints, recorded so a
+    change to it is a diff of the state file."""
+    state: dict[str, list[str]] = {}
+    for model, host in vanished:
+        state.setdefault(model, []).append(host)
+    return {model: sorted(hosts) for model, hosts in sorted(state.items())}
+
+
+def sampled_state(sampled: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    """Each sampled host's recorded classification: the short display
+    reason the report's sampled line groups by (issue #933), so a changed
+    classification shows as a diff of the state file. A model with no
+    sampled hosts leaves no empty entry behind."""
+    return {model: {host: _sampled_reason(reason)
+                    for host, reason in sorted(hosts.items())}
+            for model, hosts in sorted(sampled.items()) if hosts}
+
+
 def _visible(lines: list[str], previous: frozenset[str]) -> list[str]:
     """Drop a rendered line the baseline already carried (issue #888).
 
@@ -216,22 +236,29 @@ def _discount_note(discount: Decimal) -> str:
 
 
 def report(stamp: str, result: Result, tracked: dict,
-           previous: frozenset[str] = frozenset()) -> str:
+           previous: frozenset[str] = frozenset(),
+           *, standing: bool = True) -> str:
     """Render moves, sampled coverage, vanished rows, and notices.
 
     A notice line the baseline already carried is omitted; an empty
-    ``previous`` renders every notice (issue #888)."""
+    ``previous`` renders every notice (issue #888). ``standing=False``
+    drops the vanished and sampled blocks — the standing state the commit
+    body leaves to the recorded JSON keys (issue #933) — together with any
+    model section left empty by the drop; the run's own stdout report
+    renders with the default, ``standing=True``."""
     lines = [f"OpenRouter provider rates, detected {stamp}"]
     if not result.moves:
         lines.append("no rate moved")
     for model, source in tracked.items():
         section = [_move_text(move) for move in result.moves if move.model == model]
-        vanished = sorted({host for name, host in result.vanished if name == model})
-        if vanished:
-            section.append(f"  vanished  {', '.join(vanished)} (rows kept)")
-        sampled = sorted(result.sampled.get(model, {}).items())
-        if sampled:
-            section.append(f"  sampled   {_sampled_text(dict(sampled))}")
+        if standing:
+            vanished = sorted({host for name, host in result.vanished
+                               if name == model})
+            if vanished:
+                section.append(f"  vanished  {', '.join(vanished)} (rows kept)")
+            sampled = sorted(result.sampled.get(model, {}).items())
+            if sampled:
+                section.append(f"  sampled   {_sampled_text(dict(sampled))}")
         if section:
             lines += ["", f"{model} ({source['id']})", *section]
     if result.refusals:

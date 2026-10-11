@@ -426,6 +426,13 @@ same rules:
   still appears; an absent, unreadable or malformed file suppresses
   nothing, so the baseline can only under-suppress. A run that appends
   nothing publishes no commit, so it does not move the baseline.
+- The commit body also drops the standing blocks — the vanished-host set
+  (rows kept) and the sampled host classifications — which reprinted
+  byte-identically every run (issue #933). The run's own stdout report
+  keeps both blocks, and a committing run records them in the same state
+  file as `vanished` (model → hosts) and `sampled` (model → host → the
+  display classification), so a changed set or classification shows as a
+  diff of that file. The subject's counts still move with the run.
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with multiple in-region prices that remain ambiguous after
