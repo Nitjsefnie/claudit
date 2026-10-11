@@ -18,7 +18,7 @@ from typing import TypedDict
 
 from backend.meter_tables import _long_context_meters
 from backend.pricing_document import (RATE_FIELDS, check_compact_shape,
-                                      effective_rates)
+                                      check_dual_pin_tags, effective_rates)
 
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
@@ -281,7 +281,7 @@ def _bare_form(key: str, prefixes: list[str]) -> str:
     return key
 
 
-def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:  # pylint: disable=too-many-locals
+def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:
     """The bare-id vendor tables (SV-RATE-DATA), checked: for each tracked
     entry carrying `vendor_host`, the (bare form → tracked key) match table
     and the (tracked key → host) host table. A tracked entry without
@@ -304,7 +304,8 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
     tracked = openrouter.get("models")
     if not isinstance(tracked, dict):
         raise ValueError("pricing.json: openrouter.models is missing")
-    vendor_resolve = vendor.get("resolve") if isinstance(vendor, dict) else None
+    # A key pinned in BOTH resolve tables must agree on its tag (#931).
+    check_dual_pin_tags(openrouter)
     bare: dict[str, str] = {}
     hosts: dict[str, str] = {}
     for key, entry in tracked.items():
@@ -313,20 +314,6 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
             raise ValueError(f"pricing.json: {where} is not a mapping")
         if not isinstance(entry.get("id"), str) or not entry["id"]:
             raise ValueError(f"pricing.json: {where} carries no 'id'")
-        # A key pinned in BOTH resolve tables names one endpoint: when both
-        # sides carry tags they must agree (#931); tagless pins and `why`
-        # are not compared.
-        vendor_pin = vendor_resolve.get(key) if isinstance(vendor_resolve, dict) else None
-        model_pins = entry.get("resolve")
-        vendor_tags = ({vendor_pin["tag"]} if isinstance(vendor_pin, dict)
-                       and "tag" in vendor_pin else set())
-        model_tags = ({pin["tag"] for pin in model_pins.values()
-                       if isinstance(pin, dict) and "tag" in pin}
-                      if isinstance(model_pins, dict) else set())
-        if vendor_tags and model_tags and vendor_tags != model_tags:
-            raise ValueError(
-                f"pricing.json: {where}: vendor resolve tags {sorted(vendor_tags)} "
-                f"differ from the model's resolve tags {sorted(model_tags)}")
         host = entry.get("vendor_host")
         if host is None:
             continue
@@ -406,7 +393,7 @@ def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
     return out
 
 
-def load_tables(doc: dict) -> RateTables:  # pylint: disable=too-many-locals
+def load_tables(doc: dict) -> RateTables:
     """Every rate table, derived from the parsed pricing.json, in file order."""
     fetched = _instant(doc["provider_rates_fetched"],
                        "provider_rates_fetched")
@@ -424,7 +411,6 @@ def load_tables(doc: dict) -> RateTables:  # pylint: disable=too-many-locals
      provider_schedules) = _provider_tables(doc, fetched)
     provider_bands = _provider_bands(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
-    vendor_prefixes = list(doc["openrouter"]["vendor"]["prefixes"])
     long_context_meters = _long_context_meters(doc)
     return {
         "MODEL_RATES": model_rates,
@@ -444,7 +430,7 @@ def load_tables(doc: dict) -> RateTables:  # pylint: disable=too-many-locals
             | set(provider_starts.values())
         ),
         "VENDOR_BARE": vendor_bare,
-        "VENDOR_PREFIXES": vendor_prefixes,
+        "VENDOR_PREFIXES": list(doc["openrouter"]["vendor"]["prefixes"]),
         "VENDOR_HOSTS": vendor_hosts,
         "DEFAULT_RATES": _default_rates(model_rates, vendor_bare,
                                         vendor_hosts, provider_rates),
