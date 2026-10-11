@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 
 from backend import parse
 from tests.test_parser_js_lanes import (
-    CODEX_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, _NAIVE_LANE_BLOB,
+    CODEX_JS, KIMI_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS,
+    _NAIVE_LANE_BLOB,
 )
 
 
@@ -22,6 +23,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
+      require({str(KIMI_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
       const {{ events, meta }} = window.parseTranscriptLanes(
