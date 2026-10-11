@@ -61,10 +61,12 @@
   }
 
   // What HBar renders: the grouped rows collapsed (the default), or
-  // today's per-host rows — one flat list, globally descending — once the
-  // panel's box is checked. Flattening re-sorts rather than leaving each
-  // model's hosts stacked in place, so the checked panel is byte-for-byte
-  // the pre-#936 ordering.
+  // today's per-host rows — one flat list, globally descending on value —
+  // once the panel's box is checked. Flattening re-sorts rather than
+  // leaving each model's hosts stacked in place, so the checked panel
+  // reads as today's descending-sort semantics (stable on exact ties);
+  // an exact tie spanning two models can still order differently from
+  // the pre-#936 flat fold, which broke ties by label-map insertion.
   function shown(rows, open) {
     if (!open) return rows;
     const flat = [];
