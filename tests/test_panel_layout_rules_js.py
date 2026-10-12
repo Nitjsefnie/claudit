@@ -521,6 +521,7 @@ def test_picker_rule_family_registered():
         "project-picker-overflow",
         "project-picker-overflow-after-paging",
         "project-picker-pages-fit",
+        "project-picker-pages-left-fit",
         "project-picker-pages-complete",
         "project-picker-project-universe",
         "project-picker-pages-height",

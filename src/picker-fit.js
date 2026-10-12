@@ -1,11 +1,11 @@
-// The project picker's fit arithmetic and strip read (#774).
+// Shared picker fit arithmetic and the retained legacy strip reader (#774).
 //
-// The picker shows only the chips that fit the strip's current width and
-// pages the rest, so the page size is measured, not fixed. This module
-// holds the numbers: `fitCount` is the pure arithmetic, `computeFit`
-// reads the rendered strip and maps it onto those inputs. The React glue
-// lives in app.jsx's ProjectPicker; the rendered guard
-// (scripts/ci/panel_layout_rules.mjs) proves the behavior in a browser.
+// `fitCount` supplies the arithmetic used by picker-pages.js to pack
+// each measured suffix. ProjectPicker in picker.jsx calls that module's
+// `computePages`, with control sizing supplied by picker-space.js.
+// `computeFit` is the legacy fixed-prefix DOM reader, retained for its
+// node regression coverage; it does not drive the current component.
+// scripts/ci/panel_layout_rules.mjs checks the shipped layout in a browser.
 //
 // Plain JS, no React: node drives this file (tests/test_picker_fit_js.py).
 (function (global) {
@@ -33,11 +33,10 @@
   // a chip edge.
   const SLACK = 1;
 
-  // Read the strip and return its page size: how many project chips fit
-  // beside the All chip and the reserves. Returns null for an
-  // unmeasurable strip (absent or zero-width), else 0..len; the
-  // component applies the number as its page size, floored at one chip
-  // (#807).
+  // Legacy reader: return the first prefix's fit beside All and the
+  // reserves. Returns null for an absent or zero-width strip, else
+  // 0..len. Current per-page packing and the one-chip floor live in
+  // picker-pages.js; only legacy regression tests call this reader.
   //
   // Chip widths come from the hidden measure row (.pp-measure), not the
   // real chips: the real strip renders only the fitted slice, so its own
@@ -75,11 +74,9 @@
     const room0 = Math.max(0, inner - allW - gap);
     if (fitCount(room0, widths, gap, 0) >= len) return len; // no pager ever
 
-    // Not everything fits beside All. With len > 1 a pager will render
-    // once the fit lands (the applied size then sits below len, so the
-    // component's pageCount is >= 2); with one project the pageCount
-    // stays 1 and no pager ever renders — the DOM guard below finds none
-    // and reserves nothing. Reserve the core as rendered (jump excluded).
+    // The legacy reader reserves only the existing pager's core, excluding
+    // its jump. The active reader can also use the hidden core replica;
+    // this retained reader predates that geometry path.
     const pager = strip.querySelector('.pp-pager');
     let core = 0;
     if (pager) {

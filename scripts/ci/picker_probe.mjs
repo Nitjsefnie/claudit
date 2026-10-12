@@ -39,6 +39,7 @@ export function pickerProbe(input) {
       seat: below ? Math.round((below.top - box.bottom) * 10) / 10 : 0,
       below: !!below,
       overflow: strip.scrollWidth > strip.clientWidth,
+      chipLeft: rects.length ? Math.min(...rects.map((r) => r.left)) : null,
       chipRight: rects.reduce((n, r) => Math.max(n, r.right), 0),
       ids: visible.map((el) => el.dataset.projectId || null),
       activeIds: visible.filter((el) => el.classList.contains('on'))
