@@ -102,6 +102,12 @@ def test_generation_s_consumed_anchor():
     assert second["output_tokens_per_s"] is None
 
 
+def test_generation_s_continuation_anchor():
+    records = _parse_fixture("generation_s_continuation_anchor")["records"]
+    assert [r["generation_s"] for r in records] == [9, 6]
+    assert [r["output_tokens_per_s"] for r in records] == [10, 10]
+
+
 def test_generation_s_no_last_usage():
     record, = _parse_fixture("generation_s_no_last_usage")["records"]
     assert record["generation_s"] == 5
@@ -161,6 +167,19 @@ def test_generation_speed_collection_off(monkeypatch, name):
         for record in result["records"]:
             del record["generation_s"], record["output_tokens_per_s"]
     assert disabled == enabled
+
+
+def test_generation_speed_conflicting_role(monkeypatch):
+    outputs = []
+    for flag in (True, False):
+        monkeypatch.setattr(collect_generation_speed, "COLLECT_GENERATION_SPEED", flag)
+        result = _parse_fixture("generation_speed_conflicting_role")
+        for record in result["records"]:
+            del record["generation_s"], record["output_tokens_per_s"]
+        outputs.append(result)
+    assert outputs[0] == outputs[1]
+    assert [(r["line_num"], r["reply_latency_s"], r["output_tokens"])
+            for r in outputs[0]["records"]] == [(2, 2, 10), (3, None, 10)]
 
 
 @pytest.mark.parametrize("value,expected", [
