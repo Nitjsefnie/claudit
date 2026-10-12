@@ -19,14 +19,13 @@ _PRELOAD_MODULES = ("backend.ingest_forkserver", "backend.ingest")
 
 
 def _worker_environment() -> dict[str, str]:
-    return {key: value for key, value in os.environ.copy().items()
-            if key.startswith("R2_") or key == "CLAUDIT_TIMING"}
+    return os.environ.copy()
 
 
 def parse_pool(max_workers: int, parent_pid: int) -> ProcessPoolExecutor:
     """Fork from a preloaded, single-threaded server reused across pools.
 
-    The service's current R2/timing configuration travels in initargs,
+    The service's complete current environment travels in initargs,
     not the server's environment snapshot. CPython's private server PID
     identifies the actual OS parent for the #373 orphan race check.
     """
@@ -143,10 +142,11 @@ def parse_worker_init(parent_pid: int, service_pid: int | None = None,
             os.close(alive_fd)
         setattr(forkserver._forkserver, "_forkserver_alive_fd", None)
     if environment is not None:
-        for key in list(os.environ):
-            if key.startswith("R2_") or key == "CLAUDIT_TIMING":
-                os.environ.pop(key)
+        os.environ.clear()
         os.environ.update(environment)
+        # Import-time implementation choices (botocore CRT/retry defaults,
+        # psycopg's implementation) remain service-start settings. Runtime
+        # SDK configuration, including CA/proxy additions/removals, is fresh.
         from backend import timing  # pylint: disable=import-outside-toplevel
         timing.TIMING_ON = os.environ.get("CLAUDIT_TIMING", "").lower() not in (
             "", "0", "false", "no")

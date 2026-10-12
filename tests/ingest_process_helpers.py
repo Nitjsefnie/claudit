@@ -43,6 +43,13 @@ def configuration() -> dict:
             "timing": timing.TIMING_ON, "parent": os.getppid()}
 
 
+def client_configuration() -> dict:
+    """Observe the real client's trust bundle without making a request."""
+    client = r2._boto_client()  # pylint: disable=protected-access
+    return {"env": os.environ.get("AWS_CA_BUNDLE"), "parent": os.getppid(),
+            "verify": client._endpoint.http_session._verify}  # pylint: disable=protected-access
+
+
 def priced_parse(key: str, sidecar_key: str | None,
                  etag: str | None = None, size: int | None = None, *,
                  tables: dict) -> dict:

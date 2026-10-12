@@ -70,8 +70,7 @@ def stopped(pid: int) -> bool:
 def probe(mode: str) -> None:
     # Orphans are adopted here, so server/worker death can be proved by
     # waitpid instead of mistaking a zombie for a surviving process.
-    libc = ctypes.CDLL("libc.so.6", use_errno=True)
-    assert libc.prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
+    _subreaper()
     with subprocess.Popen(
         [sys.executable, "-m", "tests.ingest_lifetime_probe", "service"],
             stdout=subprocess.PIPE, text=True) as proc:
@@ -81,7 +80,7 @@ def probe(mode: str) -> None:
 def _run_probe(proc: subprocess.Popen, mode: str) -> None:
     try:
         assert proc.stdout is not None
-        assert select.select([proc.stdout], [], [], 90)[0], "service did not start"
+        assert select.select([proc.stdout], [], [], 30)[0], "service did not start"
         ready = json.loads(proc.stdout.readline())
         server, worker = ready["server"], ready["worker"]
         assert server != proc.pid, "worker still has the service as its parent"
@@ -105,29 +104,76 @@ def _run_probe(proc: subprocess.Popen, mode: str) -> None:
         if proc.poll() is None:
             proc.kill()
         proc.wait(timeout=10)
-        # Only this probe's adopted children are cleaned up. A broken
-        # implementation must not leave its server or blocked worker alive.
-        children = Path(f"/proc/self/task/{os.getpid()}/children")
-        trackers = set()
-        for _ in range(2):  # also collect a killed server's adopted workers
-            for raw in children.read_text(encoding="utf-8").split():
-                pid = int(raw)
-                if reaped(pid):
-                    continue
-                cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
-                if b"multiprocessing.resource_tracker" in cmdline:
-                    trackers.add(pid)
-                    continue
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
-        for pid in trackers:
-            if not wait_dead(pid):
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
+        _cleanup_children()
+
+
+def _subreaper() -> None:
+    if sys.platform == "linux":
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        assert libc.prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
+
+
+def _cleanup_children() -> None:
+    """Kill/reap only adopted children; let trackers clean owned semaphores."""
+    children = Path(f"/proc/self/task/{os.getpid()}/children")
+    trackers = set()
+    for _ in range(2):  # also collect a killed server's adopted workers
+        for raw in children.read_text(encoding="utf-8").split():
+            pid = int(raw)
+            if reaped(pid):
+                continue
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+            if b"multiprocessing.resource_tracker" in cmdline:
+                trackers.add(pid)
+                continue
+            os.kill(pid, signal.SIGKILL)
+            assert wait_dead(pid), "owned child survived SIGKILL"
+    for pid in trackers:
+        if not wait_dead(pid):
+            os.kill(pid, signal.SIGKILL)
+            assert wait_dead(pid), "resource tracker survived SIGKILL"
+
+
+def check(target: str) -> None:
+    """The executor owner's cleanup can hang; this independent parent cannot."""
+    _subreaper()
+    proc = subprocess.Popen(  # pylint: disable=consider-using-with
+        [sys.executable, "-m", "tests.ingest_lifetime_probe", "test", target],
+        start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True)
+    try:
+        try:
+            out, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("process-pool test exceeded 30s bound") from exc
+        print(out, end="")
+        print(err, end="", file=sys.stderr)
+        assert proc.returncode == 0, "isolated test failed"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
+        if sys.platform == "linux":
+            _cleanup_children()
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        assert proc.stdout is not None and proc.stderr is not None
+        proc.stdout.close()
+        proc.stderr.close()
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "service":
         service()
+    elif sys.argv[1] == "check":
+        check(sys.argv[2])
+    elif sys.argv[1] == "test":
+        import pytest
+        from tests import pool_test_bounds
+        pool_test_bounds.ISOLATED = True
+        raise SystemExit(pytest.main([sys.argv[2], "-q", "--tb=short"]))
     else:
         probe(sys.argv[1])

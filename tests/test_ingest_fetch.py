@@ -14,6 +14,7 @@ import types
 import threading
 import time
 import warnings
+import sys
 from collections import Counter
 from concurrent.futures.process import BrokenProcessPool
 
@@ -32,6 +33,7 @@ from tests.ingest_process_helpers import (
     noop_parse as _noop_parse, worker_report as _worker_report,
     server_report_parse,
 )
+from tests.pool_test_bounds import bounded_pool_test
 
 #: How many transcripts the committed mirror holds, read from its tree
 #: (issue #503 grew it with the lane layout). A count written down here is
@@ -437,6 +439,8 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 
 # ------------------------------------------ parse-worker signal hygiene (#373)
 
+@pytest.mark.skipif(sys.platform != "linux", reason="server task count uses Linux procfs")
+@bounded_pool_test
 def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
     """Starting parse workers in the threaded service must be fork-safe."""
     monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
