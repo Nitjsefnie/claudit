@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import threading
-import multiprocessing
 import re
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -16,11 +15,9 @@ import pytest
 from backend import ingest_workers
 from backend.ingest_workers import parse_pool
 from tests.ingest_process_helpers import client_configuration, configuration
-from tests.pool_test_bounds import bounded_pool_test
+from tests.pool_test_bounds import bounded_pool_test, requires_forkserver
 
-pytestmark = pytest.mark.skipif(
-    "forkserver" not in multiprocessing.get_all_start_methods(),
-    reason="forkserver context unavailable")
+pytestmark = requires_forkserver
 
 _TRACKER_CLEANUP = re.compile(
     r"[^\n]*/multiprocessing/resource_tracker\.py:\d+: UserWarning: "

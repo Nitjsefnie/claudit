@@ -21,6 +21,7 @@ from backend import timing as _timing
 
 from tests import mini_mirror
 from tests import ingest_process_helpers as child_units
+from tests.pool_test_bounds import requires_forkserver
 
 #: How many transcripts the committed mirror holds, read from its
 #: tree (issue #503 grew it with the lane layout).
@@ -38,6 +39,7 @@ def test_parse_process_count_defaults_and_clamps(monkeypatch):
     assert ingest.parse_process_count() >= 1
 
 
+@requires_forkserver
 def test_process_pool_ingest_matches_sequential_exactly(
         fresh_db, mini_r2_env, monkeypatch, tmp_path):
     """The process-pool path must land exactly what the in-process path
@@ -81,6 +83,7 @@ def test_process_pool_ingest_matches_sequential_exactly(
         "process fetches did not populate the cache")
 
 
+@requires_forkserver
 def test_process_pool_persists_survive_a_per_file_failure(
         fresh_db, mini_r2_env, monkeypatch):
     """One file's persist failure must not take the run (or the pool) down:
@@ -110,6 +113,7 @@ def test_process_pool_persists_survive_a_per_file_failure(
     assert total == 1, "files beyond the survivor landed despite the failure"
 
 
+@requires_forkserver
 def test_process_pool_books_a_parse_failure_per_file(
         fresh_db, mini_r2_env, monkeypatch):
     """A fetch failure in a forkserver child books its own file only; the run
@@ -128,6 +132,7 @@ def test_process_pool_books_a_parse_failure_per_file(
     assert landed == _MIRROR - 1, "the flaky file's peers did not land"
 
 
+@requires_forkserver
 def test_process_pool_treats_a_vanished_object_as_not_a_failure(
         fresh_db, mini_r2_env, monkeypatch):
     """A key that disappears between list and fetch is discarded from the
@@ -149,6 +154,7 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
     assert doomed == 0, "the vanished key survived as a files row"
 
 
+@requires_forkserver
 def test_process_pool_a_broken_fetch_is_fatal(
         fresh_db, mini_r2_env, monkeypatch):
     """A non-transient fetch failure means the fetch path itself is
@@ -168,6 +174,7 @@ def test_process_pool_a_broken_fetch_is_fatal(
     assert summary["error"] is not None
 
 
+@requires_forkserver
 def test_process_pool_rerun_reparses_and_counts(
         fresh_db, mini_r2_env, monkeypatch):
     """A second pool run over an unchanged mirror reparses nothing; a
@@ -187,6 +194,7 @@ def test_process_pool_rerun_reparses_and_counts(
     assert third["reparsed"] == _MIRROR
 
 
+@requires_forkserver
 def test_process_pool_timing_line_marks_disjoint_phases(
         fresh_db, mini_r2_env, monkeypatch, caplog):
     """With CLAUDIT_TIMING on, the pool path's fetch_parse and persist
@@ -228,6 +236,7 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     assert _ms("persist_work") > 0, line
 
 
+@requires_forkserver
 def test_pool_timing_parts_are_disjoint_slices(
         fresh_db, mini_r2_env, monkeypatch, caplog):
     """Issue #680: the pool TIMING parts are disjoint slices.

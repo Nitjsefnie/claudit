@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import functools
+import multiprocessing
 import subprocess
 import sys
 
+import pytest
+
 ISOLATED = False
+
+requires_forkserver = pytest.mark.skipif(
+    "forkserver" not in multiprocessing.get_all_start_methods(),
+    reason="forkserver context unavailable")
 
 
 def bounded_pool_test(function):
