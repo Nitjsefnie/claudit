@@ -68,7 +68,8 @@ class GenerationTiming:
         if obj.get("isApiErrorMessage") is True:
             self.fail()
         mid = msg.get("id")
-        if not isinstance(mid, str) or not mid:
+        # Idless lines skip the type check; a truthy id still must be a string.
+        if not mid or not isinstance(mid, str):
             return None
         span = self.requests.get(mid)
         if span is None:
