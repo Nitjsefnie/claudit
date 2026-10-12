@@ -198,6 +198,70 @@ export function underfillViolation(freeRoom, minOffPage, rendered,
   return room >= minOffPage ? freeRoom : null;
 }
 
+// Validate both page journeys against the measured project identities.
+export function pickerWalkViolations(forward, backward, expected) {
+  const out = [];
+  if (expected.some((id) => !id)) {
+    out.push({ kind: 'project-order', direction: 'fixture' });
+  }
+  const check = (pages, direction) => {
+    const total = pages[0]?.total || 1;
+    if (pages.length !== total || total > Math.max(1, expected.length)) {
+      out.push({ kind: 'completion', direction });
+    }
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const wanted = direction === 'forward' ? i + 1 : total - i;
+      if (page.page !== wanted || page.total !== total) {
+        out.push({ kind: 'sequence', direction, page: page.page,
+          expected: wanted });
+      }
+      if (page.previousDisabled !== (page.page === 1)
+        || page.nextDisabled !== (page.page === total)) {
+        out.push({ kind: 'completion', direction, page: page.page });
+      }
+      if (expected.length && !page.ids.length) {
+        out.push({ kind: 'empty-page', direction, page: page.page });
+      }
+    }
+    const ordered = direction === 'forward' ? pages : [...pages].reverse();
+    const ids = ordered.flatMap((page) => page.ids);
+    if (ids.length !== expected.length
+      || ids.some((id, i) => id !== expected[i])) {
+      out.push({ kind: 'project-order', direction });
+    }
+    return ordered.map((page) => page.ids);
+  };
+  const f = check(forward, 'forward');
+  const b = check(backward, 'backward');
+  if (JSON.stringify(f) !== JSON.stringify(b)) {
+    out.push({ kind: 'partition', direction: 'backward' });
+  }
+  return out;
+}
+
+export function pickerPageGeometryViolations(pages, eps = NOISE) {
+  const out = [];
+  const first = pages[0];
+  if (!first) return out;
+  for (const page of pages.slice(1)) {
+    if (Math.abs(page.height - first.height) > eps) {
+      out.push({ kind: 'height', page: page.page,
+        expected: first.height, actual: page.height });
+    }
+    if (Math.abs(page.top - first.top) > eps) {
+      out.push({ kind: 'position', page: page.page,
+        expected: first.top, actual: page.top });
+    }
+    if (first.below && page.below
+      && Math.abs(page.seat - first.seat) > eps) {
+      out.push({ kind: 'seat', page: page.page,
+        expected: first.seat, actual: page.seat });
+    }
+  }
+  return out;
+}
+
 // The panel-label rule's classifier (#826): a marked label text whose
 // box escapes its panel's box on either side is an overflow. One axis
 // of slack for rounding, like every geometry rule here. Violations
@@ -855,6 +919,85 @@ async function seedPickerPagerShift(page) {
   }, PICKER_SEL);
 }
 
+async function seedPickerEmptyLaterPage(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const hide = () => {
+      const pageNo = Number(strip.querySelector('.pp-count')
+        ?.textContent.split('/')[0]);
+      if (pageNo === 3) {
+        for (const chip of strip.children) {
+          if (chip.classList.contains('pp-proj')) chip.style.display = 'none';
+        }
+      }
+    };
+    new MutationObserver(hide).observe(strip,
+      { childList: true, subtree: true, characterData: true });
+    hide();
+    return { armed: 'page 3 chips hidden after render' };
+  }, PICKER_SEL);
+}
+
+async function seedPickerLaterHeight(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const grow = () => {
+      if (Number(strip.querySelector('.pp-count')?.textContent.split('/')[0]) < 3) return;
+      strip.style.height = '90px';
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(grow);
+    observer.observe(strip, { childList: true, subtree: true, characterData: true });
+    grow();
+    return { armed: 'strip height changes on page 3' };
+  }, PICKER_SEL);
+}
+
+async function seedPickerLaterPosition(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    if (!strip) return null;
+    const move = () => {
+      if (Number(strip.querySelector('.pp-count')?.textContent.split('/')[0]) < 3) return;
+      strip.style.marginTop = '20px';
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(move);
+    observer.observe(strip, { childList: true, subtree: true, characterData: true });
+    move();
+    return { armed: 'strip position changes on page 3' };
+  }, PICKER_SEL);
+}
+
+async function seedPickerLaterSeat(page) {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    const below = strip && strip.nextElementSibling;
+    if (!strip || !below) return null;
+    const move = () => {
+      if (Number(strip.querySelector('.pp-count')?.textContent.split('/')[0]) < 3) return;
+      below.style.transform = 'translateY(20px)';
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(move);
+    observer.observe(strip, { childList: true, subtree: true, characterData: true });
+    move();
+    return { armed: 'content below strip shifts on page 3' };
+  }, PICKER_SEL);
+}
+
+async function seedPickerSelectedOverflow(page) {
+  return page.evaluate((sel) => {
+    const style = document.createElement('style');
+    style.textContent = sel + ' .pp-pager .pp-jump'
+      + ' { width: 100vw !important; max-width: none !important; }';
+    document.head.appendChild(style);
+    return { injected: 'selected jump forced to viewport width' };
+  }, PICKER_SEL);
+}
+
 // Seed for the label rule's red proof (#826): rewrite the first
 // marked label with the maintainer's reported label — the exact
 // string that overflows its box on the live dashboard. A DOM
@@ -1129,6 +1272,162 @@ const NEXT_SEL = '.pp-nav[title="Next page"]';
 
 const PREV_SEL = '.pp-nav[title="Previous page"]';
 
+const PICKER_PAGE_PROBE = (sel) => {
+  const strip = document.querySelector(sel);
+  if (!strip) return null;
+  const box = strip.getBoundingClientRect();
+  const pager = strip.querySelector('.pp-pager');
+  const pagerBox = pager ? pager.getBoundingClientRect() : null;
+  const jump = pager && pager.querySelector('.pp-jump');
+  const count = strip.querySelector('.pp-count')?.textContent || '';
+  const parts = count.match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+  const visible = [...strip.children].filter((el) => {
+    if (!el.classList.contains('pp-proj')) return false;
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return cs.display !== 'none' && cs.visibility !== 'hidden'
+      && r.width > 0 && r.height > 0;
+  });
+  const chips = [...strip.children].filter((el) =>
+    el.classList.contains('pp-proj'));
+  const rects = visible.map((el) => el.getBoundingClientRect());
+  const next = strip.querySelector('.pp-nav[title="Next page"]');
+  const previous = strip.querySelector('.pp-nav[title="Previous page"]');
+  const below = strip.nextElementSibling
+    ? strip.nextElementSibling.getBoundingClientRect() : null;
+  return {
+    left: box.left, right: box.right,
+    top: Math.round(box.top * 10) / 10,
+    height: Math.round(box.height * 10) / 10,
+    seat: below ? Math.round((below.top - box.bottom) * 10) / 10 : 0,
+    below: !!below,
+    overflow: strip.scrollWidth > strip.clientWidth,
+    chipRight: rects.reduce((n, r) => Math.max(n, r.right), 0),
+    ids: visible.map((el) => el.dataset.projectId || null),
+    activeIds: visible.filter((el) => el.classList.contains('on'))
+      .map((el) => el.dataset.projectId || null),
+    pagerLeft: pagerBox ? pagerBox.left : null,
+    pagerRight: pagerBox ? pagerBox.right : null,
+    pagerWidth: pagerBox ? pagerBox.width : null,
+    pagerVisible: !!pager && getComputedStyle(pager).display !== 'none'
+      && getComputedStyle(pager).visibility !== 'hidden'
+      && pagerBox.width > 0,
+    jumpWidth: jump ? jump.getBoundingClientRect().width : null,
+    jumpVisible: !!jump && getComputedStyle(jump).visibility !== 'hidden'
+      && getComputedStyle(jump).display !== 'none',
+    page: parts ? Number(parts[1]) : (pager ? null : 1),
+    total: parts ? Number(parts[2]) : (pager ? null : 1),
+    nextDisabled: !next || next.disabled,
+    previousDisabled: !previous || previous.disabled,
+    rendered: chips.length,
+  };
+};
+
+async function clickPickerPage(page, button, previous) {
+  await page.click(button);
+  await page.waitForFunction((args) => {
+    const count = document.querySelector(args.selector + ' .pp-count')
+      ?.textContent || '';
+    return Number(count.split('/')[0]) !== args.page;
+  }, { selector: PICKER_SEL, page: previous.page }, { timeout: 5_000 });
+}
+
+async function pickerProjectIds(page) {
+  return page.evaluate((sel) => [...document.querySelectorAll(
+    sel + ' .pp-measure .pp-proj')].map((el) => el.dataset.projectId || null),
+  PICKER_SEL);
+}
+
+async function walkPickerPages(page, projectCount, direction) {
+  const states = [];
+  const maxPages = Math.max(1, projectCount);
+  const next = direction === 'forward';
+  const button = 'main ' + PICKER_SEL + ' '
+    + (next ? NEXT_SEL : PREV_SEL);
+  let completed = false;
+  for (let step = 0; step < maxPages; step++) {
+    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    if (!state) return { states, completed: false, missing: true };
+    states.push(state);
+    if (next ? state.nextDisabled : state.previousDisabled) {
+      completed = true;
+      break;
+    }
+    if (step === maxPages - 1) break;
+    await clickPickerPage(page, button, state);
+  }
+  return { states, completed, missing: false };
+}
+
+export function pickerPageFitFindings(states) {
+  const out = [];
+  const first = states[0];
+  for (const page of states) {
+    if (!page) {
+      out.push({ upper: 'project picker present', lower: 'strip missing', gap: 0 });
+      continue;
+    }
+    if (page.overflow || page.chipRight > page.right + 1) {
+      out.push({ upper: `picker page ${page.page} fits inside the strip`,
+        lower: `chip or horizontal overflow reaches ${page.chipRight}px`
+          + ` past ${page.right}px`,
+        gap: Math.max(page.chipRight - page.right, page.overflow ? 1 : 0) });
+    }
+    if (page.total > 1 && !page.pagerVisible) {
+      out.push({ upper: `picker page ${page.page} keeps its pager visible`,
+        lower: 'multi-page picker has no visible pager', gap: 0 });
+    } else if (page.pagerWidth != null
+      && (!page.pagerVisible || page.pagerLeft < page.left - 1
+        || page.pagerRight > page.right + 1)) {
+      out.push({ upper: `picker page ${page.page} keeps its pager visible`,
+        lower: 'pager is hidden or extends past the strip', gap: 0 });
+    }
+    if (first && first.pagerVisible && page.pagerVisible
+      && Math.abs(page.pagerLeft - first.pagerLeft) > 1) {
+      out.push({ upper: `pager x=${first.pagerLeft}px on page 1`,
+        lower: `pager x=${page.pagerLeft}px on page ${page.page}`,
+        gap: page.pagerLeft - first.pagerLeft });
+    }
+  }
+  return out;
+}
+
+async function runPickerWalk(page) {
+  const expected = await pickerProjectIds(page);
+  const forward = await walkPickerPages(page, expected.length, 'forward');
+  const backward = await walkPickerPages(page, expected.length, 'backward');
+  const facts = pickerWalkViolations(
+    forward.states, backward.states, expected);
+  const findings = walkFindings(facts);
+  const seen = [...forward.states, ...backward.states];
+  if (!forward.completed || !backward.completed) {
+    findings.push({ upper: 'picker walk completes at its ends',
+      lower: `forward=${forward.completed} backward=${backward.completed}`,
+      gap: 0 });
+  }
+  return { expected, forward, backward, seen, facts, findings };
+}
+
+async function pickerPageAudit(ctx) {
+  if (!ctx.pickerPageAudit) {
+    ctx.pickerPageAudit = await runPickerWalk(ctx.page);
+  }
+  return ctx.pickerPageAudit;
+}
+
+const walkFindings = (facts) => facts.map((f) => ({
+  upper: `${f.direction} picker walk ${f.kind}`,
+  lower: f.page == null ? 'page/project sequence differs from the fixture'
+    : `page ${f.page}; expected ${f.expected ?? 'a complete project partition'}`,
+  gap: 0,
+}));
+
+const geometryFindings = (facts) => facts.map((f) => ({
+  upper: `picker page ${f.page} ${f.kind} ${f.actual}px`,
+  lower: `page 1 ${f.kind} ${f.expected}px`,
+  gap: f.actual - f.expected,
+}));
+
 // The paging rules' shared click, guarded: a click on a disabled Next
 // hangs Playwright for its whole 30s timeout, and the shared unseeded
 // page accumulates paging state across rules — so every paging rule
@@ -1158,6 +1457,119 @@ const backToFirst = async (page) => {
     await page.waitForTimeout(200);
   }
 };
+
+function pageWalkResult(walk) {
+  const out = walkFindings(pickerWalkViolations(
+    walk.forward.states, walk.backward.states, walk.expected));
+  const pages = [...walk.forward.states, ...walk.backward.states];
+  out.push(...pickerPageFitFindings(pages));
+  const geometry = [walk.forward.states[0],
+    ...walk.forward.states.slice(1), ...walk.backward.states];
+  out.push(...geometryFindings(pickerPageGeometryViolations(geometry)));
+  if (walk.forward.missing || walk.backward.missing) {
+    out.push({ upper: 'project picker present', lower: 'strip missing', gap: 0 });
+  }
+  return out;
+}
+
+async function runPickerPageFit(ctx) {
+  const walk = await runPickerWalk(ctx.page);
+  ctx.pickerPageAudit = walk;
+  let out = pageWalkResult(walk);
+  if (ctx.width === 320) {
+    await ctx.page.setViewportSize({ width: 220, height: 900 });
+    await ctx.page.waitForTimeout(350);
+    out.push(...pageWalkResult(await runPickerWalk(ctx.page)));
+    await ctx.page.setViewportSize({ width: ctx.width, height: 900 });
+    await ctx.page.waitForTimeout(350);
+  }
+  return out;
+}
+
+async function runPickerPageGeometry(ctx, kinds) {
+  if (ctx.seeded) {
+    const states = [];
+    for (let i = 0; i < 3; i++) {
+      const state = await ctx.page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+      if (!state) break;
+      states.push(state);
+      if (state.page === 3 || state.nextDisabled) break;
+      await clickPickerPage(ctx.page,
+        'main ' + PICKER_SEL + ' ' + NEXT_SEL, state);
+    }
+    return geometryFindings(pickerPageGeometryViolations(states)
+      .filter((v) => kinds.includes(v.kind)));
+  }
+  const walk = await pickerPageAudit(ctx);
+  const geometry = [walk.forward.states[0],
+    ...walk.forward.states.slice(1), ...walk.backward.states];
+  return geometryFindings(pickerPageGeometryViolations(geometry)
+    .filter((v) => kinds.includes(v.kind)));
+}
+
+async function runPickerSelection(page, width) {
+  const sel = 'main ' + PICKER_SEL;
+  const expected = await pickerProjectIds(page);
+  const out = [];
+  if (expected.length < 2) return out;
+  const target = expected[expected.length - 1];
+  let found = false;
+  for (let i = 0; i < expected.length; i++) {
+    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    if (state.ids.includes(target)) {
+      found = true;
+      break;
+    }
+    if (state.nextDisabled) break;
+    await clickPickerPage(page, sel + ' ' + NEXT_SEL, state);
+  }
+  if (!found) {
+    return [{ upper: `selected project at ${width}px`,
+      lower: 'last measured project never appears', gap: 0 }];
+  }
+  await page.$$eval(sel + ' > .pp-proj', (chips, id) => {
+    chips.find((chip) => chip.dataset.projectId === id)?.click();
+  }, target);
+  await page.waitForTimeout(400);
+  for (let i = 0; i < expected.length; i++) {
+    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    if (state.previousDisabled) break;
+    await clickPickerPage(page, sel + ' ' + PREV_SEL, state);
+  }
+  const off = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+  const offBad = !off.jumpVisible || !off.pagerVisible
+    || off.overflow || off.chipRight > off.right + 1
+    || off.pagerLeft < off.left - 1 || off.pagerRight > off.right + 1;
+  if (offBad) {
+    out.push({ upper: `off-page selected jump fits at ${width}px`,
+      lower: `jump=${off.jumpVisible} pager=[${off.pagerLeft},${off.pagerRight}]`
+        + ` strip=[${off.left},${off.right}] scroll=${off.overflow}`,
+      gap: Math.max(off.pagerRight - off.right, off.overflow ? 1 : 0) });
+  } else {
+    await page.click(sel + ' .pp-pager .pp-jump');
+    await page.waitForTimeout(400);
+    const on = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    if (!on.activeIds.includes(target) || on.jumpVisible
+      || !on.pagerVisible || on.overflow || on.chipRight > on.right + 1
+      || Math.abs(on.pagerLeft - off.pagerLeft) > 1
+      || Math.abs(on.pagerWidth - off.pagerWidth) > 1
+      || Math.abs(on.jumpWidth - off.jumpWidth) > 1) {
+      out.push({ upper: `jump reaches and fits selected project at ${width}px`,
+        lower: `selected=${on.activeIds.includes(target)} pager x `
+          + `${off.pagerLeft}->${on.pagerLeft}, jump width `
+          + `${off.jumpWidth}->${on.jumpWidth}`,
+        gap: on.pagerLeft - off.pagerLeft });
+    }
+  }
+  await page.click(sel + ' > .pp-all');
+  await page.waitForTimeout(300);
+  for (let i = 0; i < expected.length; i++) {
+    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    if (state.previousDisabled) break;
+    await clickPickerPage(page, sel + ' ' + PREV_SEL, state);
+  }
+  return out;
+}
 
 // The unseeded loop runs every rule on ONE shared page per width:
 // a rule that changes runner state (viewport size, the picker's page)
@@ -1277,117 +1689,60 @@ export const RULES = [
     description: 'every project page fits its chips and keeps the pager'
       + ' fully visible at one position (#960)',
     seed: seedPickerPagerShift,
+    run: runPickerPageFit,
+  },
+  {
+    id: 'project-picker-pages-complete',
+    description: 'forward and backward page walks show every project once'
+      + ' and every nonempty list page has a chip (#960)',
+    seed: seedPickerEmptyLaterPage,
     run: async (ctx) => {
-      const out = [];
-      const nextSel = 'main .project-picker[data-picker="projects"]'
-        + ' ' + NEXT_SEL;
-      const read = async (pageNo, anchor) => {
-        const p = await ctx.page.evaluate((sel) => {
-          const strip = document.querySelector(sel);
-          if (!strip) return null;
-          const box = strip.getBoundingClientRect();
-          const chips = [...strip.children]
-            .filter((el) => el.classList.contains('pp-proj'))
-            .map((el) => el.getBoundingClientRect());
-          const pager = strip.querySelector('.pp-pager');
-          const pagerBox = pager ? pager.getBoundingClientRect() : null;
-          const count = strip.querySelector('.pp-count');
-          const jump = pager && pager.querySelector('.pp-jump');
-          const next = strip.querySelector(
-            '.pp-nav[title="Next page"]');
-          return {
-            right: box.right,
-            left: box.left,
-            overflow: strip.scrollWidth > strip.clientWidth,
-            chipRight: chips.reduce((n, r) => Math.max(n, r.right), 0),
-            pagerLeft: pagerBox ? pagerBox.left : null,
-            pagerRight: pagerBox ? pagerBox.right : null,
-            pagerWidth: pagerBox ? pagerBox.width : null,
-            count: count ? count.textContent : null,
-            countWidth: count ? count.getBoundingClientRect().width : null,
-            navWidths: pager ? [...pager.querySelectorAll('.pp-nav')]
-              .map((el) => el.getBoundingClientRect().width) : [],
-            jumpWidth: jump ? jump.getBoundingClientRect().width : null,
-            previousDisabled: strip.querySelector(
-              '.pp-nav[title="Previous page"]')?.disabled ?? true,
-            nextDisabled: !next || next.disabled,
-          };
-        }, PICKER_SEL);
-        if (!p) {
-          out.push({ upper: `picker page ${pageNo}`,
-            lower: 'strip missing', gap: 0 });
-          return null;
+      if (ctx.seeded) {
+        for (let i = 0; i < 3; i++) {
+          const state = await ctx.page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+          if (!state || state.page === 3 || state.nextDisabled) {
+            return state && state.page === 3 && !state.ids.length
+              ? [{ upper: 'page 3 is nonempty',
+                lower: 'later project page has no visible chip', gap: 0 }]
+              : [];
+          }
+          await clickPickerPage(ctx.page,
+            'main ' + PICKER_SEL + ' ' + NEXT_SEL, state);
         }
-        if (p.overflow || p.chipRight > p.right + 1) {
-          out.push({ upper: `picker page ${pageNo} fits inside the strip`,
-            lower: `chip or horizontal overflow reaches ${p.chipRight}px`
-              + ` past ${p.right}px`,
-            gap: Math.max(p.chipRight - p.right,
-              p.overflow ? 1 : 0) });
-        }
-        if (p.pagerLeft == null || p.pagerWidth <= 0
-          || p.pagerLeft < p.left - 1
-          || p.pagerRight > p.right + 1) {
-          out.push({ upper: `picker page ${pageNo} keeps its pager visible`,
-            lower: 'pager missing or extends past the strip', gap: 0 });
-        } else if (anchor != null
-          && Math.abs(p.pagerLeft - anchor.pagerLeft) > 1) {
-          out.push({ upper: `pager x=${anchor.pagerLeft}px on page 1`,
-            lower: `pager x=${p.pagerLeft}px, width ${p.pagerWidth}px`
-              + `, count ${p.count} (${p.countWidth}px), nav `
-              + `${p.navWidths.join('/')}px, jump ${p.jumpWidth}`
-              + ` on page ${pageNo}`,
-            gap: p.pagerLeft - anchor.pagerLeft });
-        }
-        return p;
-      };
-      let anchor = null;
-      let complete = false;
-      for (let pageNo = 1; pageNo <= 100; pageNo++) {
-        const p = await read(pageNo, anchor);
-        if (!p) break;
-        if (pageNo === 1) anchor = p;
-        if (p.nextDisabled) {
-          complete = true;
-          break;
-        }
-        await ctx.page.click(nextSel);
-        await ctx.page.waitForTimeout(250);
+        return [];
       }
-      if (!complete) {
-        out.push({ upper: 'Next disables after the last picker page',
-          lower: 'page walk exceeded 100 pages', gap: 100 });
-      }
-      let returned = false;
-      for (let remaining = 100; remaining > 0; remaining--) {
-        const p = await read('backward', anchor);
-        if (!p) break;
-        if (p.previousDisabled) {
-          returned = true;
-          break;
-        }
-        const current = await ctx.page.$eval(
-          'main .project-picker[data-picker="projects"] .pp-count',
-          (el) => el.textContent);
-        await ctx.page.click(
-          'main .project-picker[data-picker="projects"]'
-          + ' .pp-nav[title="Previous page"]');
-        await ctx.page.waitForTimeout(250);
-        const previous = await ctx.page.$eval(
-          'main .project-picker[data-picker="projects"] .pp-count',
-          (el) => el.textContent);
-        if (previous === current) {
-          out.push({ upper: 'Previous reaches the prior picker page',
-            lower: `counter stuck at ${current}`, gap: 0 });
-          break;
-        }
-      }
-      if (!returned) {
-        out.push({ upper: 'Previous disables on the first picker page',
-          lower: 'page walk exceeded 100 pages', gap: 100 });
-      }
-      return out;
+      const walk = await pickerPageAudit(ctx);
+      return walkFindings(walk.facts.filter((f) => [
+        'empty-page', 'project-order', 'sequence', 'partition',
+        'completion',
+      ].includes(f.kind)));
     },
+  },
+  {
+    id: 'project-picker-pages-height',
+    description: 'every project page keeps the strip height of page 1 (#960)',
+    seed: seedPickerLaterHeight,
+    run: async (ctx) => runPickerPageGeometry(ctx, ['height']),
+  },
+  {
+    id: 'project-picker-pages-position',
+    description: 'every project page keeps the strip position and seat of'
+      + ' page 1 (#960)',
+    seed: seedPickerLaterPosition,
+    run: async (ctx) => runPickerPageGeometry(ctx, ['position', 'seat']),
+  },
+  {
+    id: 'project-picker-pages-seat',
+    description: 'content below the picker keeps its seat on every page (#960)',
+    seed: seedPickerLaterSeat,
+    run: async (ctx) => runPickerPageGeometry(ctx, ['seat']),
+  },
+  {
+    id: 'project-picker-selected-fit',
+    description: 'the off-page selected-project jump remains reserved and'
+      + ' fits both before and after jumping (#960)',
+    seed: seedPickerSelectedOverflow,
+    run: async (ctx) => runPickerSelection(ctx.page, ctx.width),
   },
   {
     id: 'project-picker-scrollbar',
@@ -1849,7 +2204,9 @@ export async function runRules(ruleFilter) {
         await settle(page);
         const seeded = await rule.seed(page);
         await page.waitForTimeout(300);
-        const violations = await rule.run(ruleCtx);
+        const seededCtx = { ...ruleCtx, seeded: true };
+        delete seededCtx.pickerPageAudit;
+        const violations = await rule.run(seededCtx);
         if (!violations.length) {
           failures.push(`${rule.id}: width ${width}: seeded red case`
             + ` (${JSON.stringify(seeded)}) fired nothing — the guard is`

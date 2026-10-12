@@ -373,6 +373,29 @@ def test_picker_paging_math_survives_the_fit():
         "ProjectPicker still derives the jump from a fixed page size")
 
 
+def test_picker_exposes_project_ids_for_full_walk_verification():
+    body = _picker_body()
+    assert body.count("data-project-id={p.project_id}") == 2, (
+        "visible and measured chips must both expose the same project id")
+
+
+def test_pinched_chip_and_jump_have_responsive_minimum_geometry():
+    body = _picker_body()
+    assert "padding: '4px 0'" in body, (
+        "the pinched chip keeps the normal 24px padding/border floor")
+    css = _css()
+    strip = css[css.index(".project-picker {"):]
+    strip = strip[:strip.index("}")]
+    assert "container-type: inline-size" in strip, (
+        "responsive jump sizing is not relative to the measured picker strip")
+    jump = css[css.index(".pp-jump {"):]
+    jump = jump[:jump.index("}")]
+    assert "100cqw" in jump and "max(14px" in jump, (
+        "the selected-project jump lacks a strip-relative minimum width")
+    assert "@media(max-width:260px)" in css and ".pp-nav{padding:4px 5px}" in css, (
+        "the pinched pager controls keep their full-width padding")
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_pack_pages_measures_each_suffix_and_floors_a_pinched_page():
     """Every greedy page starts at the next unplaced chip. When no full

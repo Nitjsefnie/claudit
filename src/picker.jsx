@@ -45,10 +45,10 @@ function ProjectPicker({ projects, active, onChange }) {
       >All</button>
       {shown.map(p => (
         <button
-          key={p.project_id}
+          key={p.project_id} data-project-id={p.project_id}
           className={'pp-btn pp-proj' + (active === p.project_id ? ' on' : '')}
           style={pinched ? {
-            flex: '0 1 auto', minWidth: 0,
+            flex: '0 1 auto', minWidth: 0, padding: '4px 0',
             overflow: 'hidden', textOverflow: 'ellipsis',
           } : undefined}
           onClick={() => onChange(p.project_id)}
@@ -95,7 +95,7 @@ function ProjectPicker({ projects, active, onChange }) {
         }}
       >
         {list.map(p => (
-          <button key={p.project_id} className="pp-btn pp-proj" tabIndex={-1}>
+          <button key={p.project_id} data-project-id={p.project_id} className="pp-btn pp-proj" tabIndex={-1}>
             {p.display_name}
           </button>
         ))}
