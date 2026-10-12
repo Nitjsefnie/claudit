@@ -7,14 +7,14 @@ crossed pylint's line budget.
 from __future__ import annotations
 
 import lzma
-import multiprocessing
+from multiprocessing import forkserver
 import os
 import signal
 import types
 import threading
 import time
+import warnings
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
 import pytest
@@ -28,6 +28,10 @@ from test_ingest import (  # pylint: disable=unused-import
 from backend import (api, app as app_mod, constants, db, events, ingest,
                      ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
+from tests.ingest_process_helpers import (
+    noop_parse as _noop_parse, worker_report as _worker_report,
+    server_report_parse,
+)
 
 #: How many transcripts the committed mirror holds, read from its tree
 #: (issue #503 grew it with the lane layout). A count written down here is
@@ -433,39 +437,47 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 
 # ------------------------------------------ parse-worker signal hygiene (#373)
 
-def _noop_parse(key, _sidecar_key=None, _etag=None, _size=None):
-    """A parse unit with no side effects, for pipeline plumbing tests."""
-    return {}
+def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
+    """Starting parse workers in the threaded service must be fork-safe."""
+    monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
+    monkeypatch.setattr(ingest_fetch, "persist_thread_count", lambda: 1)
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait)
+    thread.start()
+    persisted = []
+    try:
+        assert thread.is_alive()
+        obj = types.SimpleNamespace(key="claude/p/s/s.jsonl",
+                                    sidecar_key=None, etag="e", size=1)
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always", DeprecationWarning)
+            assert ingest_fetch.pipeline_pool(
+                [(obj, None, None)], "v", [], None, None, {}, set(), set(),
+                server_report_parse,
+                lambda _obj, _proj, parsed, *_args: persisted.append(parsed),
+                lambda: None) == (1, 0, 0)
+        assert not [str(w.message) for w in emitted
+                    if issubclass(w.category, DeprecationWarning)
+                    and "multi-threaded" in str(w.message)]
+        assert persisted[0]["threads"] == 1
+        assert persisted[0]["parent"] != os.getpid()
+        assert persisted[0]["method"] == "forkserver"
+    finally:
+        release.set()
+        thread.join(timeout=60)
 
 
-def _worker_report():
-    """Run inside the forked worker: its handlers and parent pid."""
-    return (signal.getsignal(signal.SIGTERM),
-            signal.getsignal(signal.SIGINT),
-            os.getppid())
-
-
-def _fork_pool(**kwargs):
-    """A one-worker fork pool with the production initializer wired."""
-    return ProcessPoolExecutor(
-        max_workers=1,
-        mp_context=multiprocessing.get_context("fork"),
-        initializer=ingest_fetch.parse_worker_init,
-        **kwargs)
-
-
-@pytest.mark.skipif(not hasattr(os, "fork"),
-                    reason="the parse pool is fork-based")
 def test_parse_worker_init_and_its_sigterm_defense():
-    """The #373 defense: a forked worker inherits uvicorn's flag-only
-    SIGTERM handler, so the initializer must restore SIG_DFL — and a
+    """The #373 defense: workers need default SIGTERM/SIGINT handlers,
+    so the initializer must restore SIG_DFL — and a
     cgroup stop must then kill the worker outright."""
-    with _fork_pool(initargs=(os.getpid(),)) as pool:
+    with ingest_fetch.parse_pool(1, os.getpid()) as pool:
         handler, int_handler, ppid = pool.submit(
             _worker_report).result(timeout=60)
         assert handler is signal.SIG_DFL
         assert int_handler is signal.SIG_DFL
-        assert ppid == os.getpid()
+        assert ppid == getattr(forkserver._forkserver, "_forkserver_pid")  # pylint: disable=protected-access
+        assert ppid != os.getpid()
         worker_pid = pool.submit(os.getpid).result(timeout=60)
         os.kill(worker_pid, signal.SIGTERM)
         deadline = time.monotonic() + 10
@@ -479,19 +491,15 @@ def test_parse_worker_init_and_its_sigterm_defense():
             pytest.fail("a parse worker survived SIGTERM")
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"),
-                    reason="the parse pool is fork-based")
 def test_parse_worker_exits_when_the_parent_is_already_gone():
-    """PDEATHSIG is armed after fork, so a parent dying in that window
+    """PDEATHSIG is armed after process start, so a parent dying in that window
     would leave an orphan; the initializer's ppid check closes the race by
-    exiting any worker whose parent is not the one that forked it."""
-    with _fork_pool(initargs=(-1,)) as pool:
+    exiting any worker whose parent is not the one that started it."""
+    with ingest_fetch.parse_pool(1, -1) as pool:
         with pytest.raises(BrokenProcessPool):
             pool.submit(int).result(timeout=60)
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"),
-                    reason="the parse pool is fork-based")
 def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
                                                monkeypatch):
     """An abort must drop the QUEUED work, not only stop taking new chunks:
@@ -572,7 +580,7 @@ def test_parse_wire_books_child_stages(monkeypatch):
     child work into an accumulator (inert without one), parse_wire
     plants it for the timed child and returns (parsed, stages), the
     sidecar fetch booking beside fetch/parse. Fakes throughout — the
-    real fork pool is the pool TIMING-line test's."""
+    real process pool is the pool TIMING-line test's."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
 
     def fetch(key):

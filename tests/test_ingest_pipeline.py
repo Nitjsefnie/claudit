@@ -1,12 +1,13 @@
 """The process-pool pipeline (issue #309): knob parsing, equality with
 the in-process pipeline over the mini mirror, and per-file persist
 failure isolation there."""
+from __future__ import annotations
 
 import logging
 import lzma
 import re
 import shutil
-import time
+from functools import partial
 
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture,
@@ -14,11 +15,12 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 from test_ingest import _FLAKY_KEY, _scalar, _snapshot
 
-from backend import db, ingest
+from backend import db, ingest, pricing, pricing_load
 from backend.ingest_fetch import VanishedObject
 from backend import timing as _timing
 
 from tests import mini_mirror
+from tests import ingest_process_helpers as child_units
 
 #: How many transcripts the committed mirror holds, read from its
 #: tree (issue #503 grew it with the lane layout).
@@ -37,9 +39,9 @@ def test_parse_process_count_defaults_and_clamps(monkeypatch):
 
 
 def test_process_pool_ingest_matches_sequential_exactly(
-        fresh_db, mini_r2_env, monkeypatch):
+        fresh_db, mini_r2_env, monkeypatch, tmp_path):
     """The process-pool path must land exactly what the in-process path
-    lands: parse runs in forked children and persist in pool threads, but
+    lands: parse runs in forkserver children and persist in pool threads, but
     the per-file transaction, failure isolation, and derived state are the
     same — one run per path over the identical mirror, snapshots compared.
     """
@@ -57,6 +59,14 @@ def test_process_pool_ingest_matches_sequential_exactly(
 
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(cache_dir))
+    # Share runtime-bound fixtures too (the suite bench's bounded rates),
+    # rather than letting a fresh child reload different pricing data.
+    tables = {name: getattr(pricing, name)
+              for name in pricing_load.RateTables.__annotations__}
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
+        child_units.priced_parse, tables=tables))
     summary = ingest.run_ingest("test-proc")
     parallel = _snapshot()
 
@@ -67,6 +77,8 @@ def test_process_pool_ingest_matches_sequential_exactly(
     assert len(sequential[1]) > 0, "fixture produced no records — vacuous test"
     assert summary["error"] is None
     assert summary["failed"] == 0
+    assert any(p.is_file() for p in cache_dir.rglob("*")), (
+        "process fetches did not populate the cache")
 
 
 def test_process_pool_persists_survive_a_per_file_failure(
@@ -100,19 +112,13 @@ def test_process_pool_persists_survive_a_per_file_failure(
 
 def test_process_pool_books_a_parse_failure_per_file(
         fresh_db, mini_r2_env, monkeypatch):
-    """A fetch failure in a forked child books its own file only; the run
+    """A fetch failure in a forkserver child books its own file only; the run
     answers without a fatal error and every other file still lands.
     """
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
-    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
-
-    def flaky_fetch(key):
-        if key.endswith(_FLAKY_KEY):
-            raise OSError("connection dropped")
-        return real_fetch(key)
-
-    monkeypatch.setattr(ingest, "_fetch_with_retry", flaky_fetch)
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
+        child_units.fetch_failure, failed_key=_FLAKY_KEY, error=OSError))
     summary = ingest.run_ingest("test-proc-parse-fail")
 
     assert summary["failed"] == 1
@@ -129,14 +135,8 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
     """
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
-    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
-
-    def vanishing_fetch(key):
-        if key.endswith(_FLAKY_KEY):
-            raise VanishedObject(key)
-        return real_fetch(key)
-
-    monkeypatch.setattr(ingest, "_fetch_with_retry", vanishing_fetch)
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
+        child_units.fetch_failure, failed_key=_FLAKY_KEY, error=VanishedObject))
     summary = ingest.run_ingest("test-proc-vanished")
 
     assert summary["error"] is None
@@ -159,10 +159,7 @@ def test_process_pool_a_broken_fetch_is_fatal(
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
 
-    def broken_get_object(_key):
-        raise TypeError("no client at all")
-
-    monkeypatch.setattr(ingest.r2, "get_object", broken_get_object)
+    monkeypatch.setattr(ingest, "_fetch_and_parse", child_units.fatal_fetch)
     summary = ingest.run_ingest("test-proc-fatal")
 
     assert summary["aborted"] is False
@@ -198,6 +195,7 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-timing")
@@ -246,6 +244,7 @@ def test_pool_timing_parts_are_disjoint_slices(
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     # The run's own mirror copy (the committed fixture stays plain,
     # SV-FIXTURE-SIZE): one project, and the .xz twin of its transcript.
@@ -259,17 +258,9 @@ def test_pool_timing_parts_are_disjoint_slices(
     payload = raw * (1024 * 1024 // len(raw))
     (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(
         lzma.compress(payload))
-    # A deterministic inflate wall: pad the decompressor the forked child
-    # runs (the patch rides the fork) with a sleep — no CPU spent, and
-    # child_decompress books a controlled ~50ms.
-    real_decompress = lzma.decompress
-
-    def _padded_decompress(data):
-        out = real_decompress(data)
-        time.sleep(0.05)
-        return out
-
-    monkeypatch.setattr(lzma, "decompress", _padded_decompress)
+    # The pickled parse unit pads the child's decompressor with a sleep:
+    # no CPU spent, and child_decompress books a controlled ~50ms.
+    monkeypatch.setattr(ingest, "_fetch_and_parse", child_units.padded_inflate)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-parts")
     assert summary["error"] is None
