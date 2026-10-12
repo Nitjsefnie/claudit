@@ -27,7 +27,7 @@ class _RunTiming:
     parse_processes: int = 1
     persist_threads: int = 1
     # Issue #662: the pool pipeline's fetch_parse parts, accumulated by
-    # pipeline_pool (child work summed across the forked children via the
+    # pipeline_pool (child work summed across the process workers via the
     # stages dict parse_wire returns, persist work via persist_seconds)
     # and emitted as mark_part breakdown figures beside the wall marks.
     wait_parse: float = 0.0
@@ -51,7 +51,7 @@ def _record_phase(label: str, seconds: float) -> None:
 
 
 #: The pool pipeline's fetch_parse part marks, in emission order (issue
-#: #662) — child work summed across the forked children, the summed
+#: #662) — child work summed across the process workers, the summed
 #: persist work, and the parent's two blocking points.
 FETCH_PARSE_PART_MARKS = (
     "child_fetch", "child_decompress", "child_parse", "child_sidecar",

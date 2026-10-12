@@ -9,14 +9,12 @@ to keep its established call surface.
 from __future__ import annotations
 
 import logging
-import multiprocessing
 import os
 import threading
 import time
 import lzma
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures.process import ProcessPoolExecutor
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -32,8 +30,8 @@ from backend.ingest_progress import _set_progress
 from backend.ingest_timing import (
     _RUN_TIMING, _RunTiming, _emit_fetch_parse_parts,
 )
-from backend.ingest_workers import (
-    parse_process_count, parse_worker_init, persist_thread_count,
+from backend.ingest_workers import (  # pylint: disable=unused-import
+    parse_pool, parse_process_count, parse_worker_init, persist_thread_count,
     worker_count,
 )
 
@@ -45,8 +43,8 @@ CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
 # The pool child's per-file stage accumulator (issue #662): parse_wire
 # plants a dict here before calling the parse unit, and fetch_and_parse
 # writes this file's child work into it — the channel is per-thread, so
-# the parse_call seam stays a plain (key, sidecar_key) callable and keeps
-# resolving the patched `ingest` seams inside the forked child. The
+# the parse_call seam stays a picklable module-level callable. Each
+# worker resolves it from the forkserver's preloaded modules. The
 # parent's pipeline_pool sums the returned stages into _RunTiming.
 _STAGES = threading.local()
 
@@ -114,9 +112,8 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
         stages = getattr(_STAGES, "stages", None)
     fetch_started = None
     if stages is not None:
-        # A forked child inherits the forking thread's threadlocal copy,
-        # stamp included: drop anything inherited so the first timed
-        # file's decompress booking is this child's own work (M-2).
+        # Drop any stamp left by an earlier fetch on this thread, so
+        # this file's decompress booking is only its own work (M-2).
         r2.pop_decompress_seconds()
         fetch_started = time.perf_counter()
     data = (fetch(key, etag, size)
@@ -216,7 +213,7 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
     Two pipelines, chosen by parse_process_count(): 1 = the in-process
     thread pipeline (the GIL serialises the pure-Python parse; the test
     suite pins this), >1 = the process pool (the parse is real CPU work,
-    so forked children scale with cores where threads actively regress —
+    so process workers scale with cores where threads actively regress —
     measured 1.63x slower than serial at 16 threads). Both share the
     unit of work, the failure booking, and the per-file transaction
     boundary; the equality test pins their DB state together. Chunking
@@ -282,9 +279,9 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
 def parse_wire(item: tuple, parse_call: Callable,
                timed: bool = False) -> dict | tuple[dict, dict[str, float]]:
     """The unit submitted to the parse process pool: fetch and parse one
-    wire (and its sidecar) in a forked child. `parse_call` is pickled with
-    the item (a module-level attr of an importable module — the fork
-    inherits any patch in force); the child touches no database state.
+    wire (and its sidecar) in a forkserver child. `parse_call` is pickled with
+    the item (a module-level attr of an importable module); the child
+    inherits preloaded modules and touches no database state.
 
     With `timed` (the run carries a timing context, issue #662), the unit
     plants the stage accumulator the parse unit's fetch_and_parse writes
@@ -312,7 +309,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                   parse_call: Callable, persist_call: Callable,
                   check_shutdown: Callable) -> tuple[int, int, int]:
     # pylint: disable=too-many-arguments,too-many-positional-arguments
-    """The process-pool pipeline: forked children fetch+parse, a bounded
+    """The process-pool pipeline: forkserver children fetch+parse, a bounded
     pool of threads persists. Chunks still bound memory; each chunk's
     persist drain runs while the NEXT chunk's parses execute, so neither
     stage idles on the other and no thread is a serial floor.
@@ -369,17 +366,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
             if current is not None and drain_started is not None:
                 current.wait_persist += time.perf_counter() - drain_started
 
-    # fork is pinned: children inherit the caller's patched seams (the
-    # property the failure-injection tests rely on) and the pickled parse
-    # unit resolves module attributes the same way the parent would. The
-    # forked child can log (the retry warning); a fork of a multithreaded
-    # parent carries a small deadlock risk on an inherited logging lock,
-    # accepted here because children log at most a few lines per run.
-    with ProcessPoolExecutor(
-            max_workers=processes,
-            mp_context=multiprocessing.get_context("fork"),
-            initializer=parse_worker_init,
-            initargs=(os.getpid(),)) as parse_pool, \
+    with parse_pool(processes, os.getpid()) as pool, \
             ThreadPoolExecutor(max_workers=persist_workers) as persist_pool:
         # The previous chunk's (persist futures, stored map), drained while
         # this chunk's parses run — the drain costs no parse throughput.
@@ -397,7 +384,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                 stored_by_key = {o.key: stored for o, _p, stored in items}
                 persist_futures: dict = {}
                 parse_futures = {
-                    parse_pool.submit(parse_wire, it, parse_call, timed): it
+                    pool.submit(parse_wire, it, parse_call, timed): it
                     for it in items}
                 if pending is not None:
                     drain(*pending)
@@ -445,7 +432,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
             # stop behind their current items. The workers themselves die
             # on the service's stop (parse_worker_init); the run closes
             # aborted and the next run converges.
-            parse_pool.shutdown(wait=False, cancel_futures=True)
+            pool.shutdown(wait=False, cancel_futures=True)
             persist_pool.shutdown(wait=False, cancel_futures=True)
             raise
     return inserted, reparsed, vanished

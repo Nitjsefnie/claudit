@@ -1,14 +1,44 @@
-"""Worker concurrency knobs and fork hygiene for the ingest pipelines.
+"""Worker concurrency knobs and process hygiene for the ingest pipelines.
 
 Split out of `ingest_fetch` for the module-size ratchet; `ingest_fetch`
 re-exports these names so the established call surface — `ingest`'s
 seam re-exports and the tests' monkeypatch seams — keeps resolving.
-Stdlib-only, so `ingest_fetch` may import this module freely.
+Stdlib-only at import, so `ingest_fetch` may import this module freely.
 """
 from __future__ import annotations
 
 import os
 import signal
+import multiprocessing
+from multiprocessing import forkserver
+from concurrent.futures import ProcessPoolExecutor
+
+# CPython's forkserver handles identify the OS parent and its alive pipe.
+# pylint: disable=protected-access
+_PRELOAD_MODULES = ("backend.ingest_forkserver", "backend.ingest")
+
+
+def _worker_environment() -> dict[str, str]:
+    return {key: value for key, value in os.environ.copy().items()
+            if key.startswith("R2_") or key == "CLAUDIT_TIMING"}
+
+
+def parse_pool(max_workers: int, parent_pid: int) -> ProcessPoolExecutor:
+    """Fork from a preloaded, single-threaded server reused across pools.
+
+    The service's current R2/timing configuration travels in initargs,
+    not the server's environment snapshot. CPython's private server PID
+    identifies the actual OS parent for the #373 orphan race check.
+    """
+    context = multiprocessing.get_context("forkserver")
+    context.set_forkserver_preload(list(_PRELOAD_MODULES))
+    forkserver.ensure_running()
+    return ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=context,
+        initializer=parse_worker_init,
+        initargs=(getattr(forkserver._forkserver, "_forkserver_pid"), parent_pid,
+                  _worker_environment()))
 
 from backend.env_config import getenv
 
@@ -37,7 +67,7 @@ def parse_process_count() -> int:
 
     The parse is pure-Python CPU work, so the in-process thread pool is
     GIL-serialised — and measured on the private restore (issue #309), 16
-    threads regressed parse wall 1.63x against a serial run. Forked
+    threads regressed parse wall 1.63x against a serial run. Process
     children get real parallelism. Unset or unparseable -> auto =
     min(8, max(1, cpu//2)); an explicit integer is honoured, clamped to
     >= 1; CLAUDIT_INGEST_PARSE_PROCESSES=1 is the in-process pipeline.
@@ -69,23 +99,24 @@ def persist_thread_count() -> int:
         return 4
 
 
-def parse_worker_init(parent_pid: int) -> None:
-    """Keep a forked parse worker from outliving the service (issue #373).
+def parse_worker_init(parent_pid: int, service_pid: int | None = None,
+                      environment: dict[str, str] | None = None) -> None:
+    """Keep a parse worker from outliving its server or service (#373).
 
-    A fork inherits uvicorn's SIGTERM handler, which only sets a flag the
-    worker never checks — so a worker ignored SIGTERM and survived the
-    service, holding its port, database sessions and the ingest advisory
-    lock until killed by hand. Three defences, each best-effort so a
-    worker on a platform missing one still parses:
+    Workers reset inherited handlers, arm PDEATHSIG on the forkserver,
+    and verify both the OS parent and multiprocessing's service sentinel.
+    Closing the inherited server-alive pipe makes service death exit the
+    server, which kills its workers: parse units never create subprocesses
+    and need no forkserver client descriptor of their own.
 
     - SIGTERM/SIGINT restored to SIG_DFL: a systemd control-group stop
       (SIGTERM to the cgroup) kills the worker outright;
     - the parent-death signal (prctl PR_SET_PDEATHSIG, SIGKILL): the
-      worker dies with the process even when nothing sent it a SIGTERM
+      worker dies with the server even when nothing sent it a SIGTERM
       (a bare uvicorn whose supervisor kills the main PID only);
-    - the ppid check: PDEATHSIG is armed after fork, so a parent that
+    - the ppid check: PDEATHSIG is armed after process start, so a parent that
       died inside that window left an orphan — a worker whose parent is
-      not the one that forked it exits immediately.
+      not the one that started it exits immediately.
     """
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -101,3 +132,21 @@ def parse_worker_init(parent_pid: int) -> None:
         pass
     if os.getppid() != parent_pid:
         os._exit(0)
+    if service_pid is not None:
+        service = multiprocessing.parent_process()
+        if service is None or service.pid != service_pid or not service.is_alive():
+            os._exit(0)
+        # CPython passes this write end to every client, workers included.
+        # Leaving it open would keep the server alive after service SIGKILL.
+        alive_fd = getattr(forkserver._forkserver, "_forkserver_alive_fd")
+        if alive_fd is not None:
+            os.close(alive_fd)
+        setattr(forkserver._forkserver, "_forkserver_alive_fd", None)
+    if environment is not None:
+        for key in list(os.environ):
+            if key.startswith("R2_") or key == "CLAUDIT_TIMING":
+                os.environ.pop(key)
+        os.environ.update(environment)
+        from backend import timing  # pylint: disable=import-outside-toplevel
+        timing.TIMING_ON = os.environ.get("CLAUDIT_TIMING", "").lower() not in (
+            "", "0", "false", "no")
