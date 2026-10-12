@@ -49,6 +49,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 from backend.guest_login import GUEST_LOGIN_ENV
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +173,13 @@ def test_each_doc_names_both_env_vars_in_its_setup_section():
     for path in (ROOT / "backend" / ".env.example",
                  ROOT / "README.md", ROOT / "compose.yaml"):
         assert GUEST_LOGIN_ENV in path.read_text(encoding="utf-8"), path.name
+
+
+def test_compose_passes_through_guest_login_setting() -> None:
+    """A comment cannot stand in for the app's configurable guest setting."""
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    environment = compose["services"]["app"]["environment"]
+    assert environment.get(GUEST_LOGIN_ENV) == "${GUEST_LOGIN:-1}"
 
 
 def test_the_three_docs_setup_steps_are_identical():
