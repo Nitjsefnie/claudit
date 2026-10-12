@@ -114,6 +114,26 @@ def test_generation_s_no_id():
     assert record["output_tokens_per_s"] is None
 
 
+def test_generation_s_idless_line_keeps_anchor():
+    rows = [loads(line) for line in (FIX / "generation_s_consumed_anchor.jsonl").read_bytes().splitlines()]
+    rows[1]["message"].pop("id")
+    first, second = parse.parse_file("k/sess/sess.jsonl", b"\n".join(map(dumps, rows)))["records"]
+    assert first["generation_s"] is None
+    assert second["generation_s"] == 5
+    assert second["output_tokens_per_s"] == 2
+
+
+@pytest.mark.parametrize("user_message", [{"content": "go"}, None])
+def test_generation_s_user_line_without_role(user_message):
+    rows = [loads(line) for line in (FIX / "generation_s_no_id.jsonl").read_bytes().splitlines()]
+    rows[0]["message"] = user_message
+    rows[-1]["message"]["id"] = "m1"
+    record, = parse.parse_file("k/sess/sess.jsonl", b"\n".join(map(dumps, rows)))["records"]
+    assert record["generation_s"] == 2
+    assert record["output_tokens_per_s"] == 5
+    assert record["reply_latency_s"] is None
+
+
 @pytest.mark.parametrize("stamp,expected", [
     ("2026-06-23T11:00:00Z", 3600), ("2026-06-23T11:00:00.001Z", None),
     ("2026-06-23T10:00:00Z", None), ("2026-06-23T09:59:59Z", None),
@@ -128,10 +148,11 @@ def test_generation_s_valid_duration(stamp, expected):
     assert record["output_tokens_per_s"] == (10 / 3600 if expected else None)
 
 
-def test_generation_speed_collection_off(monkeypatch):
-    enabled = _parse_fixture("generation_s_last_line")
+@pytest.mark.parametrize("name", ["generation_s_last_line", "non_object_nested_claude"])
+def test_generation_speed_collection_off(monkeypatch, name):
+    enabled = _parse_fixture(name)
     monkeypatch.setattr(collect_generation_speed, "COLLECT_GENERATION_SPEED", False)
-    disabled = _parse_fixture("generation_s_last_line")
+    disabled = _parse_fixture(name)
     assert enabled["records"][0]["generation_s"] == 9
     for record in disabled["records"]:
         assert record["generation_s"] is None
@@ -172,18 +193,21 @@ def test_generation_speed_lanes_null(name):
 def test_replayed_injected_latency(list_text):
     record, = _parse_fixture("replayed_injected_latency", list_text=list_text)["records"]
     assert record["reply_latency_s"] == 10
+    assert record["generation_s"] == 10
 
 
 @pytest.mark.parametrize("list_text", [False, True])
 def test_whitespace_injected_latency(list_text):
     record, = _parse_fixture("whitespace_injected_latency", list_text=list_text)["records"]
     assert record["reply_latency_s"] == 10
+    assert record["generation_s"] == 2
 
 
 @pytest.mark.parametrize("list_text", [False, True])
 def test_interrupt_injected_latency(list_text):
     record, = _parse_fixture("interrupt_injected_latency", list_text=list_text)["records"]
     assert record["reply_latency_s"] is None
+    assert record["generation_s"] == 2
 
 
 @pytest.fixture(name="fresh_db")

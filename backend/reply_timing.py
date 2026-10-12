@@ -39,10 +39,18 @@ class GenerationTiming:
         self._anchor: datetime | None = None
         self._failure_epoch = 0
         self.requests: dict[str, _GenerationSpan] = {}
+        self._user_uuids: dict[str, int] = {}
 
     def anchor(self, ts_str: str) -> None:
         """A user line supersedes the anchor, even with no valid timestamp."""
         self._anchor = _to_dt(ts_str)
+
+    def observe_user(self, obj: dict, line_num: int) -> None:
+        """Anchor every user line's content shape, except earlier UUID replays."""
+        uuid = obj.get("uuid")
+        if uuid and self._user_uuids.setdefault(uuid, line_num) != line_num:
+            return
+        self.anchor(obj.get("timestamp", "") or "")
 
     def fail(self) -> None:
         """Clear the pending anchor and mark a boundary for open spans."""

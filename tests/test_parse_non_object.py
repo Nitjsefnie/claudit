@@ -149,6 +149,12 @@ def test_backend_nested_non_object_maps_match_empty_lines(name):
     assert prompt_lines
     assert any(line < NESTED_FIXTURES[name][0] for line in prompt_lines)
     assert any(line > NESTED_FIXTURES[name][-1] for line in prompt_lines)
+    # Even a malformed user message anchors backend-only generation timing.
+    # All other parse output must match the same file with those lines absent.
+    for result in (actual, expected):
+        for record in result["records"]:
+            record.pop("generation_s")
+            record.pop("output_tokens_per_s")
     assert actual == expected
 
 
