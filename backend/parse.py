@@ -355,8 +355,7 @@ class _LineWalk:
             if mutate_anchor:
                 self.reply_timing.anchor(_to_dt(ts_str))
             return
-        # Same gate as the append inside, so prompt_count and prompt_ts
-        # stay index-aligned (issue #214).
+        # Keep prompt_count and prompt_ts index-aligned (issue #214).
         self._count_prompt(line_num, ts_str, mutate_anchor)
 
     def _count_prompt(self, line_num: int, ts_str: str,
@@ -409,7 +408,11 @@ class _LineWalk:
         return True
 
     def handle_user_line(self, obj: dict, msg: dict, line_num: int) -> None:
-        """One user-role record: replay detection, then the content walk."""
+        """One user line: generation anchor, then user-role content bookkeeping."""
+        if self.generation_timing and obj.get("type") == "user":
+            self.generation_timing.observe_user(obj, line_num)
+        if msg.get("role") != "user":
+            return
         uuid = obj.get("uuid") or ""
         is_replay = False
         if uuid:
@@ -422,8 +425,6 @@ class _LineWalk:
 
         content = msg.get("content")
         ts_str = obj.get("timestamp", "") or ""
-        if self.generation_timing and mutate_anchor and obj.get("type") == "user":
-            self.generation_timing.anchor(ts_str)
         if isinstance(content, str) and content.strip():
             self.handle_user_text(
                 content, line_num, ts_str, mutate_anchor=mutate_anchor
@@ -548,9 +549,7 @@ class _LineWalk:
 
     def _record_tool_uses(self, msg_tool_uses: list, req_id: str,
                           line_num: int, ts_str: str, model: str) -> None:
-        # Dedupe on tool_use.id (globally unique), never on first line of a
-        # request: Claude Code writes one line per content block, so 57-71%
-        # of tool_use blocks sit on a LATER line of the same requestId.
+        # Dedupe on tool_use.id, including later blocks of the same request.
         # Idless blocks fall back to (req, line, idx).
         for tu in msg_tool_uses:
             tu_key = tu["tool_use_id"] or f"{req_id}:{line_num}:{tu['idx']}"
@@ -684,7 +683,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
 
         msg = as_dict(obj.get("message"))
         role = msg.get("role")
-        if role == "user":
+        if role == "user" or (kind == "user" and walk.generation_timing):
             walk.handle_user_line(obj, msg, line_num)
         elif role == "assistant":
             walk.handle_assistant_line(obj, msg, line_num)
