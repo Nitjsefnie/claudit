@@ -815,7 +815,7 @@ async function seedPickerShift(page) {
 }
 
 // Seed for the after-paging overflow limb (#808): inject nothing up
-// front — arm a click listener that pushes two wide chips into the
+// front — arm a click listener that pushes wide chips into the
 // strip after every page turn, the shape of a pager whose later pages
 // overflow. The rule's own click detonates it.
 async function seedPickerOverflowAfterPaging(page) {
@@ -824,7 +824,7 @@ async function seedPickerOverflowAfterPaging(page) {
       const strip = document.querySelector(sel);
       if (!strip) return;
       const pager = strip.querySelector('.pp-pager');
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 12; i++) {
         const b = document.createElement('button');
         b.className = 'pp-btn pp-proj';
         b.textContent = `seeded-wide-chip-${i}`;
@@ -836,7 +836,22 @@ async function seedPickerOverflowAfterPaging(page) {
       setTimeout(inject, 50);
     };
     document.addEventListener('click', onTurn, true);
-    return { armed: 'two wide chips injected after every page turn' };
+    return { armed: 'wide chips injected after every page turn' };
+  }, PICKER_SEL);
+}
+
+// Seed for the pages-fit rule's pager-position limb: move only the pager
+// after the first page turn, leaving the strip and its chips untouched.
+async function seedPickerPagerShift(page) {
+  return page.evaluate((sel) => {
+    const onTurn = (e) => {
+      if (!e.target.closest('.pp-nav[title="Next page"]')) return;
+      const pager = document.querySelector(sel + ' .pp-pager');
+      if (pager) pager.style.transform = 'translateX(12px)';
+      document.removeEventListener('click', onTurn, true);
+    };
+    document.addEventListener('click', onTurn, true);
+    return { armed: 'pager shifts 12px after the next page turn' };
   }, PICKER_SEL);
 }
 
@@ -1256,6 +1271,123 @@ export const RULES = [
       await backToFirst(ctx.page);
       return [];
     }),
+  },
+  {
+    id: 'project-picker-pages-fit',
+    description: 'every project page fits its chips and keeps the pager'
+      + ' fully visible at one position (#960)',
+    seed: seedPickerPagerShift,
+    run: async (ctx) => {
+      const out = [];
+      const nextSel = 'main .project-picker[data-picker="projects"]'
+        + ' ' + NEXT_SEL;
+      const read = async (pageNo, anchor) => {
+        const p = await ctx.page.evaluate((sel) => {
+          const strip = document.querySelector(sel);
+          if (!strip) return null;
+          const box = strip.getBoundingClientRect();
+          const chips = [...strip.children]
+            .filter((el) => el.classList.contains('pp-proj'))
+            .map((el) => el.getBoundingClientRect());
+          const pager = strip.querySelector('.pp-pager');
+          const pagerBox = pager ? pager.getBoundingClientRect() : null;
+          const count = strip.querySelector('.pp-count');
+          const jump = pager && pager.querySelector('.pp-jump');
+          const next = strip.querySelector(
+            '.pp-nav[title="Next page"]');
+          return {
+            right: box.right,
+            left: box.left,
+            overflow: strip.scrollWidth > strip.clientWidth,
+            chipRight: chips.reduce((n, r) => Math.max(n, r.right), 0),
+            pagerLeft: pagerBox ? pagerBox.left : null,
+            pagerRight: pagerBox ? pagerBox.right : null,
+            pagerWidth: pagerBox ? pagerBox.width : null,
+            count: count ? count.textContent : null,
+            countWidth: count ? count.getBoundingClientRect().width : null,
+            navWidths: pager ? [...pager.querySelectorAll('.pp-nav')]
+              .map((el) => el.getBoundingClientRect().width) : [],
+            jumpWidth: jump ? jump.getBoundingClientRect().width : null,
+            previousDisabled: strip.querySelector(
+              '.pp-nav[title="Previous page"]')?.disabled ?? true,
+            nextDisabled: !next || next.disabled,
+          };
+        }, PICKER_SEL);
+        if (!p) {
+          out.push({ upper: `picker page ${pageNo}`,
+            lower: 'strip missing', gap: 0 });
+          return null;
+        }
+        if (p.overflow || p.chipRight > p.right + 1) {
+          out.push({ upper: `picker page ${pageNo} fits inside the strip`,
+            lower: `chip or horizontal overflow reaches ${p.chipRight}px`
+              + ` past ${p.right}px`,
+            gap: Math.max(p.chipRight - p.right,
+              p.overflow ? 1 : 0) });
+        }
+        if (p.pagerLeft == null || p.pagerWidth <= 0
+          || p.pagerLeft < p.left - 1
+          || p.pagerRight > p.right + 1) {
+          out.push({ upper: `picker page ${pageNo} keeps its pager visible`,
+            lower: 'pager missing or extends past the strip', gap: 0 });
+        } else if (anchor != null
+          && Math.abs(p.pagerLeft - anchor.pagerLeft) > 1) {
+          out.push({ upper: `pager x=${anchor.pagerLeft}px on page 1`,
+            lower: `pager x=${p.pagerLeft}px, width ${p.pagerWidth}px`
+              + `, count ${p.count} (${p.countWidth}px), nav `
+              + `${p.navWidths.join('/')}px, jump ${p.jumpWidth}`
+              + ` on page ${pageNo}`,
+            gap: p.pagerLeft - anchor.pagerLeft });
+        }
+        return p;
+      };
+      let anchor = null;
+      let complete = false;
+      for (let pageNo = 1; pageNo <= 100; pageNo++) {
+        const p = await read(pageNo, anchor);
+        if (!p) break;
+        if (pageNo === 1) anchor = p;
+        if (p.nextDisabled) {
+          complete = true;
+          break;
+        }
+        await ctx.page.click(nextSel);
+        await ctx.page.waitForTimeout(250);
+      }
+      if (!complete) {
+        out.push({ upper: 'Next disables after the last picker page',
+          lower: 'page walk exceeded 100 pages', gap: 100 });
+      }
+      let returned = false;
+      for (let remaining = 100; remaining > 0; remaining--) {
+        const p = await read('backward', anchor);
+        if (!p) break;
+        if (p.previousDisabled) {
+          returned = true;
+          break;
+        }
+        const current = await ctx.page.$eval(
+          'main .project-picker[data-picker="projects"] .pp-count',
+          (el) => el.textContent);
+        await ctx.page.click(
+          'main .project-picker[data-picker="projects"]'
+          + ' .pp-nav[title="Previous page"]');
+        await ctx.page.waitForTimeout(250);
+        const previous = await ctx.page.$eval(
+          'main .project-picker[data-picker="projects"] .pp-count',
+          (el) => el.textContent);
+        if (previous === current) {
+          out.push({ upper: 'Previous reaches the prior picker page',
+            lower: `counter stuck at ${current}`, gap: 0 });
+          break;
+        }
+      }
+      if (!returned) {
+        out.push({ upper: 'Previous disables on the first picker page',
+          lower: 'page walk exceeded 100 pages', gap: 100 });
+      }
+      return out;
+    },
   },
   {
     id: 'project-picker-scrollbar',

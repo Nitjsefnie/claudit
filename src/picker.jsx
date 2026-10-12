@@ -1,68 +1,36 @@
-// The dashboard's project picker strip: fit-computed pagination (#774).
-//
-// The maintainer ruling: show only the chips that fit the strip's current
-// width and page the rest through prev/next — no horizontal scrolling or
-// scrollbar remains, and the strip's height and position never move while
-// the page changes, the window resizes, or the user pages. The page size
-// is therefore measured, not fixed. The arithmetic and the strip read live
-// in src/picker-fit.js (plain JS, node-tested); this file owns the React
-// glue. The rendered half of the acceptance — overflow/scrollbar and
-// no-shift-while-paging-or-refitting, each proven red by a seeded case —
-// lives in scripts/ci/panel_layout_rules.mjs.
-//
-// It was extracted from app.jsx (issue #774): the file sat at its size
-// baseline and entries never rise, so the strip's new brain moved out
-// beside the other extracted panels.
+// Project picker React glue; measured page boundaries live in picker-pages.js.
 const { useState, useLayoutEffect, useRef } = React;
 
 function ProjectPicker({ projects, active, onChange }) {
   const stripRef = useRef(null);
   const [page, setPage] = useState(0);
-  const [perPage, setPerPage] = useState(null); // null = unfitted first render
+  const [ends, setEnds] = useState(null);
   const list = projects || [];
-  // The applied page size floors the measured fit at one chip (#807): a
-  // strip too narrow for any full chip still pages one project at a
-  // time — perPage 0 showed empty pages and made the jump's index / 0
-  // produce NaN. The floor lives HERE, not in computeFit, so the
-  // measured fit stays truthful (0 = room for none), and the pinched
-  // chip's shrink-to-fit style below is what keeps the forced page inside
-  // the strip: plain chips keep flex-shrink: 0, which is also the shape the
-  // rendered guard's red proof needs to overflow.
-  const size = perPage == null ? null : Math.max(1, perPage);
-  const pinched = perPage === 0;
-  const pageCount = size != null
-    ? Math.max(1, Math.ceil(list.length / size))
-    : (list.length || 1);
-  // Clamp rather than store a corrected page: a stale index would strand
-  // the user on a blank page with no chips to click their way out of.
+  const pageDigits = String(list.length || 1).length;
+  const pageCount = ends ? Math.max(1, ends.length) : (list.length || 1);
   const safePage = Math.min(page, pageCount - 1);
-  const shown = perPage == null
-    ? list
-    : list.slice(safePage * size, safePage * size + size);
-  // The active chip may live on another page. Nothing renders as `on` then
-  // — including "All" — so surface the selection instead of leaving the
-  // filtered dashboard looking unfiltered.
+  const end = ends ? Math.abs(ends[safePage]) : list.length;
+  const start = ends && safePage ? Math.abs(ends[safePage - 1]) : 0;
+  const shown = ends ? list.slice(start, end) : list;
+  const pinched = !!(ends && ends[safePage] < 0);
   const activeOffPage = active !== '' && !shown.some(p => p.project_id === active);
-  // One fit pass = measure the strip and its hidden full row, then apply.
-  // It runs in useLayoutEffect so every pass commits before the browser
-  // paints — the full row never paints and nothing below the strip moves.
-  // It re-runs per applied page size (the verify pass) and on the refit
-  // triggers; a stable number sets no state, so the loop settles.
   useLayoutEffect(() => {
     const strip = stripRef.current;
-    if (!strip || !window.pickerFit) return undefined;
+    if (!strip || !window.pickerPages) return undefined;
     let live = true;
     const apply = () => {
       if (!live) return;
-      const next = window.pickerFit.computeFit(strip);
-      if (next != null && next !== perPage) setPerPage(next);
+      const next = window.pickerPages.computePages(strip);
+      if (next != null && next.join(',') !== (ends || []).join(',')) {
+        setEnds(next);
+      }
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(strip);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);
     return () => { live = false; ro.disconnect(); };
-  }, [list, perPage, active]);
+  }, [list, ends, active, page]);
   return (
     <div
       ref={stripRef}
@@ -95,28 +63,28 @@ function ProjectPicker({ projects, active, onChange }) {
             disabled={safePage === 0}
             title="Previous page"
           >&#8249;</button>
-          <span className="pp-count">{safePage + 1} / {pageCount}</span>
+          <span className="pp-count">{String(safePage + 1)
+            .padStart(pageDigits, '0')} / {String(pageCount)
+            .padStart(pageDigits, '0')}</span>
           <button
             className="pp-btn pp-nav"
             onClick={() => setPage(safePage + 1)}
             disabled={safePage >= pageCount - 1}
             title="Next page"
           >&#8250;</button>
-          {activeOffPage && (
+          {active !== '' && (
             <button
               className="pp-btn on pp-jump"
-              onClick={() => setPage(Math.floor(
-                list.findIndex(p => p.project_id === active) / size
+              style={{ visibility: activeOffPage ? 'visible' : 'hidden' }}
+              onClick={() => setPage(window.pickerPages.pageForIndex(
+                ends, list.findIndex(p => p.project_id === active)
               ))}
               title="Jump to the selected project"
             >{active} &#8617;</button>
           )}
         </span>
       )}
-      {/* The hidden measure row: every chip plus the jump replica, so the
-          fit reads widths the real strip no longer renders and reserves
-          the jump whether or not the current page shows it. Zero-sized,
-          clipped, and aria-hidden — no layout, no tab stops. */}
+      {/* Hidden full row, including the jump reserve whenever selected. */}
       <div
         className="pp-measure"
         aria-hidden="true"
