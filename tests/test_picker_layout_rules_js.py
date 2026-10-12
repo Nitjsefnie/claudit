@@ -166,3 +166,102 @@ def test_selection_checks_fitted_pages_including_healthy_single_page():
     assert out['lostSelection']
     assert out['missingJump']
     assert out['changedReserve']
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize('rule', ['project-picker-pages-fit', 'unknown-rule'])
+def test_cases_only_rejects_rule_filter_before_running(rule):
+    proc = subprocess.run(
+        ["node", str(MODULE), '--picker-cases', '--rule', rule],
+        capture_output=True, text=True, check=False, timeout=30)
+    assert proc.returncode != 0, proc.stdout
+    assert '--picker-cases cannot be combined with --rule' in proc.stderr
+    assert 'PASS:' not in proc.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_layout_runner_never_accepts_zero_checks():
+    out = _node("""
+      const summarize = mod.runSummary;
+      console.log(JSON.stringify(summarize ? [
+        summarize({executed: 0, failures: [], fired: []}, false),
+        summarize({executed: 13, failures: [], fired: []}, true),
+      ] : null));
+    """)
+    assert out is not None, 'checked-run summary is missing'
+    assert out[0]['ok'] is False
+    assert 'no checks executed' in out[0]['message']
+    assert out[1]['ok'] is True
+    assert 'fixture' in out[1]['message']
+    assert 'seed' not in out[1]['message']
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_layout_readiness_waits_for_api_and_render_turns():
+    helper = (MODULE.parent / 'layout_waits.mjs').as_uri()
+    out = _node(f"""
+      const waits = await import({json.dumps(helper)});
+      const handlers = {{}};
+      let frames = 0, done = false;
+      const page = {{on: (name, fn) => {{handlers[name] = fn;}},
+        waitForFunction: async () => {{}},
+        evaluate: async () => {{ frames++; }}}};
+      waits.trackLayoutRequests(page);
+      const request = {{url: () => 'http://fixture/api/projects'}};
+      const stream = {{url: () => 'http://fixture/api/events'}};
+      handlers.request(request); handlers.request(stream);
+      const settling = waits.settleDashboard(page).then(() => {{done = true;}});
+      await Promise.resolve(); await Promise.resolve();
+      const premature = done;
+      handlers.requestfinished(request);
+      await settling;
+      console.log(JSON.stringify({{premature, done, frames}}));
+    """)
+    assert out['premature'] is False
+    assert out['done'] is True
+    assert out['frames'] >= 2
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_full_picker_walk_uses_one_browser_round_trip():
+    out = _node("""
+      if (!mod.walkPickerPages) console.log('null');
+      else {
+        const calls = [];
+        const states = Array.from({length: 101}, (_, i) => ({page: i + 1}));
+        const page = {evaluate: async (probe, args) => {
+          calls.push(args); return {states, completed: true, missing: false};
+        }};
+        const result = await mod.walkPickerPages(page, 101, 'forward');
+        console.log(JSON.stringify({calls, pages: result.states.length}));
+      }
+    """)
+    assert out is not None, 'batched browser walk is missing'
+    assert len(out['calls']) == 1
+    assert out['calls'][0]['maxPages'] == 101
+    assert out['calls'][0]['direction'] == 'forward'
+    assert out['pages'] == 101
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_batched_widths_reject_missing_or_reordered_samples():
+    helper = (MODULE.parent / 'picker_cases.mjs').as_uri()
+    out = _node(f"""
+      const cases = await import({json.dumps(helper)});
+      if (!cases.readPickerWidths) console.log('null');
+      else {{
+        const results = [];
+        for (const samples of [[], [{{width: 2}}, {{width: 1}}],
+          [{{width: 1}}, {{width: 2}}]]) {{
+          try {{
+            await cases.readPickerWidths({{evaluate: async () => samples}},
+              () => {{}}, '.picker', [1, 2]);
+            results.push('ok');
+          }} catch (error) {{ results.push(error.message); }}
+        }}
+        console.log(JSON.stringify(results));
+      }}
+    """)
+    assert out is not None, 'checked width batch is missing'
+    assert out[:2] == ['width sweep sample sequence differs'] * 2
+    assert out[2] == 'ok'
