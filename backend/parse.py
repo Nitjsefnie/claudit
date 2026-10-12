@@ -407,12 +407,18 @@ class _LineWalk:
             self.generation_timing.observe(obj, message)
         return True
 
-    def handle_user_line(self, obj: dict, msg: dict, line_num: int) -> None:
-        """One user line: generation anchor, then user-role content bookkeeping."""
+    def handle_message_line(self, obj: dict, msg: dict, line_num: int) -> None:
+        """Observe user generation independently of the established role dispatch."""
         if self.generation_timing and obj.get("type") == "user":
             self.generation_timing.observe_user(obj, line_num)
-        if msg.get("role") != "user":
-            return
+        role = msg.get("role")
+        if role == "user":
+            self.handle_user_line(obj, msg, line_num)
+        elif role == "assistant":
+            self.handle_assistant_line(obj, msg, line_num)
+
+    def handle_user_line(self, obj: dict, msg: dict, line_num: int) -> None:
+        """One user-role record: replay detection, then content bookkeeping."""
         uuid = obj.get("uuid") or ""
         is_replay = False
         if uuid:
@@ -649,9 +655,7 @@ def resolve_agent_type(walk: _LineWalk) -> str:
 def _parse_claude(file_key: str, blob: bytes) -> dict:
     """Parse one Claude JSONL, max-merging requestIds and retaining idless records.
 
-    Returns records, ctx_turns, turn_count, prompt_count, rate_limit_hits,
-    tool_uses and agent_type. Account-cap detection follows
-    _LineWalk.handle_rate_limit; the browser parser has a separate detector.
+    Account-cap detection follows _LineWalk.handle_rate_limit.
     """
     walk = _LineWalk(file_key)
     for line_num, raw in enumerate(iter_lines(blob), 1):
@@ -681,12 +685,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         if walk.handle_rate_limit(obj, line_num):
             continue
 
-        msg = as_dict(obj.get("message"))
-        role = msg.get("role")
-        if role == "user" or (kind == "user" and walk.generation_timing):
-            walk.handle_user_line(obj, msg, line_num)
-        elif role == "assistant":
-            walk.handle_assistant_line(obj, msg, line_num)
+        walk.handle_message_line(obj, as_dict(obj.get("message")), line_num)
 
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
                          walk.tool_result_text, walk.tool_result_chars)
