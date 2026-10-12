@@ -24,12 +24,9 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import (api, app as app_mod, constants, db, events, ingest,
-                     ingest_fetch, ingest_runs, timing)
+from backend import (api, app as app_mod, constants, db, events, ingest, ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
-from tests.test_ingest_forkserver import (
-    noop_parse as _noop_parse, worker_report as _worker_report,
-)
+from tests.test_ingest_forkserver import (noop_parse as _noop_parse, worker_report as _worker_report,)
 from tests.test_ingest_forkserver import requires_forkserver
 
 #: How many transcripts the committed mirror holds, read from its tree
@@ -70,9 +67,7 @@ def _patch_fetch(monkeypatch, key, fail_times, exc=None):
 
 
 @pytest.mark.parametrize("workers", [1, 4])
-def test_one_failed_object_does_not_abort_the_run(
-    fresh_db, mini_r2_env, monkeypatch, workers
-):
+def test_one_failed_object_does_not_abort_the_run(fresh_db, mini_r2_env, monkeypatch, workers):
     """A single unfetchable object costs that object, not the ingest.
 
     Both the sequential and the pooled path are exercised: they collect
@@ -95,24 +90,19 @@ def test_one_failed_object_does_not_abort_the_run(
     result = ingest.run_ingest(trigger="manual")
 
     assert result["failed"] == 1
-    assert result["inserted"] == _MIRROR - 1, (
-        "every file but the flaky one must still persist")
+    assert result["inserted"] == _MIRROR - 1, ("every file but the flaky one must still persist")
     assert result["failed_keys"] == [_FLAKY_PUBLIC_KEY]
     assert result["error"] == "1 object failed after retries"
     event_index = event_names.index("ingest_done")
     assert "failed_keys" not in recorded[event_index]
     assert counts[_FLAKY_KEY] == ingest.FETCH_ATTEMPTS
     with db.viz_conn() as c:
-        keys = [r[0] for r in c.execute(
-            "SELECT file_key FROM files ORDER BY file_key"
-        ).fetchall()]
+        keys = [r[0] for r in c.execute("SELECT file_key FROM files ORDER BY file_key").fetchall()]
     assert _FLAKY_KEY not in keys
     assert len(keys) == _MIRROR - 1
 
 
-def test_per_object_failure_still_rebuilds_derived_state(
-    fresh_db, mini_r2_env, monkeypatch
-):
+def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, monkeypatch):
     """The regression that matters: derived state must not be left stale.
 
     recompute_canonical() and the rollups describe whatever `records` now
@@ -142,8 +132,7 @@ def test_per_object_failure_still_rebuilds_derived_state(
 
     # A forward bump forces the reparse; a rollback would now be skipped
     # by the guard (issue #118).
-    monkeypatch.setattr(
-        constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
+    monkeypatch.setattr(constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1
@@ -158,9 +147,7 @@ def test_per_object_failure_still_rebuilds_derived_state(
     assert tool_rollup_after > 0, "tool_rollup was not rebuilt"
 
 
-def test_ctx_cost_rollup_totals_equal_the_live_aggregate(
-    fresh_db, mini_r2_env
-):
+def test_ctx_cost_rollup_totals_equal_the_live_aggregate(fresh_db, mini_r2_env):
     """SV-ROLLUP: the pre-aggregate stands in for a live pass, so the
     per-bucket request counts and cost must match it exactly.
 
@@ -185,13 +172,9 @@ def test_ctx_cost_rollup_totals_equal_the_live_aggregate(
              GROUP BY 1 ORDER BY 1
             """
         ).fetchall()
-        rolled = c.execute(
-            "SELECT ctx_bucket, SUM(requests), SUM(cost_usd) "
-            "FROM ctx_cost_rollup GROUP BY 1 ORDER BY 1"
-        ).fetchall()
+        rolled = c.execute('SELECT ctx_bucket, SUM(requests), SUM(cost_usd) FROM ctx_cost_rollup GROUP BY 1 ORDER BY 1').fetchall()
     assert live, "fixture produced no records - the test proves nothing"
-    assert [(int(b), int(n), round(cost, 6)) for b, n, cost in rolled] == \
-           [(int(b), int(n), round(cost, 6)) for b, n, cost in live]
+    assert [(int(b), int(n), round(cost, 6)) for b, n, cost in rolled] == [(int(b), int(n), round(cost, 6)) for b, n, cost in live]
 
 
 def test_ctx_cost_rollup_counts_only_canonical_rows(fresh_db, mini_r2_env):
@@ -199,12 +182,9 @@ def test_ctx_cost_rollup_counts_only_canonical_rows(fresh_db, mini_r2_env):
     must be counted once, not twice."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
-        dupes = _scalar(
-            c, "SELECT COUNT(*) FROM records WHERE NOT is_canonical")
+        dupes = _scalar(c, "SELECT COUNT(*) FROM records WHERE NOT is_canonical")
         rolled = _scalar(c, "SELECT SUM(requests) FROM ctx_cost_rollup")
-        canonical = _scalar(
-            c, "SELECT COUNT(*) FROM records "
-               "WHERE is_canonical AND ts IS NOT NULL")
+        canonical = _scalar(c, 'SELECT COUNT(*) FROM records WHERE is_canonical AND ts IS NOT NULL')
     assert dupes > 0, "fixture has no duplicates - the test proves nothing"
     assert rolled == canonical
 
@@ -262,9 +242,7 @@ def test_retry_recovers_then_gives_up(fresh_db, mini_r2_env, monkeypatch):
 _CORRUPT_XZ_KEY = "claude/projC/sess-E/sess-E.jsonl.xz"
 
 
-def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
-    fresh_db, mini_r2_env, monkeypatch
-):
+def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(fresh_db, mini_r2_env, monkeypatch):
     """Real invalid bytes under a `.xz` key, not a monkeypatched raise.
 
     r2.get_object inflates `.xz` transparently, so lzma raises from inside
@@ -277,7 +255,7 @@ def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
     corrupt.parent.mkdir(parents=True)
     corrupt.write_bytes(b"\xfd7zXZ\x00 this is not a valid xz stream \x00\x01")
     with pytest.raises(lzma.LZMAError):
-        lzma.decompress(corrupt.read_bytes())   # the fixture must really be corrupt
+        lzma.decompress(corrupt.read_bytes())  # the fixture must really be corrupt
 
     counts, slept = _patch_fetch(monkeypatch, _CORRUPT_XZ_KEY, fail_times=0)
 
@@ -296,9 +274,7 @@ def test_a_corrupt_xz_object_is_one_failure_not_a_dead_run(
     assert stored == 0
 
 
-def test_a_programming_error_in_the_fetch_is_not_retried(
-    fresh_db, mini_r2_env, monkeypatch
-):
+def test_a_programming_error_in_the_fetch_is_not_retried(fresh_db, mini_r2_env, monkeypatch):
     """A bug is not a transient, and must not be dressed up as one.
 
     Retrying a TypeError sleeps 1.5s per object and books it as a
@@ -355,9 +331,7 @@ def test_a_parse_failure_is_not_retried(fresh_db, mini_r2_env, monkeypatch):
 
     monkeypatch.setattr(ingest.r2, "get_object", counting)
     monkeypatch.setattr(ingest.parse, "parse_file", boom)
-    monkeypatch.setattr(ingest.time, "sleep", lambda s: pytest.fail(
-        "a parse failure must not sleep on a retry"
-    ))
+    monkeypatch.setattr(ingest.time, "sleep", lambda s: pytest.fail("a parse failure must not sleep on a retry"))
 
     result = ingest.run_ingest(trigger="manual")
 
@@ -382,20 +356,14 @@ def test_failure_summary_counts_every_failure():
 
 def _no_such_key(key):
     """The ClientError boto3 raises when a listed object is gone by GET."""
-    return ingest.ClientError(
-        {"Error": {"Code": "NoSuchKey",
-                   "Message": "The specified key does not exist."}},
-        "GetObject",
-    )
+    return ingest.ClientError({"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}, "GetObject",)
 
 
 @pytest.mark.parametrize("exc_factory", [
     _no_such_key,
     lambda key: FileNotFoundError(2, "No such file or directory", key),
 ], ids=["s3-NoSuchKey", "file-mode-ENOENT"])
-def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
-    fresh_db, mini_r2_env, monkeypatch, exc_factory
-):
+def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(fresh_db, mini_r2_env, monkeypatch, exc_factory):
     """The archiver moves objects between buckets while a run is in flight.
 
     A key that was listed at the start and is gone by the time its GET
@@ -411,12 +379,8 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
     # A changed parser_version makes the stored files stale; derived from
     # the committed constant so the bump target can never collide with it
     # (issue #198).
-    monkeypatch.setattr(
-        constants, "PARSER_VERSION",
-        str(int(constants.PARSER_VERSION) + 1))
-    counts, slept = _patch_fetch(
-        monkeypatch, _FLAKY_KEY, fail_times=99, exc=exc_factory(_FLAKY_KEY)
-    )
+    monkeypatch.setattr(constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
+    counts, slept = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99, exc=exc_factory(_FLAKY_KEY))
 
     result = ingest.run_ingest(trigger="manual")
 
@@ -443,8 +407,7 @@ def test_parse_worker_init_and_its_sigterm_defense():
     so the initializer must restore SIG_DFL — and a
     cgroup stop must then kill the worker outright."""
     with ingest_fetch.parse_pool(1, os.getpid()) as pool:
-        handler, int_handler, ppid = pool.submit(
-            _worker_report).result(timeout=60)
+        handler, int_handler, ppid = pool.submit(_worker_report).result(timeout=60)
         assert handler is signal.SIG_DFL
         assert int_handler is signal.SIG_DFL
         assert ppid == getattr(forkserver._forkserver, "_forkserver_pid")  # pylint: disable=protected-access
@@ -471,8 +434,7 @@ def test_parse_worker_exits_when_the_parent_is_already_gone():
 
 
 @requires_forkserver
-def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
-                                               monkeypatch):
+def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env, monkeypatch):
     """An abort must drop the QUEUED work, not only stop taking new chunks:
     a pipeline_pool abort fires at a chunk top, when the PREVIOUS chunk's
     persists are still queued. The queued persists here park on an event
@@ -513,9 +475,7 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
 
     def run():
         try:
-            box["r"] = ingest_fetch.pipeline_pool(
-                todo, "v", [], None, None, {}, set(), set(),
-                _noop_parse, persist_call, check_shutdown)
+            box["r"] = ingest_fetch.pipeline_pool(todo, "v", [], None, None, {}, set(), set(), _noop_parse, persist_call, check_shutdown)
         except BaseException as exc:  # noqa: BLE001
             box["exc"] = exc
 
@@ -528,20 +488,16 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
     # until this release: waiting here is what makes the cancellation
     # deterministic instead of a dequeue race.
     worker.join(timeout=5)
-    assert worker.is_alive(), (
-        "the unwind finished without the in-flight persist (it must wait "
-        "for it)")
+    assert worker.is_alive(), ('the unwind finished without the in-flight persist (it must wait for it)')
     release_first.set()
     worker.join(timeout=60)
     if worker.is_alive():
         release_queued.set()
         worker.join(timeout=60)
-        pytest.fail("the abort waited on the queued persists "
-                    "(the cancel_futures shutdowns are missing)")
+        pytest.fail('the abort waited on the queued persists (the cancel_futures shutdowns are missing)')
     release_queued.set()  # anything not cancelled would now run and record
     assert isinstance(box.get("exc"), ingest_fetch.IngestAborted), box
-    assert persisted == ["chunk/first-0.jsonl"], (
-        f"queued persists survived the abort: {persisted}")
+    assert persisted == ["chunk/first-0.jsonl"], (f"queued persists survived the abort: {persisted}")
 
 
 # --------------------------------- fetch_parse stage accounting (#662)
@@ -561,8 +517,7 @@ def test_parse_wire_books_child_stages(monkeypatch):
         return {"agent_type_in_band": True, "data": data}
 
     stages: dict = {}
-    parsed = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file,
-                                          stages=stages)
+    parsed = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file, stages=stages)
     assert parsed == {"agent_type_in_band": True, "data": b"payload"}
     assert set(stages) == {"child_fetch", "child_decompress", "child_parse"}
     assert stages["child_fetch"] > 0.0  # pylint: disable=invalid-sequence-index
@@ -570,13 +525,10 @@ def test_parse_wire_books_child_stages(monkeypatch):
     bare_call = ingest_fetch.fetch_and_parse("k", None, fetch, parse_file)
     assert bare_call == parsed, "the bare call must behave exactly as before"
 
-    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key=None, etag="e1", size=8),
-            None, None)
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl", sidecar_key=None, etag="e1", size=8), None, None)
 
     def parse_call(key, sidecar_key, etag=None, size=None):
-        return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch,
-                                            parse_file)
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch, parse_file)
 
     result = ingest_fetch.parse_wire(item, parse_call, True)
     assert isinstance(result, tuple)
@@ -589,15 +541,12 @@ def test_parse_wire_books_child_stages(monkeypatch):
             key, sidecar_key, lambda k: b"main-bytes",
             lambda k, d: {"agent_type_in_band": False, "data": d})
 
-    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key="sc", etag="e1", size=8),
-            None, None)
+    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl", sidecar_key="sc", etag="e1", size=8), None, None)
     result = ingest_fetch.parse_wire(item, sidecar_call, True)
     assert isinstance(result, tuple)
     sc_parsed, sc_stages = result
     assert sc_parsed["data"] == b"main-bytes"  # pylint: disable=invalid-sequence-index
     assert sc_stages["child_sidecar"] > 0.0  # pylint: disable=invalid-sequence-index
-    assert set(sc_stages) == {"child_fetch", "child_decompress",
-                              "child_parse", "child_sidecar"}
+    assert set(sc_stages) == {"child_fetch", "child_decompress", "child_parse", "child_sidecar"}
     bare = ingest_fetch.parse_wire(item, sidecar_call, False)
     assert isinstance(bare, dict)
