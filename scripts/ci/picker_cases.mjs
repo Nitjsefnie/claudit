@@ -2,10 +2,11 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API, FIXTURES } from './panel_server.mjs';
-import { trackLayoutRequests, settleDashboard, layoutTiming, renderTurn } from './layout_waits.mjs';
+import { trackLayoutRequests, settleDashboard, layoutTiming, renderTurn, withDeadline } from './layout_waits.mjs';
+import { evaluatePicker } from './picker_probe.mjs';
 
-export async function readPickerWidths(page, probe, selector, widths) {
-  const samples = await page.evaluate(probe, {selector, widths});
+export async function readPickerWidths(page, probe, selector, widths, timeoutMs = 60_000) {
+  const samples = await evaluatePicker(page, probe, {selector, widths}, timeoutMs);
   if (samples.length !== widths.length
     || samples.some((sample, i) => sample.width !== widths[i])) {
     throw new Error('width sweep sample sequence differs');
@@ -13,12 +14,13 @@ export async function readPickerWidths(page, probe, selector, widths) {
   return samples;
 }
 
-export async function resetPickerForSweep(page, probe, selector, projectCount) {
-  await page.setViewportSize({width: 1440, height: 900});
-  await renderTurn(page);
-  const reset = await page.evaluate(probe, {
+export async function resetPickerForSweep(page, probe, selector, projectCount, timeoutMs = 30_000) {
+  await withDeadline(() => page.setViewportSize({width: 1440, height: 900}),
+    'picker sweep viewport', timeoutMs);
+  await renderTurn(page, timeoutMs);
+  const reset = await evaluatePicker(page, probe, {
     selector, maxPages: Math.max(1, projectCount), direction: 'backward',
-  });
+  }, timeoutMs);
   if (!reset.completed || reset.states.at(-1)?.page !== 1) {
     throw new Error('picker did not reset before width sweep');
   }
@@ -30,8 +32,7 @@ async function sweepWidths(page, checks, target, projectCount) {
   await resetPickerForSweep(page, checks.probe, selector, projectCount);
   for (const state of ['unselected', 'selected', 'off-page']) {
     await page.$eval(selector, (el) => { el.style.width = '320px'; });
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(
-      () => requestAnimationFrame(resolve))));
+    await renderTurn(page);
     if (state === 'selected') await page.click(selector + ' > .pp-proj');
     if (state === 'off-page') await page.click(selector + ' [title="Next page"]');
     const widths = Array.from({length: 420}, (_, i) => i + 1);
