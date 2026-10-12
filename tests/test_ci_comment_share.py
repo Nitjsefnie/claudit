@@ -27,11 +27,38 @@ CASES = [
     ('yaml_spaced_quote', 'yaml', "a: this is 'plain # real\n", (5, 19)),
     ('shell_command_scope', 'sh', 'echo "$(echo x # real\n)"\n', (5, 19)),
     ('shell_backtick_scope', 'sh', 'echo "`echo x # real\n`"\n', (5, 18)),
+    ('shell_parameter_command', 'sh', 'echo ${x:-$(echo x # literal\n)} # yes\n', (4, 30)),
+    ('shell_parameter_brace', 'sh', 'echo ${x:-foo{} # yes\n', (4, 18)),
     ('shell_parameter_scope', 'sh', 'echo ${x:- # literal} # yes\n', (4, 22)),
     ('heredoc_continued', 'sh', 'cat <<EOF \\\n  <<BAR\n# first\nEOF\n# second\nBAR\n# yes\n', (4, 37)),
     ('py_prefixed', 'py', 'r"rawx"\nR"RAW"\nu"uni"\nU"UNI"\n', (25, 25)),
     ('js_hashbang', 'js', '#!/usr/bin/env node\nconst x=1; // yes\n', (23, 32)),
     ('jsx_text', 'jsx', 'const x=<div>hello // content</div>; // yes\n', (5, 38)),
+    ('yaml_unicode_break', 'yaml', 'a: |\u2028  # data\n', (0, 8)),
+    ('yaml_cr_comments', 'yaml', '# first\ra: 1 # yes\r', (10, 13)),
+    ('yaml_key_colon', 'yaml', '"a:b": |\n  # data\n', (0, 12)),
+    ('yaml_key_hash', 'yaml', "'a#b': >-\n  # data\n", (0, 13)),
+    ('yaml_escaped_run', 'yaml', '"ru\\u006e": |\n  # yes\n', (4, 16)),
+    ('yaml_alias_key', 'yaml', '&k run: x\n*k: |\n  # yes\n', (4, 15)),
+    ('yaml_anchor', 'yaml', 'a: &v "x # data" # yes\n', (4, 16)),
+    ('yaml_tag', 'yaml', 'a: !!str "x # data" # yes\n', (4, 19)),
+    ('yaml_custom_tag', 'yaml', 'a: !tag "x # data" # yes\n', (4, 18)),
+    ('yaml_verbatim_tag', 'yaml', 'a: !<tag:example.org,2026:x> "x # data" # yes\n', (4, 39)),
+    ('yaml_flow_properties', 'yaml', '{a: &v "x # data", b: *v} # yes\n', (4, 23)),
+    ('yaml_block_properties', 'yaml', 'a: &v !!str |\n  # data\n', (0, 15)),
+    ('yaml_run_properties', 'yaml', 'run: &v !!str |\n  cat <<EOF\n  # body\n  EOF\n  # yes\n', (4, 32)),
+    ('yaml_plain_continuation', 'yaml', "a: text\n  'plain # real\nb: 1 # yes\n", (9, 24)),
+    ('shell_quoted_shift', 'sh', 'echo "$((1 << true))"\n# real\ntrue\n# yes\n', (9, 31)),
+    ('shell_arithmetic', 'sh', 'echo "$((1 << 2))"\n# yes\n', (4, 19)),
+    ('shell_arithmetic_statement', 'sh', '((1 << 2))\n# yes\n', (4, 12)),
+    ('shell_nested_arithmetic', 'sh', 'echo "$(( (1 + 1) << 2))"\n# yes\n', (4, 23)),
+    ('yaml_run_arithmetic', 'yaml', 'run: |\n  echo "$((1 << 2))"\n  # yes\n', (4, 24)),
+    ('shell_ansi_quote', 'sh', "echo $'it\\'s # data' # yes\n", (4, 21)),
+    ('shell_case_scope', 'sh', 'echo "$(case x in\nx) echo x ;; # real\nesac\n)" # yes\n', (9, 38)),
+    ('shell_case_negation', 'sh', 'echo "$(! case x in\nx) echo x ;; # real\nesac\n)" # yes\n', (9, 39)),
+    ('shell_case_word', 'sh', 'echo "$(case x in\n*/esac) echo x ;; # real\nesac\n)" # yes\n', (9, 43)),
+    ('shell_escaped_dollar', 'sh', "cat <<\\$'EOF'\n# data\n$EOF\n# yes\n", (4, 25)),
+    ('shell_ansi_heredoc', 'sh', "cat <<$'EOF'\n# data\nEOF\n# yes\n", (4, 23)),
     ('empty', 'py', ' \t\n', (0, 0)),
     ('js_literals', 'js', 'const a = "//"; const b = `// ${1}`; const c = /\\/\\//; // a\n/* b c */\n', (9, 51)),
     ('mjs', 'mjs', 'export const x = 1; // hi\n', (4, 19)),
@@ -75,11 +102,33 @@ def test_tracked_universe_and_report(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "python\t1\t3\t6\t50.000000%" in output
 
 
+OPEN_SCOPES = [
+    'echo "$(\n',
+    'echo ${\n',
+    'echo ${x:-$(}\n',
+    'echo ${x:-$((}\n',
+    'echo ${x:-`}\n',
+    'echo "`\n',
+    'echo "$((\n',
+    'echo "x\n',
+    "echo 'x\n",
+    "echo $'it\\'s\n",
+    '((1 + 2)\n',
+    '(echo x\n',
+    'case x in\nx) echo x\n',
+    'case x in @(x esac\n',
+]
+OPEN_SOURCES = [("open.sh", source) for source in OPEN_SCOPES] + [
+    ("open.yaml", "run: |\n" + "".join("  " + line for line in source.splitlines(keepends=True))
+     + "next: 1 # real\n") for source in OPEN_SCOPES
+]
+
+
 @pytest.mark.parametrize("name,source", [
     ("bad.py", "def (\n"), ("bad.py", "x = '\n"),
     ("bad.js", "const = 1;"), ("bad.jsx", "<div>"),
     ("bad.sh", "cat <<EOF\n# body\n"),
-])
+] + OPEN_SOURCES)
 def test_unmeasurable_is_an_error(name: str, source: str, tmp_path: Path) -> None:
     if name.endswith((".js", ".jsx")) and not (ESPREE / "espree" / "package.json").is_file():
         pytest.skip("espree is not installed")
@@ -106,4 +155,17 @@ def test_missing_dependency_fails_cli(dependency: str, tmp_path: Path) -> None:
                             capture_output=True, text=True, check=False)
     assert result.returncode != 0
     assert dependency in result.stderr.lower()
+    assert not result.stdout
+
+
+@pytest.mark.parametrize("name,source", OPEN_SOURCES)
+def test_unfinished_scopes_cli(name: str, source: str, tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / name).write_text(source, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", name], check=True)
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/comment_share.py"),
+                             "--report", "--root", str(tmp_path)],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert name in result.stderr
     assert not result.stdout
