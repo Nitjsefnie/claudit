@@ -36,84 +36,57 @@ from backend import timing as _timing
 _DECOMPRESS = lzma.decompress
 
 
-def noop_parse(key: str, sidecar_key: str | None = None,
-               etag: str | None = None, size: int | None = None) -> dict:
-    """A parse unit with no side effects, for pipeline plumbing tests."""
+def noop_parse(key: str, sidecar_key: str | None = None, etag: str | None = None, size: int | None = None) -> dict:
     return {}
 
 
 def worker_report() -> tuple:
-    """Run inside the worker: its handlers and parent pid."""
-    return (signal.getsignal(signal.SIGTERM),
-            signal.getsignal(signal.SIGINT), os.getppid())
+    return (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT), os.getppid())
 
 
-def server_report_parse(key: str, sidecar_key: str | None = None,
-                        etag: str | None = None, size: int | None = None) -> dict:
-    """Report the actual forking parent's threads, not the client's threads."""
+def server_report_parse(key: str, sidecar_key: str | None = None, etag: str | None = None, size: int | None = None) -> dict:
     parent = os.getppid()
-    return {"parent": parent, "method": multiprocessing.get_start_method(),
-            "threads": len(list(Path(f"/proc/{parent}/task").iterdir()))}
+    return {"parent": parent, "method": multiprocessing.get_start_method(), "threads": len(list(Path(f"/proc/{parent}/task").iterdir()))}
 
 
 def configuration() -> dict:
-    """Configuration read at use time plus the preloaded timing flag."""
     keys = ("R2_ENDPOINT", "R2_BUCKET", "R2_BLOB_CACHE", "CLAUDIT_TIMING")
-    return {"env": {key: os.environ.get(key) for key in keys},
-            "timing": _timing.TIMING_ON, "parent": os.getppid()}
+    return {"env": {key: os.environ.get(key) for key in keys}, "timing": _timing.TIMING_ON, "parent": os.getppid()}
 
 
 def client_configuration() -> dict:
-    """Observe the real client's trust bundle without making a request."""
     client = r2._boto_client()  # pylint: disable=protected-access
     return {"env": os.environ.get("AWS_CA_BUNDLE"), "parent": os.getppid(),
             "verify": client._endpoint.http_session._verify}  # pylint: disable=protected-access
 
 
-def priced_parse(key: str, sidecar_key: str | None,
-                 etag: str | None = None, size: int | None = None, *,
-                 tables: dict) -> dict:
-    """Give a fresh child the equality test's active pricing fixture.
-
-    The suite bench rebinds tables after the server preload. Carry those
-    bindings with the parse unit, like failure hooks.
-    """
+def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, tables: dict) -> dict:
     with ExitStack() as stack:
         for name, value in tables.items():
             stack.enter_context(patch.object(pricing, name, value))
         rate_fingerprint.clear_fingerprint_cache()
         try:
-            return ingest_fetch.fetch_and_parse(
-                key, sidecar_key, ingest_fetch.fetch_with_retry,
-                etag=etag, size=size)
+            return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
         finally:
             rate_fingerprint.clear_fingerprint_cache()
 
 
-def fetch_failure(key: str, sidecar_key: str | None,
-                  etag: str | None = None, size: int | None = None, *,
-                  failed_key: str, error: type[Exception]) -> dict:
-    """Fail one object's fetch inside the child; its peers parse normally."""
+def fetch_failure(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, failed_key: str, error: type[Exception]) -> dict:
+
     def fetch(file_key: str, *rest) -> bytes:
         if file_key.endswith(failed_key):
             raise error("connection dropped" if error is OSError else file_key)
         return ingest_fetch.fetch_with_retry(file_key, *rest)
-
-    return ingest_fetch.fetch_and_parse(
-        key, sidecar_key, fetch, etag=etag, size=size)
+    return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch, etag=etag, size=size)
 
 
 def _broken_get_object(_key: str) -> bytes:
     raise TypeError("no client at all")
 
 
-def fatal_fetch(key: str, sidecar_key: str | None,
-                etag: str | None = None, size: int | None = None) -> dict:
-    """Exercise the real retry wrapper's fatal path inside the child."""
+def fatal_fetch(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None) -> dict:
     with patch.object(r2, "get_object", _broken_get_object):
-        return ingest_fetch.fetch_and_parse(
-            key, sidecar_key, ingest_fetch.fetch_with_retry,
-            etag=etag, size=size)
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
 
 
 def _padded_decompress(data: bytes) -> bytes:
@@ -122,34 +95,27 @@ def _padded_decompress(data: bytes) -> bytes:
     return out
 
 
-def padded_inflate(key: str, sidecar_key: str | None,
-                   etag: str | None = None, size: int | None = None) -> dict:
-    """Book a controlled inflate span in the child through the real GET."""
+def padded_inflate(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None) -> dict:
     with patch.object(lzma, "decompress", _padded_decompress):
-        return ingest_fetch.fetch_and_parse(
-            key, sidecar_key, ingest_fetch.fetch_with_retry,
-            etag=etag, size=size)
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
 
 
 ISOLATED = False
 
 
-requires_forkserver = pytest.mark.skipif(
-    "forkserver" not in multiprocessing.get_all_start_methods(),
-    reason="forkserver context unavailable")
+requires_forkserver = pytest.mark.skipif("forkserver" not in multiprocessing.get_all_start_methods(), reason="forkserver context unavailable")
 
 
 def bounded_pool_test(function):
-    """Keep fixture setup/assertions intact in a disposable pytest process."""
+    """Run pool controls in a disposable pytest process."""
+
     @functools.wraps(function)
     def bounded(*args, **kwargs):
         if ISOLATED:
             return function(*args, **kwargs)
         node = function.__module__.removeprefix("tests.")
         target = f"tests/{node}.py::{function.__name__}"
-        proc = subprocess.run(
-            [sys.executable, "-m", "tests.test_ingest_forkserver", "check", target],
-            capture_output=True, text=True, timeout=120, check=False)
+        proc = subprocess.run([sys.executable, "-m", "tests.test_ingest_forkserver", "check", target], capture_output=True, text=True, timeout=120, check=False)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert not proc.stderr, proc.stderr
         return None
@@ -157,16 +123,12 @@ def bounded_pool_test(function):
 
 
 def blocked_worker(connection) -> None:
-    """Report readiness after the production initializer, then keep working."""
-    connection.send({"server": os.getppid(), "worker": os.getpid(),
-                     "term": signal.getsignal(signal.SIGTERM),
-                     "interrupt": signal.getsignal(signal.SIGINT)})
+    connection.send({"server": os.getppid(), "worker": os.getpid(), "term": signal.getsignal(signal.SIGTERM), "interrupt": signal.getsignal(signal.SIGINT)})
     connection.close()
     time.sleep(90)
 
 
 def service() -> None:
-    """A service with an ignored SIGTERM, to challenge the server preload."""
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     receive, send = multiprocessing.Pipe(duplex=False)
     with parse_pool(1, os.getpid()) as pool:
@@ -179,7 +141,6 @@ def service() -> None:
 
 
 def reaped(pid: int) -> bool:
-    """True only after waitpid proves this owned child has exited."""
     try:
         return os.waitpid(pid, os.WNOHANG)[0] == pid
     except ChildProcessError:
@@ -209,12 +170,9 @@ def stopped(pid: int) -> bool:
 
 
 def probe(mode: str) -> None:
-    # Orphans are adopted here, so server/worker death can be proved by
-    # waitpid instead of mistaking a zombie for a surviving process.
+    # Adopt orphans so waitpid proves server/worker death.
     _subreaper()
-    with subprocess.Popen(
-        [sys.executable, "-m", "tests.test_ingest_forkserver", "service"],
-            stdout=subprocess.PIPE, text=True) as proc:
+    with subprocess.Popen([sys.executable, "-m", "tests.test_ingest_forkserver", "service"], stdout=subprocess.PIPE, text=True) as proc:
         _run_probe(proc, mode)
 
 
@@ -255,7 +213,7 @@ def _subreaper() -> None:
 
 
 def _cleanup_children() -> None:
-    """Kill/reap only adopted children; let trackers clean owned semaphores."""
+    """Kill adopted children and let trackers clean their semaphores."""
     children = Path(f"/proc/self/task/{os.getpid()}/children")
     trackers = set()
     for _ in range(2):  # also collect a killed server's adopted workers
@@ -276,7 +234,7 @@ def _cleanup_children() -> None:
 
 
 def check(target: str) -> None:
-    """The executor owner's cleanup can hang; this independent parent cannot."""
+    """Bound the executor owner from an independent process."""
     _subreaper()
     proc = subprocess.Popen(  # pylint: disable=consider-using-with
         [sys.executable, "-m", "tests.test_ingest_forkserver", "test", target],
@@ -319,7 +277,6 @@ _TRACKER_CLEANUP = re.compile(
 @requires_forkserver
 @bounded_pool_test
 def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
-    """A second pool sees added, changed and removed settings after preload."""
     monkeypatch.setenv("R2_ENDPOINT", "file:///first/")
     monkeypatch.setenv("R2_BUCKET", "claude")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
@@ -329,7 +286,6 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     def first_pool():
         with parse_pool(1, os.getpid()) as pool:
             results.append(pool.submit(configuration).result(timeout=60))
-
     thread = threading.Thread(target=first_pool)
     thread.start()
     thread.join(timeout=90)
@@ -338,7 +294,6 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     assert first["timing"] is True
     assert first["env"]["R2_ENDPOINT"] == "file:///first/"
     assert first["env"]["R2_BLOB_CACHE"] is None
-
     monkeypatch.setenv("R2_ENDPOINT", "file:///second/")
     monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path))
     monkeypatch.delenv("R2_BUCKET")
@@ -346,20 +301,17 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     with parse_pool(1, os.getpid()) as pool:
         second = pool.submit(configuration).result(timeout=60)
     assert second["parent"] == first["parent"], "the server was not reused"
-    assert second["env"] == {
-        "R2_ENDPOINT": "file:///second/", "R2_BUCKET": None,
-        "R2_BLOB_CACHE": str(tmp_path), "CLAUDIT_TIMING": None}
+    assert second["env"] == {"R2_ENDPOINT": "file:///second/", "R2_BUCKET": None, "R2_BLOB_CACHE": str(tmp_path), "CLAUDIT_TIMING": None}
     assert second["timing"] is False
 
 
 @requires_forkserver
 @bounded_pool_test
 def test_worker_rejects_wrong_server_parent(monkeypatch):
-    """A lost/replaced OS parent must exit even with a live service sentinel."""
+
     def wrong_parent(**kwargs):
         kwargs["initargs"] = (-1, *kwargs["initargs"][1:])
         return ProcessPoolExecutor(**kwargs)
-
     monkeypatch.setattr(ingest_workers, "ProcessPoolExecutor", wrong_parent)
     with parse_pool(1, os.getpid()) as pool:
         with pytest.raises(BrokenProcessPool):
@@ -369,7 +321,6 @@ def test_worker_rejects_wrong_server_parent(monkeypatch):
 @requires_forkserver
 @bounded_pool_test
 def test_reused_server_refreshes_sdk_configuration(monkeypatch):
-    """SDK settings outside the R2 prefix reach the actual second client."""
     monkeypatch.setenv("R2_ENDPOINT", "https://storage.invalid")
     monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
     monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
@@ -394,21 +345,16 @@ def test_reused_server_refreshes_sdk_configuration(monkeypatch):
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux parent-death signals")
 @pytest.mark.parametrize("mode", ["service-kill", "server-term"])
 def test_service_server_worker_death_chain(mode):
-    """Kill the service without cleanup, or SIGTERM an otherwise-ignored server."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "tests.test_ingest_forkserver", mode],
-        capture_output=True, text=True, timeout=120, check=False)
+    proc = subprocess.run([sys.executable, "-m", "tests.test_ingest_forkserver", mode], capture_output=True, text=True, timeout=120, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not proc.stderr or _TRACKER_CLEANUP.fullmatch(proc.stderr), proc.stderr
-    assert json.loads(proc.stdout) == {
-        "server_dead": True, "worker_dead": True, "mode": mode}
+    assert json.loads(proc.stdout) == {"server_dead": True, "worker_dead": True, "mode": mode}
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="server task count uses Linux procfs")
 @requires_forkserver
 @bounded_pool_test
 def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
-    """Starting parse workers in the threaded service must be fork-safe."""
     monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
     monkeypatch.setattr(ingest_fetch, "persist_thread_count", lambda: 1)
     release = threading.Event()
@@ -417,8 +363,7 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
     persisted = []
     try:
         assert thread.is_alive()
-        obj = types.SimpleNamespace(key="claude/p/s/s.jsonl",
-                                    sidecar_key=None, etag="e", size=1)
+        obj = types.SimpleNamespace(key="claude/p/s/s.jsonl", sidecar_key=None, etag="e", size=1)
         with warnings.catch_warnings(record=True) as emitted:
             warnings.simplefilter("always", DeprecationWarning)
             assert ingest_fetch.pipeline_pool(
@@ -426,9 +371,7 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
                 server_report_parse,
                 lambda _obj, _proj, parsed, *_args: persisted.append(parsed),
                 lambda: None) == (1, 0, 0)
-        assert not [str(w.message) for w in emitted
-                    if issubclass(w.category, DeprecationWarning)
-                    and "multi-threaded" in str(w.message)]
+        assert not [str(w.message) for w in emitted if issubclass(w.category, DeprecationWarning) and "multi-threaded" in str(w.message)]
         assert persisted[0]["threads"] == 1
         assert persisted[0]["parent"] != os.getpid()
         assert persisted[0]["method"] == "forkserver"
@@ -438,11 +381,7 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
 
 
 @requires_forkserver
-def test_process_pool_timing_line_marks_disjoint_phases(
-        fresh_db, mini_r2_env, monkeypatch, caplog):
-    """With CLAUDIT_TIMING on, the pool path's fetch_parse and persist
-    marks stay disjoint and never exceed the run total.
-    """
+def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, monkeypatch, caplog):
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
@@ -451,27 +390,18 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-timing")
     assert summary["error"] is None
-    line = next(r.getMessage() for r in caplog.records
-                if r.name == "claudit.ingest"
-                and r.getMessage().startswith("TIMING ingest "))
+    line = next(r.getMessage() for r in caplog.records if r.name == "claudit.ingest" and r.getMessage().startswith("TIMING ingest "))
 
     def _ms(field):
         m = re.search(rf"\b{field}=(\d+)ms", line)
         assert m is not None, line
         return int(m.group(1))
-
-    total, parse_ms, persist_ms = (
-        _ms("total"), _ms("fetch_parse"),
-        _ms("persist"))
+    total, parse_ms, persist_ms = (_ms("total"), _ms("fetch_parse"), _ms("persist"))
     assert parse_ms >= 0 and persist_ms >= 0
     assert parse_ms + persist_ms <= total + 100, line
     assert "parse_processes=2" in line
     assert "persist_threads=2" in line
-
-    # Issue #662: the wall's parts, summed across the pool.
-    for part in ("child_fetch", "child_decompress", "child_parse",
-                 "child_sidecar", "persist_work", "wait_parse",
-                 "wait_persist"):
+    for part in ("child_fetch", "child_decompress", "child_parse", "child_sidecar", "persist_work", "wait_parse", "wait_persist"):
         assert _ms(part) >= 0, line
     assert _ms("child_parse") > 0, line
     assert _ms("wait_parse") > 0, line
@@ -480,25 +410,12 @@ def test_process_pool_timing_line_marks_disjoint_phases(
 
 
 @requires_forkserver
-def test_pool_timing_parts_are_disjoint_slices(
-        fresh_db, mini_r2_env, monkeypatch, caplog):
-    """Issue #680: the pool TIMING parts are disjoint slices.
-
-    child_fetch is the GET alone — the .xz inflate the GET ran in-call is
-    booked once, as child_decompress, not again inside child_fetch — and
-    wait_persist books only blocking inside the fetch_parse wall: a
-    single-chunk run has no in-wall drain, so its wait_persist is zero
-    and the post-loop drain is persist-phase time. The mirror is pruned
-    to one project (todo ≤ chunk, so one chunk) and the seeded .xz gets
-    a sleep-padded decompressor so the inflate wall dwarfs the GET it
-    hides in, deterministically.
-    """
+def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatch, caplog):
     monkeypatch.setenv("INGEST_WORKERS", "1")
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
-    # The run's own mirror copy (the committed fixture stays plain,
     # SV-FIXTURE-SIZE): one project, and the .xz twin of its transcript.
     for child in mini_r2_env.iterdir():
         if child.name != "projA":
@@ -508,34 +425,25 @@ def test_pool_timing_parts_are_disjoint_slices(
                 child.unlink()
     raw = (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl").read_bytes()
     payload = raw * (1024 * 1024 // len(raw))
-    (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(
-        lzma.compress(payload))
-    # The pickled parse unit pads the child's decompressor with a sleep:
-    # no CPU spent, and child_decompress books a controlled ~50ms.
+    (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(lzma.compress(payload))
     monkeypatch.setattr(ingest, "_fetch_and_parse", padded_inflate)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-parts")
     assert summary["error"] is None
-    line = next(r.getMessage() for r in caplog.records
-                if r.name == "claudit.ingest"
-                and r.getMessage().startswith("TIMING ingest "))
+    line = next(r.getMessage() for r in caplog.records if r.name == "claudit.ingest" and r.getMessage().startswith("TIMING ingest "))
 
     def _ms(field):
         m = re.search(rf"\b{field}=(\d+)ms", line)
         assert m is not None, line
         return int(m.group(1))
-
-    # The inflate is real booked work…
     assert _ms("child_decompress") > 0, line
-    # …booked once: the GET span it was popped out of carries it no more.
     assert _ms("child_fetch") < _ms("child_decompress"), line
     # One chunk, so no in-wall drain: the post-loop drain is persist
-    # time, not wait_persist.
     assert _ms("wait_persist") == 0, line
 
 
 def _safe_initializer(monkeypatch) -> types.SimpleNamespace:
-    """Stub process effects; keep the owned-fd and mapping changes observable."""
+    """Stub process effects and restore them through monkeypatch."""
     state = types.SimpleNamespace(
         prctl=Mock(return_value=0), exit=Mock(side_effect=SystemExit(0)),
         close=Mock(wraps=os.close),

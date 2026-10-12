@@ -35,8 +35,7 @@ def test_parse_process_count_defaults_and_clamps(monkeypatch):
 
 
 @requires_forkserver
-def test_process_pool_ingest_matches_sequential_exactly(
-        fresh_db, mini_r2_env, monkeypatch, tmp_path):
+def test_process_pool_ingest_matches_sequential_exactly(fresh_db, mini_r2_env, monkeypatch, tmp_path):
     """The process-pool path must land exactly what the in-process path
     lands: parse runs in forkserver children and persist in pool threads, but
     the per-file transaction, failure isolation, and derived state are the
@@ -60,10 +59,8 @@ def test_process_pool_ingest_matches_sequential_exactly(
     monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(cache_dir))
     # Share runtime-bound fixtures too (the suite bench's bounded rates),
     # rather than letting a fresh child reload different pricing data.
-    tables = {name: getattr(pricing, name)
-              for name in pricing_load.RateTables.__annotations__}
-    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
-        child_units.priced_parse, tables=tables))
+    tables = {name: getattr(pricing, name) for name in pricing_load.RateTables.__annotations__}
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(child_units.priced_parse, tables=tables))
     summary = ingest.run_ingest("test-proc")
     parallel = _snapshot()
 
@@ -74,13 +71,11 @@ def test_process_pool_ingest_matches_sequential_exactly(
     assert len(sequential[1]) > 0, "fixture produced no records — vacuous test"
     assert summary["error"] is None
     assert summary["failed"] == 0
-    assert any(p.is_file() for p in cache_dir.rglob("*")), (
-        "process fetches did not populate the cache")
+    assert any(p.is_file() for p in cache_dir.rglob("*")), ("process fetches did not populate the cache")
 
 
 @requires_forkserver
-def test_process_pool_persists_survive_a_per_file_failure(
-        fresh_db, mini_r2_env, monkeypatch):
+def test_process_pool_persists_survive_a_per_file_failure(fresh_db, mini_r2_env, monkeypatch):
     """One file's persist failure must not take the run (or the pool) down:
     the failed file is booked per-object and every other file still lands.
     """
@@ -100,24 +95,20 @@ def test_process_pool_persists_survive_a_per_file_failure(
     assert summary["failed"] >= 1
     assert "persist boom" not in (summary["error"] or "")
     with db.viz_conn() as c:
-        kept = c.execute(
-            "SELECT file_key FROM files WHERE file_key = %s", (_FLAKY_KEY,)
-        ).fetchall()
+        kept = c.execute("SELECT file_key FROM files WHERE file_key = %s", (_FLAKY_KEY,)).fetchall()
         total = _scalar(c, "SELECT count(*) FROM files")
     assert kept, "the survivor file did not land"
     assert total == 1, "files beyond the survivor landed despite the failure"
 
 
 @requires_forkserver
-def test_process_pool_books_a_parse_failure_per_file(
-        fresh_db, mini_r2_env, monkeypatch):
+def test_process_pool_books_a_parse_failure_per_file(fresh_db, mini_r2_env, monkeypatch):
     """A fetch failure in a forkserver child books its own file only; the run
     answers without a fatal error and every other file still lands.
     """
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
-        child_units.fetch_failure, failed_key=_FLAKY_KEY, error=OSError))
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(child_units.fetch_failure, failed_key=_FLAKY_KEY, error=OSError))
     summary = ingest.run_ingest("test-proc-parse-fail")
 
     assert summary["failed"] == 1
@@ -128,30 +119,25 @@ def test_process_pool_books_a_parse_failure_per_file(
 
 
 @requires_forkserver
-def test_process_pool_treats_a_vanished_object_as_not_a_failure(
-        fresh_db, mini_r2_env, monkeypatch):
+def test_process_pool_treats_a_vanished_object_as_not_a_failure(fresh_db, mini_r2_env, monkeypatch):
     """A key that disappears between list and fetch is discarded from the
     orphan sweep's seen set, not booked as a failure.
     """
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(
-        child_units.fetch_failure, failed_key=_FLAKY_KEY, error=VanishedObject))
+    monkeypatch.setattr(ingest, "_fetch_and_parse", partial(child_units.fetch_failure, failed_key=_FLAKY_KEY, error=VanishedObject))
     summary = ingest.run_ingest("test-proc-vanished")
 
     assert summary["error"] is None
     assert summary["failed"] == 0
     assert summary["vanished"] == 1
     with db.viz_conn() as c:
-        doomed = _scalar(
-            c,
-            "SELECT count(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,))
+        doomed = _scalar(c, "SELECT count(*) FROM files WHERE file_key = %s", (_FLAKY_KEY,))
     assert doomed == 0, "the vanished key survived as a files row"
 
 
 @requires_forkserver
-def test_process_pool_a_broken_fetch_is_fatal(
-        fresh_db, mini_r2_env, monkeypatch):
+def test_process_pool_a_broken_fetch_is_fatal(fresh_db, mini_r2_env, monkeypatch):
     """A non-transient fetch failure means the fetch path itself is
     broken: the real wrapper raises FatalFetchError, it escapes the
     pool's per-item booking, and the run closes fatal with NOTHING
@@ -164,14 +150,12 @@ def test_process_pool_a_broken_fetch_is_fatal(
     summary = ingest.run_ingest("test-proc-fatal")
 
     assert summary["aborted"] is False
-    assert summary["failed"] == 0, (
-        "the escape regressed into per-file booking")
+    assert summary["failed"] == 0, ("the escape regressed into per-file booking")
     assert summary["error"] is not None
 
 
 @requires_forkserver
-def test_process_pool_rerun_reparses_and_counts(
-        fresh_db, mini_r2_env, monkeypatch):
+def test_process_pool_rerun_reparses_and_counts(fresh_db, mini_r2_env, monkeypatch):
     """A second pool run over an unchanged mirror reparses nothing; a
     PARSER_VERSION bump reparses every file through the pool path.
     """
